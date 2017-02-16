@@ -15,24 +15,609 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+
 
 import apache_beam as beam
 from apache_beam.transforms import util as beam_test_util
 import tensorflow as tf
-from tensorflow_transform import api
-from tensorflow_transform import base_tftransform_impl_test
+import tensorflow_transform as tft
 from tensorflow_transform import impl_helper
 from tensorflow_transform.beam import impl as beam_impl
+from tensorflow_transform.beam.io import beam_metadata_io
+from tensorflow_transform.beam.io import transform_fn_io
+from tensorflow_transform.tf_metadata import dataset_metadata
+from tensorflow_transform.tf_metadata import dataset_schema as sch
 
 import unittest
+from tensorflow.python.framework import test_util
 
 
-class AnalyzeAndTransformColumnsTest(
-    base_tftransform_impl_test.BaseTFTransformImplTest):
+class BeamImplTest(test_util.TensorFlowTestCase):
 
-  @property
-  def impl(self):
-    return beam_impl
+  def assertDatasetsEqual(self, a, b):
+    """Asserts that two test datasets are equal.
+
+    Args:
+      a: A Dataset in the test format (see comments at top of file).
+      b: A Dataset in the test format.
+    """
+    a_data, a_metadata = a
+    b_data, b_metadata = b
+
+    self.assertDataEqual(a_data, b_data)
+    self.assertEqual(a_metadata.schema, b_metadata.schema)
+
+  def assertDataEqual(self, a_data, b_data):
+    self.assertEqual(len(a_data), len(b_data))
+    for a_row, b_row in zip(a_data, b_data):
+      self.assertItemsEqual(a_row.keys(), b_row.keys())
+      for key in a_row.keys():
+        a_value = a_row[key]
+        b_value = b_row[key]
+        if isinstance(a_value, tf.SparseTensorValue):
+          self.assertAllEqual(a_value.indices, b_value.indices)
+          self.assertAllEqual(a_value.values, b_value.values)
+          self.assertAllEqual(a_value.dense_shape, b_value.dense_shape)
+        else:
+          self.assertAllEqual(a_value, b_value)
+
+  def toMetadata(self, feature_spec):
+    return dataset_metadata.DatasetMetadata(
+        schema=sch.from_feature_spec(feature_spec))
+
+  def testMultipleLevelsOfAnalysis(self):
+    # Test a preprocessing function similar to scale_to_0_1 except that it
+    # involves multiple interleavings of analyzers and transforms.
+    def preprocessing_fn(inputs):
+      scaled_to_0 = tft.map(lambda x, y: x - y,
+                            inputs['x'], tft.min(inputs['x']))
+      scaled_to_0_1 = tft.map(lambda x, y: x / y,
+                              scaled_to_0, tft.max(scaled_to_0))
+      return {'x_scaled': scaled_to_0_1}
+
+    metadata = self.toMetadata({'x': tf.FixedLenFeature((), tf.float32, 0)})
+    input_columns = [{'x': v} for v in [4, 1, 5, 2]]
+    input_dataset = (input_columns, metadata)
+
+    transformed, _ = (
+        input_dataset | beam_impl.AnalyzeAndTransformDataset(
+            preprocessing_fn, os.path.join(self.get_temp_dir(), 'multi')))
+
+    output_columns, _ = transformed
+
+    self.assertEqual(output_columns,
+                     [{'x_scaled': v} for v in [0.75, 0.0, 1.0, 0.25]])
+
+  def testAnalyzeBeforeTransform(self):
+    def preprocessing_fn(inputs):
+      return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
+
+    # Run AnalyzeAndTransform on some input data and compare with expected
+    # output.
+    input_data = [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}]
+    input_metadata = self.toMetadata(
+        {'x': tf.FixedLenFeature((), tf.float32, 0)})
+    transformed_dataset, transform_fn = (
+        (input_data, input_metadata)
+        | beam_impl.AnalyzeAndTransformDataset(
+            preprocessing_fn,
+            os.path.join(self.get_temp_dir(), 'analyze_before_transform_at')))
+
+    expected_transformed_data = [
+        {'x_scaled': 0.75},
+        {'x_scaled': 0.0},
+        {'x_scaled': 1.0},
+        {'x_scaled': 0.25}
+    ]
+    expected_transformed_metadata = self.toMetadata({
+        'x_scaled': tf.FixedLenFeature((), tf.float32, None)
+    })
+    self.assertDatasetsEqual(
+        transformed_dataset,
+        (expected_transformed_data, expected_transformed_metadata))
+
+    # Take the transform function and use TransformDataset to apply it to
+    # some eval data, and compare with expected output.
+    eval_data = [{'x': 6}, {'x': 3}]
+    transformed_eval_dataset = (
+        ((eval_data, input_metadata), transform_fn)
+        | beam_impl.TransformDataset())
+
+    expected_transformed_eval_data = [{'x_scaled': 1.25}, {'x_scaled': 0.5}]
+    self.assertDatasetsEqual(
+        transformed_eval_dataset,
+        (expected_transformed_eval_data, expected_transformed_metadata))
+
+    # Redo test with eval data, using AnalyzeDataset instead of
+    # AnalyzeAndTransformDataset to genereate transform_fn.
+    transform_fn = (
+        (input_data, input_metadata)
+        | beam_impl.AnalyzeDataset(
+            preprocessing_fn,
+            os.path.join(self.get_temp_dir(), 'analyze_before_transform_a')))
+    transformed_eval_dataset = (
+        ((eval_data, input_metadata), transform_fn)
+        | beam_impl.TransformDataset())
+    self.assertDatasetsEqual(
+        transformed_eval_dataset,
+        (expected_transformed_eval_data, expected_transformed_metadata))
+
+  def testTransformWithExcludedOutputs(self):
+    def preprocessing_fn(inputs):
+      return {
+          'x_scaled': tft.scale_to_0_1(inputs['x']),
+          'y_scaled': tft.scale_to_0_1(inputs['y'])
+      }
+
+    # Run AnalyzeAndTransform on some input data and compare with expected
+    # output.
+    input_data = [{'x': 5, 'y': 1}, {'x': 1, 'y': 2}]
+    input_metadata = self.toMetadata({
+        'x': tf.FixedLenFeature((), tf.float32, 0),
+        'y': tf.FixedLenFeature((), tf.float32, 0)
+    })
+    transform_fn = (
+        (input_data, input_metadata) | beam_impl.AnalyzeDataset(
+            preprocessing_fn,
+            os.path.join(self.get_temp_dir(), 'excluded_ouputs_a')))
+
+    # Take the transform function and use TransformDataset to apply it to
+    # some eval data, with missing 'y' column.
+    eval_data = [{'x': 6}]
+    eval_metadata = self.toMetadata({
+        'x': tf.FixedLenFeature((), tf.float32, 0)
+    })
+    transformed_eval_dataset = (
+        ((eval_data, eval_metadata), transform_fn)
+        | beam_impl.TransformDataset(exclude_outputs=['y_scaled']))
+
+    expected_transformed_eval_data = [{'x_scaled': 1.25}]
+    expected_transformed_eval_schema = self.toMetadata({
+        'x_scaled': tf.FixedLenFeature((), tf.float32, None)
+    })
+    self.assertDatasetsEqual(
+        transformed_eval_dataset,
+        (expected_transformed_eval_data, expected_transformed_eval_schema))
+
+  def testTransformSparseColumns(self):
+    # Define a transform that takes a sparse column and a varlen column, and
+    # returns a combination of dense, sparse, and varlen columns.
+    def preprocessing_fn(inputs):
+      sparse_sum = tft.map(
+          lambda x: tf.sparse_reduce_sum(x, axis=1), inputs['sparse'])
+      sparse_copy = tft.map(
+          lambda y: tf.SparseTensor(y.indices, y.values, y.dense_shape),
+          inputs['sparse'])
+      varlen_copy = tft.map(
+          lambda y: tf.SparseTensor(y.indices, y.values, y.dense_shape),
+          inputs['varlen'])
+
+      sparse_copy.schema = sch.ColumnSchema(
+          sch.LogicalColumnSchema(
+              sch.dtype_to_domain(tf.float32),
+              sch.LogicalShape([sch.Axis(10)])),
+          sch.SparseColumnRepresentation(
+              'val_copy', [sch.SparseIndexField('idx_copy', False)]))
+
+      return {
+          'fixed': sparse_sum,  # Schema should be inferred.
+          'sparse': inputs['sparse'],  # Schema manually attached above.
+          'varlen': inputs['varlen'],  # Schema should be inferred.
+          'sparse_copy': sparse_copy,  # Schema should propagate from input.
+          'varlen_copy': varlen_copy   # Schema should propagate from input.
+      }
+
+    # Run AnalyzeAndTransform on some input data and compare with expected
+    # output.
+    input_metadata = self.toMetadata({
+        'sparse': tf.SparseFeature('idx', 'val', tf.float32, 10),
+        'varlen': tf.VarLenFeature(tf.float32),
+    })
+    input_data = [
+        {'idx': [0, 1], 'val': [0., 1.], 'varlen': [0., 1.]},
+        {'idx': [2, 3], 'val': [2., 3.], 'varlen': [3., 4., 5.]},
+        {'idx': [4, 5], 'val': [4., 5.], 'varlen': [6., 7.]}
+    ]
+    transformed_dataset, transform_fn = (
+        (input_data, input_metadata)
+        | beam_impl.AnalyzeAndTransformDataset(
+            preprocessing_fn, os.path.join(self.get_temp_dir(), 'sparse')))
+
+    expected_transformed_metadata = self.toMetadata({
+        'fixed': tf.FixedLenFeature(None, tf.float32, None),
+        'sparse': tf.SparseFeature('idx', 'val', tf.float32, 10),
+        'varlen': tf.VarLenFeature(tf.float32),
+        'sparse_copy': tf.SparseFeature('idx_copy', 'val_copy', tf.float32, 10),
+        'varlen_copy': tf.VarLenFeature(tf.float32)
+    })
+    expected_transformed_data = [
+        {'fixed': 1.0, 'idx': [0, 1], 'val': [0., 1.], 'varlen': [0., 1.],
+         'idx_copy': [0, 1], 'val_copy': [0., 1.], 'varlen_copy': [0., 1.]},
+        {'fixed': 5.0, 'idx': [2, 3], 'val': [2., 3.], 'varlen': [3., 4., 5.],
+         'idx_copy': [2, 3], 'val_copy': [2., 3.], 'varlen_copy': [3., 4., 5.]},
+        {'fixed': 9.0, 'idx': [4, 5], 'val': [4., 5.], 'varlen': [6., 7.],
+         'idx_copy': [4, 5], 'val_copy': [4., 5.], 'varlen_copy': [6., 7.]}
+    ]
+    self.assertDatasetsEqual(
+        transformed_dataset,
+        (expected_transformed_data, expected_transformed_metadata))
+
+    # Take the transform function and use TransformDataset to apply it to
+    # some eval data, and compare with expected output.
+    eval_data = [
+        {'idx': [0], 'val': [9.], 'varlen': [9.]},
+        {'idx': [], 'val': [], 'varlen': []},
+        {'idx': [2, 4], 'val': [8., 7.], 'varlen': [8., 7.]}
+    ]
+    transformed_eval_dataset = (
+        ((eval_data, input_metadata), transform_fn)
+        | beam_impl.TransformDataset())
+
+    expected_transformed_eval_values = [
+        {'fixed': 9., 'idx': [0], 'val': [9.], 'varlen': [9.],
+         'idx_copy': [0], 'val_copy': [9.], 'varlen_copy': [9.]},
+        {'fixed': 0., 'idx': [], 'val': [], 'varlen': [],
+         'idx_copy': [], 'val_copy': [], 'varlen_copy': []},
+        {'fixed': 15., 'idx': [2, 4], 'val': [8., 7.], 'varlen': [8., 7.],
+         'idx_copy': [2, 4], 'val_copy': [8., 7.], 'varlen_copy': [8., 7.]}
+    ]
+    self.assertDatasetsEqual(
+        transformed_eval_dataset,
+        (expected_transformed_eval_values, expected_transformed_metadata))
+
+  def testTransform(self):
+    # User defined preprocessing_fn accepts and returns a dict of Columns.
+    def preprocessing_fn(inputs):
+      return {'ab': tft.map(tf.multiply, inputs['a'], inputs['b'])}
+
+    input_data = [{
+        'a': 4,
+        'b': 3
+    }, {
+        'a': 1,
+        'b': 2
+    }, {
+        'a': 5,
+        'b': 6
+    }, {
+        'a': 2,
+        'b': 3
+    }]
+    input_metadata = self.toMetadata({
+        'a': tf.FixedLenFeature((), tf.float32, 0),
+        'b': tf.FixedLenFeature((), tf.float32, 0)
+    })
+    transformed_dataset, _ = (
+        (input_data, input_metadata)
+        | beam_impl.AnalyzeAndTransformDataset(
+            preprocessing_fn, os.path.join(self.get_temp_dir(), 'transform')))
+
+    expected_transformed_data = [{
+        'ab': 12
+    }, {
+        'ab': 2
+    }, {
+        'ab': 30
+    }, {
+        'ab': 6
+    }]
+    expected_transformed_metadata = self.toMetadata({
+        'ab': tf.FixedLenFeature((), tf.float32, None)
+    })
+    self.assertDatasetsEqual(
+        transformed_dataset,
+        (expected_transformed_data, expected_transformed_metadata))
+
+  def testComposedTransforms(self):
+    # User defined preprocessing_fn accepts and returns a dict of Columns.
+    def preprocessing_fn(inputs):
+      return {
+          'a(b+c)':
+              tft.map(tf.multiply, inputs['a'],
+                      tft.map(tf.add, inputs['b'], inputs['c']))
+      }
+
+    input_data = [{'a': 4, 'b': 3, 'c': 3}, {'a': 1, 'b': 2, 'c': 1}]
+    input_metadata = self.toMetadata({
+        'a': tf.FixedLenFeature((), tf.float32, 0),
+        'b': tf.FixedLenFeature((), tf.float32, 0),
+        'c': tf.FixedLenFeature((), tf.float32, 0)
+    })
+    transformed_dataset, _ = (
+        (input_data, input_metadata) |
+        beam_impl.AnalyzeAndTransformDataset(
+            preprocessing_fn, os.path.join(self.get_temp_dir(), 'composed')))
+
+    expected_transformed_data = [{'a(b+c)': 24}, {'a(b+c)': 3}]
+    expected_transformed_metadata = self.toMetadata({
+        'a(b+c)': tf.FixedLenFeature((), tf.float32, None)
+    })
+    self.assertDatasetsEqual(
+        transformed_dataset,
+        (expected_transformed_data, expected_transformed_metadata))
+
+  def testNumericAnalyzersWithScalarInputs(self):
+    def preprocessing_fn(inputs):
+      def repeat(in_tensor, value):
+        batch_size = tf.shape(in_tensor)[0]
+        return tf.ones([batch_size], dtype=value.dtype) * value
+
+      return {
+          'min': tft.map(repeat, inputs['a'], tft.min(inputs['a'])),
+          'max': tft.map(repeat, inputs['a'], tft.max(inputs['a'])),
+          'sum': tft.map(repeat, inputs['a'], tft.sum(inputs['a'])),
+          'size': tft.map(repeat, inputs['a'], tft.size(inputs['a'])),
+          'mean': tft.map(repeat, inputs['a'], tft.mean(inputs['a']))
+      }
+
+    input_data = [{'a': 4}, {'a': 1}]
+    input_metadata = self.toMetadata(
+        {'a': tf.FixedLenFeature((), tf.int64, 0)})
+    transformed_dataset, _ = (
+        (input_data, input_metadata) |
+        beam_impl.AnalyzeAndTransformDataset(
+            preprocessing_fn, os.path.join(self.get_temp_dir(), 'scalar')))
+
+    expected_transformed_data = [
+        {'min': 1, 'max': 4, 'sum': 5, 'size': 2, 'mean': 2.5},
+        {'min': 1, 'max': 4, 'sum': 5, 'size': 2, 'mean': 2.5}]
+    expected_transformed_metadata = self.toMetadata({
+        'min': tf.FixedLenFeature((), tf.int64, None),
+        'max': tf.FixedLenFeature((), tf.int64, None),
+        'sum': tf.FixedLenFeature((), tf.int64, None),
+        'size': tf.FixedLenFeature((), tf.int64, None),
+        'mean': tf.FixedLenFeature((), tf.float64, None)
+    })
+    self.assertDatasetsEqual(
+        transformed_dataset,
+        (expected_transformed_data, expected_transformed_metadata))
+
+  def testNumericAnalyzersWithNDInputs(self):
+    def preprocessing_fn(inputs):
+      def repeat(in_tensor, value):
+        batch_size = tf.shape(in_tensor)[0]
+        return tf.ones([batch_size], value.dtype) * value
+
+      return {
+          'min': tft.map(repeat, inputs['a'], tft.min(inputs['a'])),
+          'max': tft.map(repeat, inputs['a'], tft.max(inputs['a'])),
+          'sum': tft.map(repeat, inputs['a'], tft.sum(inputs['a'])),
+          'size': tft.map(repeat, inputs['a'], tft.size(inputs['a'])),
+          'mean': tft.map(repeat, inputs['a'], tft.mean(inputs['a']))
+      }
+
+    input_data = [
+        {'a': [[4, 5], [6, 7]]},
+        {'a': [[1, 2], [3, 4]]}
+    ]
+    input_metadata = self.toMetadata(
+        {'a': tf.FixedLenFeature((2, 2), tf.int64)})
+    transformed_dataset, _ = (
+        (input_data, input_metadata) |
+        beam_impl.AnalyzeAndTransformDataset(
+            preprocessing_fn, os.path.join(self.get_temp_dir(), 'ndarray')))
+
+    expected_transformed_data = [
+        {'min': 1, 'max': 7, 'sum': 32, 'size': 8, 'mean': 4.0},
+        {'min': 1, 'max': 7, 'sum': 32, 'size': 8, 'mean': 4.0}]
+    expected_transformed_metadata = self.toMetadata({
+        'min': tf.FixedLenFeature((), tf.int64, None),
+        'max': tf.FixedLenFeature((), tf.int64, None),
+        'sum': tf.FixedLenFeature((), tf.int64, None),
+        'size': tf.FixedLenFeature((), tf.int64, None),
+        'mean': tf.FixedLenFeature((), tf.float64, None)
+    })
+    self.assertDatasetsEqual(
+        transformed_dataset,
+        (expected_transformed_data, expected_transformed_metadata))
+
+  def testNumericAnalyzersWithSparseInputs(self):
+    def repeat(in_tensor, value):
+      batch_size = tf.shape(in_tensor)[0]
+      return tf.ones([batch_size], value.dtype) * value
+
+    input_data = [
+        {'a': [4, 5, 6]},
+        {'a': [1, 2]}
+    ]
+    input_metadata = self.toMetadata({'a': tf.VarLenFeature(tf.int64)})
+    input_dataset = (input_data, input_metadata)
+
+    with self.assertRaises(TypeError):
+      def min_fn(inputs):
+        return {'min': tft.map(repeat, inputs['a'], tft.min(inputs['a']))}
+      _ = input_dataset | beam_impl.AnalyzeDataset(
+          min_fn, os.path.join(self.get_temp_dir(), 'sparse_min'))
+
+    with self.assertRaises(TypeError):
+      def max_fn(inputs):
+        return {'max': tft.map(repeat, inputs['a'], tft.max(inputs['a']))}
+      _ = input_dataset | beam_impl.AnalyzeDataset(
+          max_fn, os.path.join(self.get_temp_dir(), 'sparse_max'))
+
+    with self.assertRaises(TypeError):
+      def sum_fn(inputs):
+        return {'sum': tft.map(repeat, inputs['a'], tft.sum(inputs['a']))}
+      _ = input_dataset | beam_impl.AnalyzeDataset(
+          sum_fn, os.path.join(self.get_temp_dir(), 'sparse_sum'))
+
+    with self.assertRaises(TypeError):
+      def size_fn(inputs):
+        return {'size': tft.map(repeat, inputs['a'], tft.size(inputs['a']))}
+      _ = input_dataset | beam_impl.AnalyzeDataset(
+          size_fn, os.path.join(self.get_temp_dir(), 'sparse_size'))
+
+    with self.assertRaises(TypeError):
+      def mean_fn(inputs):
+        return {'mean': tft.map(repeat, inputs['a'], tft.mean(inputs['a']))}
+      _ = input_dataset | beam_impl.AnalyzeDataset(
+          mean_fn, os.path.join(self.get_temp_dir(), 'sparse_mean'))
+
+  def testUniquesAnalyzer(self):
+    # User defined transform_fn accepts and returns a dict of Columns.
+    def preprocessing_fn(inputs):
+      return {
+          'index': tft.string_to_int(inputs['a'])
+      }
+
+    input_data = [
+        {'a': 'hello'},
+        {'a': 'world'},
+        {'a': 'hello'},
+        {'a': 'hello'},
+        {'a': 'goodbye'},
+        {'a': 'world'},
+        {'a': 'aaaaa'}
+    ]
+    input_metadata = self.toMetadata({
+        'a': tf.FixedLenFeature((), tf.string),
+    })
+    transformed_dataset, _ = (
+        (input_data, input_metadata)
+        | beam_impl.AnalyzeAndTransformDataset(
+            preprocessing_fn, os.path.join(self.get_temp_dir(), 'uniques')))
+
+    expected_transformed_data = [
+        {'index': 0},
+        {'index': 1},
+        {'index': 0},
+        {'index': 0},
+        {'index': 2},
+        {'index': 1},
+        {'index': 3}
+    ]
+    expected_transformed_metadata = self.toMetadata({
+        'index': tf.FixedLenFeature((), tf.int64)
+    })
+    self.assertDatasetsEqual(
+        transformed_dataset,
+        (expected_transformed_data, expected_transformed_metadata))
+
+  def testUniquesAnalyzerWithTokenization(self):
+    # User defined transform_fn accepts and returns a dict of Columns.
+    def preprocessing_fn(inputs):
+      return {
+          'index': tft.string_to_int(tft.map(tf.string_split, inputs['a']))
+      }
+
+    input_data = [{'a': 'hello hello world'}, {'a': 'hello goodbye world'}]
+    input_metadata = self.toMetadata({
+        'a': tf.FixedLenFeature((), tf.string, ''),
+    })
+
+    transformed_dataset, _ = (
+        (input_data, input_metadata)
+        | beam_impl.AnalyzeAndTransformDataset(
+            preprocessing_fn,
+            os.path.join(self.get_temp_dir(), 'uniques_tokenize')))
+
+    expected_transformed_data = [{
+        'index': [0, 0, 1],
+    }, {
+        'index': [0, 2, 1]
+    }]
+    expected_transformed_metadata = self.toMetadata(
+        {'index': tf.VarLenFeature(tf.int64)})
+    self.assertDatasetsEqual(
+        transformed_dataset,
+        (expected_transformed_data, expected_transformed_metadata))
+
+  def testUniquesAnalyzerWithTopK(self):
+    # User defined transform_fn accepts and returns a dict of Columns.
+    def preprocessing_fn(inputs):
+      return {
+          'index1': tft.string_to_int(tft.map(tf.string_split, inputs['a']),
+                                      default_value=-99, top_k=2),
+
+          # As above but using a string for top_k (and changing the
+          # default_value to showcase things).
+          'index2': tft.string_to_int(tft.map(tf.string_split, inputs['a']),
+                                      default_value=-9, top_k='2')
+      }
+
+    input_data = [{'a': 'hello hello world'},
+                  {'a': 'hello goodbye world'},
+                  {'a': 'hello goodbye foo'}]
+    input_schema = self.toMetadata({
+        'a': tf.FixedLenFeature((), tf.string, ''),
+    })
+
+    transformed_dataset, _ = (
+        (input_data, input_schema)
+        | beam_impl.AnalyzeAndTransformDataset(
+            preprocessing_fn,
+            os.path.join(self.get_temp_dir(), 'uniques_tokenize_topk')))
+
+    # Generated vocab (ordered by frequency, then value) should be:
+    # ["hello", "world", "goodbye", "foo"]. After applying top_k=2, this becomes
+    # ["hello", "world"].
+    expected_transformed_data = [{
+        'index1': [0, 0, 1],
+        'index2': [0, 0, 1]
+    }, {
+        'index1': [0, -99, 1],
+        'index2': [0, -9, 1]
+    }, {
+        'index1': [0, -99, -99],
+        'index2': [0, -9, -9]
+    }]
+    expected_transformed_schema = self.toMetadata({
+        'index1': tf.VarLenFeature(tf.int64),
+        'index2': tf.VarLenFeature(tf.int64)
+    })
+    self.assertDatasetsEqual(
+        transformed_dataset,
+        (expected_transformed_data, expected_transformed_schema))
+
+  def testUniquesAnalyzerWithFrequencyThreshold(self):
+    # User defined transform_fn accepts and returns a dict of Columns.
+    def preprocessing_fn(inputs):
+      return {
+          'index1': tft.string_to_int(tft.map(tf.string_split, inputs['a']),
+                                      default_value=-99, frequency_threshold=2),
+
+          # As above but using a string for frequency_threshold (and changing
+          # the default_value to showcase things).
+          'index2': tft.string_to_int(tft.map(tf.string_split, inputs['a']),
+                                      default_value=-9, frequency_threshold='2')
+      }
+
+    input_data = [{'a': 'hello hello world'},
+                  {'a': 'hello goodbye world'},
+                  {'a': 'hello goodbye foo'}]
+    input_schema = self.toMetadata({
+        'a': tf.FixedLenFeature((), tf.string, ''),
+    })
+
+    transformed_dataset, _ = (
+        (input_data, input_schema)
+        | beam_impl.AnalyzeAndTransformDataset(
+            preprocessing_fn,
+            os.path.join(self.get_temp_dir(),
+                         'uniques_tokenize_frequency_threshold')))
+
+    # Generated vocab (ordered by frequency, then value) should be:
+    # ["hello", "world", "goodbye", "foo"]. After applying frequency_threshold=2
+    # this becomes
+    # ["hello", "world", "goodbye"].
+    expected_transformed_data = [{
+        'index1': [0, 0, 1],
+        'index2': [0, 0, 1]
+    }, {
+        'index1': [0, 2, 1],
+        'index2': [0, 2, 1]
+    }, {
+        'index1': [0, 2, -99],
+        'index2': [0, 2, -9]
+    }]
+    expected_transformed_schema = self.toMetadata({
+        'index1': tf.VarLenFeature(tf.int64),
+        'index2': tf.VarLenFeature(tf.int64)
+    })
+    self.assertDatasetsEqual(
+        transformed_dataset,
+        (expected_transformed_data, expected_transformed_schema))
 
   def testPipelineWithoutAutomaterialization(self):
     # The tests in BaseTFTransformImplTest, when run with the beam
@@ -44,61 +629,102 @@ class AnalyzeAndTransformColumnsTest(
     # between calls to the tf.Transform PTransforms, we include a test that is
     # not based on automaterialization.
     def preprocessing_fn(inputs):
-      return {'x_scaled': api.scale_to_0_1(inputs['x'])}
+      return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
 
     p = beam.Pipeline()
-    schema = {'x': tf.FixedLenFeature((), tf.float32, 0)}
+    metadata = self.toMetadata({'x': tf.FixedLenFeature((), tf.float32, 0)})
     columns = p | 'CreateTrainingData' >> beam.Create([{
         'x': v
     } for v in [4, 1, 5, 2]])
     _, transform_fn = (
-        (columns, schema)
+        (columns, metadata)
         | 'Analyze and Transform'
-        >> self.impl.AnalyzeAndTransformDataset(preprocessing_fn))
+        >> beam_impl.AnalyzeAndTransformDataset(
+            preprocessing_fn,
+            os.path.join(self.get_temp_dir(), 'no_automaterialize')))
 
     # Run transform_columns on some eval dataset.
     eval_data = p | 'CreateEvalData' >> beam.Create([{'x': v} for v in [6, 3]])
     transformed_eval_data, _ = (
-        ((eval_data, schema), transform_fn)
-        | 'Transform' >> self.impl.TransformDataset())
+        ((eval_data, metadata), transform_fn)
+        | 'Transform' >> beam_impl.TransformDataset())
     p.run()
     expected_transformed_eval_data = [{'x_scaled': v} for v in [1.25, 0.5]]
     beam_test_util.assert_that(
         transformed_eval_data,
         beam_test_util.equal_to(expected_transformed_eval_data))
 
+  def testTransformFnExportAndImportRoundtrip(self):
+    tranform_fn_dir = os.path.join(self.get_temp_dir(), 'export_transform_fn')
+    metadata_dir = os.path.join(self.get_temp_dir(), 'export_metadata')
+
+    with beam.Pipeline() as p:
+      def preprocessing_fn(inputs):
+        return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
+
+      metadata = self.toMetadata({'x': tf.FixedLenFeature((), tf.float32, 0)})
+      columns = p | 'CreateTrainingData' >> beam.Create([{
+          'x': v
+      } for v in [4, 1, 5, 2]])
+      _, transform_fn = (
+          (columns, metadata)
+          | 'Analyze and Transform'
+          >> beam_impl.AnalyzeAndTransformDataset(
+              preprocessing_fn,
+              os.path.join(self.get_temp_dir(), 'no_automaterialize')))
+
+      _ = transform_fn | transform_fn_io.WriteTransformFn(tranform_fn_dir)
+      _ = metadata | beam_metadata_io.WriteMetadata(metadata_dir, pipeline=p)
+
+    with beam.Pipeline() as p:
+      transform_fn = p | transform_fn_io.ReadTransformFn(tranform_fn_dir)
+      metadata = p | beam_metadata_io.ReadMetadata(metadata_dir)
+      # Run transform_columns on some eval dataset.
+      eval_data = p | 'CreateEvalData' >> beam.Create(
+          [{'x': v} for v in [6, 3]])
+      transformed_eval_data, _ = (
+          ((eval_data, metadata), transform_fn)
+          | 'Transform' >> beam_impl.TransformDataset())
+      expected_transformed_eval_data = [{'x_scaled': v} for v in [1.25, 0.5]]
+      beam_test_util.assert_that(
+          transformed_eval_data,
+          beam_test_util.equal_to(expected_transformed_eval_data))
+
   def testRunExportedGraph(self):
     # Run analyze_and_transform_columns on some dataset.
     def preprocessing_fn(inputs):
-      # TODO(abrao): Add an output column corresponding to SparseFeature when
-      # that is supported.
-      x_scaled = api.scale_to_0_1(inputs['x'])
-      y_sum = api.transform(lambda y: tf.sparse_reduce_sum(y, axis=1),
-                            inputs['y'])
-      z_copy = api.transform(
+      x_scaled = tft.scale_to_0_1(inputs['x'])
+      y_sum = tft.map(
+          lambda y: tf.sparse_reduce_sum(y, axis=1), inputs['y'])
+      z_copy = tft.map(
           lambda z: tf.SparseTensor(z.indices, z.values, z.dense_shape),
           inputs['z'])
       return {'x_scaled': x_scaled, 'y_sum': y_sum, 'z_copy': z_copy}
 
-    schema = {
+    metadata = self.toMetadata({
         'x': tf.FixedLenFeature((), tf.float32, 0),
         'y': tf.SparseFeature('idx', 'val', tf.float32, 10),
         'z': tf.VarLenFeature(tf.float32)
-    }
+    })
     columns = [
         {'x': 4, 'val': [0., 1.], 'idx': [0, 1], 'z': [2., 4., 6.]},
         {'x': 1, 'val': [2., 3.], 'idx': [2, 3], 'z': [8.]},
         {'x': 5, 'val': [4., 5.], 'idx': [4, 5], 'z': [1., 2., 3.]}
     ]
-    _, (transform_fn, _) = (
-        (columns, schema)
-        | self.impl.AnalyzeAndTransformDataset(preprocessing_fn))
+    _, transform_fn = (
+        (columns, metadata)
+        | beam_impl.AnalyzeAndTransformDataset(
+            preprocessing_fn,
+            os.path.join(self.get_temp_dir(), 'output')))
 
-    # Import the function, and apply it to a batch of data.
+    export_dir = os.path.join(self.get_temp_dir(), 'export')
+    _ = transform_fn | transform_fn_io.WriteTransformFn(export_dir)
+
+    # Load the exported graph, and apply it to a batch of data.
     g = tf.Graph()
     with g.as_default():
       inputs, outputs = impl_helper.load_transform_fn_def(
-          transform_fn[0])
+          os.path.join(export_dir, 'transform_fn'))
       x, y, z = inputs['x'], inputs['y'], inputs['z']
       feed = {
           x: [6., 3., 0., 1.],
@@ -136,7 +762,6 @@ class AnalyzeAndTransformColumnsTest(
         sess = tf.Session()
         with sess.as_default():
           _ = sess.run(outputs, feed_dict=feed)
-
 
 if __name__ == '__main__':
   unittest.main()

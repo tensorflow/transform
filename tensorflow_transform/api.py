@@ -18,55 +18,32 @@ representation of a transformation from an input data set to an output data set.
 This function is constructed using the provided functions that operate on the
 `Column` and `Statistic` classes.  In particular, the user combines these
 functions to build a function that accepts and returns a dictionary whose
-keys are strings and whose values are `Column`s or `Statistics`.
+keys are strings and whose values are `Column`s or `Statistics`, e.g.
 
-This user-defined function then must be run using an implementation which can be
-implemented with a number of backends, e.g. Apache Beam.  How the dataset
-is represented, when deferred computation is done, and what sources and sinks
-are available are all defined by the implementation.  The implementation must
-subclass the AnalyzeAndTransformDataset, AnalyzeDataset and TransformDataset
-classes, in a way that is API compatible with the canonical beam implementation
-of these classes.  By API compatible we mean that it has equivalent objects
-representing datasets and metadata.
-
-Users should be able to write code such as
+import tensorflow_transform as tft
 
 def preprocessing_fn(inputs):
-  ...
+  x = inputs['x']
+  y = inputs['y']
 
-with beam.Pipeline(...) as p:
-  input = p | beam_impl.read_examples(..., schema)
-  transformed, transform_fn = input | beam_impl.AnalyzeAndTransformDataset(
-      preprocessing_fn)
-  transformed | beam_impl.write_examples_and_metadata(
-      examples_path, metadata_path)
-  transform_fn | beam_impl.write_transform_fn(transform_fn_path)
+  # Apply the `mean` analyzer to obtain the mean x.
+  x_mean = tft.mean(x)
 
-The implementation should internally have types that we refer to as Dataset
-and TransformFn (where the latter is a representation of the preprocessing
-function).  The Dataset contains both the actual data and also metadata such as
-the schema and various summary statistics for columns.
+  # Apply `map` together with a function that accepts and returns tensors, to
+  # subtract the mean.
+  x_normalized = tft.map(lambda x, mean: x - mean, x, x_mean)
 
-The implementations of AnalyzeAndTransformDataset etc. should be classes
-providing an `expand(dataset)` method.  Any additional information needed to
-perform the computation, e.g. the preprocessing_fn, are provided as constructor
-arguments when instantiating these functions.  Thus the signatures are as
-follows:
+  # Return a new dictionary containing x normalized, and y unchanged
+  return {
+    'x_normalized': x_normalized,
+    'y': y
+  }
 
-class AnalyzeDataset():
-  def __init__(preprocessing_fn): ...
-  def expand(dataset): ...  # returns TransformFn
-
-class TransformDataset():
-  def __init__(): ...
-  def expand(dataset_and_transform_fn): ...  # returns Dataset
-
-class AnalyzeAndTransformDataset():
-  def __init(preprocessing_fn): ...
-  def expand(dataset): ...  # returns (Dataset, TransformFn)
-
-TODO(abrao): Investigate refactoring into smaller modules, e.g. analyzers,
-transforms, core.
+This user-defined function then must be run using an implementation which takes
+the user defined preprocessing function and runs it using some distributed
+computation framework.  The canonical beam implementation uses Apache Beam as
+the underlying framework.  See beam/impl.py for how to use the Beam
+implementation.
 """
 
 from __future__ import absolute_import
@@ -106,33 +83,26 @@ class Column(object):
 
   Args:
     tensor: A `Tensor` or `SparseTensor` that will represent the column.
+    schema: A `ColumnSchema` describing the column. Defaults to None.
   """
 
   __metaclass__ = abc.ABCMeta
 
-  def __init__(self, tensor):
+  def __init__(self, tensor, schema=None):
     self._tensor = tensor
-    self._metadata_dict = {}
+    self._schema = schema
 
   @property
   def tensor(self):
     return self._tensor
 
-  def add_metadata(self, key, value):
-    """Sets the value of some metadata for this `Column`.
+  @property
+  def schema(self):
+    return self._schema
 
-    TODO(kestert): Make this API compatible with the actual metadata format.
-
-    Args:
-      key: The metadata key
-      value: Either a `Statistic` or primitive value or the appropriate type.
-
-    Raises:
-      KeyError: If `key` already exists in the metadata dict.
-    """
-    if key in self._metadata_dict:
-      raise KeyError('Key %s already exists' % key)
-    self._metadata_dict[key] = value
+  @schema.setter
+  def schema(self, schema):
+    self._schema = schema
 
 
 class _AnalyzerOutput(Statistic):
@@ -173,10 +143,10 @@ class _InputColumn(Column):
 
   Args:
     placeholder: The `Tensor` or `SparseTensor` that will represent the column.
-    name: Name of the column (i.e. key in the dict of columns).
+    schema: A `ColumnSchema` describing the column.
   """
 
-  def __init__(self, placeholder, name):
+  def __init__(self, placeholder, schema):
     # In order to avoid a bug where import_graph_def fails when the input_map
     # and return_elements of an imported graph are the same (b/34288791), we
     # avoid using the placeholder of an input column as an output of a graph.
@@ -189,13 +159,8 @@ class _InputColumn(Column):
                                dense_shape=tf.identity(placeholder.dense_shape))
     else:
       tensor = tf.identity(placeholder)
-    super(_InputColumn, self).__init__(tensor)
-    self._name = name
+    super(_InputColumn, self).__init__(tensor, schema)
     self._placeholder = placeholder
-
-  @property
-  def name(self):
-    return self._name
 
   @property
   def placeholder(self):
@@ -247,43 +212,41 @@ class _TransformedColumn(Column):
     return self._inputs
 
 
-# TODO(abrao): Consider adding helper class to avoid boilerplate for analyzer
-# definitions.
-def min(x):  # pylint: disable=redefined-builtin
-  """Computes the minimum of a `Column`.
+class _TransformedStatistic(Statistic):
+  """A Statistic containing the output of a transformation.
+
+  A `_TransformedStatistic` is defined by zero or more input `Statistic`s and a
+  function that accepts `Tensor`s or `SparseTensor`s as arguments and returns a
+  `Tensor` or `SparseTensor`.
 
   Args:
-    x: An input `Column'.
-
-  Returns:
-    A `Statistic` representing the minimum value of the input.
+    tensor: The `Tensor` or `SparseTensor` that will represent the statistic.
+    fn: A function that accepts one or more `Tensor`s or `SparseTensor`s and
+      returns a `Tensor` or `SparseTensor`.
+    inputs: A list of `Statistic`s to which the transform should be applied.
   """
-  # TODO(kestert): A user needing to write code using the _AnalyzerOutput class
-  # may not be the UX that we're looking for for writing custom analyzers.
-  return _AnalyzerOutput(tf.placeholder(x.tensor.dtype, ()),
-                         CanonicalAnalyzers.MIN, [x], {})
+
+  def __init__(self, tensor, fn, inputs):
+    super(_TransformedStatistic, self).__init__(tensor)
+    self._fn = fn
+    self._inputs = inputs
+
+  @property
+  def fn(self):
+    return self._fn
+
+  @property
+  def inputs(self):
+    return self._inputs
 
 
-def max(x):  # pylint: disable=redefined-builtin
-  """Computes the maximum of a `Column`.
-
-  Args:
-    x: An input `Column'.
-
-  Returns:
-    A `Statistic` representing the maximum value of the input.
-  """
-  return _AnalyzerOutput(tf.placeholder(x.tensor.dtype, ()),
-                         CanonicalAnalyzers.MAX, [x], {})
-
-
-def transform(fn, *args):
+def map(fn, *args):  # pylint: disable=redefined-builtin
   """Applies a function to some columns.
 
   Applies a function to some columns given by the argument list. The number
   of arguments should match the number of inputs to the function. The args can
-  also contain `Statistic`s in which case the values are broadcast across
-  columns.
+  also contain `Statistic`s in which case the values are the same for each
+  batch.
 
   Args:
     fn: A function that accepts one or more `Tensor`s or `SparseTensor`s and
@@ -298,27 +261,23 @@ def transform(fn, *args):
   return _TransformedColumn(output_tensor, fn, args)
 
 
-def scale_to_0_1(x):
-  """Returns a column which is the input column scaled to have range [0,1].
+def map_statistics(fn, *args):
+  """Applies a function to some statistics.
 
-  NOTE: this is just an example of how we might propagate metadata.
+  Applies a function to some `Statistics`s given by the argument list. The
+  number of arguments should match the number of inputs to the function.
 
   Args:
-    x: A `Column` representing a numeric value.
+    fn: A function that accepts one or more `Tensor`s or `SparseTensor`s and
+      returns a `Tensor` or `SparseTensor`.
+    *args: The list of `Statistic`s to apply the arguments to.
 
   Returns:
-    A `Column` representing the input column scaled to [0, 1].
+    A `Statistic` representing the application of the function.
   """
-
-  # A TITO function that scales x.
-  def scale(x, min_value, max_value):
-    return (x - min_value) / (max_value - min_value)
-
-  out = transform(scale, x, min(x), max(x))
-  out.add_metadata('min', 0)
-  out.add_metadata('max', 1)
-
-  return out
+  input_tensors = [arg.tensor for arg in args]
+  output_tensor = fn(*input_tensors)
+  return _TransformedStatistic(output_tensor, fn, args)
 
 
 class CanonicalAnalyzers(object):
@@ -326,141 +285,5 @@ class CanonicalAnalyzers(object):
 
   MIN = 'min'
   MAX = 'max'
-
-
-class AnalyzeDataset(object):
-  """Takes a preprocessing_fn and computes the relevant statistics.
-
-    AnalyzeDataset accepts a preprocessing_fn in its constructor.  When its
-    `expand` method is called on a dataset, it computes all the relevant
-    statistics required to run the transformation described by the
-    preprocessing_fn, and returns a TransformFn representing the application of
-    the preprocessing_fn.
-
-    Args:
-      preprocessing_fn: A function that accepts and returns a dictionary from
-        strings to `Column`s or `Statistic`s.
-  """
-
-  __metaclass__ = abc.ABCMeta
-
-  def __init__(self, preprocessing_fn):
-    self._preprocessing_fn = preprocessing_fn
-
-  @property
-  def preprocessing_fn(self):
-    return self._preprocessing_fn
-
-  @abc.abstractmethod
-  def __ror__(self, dataset):
-    """Syntactic sugar over `expand`.
-
-    A typical implementation will implement this with self.expand(dataset),
-    but may also do some additional implicit conversion of `dataset`.
-
-    Args:
-      dataset: The dataset on which one wants to run analysis.
-    """
-    pass
-
-  @abc.abstractmethod
-  def expand(self, dataset):
-    """Analyze the dataset.
-
-    Args:
-      dataset: A dataset.
-
-    Returns: A TransformFn computed from the input dataset.
-    """
-    pass
-
-
-class TransformDataset(object):
-  """Applies the transformation computed by transforming a Dataset.
-
-  TransformDataset's `expand` method is called on a (dataset, transform_fn)
-  pair. It applies the transform_fn to each row of the input dataset and
-  returns the resulting dataset.
-  """
-
-  __metaclass__ = abc.ABCMeta
-
-  @abc.abstractmethod
-  def __ror__(self, dataset_and_transform_fn):
-    """Syntactic sugar over expand.
-
-    A typical implementation will implement this with
-    self.expand(dataset_and_transform_fn), but may also do some additional
-    implicit conversion of `dataset`.
-
-    Args:
-      dataset_and_transform_fn: A tuple of dataset and preprocessing
-      function.
-    """
-    pass
-
-  @abc.abstractmethod
-  def expand(self, dataset_and_transform_fn):
-    """Transforms the dataset using the transform_fn.
-
-    Args:
-      dataset_and_transform_fn: A tuple of dataset and preprocessing
-      function.
-
-    Returns:
-      A dataset transformed according to the transform_fn.
-    """
-    pass
-
-
-class AnalyzeAndTransformDataset(object):
-  """Combination of AnalyzeDataset and TransformDataset.
-
-  transformed, transform_fn = AnalyzeAndTransformDataset(
-      preprocessing_fn).expand(dataset)
-
-  should be equivalent to
-
-  transform_fn = AnalyzeDataset(preprocessing_fn).expand(dataset)
-  transformed = TransformDataset().expand((dataset, transform_fn))
-
-  but may be more efficient since it avoids multiple passes over the data.
-
-  Args:
-    preprocessing_fn: A function that accepts and returns a dictionary from
-        strings to `Column`s or `Statistic`s
-  """
-
-  __metaclass__ = abc.ABCMeta
-
-  def __init__(self, preprocessing_fn):
-    self._preprocessing_fn = preprocessing_fn
-
-  @property
-  def preprocessing_fn(self):
-    return self._preprocessing_fn
-
-  @abc.abstractmethod
-  def __ror__(self, dataset):
-    """Syntactic sugar over expand.
-
-    A typical implementation will implement this with self.expand(dataset),
-    but may also do some additional implicit conversion of `dataset`.
-
-    Args:
-      dataset: A dataset.
-    """
-    pass
-
-  @abc.abstractmethod
-  def expand(self, dataset):
-    """Transform the dataset by applying the preprocessing_fn.
-
-    Args:
-      dataset: A dataset.
-
-    Returns:
-      A (Dataset, TransformFn) pair containing the preprocessed dataset and
-      the graph that maps the input to the output data.
-    """
-    pass
+  SUM = 'sum'
+  UNIQUES = 'uniques'

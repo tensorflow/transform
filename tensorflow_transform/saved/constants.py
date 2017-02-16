@@ -11,31 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""In-memory representation of the problem statements associated with a dataset.
-"""
-
+"""Constants for tf.Transform SavedModels."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
 
+TRANSFORM_TAG = 'transform'
 
-class ProblemStatements(object):
-
-  def merge(self, other):
-    pass
-
-
-class ProblemStatement(collections.namedtuple(
-    'ProblemStatement',
-    ['raw_feature_keys',
-     'raw_label_keys',
-     'raw_weights_keys',
-     'transformed_feature_keys',
-     'transformed_label_keys',
-     'transformed_weights_keys'])):
-  # the main constraint that we could enforce is that a transformed feature or
-  # weight cannot depend on a raw label.
-  pass
+TRANSFORM_SIGNATURE = 'transform_signature'

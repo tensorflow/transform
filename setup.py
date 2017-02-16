@@ -19,12 +19,9 @@ from setuptools import setup
 
 
 def get_required_install_packages():
-  required_install_packages = [
-      # TODO(elmerg) the beam dependency will come directly from the apache beam
-      # package once it is available.
-      'google-cloud-dataflow >= 0.4.4',
+  return [
+      'google-cloud-dataflow == 0.5.5',
   ]
-  return required_install_packages
 
 
 def get_version():

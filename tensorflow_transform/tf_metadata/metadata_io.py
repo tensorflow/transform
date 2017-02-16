@@ -19,18 +19,16 @@ from __future__ import print_function
 
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import metadata_directory
-# from tensorflow_transform.tf_metadata.v1 import schema_io_v1
+from tensorflow_transform.tf_metadata import version_api
+from tensorflow_transform.tf_metadata.v1_json import schema_io_v1_json
 
 # The _all_versions dict registers metadata versions that this library knows
 # about.  Typically all known versions will be written, and the most recent
 # known version available in a given directory will be parsed.
-# TODO(soergel): uncomment this in the followup CL that establishes v1.
-# _V1 = version_api.MetadataVersion("v1", schema_io_v1.SchemaIOv1(),
-#                                  None, None, None, None)
-
-# Versions are incrementing integers starting with 1
-# _all_versions = {1: _V1}.items()  # make immutable
-_all_versions = {}.items()  # make immutable
+_V1_JSON = version_api.MetadataVersion('v1', 'json',
+                                       schema_io_v1_json.SchemaIOv1JSON(),
+                                       None, None, None, None)
+_all_versions = {'1_JSON': _V1_JSON}.items()  # make immutable
 
 
 def read_metadata(paths, versions=_all_versions):
@@ -53,7 +51,7 @@ def write_metadata(metadata, path, versions=_all_versions):
       versions.
   """
   basedir = metadata_directory.DatasetMetadataDirectory(path)
-  for _, version in versions.items():
+  for _, version in versions:
     vdir = basedir.version_dir(version)
     version.write(metadata, vdir)
 
@@ -85,10 +83,7 @@ def _read_merge(metadata, path, versions=_all_versions):
   """
   basedir = metadata_directory.DatasetMetadataDirectory(path)
 
-  # TODO(soergel): # choose best version in common between this and the dir
-  # best_version_number = 1
-  # version = versions[best_version_number]
-  (_, version), = versions.items()
+  (_, version), = versions
   vdir = basedir.version_dir(version)
   other = version.read(vdir)
   metadata.merge(other)

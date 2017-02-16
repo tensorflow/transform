@@ -18,140 +18,126 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import re
+import collections
+import itertools
 
 import numpy as np
 import tensorflow as tf
-import tensorflow_transform.api as api
-
-from tensorflow.core.protobuf import meta_graph_pb2
-from tensorflow.python.util import nest
-
-_ENCODED_FUNCTION_SIGNATURE_NAME = 'encoded_function'
-
-_SPARSE_TENSOR_NAME_RE = re.compile(r'(.*)\$(indices|values|dense_shape)$')
-
-_DENSE_TENSOR_NAME_RE = re.compile(r'(.*)\$dense_tensor$')
+from tensorflow_transform import api
+from tensorflow_transform.saved import saved_transform_io
+from tensorflow_transform.tf_metadata import dataset_schema as sch
 
 
-def infer_feature_schema(tensors):
-  """Given a dict of tensors, creates a schema.
+def infer_feature_schema(columns):
+  """Given a dict of columns, creates a `Schema`.
 
-  Infers a schema, in the format of a TensorFlow "feature spec", for the given
-  dictionary of tensors. The resulting schema is suitable for use wherever a
-  schema is required in tf-transform. However it may not be valid for passing to
-  `tf.parse_example`, as it may be missing shape information.
+  Infers a schema, in the format of a tf.Transform `Schema`, for the given
+  dictionary of columns.
 
   Args:
-    tensors: A dict whose keys are column names and whose values are `Tensor`s
-        or `SparseTensor`s. In either case the tensor's 0'th dimension is
-        interpreted as the batch dimension. In order to pass a tensor
-        representing a single instance, it must be wrapped in a batch of size 1.
+    columns: A dict mapping column names to `Column`s. The tensors represented
+      by these columns should have a 0'th dimension interpreted as the batch
+      dimension. In order to pass a tensor representing a single instance, it
+      must be wrapped in a batch of size 1.
 
   Returns:
-    A dict whose keys are column names and whose values are `FixedLenFeature`
-    or `VarLenFeature` objects.
+    A `Schema` object.
   """
-  def remove_batch_dimension(dims):
-    """Removes the batch dimension from the given dimensions.
-
-    Given the dimensions representing the shape of a batch of data, returns the
-    shape of a corresponding instance, by removing the (initial) batch
-    dimension.
-
-    Args:
-      dims: A tuple of dimensions, or None if the shape is unspecified.
-
-    Returns:
-      A tuple of dimensions representing the shape of an instance, or None if
-      the shape is unspecified.
-
-    Raises:
-      ValueError: if `dims` doesn't have rank at least 1.
-    """
-    if dims is None:
-      # A batch of tensors with unknown static shape yields an instance of
-      # unknown static shape.
-      return None
-    elif not dims:
-      raise ValueError('Expected shape of rank at least 1, but got %r' % dims)
-    return tuple(dims)[1:]
-
-  result = {}
-  for name, tensor in tensors.items():
-    if isinstance(tensor, tf.SparseTensor):
-      # TODO(kestert): This won't work with serialization.
-      # We need to distinguish between "true" sparse tensors and tensors that
-      # should be represented as VarLenFeature's, and how to serialize both
-      # kinds.
-      feature = tf.VarLenFeature(tensor.dtype)
-    else:
-      feature = tf.FixedLenFeature(
-          remove_batch_dimension(tensor.get_shape().dims), tensor.dtype)
-    result[name] = feature
-  return result
+  # If the column already has a schema attached, use that. Otherwise infer the
+  # schema from the underlying tensor.
+  return sch.Schema({
+      name: (column.schema if column.schema
+             else sch.infer_column_schema_from_tensor(column.tensor))
+      for name, column in columns.items()
+  })
 
 
-def make_feed_dict(input_tensors, schema, instance):
+def make_feed_dict(input_tensors, schema, instances):
   """Creates a feed dict for passing data to the graph.
 
-  Converts an instance from the in-memory representation to a batch (of size 1)
+  Converts a list of instances in the in-memory representation to a batch
   suitable for passing to `tf.Session.run`.
 
   Args:
     input_tensors: A map from column names to `Tensor`s or `SparseTensor`s.
-    schema: A map from column names to `FixedLenFeature`, `VarLenFeature` or
-      `SparseFeature` objects.
-    instance: A map from column names to a python primitive, list, or ndarray.
+    schema: A `Schema` object.
+    instances: A list of instances, each of which is a map from column name to a
+      python primitive, list, or ndarray.
 
   Returns:
     A map from `Tensor`s or `SparseTensor`s to batches in the format required by
     `tf.Session.run`.
 
   Raises:
-    ValueError: If `schema` contains an invalid feature spec.
+    ValueError: If `schema` is invalid.
   """
-  def add_batch_dimension_to_indices(indices):
-    """Adds a batch dimension to the indices of a sparse tensor.
+  def make_batch_indices(instance_indices):
+    """Converts a list of instance indices to the corresponding batch indices.
 
-    Takes indices of a sparse tensor representing a single instance, and returns
-    the indices for a sparse tensor where the first (batch) dimension is 1.
+    Given a list of lists representing the indices of N sparse tensors, creates
+    a single list of indices representing the result of concatenating the sparse
+    tensors along the 0'th dimension into a batch of size N.
 
     Args:
-      indices: A list of sparse tensor indices.
+      instance_indices: A list of N lists, each containing the sparse tensor
+        indices for an instance.
 
     Returns:
       A list of indices with a batch dimension prepended.
     """
-    if not indices:
-      # Indices must have shape (?, 2). Therefore if we encounter an empty
-      # sparse tensor, we return an empty ndarray with shape (0, 2).
-      return np.empty([0, 2], dtype=np.int64)
-    else:
-      return [(0, i) for i in indices]
+    batch_indices = list(itertools.chain.from_iterable([
+        [(row_number, index) for index in indices]
+        for row_number, indices in enumerate(instance_indices)
+    ]))
+    # Indices must have shape (?, 2). Therefore if we encounter an empty
+    # batch, we return an empty ndarray with shape (0, 2).
+    return batch_indices if batch_indices else np.empty([0, 2], dtype=np.int64)
+
+  def make_sparse_batch(instance_indices, instance_values, max_index):
+    """Converts a list of sparse instances into a sparse batch.
+
+    Takes lists representing the indices and values of N sparse instances and
+    concatenates them along the 0'th dimension into a sparse batch of size N.
+
+    Args:
+      instance_indices: A list of N lists, each containing the sparse tensor
+        indices for an instance.
+      instance_values: A list of N lists, each containing the sparse tensor
+        values for an instance.
+      max_index: An int representing the maximum index in `instance_indices`.
+
+    Returns:
+      A `SparseTensorValue` representing a batch of N sparse instances.
+    """
+    batch_indices = make_batch_indices(instance_indices)
+    batch_values = list(itertools.chain.from_iterable(instance_values))
+    batch_shape = (len(instance_indices), max_index)
+    return tf.SparseTensorValue(batch_indices, batch_values, batch_shape)
 
   feed_dict = {}
   for key, input_tensor in input_tensors.items():
-    spec = schema[key]
-    # TODO(abrao): Validate dtypes, shapes etc.
-    if isinstance(spec, tf.FixedLenFeature):
-      feed_value = [instance[key]]
-    elif isinstance(spec, tf.VarLenFeature):
-      max_index = len(instance[key])
-      feed_value = tf.SparseTensorValue(
-          indices=add_batch_dimension_to_indices(range(max_index)),
-          values=instance[key],
-          dense_shape=(1, max_index)
-      )
-    elif isinstance(spec, tf.SparseFeature):
-      feed_value = tf.SparseTensorValue(
-          indices=add_batch_dimension_to_indices(instance[spec.index_key]),
-          values=instance[spec.value_key],
-          dense_shape=(1, spec.size)
-      )
+    representation = schema.column_schemas[key].representation
+    if isinstance(representation, sch.FixedColumnRepresentation):
+      feed_value = [instance[key] for instance in instances]
+
+    elif isinstance(representation, sch.ListColumnRepresentation):
+      values = [instance[key] for instance in instances]
+      indices = [range(len(instance[key])) for instance in instances]
+      max_index = max([len(instance[key]) for instance in instances])
+      feed_value = make_sparse_batch(indices, values, max_index)
+
+    elif isinstance(representation, sch.SparseColumnRepresentation):
+      values = [instance[representation.value_field_name]
+                for instance in instances]
+      indices = [instance[representation.index_fields[0].name]
+                 for instance in instances]
+      max_index = schema.column_schemas[key].logical_column.shape.axes[0].size
+      feed_value = make_sparse_batch(indices, values, max_index)
+
     else:
-      raise ValueError('Invalid feature spec %r.' % spec)
+      raise ValueError('Invalid column %r.' % schema.column_schemas[key])
     feed_dict[input_tensor] = feed_value
+
   return feed_dict
 
 
@@ -159,425 +145,262 @@ def make_output_dict(schema, fetches):
   """Maps the values fetched by `tf.Session.run` to the in-memory format.
 
   Args:
-    schema: A map from column names to `FixedLenFeature`, `VarLenFeature` or
-      `SparseFeature` objects.
+    schema: A `Schema` object.
     fetches: A dict representing a batch of data, as returned by `Session.run`.
 
   Returns:
     A map from keys to a python primitive, list or ndarray.
 
   Raises:
-    ValueError: If `schema` contains an invalid feature spec.
+    ValueError: If `schema` is invalid.
   """
-  def remove_batch_dimension_from_indices(indices):
-    """Removes the batch dimension from the indices of a sparse tensor.
-
-    Takes indices for a sparse tensor representing a batch of size 1, and
-    returns indices for a single instance within that batch.
+  def decompose_sparse_batch(sparse_value):
+    """Decomposes a sparse batch into a list of sparse instances.
 
     Args:
-      indices: A list of sparse tensor indices.
+      sparse_value: A `SparseTensorValue` representing a batch of N sparse
+        instances.
 
     Returns:
-      A list of indices with the batch dimension removed.
+      A tuple (instance_indices, instance_values) where the elements are lists
+      of N lists representing the indices and values, respectively, of the
+      instances in the batch.
     """
-    assert all(index[0] == 0 for index in indices), 'Expected batch of size 1.'
-    return [tuple(index)[1] for index in indices]
+    batch_indices, batch_values, batch_shape = sparse_value
+    # Preallocate a list (of lists) of length batch_size representing instances.
+    instance_indices = [[] for _ in range(batch_shape[0])]
+    instance_values = [[] for _ in range(batch_shape[0])]
+    # Iterate over the flat list of batch indices and values and assign them to
+    # the appropriate instance.
+    current_row = -1
+    for index, value in zip(batch_indices, batch_values):
+      row = index[0]
+      column = index[1] if len(index) == 2 else tuple(index[1:])
+      while row > current_row:
+        current_row += 1
+      instance_indices[current_row].append(column)
+      instance_values[current_row].append(value)
+    return instance_indices, instance_values
 
+  # Make a dict where the values are lists with one element per instance.
   output_dict = {}
   for key, value in fetches.items():
-    spec = schema[key]
-    if isinstance(spec, tf.FixedLenFeature):
-      assert len(value) == 1, 'Expected batch of size 1.'
-      output_dict[key] = value[0]
-    elif isinstance(spec, tf.VarLenFeature):
-      if (remove_batch_dimension_from_indices(value.indices) !=
-          range(len(value.values))):
+    representation = schema.column_schemas[key].representation
+    if isinstance(representation, sch.FixedColumnRepresentation):
+      output_dict[key] = [value[i] for i in range(value.shape[0])]
+
+    elif isinstance(representation, sch.ListColumnRepresentation):
+      if not isinstance(value, tf.SparseTensorValue):
+        raise ValueError('Expected a SparseTensorValue, but got %r' % value)
+      instance_indices, instance_values = decompose_sparse_batch(value)
+      if any(indices != range(len(indices)) for indices in instance_indices):
         raise ValueError('Encountered a SparseTensorValue that cannot be '
-                         'decoded as a VarLenFeature.')
-      output_dict[key] = list(value.values)
-    elif isinstance(spec, tf.SparseFeature):
-      output_dict[spec.index_key] = remove_batch_dimension_from_indices(
-          value.indices)
-      output_dict[spec.value_key] = value.values
+                         'decoded by ListColumnRepresentation.')
+      output_dict[key] = instance_values
+
+    elif isinstance(representation, sch.SparseColumnRepresentation):
+      if not isinstance(value, tf.SparseTensorValue):
+        raise ValueError('Expected a SparseTensorValue, but got %r' % value)
+      instance_indices, instance_values = decompose_sparse_batch(value)
+      output_dict[representation.value_field_name] = instance_values
+      output_dict[representation.index_fields[0].name] = instance_indices
+
     else:
-      raise ValueError('Invalid feature spec %r.' % spec)
-  return output_dict
+      raise ValueError('Unhandled column representation: %r.' % representation)
+
+  # Convert dict of lists into a list of dicts
+  return [dict(zip(output_dict, row_values))
+          for row_values in zip(*output_dict.values())]
 
 
-# TODO(b/34253951): remove decompose/recompose once MetaGraphDef supports
-# SparseTensor
-def _decompose_sparse_tensors(tensor_map):
-  """Separates out `SparseTensor`s into their constituent parts.
-
-  Takes a map from column names to `Tensor`s or `SparseTensor`s, and
-  decomposes each `SparseTensor` into its parts, assigning each part a new
-  column name in the returned map.
-
-  Note that there is never any possiblity of name collision, as every column
-  name gets some suffix such as "$values" added to it.  Therefore every expanded
-  name can be uniquely mapped back to the original column name.
-
-  Args:
-    tensor_map: A map from strings to `Tensor`s or `SparseTensor`s.
-
-  Returns:
-    A map from strings to `Tensor`s.
-  """
-  result = {}
-
-  for key, tensor in tensor_map.items():
-    if isinstance(tensor, tf.SparseTensor):
-      result[key + '$indices'] = tensor.indices
-      result[key + '$values'] = tensor.values
-      result[key + '$dense_shape'] = tensor.dense_shape
-    else:
-      result[key + '$dense_tensor'] = tensor
-
-  return result
+def _make_input_columns(schema):
+  """Create input columns based on a `Schema`."""
+  placeholders = schema.as_batched_placeholders()
+  return {
+      # pylint: disable=protected-access
+      key: api._InputColumn(placeholders[key], column_schema)
+      for key, column_schema in schema.column_schemas.items()
+  }
 
 
-def _recompose_sparse_tensors(tensor_map):
-  """Undoes the function _decompose_sparse_tensors."""
-  # TODO(kestert): Add better validation so any malformed input is caught.
-  result = {}
-
-  sparse_keys = set()
-  dense_keys = set()
-  for key in tensor_map.keys():
-    match = _SPARSE_TENSOR_NAME_RE.match(key)
-    if match:
-      sparse_keys.add(match.group(1))
-      continue
-    match = _DENSE_TENSOR_NAME_RE.match(key)
-    if match:
-      dense_keys.add(match.group(1))
-      continue
-    raise ValueError('Unexpected key: %d' % key)
-
-  for key in sparse_keys:
-    result[key] = tf.SparseTensor(tensor_map[key + '$indices'],
-                                  tensor_map[key + '$values'],
-                                  tensor_map[key + '$dense_shape'])
-  for key in dense_keys:
-    result[key] = tensor_map[key + '$dense_tensor']
-
-  return result
-
-
-def _flatten(structure):
-  """Like nest.flatten but can handle dicts with string keys."""
-  def yield_flattened(structure):
-    if nest.is_sequence(structure):
-      for substructure in structure:
-        for element in yield_flattened(substructure):
-          yield element
-    elif isinstance(structure, dict):
-      for key in sorted(structure.keys()):
-        for element in yield_flattened(structure[key]):
-          yield element
-    else:
-      yield structure
-  return list(yield_flattened(structure))
-
-
-def _pack_sequence_as(structure, flat_sequence):
-  """Like nest.pack_sequence_as but can handle dicts with string keys."""
-  flat_sequence_iter = iter(flat_sequence)
-  def unflatten(structure):
-    if nest.is_sequence(structure):
-      return [unflatten(substructure) for substructure in structure]
-    elif isinstance(structure, dict):
-      return {key: unflatten(structure[key])
-              for key in sorted(structure.keys())}
-    else:
-      return flat_sequence_iter.next()
-  return unflatten(structure)
-
-
-class TransformFnDef(object):
-  """An opaque representation of a TransformFn.
-
-  This representation is used directly by test implementations as the
-  type of a TransformFn.  It may also be used by non-test implementations
-  e.g. the beam implementation represents the TransformFn as a PCollection
-  wrapping a TransformFnDef.
-
-  This format should not be relied on and is only for use in
-  make_transform_fn_def and load_transform_fn_def.
-
-  Args:
-    meta_graph_def: The underlying representation of this TransformFn as
-        a MetaGraphDef.
-  """
-
-  def __init__(self, meta_graph_def):
-    self._meta_graph_def = None
-    # We need to serialize the meta_graph_def here since we cannot use a coder
-    # directly due to b/34628545.
-    self._meta_graph_def_str = meta_graph_def.SerializeToString()
-
-  @property
-  def meta_graph_def(self):
-    """Returns the internal representation (don't use outside this module)."""
-    # Lazy initialize the meta_graph_def from its serialized form.
-    if self._meta_graph_def:
-      return self._meta_graph_def
-    else:
-      self._meta_graph_def = meta_graph_pb2.MetaGraphDef()
-      self._meta_graph_def.ParseFromString(self._meta_graph_def_str)
-      return self._meta_graph_def
-
-
-def _generate_constant_tensors(graph_def, tensor_value_mapping):
-  """Converts values to constant tensors, using shape information in a graph.
-
-  Takes a graph_def and a mapping from tensor names to values.  Returns a
-  dictionary of constant tensors that represent these same values but with shape
-  inferred from the shape of the tensors in the graph_def.
-
-  This is done by feeding the values in tensor_value_mapping into the
-  graph defined by the graph_def, and then fetching the same values to obtain
-  a new representation of the values.  This representation contains potentially
-  more shape information than the original values, and is used to construct a
-  constant tensor.
-
-  Args:
-    graph_def: A `GraphDef`.
-    tensor_value_mapping: A map from tensor names to values.
-
-  Returns:
-    A map from tensor names to tf.constant value representing the values in
-        `tensor_value_mapping`.
-  """
-  g = tf.Graph()
-  with g.as_default():
-    names = tensor_value_mapping.keys()
-    tensors = tf.import_graph_def(graph_def, return_elements=names)
-    dtypes = [tensor.dtype for tensor in tensors]
-    with tf.Session(graph=g) as sess:
-      new_values = sess.run(
-          tensors,
-          {tensor: tensor_value_mapping[name]
-           for name, tensor in zip(names, tensors)})
-
-  # In the default graph, construct dict mapping names to constant tensors.
-  return {name: tf.constant(new_value, dtype=dtype)
-          for name, new_value, dtype in zip(names, new_values, dtypes)}
+# Arguments to the constructor of tf.Constant.
+ConstantTensorValue = collections.namedtuple(
+    'ConstantTensorValue', ['value', 'dtype', 'shape'])
 
 
 def replace_tensors_with_constant_values(
-    transform_fn_def, tensor_value_mapping=None):
-  """Takes a TransformFnDef and replaces some tensors with constant values.
+    saved_model_dir, bound_saved_model_dir, input_value_mapping):
+  """Takes a SavedModel and replaces some inputs with constant values.
 
-  Replaces the tensors referenced in `tensor_value_mapping` with the
-  corresponding constants.  These tensors will be replaced in the GraphDef of
-  the MetaGraphDef.  Since this involves deserializing and serializing the
-  graph, the names of some tensors may change.  Thus we also rewrite the
-  signatures in the MetaGraphDef to refer to the new tensor names.
-
-  Only for use with MetaGraphDef's created with
-  export_function_as_meta_graph_def.
-
-  NOTE: The keys in tensor_value_mapping should not overlap with the tensor
-  names of the inputs to the transform function (i.e. the inputs in the
-  signature of transform_fn_def.meta_graph_def).  This would not make sense
-  since that constant would be overridden when the graph was fed by these
-  inputs.
+  Replaces some inputs from the SavedModel with constant tensors constructed
+  based on `tensor_value_mapping`.
 
   Args:
-    transform_fn_def: A `TransformFnDef`.
-    tensor_value_mapping: A map from tensor names to values, which will be
-        replaced in the serialized graph.
+    saved_model_dir: The directory of a SavedModel.
+    bound_saved_model_dir: The directory to which to write the SavedModel with
+       some inputs bound to constants.
+    input_value_mapping: A map from inputs to `ConstantTensorValue`s.
 
   Returns:
-    A TransformFnDef representing the new graph.
+    bound_saved_model_dir
+  """
+  with tf.Graph().as_default():
+    # Create constant tensors representing bound inputs.
+    bound_input_tensors = {
+        key: tf.constant(value.value, value.dtype)
+        for key, value in input_value_mapping.items()
+    }
+    with tf.Session() as session:
+      input_tensors, output_tensors = (
+          saved_transform_io.partially_apply_saved_transform(
+              saved_model_dir, bound_input_tensors))
+      saved_transform_io.write_saved_transform_from_session(
+          session, input_tensors, output_tensors, bound_saved_model_dir)
+  return bound_saved_model_dir
+
+
+def _copy_placeholder(placeholder):
+  """Copies a placeholder to a new graph."""
+  if isinstance(placeholder, tf.SparseTensor):
+    # NOTE: We don't use sparse_placeholder because we want to ensure that the
+    # placeholder we produce is identical to the original tensor.
+    return tf.SparseTensor(
+        indices=_copy_placeholder(placeholder.indices),
+        values=_copy_placeholder(placeholder.values),
+        dense_shape=_copy_placeholder(placeholder.dense_shape))
+  else:
+    if placeholder.op.type != 'Placeholder':
+      raise ValueError(
+          'Attempted to copy a tensor that was not a placeholder: %s'
+          % placeholder.op.type)
+    return tf.placeholder(placeholder.dtype, shape=placeholder.get_shape())
+
+
+def make_transform_fn_def(schema, inputs, outputs, saved_model_dir):
+  """Loads the graph defined by a partial preprocesssing function.
+
+  Creates a SavedModel on disk representing the transform function.  The given
+  input and output columns implicitly define a transformation DAG; this is the
+  function that is written.  The resulting SavedModel requires additional inputs
+  providing analyzer results.  The mapping from these input names to the
+  `_AnalyzerOutput`s will be returned.
+
+  Args:
+    schema: A `Schema` object.
+    inputs: A dict from strings to `Column`s.
+    outputs: A dict from strings to `Column`s.
+    saved_model_dir: The directory where the SavedModel should be stored.
+
+  Returns:
+    A dict from input names in saved model to statistics (`_AnalyzerOutput`s).
 
   Raises:
-    ValueError: When the keys of tensor_value_mapping and the input signature
-        overlap.
+    ValueError: If `schema` and `inputs` do not have the same keys, or if output
+      columns cannot be derived from input columns.
   """
-  old_meta_graph_def = transform_fn_def.meta_graph_def
-  old_signature = old_meta_graph_def.signature_def[
-      _ENCODED_FUNCTION_SIGNATURE_NAME]
+  # Construct the graph, keeping track of tensors for input columns, output
+  # columns, and statistic placeholders.  Note that while each column already
+  # has a tensor, these are only for validation.  We ignore these and construct
+  # a new graph here, because it's easier to construct the subgraph we are
+  # interested in, than to extract it from the graph we already have.
+  input_tensors = {}
+  column_names_to_statistics = {}
+  if sorted(schema.as_feature_spec().keys()) != sorted(inputs.keys()):
+    raise ValueError('Schema and input columns had different keys (%s vs %s).'
+                     % (sorted(schema.as_feature_spec().keys()),
+                        sorted(inputs.keys())))
 
-  # Represent signature as pair of dicts of tensor names.
-  old_signature_dict = {
-      'inputs': {
-          key: tensor_info.name
-          for key, tensor_info in old_signature.inputs.items()
-      },
-      'outputs': {
-          key: tensor_info.name
-          for key, tensor_info in old_signature.outputs.items()
-      }
-  }
+  def get_new_input_column_name():
+    analyzer_idx = 0
+    while True:
+      name = 'analyzer_placeholder_input_column_%d' % analyzer_idx
+      analyzer_idx += 1
+      if name not in input_tensors:
+        return name
 
-  # Check that no input to the transform function will get overridden by a
-  # constant
-  for input_tensor_name in old_signature_dict['inputs'].values():
-    if input_tensor_name in tensor_value_mapping:
-      raise ValueError('The tensor %s appeared both in the input signature to '
-                       'the transform function and in '
-                       'tensor_value_mapping.  This is invalid as '
-                       'overriding an input with a constant would cause that '
-                       'constant to be overridden when the graph was fed.' %
-                       input_tensor_name)
+  cached_column_to_tensor = {}
+  def column_to_tensor(column):
+    """Returns the tensor that represents the given column."""
+    if column in cached_column_to_tensor:
+      return cached_column_to_tensor[column]
 
-  g = tf.Graph()
-  with g.as_default():
-    # Create input map to replace values with a constant tensor.
-    input_map = _generate_constant_tensors(
-        old_meta_graph_def.graph_def, tensor_value_mapping)
+    # pylint: disable=protected-access
+    if isinstance(column, api._AnalyzerOutput):
+      # For analyzer outputs, copy over the placeholder tensor and add the
+      # placeholder to the dict that keeps track of the map between tensors and
+      # analyzer output placeholders.
+      tensor = _copy_placeholder(column.tensor)
+      name = get_new_input_column_name()
+      input_tensors[name] = tensor
+      column_names_to_statistics[name] = column
+    elif isinstance(column,
+                    (api._TransformedColumn, api._TransformedStatistic)):
+      # For transformed columns or statistics, apply the transformation.
+      tensor = column.fn(*[column_to_tensor(input_column)
+                           for input_column in column.inputs])
+    elif isinstance(column, api._InputColumn):
+      raise ValueError('Reached input column that wasn\'t in input dict')
+    # pylint: enable=protected-access
 
-    # Import the graph def, keeping track of how all the tensors referenced in
-    # the signature get (potentially) renamed.  We pack and unpack return
-    # elements since import_graph_def only accepts and returns a list of return
-    # elements.
-    flattened_old_signature = _flatten(old_signature_dict)
-    flattened_new_signature = tf.import_graph_def(
-        old_meta_graph_def.graph_def, input_map=input_map,
-        return_elements=flattened_old_signature)
-    new_signature_dict = _pack_sequence_as(
-        old_signature_dict, flattened_new_signature)
+    cached_column_to_tensor[column] = tensor
+    return tensor
 
-  meta_graph_def = meta_graph_pb2.MetaGraphDef()
-  # Replace graph with new graph that has bound values replaced by constants.
-  meta_graph_def.graph_def.CopyFrom(g.as_graph_def())
-  # Replace old column names in the signature with new column names.  Copy over
-  # old signature because the rest of the `TensorInfo`s in the signature will be
-  # the same.
-  new_signature = meta_graph_def.signature_def[_ENCODED_FUNCTION_SIGNATURE_NAME]
-  new_signature.CopyFrom(old_signature)
-  for key, tensor in new_signature_dict['inputs'].items():
-    new_signature.inputs[key].name = tensor.name
-  for key, tensor in new_signature_dict['outputs'].items():
-    new_signature.outputs[key].name = tensor.name
+  graph = tf.Graph()
+  with graph.as_default():
+    # Input columns form the roots of the graph, and so we need the create them
+    # again from scratch in this new graph.
+    new_input_columns = _make_input_columns(schema)
 
-  return TransformFnDef(meta_graph_def)
+    # Compute placeholder for input columns.
+    input_tensors.update({
+        key: column.placeholder for key, column in new_input_columns.items()
+    })
 
+    # Initialize cache of column tensors with the input columns.
+    cached_column_to_tensor.update({
+        inputs[key]: new_input_columns[key].tensor for key in inputs.keys()
+    })
 
-def make_transform_fn_def(graph, inputs, outputs):
-  """Creates a TransformFnDef representing a graph.
+    # Compute tensors representing output columns.  As a side effect this will
+    # populate column_names_to_statistics with all placeholders for
+    # `_AnalyzerOutputs` that are parents of outputs, and also augment
+    # input_tensors
+    output_tensors = {key: column_to_tensor(column)
+                      for key, column in outputs.items()}
 
-  Exports a function, represented as a graph with input and output tensors, as
-  a TransformFnDef.  The arguments are a graph, together with a dictionary
-  mapping input names to tensors in the graph, and output names to tensors in
-  the graph, where tensors may be `Tensor`s or `SparseTensor`s.
+    with tf.Session() as session:
+      saved_transform_io.write_saved_transform_from_session(
+          session, input_tensors, output_tensors, saved_model_dir)
 
-  This function creates a MetaGraphDef that encodes the transform function.
-  The MetaGraphDef contains the serialized graph as its graph_def and also
-  a signature which maps the input and output columns to tensors in the graph.
-  Because MetaGraphDef doesn't have native support for sparse tensors, we
-  rely on a naming convention to encode sparse tensors in the input/output
-  signatures.
-
-  Args:
-    graph: The `Graph` containing the function.
-    inputs: A dict from strings to `Tensor`s or `SparseTensor`s representing
-        the inputs to the function.
-    outputs: A dict from strings to `Tensor`s or `SparseTensor`s representing
-        the outputs of the function.
-
-  Returns:
-    A TransformFnDef containing the serialized graph and the signature for
-    the function.
-  """
-  meta_graph_def = meta_graph_pb2.MetaGraphDef()
-
-  # Serialize the graph
-  meta_graph_def.graph_def.CopyFrom(graph.as_graph_def())
-
-  # Encode the inputs and outputs of the graph in a signature
-  signature = meta_graph_def.signature_def[_ENCODED_FUNCTION_SIGNATURE_NAME]
-  signature.method_name = _ENCODED_FUNCTION_SIGNATURE_NAME
-  for tensor_info_map, tensor_map in [(signature.inputs, inputs),
-                                      (signature.outputs, outputs)]:
-    for key, tensor in _decompose_sparse_tensors(tensor_map).items():
-      tensor_info_map[key].name = tensor.name
-      tensor_info_map[key].dtype = tensor.dtype.as_datatype_enum
-      tensor_info_map[key].tensor_shape.CopyFrom(tensor.get_shape().as_proto())
-
-  return TransformFnDef(meta_graph_def)
+  return column_names_to_statistics
 
 
-def apply_transform_fn_def(transform_fn_def, inputs):
-  """Loads a TransformFnDef into a graph.
-
-  Args:
-    transform_fn_def: A representation of the preprocessing graph as a
-        TransformFnDef.
-    inputs: A dict whose keys are the names of the input columns, and whose
-        values are `Tensor`s or `SparseTensor`s representing these columns.
-
-  Returns:
-    A dict whose keys are output column names and whose values are `Tensor`s or
-    `SparseTensor`s representing these columns.
-  """
-  meta_graph_def = transform_fn_def.meta_graph_def
-  signature = meta_graph_def.signature_def[
-      _ENCODED_FUNCTION_SIGNATURE_NAME]
-
-  # Build an input_map which maps tensor names in the meta_graph_def, to tensors
-  # in the graph, as specified by `inputs`.
-  input_map = {}
-  for key, tensor in _decompose_sparse_tensors(inputs).items():
-    input_map[signature.inputs[key].name] = tensor
-
-  # Import the preprocessing graph, building a map from the column names in the
-  # meta_graph_def to the tensors in the graph.  There will still be three
-  # column names for each sparse tensor.  We pack and unpack return_elements
-  # since import_graph_def only accepts and returns a list of return elements.
-  output_column_names = {
-      key: tensor_info.name for key, tensor_info in signature.outputs.items()
-  }
-  flattened_output_column_names = _flatten(output_column_names)
-  flattened_output_column_tensors = tf.import_graph_def(
-      meta_graph_def.graph_def, input_map=input_map,
-      return_elements=flattened_output_column_names)
-  output_column_tensors = _pack_sequence_as(
-      output_column_names, flattened_output_column_tensors)
-  # Merge columns that represent sparse tensors.
-  return _recompose_sparse_tensors(output_column_tensors)
-
-
-def load_transform_fn_def(transform_fn_def):
+def load_transform_fn_def(saved_model_dir):
   """Loads a TransformFnDef into a graph.
 
   Similar to apply_transform_fn_def except it loads input placeholders and
   returns a column to tensor mapping for inputs.
 
   Args:
-    transform_fn_def: A representation of the preprocessing graph as a
-        TransformFnDef.
+    saved_model_dir: The location of the SavedModel.
 
   Returns:
     A pair of dicts, for inputs and outputs, whose keys are column names and
     whose values are `Tensor`s or `SparseTensor`s representing these columns.
   """
-  meta_graph_def = transform_fn_def.meta_graph_def
-  signature = meta_graph_def.signature_def[
-      _ENCODED_FUNCTION_SIGNATURE_NAME]
-
-  # Construct placeholders for input columns.  We don't load the original
-  # placeholders because doing so causes the loaded graph to lose all tensor
-  # shape information.
-  inputs = _recompose_sparse_tensors({
-      key: tf.placeholder(tensor_info.dtype, tensor_info.tensor_shape)
-      for key, tensor_info in signature.inputs.items()})
-
-  return (inputs, apply_transform_fn_def(transform_fn_def, inputs))
+  with tf.Session():
+    return saved_transform_io.partially_apply_saved_transform(
+        saved_model_dir, {})
 
 
-def run_preprocessing_fn(preprocessing_fn, schema, graph):
-  """Constructs the preprocessing graph.
+def run_preprocessing_fn(preprocessing_fn, schema):
+  """Runs the user-defined preprocessing function, returning a DAG of columns.
 
   Args:
     preprocessing_fn: A function that takes a dict of `Column`s as input and
       returns a dict of `Column`s as output.
     schema: A dict mapping column names to `tf.FixedLenFeature`,
       `tf.VarLenFeature` or `tf.SparseFeature` objects.
-    graph: A `tf.Graph` object.
 
   Returns:
     A tuple of input columns and output columns.
@@ -585,34 +408,12 @@ def run_preprocessing_fn(preprocessing_fn, schema, graph):
   Raises:
     ValueError: If `schema` contains unsupported feature types.
   """
-  for key, feature_spec in schema.items():
-    if not isinstance(feature_spec, (tf.VarLenFeature, tf.SparseFeature,
-                                     tf.FixedLenFeature)):
-      raise ValueError('Invalid type for column "%r". Was expecting one of: '
-                       '(tf.FixedLenFeature, tf.VarLenFeature, '
-                       'tf.SparseFeature) but got: %r' % (key, feature_spec))
-
+  # Run the preprocessing function, which will construct a TF graph for the
+  # purpose of validation.  The graphs used for computation will be built from
+  # the DAG of columns in make_transform_fn_def.
+  graph = tf.Graph()
   with graph.as_default():
-    inputs = {}
-    # Given the schema, we need to construct the tensors that we expect to be
-    # fed at runtime. To do this we rely on the canonical implementation, namely
-    # parse_example, which takes a dict of feature specs and returns a dict of
-    # tensors with dtypes and shapes corresponding to a batch of data. We then
-    # use this information to construct appropriate placeholders. Note: the
-    # tensors output by parse_examples are only used for their type information
-    # and never actually wired into the graph, therefore the parse_example op
-    # will not get executed.
-    batched_tensors = tf.parse_example(tf.placeholder(tf.string), schema)
-    for key, tensor in batched_tensors.items():
-      if isinstance(tensor, tf.SparseTensor):
-        # TODO(abrao): Figure out how to create sparse placeholders with
-        # partially known shapes such as (None, None). For now we allow values
-        # of any shape to be fed.
-        placeholder = tf.sparse_placeholder(tensor.dtype, None)
-      else:
-        placeholder = tf.placeholder(tensor.dtype, tensor.get_shape())
-      # pylint: disable=protected-access
-      inputs[key] = api._InputColumn(placeholder, key)
+    inputs = _make_input_columns(schema)
 
     # Construct the deferred preprocessing graph by calling preprocessing_fn on
     # the inputs.

@@ -25,7 +25,7 @@ class SchemaIOvTest(version_api.SchemaIO):
 
   def write(self, schema, path):
     with open(path + ".test", "w") as f:
-      f.write("\n".join(schema.features.keys()))
+      f.write("\n".join(schema.column_schemas.keys()))
 
   def read(self, path):
     with open(path + ".test") as f:
@@ -35,7 +35,8 @@ class SchemaIOvTest(version_api.SchemaIO):
 
 class TestSchema(dataset_schema.Schema):
 
-  def __init__(self, feature_names):
-    self._features = {feature_name: "Bogus FeatureSchema for %s" % feature_name
-                      for feature_name in feature_names}
+  def __new__(cls, feature_names):
+    features = {feature_name: "Bogus FeatureSchema for %s" % feature_name
+                for feature_name in feature_names}
+    return super(TestSchema, cls).__new__(cls, features)
 

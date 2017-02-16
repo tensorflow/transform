@@ -17,15 +17,19 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+
 
 import numpy as np
 import tensorflow as tf
+from tensorflow_transform import analyzers
 from tensorflow_transform import api
 from tensorflow_transform import impl_helper
+from tensorflow_transform import mappers
+from tensorflow_transform.saved import saved_transform_io
+from tensorflow_transform.tf_metadata import dataset_schema as sch
 
 import unittest
-from tensorflow.core.protobuf import meta_graph_pb2
-
 from tensorflow.python.framework import test_util
 
 
@@ -44,27 +48,39 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     self.assertAllEqual(a.values, b.values)
     self.assertAllEqual(a.dense_shape, b.dense_shape)
 
+  def toSchema(self, feature_spec):
+    return sch.from_feature_spec(feature_spec)
+
   def testInferFeatureSchema(self):
-    tensors = {
-        'a': tf.placeholder(tf.float32, (None,)),
-        'b': tf.placeholder(tf.string, (1, 2, 3)),
-        'c': tf.placeholder(tf.float32),
+    columns = {
+        'a': api._InputColumn(tf.placeholder(tf.float32, (None,)), None),
+        'b': api._InputColumn(tf.placeholder(tf.string, (1, 2, 3)), None),
+        'c': api._InputColumn(tf.placeholder(tf.int64, None), None)
     }
-    feature_spec = impl_helper.infer_feature_schema(tensors)
-    self.assertEqual(sorted(feature_spec.keys()), ['a', 'b', 'c'])
-    self.assertEqual(feature_spec['a'].dtype, tf.float32)
-    self.assertEqual(feature_spec['a'].shape, ())
-    self.assertEqual(feature_spec['b'].dtype, tf.string)
-    self.assertEqual(feature_spec['b'].shape, (2, 3))
-    self.assertEqual(feature_spec['c'].dtype, tf.float32)
-    self.assertEqual(feature_spec['c'].shape, None)
+    schema = impl_helper.infer_feature_schema(columns)
+    expected_schema = sch.Schema(column_schemas={
+        'a': sch.ColumnSchema(
+            sch.LogicalColumnSchema(sch.dtype_to_domain(tf.float32),
+                                    sch.LogicalShape([])),
+            sch.FixedColumnRepresentation()),
+        'b': sch.ColumnSchema(
+            sch.LogicalColumnSchema(sch.dtype_to_domain(tf.string),
+                                    sch.LogicalShape([sch.Axis(2),
+                                                      sch.Axis(3)])),
+            sch.FixedColumnRepresentation()),
+        'c': sch.ColumnSchema(
+            sch.LogicalColumnSchema(sch.dtype_to_domain(tf.int64),
+                                    sch.LogicalShape(None)),
+            sch.FixedColumnRepresentation())
+    })
+    self.assertEqual(schema, expected_schema)
 
   def testInferFeatureSchemaBadRank(self):
-    tensors = {
-        'a': tf.placeholder(tf.float32, ()),
+    columns = {
+        'a': api._InputColumn(tf.placeholder(tf.float32, ()), None),
     }
     with self.assertRaises(ValueError):
-      _ = impl_helper.infer_feature_schema(tensors)
+      _ = impl_helper.infer_feature_schema(columns)
 
   def testMakeFeedDict(self):
     tensors = {
@@ -73,41 +89,50 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         'c': tf.sparse_placeholder(tf.string),
         'd': tf.sparse_placeholder(tf.float32)
     }
-    schema = {
-        'a': tf.FixedLenFeature([1], tf.int64),
+    schema = self.toSchema({
+        'a': tf.FixedLenFeature(None, tf.int64),
         'b': tf.FixedLenFeature([2, 2], tf.float32),
         'c': tf.VarLenFeature(tf.string),
         'd': tf.SparseFeature('idx', 'val', tf.float32, 10)
-    }
+    })
 
     # Feed some dense and sparse values.
-    instance = {
+    instances = [{
         'a': 100,
         'b': [[1.0, 2.0], [3.0, 4.0]],
         'c': ['doe', 'a', 'deer'],
         'idx': [2, 4, 8],
         'val': [10.0, 20.0, 30.0]
-    }
-    feed_dict = impl_helper.make_feed_dict(tensors, schema, instance)
+    }, {
+        'a': 100,
+        'b': [[5.0, 6.0], [7.0, 8.0]],
+        'c': ['a', 'female', 'deer'],
+        'idx': [],
+        'val': []
+    }]
+
+    feed_dict = impl_helper.make_feed_dict(tensors, schema, instances)
     self.assertSetEqual(set(feed_dict.keys()), set(tensors.values()))
-    self.assertEqual(feed_dict[tensors['a']], [100])
-    self.assertEqual(feed_dict[tensors['b']], [[[1.0, 2.0], [3.0, 4.0]]])
+    self.assertAllEqual(feed_dict[tensors['a']], [100, 100])
+    self.assertAllEqual(feed_dict[tensors['b']], [[[1.0, 2.0], [3.0, 4.0]],
+                                                  [[5.0, 6.0], [7.0, 8.0]]])
     self.assertSparseValuesEqual(feed_dict[tensors['c']], tf.SparseTensorValue(
-        indices=[(0, 0), (0, 1), (0, 2)], values=['doe', 'a', 'deer'],
-        dense_shape=(1, 3)))
+        indices=[(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)],
+        values=['doe', 'a', 'deer', 'a', 'female', 'deer'],
+        dense_shape=(2, 3)))
     self.assertSparseValuesEqual(feed_dict[tensors['d']], tf.SparseTensorValue(
         indices=[(0, 2), (0, 4), (0, 8)], values=[10.0, 20.0, 30.0],
-        dense_shape=(1, 10)))
+        dense_shape=(2, 10)))
 
     # Feed some empty sparse values
-    instance = {
+    instances = [{
         'a': 100,
         'b': [[1.0, 2.0], [3.0, 4.0]],
         'c': [],
         'idx': [],
         'val': []
-    }
-    feed_dict = impl_helper.make_feed_dict(tensors, schema, instance)
+    }]
+    feed_dict = impl_helper.make_feed_dict(tensors, schema, instances)
     self.assertSparseValuesEqual(feed_dict[tensors['c']], tf.SparseTensorValue(
         indices=np.empty([0, 2], np.int64), values=[], dense_shape=(1, 0)))
     self.assertSparseValuesEqual(feed_dict[tensors['d']], tf.SparseTensorValue(
@@ -119,44 +144,51 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         'a': tf.placeholder(tf.int64),
         'b': tf.placeholder(tf.int64)
     }
-    schema = {
+    schema = self.toSchema({
         'a': tf.FixedLenFeature([1], tf.int64),
         'b': tf.FixedLenFeature([1], tf.int64)
-    }
-    instance = {'a': 100}
+    })
+    instances = [{'a': 100}]
     with self.assertRaises(KeyError):
-      _ = impl_helper.make_feed_dict(tensors, schema, instance)
+      _ = impl_helper.make_feed_dict(tensors, schema, instances)
 
   def testMakeOutputDict(self):
-    schema = {
-        'a': tf.FixedLenFeature([1], tf.int64),
+    schema = self.toSchema({
+        'a': tf.FixedLenFeature(None, tf.int64),
         'b': tf.FixedLenFeature([2, 2], tf.float32),
         'c': tf.VarLenFeature(tf.string),
         'd': tf.SparseFeature('idx', 'val', tf.float32, 10)
-    }
+    })
 
     fetches = {
-        'a': [100],
-        'b': [[[1.0, 2.0], [3.0, 4.0]]],
-        'c': tf.SparseTensorValue(indices=[(0, 0), (0, 1), (0, 2)],
-                                  values=['doe', 'a', 'deer'],
-                                  dense_shape=(1, 3)),
+        'a': np.asarray([100, 200]),
+        'b': np.asarray([[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]),
+        'c': tf.SparseTensorValue(
+            indices=[(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)],
+            values=['doe', 'a', 'deer', 'a', 'female', 'deer'],
+            dense_shape=(2, 3)),
         'd': tf.SparseTensorValue(indices=[(0, 2), (0, 4), (0, 8)],
                                   values=[10.0, 20.0, 30.0],
-                                  dense_shape=(1, 20))
+                                  dense_shape=(2, 20))
     }
-    output_dict = impl_helper.make_output_dict(schema, fetches)
-    self.assertSetEqual(set(output_dict.keys()),
+    output_dicts = impl_helper.make_output_dict(schema, fetches)
+    self.assertEqual(2, len(output_dicts))
+    self.assertSetEqual(set(output_dicts[0].keys()),
                         set(['a', 'b', 'c', 'idx', 'val']))
-    self.assertEqual(output_dict['a'], 100)
-    self.assertEqual(output_dict['b'], [[1.0, 2.0], [3.0, 4.0]])
-    self.assertEqual(output_dict['c'], ['doe', 'a', 'deer'])
-    self.assertEqual(output_dict['idx'], [2, 4, 8])
-    self.assertEqual(output_dict['val'], [10.0, 20.0, 30.0])
+    self.assertAllEqual(output_dicts[0]['a'], 100)
+    self.assertAllEqual(output_dicts[0]['b'], [[1.0, 2.0], [3.0, 4.0]])
+    self.assertAllEqual(output_dicts[0]['c'], ['doe', 'a', 'deer'])
+    self.assertAllEqual(output_dicts[0]['idx'], [2, 4, 8])
+    self.assertAllEqual(output_dicts[0]['val'], [10.0, 20.0, 30.0])
+    self.assertAllEqual(output_dicts[1]['a'], 200)
+    self.assertAllEqual(output_dicts[1]['b'], [[5.0, 6.0], [7.0, 8.0]])
+    self.assertAllEqual(output_dicts[1]['c'], ['a', 'female', 'deer'])
+    self.assertAllEqual(output_dicts[1]['idx'], [])
+    self.assertAllEqual(output_dicts[1]['val'], [])
 
   def testMakeOutputDictError(self):
     # SparseTensor that cannot be represented as VarLenFeature.
-    schema = {'a': tf.VarLenFeature(tf.string)}
+    schema = self.toSchema({'a': tf.VarLenFeature(tf.string)})
     fetches = {
         'a': tf.SparseTensorValue(indices=[(0, 2), (0, 4), (0, 8)],
                                   values=[10.0, 20.0, 30.0],
@@ -167,21 +199,29 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
 
   def testImportAndExportDense(self):
     # Export the function "z = x * y + x + y"
-    g = tf.Graph()
-    with g.as_default():
-      x = tf.placeholder(tf.float32, ())
-      y = tf.placeholder(tf.float32, ())
-      z = x * y + x + y
-    transform_fn_def = impl_helper.make_transform_fn_def(
-        g, {'x': x, 'y': y}, {'z': z})
+    def preprocessing_fn(inputs):
+      return {
+          'z': api.map(lambda x, y: x * y + x + y,
+                       inputs['x'], inputs['y'])
+      }
+    input_schema = self.toSchema({
+        'x': tf.FixedLenFeature((), tf.float32),
+        'y': tf.FixedLenFeature((), tf.float32)
+    })
+
+    inputs, outputs = impl_helper.run_preprocessing_fn(
+        preprocessing_fn, input_schema)
+    saved_model_dir = os.path.join(self.get_temp_dir(), 'dense')
+    _ = impl_helper.make_transform_fn_def(
+        input_schema, inputs, outputs, saved_model_dir)
 
     # Import the function, applying it to constants for x and y.
     g = tf.Graph()
     with g.as_default():
-      x = tf.constant(5, tf.float32)
-      y = tf.constant(6, tf.float32)
-      outputs = impl_helper.apply_transform_fn_def(
-          transform_fn_def, {'x': x, 'y': y})
+      x = tf.constant(5, tf.float32, (1,))
+      y = tf.constant(6, tf.float32, (1,))
+      outputs = saved_transform_io.apply_saved_transform(
+          saved_model_dir, {'x': x, 'y': y})
       z = outputs['z']
 
       sess = tf.Session()
@@ -193,7 +233,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     g = tf.Graph()
     with g.as_default():
       inputs, outputs = impl_helper.load_transform_fn_def(
-          transform_fn_def)
+          saved_model_dir)
       x = inputs['x']
       y = inputs['y']
       z = outputs['z']
@@ -201,17 +241,24 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
       sess = tf.Session()
       with sess.as_default():
         # Check result is 5 * 6 + 5 + 6 = 41.
-        self.assertEqual(41, sess.run(z, {x: 5, y: 6}))
+        self.assertEqual(41, sess.run(z, {x: [5], y: [6]}))
 
   def testImportAndExportSparse(self):
     # Export the function "z = x + y"
-    g = tf.Graph()
-    with g.as_default():
-      x = tf.sparse_placeholder(tf.float32)
-      y = tf.sparse_placeholder(tf.float32)
-      z = tf.sparse_add(x, y)
-    transform_fn_def = impl_helper.make_transform_fn_def(
-        g, {'x': x, 'y': y}, {'z': z})
+    def preprocessing_fn(inputs):
+      return {
+          'z': api.map(tf.sparse_add, inputs['x'], inputs['y'])
+      }
+    input_schema = self.toSchema({
+        'x': tf.VarLenFeature(tf.float32),
+        'y': tf.VarLenFeature(tf.float32)
+    })
+
+    inputs, outputs = impl_helper.run_preprocessing_fn(
+        preprocessing_fn, input_schema)
+    saved_model_dir = os.path.join(self.get_temp_dir(), 'sparse')
+    _ = impl_helper.make_transform_fn_def(
+        input_schema, inputs, outputs, saved_model_dir)
 
     # Import the function, applying it to constants for x and y.
     g = tf.Graph()
@@ -224,8 +271,8 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
           indices=[[0]],
           values=tf.constant(6, shape=(1,), dtype=tf.float32),
           dense_shape=[1])
-      outputs = impl_helper.apply_transform_fn_def(
-          transform_fn_def, {'x': x, 'y': y})
+      outputs = saved_transform_io.apply_saved_transform(
+          saved_model_dir, {'x': x, 'y': y})
       z = outputs['z']
 
       sess = tf.Session()
@@ -237,22 +284,43 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         self.assertEqual(result.dense_shape, [1])
 
   def testImportAndExportWithTensorValueMapping(self):
-    # Export the function "z = x * y + x + y" with y replaced by 6.
+    # Export the function "z = x * min(y) + x + min(y)" with min(y) replaced by
+    # 6.
+    def preprocessing_fn(inputs):
+      return {
+          'z': api.map(lambda x, y: x * y + x + y,
+                       inputs['x'], analyzers.min(inputs['y']))
+      }
+    input_schema = self.toSchema({
+        'x': tf.FixedLenFeature((), tf.float32),
+        'y': tf.FixedLenFeature((), tf.float32)
+    })
+
+    inputs, outputs = impl_helper.run_preprocessing_fn(
+        preprocessing_fn, input_schema)
+    saved_model_dir = os.path.join(self.get_temp_dir(), 'replace_original')
+    input_columns_to_statistics = impl_helper.make_transform_fn_def(
+        input_schema, inputs, outputs, saved_model_dir)
+    self.assertEqual(len(input_columns_to_statistics.keys()), 1)
+    y_min_input_name = input_columns_to_statistics.keys()[0]
+
     g = tf.Graph()
     with g.as_default():
       x = tf.placeholder(tf.float32, ())
       y = tf.placeholder(tf.float32, ())
       z = x * y + x + y
-    transform_fn_def = impl_helper.replace_tensors_with_constant_values(
-        impl_helper.make_transform_fn_def(g, {'x': x}, {'z': z}),
-        tensor_value_mapping={y.name: 6})
+    new_saved_model_dir = os.path.join(self.get_temp_dir(), 'replace_new')
+    impl_helper.replace_tensors_with_constant_values(
+        saved_model_dir, new_saved_model_dir,
+        {y_min_input_name: impl_helper.ConstantTensorValue(6, tf.float32, ())})
 
     # Import the function, applying it to constants for x and y.
     g = tf.Graph()
     with g.as_default():
-      x = tf.constant(5, tf.float32)
-      outputs = impl_helper.apply_transform_fn_def(
-          transform_fn_def, {'x': x})
+      x = tf.constant(5, tf.float32, (1,))
+      y = tf.constant(1000, tf.float32, (1,))  #  Value is never used.
+      outputs = saved_transform_io.apply_saved_transform(
+          new_saved_model_dir, {'x': x, 'y': y})
       z = outputs['z']
 
       sess = tf.Session()
@@ -261,22 +329,21 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         self.assertEqual(41, z.eval())
 
   def testRunTransformFn(self):
-    schema = {
+    schema = self.toSchema({
         'dense_1': tf.FixedLenFeature((), tf.float32),
         'dense_2': tf.FixedLenFeature((1, 2), tf.int64),
         'var_len': tf.VarLenFeature(tf.string),
         'sparse': tf.SparseFeature('ix', 'val', tf.float32, 100)
-    }
+    })
     def preprocessing_fn(inputs):
       return {
-          'dense_out': api.scale_to_0_1(inputs['dense_1']),
-          'sparse_out': api.transform(lambda x: tf.sparse_reshape(x, (1, 10)),
-                                      inputs['sparse'])
+          'dense_out': mappers.scale_to_0_1(inputs['dense_1']),
+          'sparse_out': api.map(lambda x: tf.sparse_reshape(x, (1, 10)),
+                                inputs['sparse'])
       }
 
-    graph = tf.Graph()
     inputs, outputs = impl_helper.run_preprocessing_fn(
-        preprocessing_fn, schema, graph)
+        preprocessing_fn, schema)
 
     # Verify that the input placeholders have the correct types.
     expected_dtype_and_shape = {
@@ -293,62 +360,18 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
       self.assertEqual(column.tensor.dtype, dtype)
       self.assertShapesEqual(column.tensor.get_shape(), shape)
 
-  def testRunTransformFnBadSchema(self):
-    schema = {
-        'bad': tf.FixedLenSequenceFeature((), tf.float32)
-    }
-    def preprocessing_fn(inputs):
-      return {
-          'bad_out': api.scale_to_0_1(inputs['bad']),
-      }
-
-    # Verify that we raise if the schema has an unsupported feature spec.
-    graph = tf.Graph()
-    with self.assertRaises(ValueError):
-      _ = impl_helper.run_preprocessing_fn(preprocessing_fn, schema, graph)
-
   def testRunTransformFnBadTransform(self):
-    schema = {
+    schema = self.toSchema({
         'x': tf.FixedLenFeature((3,), tf.float32),
-    }
+    })
     def preprocessing_fn(inputs):
       return {
-          'x_sum': api.transform(tf.reduce_sum, inputs['x']),
+          'x_sum': api.map(tf.reduce_sum, inputs['x']),
       }
 
     # Verify that we raise if preprocessing_fn outputs a tensor with rank 0.
-    graph = tf.Graph()
     with self.assertRaises(ValueError):
-      _ = impl_helper.run_preprocessing_fn(preprocessing_fn, schema, graph)
-
-  def testOverridingInputsFails(self):
-    # Export the function "z = x * y + x + y"
-    g = tf.Graph()
-    with g.as_default():
-      x = tf.placeholder(tf.float32, ())
-      y = tf.placeholder(tf.float32, ())
-      z = x * y + x + y
-
-    with self.assertRaises(ValueError):
-      impl_helper.replace_tensors_with_constant_values(
-          impl_helper.make_transform_fn_def(g, {'x': x}, {'z': z}),
-          tensor_value_mapping={x.name: 6})
-
-  def testTransformFnDef(self):
-    # Export the function "z = x * y + x + y"
-    g = tf.Graph()
-    with g.as_default():
-      x = tf.placeholder(tf.float32, ())
-      y = tf.placeholder(tf.float32, ())
-      _ = x * y + x + y
-
-    # Build a metagraph and assert that the serialize / deserialize path works
-    # correctly.
-    meta_graph_def = meta_graph_pb2.MetaGraphDef()
-    meta_graph_def.graph_def.CopyFrom(g.as_graph_def())
-
-    transform_fn_def = impl_helper.TransformFnDef(meta_graph_def)
-    self.assertEqual(meta_graph_def, transform_fn_def.meta_graph_def)
+      _ = impl_helper.run_preprocessing_fn(preprocessing_fn, schema)
 
 
 if __name__ == '__main__':

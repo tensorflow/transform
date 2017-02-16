@@ -30,11 +30,15 @@ class DatasetMetadataDirectory(object):
 
   @property
   def assets_path(self):
-    return os.path.join(self._basepath, "assets")
+    return os.path.join(self._basepath, 'assets')
 
   def version_dir(self, version):
+    if version.version_flavor is not None:
+      version_flavor_dir = version.version_key + '-' + version.version_flavor
+    else:
+      version_flavor_dir = version.version_key
     return DatasetMetadataVersionDirectory(
-        os.path.join(self._basepath, version.version_key))
+        os.path.join(self._basepath, version_flavor_dir))
 
   @property
   def basepath(self):
@@ -52,21 +56,21 @@ class DatasetMetadataVersionDirectory(object):
 
   @property
   def schema_filename(self):
-    return os.path.join(self._basepath, "schema")
+    return os.path.join(self._basepath, 'schema')
 
   @property
   def provenance_filename(self):
-    return os.path.join(self._basepath, "provenance")
+    return os.path.join(self._basepath, 'provenance')
 
   @property
   def statistics_path(self):
-    return os.path.join(self._basepath, "statistics")
+    return os.path.join(self._basepath, 'statistics')
 
   @property
   def anomalies_path(self):
-    return os.path.join(self._basepath, "anomalies")
+    return os.path.join(self._basepath, 'anomalies')
 
   @property
   def problem_statements_path(self):
-    return os.path.join(self._basepath, "problem_statements")
+    return os.path.join(self._basepath, 'problem_statements')
 

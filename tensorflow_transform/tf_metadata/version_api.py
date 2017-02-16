@@ -29,6 +29,7 @@ from tensorflow_transform.tf_metadata import dataset_metadata
 
 class MetadataVersion(collections.namedtuple("MetadataVersion",
                                              ["version_key",
+                                              "version_flavor",
                                               "schema_io",
                                               "statistics_io",
                                               "anomalies_io",

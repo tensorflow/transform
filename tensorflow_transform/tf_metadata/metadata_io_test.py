@@ -28,9 +28,10 @@ from tensorflow_transform.tf_metadata.vtest import schema_io_vtest
 import unittest
 
 
-_VTEST = version_api.MetadataVersion('vTest', schema_io_vtest.SchemaIOvTest(),
+_VTEST = version_api.MetadataVersion('vTest', None,
+                                     schema_io_vtest.SchemaIOvTest(),
                                      None, None, None, None)
-_test_versions = {'test': _VTEST}
+_test_versions = {'test': _VTEST}.items()  # make immutable
 
 
 class DatasetMetadataTest(unittest.TestCase):
@@ -41,16 +42,12 @@ class DatasetMetadataTest(unittest.TestCase):
         ['test_feature_1', 'test_feature_2'])
     original = dataset_metadata.DatasetMetadata(schema=original_schema)
 
-    print(original.schema.features)
-
     metadata_io.write_metadata(original, basedir, versions=_test_versions)
     reloaded = metadata_io.read_metadata(basedir, versions=_test_versions)
 
-    print(reloaded.schema.features)
-
-    self.assertTrue('test_feature_1' in reloaded.schema.features)
-    self.assertTrue('test_feature_2' in reloaded.schema.features)
-    self.assertEqual(2, len(reloaded.schema.features))
+    self.assertTrue('test_feature_1' in reloaded.schema.column_schemas)
+    self.assertTrue('test_feature_2' in reloaded.schema.column_schemas)
+    self.assertEqual(2, len(reloaded.schema.column_schemas))
 
 
 if __name__ == '__main__':

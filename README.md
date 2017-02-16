@@ -9,35 +9,8 @@ to their data as a TensorFlow graph. This is important as the user can then
 incorporate the exported TensorFlow graph into their serving model, thus
 avoiding skew between the served model and the training data.
 
-## tf.Transform Concepts
-
-The most important concept of tf.Transform is the "preprocessing function". This
-is a logical description of a transformation of a dataset. The dataset is
-conceptualized as a dictionary of columns, and the preprocessing function is
-defined by means of two kinds of function:
-
-1) A "transform" which is a function defined using TensorFlow that accepts and
-returns tensors. Such a function is applied to some input columns and generates
-transformed columns. Users define their own transforms by first defining a
-function that operates on tensors, and then applying this to columns using the
-`tf_transform.transform` function.
-
-2) An "analyzer" which is a function that accepts columns and returns a
-"statistic". A statistic is like a column except that it only has a single
-value. An example of an analyzer is `tf_transform.min` which computes the
-minimum of a column. Currently tf.Transform provides a fixed set of analyzers.
-
-By combining analyzers and transforms, users can create arbitrary pipelines for
-transforming their data. In particular, users should define a "preprocessing
-function" which accepts and returns columns.
-
-Columns are not themselves wrappers around data, rather they are placeholders
-used to construct a definition of the user's logical pipeline. In order to apply
-such a pipeline to data, we rely on the implementation. The Apache Beam
-implementation provides `PTransform`s that apply a user's preprocessing function
-to data. The typical workflow of a tf.Transform user will be to construct a
-preprocessing function, and then incorporate this into a large Beam pipeline,
-ultimately materializing the data for training.
+**tf.Transform may introduce backwards incompatible changes before version
+1.0**.
 
 ## Background
 

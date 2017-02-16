@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Init module for TF.Transform."""
+"""Module level imports for tensorflow_transform.beam.io."""
 
-# pylint: disable=wildcard-import
-from tensorflow_transform.analyzers import *
-from tensorflow_transform.api import *
-from tensorflow_transform.mappers import *
-# pylint: enable=wildcard-import
+from tensorflow_transform.beam.io.beam_metadata_io import ReadMetadata
+from tensorflow_transform.beam.io.beam_metadata_io import WriteMetadata
+from tensorflow_transform.beam.io.transform_fn_io import AppendCoderAssets
+from tensorflow_transform.beam.io.transform_fn_io import ReadTransformFn
+from tensorflow_transform.beam.io.transform_fn_io import WriteTransformFn
