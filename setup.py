@@ -25,7 +25,7 @@ def get_required_install_packages():
 
 
 def get_version():
-  return '0.1'
+  return '0.1.0'
 
 
 setup(
