@@ -20,6 +20,8 @@ from __future__ import print_function
 
 import os
 
+import tensorflow as tf
+
 
 class DatasetMetadataDirectory(object):
   """A prescribed directory structure for storing metadata in versioned formats.
@@ -52,7 +54,7 @@ class DatasetMetadataVersionDirectory(object):
     self._basepath = basepath
 
   def create(self):
-    os.makedirs(self._basepath)
+    tf.gfile.MakeDirs(self._basepath)
 
   @property
   def schema_filename(self):

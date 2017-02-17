@@ -53,7 +53,7 @@ def build_parsing_transforming_serving_input_fn(
   def parsing_transforming_serving_input_fn():
     """Serving input_fn that applies transforms to raw data in tf.Examples."""
     raw_input_fn = input_fn_utils.build_parsing_serving_input_fn(
-        raw_serving_feature_spec)
+        raw_serving_feature_spec, default_batch_size=None)
     raw_features, _, inputs = raw_input_fn()
     _, transformed_features = (
         saved_transform_io.partially_apply_saved_transform(

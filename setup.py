@@ -25,17 +25,18 @@ def get_required_install_packages():
 
 
 def get_version():
-  return '0.1.0'
+  return '0.1.1'
 
 
 setup(
     name='tensorflow-transform',
     version=get_version(),
-    author='Google',
+    author='Google Inc.',
     author_email='tf-transform-feedback@google.com',
+    license='Apache 2.0',
     namespace_packages=[],
     install_requires=get_required_install_packages(),
     packages=find_packages(),
     include_package_data=True,
-    description='Tensorflow Transform',
+    description='A library for data preprocessing with TensorFlow',
     requires=[])

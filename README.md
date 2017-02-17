@@ -31,8 +31,8 @@ The easiest way to install tf.Transform is with the PyPI package.
 
 Currently tf.Transform requires that TensorFlow be installed but does not have
 an explicit dependency on TensorFlow as a package. See [TensorFlow
-documentation](https://www.tensorflow.org/get_started/os_setup) for more
-information on installing TensorFlow.
+documentation](https://www.tensorflow.org/install/) for more information on
+installing TensorFlow.
 
 This package depends on the Google Cloud Dataflow distribution of Apache Beam.
 Apache Beam is the package used to run distributed pipelines. Apache Beam is
