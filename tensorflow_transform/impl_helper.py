@@ -25,7 +25,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow_transform import api
 from tensorflow_transform.saved import saved_transform_io
-from tensorflow_transform.tf_metadata import dataset_schema as sch
+from tensorflow_transform.tf_metadata import dataset_schema
 
 
 def infer_feature_schema(columns):
@@ -45,9 +45,9 @@ def infer_feature_schema(columns):
   """
   # If the column already has a schema attached, use that. Otherwise infer the
   # schema from the underlying tensor.
-  return sch.Schema({
+  return dataset_schema.Schema({
       name: (column.schema if column.schema
-             else sch.infer_column_schema_from_tensor(column.tensor))
+             else dataset_schema.infer_column_schema_from_tensor(column.tensor))
       for name, column in columns.items()
   })
 
@@ -117,16 +117,16 @@ def make_feed_dict(input_tensors, schema, instances):
   feed_dict = {}
   for key, input_tensor in input_tensors.items():
     representation = schema.column_schemas[key].representation
-    if isinstance(representation, sch.FixedColumnRepresentation):
+    if isinstance(representation, dataset_schema.FixedColumnRepresentation):
       feed_value = [instance[key] for instance in instances]
 
-    elif isinstance(representation, sch.ListColumnRepresentation):
+    elif isinstance(representation, dataset_schema.ListColumnRepresentation):
       values = [instance[key] for instance in instances]
       indices = [range(len(instance[key])) for instance in instances]
       max_index = max([len(instance[key]) for instance in instances])
       feed_value = make_sparse_batch(indices, values, max_index)
 
-    elif isinstance(representation, sch.SparseColumnRepresentation):
+    elif isinstance(representation, dataset_schema.SparseColumnRepresentation):
       values = [instance[representation.value_field_name]
                 for instance in instances]
       indices = [instance[representation.index_fields[0].name]
@@ -186,10 +186,10 @@ def make_output_dict(schema, fetches):
   output_dict = {}
   for key, value in fetches.items():
     representation = schema.column_schemas[key].representation
-    if isinstance(representation, sch.FixedColumnRepresentation):
+    if isinstance(representation, dataset_schema.FixedColumnRepresentation):
       output_dict[key] = [value[i] for i in range(value.shape[0])]
 
-    elif isinstance(representation, sch.ListColumnRepresentation):
+    elif isinstance(representation, dataset_schema.ListColumnRepresentation):
       if not isinstance(value, tf.SparseTensorValue):
         raise ValueError('Expected a SparseTensorValue, but got %r' % value)
       instance_indices, instance_values = decompose_sparse_batch(value)
@@ -198,7 +198,7 @@ def make_output_dict(schema, fetches):
                          'decoded by ListColumnRepresentation.')
       output_dict[key] = instance_values
 
-    elif isinstance(representation, sch.SparseColumnRepresentation):
+    elif isinstance(representation, dataset_schema.SparseColumnRepresentation):
       if not isinstance(value, tf.SparseTensorValue):
         raise ValueError('Expected a SparseTensorValue, but got %r' % value)
       instance_indices, instance_values = decompose_sparse_batch(value)

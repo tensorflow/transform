@@ -20,12 +20,21 @@ from setuptools import setup
 
 def get_required_install_packages():
   return [
+      # We force a specific version of dill, as dill is used to serialize code
+      # when sent to services.  By specifying a specific dill version here,
+      # we ensure that everyone has the same version of dill installed, provided
+      # all install the same version of tensorflow-transform.
+      'dill == 0.2.5',
+
+
+      # Using >= for better integration tests. During release this is
+      # automatically changed to a ==.
       'google-cloud-dataflow == 0.5.5',
   ]
 
 
 def get_version():
-  return '0.1.1'
+  return '0.1.4'
 
 
 setup(

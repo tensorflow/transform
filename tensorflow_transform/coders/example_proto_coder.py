@@ -20,9 +20,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
+
 
 import numpy as np
 import tensorflow as tf
+
+from google.protobuf.internal import api_implementation
 
 
 def _make_cast_fn(np_dtype):
@@ -36,31 +40,49 @@ def _make_cast_fn(np_dtype):
   Returns:
     A function to extract the value field from a string depending on dtype.
   """
+  # There seems to be a great degree of variability for handling automatic
+  # conversions across types and across API implementation of the Python
+  # protocol buffer library.
+  #
+  # For the 'python' implementation we need to always "cast" from np types to
+  # the appropriate Python type.
+  #
+  # For the 'cpp' implementation we need to only "cast" from np types to the
+  # appropriate Python type for "Float" types, but only for protobuf < 3.2.0
 
-  def _float_cast_fn(x):
+  def cast_fn(x, caster):
     if isinstance(x, (np.generic, np.ndarray)):
       # This works for both np.generic and np.array (of any shape).
       return x.tolist()
     elif isinstance(x, list):
       # This works for python list which might contain np.generic values.
-      return map(float, x)
+      #
+      return map(caster, x)
     else:
       # This works for python scalars, which require no casting.
       return x
 
+  def identity_fn(x):
+    return x
+
   if issubclass(np_dtype, np.floating):
-    # Attempt to append to a FloatList. Success indicates that the proto library
-    # installed can handle the numpy conversions properly, while a TypeError
-    # indicates we need more work on our part. Interestingly non-float types
-    # seem to convert properly even for old versions of the proto library.
     try:
       float_list = tf.train.FloatList()
-      float_list.value.append(np.float32(0.1))  # Any dummy value will do.
-      return lambda x: x
+      float_list.value.append(np.float32(0.1))     # Any dummy value will do.
+      float_list.value.extend(np.array(0.1, 0.2))  # Any dummy values will do.
+      return identity_fn
     except TypeError:
-      return _float_cast_fn
+      return functools.partial(cast_fn, caster=float)
+  elif issubclass(np_dtype, np.integer):
+    try:
+      int64_list = tf.train.Int64List()
+      int64_list.value.append(np.int64(1))     # Any dummy value will do.
+      int64_list.value.extend(np.array(1, 2))  # Any dummy values will do.
+      return identity_fn
+    except TypeError:
+      return functools.partial(cast_fn, caster=long)
   else:
-    return lambda x: x
+    return identity_fn
 
 
 def _make_feature_value_fn(dtype):
@@ -247,7 +269,8 @@ class ExampleProtoCoder(object):
 
   def encode(self, instance):
     """Encode a tf.transform encoded dict as serialized tf.Example."""
-    if self._encode_example_cache is None:
+    if (self._encode_example_cache is None or
+        api_implementation.Type() == 'python'):
       # Initialize the encode Example cache (used by this and all subsequent
       # calls).
       example = tf.train.Example()

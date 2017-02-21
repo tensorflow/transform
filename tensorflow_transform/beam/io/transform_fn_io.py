@@ -91,7 +91,7 @@ class WriteTransformFn(beam.PTransform):
     def safe_copy_tree(source, dest):
       if source == dest:
         raise ValueError('Cannot write a TransformFn to its current location.')
-      fileio.ChannelFactory.copytree(source, dest)
+      fileio.ChannelFactory.copytree(source + '/', dest + '/')
     _ = metadata | 'WriteMetadata' >> beam_metadata_io.WriteMetadata(
         os.path.join(self._path, 'transformed_metadata'),
         pipeline=saved_model_dir_pcoll.pipeline)

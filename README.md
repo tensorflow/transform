@@ -27,7 +27,7 @@ over the data.
 
 The easiest way to install tf.Transform is with the PyPI package.
 
-`pip install tensorflow_transform`
+`pip install tensorflow-transform`
 
 Currently tf.Transform requires that TensorFlow be installed but does not have
 an explicit dependency on TensorFlow as a package. See [TensorFlow

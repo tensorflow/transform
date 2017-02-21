@@ -17,15 +17,29 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
 import pickle
+import sys
+
+# Note that this needs to happen before any non-python imports, so we do it
+# pretty early on.
+if any(arg == '--proto_implementation_type=python' for arg in sys.argv):
+  os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
+elif any(arg == '--proto_implementation_type=cpp' for arg in sys.argv):
+  os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'cpp'
+elif any(arg.startswith('--proto_implementation_type') for arg in sys.argv):
+  raise ValueError('Unexpected value for --proto_implementation_type')
+
 import numpy as np
 import tensorflow as tf
 
 from tensorflow_transform.coders import example_proto_coder
 from tensorflow_transform.tf_metadata import dataset_schema
 
+from google.protobuf.internal import api_implementation
 from google.protobuf import text_format
 import unittest
+
 
 
 class ExampleProtoCoderTest(unittest.TestCase):
@@ -39,6 +53,7 @@ class ExampleProtoCoderTest(unittest.TestCase):
       'varlen_feature_2': tf.VarLenFeature(dtype=tf.string),
       'sparse_feature': tf.SparseFeature('idx', 'value', tf.float32, 10),
   })
+
 
   def _assert_encode_decode(self, coder, expected_proto_text,
                             expected_decoded):
@@ -120,7 +135,8 @@ class ExampleProtoCoderTest(unittest.TestCase):
     features {
       feature { key: "scalar_feature_1" value { int64_list { value: [ 13 ] } } }
       feature { key: "varlen_feature_1" value { float_list { } } }
-      feature { key: "scalar_feature_2" value { int64_list { value: [ 14 ] } } }
+      feature { key: "scalar_feature_2"
+                value { int64_list { value: [ 214 ] } } }
       feature { key: "scalar_feature_3"
                 value { float_list { value: [ 2.0 ] } } }
       feature { key: "1d_vector_feature"
@@ -133,7 +149,7 @@ class ExampleProtoCoderTest(unittest.TestCase):
     """
     expected_decoded = {
         'scalar_feature_1': np.array(13),
-        'scalar_feature_2': np.int32(14),
+        'scalar_feature_2': np.int32(214),
         'scalar_feature_3': np.array(2.0),
         'varlen_feature_1': np.array([]),
         '1d_vector_feature': np.array(['this is another ,text']),

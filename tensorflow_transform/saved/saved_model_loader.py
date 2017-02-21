@@ -18,21 +18,13 @@ from __future__ import division
 from __future__ import print_function
 
 
-from apache_beam.utils import retry
 from tensorflow.python.saved_model import loader_impl
 
 
 # This file is forked and refactored from saved_model/loader_impl.py
 
 
-def _retry_on_unexpected_read_errors_filter(exception):
-  """Don't retry ValueError, but pretty much anything else is fair game."""
-  return not isinstance(exception, ValueError)
-
-
-@retry.with_exponential_backoff(
-    retry_filter=_retry_on_unexpected_read_errors_filter)
-def retry_parse_saved_model(saved_model_dir):
+def parse_saved_model(saved_model_dir):
   # pylint: disable=protected-access
   return loader_impl._parse_saved_model(saved_model_dir)
   # pylint: enable=protected-access

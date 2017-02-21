@@ -42,6 +42,8 @@ class ReadMetadata(beam.PTransform):
 
 class WriteMetadata(beam.PTransform):
 
+  # NOTE: The pipeline metadata is required by PTransform given that all the
+  # inpits are non-deferred.
   def __init__(self, path, pipeline):
     super(WriteMetadata, self).__init__()
     self._path = path

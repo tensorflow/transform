@@ -418,7 +418,6 @@ part of the metadata which can then be used here.
 real_valued_columns = [feature_column.real_valued_column(key)
                        for key in NUMERIC_COLUMNS]
 
-bucket_sizes = [9, 17, 8, 15, 17, 6, 3, 43]
 one_hot_columns = [
     feature_column.sparse_column_with_integerized_feature(
         key, bucket_size=bucket_size)

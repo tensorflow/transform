@@ -19,7 +19,6 @@ from __future__ import print_function
 
 import re
 
-from apache_beam.utils import retry
 
 import tensorflow as tf
 from tensorflow_transform.saved import constants
@@ -41,7 +40,7 @@ def _load_transform_saved_model(transform_savedmodel_dir):
   Returns:
     A `SavedModel` protocol buffer.
   """
-  saved_model = saved_model_loader.retry_parse_saved_model(
+  saved_model = saved_model_loader.parse_saved_model(
       transform_savedmodel_dir)
   meta_graph_def = saved_model_loader.choose_meta_graph_def(
       saved_model, [constants.TRANSFORM_TAG])
@@ -205,13 +204,6 @@ def apply_saved_transform(saved_model_dir, input_tensors):
   return outputs
 
 
-def _retry_on_unexpected_write_errors_filter(exception):
-  """Don't retry ValueError, but pretty much anything else is fair game."""
-  return not isinstance(exception, ValueError)
-
-
-@retry.with_exponential_backoff(
-    retry_filter=_retry_on_unexpected_write_errors_filter)
 def write_saved_transform_from_session(
     session, inputs, outputs, export_path, as_text=False):
   """Write the current session as a SavedModel."""
