@@ -62,7 +62,7 @@ class DatasetSchemaTest(unittest.TestCase):
     self.assertEqual(test_common.test_feature_spec, generated_feature_spec)
 
   def test_domain_picklable(self):
-    domain = sch.dtype_to_domain(tf.float32)
+    domain = sch._dtype_to_domain(tf.float32)
     domain_new = pickle.loads(pickle.dumps(domain))
 
     self.assertEqual(type(domain), type(domain_new))
@@ -72,55 +72,37 @@ class DatasetSchemaTest(unittest.TestCase):
     dense = tf.constant([[1., 2.], [3., 4.]], dtype=tf.float32, shape=[2, 2])
     column_schema = sch.infer_column_schema_from_tensor(dense)
     expected_column_schema = sch.ColumnSchema(
-        sch.LogicalColumnSchema(sch.dtype_to_domain(tf.float32),
-                                sch.LogicalShape([sch.Axis(2)])),
-        sch.FixedColumnRepresentation())
+        tf.float32, [2], sch.FixedColumnRepresentation())
     self.assertEqual(expected_column_schema, column_schema)
 
     varlen = tf.sparse_placeholder(tf.string)
     column_schema = sch.infer_column_schema_from_tensor(varlen)
     expected_column_schema = sch.ColumnSchema(
-        sch.LogicalColumnSchema(sch.dtype_to_domain(tf.string),
-                                sch.LogicalShape([sch.Axis(None)])),
-        sch.ListColumnRepresentation())
+        tf.string, [None], sch.ListColumnRepresentation())
     self.assertEqual(expected_column_schema, column_schema)
 
   def test_schema_equality(self):
     schema1 = sch.Schema(column_schemas={
         'fixed_bool_with_default': sch.ColumnSchema(
-            sch.LogicalColumnSchema(sch.dtype_to_domain(tf.bool),
-                                    sch.LogicalShape([sch.Axis(1)])),
-            sch.FixedColumnRepresentation(False)),
+            tf.bool, [1], sch.FixedColumnRepresentation(False)),
         'var_float': sch.ColumnSchema(
-            sch.LogicalColumnSchema(sch.dtype_to_domain(tf.float32),
-                                    sch.LogicalShape([sch.Axis(None)])),
-            sch.ListColumnRepresentation())
+            tf.float32, None, sch.ListColumnRepresentation())
     })
     schema2 = sch.Schema(column_schemas={
         'fixed_bool_with_default': sch.ColumnSchema(
-            sch.LogicalColumnSchema(sch.dtype_to_domain(tf.bool),
-                                    sch.LogicalShape([sch.Axis(1)])),
-            sch.FixedColumnRepresentation(False)),
+            tf.bool, [1], sch.FixedColumnRepresentation(False)),
         'var_float': sch.ColumnSchema(
-            sch.LogicalColumnSchema(sch.dtype_to_domain(tf.float32),
-                                    sch.LogicalShape([sch.Axis(None)])),
-            sch.ListColumnRepresentation())
+            tf.float32, None, sch.ListColumnRepresentation())
     })
     schema3 = sch.Schema(column_schemas={
         'fixed_bool_with_default': sch.ColumnSchema(
-            sch.LogicalColumnSchema(sch.dtype_to_domain(tf.bool),
-                                    sch.LogicalShape([sch.Axis(1)])),
-            sch.FixedColumnRepresentation(False)),
+            tf.bool, [1], sch.FixedColumnRepresentation(False)),
         'var_float': sch.ColumnSchema(
-            sch.LogicalColumnSchema(sch.dtype_to_domain(tf.float64),
-                                    sch.LogicalShape([sch.Axis(None)])),
-            sch.ListColumnRepresentation())
+            tf.float64, None, sch.ListColumnRepresentation())
     })
     schema4 = sch.Schema(column_schemas={
         'fixed_bool_with_default': sch.ColumnSchema(
-            sch.LogicalColumnSchema(sch.dtype_to_domain(tf.bool),
-                                    sch.LogicalShape([sch.Axis(1)])),
-            sch.FixedColumnRepresentation(False))
+            tf.bool, [1], sch.FixedColumnRepresentation(False))
     })
 
     self.assertEqual(schema1, schema2)
@@ -129,63 +111,27 @@ class DatasetSchemaTest(unittest.TestCase):
 
   def test_column_schema_equality(self):
     c1 = sch.ColumnSchema(
-        sch.LogicalColumnSchema(sch.dtype_to_domain(tf.bool),
-                                sch.LogicalShape([sch.Axis(1)])),
-        sch.FixedColumnRepresentation(False))
+        tf.bool, [1], sch.FixedColumnRepresentation(False))
     c2 = sch.ColumnSchema(
-        sch.LogicalColumnSchema(sch.dtype_to_domain(tf.bool),
-                                sch.LogicalShape([sch.Axis(1)])),
-        sch.FixedColumnRepresentation(False))
+        tf.bool, [1], sch.FixedColumnRepresentation(False))
     c3 = sch.ColumnSchema(
-        sch.LogicalColumnSchema(sch.dtype_to_domain(tf.bool),
-                                sch.LogicalShape([sch.Axis(1)])),
-        sch.FixedColumnRepresentation())
+        tf.bool, [1], sch.FixedColumnRepresentation())
     c4 = sch.ColumnSchema(
-        sch.LogicalColumnSchema(sch.dtype_to_domain(tf.bool),
-                                sch.LogicalShape([sch.Axis(2)])),
-        sch.FixedColumnRepresentation())
-
-    self.assertEqual(c1, c2)
-    self.assertNotEqual(c1, c3)
-    self.assertNotEqual(c3, c4)
-
-  def test_logical_column_schema_equality(self):
-    c1 = sch.LogicalColumnSchema(
-        sch.dtype_to_domain(tf.int64),
-        sch.LogicalShape([sch.Axis(5), sch.Axis(6), sch.Axis(7)]))
-    c2 = sch.LogicalColumnSchema(
-        sch.dtype_to_domain(tf.int64),
-        sch.LogicalShape([sch.Axis(5), sch.Axis(6), sch.Axis(7)]))
-    c3 = sch.LogicalColumnSchema(
-        sch.dtype_to_domain(tf.int32),
-        sch.LogicalShape([sch.Axis(5), sch.Axis(6), sch.Axis(7)]))
-    c4 = sch.LogicalColumnSchema(
-        sch.dtype_to_domain(tf.int64),
-        sch.LogicalShape(None))
+        tf.bool, [2], sch.FixedColumnRepresentation())
 
     self.assertEqual(c1, c2)
     self.assertNotEqual(c1, c3)
     self.assertNotEqual(c3, c4)
 
   def test_domain_equality(self):
-    d1 = sch.dtype_to_domain(tf.int64)
-    d2 = sch.dtype_to_domain(tf.int64)
-    d3 = sch.dtype_to_domain(tf.int32)
-    d4 = sch.dtype_to_domain(tf.bool)
+    d1 = sch._dtype_to_domain(tf.int64)
+    d2 = sch._dtype_to_domain(tf.int64)
+    d3 = sch._dtype_to_domain(tf.int32)
+    d4 = sch._dtype_to_domain(tf.bool)
 
     self.assertEqual(d1, d2)
     self.assertNotEqual(d1, d3)
     self.assertNotEqual(d3, d4)
-
-  def test_logical_shape_equality(self):
-    s1 = sch.LogicalShape([sch.Axis(1), sch.Axis(2)])
-    s2 = sch.LogicalShape([sch.Axis(1), sch.Axis(2)])
-    s3 = sch.LogicalShape([sch.Axis(0)])
-    s4 = sch.LogicalShape(None)
-
-    self.assertEqual(s1, s2)
-    self.assertNotEqual(s1, s3)
-    self.assertNotEqual(s3, s4)
 
   def test_axis_equality(self):
     a1 = sch.Axis(0)

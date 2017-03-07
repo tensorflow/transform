@@ -29,6 +29,10 @@ import tensorflow as tf
 from google.protobuf.internal import api_implementation
 
 
+# This function needs to be called at pipeline execution time as it depends on
+# the protocol buffer library installed in the workers (which might be different
+# from the one install in the pipeline constructor).
+#
 def _make_cast_fn(np_dtype):
   """Return a function to extract the typed value from the feature.
 
@@ -50,7 +54,10 @@ def _make_cast_fn(np_dtype):
   # For the 'cpp' implementation we need to only "cast" from np types to the
   # appropriate Python type for "Float" types, but only for protobuf < 3.2.0
 
-  def cast_fn(x, caster):
+  def identity(x):
+    return x
+
+  def numeric_cast(x, caster):
     if isinstance(x, (np.generic, np.ndarray)):
       # This works for both np.generic and np.array (of any shape).
       return x.tolist()
@@ -62,27 +69,38 @@ def _make_cast_fn(np_dtype):
       # This works for python scalars, which require no casting.
       return x
 
-  def identity_fn(x):
-    return x
+  def string_cast(x):
+    # This is in agreement with Tensorflow conversions for Unicode values (and
+    # it also works for non-Unicode objects). It is also in agreement with the
+    # testTransformUnicode of the Beam impl.
+    def utf8(s):
+      return s.encode('utf-8') if isinstance(s, unicode) else s
+
+    if isinstance(x, (list, np.ndarray)):
+      return map(utf8, x)
+    else:
+      return utf8(x)
 
   if issubclass(np_dtype, np.floating):
     try:
       float_list = tf.train.FloatList()
-      float_list.value.append(np.float32(0.1))     # Any dummy value will do.
-      float_list.value.extend(np.array(0.1, 0.2))  # Any dummy values will do.
-      return identity_fn
+      float_list.value.append(np.float32(0.1))       # Any dummy value will do.
+      float_list.value.append(np.array(0.1))         # Any dummy value will do.
+      float_list.value.extend(np.array([0.1, 0.2]))  # Any dummy values will do.
+      return identity
     except TypeError:
-      return functools.partial(cast_fn, caster=float)
+      return functools.partial(numeric_cast, caster=float)
   elif issubclass(np_dtype, np.integer):
     try:
       int64_list = tf.train.Int64List()
-      int64_list.value.append(np.int64(1))     # Any dummy value will do.
-      int64_list.value.extend(np.array(1, 2))  # Any dummy values will do.
-      return identity_fn
+      int64_list.value.append(np.int64(1))       # Any dummy value will do.
+      int64_list.value.append(np.array(1))       # Any dummy value will do.
+      int64_list.value.extend(np.array([1, 2]))  # Any dummy values will do.
+      return identity
     except TypeError:
-      return functools.partial(cast_fn, caster=long)
+      return functools.partial(numeric_cast, caster=long)
   else:
-    return identity_fn
+    return string_cast
 
 
 def _make_feature_value_fn(dtype):
@@ -113,9 +131,13 @@ class _FixedLenFeatureHandler(object):
 
   def __init__(self, name, feature_spec):
     self._name = name
-    self._value_fn = _make_feature_value_fn(feature_spec.dtype)
-    self._shape = len(feature_spec.shape)
     self._np_dtype = feature_spec.dtype.as_numpy_dtype
+    self._value_fn = _make_feature_value_fn(feature_spec.dtype)
+    self._shape = feature_spec.shape
+    self._rank = len(feature_spec.shape)
+    self._size = 1
+    for dim in feature_spec.shape:
+      self._size *= dim
 
   @property
   def name(self):
@@ -123,23 +145,42 @@ class _FixedLenFeatureHandler(object):
 
   def initialize_encode_cache(self, example):
     """Initialize fields (performance caches) that point to example's state."""
-    self._value = self._value_fn(example.features.feature[self._name])
     self._cast_fn = _make_cast_fn(self._np_dtype)
+    self._value = self._value_fn(example.features.feature[self._name])
 
   def parse_value(self, feature_map):
+    """Decodes a feature into its TF.Transform representation."""
     feature = feature_map[self._name]
-    if self._shape:
-      return list(self._value_fn(feature))
-    else:
+    values = self._value_fn(feature)
+    if len(values) != self._size:
+      raise ValueError('FixedLenFeature %r got wrong number of values. Expected'
+                       ' %d but got %d' % (self._name, self._size, len(values)))
+
+    if self._rank == 0:
       # Encode the values as a scalar if shape == []
-      return self._value_fn(feature)[0]
+      return values[0]
+    elif self._rank == 1:
+      # Short-circuit the reshaping logic needed for rank > 1.
+      return list(values)
+    else:
+      return np.asarray(values).reshape(self._shape).tolist()
 
   def encode_value(self, values):
+    """Encodes a feature into its Example proto representation."""
     del self._value[:]
-    if self._shape:
-      self._value.extend(self._cast_fn(values))
+    if self._rank == 0:
+      flattened_values = [values]
+    elif self._rank == 1:
+      # Short-circuit the reshaping logic needed for rank > 1.
+      flattened_values = values
     else:
-      self._value.append(self._cast_fn(values))
+      flattened_values = np.asarray(values).reshape(-1)
+
+    if len(flattened_values) != self._size:
+      raise ValueError('FixedLenFeature %r got wrong number of values. Expected'
+                       ' %d but got %d' %
+                       (self._name, self._size, len(flattened_values)))
+    self._value.extend(self._cast_fn(flattened_values))
 
 
 class _VarLenFeatureHandler(object):
@@ -150,8 +191,8 @@ class _VarLenFeatureHandler(object):
 
   def __init__(self, name, feature_spec):
     self._name = name
-    self._value_fn = _make_feature_value_fn(feature_spec.dtype)
     self._np_dtype = feature_spec.dtype.as_numpy_dtype
+    self._value_fn = _make_feature_value_fn(feature_spec.dtype)
 
   @property
   def name(self):
@@ -159,8 +200,8 @@ class _VarLenFeatureHandler(object):
 
   def initialize_encode_cache(self, example):
     """Initialize fields (performance caches) that point to example's state."""
-    self._value = self._value_fn(example.features.feature[self._name])
     self._cast_fn = _make_cast_fn(self._np_dtype)
+    self._value = self._value_fn(example.features.feature[self._name])
 
   def parse_value(self, feature_map):
     feature = feature_map[self._name]
@@ -180,11 +221,11 @@ class _SparseFeatureHandler(object):
 
   def __init__(self, name, feature_spec):
     self._name = name
+    self._np_dtype = feature_spec.dtype.as_numpy_dtype
     self._value_key = feature_spec.value_key
     self._index_key = feature_spec.index_key
-    self._value_value_fn = _make_feature_value_fn(feature_spec.dtype)
-    self._index_value_fn = _make_feature_value_fn(tf.int64)
-    self._np_dtype = feature_spec.dtype.as_numpy_dtype
+    self._value_fn = _make_feature_value_fn(feature_spec.dtype)
+    self._index_fn = _make_feature_value_fn(tf.int64)
 
   @property
   def name(self):
@@ -192,25 +233,25 @@ class _SparseFeatureHandler(object):
 
   def initialize_encode_cache(self, example):
     """Initialize fields (performance caches) that point to example's state."""
-    self._value_value = self._value_value_fn(example.features.feature[
-        self._value_key])
-    self._index_value = self._index_value_fn(example.features.feature[
-        self._index_key])
     self._cast_fn = _make_cast_fn(self._np_dtype)
+    self._value = self._value_fn(example.features.feature[
+        self._value_key])
+    self._index = self._index_fn(example.features.feature[
+        self._index_key])
 
   def parse_value(self, feature_map):
     value_feature = feature_map[self._value_key]
     index_feature = feature_map[self._index_key]
-    values = list(self._value_value_fn(value_feature))
-    indices = list(self._index_value_fn(index_feature))
+    values = list(self._value_fn(value_feature))
+    indices = list(self._index_fn(index_feature))
     return (values, indices)
 
   def encode_value(self, sparse_value):
-    del self._value_value[:]
-    del self._index_value[:]
+    del self._value[:]
+    del self._index[:]
     values, indices = sparse_value
-    self._value_value.extend(self._cast_fn(values))
-    self._index_value.extend(indices)
+    self._value.extend(self._cast_fn(values))
+    self._index.extend(indices)
 
 
 class ExampleProtoCoder(object):
@@ -263,13 +304,12 @@ class ExampleProtoCoder(object):
   def __reduce__(self):
     return ExampleProtoCoder, (self._schema,)
 
-  @property
-  def name(self):
-    return 'example_proto'
-
   def encode(self, instance):
     """Encode a tf.transform encoded dict as serialized tf.Example."""
     if (self._encode_example_cache is None or
+        # TDOO(b/35874111): Remove this 'or' part once the fix to the 'python'
+        # proto bug (b/35874111) is released to protocol buffer packages (likely
+        # version 3.2.1) and Dataflow containers.
         api_implementation.Type() == 'python'):
       # Initialize the encode Example cache (used by this and all subsequent
       # calls).
@@ -279,9 +319,19 @@ class ExampleProtoCoder(object):
       self._encode_example_cache = example
 
     # Encode and serialize using the Example cache.
-    for feature_handler in self._feature_handlers:
+    for index, feature_handler in enumerate(self._feature_handlers):
+      if index == 0:
+        # Clearing any part of _encode_example_cache via direct access to the
+        # map should be sufficient to mark the dirty bit that will cause the
+        # SerializeToString() at the end of this function to pick up all the
+        # changes of the current for-loop.
+        feature = (
+            self._encode_example_cache.features.feature[feature_handler.name])
+        del feature_handler._value_fn(feature)[:]  # pylint: disable=protected-access
+
       value = instance[feature_handler.name]
       feature_handler.encode_value(value)
+
     return self._encode_example_cache.SerializeToString()
 
   def decode(self, serialized_example_proto):

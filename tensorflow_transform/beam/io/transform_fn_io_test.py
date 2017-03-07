@@ -22,13 +22,11 @@ import tempfile
 
 
 import apache_beam as beam
-import dill
 import tensorflow as tf
 
 import tensorflow_transform as tft
 from tensorflow_transform import coders
 from tensorflow_transform.beam import impl as beam_impl
-from tensorflow_transform.beam import io
 from tensorflow_transform.beam.io import transform_fn_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
@@ -36,7 +34,7 @@ from tensorflow_transform.tf_metadata import dataset_schema
 import unittest
 
 
-class CoderAssetsTest(unittest.TestCase):
+class TransformFnIoTest(unittest.TestCase):
 
   def _make_transform_fn(self, p, output_path):
     def preprocessing_fn(inputs):
@@ -65,44 +63,6 @@ class CoderAssetsTest(unittest.TestCase):
         transform_fn, _ = self._make_transform_fn(p, saved_model_path)
         _ = transform_fn | transform_fn_io.WriteTransformFn(saved_model_path)
 
-  def testCoderAssets(self):
-    # Write a transform_fn to the given path.
-    base_dir = tempfile.mkdtemp()
-    saved_model_path = os.path.join(base_dir, 'transform_fn_def')
-
-    with beam.Pipeline() as p:
-      (transform_fn, _), coder = self._make_transform_fn(p, saved_model_path)
-      _ = (transform_fn |
-           'AppendCoderAssets' >> io.AppendCoderAssets([coder]))
-
-    # Assert that coder assets got added to the transform_fn_def.
-    self.assertTrue(os.path.isfile(
-        os.path.join(saved_model_path,
-                     'transform_fn',
-                     transform_fn_io._ASSETS_EXTRA,
-                     transform_fn_io._TF_TRANSFORM_CODERS_FILE_NAME)))
-
-  def testAppendCoderAssetsAreCorrect(self):
-    # Write a transform_fn to the given path.
-    base_dir = tempfile.mkdtemp()
-    saved_model_path = os.path.join(base_dir, 'transform_fn_load')
-
-    # Load the coder from the saved assets and asssert it works.
-    def assert_equal(transform_fn_def_dir, string, expected_value):
-      pickled_coder = os.path.join(
-          transform_fn_def_dir,
-          transform_fn_io._ASSETS_EXTRA,
-          transform_fn_io._TF_TRANSFORM_CODERS_FILE_NAME)
-      with open(pickled_coder) as f:
-        coders_dict = dill.load(f)
-      self.assertEqual(expected_value, coders_dict['csv'].decode(string))
-      self.assertEqual(expected_value, coders_dict['default'].decode(string))
-
-    with beam.Pipeline() as p:
-      (transform_fn, _), coder = self._make_transform_fn(p, saved_model_path)
-      _ = (transform_fn |
-           'AppendCoderAssets' >> io.AppendCoderAssets([coder]) |
-           beam.Map(assert_equal, '1', {'x': 1}))
 
 if __name__ == '__main__':
   unittest.main()

@@ -17,6 +17,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
+
 from tensorflow_transform.tf_metadata import dataset_anomalies
 from tensorflow_transform.tf_metadata import dataset_problem_statements
 from tensorflow_transform.tf_metadata import dataset_provenance
@@ -24,7 +26,9 @@ from tensorflow_transform.tf_metadata import dataset_schema
 from tensorflow_transform.tf_metadata import dataset_statistics
 
 
-class DatasetMetadata(object):
+class DatasetMetadata(collections.namedtuple(
+    'DatasetMetadata',
+    ['schema', 'provenance', 'statistics', 'anomalies', 'problem_statements'])):
   """A collection of metadata about a dataset.
 
   This is an in-memory representation that may be serialized and deserialized to
@@ -33,19 +37,34 @@ class DatasetMetadata(object):
   may vary in the file formats they write within those directories.
   """
 
-  def __init__(
-      self,
+  def __new__(
+      cls,
       schema=None,
       provenance=None,
       statistics=None,
       anomalies=None,
       problem_statements=None):
-    self._schema = schema or dataset_schema.Schema()
-    self._provenance = provenance or dataset_provenance.Provenance()
-    self._statistics = statistics or dataset_statistics.Statistics()
-    self._anomalies = anomalies or dataset_anomalies.Anomalies()
-    self._problem_statements = (
+    if isinstance(schema, dict):
+      schema = dataset_schema.Schema(schema)
+    schema = schema or dataset_schema.Schema()
+    provenance = provenance or dataset_provenance.Provenance()
+    statistics = statistics or dataset_statistics.Statistics()
+    anomalies = anomalies or dataset_anomalies.Anomalies()
+    problem_statements = (
         problem_statements or dataset_problem_statements.ProblemStatements())
+    return super(DatasetMetadata, cls).__new__(
+        cls, schema, provenance, statistics, anomalies, problem_statements)
+
+  def __eq__(self, other):
+    if isinstance(other, self.__class__):
+      return self._asdict() == other._asdict()
+    return NotImplemented
+
+  def __ne__(self, other):
+    return not self == other
+
+  def __repr__(self):
+    return self._asdict().__repr__()
 
   def merge(self, other):
     self.schema.merge(other.schema)
@@ -53,28 +72,3 @@ class DatasetMetadata(object):
     self.statistics.merge(other.statistics)
     self.anomalies.merge(other.anomalies)
     self.problem_statements.merge(other.problem_statements)
-
-  @property
-  def schema(self):
-    """Returns a Schema."""
-    return self._schema
-
-  @property
-  def statistics(self):
-    """Returns a Statistics."""
-    return self._statistics
-
-  @property
-  def anomalies(self):
-    """Returns an Anomalies."""
-    return self._anomalies
-
-  @property
-  def provenance(self):
-    """Returns a Provenance."""
-    return self._provenance
-
-  @property
-  def problem_statements(self):
-    """Returns a ProblemStatements."""
-    return self._problem_statements

@@ -35,8 +35,8 @@ class SchemaIOvTest(version_api.SchemaIO):
 
 class TestSchema(dataset_schema.Schema):
 
-  def __new__(cls, feature_names):
+  def __init__(self, feature_names):
     features = {feature_name: "Bogus FeatureSchema for %s" % feature_name
                 for feature_name in feature_names}
-    return super(TestSchema, cls).__new__(cls, features)
+    super(TestSchema, self).__init__(features)
 

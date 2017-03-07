@@ -50,8 +50,10 @@ with beam.Pipeline(...) as p:
   transform_fn | beam_impl.write_transform_fn(transform_fn_path)
 
 """
+
 import collections
 import os
+import threading
 
 
 import apache_beam as beam
@@ -70,41 +72,52 @@ import tensorflow_transform.api as api
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
-_DEFAULT_BATCH_SIZE = 100
+_DEFAULT_DESIRED_BATCH_SIZE = 1000
 
-_PRIMITIVE_TYPE = Union[float, int, long, str]
+_PRIMITIVE_TYPE = Union[float, int, long, str, unicode]
 
 
 class _BatchDoFn(beam.DoFn):
   """Concatenates individual instances into batches.
 
-  DoFn that takes `batch_size` instances and batches them up. If it is fed data
-  that is already batched, it is a no-op.
+  DoFn that takes instances and creates batches of size up to
+  `desired_batch_size`.
 
   Args:
-    batch_size: The number of instances to convert into a batch.
+    desired_batch_size: The desired number of instances to convert into a batch.
 
   Yields:
-    A list of size `batch_size` representing a batch of instances.
+    A list of size up to `desired_batch_size` representing a batch of instances.
   """
 
-  def __init__(self, batch_size=_DEFAULT_BATCH_SIZE):
-    self._batch_size = batch_size
-    self._cached = []
+  def __init__(self, desired_batch_size=_DEFAULT_DESIRED_BATCH_SIZE):
+    self._desired_batch_size = desired_batch_size
+    self._batch = []
+
+    # Metrics.
+    self._num_batches = beam.metrics.Metrics.counter(self.__class__,
+                                                     'num_batches')
+    self._batch_size_distribution = beam.metrics.Metrics.distribution(
+        self.__class__, 'batch_size_distribution')
+    self._num_instances = beam.metrics.Metrics.counter(self.__class__,
+                                                       'num_instances')
+
+  def _flush_batch(self):
+    self._num_batches.inc(1)
+    self._batch_size_distribution.update(len(self._batch))
+    self._num_instances.inc(len(self._batch))
+    result = self._batch
+    self._batch = []
+    return result
 
   def process(self, element):
-    try:
-      element = element.element
-    except AttributeError:
-      pass
-    self._cached.append(element)
-    if len(self._cached) >= self._batch_size:
-      yield self._cached
-      self._cached = []
+    self._batch.append(element)
+    if len(self._batch) >= self._desired_batch_size:
+      yield self._flush_batch()
 
-  def finish_bundle(self, context=None):
-    if self._cached:
-      yield self._cached
+  def finish_bundle(self):
+    if self._batch:
+      yield self._flush_batch()
 
 
 @with_input_types(Dict[str,
@@ -126,44 +139,41 @@ class _RunMetaGraphDoFn(beam.DoFn):
     output_schema: A `Schema` representing the outputs of this transform phase.
   """
 
+  class _GraphState(object):
+
+    def __init__(self, saved_model_dir, input_schema, output_schema):
+      self.saved_model_dir = saved_model_dir
+      self.graph = tf.Graph()
+      self.session = tf.Session(graph=self.graph)
+      with self.graph.as_default():
+        inputs, outputs = impl_helper.load_transform_fn_def(saved_model_dir)
+        # Run the op that initializes all tables in the graph.
+        self.session.run(tf.tables_initializer())
+
+        input_schema_keys = input_schema.column_schemas.keys()
+        output_schema_keys = output_schema.column_schemas.keys()
+        extra_input_keys = set(input_schema_keys).difference(inputs.keys())
+        if extra_input_keys:
+          raise ValueError('Input schema contained keys not in graph: %s' %
+                           input_schema_keys)
+        extra_output_keys = set(output_schema_keys).difference(outputs.keys())
+        if extra_output_keys:
+          raise ValueError('Output schema contained keys not in graph: %s' %
+                           extra_output_keys)
+        self.inputs = {key: inputs[key] for key in input_schema_keys}
+        self.outputs = {key: outputs[key] for key in output_schema_keys}
+
+  _thread_local = threading.local()
+
   def __init__(self, input_schema, output_schema, exclude_outputs=None):
     super(_RunMetaGraphDoFn, self).__init__()
-    self._saved_model_dir = None
-    self._graph = None
-    self._session = None
-    self._inputs = None
-    self._outputs = None
     self._input_schema = input_schema
     self._output_schema = output_schema
     self._exclude_outputs = exclude_outputs
 
-  def _initialize_graph(self, saved_model_dir):
-    self._saved_model_dir = saved_model_dir
-    if self._session is not None:
-      self._session.close()
-    self._graph = tf.Graph()
-    self._session = tf.Session(graph=self._graph)
-    with self._graph.as_default():
-      inputs, outputs = impl_helper.load_transform_fn_def(
-          self._saved_model_dir)
-      # Run the op that initializes all tables in the graph.
-      if hasattr(tf, 'tables_initializer'):
-        self._session.run(tf.tables_initializer())
-      else:
-        self._session.run(tf.initialize_all_tables())
-
-    input_schema_keys = self._input_schema.column_schemas.keys()
-    output_schema_keys = self._output_schema.column_schemas.keys()
-    extra_input_keys = set(input_schema_keys).difference(inputs.keys())
-    if extra_input_keys:
-      raise ValueError('Input schema contained keys not in graph: %s' %
-                       input_schema_keys)
-    extra_output_keys = set(output_schema_keys).difference(outputs.keys())
-    if extra_output_keys:
-      raise ValueError('Output schema contained keys not in graph: %s' %
-                       extra_output_keys)
-    self._inputs = {key: inputs[key] for key in input_schema_keys}
-    self._outputs = {key: outputs[key] for key in output_schema_keys}
+    # Metrics.
+    self._num_graph_loads = beam.metrics.Metrics.counter(self.__class__,
+                                                         'num_graph_loads')
 
   def process(self, element, saved_model_dir):
     """Runs the given graph to realize the output tensors (i.e. features).
@@ -181,27 +191,23 @@ class _RunMetaGraphDoFn(beam.DoFn):
       A representation of output features as a dict mapping keys (logical column
       names) to values.
     """
-    try:
-      element = element.element
-    except AttributeError:
-      pass
-    if saved_model_dir != self._saved_model_dir:
-      self._initialize_graph(saved_model_dir)
-    feed_dict = impl_helper.make_feed_dict(self._inputs, self._input_schema,
-                                           element)
-    fetched_dict = self._session.run(self._outputs, feed_dict=feed_dict)
-    yield impl_helper.make_output_dict(self._output_schema, fetched_dict)
+    if (not hasattr(self._thread_local, 'graph_state') or
+        self._thread_local.graph_state.saved_model_dir != saved_model_dir):
+      self._num_graph_loads.inc(1)
+      self._thread_local.graph_state = self._GraphState(
+          saved_model_dir, self._input_schema, self._output_schema)
 
-  def finish_bundle(self, context=None):
-    self._saved_model_dir = None
-    if self._session is not None:
-      self._session.close()
-    self._session = None
+    feed_dict = impl_helper.make_feed_dict(
+        self._thread_local.graph_state.inputs, self._input_schema, element)
+    fetched_dict = self._thread_local.graph_state.session.run(
+        self._thread_local.graph_state.outputs, feed_dict=feed_dict)
+    yield impl_helper.make_output_dict(self._output_schema, fetched_dict)
 
 
 def _assert_tensorflow_version():
   try:
     _ = tf.SparseFeature
+    _ = tf.tables_initializer
   except AttributeError:
     raise RuntimeError(
         'Tensorflow version 1.0 is required. Please install the latest version '
@@ -486,16 +492,16 @@ class AnalyzeDataset(beam.PTransform):
         analysis_result = combine_by_batch(sum)
 
       elif self._analyzer_name == api.CanonicalAnalyzers.UNIQUES:
+        # Creates a PCollection of (count, element) pairs, then iterates over
+        # this to create a single element PCollection containing this list of
+        # pairs in sorted order by decreasing counts (and by values for equal
+        # counts).
+
         top_k = self._args_dict['top_k']
         assert top_k is None or top_k >= 0
 
         frequency_threshold = self._args_dict['frequency_threshold']
         assert frequency_threshold is None or frequency_threshold >= 0
-
-        # Creates a PCollection of (count, element) pairs, then iterates over
-        # this to create a single element PCollection containing this list of
-        # pairs in sorted order by decreasing counts (and by values for equal
-        # counts).
 
         def to_iterable(instance_value):
           if isinstance(instance_value, (six.string_types, float, int, long)):
@@ -511,15 +517,30 @@ class AnalyzeDataset(beam.PTransform):
                   >> beam.transforms.combiners.Count.PerElement()
                   | 'SwapElementsAndCounts' >> beam.KvSwap())
 
+        # Filtration is cheaper than TopK computation and the two commute, so do
+        # filtration first.
+        if frequency_threshold is not None:
+          counts |= ('FilterByFrequencyThreshold(%s)' % frequency_threshold >>
+                     beam.Filter(lambda kv: kv[0] >= frequency_threshold))
+
         if top_k is not None:
           counts = (counts
-                    | 'Top_%s' % top_k
+                    | 'Top(%s)' % top_k
                     >> beam.transforms.combiners.Top.Largest(top_k)
                     | 'FlattenList' >> beam.FlatMap(lambda lst: lst))
 
-        if frequency_threshold is not None:
-          counts |= ('FilterByFrequencyThreshold_%s' % frequency_threshold >>
-                     beam.Filter(lambda kv: kv[0] >= frequency_threshold))
+        # Performance optimization to obviate reading from finely sharded files
+        # via AsIter. By forcing all data into a single group we end up reading
+        # from a single file.
+        #
+        @beam.ptransform_fn
+        def Reshard(pcoll):  # pylint: disable=invalid-name
+          return (
+              pcoll
+              | 'PairWithNone' >> beam.Map(lambda x: (None, x))
+              | 'GroupByNone' >> beam.GroupByKey()
+              | 'ExtractValues' >> beam.FlatMap(lambda x: x[1]))
+        counts |= 'ReshardToOneGroup' >> Reshard()  # pylint: disable=no-value-for-parameter
 
         # Using AsIter instead of AsList below in order to reduce max memory
         # usage (due to AsList caching).

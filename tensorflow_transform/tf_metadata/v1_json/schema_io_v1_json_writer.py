@@ -37,7 +37,7 @@ def to_schema_json(schema):
 
   # not populated yet: Schema.string_domain
 
-  return json.dumps(result, indent=2)
+  return json.dumps(result, indent=2, separators=(',', ': '), sort_keys=True)
 
 
 def _get_features(schema):
@@ -60,7 +60,6 @@ def _get_sparse_features(schema):
 
 def _column_schema_to_dict_dense(name, column_schema):
   """Translate a ColumnSchema for a dense column into JSON feature dict."""
-  logical_column = column_schema.logical_column
   representation = column_schema.representation
 
   result = {}
@@ -69,9 +68,9 @@ def _column_schema_to_dict_dense(name, column_schema):
   # Note result['comment'] is not populated in v1.
   # Note result['presence'] is not populated in v1.
 
-  if logical_column.shape.is_fixed_size():
+  if column_schema.is_fixed_size():
     axes = []
-    for axis in column_schema.logical_column.shape.axes:
+    for axis in column_schema.axes:
       # str() is needed to match protobuf JSON encoding of int64 as string
       axes.append({'size': str(axis.size)})
     result['fixedShape'] = {'axis': axes}
@@ -80,8 +79,8 @@ def _column_schema_to_dict_dense(name, column_schema):
     # just provide an empty value_count.
     result['valueCount'] = {}
 
-  result['type'] = _to_feature_type_enum(logical_column.domain.dtype)
-  result['domain'] = _to_domain(logical_column.domain.dtype)
+  result['type'] = _to_feature_type_enum(column_schema.domain.dtype)
+  result['domain'] = _to_domain(column_schema.domain)
 
   tf_options = _get_tf_options(representation, result['type'])
   result['parsingOptions'] = {'tfOptions': tf_options}
@@ -91,7 +90,6 @@ def _column_schema_to_dict_dense(name, column_schema):
 
 def _column_schema_to_dict_sparse(name, column_schema):
   """Translate a ColumnSchema for a sparse column into JSON feature dict."""
-  logical_column = column_schema.logical_column
   representation = column_schema.representation
 
   result = {}
@@ -103,7 +101,7 @@ def _column_schema_to_dict_sparse(name, column_schema):
   index_feature_list = []
   # Note axes and index_fields must be in the same order.
   for (axis, index_field) in zip(
-      logical_column.shape.axes, representation.index_fields):
+      column_schema.axes, representation.index_fields):
 
     # str() is needed to match protobuf JSON encoding of int64 as string
     index_feature_list.append({'name': index_field.name,
@@ -113,8 +111,8 @@ def _column_schema_to_dict_sparse(name, column_schema):
   result['indexFeature'] = index_feature_list
   result['valueFeature'] = [{'name': representation.value_field_name,
                              'type': _to_feature_type_enum(
-                                 logical_column.domain.dtype),
-                             'domain': _to_domain(logical_column.domain.dtype)}]
+                                 column_schema.domain.dtype),
+                             'domain': _to_domain(column_schema.domain)}]
 
   return result
 
@@ -131,17 +129,23 @@ def _to_feature_type_enum(dtype):
   return 'TYPE_UNKNOWN'
 
 
-def _to_domain(dtype):
+def _to_domain(domain):
+  """Translates a Domain object into a JSON dict."""
+  result = {}
   # Domain names and bounds are not populated yet
-  if dtype.is_integer:
-    return {'ints': {}}
-  if dtype.is_floating:
-    return {'floats': {}}
-  if dtype == tf.string:
-    return {'strings': {}}
-  if dtype == tf.bool:
-    return {'bools': {}}
-  return {}
+  if isinstance(domain, dataset_schema.IntDomain):
+    result['ints'] = {
+        'min': str(domain.min_value),
+        'max': str(domain.max_value),
+        'isCategorical': domain.is_categorical
+    }
+  elif isinstance(domain, dataset_schema.FloatDomain):
+    result['floats'] = {}
+  elif isinstance(domain, dataset_schema.StringDomain):
+    result['strings'] = {}
+  elif isinstance(domain, dataset_schema.BoolDomain):
+    result['bools'] = {}
+  return result
 
 
 def _get_tf_options(representation, type_string):

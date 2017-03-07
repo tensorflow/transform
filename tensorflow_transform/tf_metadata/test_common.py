@@ -30,6 +30,8 @@ test_feature_spec = {
         shape=[5], dtype=tf.bool),
     'fixed_int_with_default': tf.FixedLenFeature(
         shape=[1], dtype=tf.int64, default_value=0),
+    'fixed_categorical_int_with_range': tf.FixedLenFeature(
+        shape=[1], dtype=tf.int64, default_value=0),
     'fixed_int_without_default': tf.FixedLenFeature(
         shape=[5], dtype=tf.int64),
     'fixed_float_with_default': tf.FixedLenFeature(
@@ -73,113 +75,70 @@ def get_manually_created_schema():
   """Provide a test schema built from scratch using the Schema classes."""
   schema = sch.Schema()
 
-  # This verbose stuff may be replaced with convienience methods in the future.
-
   # FixedLenFeatures
   schema.column_schemas['fixed_bool_with_default'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.bool),
-                                  sch.LogicalShape([sch.Axis(1)])),
-          sch.FixedColumnRepresentation(False)))
+      sch.ColumnSchema(tf.bool, [1], sch.FixedColumnRepresentation(False)))
 
   schema.column_schemas['fixed_bool_without_default'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.bool),
-                                  sch.LogicalShape([sch.Axis(5)])),
-          sch.FixedColumnRepresentation()))
+      sch.ColumnSchema(tf.bool, [5], sch.FixedColumnRepresentation()))
 
   schema.column_schemas['fixed_int_with_default'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.int64),
-                                  sch.LogicalShape([sch.Axis(1)])),
-          sch.FixedColumnRepresentation(0)))
+      sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation(0)))
+
+  schema.column_schemas['fixed_categorical_int_with_range'] = (
+      sch.ColumnSchema(sch.IntDomain(tf.int64, -5, 10, True), [1],
+                       sch.FixedColumnRepresentation(0)))
 
   schema.column_schemas['fixed_int_without_default'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.int64),
-                                  sch.LogicalShape([sch.Axis(5)])),
-          sch.FixedColumnRepresentation()))
+      sch.ColumnSchema(tf.int64, [5], sch.FixedColumnRepresentation()))
 
   schema.column_schemas['fixed_float_with_default'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.float32),
-                                  sch.LogicalShape([sch.Axis(1)])),
-          sch.FixedColumnRepresentation(0.0)))
+      sch.ColumnSchema(tf.float32, [1], sch.FixedColumnRepresentation(0.0)))
 
   schema.column_schemas['fixed_float_without_default'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.float32),
-                                  sch.LogicalShape([sch.Axis(5)])),
-          sch.FixedColumnRepresentation()))
+      sch.ColumnSchema(tf.float32, [5], sch.FixedColumnRepresentation()))
 
   schema.column_schemas['fixed_string_with_default'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.string),
-                                  sch.LogicalShape([sch.Axis(1)])),
-          sch.FixedColumnRepresentation('default')))
+      sch.ColumnSchema(tf.string, [1],
+                       sch.FixedColumnRepresentation('default')))
 
   schema.column_schemas['fixed_string_without_default'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.string),
-                                  sch.LogicalShape([sch.Axis(5)])),
-          sch.FixedColumnRepresentation()))
+      sch.ColumnSchema(tf.string, [5], sch.FixedColumnRepresentation()))
 
   schema.column_schemas['3d_fixed_int_without_default'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.int64),
-                                  sch.LogicalShape([sch.Axis(5),
-                                                    sch.Axis(6),
-                                                    sch.Axis(7)])),
-          sch.FixedColumnRepresentation()))
+      sch.ColumnSchema(tf.int64, [5, 6, 7], sch.FixedColumnRepresentation()))
 
   # VarLenFeatures
   schema.column_schemas['var_bool'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.bool),
-                                  sch.LogicalShape([sch.Axis(None)])),
-          sch.ListColumnRepresentation()))
+      sch.ColumnSchema(tf.bool, None, sch.ListColumnRepresentation()))
 
   schema.column_schemas['var_int'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.int64),
-                                  sch.LogicalShape([sch.Axis(None)])),
-          sch.ListColumnRepresentation()))
+      sch.ColumnSchema(tf.int64, None, sch.ListColumnRepresentation()))
 
   schema.column_schemas['var_float'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.float32),
-                                  sch.LogicalShape([sch.Axis(None)])),
-          sch.ListColumnRepresentation()))
+      sch.ColumnSchema(tf.float32, None, sch.ListColumnRepresentation()))
 
   schema.column_schemas['var_string'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.string),
-                                  sch.LogicalShape([sch.Axis(None)])),
-          sch.ListColumnRepresentation()))
+      sch.ColumnSchema(tf.string, None, sch.ListColumnRepresentation()))
 
   # SparseFeatures
   schema.column_schemas['sparse_bool'] = (
       sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.bool),
-                                  sch.LogicalShape([sch.Axis(15)])),
+          tf.bool, [15],
           sch.SparseColumnRepresentation('sparse_bool_value',
                                          [sch.SparseIndexField(
-                                             'sparse_bool_index',
-                                             True)])))
+                                             'sparse_bool_index', True)])))
 
   schema.column_schemas['sparse_int'] = (
       sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.int64),
-                                  sch.LogicalShape([sch.Axis(150)])),
+          tf.int64, [150],
           sch.SparseColumnRepresentation('sparse_int_value',
                                          [sch.SparseIndexField(
-                                             'sparse_int_index',
-                                             False)])))
+                                             'sparse_int_index', False)])))
 
   schema.column_schemas['sparse_float'] = (
       sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.float32),
-                                  sch.LogicalShape([sch.Axis(1500)])),
+          tf.float32, [1500],
           sch.SparseColumnRepresentation('sparse_float_value',
                                          [sch.SparseIndexField(
                                              'sparse_float_index',
@@ -187,8 +146,7 @@ def get_manually_created_schema():
 
   schema.column_schemas['sparse_string'] = (
       sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.string),
-                                  sch.LogicalShape([sch.Axis(15000)])),
+          tf.string, [15000],
           sch.SparseColumnRepresentation('sparse_string_value',
                                          [sch.SparseIndexField(
                                              'sparse_string_index',

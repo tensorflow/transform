@@ -39,7 +39,7 @@ class DatasetMetadataTest(unittest.TestCase):
   def test_write_and_read(self):
     basedir = tempfile.mkdtemp()
     original_schema = schema_io_vtest.TestSchema(
-        ['test_feature_1', 'test_feature_2'])
+        {'test_feature_1': 'bogus 1', 'test_feature_2': 'bogus 2'})
     original = dataset_metadata.DatasetMetadata(schema=original_schema)
 
     metadata_io.write_metadata(original, basedir, versions=_test_versions)
