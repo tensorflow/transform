@@ -52,17 +52,11 @@ raw_data = [
 
 raw_data_metadata = dataset_metadata.DatasetMetadata(dataset_schema.Schema({
     's': dataset_schema.ColumnSchema(
-        dataset_schema.LogicalColumnSchema(
-            dataset_schema.Domain(tf.string), dataset_schema.LogicalShape([])),
-        dataset_schema.FixedColumnRepresentation()),
+        tf.string, [], dataset_schema.FixedColumnRepresentation()),
     'y': dataset_schema.ColumnSchema(
-        dataset_schema.LogicalColumnSchema(
-            dataset_schema.Domain(tf.float32), dataset_schema.LogicalShape([])),
-        dataset_schema.FixedColumnRepresentation()),
+        tf.float32, [], dataset_schema.FixedColumnRepresentation()),
     'x': dataset_schema.ColumnSchema(
-        dataset_schema.LogicalColumnSchema(
-            dataset_schema.Domain(tf.float32), dataset_schema.LogicalShape([])),
-        dataset_schema.FixedColumnRepresentation())
+        tf.float32, [], dataset_schema.FixedColumnRepresentation())
 }))
 
 transformed_dataset, transform_fn = (

@@ -1,3 +1,5 @@
+# coding=utf-8
+#
 # Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -82,7 +84,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
 
     transformed, _ = (
         input_dataset | beam_impl.AnalyzeAndTransformDataset(
-            preprocessing_fn, os.path.join(self.get_temp_dir(), 'multi')))
+            preprocessing_fn, self.get_temp_dir()))
 
     output_columns, _ = transformed
 
@@ -194,9 +196,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
           inputs['varlen'])
 
       sparse_copy.schema = sch.ColumnSchema(
-          sch.LogicalColumnSchema(
-              sch.dtype_to_domain(tf.float32),
-              sch.LogicalShape([sch.Axis(10)])),
+          tf.float32, [10],
           sch.SparseColumnRepresentation(
               'val_copy', [sch.SparseIndexField('idx_copy', False)]))
 
@@ -222,7 +222,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     transformed_dataset, transform_fn = (
         (input_data, input_metadata)
         | beam_impl.AnalyzeAndTransformDataset(
-            preprocessing_fn, os.path.join(self.get_temp_dir(), 'sparse')))
+            preprocessing_fn, self.get_temp_dir()))
 
     expected_transformed_metadata = self.toMetadata({
         'fixed': tf.FixedLenFeature(None, tf.float32, None),
@@ -291,7 +291,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     transformed_dataset, _ = (
         (input_data, input_metadata)
         | beam_impl.AnalyzeAndTransformDataset(
-            preprocessing_fn, os.path.join(self.get_temp_dir(), 'transform')))
+            preprocessing_fn, self.get_temp_dir()))
 
     expected_transformed_data = [{
         'ab': 12
@@ -304,6 +304,72 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     }]
     expected_transformed_metadata = self.toMetadata({
         'ab': tf.FixedLenFeature((), tf.float32, None)
+    })
+    self.assertDatasetsEqual(
+        transformed_dataset,
+        (expected_transformed_data, expected_transformed_metadata))
+
+  def testTransformMoreThanDesiredBatchSize(self):
+    # User defined preprocessing_fn accepts and returns a dict of Columns.
+    def preprocessing_fn(inputs):
+      return {'ab': tft.map(tf.multiply, inputs['a'], inputs['b'])}
+
+    input_data = [{
+        'a': 1,
+        'b': i
+    } for i in range(beam_impl._DEFAULT_DESIRED_BATCH_SIZE + 1)]
+    input_metadata = self.toMetadata({
+        'a': tf.FixedLenFeature((), tf.float32, 0),
+        'b': tf.FixedLenFeature((), tf.float32, 0)
+    })
+    transformed_dataset, _ = (
+        (input_data, input_metadata)
+        | beam_impl.AnalyzeAndTransformDataset(
+            preprocessing_fn,
+            os.path.join(self.get_temp_dir(),
+                         'transform_more_than_desired_batch_size')))
+
+    expected_transformed_data = [{'ab': i} for i in range(len(input_data))]
+    expected_transformed_metadata = self.toMetadata({
+        'ab': tf.FixedLenFeature((), tf.float32, None)
+    })
+    self.assertDatasetsEqual(
+        transformed_dataset,
+        (expected_transformed_data, expected_transformed_metadata))
+
+  def testTransformUnicode(self):
+    # User defined preprocessing_fn accepts and returns a dict of Columns.
+    def preprocessing_fn(inputs):
+
+      def tito_string_join(*tensors):
+        return tf.string_join(tensors, separator=' ')
+
+      return {'a b': tft.map(tito_string_join, inputs['a'], inputs['b'])}
+
+    input_data = [{
+        'a': 'Hello',
+        'b': 'world'
+    }, {
+        'a': 'Hello',
+        'b': u'κόσμε'
+    }]
+    input_metadata = self.toMetadata({
+        'a': tf.FixedLenFeature((), tf.string),
+        'b': tf.FixedLenFeature((), tf.string)
+    })
+    transformed_dataset, _ = ((input_data, input_metadata)
+                              | beam_impl.AnalyzeAndTransformDataset(
+                                  preprocessing_fn,
+                                  os.path.join(self.get_temp_dir(),
+                                               'transform_unicode')))
+
+    expected_transformed_data = [{
+        'a b': 'Hello world'
+    }, {
+        'a b': u'Hello κόσμε'.encode('utf-8')
+    }]
+    expected_transformed_metadata = self.toMetadata({
+        'a b': tf.FixedLenFeature((), tf.string, None)
     })
     self.assertDatasetsEqual(
         transformed_dataset,
@@ -327,7 +393,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     transformed_dataset, _ = (
         (input_data, input_metadata) |
         beam_impl.AnalyzeAndTransformDataset(
-            preprocessing_fn, os.path.join(self.get_temp_dir(), 'composed')))
+            preprocessing_fn, self.get_temp_dir()))
 
     expected_transformed_data = [{'a(b+c)': 24}, {'a(b+c)': 3}]
     expected_transformed_metadata = self.toMetadata({
@@ -357,7 +423,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     transformed_dataset, _ = (
         (input_data, input_metadata) |
         beam_impl.AnalyzeAndTransformDataset(
-            preprocessing_fn, os.path.join(self.get_temp_dir(), 'scalar')))
+            preprocessing_fn, self.get_temp_dir()))
 
     expected_transformed_data = [
         {'min': 1, 'max': 4, 'sum': 5, 'size': 2, 'mean': 2.5},
@@ -396,7 +462,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     transformed_dataset, _ = (
         (input_data, input_metadata) |
         beam_impl.AnalyzeAndTransformDataset(
-            preprocessing_fn, os.path.join(self.get_temp_dir(), 'ndarray')))
+            preprocessing_fn, self.get_temp_dir()))
 
     expected_transformed_data = [
         {'min': 1, 'max': 7, 'sum': 32, 'size': 8, 'mean': 4.0},
@@ -476,7 +542,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     transformed_dataset, _ = (
         (input_data, input_metadata)
         | beam_impl.AnalyzeAndTransformDataset(
-            preprocessing_fn, os.path.join(self.get_temp_dir(), 'uniques')))
+            preprocessing_fn, self.get_temp_dir()))
 
     expected_transformed_data = [
         {'index': 0},
@@ -619,6 +685,62 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         transformed_dataset,
         (expected_transformed_data, expected_transformed_schema))
 
+  def testUniquesAnalyzerWithFrequencyThresholdTooHigh(self):
+    # User defined transform_fn accepts and returns a dict of Columns.
+    # Expected to return an empty dict due to too high threshold.
+    def preprocessing_fn(inputs):
+      return {
+          'index1':
+              tft.string_to_int(
+                  tft.map(tf.string_split, inputs['a']),
+                  default_value=-99,
+                  frequency_threshold=77),
+
+          # As above but using a string for frequency_threshold (and changing
+          # the default_value to showcase things).
+          'index2':
+              tft.string_to_int(
+                  tft.map(tf.string_split, inputs['a']),
+                  default_value=-9,
+                  frequency_threshold='77')
+      }
+
+    input_data = [{
+        'a': 'hello hello world'
+    }, {
+        'a': 'hello goodbye world'
+    }, {
+        'a': 'hello goodbye foo'
+    }]
+    input_schema = self.toMetadata({
+        'a': tf.FixedLenFeature((), tf.string, ''),
+    })
+
+    transformed_dataset, _ = (
+        (input_data, input_schema)
+        | beam_impl.AnalyzeAndTransformDataset(
+            preprocessing_fn, self.get_temp_dir()))
+
+    # Generated vocab (ordered by frequency, then value) should be:
+    # ["hello", "world", "goodbye", "foo"]. After applying frequency_threshold=2
+    # this becomes empty.
+    expected_transformed_data = [{
+        'index1': [-99, -99, -99],
+        'index2': [-9, -9, -9]
+    }, {
+        'index1': [-99, -99, -99],
+        'index2': [-9, -9, -9]
+    }, {
+        'index1': [-99, -99, -99],
+        'index2': [-9, -9, -9]
+    }]
+    expected_transformed_schema = self.toMetadata({
+        'index1': tf.VarLenFeature(tf.int64),
+        'index2': tf.VarLenFeature(tf.int64)
+    })
+    self.assertDatasetsEqual(transformed_dataset, (expected_transformed_data,
+                                                   expected_transformed_schema))
+
   def testPipelineWithoutAutomaterialization(self):
     # The tests in BaseTFTransformImplTest, when run with the beam
     # implementation, pass lists instead of PCollections and thus invoke
@@ -640,8 +762,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         (columns, metadata)
         | 'Analyze and Transform'
         >> beam_impl.AnalyzeAndTransformDataset(
-            preprocessing_fn,
-            os.path.join(self.get_temp_dir(), 'no_automaterialize')))
+            preprocessing_fn, self.get_temp_dir()))
 
     # Run transform_columns on some eval dataset.
     eval_data = p | 'CreateEvalData' >> beam.Create([{'x': v} for v in [6, 3]])
@@ -670,8 +791,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
           (columns, metadata)
           | 'Analyze and Transform'
           >> beam_impl.AnalyzeAndTransformDataset(
-              preprocessing_fn,
-              os.path.join(self.get_temp_dir(), 'no_automaterialize')))
+              preprocessing_fn, self.get_temp_dir()))
 
       _ = transform_fn | transform_fn_io.WriteTransformFn(tranform_fn_dir)
       _ = metadata | beam_metadata_io.WriteMetadata(metadata_dir, pipeline=p)
@@ -714,8 +834,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     _, transform_fn = (
         (columns, metadata)
         | beam_impl.AnalyzeAndTransformDataset(
-            preprocessing_fn,
-            os.path.join(self.get_temp_dir(), 'output')))
+            preprocessing_fn, self.get_temp_dir()))
 
     export_dir = os.path.join(self.get_temp_dir(), 'export')
     _ = transform_fn | transform_fn_io.WriteTransformFn(export_dir)

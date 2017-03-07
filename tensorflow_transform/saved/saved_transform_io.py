@@ -310,4 +310,3 @@ def _predict_signature_def(inputs, outputs):
   return signature_def_utils.build_signature_def(
       signature_inputs, signature_outputs,
       signature_constants.PREDICT_METHOD_NAME)
-

@@ -17,6 +17,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+
+import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import api
 
@@ -72,8 +74,27 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None):
                        frequency_threshold)
 
   def map_to_int(x, vocab):
+    """Maps string tensor into indexes using vocab.
+
+    It uses a dummy vocab when the input vocab is empty.
+
+    Args:
+      x : a Tensor/SparseTensor of string.
+      vocab : a Tensor/SparseTensor containing unique string values within x.
+
+    Returns:
+      a Tensor/SparseTensor of indexes (int) of the same shape as x.
+    """
+
+    def fix_vocab_if_needed(vocab):
+      num_to_add = 1 - tf.minimum(tf.size(vocab), 1)
+      return tf.concat([
+          vocab, tf.fill(
+              tf.reshape(num_to_add, (1,)), '__dummy_value__index_zero__')
+      ], 0)
+
     table = lookup.string_to_index_table_from_tensor(
-        vocab, default_value=default_value)
+        fix_vocab_if_needed(vocab), default_value=default_value)
     return table.lookup(x)
 
   return api.map(map_to_int, x,

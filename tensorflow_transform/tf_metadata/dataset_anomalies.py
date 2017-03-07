@@ -17,8 +17,18 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 
-class Anomalies(object):
+
+class Anomalies(collections.namedtuple('Anomalies', [])):
+
+  def __eq__(self, other):
+    if isinstance(other, self.__class__):
+      return self._asdict() == other._asdict()
+    return NotImplemented
+
+  def __ne__(self, other):
+    return not self == other
 
   def merge(self, other):
     pass

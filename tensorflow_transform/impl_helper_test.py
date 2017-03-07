@@ -59,19 +59,12 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     }
     schema = impl_helper.infer_feature_schema(columns)
     expected_schema = sch.Schema(column_schemas={
-        'a': sch.ColumnSchema(
-            sch.LogicalColumnSchema(sch.dtype_to_domain(tf.float32),
-                                    sch.LogicalShape([])),
-            sch.FixedColumnRepresentation()),
-        'b': sch.ColumnSchema(
-            sch.LogicalColumnSchema(sch.dtype_to_domain(tf.string),
-                                    sch.LogicalShape([sch.Axis(2),
-                                                      sch.Axis(3)])),
-            sch.FixedColumnRepresentation()),
-        'c': sch.ColumnSchema(
-            sch.LogicalColumnSchema(sch.dtype_to_domain(tf.int64),
-                                    sch.LogicalShape(None)),
-            sch.FixedColumnRepresentation())
+        'a': sch.ColumnSchema(tf.float32, [],
+                              sch.FixedColumnRepresentation()),
+        'b': sch.ColumnSchema(tf.string, [2, 3],
+                              sch.FixedColumnRepresentation()),
+        'c': sch.ColumnSchema(tf.int64, None,
+                              sch.FixedColumnRepresentation())
     })
     self.assertEqual(schema, expected_schema)
 
@@ -86,27 +79,35 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     tensors = {
         'a': tf.placeholder(tf.int64),
         'b': tf.placeholder(tf.float32),
-        'c': tf.sparse_placeholder(tf.string),
-        'd': tf.sparse_placeholder(tf.float32)
+        'c': tf.placeholder(tf.float32),
+        'd': tf.placeholder(tf.float32),
+        'e': tf.sparse_placeholder(tf.string),
+        'f': tf.sparse_placeholder(tf.float32)
     }
     schema = self.toSchema({
         'a': tf.FixedLenFeature(None, tf.int64),
-        'b': tf.FixedLenFeature([2, 2], tf.float32),
-        'c': tf.VarLenFeature(tf.string),
-        'd': tf.SparseFeature('idx', 'val', tf.float32, 10)
+        'b': tf.FixedLenFeature([], tf.float32),
+        'c': tf.FixedLenFeature([1], tf.float32),
+        'd': tf.FixedLenFeature([2, 2], tf.float32),
+        'e': tf.VarLenFeature(tf.string),
+        'f': tf.SparseFeature('idx', 'val', tf.float32, 10)
     })
 
     # Feed some dense and sparse values.
     instances = [{
         'a': 100,
-        'b': [[1.0, 2.0], [3.0, 4.0]],
-        'c': ['doe', 'a', 'deer'],
+        'b': 1.0,
+        'c': [2.0],
+        'd': [[1.0, 2.0], [3.0, 4.0]],
+        'e': ['doe', 'a', 'deer'],
         'idx': [2, 4, 8],
         'val': [10.0, 20.0, 30.0]
     }, {
         'a': 100,
-        'b': [[5.0, 6.0], [7.0, 8.0]],
-        'c': ['a', 'female', 'deer'],
+        'b': 2.0,
+        'c': [4.0],
+        'd': [[5.0, 6.0], [7.0, 8.0]],
+        'e': ['a', 'female', 'deer'],
         'idx': [],
         'val': []
     }]
@@ -114,28 +115,66 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     feed_dict = impl_helper.make_feed_dict(tensors, schema, instances)
     self.assertSetEqual(set(feed_dict.keys()), set(tensors.values()))
     self.assertAllEqual(feed_dict[tensors['a']], [100, 100])
-    self.assertAllEqual(feed_dict[tensors['b']], [[[1.0, 2.0], [3.0, 4.0]],
+    self.assertAllEqual(feed_dict[tensors['b']], [1.0, 2.0])
+    self.assertAllEqual(feed_dict[tensors['c']], [[2.0], [4.0]])
+    self.assertAllEqual(feed_dict[tensors['d']], [[[1.0, 2.0], [3.0, 4.0]],
                                                   [[5.0, 6.0], [7.0, 8.0]]])
-    self.assertSparseValuesEqual(feed_dict[tensors['c']], tf.SparseTensorValue(
+    self.assertSparseValuesEqual(feed_dict[tensors['e']], tf.SparseTensorValue(
         indices=[(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)],
         values=['doe', 'a', 'deer', 'a', 'female', 'deer'],
         dense_shape=(2, 3)))
-    self.assertSparseValuesEqual(feed_dict[tensors['d']], tf.SparseTensorValue(
+    self.assertSparseValuesEqual(feed_dict[tensors['f']], tf.SparseTensorValue(
+        indices=[(0, 2), (0, 4), (0, 8)], values=[10.0, 20.0, 30.0],
+        dense_shape=(2, 10)))
+
+    # Feed numpy versions of everything.
+    instances = [{
+        'a': np.int64(100),
+        'b': np.array(1.0, np.float32),
+        'c': np.array([2.0], np.float32),
+        'd': np.array([[1.0, 2.0], [3.0, 4.0]], np.float32),
+        'e': ['doe', 'a', 'deer'],
+        'idx': np.array([2, 4, 8]),
+        'val': np.array([10.0, 20.0, 30.0]),
+    }, {
+        'a': np.int64(100),
+        'b': np.array(2.0, np.float32),
+        'c': np.array([4.0], np.float32),
+        'd': np.array([[5.0, 6.0], [7.0, 8.0]], np.float32),
+        'e': ['a', 'female', 'deer'],
+        'idx': np.array([], np.int32),
+        'val': np.array([], np.float32)
+    }]
+
+    feed_dict = impl_helper.make_feed_dict(tensors, schema, instances)
+    self.assertSetEqual(set(feed_dict.keys()), set(tensors.values()))
+    self.assertAllEqual(feed_dict[tensors['a']], [100, 100])
+    self.assertAllEqual(feed_dict[tensors['b']], [1.0, 2.0])
+    self.assertAllEqual(feed_dict[tensors['c']], [[2.0], [4.0]])
+    self.assertAllEqual(feed_dict[tensors['d']], [[[1.0, 2.0], [3.0, 4.0]],
+                                                  [[5.0, 6.0], [7.0, 8.0]]])
+    self.assertSparseValuesEqual(feed_dict[tensors['e']], tf.SparseTensorValue(
+        indices=[(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)],
+        values=['doe', 'a', 'deer', 'a', 'female', 'deer'],
+        dense_shape=(2, 3)))
+    self.assertSparseValuesEqual(feed_dict[tensors['f']], tf.SparseTensorValue(
         indices=[(0, 2), (0, 4), (0, 8)], values=[10.0, 20.0, 30.0],
         dense_shape=(2, 10)))
 
     # Feed some empty sparse values
     instances = [{
         'a': 100,
-        'b': [[1.0, 2.0], [3.0, 4.0]],
-        'c': [],
+        'b': 5.0,
+        'c': [1.0],
+        'd': [[1.0, 2.0], [3.0, 4.0]],
+        'e': [],
         'idx': [],
         'val': []
     }]
     feed_dict = impl_helper.make_feed_dict(tensors, schema, instances)
-    self.assertSparseValuesEqual(feed_dict[tensors['c']], tf.SparseTensorValue(
+    self.assertSparseValuesEqual(feed_dict[tensors['e']], tf.SparseTensorValue(
         indices=np.empty([0, 2], np.int64), values=[], dense_shape=(1, 0)))
-    self.assertSparseValuesEqual(feed_dict[tensors['d']], tf.SparseTensorValue(
+    self.assertSparseValuesEqual(feed_dict[tensors['f']], tf.SparseTensorValue(
         indices=np.empty([0, 2], np.int64), values=[], dense_shape=(1, 10)))
 
   def testMakeFeedDictError(self):
@@ -155,34 +194,42 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
   def testMakeOutputDict(self):
     schema = self.toSchema({
         'a': tf.FixedLenFeature(None, tf.int64),
-        'b': tf.FixedLenFeature([2, 2], tf.float32),
-        'c': tf.VarLenFeature(tf.string),
-        'd': tf.SparseFeature('idx', 'val', tf.float32, 10)
+        'b': tf.FixedLenFeature([], tf.float32),
+        'c': tf.FixedLenFeature([1], tf.float32),
+        'd': tf.FixedLenFeature([2, 2], tf.float32),
+        'e': tf.VarLenFeature(tf.string),
+        'f': tf.SparseFeature('idx', 'val', tf.float32, 10)
     })
 
     fetches = {
-        'a': np.asarray([100, 200]),
-        'b': np.asarray([[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]),
-        'c': tf.SparseTensorValue(
+        'a': np.array([100, 200]),
+        'b': np.array([10.0, 20.0]),
+        'c': np.array([[40.0], [80.0]]),
+        'd': np.array([[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]),
+        'e': tf.SparseTensorValue(
             indices=[(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)],
             values=['doe', 'a', 'deer', 'a', 'female', 'deer'],
             dense_shape=(2, 3)),
-        'd': tf.SparseTensorValue(indices=[(0, 2), (0, 4), (0, 8)],
+        'f': tf.SparseTensorValue(indices=[(0, 2), (0, 4), (0, 8)],
                                   values=[10.0, 20.0, 30.0],
                                   dense_shape=(2, 20))
     }
     output_dicts = impl_helper.make_output_dict(schema, fetches)
     self.assertEqual(2, len(output_dicts))
     self.assertSetEqual(set(output_dicts[0].keys()),
-                        set(['a', 'b', 'c', 'idx', 'val']))
+                        set(['a', 'b', 'c', 'd', 'e', 'idx', 'val']))
     self.assertAllEqual(output_dicts[0]['a'], 100)
-    self.assertAllEqual(output_dicts[0]['b'], [[1.0, 2.0], [3.0, 4.0]])
-    self.assertAllEqual(output_dicts[0]['c'], ['doe', 'a', 'deer'])
+    self.assertAllEqual(output_dicts[0]['b'], 10.0)
+    self.assertAllEqual(output_dicts[0]['c'], [40.0])
+    self.assertAllEqual(output_dicts[0]['d'], [[1.0, 2.0], [3.0, 4.0]])
+    self.assertAllEqual(output_dicts[0]['e'], ['doe', 'a', 'deer'])
     self.assertAllEqual(output_dicts[0]['idx'], [2, 4, 8])
     self.assertAllEqual(output_dicts[0]['val'], [10.0, 20.0, 30.0])
     self.assertAllEqual(output_dicts[1]['a'], 200)
-    self.assertAllEqual(output_dicts[1]['b'], [[5.0, 6.0], [7.0, 8.0]])
-    self.assertAllEqual(output_dicts[1]['c'], ['a', 'female', 'deer'])
+    self.assertAllEqual(output_dicts[1]['b'], 20.0)
+    self.assertAllEqual(output_dicts[1]['c'], [80.0])
+    self.assertAllEqual(output_dicts[1]['d'], [[5.0, 6.0], [7.0, 8.0]])
+    self.assertAllEqual(output_dicts[1]['e'], ['a', 'female', 'deer'])
     self.assertAllEqual(output_dicts[1]['idx'], [])
     self.assertAllEqual(output_dicts[1]['val'], [])
 

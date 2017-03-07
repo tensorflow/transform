@@ -15,6 +15,5 @@
 
 from tensorflow_transform.beam.io.beam_metadata_io import ReadMetadata
 from tensorflow_transform.beam.io.beam_metadata_io import WriteMetadata
-from tensorflow_transform.beam.io.transform_fn_io import AppendCoderAssets
 from tensorflow_transform.beam.io.transform_fn_io import ReadTransformFn
 from tensorflow_transform.beam.io.transform_fn_io import WriteTransformFn

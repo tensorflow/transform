@@ -209,19 +209,14 @@ from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
 raw_data_metadata = dataset_metadata.DatasetMetadata(dataset_schema.Schema({
-    'x': dataset_schema.ColumnSchema(
-        dataset_schema.LogicalColumnSchema(
-            dataset_schema.Domain(tf.float32), dataset_schema.LogicalShape([])),
+    's': dataset_schema.ColumnSchema(tf.string, [],
         dataset_schema.FixedColumnRepresentation()),
-    'y': dataset_schema.ColumnSchema(
-        dataset_schema.LogicalColumnSchema(
-            dataset_schema.Domain(tf.float32), dataset_schema.LogicalShape([])),
+    'y': dataset_schema.ColumnSchema(tf.float32, [],
         dataset_schema.FixedColumnRepresentation()),
-    's': dataset_schema.ColumnSchema(
-        dataset_schema.LogicalColumnSchema(
-            dataset_schema.Domain(tf.string), dataset_schema.LogicalShape([])),
+    'x': dataset_schema.ColumnSchema(tf.float32, [],
         dataset_schema.FixedColumnRepresentation())
-})
+}))
+
 ```
 
 The `dataset_schema.Schema` class is a wrapper around a dict of
@@ -229,25 +224,24 @@ The `dataset_schema.Schema` class is a wrapper around a dict of
 of a tensor, and the `ColumnSchema` describes both the kind of tensor and how it
 is represented in-memory or on-disk.
 
-The `LogicalColumnSchema` defines the data type (and optionally, richer
-information such as ranges) and the shape of the tensor. In our example the
-shape has no axes because the values are scalars (rank 0 tensors). In general,
-the shape is specified by a tuple with elements of type `Axis`, each of which
-provides the size of each dimension. The `Axis` class may later support richer
-information such as axis names.
+The first argument to `ColumnSchema` specifies the `Domain` which includes the
+data type and richer infomation such as ranges. In our case we only specify the
+data type and use a helper function to create the `Domain`. The second argument
+provides a list of `Axis` objects describing the shape of the tensor. In our
+example the shape has no axes because the values are scalars (rank 0 tensors).
 
-The second part of the `ColumnSchema` is the representation of the data. There
+The third argument to `ColumnSchema` is the representation of the data. There
 are three kinds of representation. A `FixedColumnRepresentation` is a
 representation of a column with fixed, known size. This allows each instance to
 be represented as a list that can be packed into a tensor of that size. See
 `tf_metadata/dataset_schema.py` for a description of the other kinds of
 representation.
 
-Note that while the shape of the tensor is determined by its logical schema,
-whether it is represented by a `Tensor` or `SparseTensor` in the graph is
-determined by the representation. This makes sense since data stored in a sparse
-format naturally is mapped to a sparse tensor, and users are free to convert
-between `Tensor`s and `SparseTensor`s in their custom code.
+Note that while the shape of the tensor is determined by its axes, whether it is
+represented by a `Tensor` or `SparseTensor` in the graph is determined by the
+representation. This makes sense since data stored in a sparse format naturally
+is mapped to a sparse tensor, and users are free to convert between `Tensor`s
+and `SparseTensor`s in their custom code.
 
 ## IO with the Beam Implementation
 

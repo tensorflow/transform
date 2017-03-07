@@ -60,12 +60,12 @@ LABEL_COLUMN = 'label'
 TRAIN_BATCH_SIZE = 128
 TRAIN_NUM_EPOCHS = 200
 NUM_TRAIN_INSTANCES = 32561
-NUM_EVAL_INSTANCES = 16281
+NUM_TEST_INSTANCES = 16281
 BUCKET_SIZES = [9, 17, 8, 15, 17, 6, 3, 43]
 
 
-def transform_data(train_data_file, eval_data_file,
-                   transformed_train_data_base, transformed_eval_data_base,
+def transform_data(train_data_file, test_data_file,
+                   transformed_train_filebase, transformed_test_filebase,
                    transformed_metadata_dir):
   """Transform the cleaned data and write out as a TFRecord of Example protos.
 
@@ -76,35 +76,25 @@ def transform_data(train_data_file, eval_data_file,
 
   Args:
     train_data_file: File containing training data
-    eval_data_file: File containing evaluation data
-    transformed_train_data_base: Base filename for transformed training data
+    test_data_file: File containing test data
+    transformed_train_filebase: Base filename for transformed training data
         shards
-    transformed_eval_data_base: Base filename for cleaned evaluation data
-        shards
+    transformed_test_filebase: Base filename for cleaned test data shards
     transformed_metadata_dir: Directory where metadata for transformed data
         should be written.
   """
   raw_data_schema = {
       key: dataset_schema.ColumnSchema(
-          dataset_schema.LogicalColumnSchema(
-              dataset_schema.Domain(tf.string),
-              dataset_schema.LogicalShape([])),
-          dataset_schema.FixedColumnRepresentation())
+          tf.string, [], dataset_schema.FixedColumnRepresentation())
       for key in CATEGORICAL_COLUMNS
   }
   raw_data_schema.update({
       key: dataset_schema.ColumnSchema(
-          dataset_schema.LogicalColumnSchema(
-              dataset_schema.Domain(tf.float32),
-              dataset_schema.LogicalShape([])),
-          dataset_schema.FixedColumnRepresentation())
+          tf.float32, [], dataset_schema.FixedColumnRepresentation())
       for key in NUMERIC_COLUMNS
   })
   raw_data_schema[LABEL_COLUMN] = dataset_schema.ColumnSchema(
-      dataset_schema.LogicalColumnSchema(
-          dataset_schema.Domain(tf.string),
-          dataset_schema.LogicalShape([])),
-      dataset_schema.FixedColumnRepresentation())
+      tf.string, [], dataset_schema.FixedColumnRepresentation())
   raw_data_schema = dataset_schema.Schema(raw_data_schema)
   raw_data_metadata = dataset_metadata.DatasetMetadata(raw_data_schema)
 
@@ -169,35 +159,35 @@ def transform_data(train_data_file, eval_data_file,
     raw_dataset = (raw_data, raw_data_metadata)
     transformed_dataset, transform_fn = (
         raw_dataset | beam_impl.AnalyzeAndTransformDataset(
-            preprocessing_fn, output_dir=os.path.join(tempfile.mkdtemp())))
+            preprocessing_fn, output_dir=tempfile.mkdtemp()))
     transformed_data, transformed_metadata = transformed_dataset
 
     _ = transformed_data | 'WriteTrainData' >> tfrecordio.WriteToTFRecord(
-        transformed_train_data_base,
+        transformed_train_filebase,
         coder=example_proto_coder.ExampleProtoCoder(
             transformed_metadata.schema))
 
-    # Now apply transform function to eval data.  In this case we also remove
+    # Now apply transform function to test data.  In this case we also remove
     # the header line from the CSV file and the trailing period at the end of
     # each line.
-    raw_eval_data = (
+    raw_test_data = (
         p
-        | 'ReadEvalData' >> textio.ReadFromText(eval_data_file)
-        | 'FilterEvalData' >> beam.Filter(
+        | 'ReadTestData' >> textio.ReadFromText(test_data_file)
+        | 'FilterTestData' >> beam.Filter(
             lambda line: line and line != '|1x3 Cross validator')
-        | 'FixCommasEvalData' >> beam.Map(lambda line: line.replace(', ', ','))
-        | 'RemoveTrailingPeriodsEvalData' >> beam.Map(lambda line: line[:-1])
-        | 'DecodeEvalData' >> beam.Map(converter.decode))
+        | 'FixCommasTestData' >> beam.Map(lambda line: line.replace(', ', ','))
+        | 'RemoveTrailingPeriodsTestData' >> beam.Map(lambda line: line[:-1])
+        | 'DecodeTestData' >> beam.Map(converter.decode))
 
-    raw_eval_dataset = (raw_eval_data, raw_data_metadata)
+    raw_test_dataset = (raw_test_data, raw_data_metadata)
 
-    transformed_eval_dataset = (
-        (raw_eval_dataset, transform_fn) | beam_impl.TransformDataset())
+    transformed_test_dataset = (
+        (raw_test_dataset, transform_fn) | beam_impl.TransformDataset())
     # Don't need transformed data schema, it's the same as before.
-    transformed_eval_data, _ = transformed_eval_dataset
+    transformed_test_data, _ = transformed_test_dataset
 
-    _ = transformed_eval_data | 'WriteEvalData' >> tfrecordio.WriteToTFRecord(
-        transformed_eval_data_base,
+    _ = transformed_test_data | 'WriteTestData' >> tfrecordio.WriteToTFRecord(
+        transformed_test_filebase,
         coder=example_proto_coder.ExampleProtoCoder(
             transformed_metadata.schema))
 
@@ -207,15 +197,15 @@ def transform_data(train_data_file, eval_data_file,
             transformed_metadata_dir, pipeline=p))
 
 
-def train_and_evaluate(transformed_train_data_base, transformed_eval_data_base,
+def train_and_evaluate(transformed_train_filepattern,
+                       transformed_test_filepattern,
                        transformed_metadata_dir):
-  """Train the model on training data and evaluate on evaluation data.
+  """Train the model on training data and evaluate on test data.
 
   Args:
-    transformed_train_data_base: Base filename for transformed training data
+    transformed_train_filepattern: File pattern for transformed training data
         shards
-    transformed_eval_data_base: Base filename for cleaned evaluation data
-        shards
+    transformed_test_filepattern: File pattern for cleaned test data shards
     transformed_metadata_dir: Directory containing transformed data metadata.
 
   Returns:
@@ -226,10 +216,11 @@ def train_and_evaluate(transformed_train_data_base, transformed_eval_data_base,
   real_valued_columns = [feature_column.real_valued_column(key)
                          for key in NUMERIC_COLUMNS]
 
-  # Wrap categorical columns.
+  # Wrap categorical columns.  Note the combiner is irrelevant since the input
+  # only has one value set per feature per instance.
   one_hot_columns = [
       feature_column.sparse_column_with_integerized_feature(
-          key, bucket_size=bucket_size)
+          key, bucket_size=bucket_size, combiner='sum')
       for key, bucket_size in zip(CATEGORICAL_COLUMNS, BUCKET_SIZES)]
 
   estimator = learn.LinearClassifier(real_valued_columns + one_hot_columns)
@@ -237,23 +228,23 @@ def train_and_evaluate(transformed_train_data_base, transformed_eval_data_base,
   transformed_metadata = metadata_io.read_metadata(transformed_metadata_dir)
   train_input_fn = input_fn_maker.build_training_input_fn(
       transformed_metadata,
-      transformed_train_data_base + '*',
+      transformed_train_filepattern,
       training_batch_size=TRAIN_BATCH_SIZE,
-      label_keys=['label'])
+      label_keys=[LABEL_COLUMN])
 
   # Estimate the model using the default optimizer.
   estimator.fit(
       input_fn=train_input_fn,
       max_steps=TRAIN_NUM_EPOCHS * NUM_TRAIN_INSTANCES / TRAIN_BATCH_SIZE)
 
-  # Evaluate model on eval dataset.
+  # Evaluate model on test dataset.
   eval_input_fn = input_fn_maker.build_training_input_fn(
       transformed_metadata,
-      transformed_eval_data_base + '*',
+      transformed_test_filepattern,
       training_batch_size=1,
-      label_keys=['label'])
+      label_keys=[LABEL_COLUMN])
 
-  return estimator.evaluate(input_fn=eval_input_fn, steps=NUM_EVAL_INSTANCES)
+  return estimator.evaluate(input_fn=eval_input_fn, steps=NUM_TEST_INSTANCES)
 
 
 def main(argv):
@@ -261,16 +252,16 @@ def main(argv):
   temp_dir = tempfile.mkdtemp(dir=census_data_dir)
 
   train_data_file = os.path.join(census_data_dir, 'adult.data')
-  eval_data_file = os.path.join(census_data_dir, 'adult.test')
-  transformed_train_data_base = os.path.join(temp_dir, 'adult.data.transformed')
-  transformed_eval_data_base = os.path.join(temp_dir, 'adult.test.transformed')
+  test_data_file = os.path.join(census_data_dir, 'adult.test')
+  transformed_train_filebase = os.path.join(temp_dir, 'adult.data.transformed')
+  transformed_test_filebase = os.path.join(temp_dir, 'adult.test.transformed')
   transformed_metadata_dir = os.path.join(temp_dir, 'metadata')
 
-  transform_data(train_data_file, eval_data_file, transformed_train_data_base,
-                 transformed_eval_data_base, transformed_metadata_dir)
+  transform_data(train_data_file, test_data_file, transformed_train_filebase,
+                 transformed_test_filebase, transformed_metadata_dir)
 
-  results = train_and_evaluate(transformed_train_data_base,
-                               transformed_eval_data_base,
+  results = train_and_evaluate(transformed_train_filebase + '*',
+                               transformed_test_filebase + '*',
                                transformed_metadata_dir)
 
   pprint.pprint(results)

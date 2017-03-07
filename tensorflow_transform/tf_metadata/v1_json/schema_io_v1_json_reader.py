@@ -46,7 +46,7 @@ def from_schema_json(schema_json):
 
 def _from_feature_dict(feature_dict):
   """Translate a JSON feature dict into a `ColumnSchema`."""
-  domain = _to_domain(feature_dict['domain'])
+  domain = _from_domain_dict(feature_dict['domain'])
 
   axes = []
   if 'fixedShape' in feature_dict:
@@ -57,10 +57,6 @@ def _from_feature_dict(feature_dict):
     # Value_count always means a 1-D feature of unknown size.
     # We don't support value_count.min and value_count.max yet.
     axes.append(sch.Axis(None))
-
-  shape = sch.LogicalShape(axes)
-
-  logical_column = sch.LogicalColumnSchema(domain, shape)
 
   tf_options = feature_dict['parsingOptions']['tfOptions']
   if tf_options.get('fixedLenFeature') is not None:
@@ -82,23 +78,20 @@ def _from_feature_dict(feature_dict):
   else:
     raise ValueError('Could not interpret tfOptions: {}'.format(tf_options))
 
-  return sch.ColumnSchema(logical_column, representation)
+  return sch.ColumnSchema(domain, axes, representation)
 
 
 def _from_sparse_feature_dict(feature_dict):
   """Translate a JSON sparse feature dict into a ColumnSchema."""
   # assume there is only one value column
   value_feature = feature_dict['valueFeature'][0]
-  domain = _to_domain(value_feature['domain'])
+  domain = _from_domain_dict(value_feature['domain'])
 
   index_feature_dicts = feature_dict['indexFeature']
 
   # int() is needed because protobuf JSON encodes int64 as string
   axes = [sch.Axis(int(index_feature_dict['size']))
           for index_feature_dict in index_feature_dicts]
-  shape = sch.LogicalShape(axes)
-
-  logical_column = sch.LogicalColumnSchema(domain, shape)
 
   value_field_name = value_feature['name']
   index_fields = [sch.SparseIndexField(index_feature_dict['name'],
@@ -108,12 +101,19 @@ def _from_sparse_feature_dict(feature_dict):
   representation = sch.SparseColumnRepresentation(value_field_name,
                                                   index_fields)
 
-  return sch.ColumnSchema(logical_column, representation)
+  return sch.ColumnSchema(domain, axes, representation)
 
 
-def _to_domain(domain):
+def _from_domain_dict(domain):
+  """Translate a JSON domain dict into a Domain."""
   if domain.get('ints') is not None:
-    return sch.IntDomain(tf.int64)
+    def maybe_to_int(s):
+      return int(s) if s is not None else None
+    return sch.IntDomain(
+        tf.int64,
+        maybe_to_int(domain['ints'].get('min')),
+        maybe_to_int(domain['ints'].get('max')),
+        domain['ints'].get('is_categorical'))
   if domain.get('floats') is not None:
     return sch.FloatDomain(tf.float32)
   if domain.get('strings') is not None:

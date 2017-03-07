@@ -1,3 +1,5 @@
+# coding=utf-8
+#
 # Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -49,14 +51,14 @@ class ExampleProtoCoderTest(unittest.TestCase):
       'scalar_feature_2': tf.FixedLenFeature(shape=[], dtype=tf.int64),
       'scalar_feature_3': tf.FixedLenFeature(shape=[], dtype=tf.float32),
       'varlen_feature_1': tf.VarLenFeature(dtype=tf.float32),
-      '1d_vector_feature': tf.FixedLenFeature(shape=[0], dtype=tf.string),
       'varlen_feature_2': tf.VarLenFeature(dtype=tf.string),
+      '1d_vector_feature': tf.FixedLenFeature(shape=[1], dtype=tf.string),
+      '2d_vector_feature': tf.FixedLenFeature(shape=[2, 2], dtype=tf.float32),
       'sparse_feature': tf.SparseFeature('idx', 'value', tf.float32, 10),
   })
 
 
-  def _assert_encode_decode(self, coder, expected_proto_text,
-                            expected_decoded):
+  def _assert_encode_decode(self, coder, expected_proto_text, expected_decoded):
     example = tf.train.Example()
     text_format.Merge(expected_proto_text, example)
     data = example.SerializeToString()
@@ -75,8 +77,7 @@ class ExampleProtoCoderTest(unittest.TestCase):
     decoded_again = coder.decode(encoded)
     np.testing.assert_equal(expected_decoded, decoded_again)
 
-  def _assert_decode_encode(self, coder, expected_proto_text,
-                            expected_decoded):
+  def _assert_decode_encode(self, coder, expected_proto_text, expected_decoded):
     example = tf.train.Example()
     text_format.Merge(expected_proto_text, example)
 
@@ -112,6 +113,8 @@ class ExampleProtoCoderTest(unittest.TestCase):
                 value { float_list { value: [ 1.0 ] } } }
       feature { key: "1d_vector_feature"
                 value { bytes_list { value: [ 'this is a ,text' ] } } }
+      feature { key: "2d_vector_feature"
+                value { float_list { value: [ 1.0, 2.0, 3.0, 4.0 ] } } }
       feature { key: "varlen_feature_2"
                 value { bytes_list { value: [ 'female' ] } } }
       feature { key: "value" value { float_list { value: [ 12.0, 20.0 ] } } }
@@ -124,6 +127,7 @@ class ExampleProtoCoderTest(unittest.TestCase):
         'scalar_feature_3': 1.0,
         'varlen_feature_1': [89.0],
         '1d_vector_feature': ['this is a ,text'],
+        '2d_vector_feature': [[1.0, 2.0], [3.0, 4.0]],
         'varlen_feature_2': ['female'],
         'sparse_feature': ([12.0, 20.0], [1, 4])
     }
@@ -141,6 +145,8 @@ class ExampleProtoCoderTest(unittest.TestCase):
                 value { float_list { value: [ 2.0 ] } } }
       feature { key: "1d_vector_feature"
                 value { bytes_list { value: [ 'this is another ,text' ] } } }
+      feature { key: "2d_vector_feature"
+                value { float_list { value: [ 9.0, 8.0, 7.0, 6.0 ] } } }
       feature { key: "varlen_feature_2"
                 value { bytes_list { value: [ 'male' ] } } }
       feature { key: "value" value { float_list { value: [ 13.0, 21.0 ] } } }
@@ -153,6 +159,7 @@ class ExampleProtoCoderTest(unittest.TestCase):
         'scalar_feature_3': np.array(2.0),
         'varlen_feature_1': np.array([]),
         '1d_vector_feature': np.array(['this is another ,text']),
+        '2d_vector_feature': np.array([[9.0, 8.0], [7.0, 6.0]]),
         'varlen_feature_2': np.array(['male']),
         'sparse_feature': (np.array([13.0, 21.0]), np.array([2, 5]))
     }
@@ -172,6 +179,8 @@ class ExampleProtoCoderTest(unittest.TestCase):
                 value { float_list { value: [ 2.0 ] } } }
       feature { key: "1d_vector_feature"
                 value { bytes_list { value: [ 'this is a ,text' ] } } }
+      feature { key: "2d_vector_feature"
+                value { float_list { value: [ 1.0, 2.0, 3.0, 4.0 ] } } }
       feature { key: "varlen_feature_2"
                 value { bytes_list { value: [ 'female' ] } } }
       feature { key: "value" value { float_list { value: [ 12.0, 20.0 ] } } }
@@ -184,6 +193,7 @@ class ExampleProtoCoderTest(unittest.TestCase):
         'scalar_feature_3': 2.0,
         'varlen_feature_1': [89.0],
         '1d_vector_feature': ['this is a ,text'],
+        '2d_vector_feature': [[1.0, 2.0], [3.0, 4.0]],
         'varlen_feature_2': ['female'],
         'sparse_feature': ([12.0, 20.0], [1, 4])
     }
@@ -197,6 +207,46 @@ class ExampleProtoCoderTest(unittest.TestCase):
     coder = pickle.loads(pickle.dumps(coder))
     self._assert_encode_decode(coder, example_proto_text, expected_decoded)
     self._assert_decode_encode(coder, example_proto_text, expected_decoded)
+
+  def test_example_proto_coder_unicode(self):
+    coder = example_proto_coder.ExampleProtoCoder(
+        dataset_schema.from_feature_spec({
+            'unicode_feature': tf.FixedLenFeature(shape=[], dtype=tf.string)
+        }))
+
+    encoded_example = coder.encode({'unicode_feature': u'Hello κόσμε'})
+    example = tf.train.Example()
+    example.ParseFromString(encoded_example)
+    self.assertEqual(
+        example.features.feature['unicode_feature'].bytes_list.value[0],
+        u'Hello κόσμε'.encode('utf-8'))
+
+  def test_example_proto_coder_error(self):
+    input_schema = dataset_schema.from_feature_spec({
+        '2d_vector_feature': tf.FixedLenFeature(shape=[2, 2], dtype=tf.int64),
+    })
+    coder = example_proto_coder.ExampleProtoCoder(input_schema)
+
+    example_decoded_value = {
+        '2d_vector_feature': [1, 2, 3]
+    }
+    example_proto_text = """
+    features {
+      feature { key: "1d_vector_feature"
+                value { int64_list { value: [ 1, 2, 3 ] } } }
+    }
+    """
+    example = tf.train.Example()
+    text_format.Merge(example_proto_text, example)
+
+    # Ensure that we raise an exception for trying to encode invalid data.
+    with self.assertRaisesRegexp(ValueError, 'got wrong number of values'):
+      _ = coder.encode(example_decoded_value)
+
+    # Ensure that we raise an exception for trying to parse invalid data.
+    with self.assertRaisesRegexp(ValueError, 'got wrong number of values'):
+      _ = coder.decode(example.SerializeToString())
+
 
 if __name__ == '__main__':
   unittest.main()

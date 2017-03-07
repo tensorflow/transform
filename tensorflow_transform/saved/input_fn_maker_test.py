@@ -208,22 +208,13 @@ def _make_raw_schema():
   schema = sch.Schema()
 
   schema.column_schemas['raw_a'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.int64),
-                                  sch.LogicalShape([sch.Axis(1)])),
-          sch.FixedColumnRepresentation()))
+      sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation()))
 
   schema.column_schemas['raw_b'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.int64),
-                                  sch.LogicalShape([sch.Axis(1)])),
-          sch.FixedColumnRepresentation()))
+      sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation()))
 
   schema.column_schemas['raw_label'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.int64),
-                                  sch.LogicalShape([sch.Axis(1)])),
-          sch.FixedColumnRepresentation()))
+      sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation()))
 
   return schema
 
@@ -232,22 +223,13 @@ def _make_transformed_schema():
   schema = sch.Schema()
 
   schema.column_schemas['transformed_a'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.int64),
-                                  sch.LogicalShape([sch.Axis(1)])),
-          sch.FixedColumnRepresentation()))
+      sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation()))
 
   schema.column_schemas['transformed_b'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.int64),
-                                  sch.LogicalShape([sch.Axis(1)])),
-          sch.FixedColumnRepresentation()))
+      sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation()))
 
   schema.column_schemas['transformed_label'] = (
-      sch.ColumnSchema(
-          sch.LogicalColumnSchema(sch.dtype_to_domain(tf.int64),
-                                  sch.LogicalShape([sch.Axis(1)])),
-          sch.FixedColumnRepresentation()))
+      sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation()))
 
   return schema
 

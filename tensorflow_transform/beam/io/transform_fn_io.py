@@ -21,49 +21,7 @@ import os
 
 import apache_beam as beam
 from apache_beam.io import fileio
-import dill
 from tensorflow_transform.beam.io import beam_metadata_io
-
-
-_ASSETS_EXTRA = 'assets.extra'
-_TF_TRANSFORM_CODERS_FILE_NAME = 'tf_transform_coders'
-
-
-def _append_coder_assets(transform_fn_def_dir, coders):
-  """Add a pickled coder to the transform_fn_def.
-
-  Args:
-    transform_fn_def_dir: The path to the transform_fn_def SavedModel.
-    coders: A list of tensorflow_transform.beam.coders. The first coder will be
-      used as the defaut coder on serving if no coder is specified.
-  Returns:
-    The path to the transform_fn_def.
-  """
-  assets_extra = os.path.join(transform_fn_def_dir, _ASSETS_EXTRA)
-  fileio.ChannelFactory.mkdir(assets_extra)
-  pickled_coder_dir = os.path.join(assets_extra, _TF_TRANSFORM_CODERS_FILE_NAME)
-  coders_dict = {coder.name: coder for coder in coders}
-  # Use the first coder as the default.
-  coders_dict['default'] = coders[0]
-  with open(pickled_coder_dir, 'w') as f:
-    dill.dump(coders_dict, f)
-  return transform_fn_def_dir
-
-
-@beam.ptransform_fn
-def AppendCoderAssets(transform_fn_def_dir, coders):  # pylint: disable=invalid-name
-  """A PTransform to append the coder assets into an existing transform_fn_def.
-
-  Args:
-    transform_fn_def_dir: The path to the transform_fn_def SavedModel.
-    coders: A list of tensorflow_transform.beam.coders. The first coder will be
-      used as the defaut coder on serving if no coder is specified.
-  Returns:
-    The path to the transform_fn_def.
-  """
-
-  return (transform_fn_def_dir | 'AppendCoderAssets' >>
-          beam.Map(_append_coder_assets, coders))
 
 
 class WriteTransformFn(beam.PTransform):

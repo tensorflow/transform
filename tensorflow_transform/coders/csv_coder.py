@@ -20,8 +20,8 @@ from __future__ import print_function
 import csv
 
 
+import numpy as np
 from six.moves import cStringIO
-
 import tensorflow as tf
 
 
@@ -77,29 +77,75 @@ class _FixedLenFeatureHandler(object):
     self._index = index
     self._reader = reader
     self._encoder = encoder
+    self._dtype = feature_spec.dtype
+    self._shape = feature_spec.shape
+    self._rank = len(feature_spec.shape)
+    self._size = 1
+    for dim in feature_spec.shape:
+      self._size *= dim
+    # Check that the size of the feature matches the valency.
+    if self._size != 1 and not self._reader:
+      raise ValueError(
+          'FixedLenFeature %r was not multivalent (see CsvCoder constructor) '
+          'but had shape %r whose size was not 1' % (name, feature_spec.shape))
 
   @property
   def name(self):
     return self._name
 
   def parse_value(self, string_list):
-    value = string_list[self._index]
-    if value:
-      if self._reader:
-        return map(self._cast_fn, _decode_with_reader(value, self._reader))
-      else:
-        return self._cast_fn(value)
-    elif self._default_value is None:
-      raise ValueError('FixedLenFeature expected a value on column "%s".' %
-                       self._name)
+    """Parse the value of this feature from string list split from CSV line."""
+    value_str = string_list[self._index]
+    if value_str and self._reader:
+      # NOTE: The default value is ignored when self._reader is set.
+      values = map(self._cast_fn, _decode_with_reader(value_str, self._reader))
+    elif value_str:
+      values = [self._cast_fn(value_str)]
+    elif self._default_value is not None:
+      values = [self._default_value]
     else:
-      return self._default_value
+      values = []
+
+    if len(values) != self._size:
+      if self._reader:
+        raise ValueError(
+            'FixedLenFeature %r got wrong number of values: %r' %
+            (self._name, values))
+      else:
+        # If there is no reader and size of values doesn't match, then this
+        # must be because the value was missing.
+        raise ValueError('expected a value on column %r' % self._name)
+
+    if self._rank == 0:
+      # Encode the values as a scalar if shape == []
+      return values[0]
+    elif self._rank == 1:
+      # Short-circuit the reshaping logic needed for rank > 1.
+      return list(values)
+    else:
+      return np.asarray(values).reshape(self._shape).tolist()
 
   def encode_value(self, string_list, values):
-    if self._encoder:
-      string_list[self._index] = self._encoder.encode_record(map(str, values))
+    """Encode the value of this feature into the CSV line."""
+
+    if self._rank == 0:
+      flattened_values = [values]
+    elif self._rank == 1:
+      # Short-circuit the reshaping logic needed for rank > 1.
+      flattened_values = values
     else:
-      string_list[self._index] = str(values)
+      flattened_values = np.asarray(values).reshape(-1)
+
+    if len(flattened_values) != self._size:
+      raise ValueError('FixedLenFeature %r got wrong number of values. Expected'
+                       ' %d but got %d' %
+                       (self._name, self._size, len(flattened_values)))
+
+    if self._encoder:
+      string_list[self._index] = self._encoder.encode_record(
+          map(str, flattened_values))
+    else:
+      string_list[self._index] = str(flattened_values[0])
 
 
 class _VarLenFeatureHandler(object):
@@ -122,20 +168,21 @@ class _VarLenFeatureHandler(object):
     return self._name
 
   def parse_value(self, string_list):
-    value = string_list[self._index]
-    if value:
-      if self._reader:
-        return map(self._cast_fn, _decode_with_reader(value, self._reader))
-      else:
-        return [self._cast_fn(value)]
+    """Parse the value of this feature from string list split from CSV line."""
+    value_str = string_list[self._index]
+    if value_str and self._reader:
+      return map(self._cast_fn, _decode_with_reader(value_str, self._reader))
+    elif value_str:
+      return [self._cast_fn(value_str)]
     else:
       return []
 
   def encode_value(self, string_list, values):
+    """Encode the value of this feature into the CSV line."""
     if self._encoder:
       string_list[self._index] = self._encoder.encode_record(map(str, values))
     else:
-      string_list[self._index] = str(values[0]) if values else ''
+      string_list[self._index] = str(values[0]) if values else None
 
 
 class _SparseFeatureHandler(object):
@@ -162,33 +209,41 @@ class _SparseFeatureHandler(object):
     return self._name
 
   def parse_value(self, string_list):
-    value = string_list[self._value_index]
-    index = string_list[self._index_index]
-    if value and index:
-      if self._reader:
-        values = map(self._cast_fn, _decode_with_reader(value, self._reader))
-        indices = map(long, _decode_with_reader(index, self._reader))
-      else:
-        values = [self._cast_fn(value)]
-        indices = [long(index)]
+    """Parse the value of this feature from string list split from CSV line."""
+    value_str = string_list[self._value_index]
+    index_str = string_list[self._index_index]
+
+    if value_str and self._reader:
+      values = map(self._cast_fn, _decode_with_reader(value_str, self._reader))
+    elif value_str:
+      values = [self._cast_fn(value_str)]
+    else:
+      values = []
+
+    if index_str and self._reader:
+      indices = map(long, _decode_with_reader(index_str, self._reader))
+    elif index_str:
+      indices = [long(index_str)]
+    else:
+      indices = []
+
+    # Check that all indices are in range.
+    if indices:
       i_min, i_max = min(indices), max(indices)
       if i_min < 0 or i_max >= self._size:
         i_bad = i_min if i_min < 0 else i_max
-        raise ValueError('SparseFeature "%s" has index %s out of range [0, %s)'
+        raise ValueError('SparseFeature %r has index %d out of range [0, %d)'
                          % (self._name, i_bad, self._size))
-      return (values, indices)
-    elif value and not index:
+
+    if len(values) != len(indices):
       raise ValueError(
-          'SparseFeature "%s" expected an index in column "%s".' %
-          (self._name, self._index_name))
-    elif not value and index:
-      raise ValueError(
-          'SparseFeature "%s" expected a value in column "%s".' %
-          (self._name, self._value_name))
-    else:
-      return ([], [])
+          'SparseFeature %r has indices and values of different lengths: '
+          'values: %r, indices: %r' % (self._name, values, indices))
+
+    return (values, indices)
 
   def encode_value(self, string_list, sparse_value):
+    """Encode the value of this feature into the CSV line."""
     value, index = sparse_value
     if len(value) == len(index):
       if self._encoder:
@@ -201,7 +256,7 @@ class _SparseFeatureHandler(object):
         string_list[self._index_index] = str(index[0]) if index else ''
     else:
       raise ValueError(
-          'SparseFeature "%s" has value and index unaligned "%s" vs "%s".' %
+          'SparseFeature %r has value and index unaligned %r vs %r.' %
           (self._name, value, index))
 
 
@@ -237,7 +292,7 @@ class _LineGenerator(object):
     if line_length == 0:
       raise DecodeError(
           'Columns do not match specified csv headers: empty line was found')
-    assert line_length == 1, 'Unexpected number of lines %s' % line_length
+    assert line_length == 1, 'Unexpected number of lines %d' % line_length
     # This doesn't maintain insertion order to the list, which is fine
     # because the list has only 1 element. If there were more and we wanted
     # to maintain order and timecomplexity we would switch to deque.popleft.
@@ -328,7 +383,7 @@ class CsvCoder(object):
       secondary_encoder = self._WriterWrapper(secondary_delimiter)
     elif multivalent_columns:
       raise ValueError('secondary_delimiter unspecified for multivalent'
-                       'columns %s' % multivalent_columns)
+                       'columns %r' % multivalent_columns)
     secondary_reader_by_name = {
         name: secondary_reader for name in multivalent_columns
     }
@@ -341,7 +396,7 @@ class CsvCoder(object):
     def index(name):
       index = indices_by_name.get(name)
       if index is None:
-        raise ValueError('Column not found: %s' % name)
+        raise ValueError('Column not found: %r' % name)
       else:
         return index
 
@@ -366,7 +421,7 @@ class CsvCoder(object):
                                   secondary_encoder_by_name.get(name)))
       else:
         raise ValueError('feature_spec should be one of tf.FixedLenFeature, '
-                         'tf.VarLenFeature or tf.SparseFeature: %s was %s' %
+                         'tf.VarLenFeature or tf.SparseFeature: %r was %r' %
                          (name, type(feature_spec)))
 
   def __reduce__(self):
@@ -375,10 +430,6 @@ class CsvCoder(object):
                       self._delimiter,
                       self._secondary_delimiter,
                       self._multivalent_columns)
-
-  @property
-  def name(self):
-    return 'csv'
 
   def encode(self, instance):
     """Encode a tf.transform encoded dict to a csv-formatted string.
@@ -413,6 +464,10 @@ class CsvCoder(object):
        has a missing entry. If both indices and values are missing, return
        a tuple of 2 empty arrays.
 
+    For the case of multivalent columns a ValueError will occur if
+    FixedLenFeature gets the wrong number of values, or a SparseFeature gets
+    different length indices and values.
+
     Args:
       csv_string: String to be decoded.
 
@@ -421,12 +476,20 @@ class CsvCoder(object):
 
     Raises:
       DecodeError: If columns do not match specified csv headers.
-      ValueError: If some numeric column has non-numeric data.
+      ValueError: If some numeric column has non-numeric data, if a
+          SparseFeature has missing indices but not values or vice versa or
+          multivalent data has the wrong length.
     """
     try:
       raw_values = self._reader.read_record(csv_string)
     except Exception as e:  # pylint: disable=broad-except
       raise DecodeError('%s: %s' % (e, csv_string))
+
+    # An empty string when we expect a single column is potentially valid.  This
+    # is probably more permissive than the csv standard but is useful for
+    # testing so that we can test single column CSV lines.
+    if not raw_values and len(self._column_names) == 1:
+      raw_values = ['']
 
     # Check record length mismatches.
     if len(raw_values) != len(self._column_names):

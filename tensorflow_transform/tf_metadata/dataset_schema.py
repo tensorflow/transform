@@ -23,7 +23,7 @@ import collections
 import tensorflow as tf
 
 
-class Schema(collections.namedtuple('Schema', ['column_schemas'])):
+class Schema(object):
   """The schema of a dataset.
 
   This is an in-memory representation that may be serialized and deserialized to
@@ -34,19 +34,27 @@ class Schema(collections.namedtuple('Schema', ['column_schemas'])):
   """
 
 
-  def __new__(cls, column_schemas=None):
+  def __init__(self, column_schemas=None):
     if not column_schemas:
       column_schemas = {}
-    return super(Schema, cls).__new__(cls, column_schemas)
+    if not isinstance(column_schemas, dict):
+      raise ValueError('column_schemas must be a dict.')
+    self._column_schemas = column_schemas
+
+  @property
+  def column_schemas(self):
+    return self._column_schemas
 
   def __eq__(self, other):
     if isinstance(other, self.__class__):
-      return self._asdict() == other._asdict()
+      return self.__dict__ == other.__dict__
     return NotImplemented
 
   def __ne__(self, other):
     return not self == other
 
+  def __getitem__(self, index):
+    return self.column_schemas[index]
 
   def merge(self, other):
     # possible argument: resolution strategy (error or pick first and warn?)
@@ -80,7 +88,7 @@ class Schema(collections.namedtuple('Schema', ['column_schemas'])):
 
 
 class ColumnSchema(collections.namedtuple(
-    'ColumnSchema', ['logical_column', 'representation'])):
+    'ColumnSchema', ['domain', 'axes', 'representation'])):
   """The schema for a single column in a dataset.
 
   The schema contains two parts: the logical description of the column, which
@@ -90,11 +98,21 @@ class ColumnSchema(collections.namedtuple(
   represented in memory or on disk.
 
   Fields:
-    logical_column: A `LogicalColumnSchema` that describes the data of the
-        column.
+    domain: a Domain object, providing the dtype and possibly other constraints.
+    axes: a list of axes describing the intrinsic shape of the data,
+      irrespective of its representation as dense or sparse.
     representation: A `ColumnRepresentation` that describes how the data is
         represented.
   """
+
+  def __new__(cls, domain, axes, representation):
+    if not isinstance(domain, Domain):
+      domain = _dtype_to_domain(domain)
+    if not (axes and isinstance(axes[0], Axis)):
+      axes = _tf_shape_to_axes(axes)
+
+    return super(ColumnSchema, cls).__new__(
+        cls, domain=domain, axes=axes, representation=representation)
 
   def __eq__(self, other):
     if isinstance(other, self.__class__):
@@ -113,7 +131,7 @@ class ColumnSchema(collections.namedtuple(
     Returns:
       A representation of this ColumnSchema as a feature spec.
     """
-    return self.representation.as_feature_spec(self.logical_column)
+    return self.representation.as_feature_spec(self)
 
   def as_batched_placeholder(self):
     """Returns a representation of this ColumnSchema as a placeholder Tensor.
@@ -121,29 +139,24 @@ class ColumnSchema(collections.namedtuple(
     Returns:
       A representation of this ColumnSchema as a placeholder Tensor.
     """
-    return self.representation.as_batched_placeholder(self.logical_column)
+    return self.representation.as_batched_placeholder(self)
+
+  def tf_shape(self):
+    """Represent the shape of this column as a `TensorShape`."""
+    if self.axes is None:
+      return tf.TensorShape(None)
+    return tf.TensorShape([axis.size for axis in self.axes])
+
+  def is_fixed_size(self):
+    if self.axes is None:
+      return False
+    for axis in self.axes:
+      if axis.size is None:
+        return False
+    return True
 
   def merge(self, other):
     raise NotImplementedError('Merge not implemented yet.')
-
-
-class LogicalColumnSchema(collections.namedtuple(
-    'LogicalColumnSchema', ['domain', 'shape'])):
-  """A description of the kind of data contained within a single column.
-
-  Args:
-    domain: a Domain object, providing the dtype and possibly other constraints.
-    shape: a LogicalShape object describing the intrinsic shape of the data,
-      irrespective of its representation as dense or sparse.
-  """
-
-  def __eq__(self, other):
-    if isinstance(other, self.__class__):
-      return self._asdict() == other._asdict()
-    return NotImplemented
-
-  def __ne__(self, other):
-    return not self == other
 
 
 class Domain(object):
@@ -152,15 +165,18 @@ class Domain(object):
   __metaclass__ = abc.ABCMeta
 
   def __init__(self, dtype):
-    self._dtype = dtype
+    self._dtype = tf.as_dtype(dtype)
 
   def __eq__(self, other):
-    if isinstance(other, self.__class__):
+    if other.__class__ == self.__class__:
       return self.__dict__ == other.__dict__
     return NotImplemented
 
   def __ne__(self, other):
     return not self == other
+
+  def __repr__(self):
+    return '%s(%r)' % (self.__class__.__name__, self._dtype)
 
   @property
   def dtype(self):
@@ -174,23 +190,66 @@ class Domain(object):
     self._dtype = tf.as_dtype(state)
 
 
+
+
 class FloatDomain(Domain):
-  pass
+  """A domain for a floating-point type."""
+
+  def __init__(self, dtype):
+    super(FloatDomain, self).__init__(dtype)
+    if not self.dtype.is_floating:
+      raise ValueError(
+          'FloatDomain must be initialized with an floating point dtype.')
 
 
 class IntDomain(Domain):
-  pass
+  """A domain for an integral type."""
+
+  def __init__(self, dtype, min_value=None, max_value=None,
+               is_categorical=False):
+    super(IntDomain, self).__init__(dtype)
+    if not self.dtype.is_integer:
+      raise ValueError('IntDomain must be initialized with an integral dtype.')
+    # NOTE: Because there is no uint64 or 128 bit ints, the following values
+    # are always in the int64 range, which is important for the proto
+    # representation.
+    self._min_value = min_value if min_value is not None else self.dtype.min
+    self._max_value = max_value if max_value is not None else self.dtype.max
+    self._is_categorical = is_categorical
+
+  @property
+  def min_value(self):
+    return self._min_value
+
+  @property
+  def max_value(self):
+    return self._max_value
+
+  @property
+  def is_categorical(self):
+    return self._is_categorical
 
 
 class StringDomain(Domain):
-  pass
+  """A domain for a string type."""
+
+  def __init__(self, dtype):
+    super(StringDomain, self).__init__(dtype)
+    if self.dtype != tf.string:
+      raise ValueError('StringDomain must be initialized with a string dtype.')
 
 
 class BoolDomain(Domain):
-  pass
+  """A domain for a boolean type."""
+
+  def __init__(self, dtype):
+    super(BoolDomain, self).__init__(dtype)
+    if self.dtype != tf.bool:
+      raise ValueError('BoolDomain must be initialized with a boolean dtype.')
 
 
-def dtype_to_domain(dtype):
+def _dtype_to_domain(dtype):
+  """Create an appropriate Domain for the given dtype."""
   if dtype.is_integer:
     return IntDomain(dtype)
   if dtype.is_floating:
@@ -200,32 +259,6 @@ def dtype_to_domain(dtype):
   if dtype == tf.bool:
     return BoolDomain(dtype)
   raise ValueError('Schema cannot accommodate dtype: {}'.format(dtype))
-
-
-class LogicalShape(collections.namedtuple('LogicalShape', ['axes'])):
-  """The logical shape of a column, including axes, sequence nature, etc."""
-
-  def __eq__(self, other):
-    if isinstance(other, self.__class__):
-      return self._asdict() == other._asdict()
-    return NotImplemented
-
-  def __ne__(self, other):
-    return not self == other
-
-  def tf_shape(self):
-    """Represent this shape as a `TensorShape`."""
-    if self.axes is None:
-      return tf.TensorShape(None)
-    return tf.TensorShape([axis.size for axis in self.axes])
-
-  def is_fixed_size(self):
-    if self.axes is None:
-      return False
-    for axis in self.axes:
-      if axis.size is None:
-        return False
-    return True
 
 
 class Axis(collections.namedtuple('Axis', ['size'])):
@@ -250,7 +283,7 @@ class ColumnRepresentation(object):
   __metaclass__ = abc.ABCMeta
 
   def __eq__(self, other):
-    if isinstance(other, self.__class__):
+    if other.__class__ == self.__class__:
       return self.__dict__ == other.__dict__
     return NotImplemented
 
@@ -258,20 +291,20 @@ class ColumnRepresentation(object):
     return not self == other
 
   @abc.abstractmethod
-  def as_feature_spec(self, logical_column):
+  def as_feature_spec(self, column):
     """Returns the representation of this column as a feature spec.
 
     Args:
-      logical_column: The logical column to be represented.
+      column: The column to be represented.
     """
     raise NotImplementedError()
 
   @abc.abstractmethod
-  def as_batched_placeholder(self, logical_column):
+  def as_batched_placeholder(self, column):
     """Returns the representation of this column as a placeholder Tensor.
 
     Args:
-      logical_column: The logical column to be represented.
+      column: The column to be represented.
     """
     raise NotImplementedError()
 
@@ -291,20 +324,20 @@ class FixedColumnRepresentation(ColumnRepresentation):
     """Default value may be None, but then missing data produces an error."""
     return self._default_value
 
-  def as_feature_spec(self, logical_column):
-    if logical_column.shape is None or not logical_column.shape.is_fixed_size():
+  def as_feature_spec(self, column):
+    if not column.is_fixed_size():
       raise ValueError('A column of unknown size cannot be represented as '
                        'fixed-size.')
-    return tf.FixedLenFeature(logical_column.shape.tf_shape().as_list(),
-                              logical_column.domain.dtype,
+    return tf.FixedLenFeature(column.tf_shape().as_list(),
+                              column.domain.dtype,
                               self.default_value)
 
-  def as_batched_placeholder(self, logical_column):
-    if logical_column.shape is None or not logical_column.shape.is_fixed_size():
+  def as_batched_placeholder(self, column):
+    if not column.is_fixed_size():
       raise ValueError('A column of unknown size cannot be represented as '
                        'fixed-size.')
-    return tf.placeholder(logical_column.domain.dtype,
-                          [None] + logical_column.shape.tf_shape().as_list())
+    return tf.placeholder(column.domain.dtype,
+                          [None] + column.tf_shape().as_list())
 
 
 class ListColumnRepresentation(ColumnRepresentation):
@@ -313,13 +346,13 @@ class ListColumnRepresentation(ColumnRepresentation):
   def __init__(self):
     super(ListColumnRepresentation, self).__init__()
 
-  def as_feature_spec(self, logical_column):
-    return tf.VarLenFeature(logical_column.domain.dtype)
+  def as_feature_spec(self, column):
+    return tf.VarLenFeature(column.domain.dtype)
 
-  def as_batched_placeholder(self, logical_column):
+  def as_batched_placeholder(self, column):
     return tf.sparse_placeholder(
-        logical_column.domain.dtype,
-        [None] + logical_column.shape.tf_shape().as_list())
+        column.domain.dtype,
+        [None] + column.tf_shape().as_list())
 
 
 class SparseColumnRepresentation(ColumnRepresentation):
@@ -339,21 +372,21 @@ class SparseColumnRepresentation(ColumnRepresentation):
     # SparseIndexes
     return self._index_fields
 
-  def as_feature_spec(self, logical_column):
+  def as_feature_spec(self, column):
     ind = self.index_fields
-    if len(ind) != 1 or len(logical_column.shape.axes) != 1:
+    if len(ind) != 1 or len(column.axes) != 1:
       raise ValueError('tf.Example parser supports only 1-d sparse features.')
     index = ind[0]
     return tf.SparseFeature(index.name,
                             self._value_field_name,
-                            logical_column.domain.dtype,
-                            logical_column.shape.axes[0].size,
+                            column.domain.dtype,
+                            column.axes[0].size,
                             index.is_sorted)
 
-  def as_batched_placeholder(self, logical_column):
+  def as_batched_placeholder(self, column):
     return tf.sparse_placeholder(
-        logical_column.domain.dtype,
-        [None] + logical_column.shape.tf_shape().as_list())
+        column.domain.dtype,
+        [None] + column.tf_shape().as_list())
 
 
 class SparseIndexField(collections.namedtuple('SparseIndexField',
@@ -383,12 +416,9 @@ def _from_parse_feature(parse_feature):
 
   # FixedLenFeature
   if isinstance(parse_feature, tf.FixedLenFeature):
-    logical = LogicalColumnSchema(
-        domain=_dtype_to_domain(parse_feature.dtype),
-        shape=_tf_shape_to_logical_shape(
-            parse_feature.shape))
     representation = FixedColumnRepresentation(parse_feature.default_value)
-    return ColumnSchema(logical, representation)
+    return ColumnSchema(parse_feature.dtype, parse_feature.shape,
+                        representation)
 
   # FixedLenSequenceFeature
   if isinstance(parse_feature, tf.FixedLenSequenceFeature):
@@ -397,26 +427,18 @@ def _from_parse_feature(parse_feature):
 
   # VarLenFeature
   if isinstance(parse_feature, tf.VarLenFeature):
-    var_len_shape = LogicalShape(axes=[Axis(None)])
-    logical = LogicalColumnSchema(
-        domain=_dtype_to_domain(parse_feature.dtype),
-        shape=var_len_shape)
     representation = ListColumnRepresentation()
-    return ColumnSchema(logical, representation)
+    return ColumnSchema(parse_feature.dtype, [None], representation)
 
   # SparseFeature
   if isinstance(parse_feature, tf.SparseFeature):
-    sparse_shape = LogicalShape(
-        axes=[Axis(parse_feature.size)])
-    logical = LogicalColumnSchema(
-        domain=_dtype_to_domain(parse_feature.dtype),
-        shape=sparse_shape)
     index_field = SparseIndexField(name=parse_feature.index_key,
                                    is_sorted=parse_feature.already_sorted)
     representation = SparseColumnRepresentation(
         value_field_name=parse_feature.value_key,
         index_fields=[index_field])
-    return ColumnSchema(logical, representation)
+    return ColumnSchema(parse_feature.dtype, [parse_feature.size],
+                        representation)
 
   raise ValueError('Cannot interpret feature spec: {}'.format(parse_feature))
 
@@ -429,42 +451,17 @@ def infer_column_schema_from_tensor(tensor):
     # the former, and callers are expected to handle the latter case on their
     # own (e.g. by requiring the user to provide the schema). This is a policy
     # motivated by the prevalence of VarLenFeature in current tf.Learn code.
-    var_len_shape = LogicalShape(axes=[Axis(None)])
-    logical = LogicalColumnSchema(
-        domain=_dtype_to_domain(tensor.dtype),
-        shape=var_len_shape)
+    axes = [Axis(None)]
     representation = ListColumnRepresentation()
   else:
-    logical = LogicalColumnSchema(
-        domain=_dtype_to_domain(tensor.dtype),
-        shape=_tf_shape_to_logical_shape(
-            tensor.get_shape(), remove_batch_dimension=True))
+    axes = _tf_shape_to_axes(tensor.get_shape(),
+                             remove_batch_dimension=True)
     representation = FixedColumnRepresentation()
-  return ColumnSchema(logical, representation)
+  return ColumnSchema(tensor.dtype, axes, representation)
 
 
-_BOOL_TYPES = [tf.bool]
-_INT_TYPES = [tf.int8, tf.uint8, tf.uint16, tf.int16, tf.int32, tf.int64]
-_FLOAT_TYPES = [tf.float16, tf.float32, tf.float64]
-_STRING_TYPES = [tf.string]
-
-
-def _dtype_to_domain(dtype):
-  """Create an appropriate Domain for the given dtype."""
-  if dtype in _BOOL_TYPES:
-    return BoolDomain(dtype=dtype)
-  if dtype in _INT_TYPES:
-    return IntDomain(dtype=dtype)
-  if dtype in _STRING_TYPES:
-    return StringDomain(dtype=dtype)
-  if dtype in _FLOAT_TYPES:
-    return FloatDomain(dtype=dtype)
-
-  raise ValueError('DatasetSchema does not yet support dtype: {}'.format(dtype))
-
-
-def _tf_shape_to_logical_shape(tf_shape, remove_batch_dimension=False):
-  """Create a `LogicalShape` for the given shape.
+def _tf_shape_to_axes(tf_shape, remove_batch_dimension=False):
+  """Create axes for the given shape.
 
   Args:
     tf_shape: A `TensorShape` or anything that can be converted to a
@@ -473,7 +470,7 @@ def _tf_shape_to_logical_shape(tf_shape, remove_batch_dimension=False):
       dimension.
 
   Returns:
-    A `LogicalShape` representing the given shape.
+    A list of axes representing the given shape.
 
   Raises:
     ValueError: If `remove_batch_dimension` is True and the given shape does not
@@ -489,4 +486,4 @@ def _tf_shape_to_logical_shape(tf_shape, remove_batch_dimension=False):
       if len(axes) < 1:
         raise ValueError('Expected tf_shape to have rank >= 1')
       axes = axes[1:]
-  return LogicalShape(axes)
+  return axes

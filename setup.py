@@ -24,7 +24,7 @@ def get_required_install_packages():
       # when sent to services.  By specifying a specific dill version here,
       # we ensure that everyone has the same version of dill installed, provided
       # all install the same version of tensorflow-transform.
-      'dill == 0.2.5',
+      'dill == 0.2.6',
 
 
       # Using >= for better integration tests. During release this is
@@ -34,7 +34,7 @@ def get_required_install_packages():
 
 
 def get_version():
-  return '0.1.4'
+  return '0.1.6dev'
 
 
 setup(

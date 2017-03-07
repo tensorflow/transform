@@ -131,7 +131,7 @@ def make_feed_dict(input_tensors, schema, instances):
                 for instance in instances]
       indices = [instance[representation.index_fields[0].name]
                  for instance in instances]
-      max_index = schema.column_schemas[key].logical_column.shape.axes[0].size
+      max_index = schema.column_schemas[key].axes[0].size
       feed_value = make_sparse_batch(indices, values, max_index)
 
     else:
@@ -371,7 +371,6 @@ def make_transform_fn_def(schema, inputs, outputs, saved_model_dir):
     with tf.Session() as session:
       saved_transform_io.write_saved_transform_from_session(
           session, input_tensors, output_tensors, saved_model_dir)
-
   return column_names_to_statistics
 
 
