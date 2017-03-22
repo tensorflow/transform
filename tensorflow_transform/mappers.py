@@ -63,12 +63,12 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None):
     ValueError: If `top_k` or `count_threshold` is negative.
   """
   if top_k is not None:
-    top_k = long(top_k)
+    top_k = int(top_k)
     if top_k < 0:
       raise ValueError('top_k must be non-negative, but got: %r' % top_k)
 
   if frequency_threshold is not None:
-    frequency_threshold = long(frequency_threshold)
+    frequency_threshold = int(frequency_threshold)
     if frequency_threshold < 0:
       raise ValueError('frequency_threshold must be non-negative, but got: %r' %
                        frequency_threshold)

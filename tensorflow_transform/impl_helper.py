@@ -21,7 +21,11 @@ from __future__ import print_function
 import collections
 import itertools
 
+
 import numpy as np
+import six
+from six.moves import range  # pylint: disable=redefined-builtin
+from six.moves import zip  # pylint: disable=redefined-builtin
 import tensorflow as tf
 from tensorflow_transform import api
 from tensorflow_transform.saved import saved_transform_io
@@ -48,7 +52,7 @@ def infer_feature_schema(columns):
   return dataset_schema.Schema({
       name: (column.schema if column.schema
              else dataset_schema.infer_column_schema_from_tensor(column.tensor))
-      for name, column in columns.items()
+      for name, column in six.iteritems(columns)
   })
 
 
@@ -74,12 +78,12 @@ def make_feed_dict(input_tensors, schema, instances):
   def make_batch_indices(instance_indices):
     """Converts a list of instance indices to the corresponding batch indices.
 
-    Given a list of lists representing the indices of N sparse tensors, creates
-    a single list of indices representing the result of concatenating the sparse
-    tensors along the 0'th dimension into a batch of size N.
+    Given a list of iterables representing the indices of N sparse tensors,
+    creates a single list of indices representing the result of concatenating
+    the sparse tensors along the 0'th dimension into a batch of size N.
 
     Args:
-      instance_indices: A list of N lists, each containing the sparse tensor
+      instance_indices: A list of N iterables, each containing the sparse tensor
         indices for an instance.
 
     Returns:
@@ -100,9 +104,9 @@ def make_feed_dict(input_tensors, schema, instances):
     concatenates them along the 0'th dimension into a sparse batch of size N.
 
     Args:
-      instance_indices: A list of N lists, each containing the sparse tensor
+      instance_indices: A list of N iterables, each containing the sparse tensor
         indices for an instance.
-      instance_values: A list of N lists, each containing the sparse tensor
+      instance_values: A list of N iterables, each containing the sparse tensor
         values for an instance.
       max_index: An int representing the maximum index in `instance_indices`.
 
@@ -114,8 +118,8 @@ def make_feed_dict(input_tensors, schema, instances):
     batch_shape = (len(instance_indices), max_index)
     return tf.SparseTensorValue(batch_indices, batch_values, batch_shape)
 
-  feed_dict = {}
-  for key, input_tensor in input_tensors.items():
+  result = {}
+  for key, input_tensor in six.iteritems(input_tensors):
     representation = schema.column_schemas[key].representation
     if isinstance(representation, dataset_schema.FixedColumnRepresentation):
       feed_value = [instance[key] for instance in instances]
@@ -127,29 +131,32 @@ def make_feed_dict(input_tensors, schema, instances):
       feed_value = make_sparse_batch(indices, values, max_index)
 
     elif isinstance(representation, dataset_schema.SparseColumnRepresentation):
-      values = [instance[representation.value_field_name]
-                for instance in instances]
-      indices = [instance[representation.index_fields[0].name]
-                 for instance in instances]
       max_index = schema.column_schemas[key].axes[0].size
+      indices, values = [], []
+      for instance in instances:
+        instance_indices, instance_values = instance[key]
+        check_valid_sparse_tensor(
+            instance_indices, instance_values, max_index, key)
+        indices.append(instance_indices)
+        values.append(instance_values)
       feed_value = make_sparse_batch(indices, values, max_index)
 
     else:
       raise ValueError('Invalid column %r.' % schema.column_schemas[key])
-    feed_dict[input_tensor] = feed_value
+    result[input_tensor] = feed_value
 
-  return feed_dict
+  return result
 
 
 def make_output_dict(schema, fetches):
-  """Maps the values fetched by `tf.Session.run` to the in-memory format.
+  """Maps the values fetched by `tf.Session.run` to the internal batch format.
 
   Args:
     schema: A `Schema` object.
     fetches: A dict representing a batch of data, as returned by `Session.run`.
 
   Returns:
-    A map from keys to a python primitive, list or ndarray.
+    A dict from keys to a list or 2-tuple of lists.
 
   Raises:
     ValueError: If `schema` is invalid.
@@ -183,34 +190,67 @@ def make_output_dict(schema, fetches):
     return instance_indices, instance_values
 
   # Make a dict where the values are lists with one element per instance.
-  output_dict = {}
-  for key, value in fetches.items():
+  result = {}
+  for key, value in six.iteritems(fetches):
     representation = schema.column_schemas[key].representation
     if isinstance(representation, dataset_schema.FixedColumnRepresentation):
-      output_dict[key] = [value[i] for i in range(value.shape[0])]
+      result[key] = [value[i] for i in range(value.shape[0])]
 
     elif isinstance(representation, dataset_schema.ListColumnRepresentation):
       if not isinstance(value, tf.SparseTensorValue):
         raise ValueError('Expected a SparseTensorValue, but got %r' % value)
       instance_indices, instance_values = decompose_sparse_batch(value)
-      if any(indices != range(len(indices)) for indices in instance_indices):
+      if any(indices != list(range(len(indices)))
+             for indices in instance_indices):
         raise ValueError('Encountered a SparseTensorValue that cannot be '
                          'decoded by ListColumnRepresentation.')
-      output_dict[key] = instance_values
+      result[key] = instance_values
 
     elif isinstance(representation, dataset_schema.SparseColumnRepresentation):
       if not isinstance(value, tf.SparseTensorValue):
         raise ValueError('Expected a SparseTensorValue, but got %r' % value)
-      instance_indices, instance_values = decompose_sparse_batch(value)
-      output_dict[representation.value_field_name] = instance_values
-      output_dict[representation.index_fields[0].name] = instance_indices
+      result[key] = decompose_sparse_batch(value)
 
     else:
       raise ValueError('Unhandled column representation: %r.' % representation)
 
-  # Convert dict of lists into a list of dicts
-  return [dict(zip(output_dict, row_values))
-          for row_values in zip(*output_dict.values())]
+  return result
+
+
+def to_instance_dicts(batch_dict):
+  """Converts from the internal batch format to a list of instances.
+
+  Args:
+    batch_dict: A dict in the in-memory batch format, as returned by
+      `make_output_dict`.
+
+  Returns:
+    A list of dicts in the in-memory instance format.
+  """
+  def get_instance_values(batch_dict):
+    # SparseFeatures are represented as a 2-tuple of list of lists, so
+    # in that case we convert to a list of 2-tuples of lists.
+    columns = (column if not isinstance(column, tuple) else zip(*column)
+               for column in six.itervalues(batch_dict))
+    return itertools.izip(*columns)
+
+  return [dict(zip(six.iterkeys(batch_dict), instance_values))
+          for instance_values in get_instance_values(batch_dict)]
+
+
+def check_valid_sparse_tensor(indices, values, size, name):
+  # Check that all indices are in range.
+  if len(indices):  # pylint: disable=g-explicit-length-test
+    i_min, i_max = min(indices), max(indices)
+    if i_min < 0 or i_max >= size:
+      i_bad = i_min if i_min < 0 else i_max
+      raise ValueError('Sparse column %r has index %d out of range [0, %d)'
+                       % (name, i_bad, size))
+
+  if len(indices) != len(values):
+    raise ValueError(
+        'Sparse column %r has indices and values of different lengths: '
+        'values: %r, indices: %r' % (name, values, indices))
 
 
 def _make_input_columns(schema):
@@ -219,7 +259,7 @@ def _make_input_columns(schema):
   return {
       # pylint: disable=protected-access
       key: api._InputColumn(placeholders[key], column_schema)
-      for key, column_schema in schema.column_schemas.items()
+      for key, column_schema in six.iteritems(schema.column_schemas)
   }
 
 
@@ -240,15 +280,12 @@ def replace_tensors_with_constant_values(
     bound_saved_model_dir: The directory to which to write the SavedModel with
        some inputs bound to constants.
     input_value_mapping: A map from inputs to `ConstantTensorValue`s.
-
-  Returns:
-    bound_saved_model_dir
   """
   with tf.Graph().as_default():
     # Create constant tensors representing bound inputs.
     bound_input_tensors = {
         key: tf.constant(value.value, value.dtype)
-        for key, value in input_value_mapping.items()
+        for key, value in six.iteritems(input_value_mapping)
     }
     with tf.Session() as session:
       input_tensors, output_tensors = (
@@ -256,7 +293,6 @@ def replace_tensors_with_constant_values(
               saved_model_dir, bound_input_tensors))
       saved_transform_io.write_saved_transform_from_session(
           session, input_tensors, output_tensors, bound_saved_model_dir)
-  return bound_saved_model_dir
 
 
 def _copy_placeholder(placeholder):
@@ -305,10 +341,11 @@ def make_transform_fn_def(schema, inputs, outputs, saved_model_dir):
   # interested in, than to extract it from the graph we already have.
   input_tensors = {}
   column_names_to_statistics = {}
-  if sorted(schema.as_feature_spec().keys()) != sorted(inputs.keys()):
+  if (sorted(six.iterkeys(schema.as_feature_spec())) !=
+      sorted(six.iterkeys(inputs))):
     raise ValueError('Schema and input columns had different keys (%s vs %s).'
-                     % (sorted(schema.as_feature_spec().keys()),
-                        sorted(inputs.keys())))
+                     % (sorted(six.iterkeys(schema.as_feature_spec())),
+                        sorted(six.iterkeys(inputs))))
 
   def get_new_input_column_name():
     analyzer_idx = 0
@@ -353,12 +390,14 @@ def make_transform_fn_def(schema, inputs, outputs, saved_model_dir):
 
     # Compute placeholder for input columns.
     input_tensors.update({
-        key: column.placeholder for key, column in new_input_columns.items()
+        key: column.placeholder
+        for key, column in six.iteritems(new_input_columns)
     })
 
     # Initialize cache of column tensors with the input columns.
     cached_column_to_tensor.update({
-        inputs[key]: new_input_columns[key].tensor for key in inputs.keys()
+        inputs[key]: new_input_columns[key].tensor
+        for key in six.iterkeys(inputs)
     })
 
     # Compute tensors representing output columns.  As a side effect this will
@@ -366,7 +405,7 @@ def make_transform_fn_def(schema, inputs, outputs, saved_model_dir):
     # `_AnalyzerOutputs` that are parents of outputs, and also augment
     # input_tensors
     output_tensors = {key: column_to_tensor(column)
-                      for key, column in outputs.items()}
+                      for key, column in six.iteritems(outputs)}
 
     with tf.Session() as session:
       saved_transform_io.write_saved_transform_from_session(

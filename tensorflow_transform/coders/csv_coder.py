@@ -21,6 +21,7 @@ import csv
 
 
 import numpy as np
+import six
 from six.moves import cStringIO
 import tensorflow as tf
 
@@ -37,7 +38,9 @@ def _make_cast_fn(dtype):
     A function to extract the value field from a string depending on dtype.
   """
   if dtype.is_integer:
-    return long
+    # In Python 2, if the value is too large to fit into an int, int(..) returns
+    # a long, but ints are cheaper to use when possible.
+    return int
   elif dtype.is_floating:
     return float
   else:
@@ -189,7 +192,7 @@ class _SparseFeatureHandler(object):
   """Handler for `SparseFeature` values.
 
   `SparseFeature` values will be parsed as a tuple of 1-D arrays where the first
-  array corresponds to the values and the second to their indexes.
+  array corresponds to their indices and the second to the values.
   """
 
   def __init__(self, name, feature_spec, value_index, index_index,
@@ -240,11 +243,11 @@ class _SparseFeatureHandler(object):
           'SparseFeature %r has indices and values of different lengths: '
           'values: %r, indices: %r' % (self._name, values, indices))
 
-    return (values, indices)
+    return (indices, values)
 
   def encode_value(self, string_list, sparse_value):
     """Encode the value of this feature into the CSV line."""
-    value, index = sparse_value
+    index, value = sparse_value
     if len(value) == len(index):
       if self._encoder:
         string_list[self._value_index] = self._encoder.encode_record(
@@ -401,7 +404,7 @@ class CsvCoder(object):
         return index
 
     self._feature_handlers = []
-    for name, feature_spec in schema.as_feature_spec().items():
+    for name, feature_spec in six.iteritems(schema.as_feature_spec()):
       if isinstance(feature_spec, tf.FixedLenFeature):
         self._feature_handlers.append(
             _FixedLenFeatureHandler(name, feature_spec, index(name),

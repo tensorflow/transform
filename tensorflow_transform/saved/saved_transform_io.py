@@ -20,6 +20,7 @@ from __future__ import print_function
 import re
 
 
+import six
 import tensorflow as tf
 from tensorflow_transform.saved import constants
 from tensorflow_transform.saved import saved_model_loader
@@ -49,10 +50,11 @@ def _load_transform_saved_model(transform_savedmodel_dir):
 
   # maps name to TensorInfo
   input_signature = {logical_name: tensor_info.name
-                     for logical_name, tensor_info in signature.inputs.items()}
+                     for logical_name, tensor_info
+                     in six.iteritems(signature.inputs)}
   output_signature = {logical_name: tensor_info.name
-                      for logical_name, tensor_info in
-                      signature.outputs.items()}
+                      for logical_name, tensor_info
+                      in six.iteritems(signature.outputs)}
 
   init_feed_dict = saved_model_loader.get_asset_tensors(
       transform_savedmodel_dir, meta_graph_def)
@@ -104,8 +106,8 @@ def partially_apply_saved_transform(saved_model_dir, input_tensors):
       _load_transform_saved_model(saved_model_dir))
 
   # Check for inputs that were not part of the input signature.
-  unexpected_inputs = (set(decomposed_input_tensors.keys()) -
-                       set(input_signature.keys()))
+  unexpected_inputs = (set(six.iterkeys(decomposed_input_tensors)) -
+                       set(six.iterkeys(input_signature)))
   if unexpected_inputs:
     raise ValueError('Unexpected inputs '
                      'to transform: {}'.format(unexpected_inputs))
@@ -123,6 +125,7 @@ def partially_apply_saved_transform(saved_model_dir, input_tensors):
 
   # unique_name may produce e.g. transform_5.  The result has no trailing slash.
   scope = graph.unique_name('transform', mark_as_used=False)
+
 
   # Load the transform graph, applying it to existing Tensors via input_map.
   # Throws ValueError if the input_map gives mismatched types or shapes.
@@ -149,14 +152,15 @@ def partially_apply_saved_transform(saved_model_dir, input_tensors):
           ops.prepend_name_scope(tensor_name, scope))
   decomposed_output_tensors = {
       decomposed_logical_name: lookup_remapped_tensor(tensor_name)
-      for decomposed_logical_name, tensor_name in output_signature.items()
+      for decomposed_logical_name, tensor_name
+      in six.iteritems(output_signature)
   }
   # Do the same for input tensors, where we assume such tensors are not in the
   # input_map since identical tensors in an input_map would be an error.
   decomposed_unbound_input_tensors = {
       decomposed_logical_name: graph.get_tensor_by_name(
           ops.prepend_name_scope(tensor_name, scope))
-      for decomposed_logical_name, tensor_name in input_signature.items()
+      for decomposed_logical_name, tensor_name in six.iteritems(input_signature)
       if decomposed_logical_name not in decomposed_input_tensors
   }
 
@@ -244,7 +248,7 @@ def _decompose_sparse_tensors(tensor_map):
   """
   result = {}
 
-  for key, tensor in tensor_map.items():
+  for key, tensor in six.iteritems(tensor_map):
     if isinstance(tensor, tf.SparseTensor):
       result[key + '$indices'] = tensor.indices
       result[key + '$values'] = tensor.values
@@ -261,7 +265,7 @@ def _recompose_sparse_tensors(tensor_map):
 
   sparse_keys = set()
   dense_keys = set()
-  for key in tensor_map.keys():
+  for key in six.iterkeys(tensor_map):
     match = _SPARSE_TENSOR_NAME_RE.match(key)
     if match:
       sparse_keys.add(match.group(1))
@@ -303,9 +307,9 @@ def _predict_signature_def(inputs, outputs):
     raise ValueError('outputs cannot be None or empty for prediction.')
 
   signature_inputs = {key: saved_model_utils.build_tensor_info(tensor)
-                      for key, tensor in inputs.items()}
+                      for key, tensor in six.iteritems(inputs)}
   signature_outputs = {key: saved_model_utils.build_tensor_info(tensor)
-                       for key, tensor in outputs.items()}
+                       for key, tensor in six.iteritems(outputs)}
 
   return signature_def_utils.build_signature_def(
       signature_inputs, signature_outputs,

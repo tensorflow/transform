@@ -17,6 +17,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import six
+
 import tensorflow as tf
 from tensorflow_transform.saved import saved_transform_io
 
@@ -95,7 +97,8 @@ def build_default_transforming_serving_input_fn(
     """Serving input_fn that applies transforms to raw data in Tensors."""
 
     raw_serving_features = {
-        k: v for k, v in raw_metadata.schema.as_batched_placeholders().items()
+        k: v
+        for k, v in six.iteritems(raw_metadata.schema.as_batched_placeholders())
         if k in raw_feature_keys}
     sparse_serving_features = [t for t in raw_serving_features
                                if isinstance(t, tf.SparseTensor)]
@@ -158,8 +161,8 @@ def build_training_input_fn(metadata,
           file_pattern, training_batch_size, training_feature_spec, reader,
           **read_batch_features_args)
 
-    features = {k: v for k, v in data.items() if k in feature_keys}
-    labels = {k: v for k, v in data.items() if k in label_keys}
+    features = {k: v for k, v in six.iteritems(data) if k in feature_keys}
+    labels = {k: v for k, v in six.iteritems(data) if k in label_keys}
 
     if key_feature_name is not None:
       features[key_feature_name] = keys
@@ -238,10 +241,10 @@ def build_transforming_training_input_fn(raw_metadata,
         transform_savedmodel_dir, raw_data)
 
     transformed_features = {
-        k: v for k, v in transformed_data.items()
+        k: v for k, v in six.iteritems(transformed_data)
         if k in transformed_feature_keys}
     transformed_labels = {
-        k: v for k, v in transformed_data.items()
+        k: v for k, v in six.iteritems(transformed_data)
         if k in transformed_label_keys}
 
     if key_feature_name is not None:
@@ -260,7 +263,7 @@ def _prepare_feature_keys(metadata, label_keys, feature_keys=None):
     raise ValueError("label_keys must be specified.")
   if feature_keys is None:
     feature_keys = list(
-        set(metadata.schema.column_schemas.keys()) - set(label_keys))
+        set(six.iterkeys(metadata.schema.column_schemas)) - set(label_keys))
   overlap_keys = set(label_keys) & set(feature_keys)
   if overlap_keys:
     raise ValueError("Keys cannot be used as both a feature and a "

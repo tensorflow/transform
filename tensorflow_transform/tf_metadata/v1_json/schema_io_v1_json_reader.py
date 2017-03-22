@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import json
+import six
 import tensorflow as tf
 
 from tensorflow_transform.tf_metadata import dataset_schema as sch
@@ -35,8 +36,8 @@ def from_schema_json(schema_json):
           sparse_feature_dict)
       for sparse_feature_dict in schema_dict['sparseFeature']
   }
-  overlapping_keys = set(feature_column_schemas.keys()).intersection(
-      sparse_feature_column_schemas.keys())
+  overlapping_keys = set(six.iterkeys(feature_column_schemas)).intersection(
+      six.iterkeys(sparse_feature_column_schemas))
   if overlapping_keys:
     raise ValueError('Keys of dense and sparse features overlapped. '
                      'overlapping keys: %s' % overlapping_keys)

@@ -129,7 +129,7 @@ class ExampleProtoCoderTest(unittest.TestCase):
         '1d_vector_feature': ['this is a ,text'],
         '2d_vector_feature': [[1.0, 2.0], [3.0, 4.0]],
         'varlen_feature_2': ['female'],
-        'sparse_feature': ([12.0, 20.0], [1, 4])
+        'sparse_feature': ([1, 4], [12.0, 20.0])
     }
     self._assert_encode_decode(coder, example_proto_text, expected_decoded)
     self._assert_decode_encode(coder, example_proto_text, expected_decoded)
@@ -161,7 +161,7 @@ class ExampleProtoCoderTest(unittest.TestCase):
         '1d_vector_feature': np.array(['this is another ,text']),
         '2d_vector_feature': np.array([[9.0, 8.0], [7.0, 6.0]]),
         'varlen_feature_2': np.array(['male']),
-        'sparse_feature': (np.array([13.0, 21.0]), np.array([2, 5]))
+        'sparse_feature': (np.array([2, 5]), np.array([13.0, 21.0]))
     }
     self._assert_encode_decode(coder, example_proto_text, expected_decoded)
     self._assert_decode_encode(coder, example_proto_text, expected_decoded)
@@ -195,7 +195,7 @@ class ExampleProtoCoderTest(unittest.TestCase):
         '1d_vector_feature': ['this is a ,text'],
         '2d_vector_feature': [[1.0, 2.0], [3.0, 4.0]],
         'varlen_feature_2': ['female'],
-        'sparse_feature': ([12.0, 20.0], [1, 4])
+        'sparse_feature': ([1, 4], [12.0, 20.0])
     }
 
     # Ensure we can pickle right away.

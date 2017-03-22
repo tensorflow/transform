@@ -19,6 +19,7 @@ from __future__ import print_function
 
 import abc
 import collections
+import six
 
 import tensorflow as tf
 
@@ -58,7 +59,7 @@ class Schema(object):
 
   def merge(self, other):
     # possible argument: resolution strategy (error or pick first and warn?)
-    for key, value in other.column_schemas.items():
+    for key, value in six.iteritems(other.column_schemas):
       if key in self.column_schemas:
         self.column_schemas[key].merge(value)
       else:
@@ -75,7 +76,7 @@ class Schema(object):
       A representation of this Schema as a feature spec.
     """
     return {key: column_schema.as_feature_spec()
-            for key, column_schema in self.column_schemas.items()}
+            for key, column_schema in six.iteritems(self.column_schemas)}
 
   def as_batched_placeholders(self):
     """Returns a representation of this Schema as placeholder Tensors.
@@ -84,7 +85,7 @@ class Schema(object):
       A representation of this Schema as placeholder Tensors.
     """
     return {key: column_schema.as_batched_placeholder()
-            for key, column_schema in self.column_schemas.items()}
+            for key, column_schema in six.iteritems(self.column_schemas)}
 
 
 class ColumnSchema(collections.namedtuple(
@@ -407,7 +408,7 @@ def from_feature_spec(feature_spec):
   """
   return Schema({
       key: _from_parse_feature(parse_feature)
-      for key, parse_feature in feature_spec.items()
+      for key, parse_feature in six.iteritems(feature_spec)
   })
 
 

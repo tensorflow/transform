@@ -24,6 +24,7 @@ import functools
 
 
 import numpy as np
+import six
 import tensorflow as tf
 
 from google.protobuf.internal import api_implementation
@@ -66,7 +67,8 @@ def _make_cast_fn(np_dtype):
       #
       return map(caster, x)
     else:
-      # This works for python scalars, which require no casting.
+      # This works for python scalars (or lists thereof), which require no
+      # casting.
       return x
 
   def string_cast(x):
@@ -98,7 +100,9 @@ def _make_cast_fn(np_dtype):
       int64_list.value.extend(np.array([1, 2]))  # Any dummy values will do.
       return identity
     except TypeError:
-      return functools.partial(numeric_cast, caster=long)
+      # In Python 2, if the value is too large to fit into an int, int(..)
+      # returns a long, but ints are cheaper to use when possible.
+      return functools.partial(numeric_cast, caster=int)
   else:
     return string_cast
 
@@ -141,12 +145,17 @@ class _FixedLenFeatureHandler(object):
 
   @property
   def name(self):
+    """The name of the feature."""
     return self._name
 
   def initialize_encode_cache(self, example):
     """Initialize fields (performance caches) that point to example's state."""
     self._cast_fn = _make_cast_fn(self._np_dtype)
     self._value = self._value_fn(example.features.feature[self._name])
+
+  def set_encode_cache_dirty(self, example):
+    feature = example.features.feature[self._name]
+    del self._value_fn(feature)[:]
 
   def parse_value(self, feature_map):
     """Decodes a feature into its TF.Transform representation."""
@@ -196,12 +205,17 @@ class _VarLenFeatureHandler(object):
 
   @property
   def name(self):
+    """The name of the feature."""
     return self._name
 
   def initialize_encode_cache(self, example):
     """Initialize fields (performance caches) that point to example's state."""
     self._cast_fn = _make_cast_fn(self._np_dtype)
     self._value = self._value_fn(example.features.feature[self._name])
+
+  def set_encode_cache_dirty(self, example):
+    feature = example.features.feature[self._name]
+    del self._value_fn(feature)[:]
 
   def parse_value(self, feature_map):
     feature = feature_map[self._name]
@@ -216,7 +230,7 @@ class _SparseFeatureHandler(object):
   """Handler for `SparseFeature` values.
 
   `SparseFeature` values will be parsed as a tuple of 1-D arrays where the first
-  array corresponds to the values and the second to their indexes.
+  array corresponds to their indices and the second to the values.
   """
 
   def __init__(self, name, feature_spec):
@@ -229,6 +243,7 @@ class _SparseFeatureHandler(object):
 
   @property
   def name(self):
+    """The name of the feature."""
     return self._name
 
   def initialize_encode_cache(self, example):
@@ -239,17 +254,21 @@ class _SparseFeatureHandler(object):
     self._index = self._index_fn(example.features.feature[
         self._index_key])
 
+  def set_encode_cache_dirty(self, example):
+    feature = example.features.feature[self._value_key]
+    del self._value_fn(feature)[:]
+
   def parse_value(self, feature_map):
     value_feature = feature_map[self._value_key]
     index_feature = feature_map[self._index_key]
     values = list(self._value_fn(value_feature))
     indices = list(self._index_fn(index_feature))
-    return (values, indices)
+    return (indices, values)
 
   def encode_value(self, sparse_value):
     del self._value[:]
     del self._index[:]
-    values, indices = sparse_value
+    indices, values = sparse_value
     self._value.extend(self._cast_fn(values))
     self._index.extend(indices)
 
@@ -286,7 +305,7 @@ class ExampleProtoCoder(object):
     self._decode_example_cache = None
 
     self._feature_handlers = []
-    for name, feature_spec in schema.as_feature_spec().iteritems():
+    for name, feature_spec in six.iteritems(schema.as_feature_spec()):
       if isinstance(feature_spec, tf.FixedLenFeature):
         self._feature_handlers.append(
             _FixedLenFeatureHandler(name, feature_spec))
@@ -307,9 +326,6 @@ class ExampleProtoCoder(object):
   def encode(self, instance):
     """Encode a tf.transform encoded dict as serialized tf.Example."""
     if (self._encode_example_cache is None or
-        # TDOO(b/35874111): Remove this 'or' part once the fix to the 'python'
-        # proto bug (b/35874111) is released to protocol buffer packages (likely
-        # version 3.2.1) and Dataflow containers.
         api_implementation.Type() == 'python'):
       # Initialize the encode Example cache (used by this and all subsequent
       # calls).
@@ -325,9 +341,7 @@ class ExampleProtoCoder(object):
         # map should be sufficient to mark the dirty bit that will cause the
         # SerializeToString() at the end of this function to pick up all the
         # changes of the current for-loop.
-        feature = (
-            self._encode_example_cache.features.feature[feature_handler.name])
-        del feature_handler._value_fn(feature)[:]  # pylint: disable=protected-access
+        feature_handler.set_encode_cache_dirty(self._encode_example_cache)
 
       value = instance[feature_handler.name]
       feature_handler.encode_value(value)
