@@ -19,6 +19,8 @@ from __future__ import division
 from __future__ import print_function
 
 import json
+
+import six
 import tensorflow as tf
 
 from tensorflow_transform.tf_metadata import dataset_schema
@@ -42,7 +44,7 @@ def to_schema_json(schema):
 
 def _get_features(schema):
   result = []
-  for name, column_schema in sorted(schema.column_schemas.items()):
+  for name, column_schema in sorted(six.iteritems(schema.column_schemas)):
     if not isinstance(column_schema.representation,
                       dataset_schema.SparseColumnRepresentation):
       result.append(_column_schema_to_dict_dense(name, column_schema))
@@ -51,7 +53,7 @@ def _get_features(schema):
 
 def _get_sparse_features(schema):
   result = []
-  for name, column_schema in sorted(schema.column_schemas.items()):
+  for name, column_schema in sorted(six.iteritems(schema.column_schemas)):
     if isinstance(column_schema.representation,
                   dataset_schema.SparseColumnRepresentation):
       result.append(_column_schema_to_dict_sparse(name, column_schema))

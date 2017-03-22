@@ -46,15 +46,13 @@ class WriteTransformFn(beam.PTransform):
     # components, the deferred components will be written in a deferred manner
     # while the non-deferred components will be written in a non-deferred
     # manner.
-    def safe_copy_tree(source, dest):
-      if source == dest:
-        raise ValueError('Cannot write a TransformFn to its current location.')
+    def copy_tree(source, dest):
       fileio.ChannelFactory.copytree(source + '/', dest + '/')
     _ = metadata | 'WriteMetadata' >> beam_metadata_io.WriteMetadata(
         os.path.join(self._path, 'transformed_metadata'),
         pipeline=saved_model_dir_pcoll.pipeline)
     return saved_model_dir_pcoll | 'WriteTransformFn' >> beam.Map(
-        safe_copy_tree, os.path.join(self._path, 'transform_fn'))
+        copy_tree, os.path.join(self._path, 'transform_fn'))
 
 
 class ReadTransformFn(beam.PTransform):

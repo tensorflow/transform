@@ -20,6 +20,8 @@ from __future__ import print_function
 import os
 import tempfile
 
+
+import six
 import tensorflow as tf
 
 from tensorflow_transform.saved import input_fn_maker
@@ -199,7 +201,7 @@ def _write_tfrecord(data_file, examples, count=1):
 
 def _create_serialized_example(data_dict):
   example1 = tf.train.Example()
-  for k, v in data_dict.items():
+  for k, v in six.iteritems(data_dict):
     example1.features.feature[k].int64_list.value.append(v)
   return example1.SerializeToString()
 

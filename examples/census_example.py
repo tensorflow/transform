@@ -18,9 +18,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import argparse
 import os
 import pprint
-import sys
 import tempfile
 
 import tensorflow as tf
@@ -67,9 +67,9 @@ BUCKET_SIZES = [9, 17, 8, 15, 17, 6, 3, 43]
 def transform_data(train_data_file, test_data_file,
                    transformed_train_filebase, transformed_test_filebase,
                    transformed_metadata_dir):
-  """Transform the cleaned data and write out as a TFRecord of Example protos.
+  """Transform the data and write out as a TFRecord of Example protos.
 
-  Read in the cleaned data using the CSV reader, and transform it using a
+  Read in the data using the CSV reader, and transform it using a
   preprocessing pipeline that scales numeric data and coverts categorical data
   from strings to int64 values indices, by creating a vocabulary for each
   category.
@@ -79,9 +79,9 @@ def transform_data(train_data_file, test_data_file,
     test_data_file: File containing test data
     transformed_train_filebase: Base filename for transformed training data
         shards
-    transformed_test_filebase: Base filename for cleaned test data shards
+    transformed_test_filebase: Base filename for transformed test data shards
     transformed_metadata_dir: Directory where metadata for transformed data
-        should be written.
+        should be written
   """
   raw_data_schema = {
       key: dataset_schema.ColumnSchema(
@@ -128,73 +128,75 @@ def transform_data(train_data_file, test_data_file,
 
   # The "with" block will create a pipeline, and run that pipeline at the exit
   # of the block.
-  with beam.Pipeline() as p:
-    # Create a coder to read the census data with the schema.  To do this we
-    # need to list all columns in order since the schema doesn't specify the
-    # order of columns in the csv.
-    ordered_columns = [
-        'age', 'workclass', 'fnlwgt', 'education', 'education-num',
-        'marital-status', 'occupation', 'relationship', 'race', 'sex',
-        'capital-gain', 'capital-loss', 'hours-per-week', 'native-country',
-        'label'
-    ]
-    converter = csv_coder.CsvCoder(ordered_columns, raw_data_schema)
+  with beam.Pipeline() as pipeline:
+    with beam_impl.Context(temp_dir=tempfile.mkdtemp()):
+      # Create a coder to read the census data with the schema.  To do this we
+      # need to list all columns in order since the schema doesn't specify the
+      # order of columns in the csv.
+      ordered_columns = [
+          'age', 'workclass', 'fnlwgt', 'education', 'education-num',
+          'marital-status', 'occupation', 'relationship', 'race', 'sex',
+          'capital-gain', 'capital-loss', 'hours-per-week', 'native-country',
+          'label'
+      ]
+      converter = csv_coder.CsvCoder(ordered_columns, raw_data_schema)
 
-    # Read in raw data and convert using CSV converter.  Note that we apply some
-    # Beam transformations here, which will not be encoded in the TF graph since
-    # we don't do the from within tf.Transform's methods (AnalyzeDataset,
-    # TransformDataset etc.).  These transformations are just to get data into
-    # a format that the CSV converter can read, in particular removing empty
-    # lines and removing spaces after commas.
-    raw_data = (
-        p
-        | 'ReadTrainData' >> textio.ReadFromText(train_data_file)
-        | 'FilterTrainData' >> beam.Filter(lambda line: line)
-        | 'FixCommasTrainData' >> beam.Map(lambda line: line.replace(', ', ','))
-        | 'DecodeTrainData' >> beam.Map(converter.decode))
+      # Read in raw data and convert using CSV converter.  Note that we apply
+      # some Beam transformations here, which will not be encoded in the TF
+      # graph since we don't do the from within tf.Transform's methods
+      # (AnalyzeDataset, TransformDataset etc.).  These transformations are just
+      # to get data into a format that the CSV converter can read, in particular
+      # removing empty lines and removing spaces after commas.
+      raw_data = (
+          pipeline
+          | 'ReadTrainData' >> textio.ReadFromText(train_data_file)
+          | 'FilterTrainData' >> beam.Filter(lambda line: line)
+          | 'FixCommasTrainData' >> beam.Map(
+              lambda line: line.replace(', ', ','))
+          | 'DecodeTrainData' >> beam.Map(converter.decode))
 
-    # Combine data and schema into a dataset tuple.  Note that we already used
-    # the schema to read the CSV data, but we also need it to interpret
-    # raw_data.
-    raw_dataset = (raw_data, raw_data_metadata)
-    transformed_dataset, transform_fn = (
-        raw_dataset | beam_impl.AnalyzeAndTransformDataset(
-            preprocessing_fn, output_dir=tempfile.mkdtemp()))
-    transformed_data, transformed_metadata = transformed_dataset
+      # Combine data and schema into a dataset tuple.  Note that we already used
+      # the schema to read the CSV data, but we also need it to interpret
+      # raw_data.
+      raw_dataset = (raw_data, raw_data_metadata)
+      transformed_dataset, transform_fn = (
+          raw_dataset | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
+      transformed_data, transformed_metadata = transformed_dataset
 
-    _ = transformed_data | 'WriteTrainData' >> tfrecordio.WriteToTFRecord(
-        transformed_train_filebase,
-        coder=example_proto_coder.ExampleProtoCoder(
-            transformed_metadata.schema))
+      _ = transformed_data | 'WriteTrainData' >> tfrecordio.WriteToTFRecord(
+          transformed_train_filebase,
+          coder=example_proto_coder.ExampleProtoCoder(
+              transformed_metadata.schema))
 
-    # Now apply transform function to test data.  In this case we also remove
-    # the header line from the CSV file and the trailing period at the end of
-    # each line.
-    raw_test_data = (
-        p
-        | 'ReadTestData' >> textio.ReadFromText(test_data_file)
-        | 'FilterTestData' >> beam.Filter(
-            lambda line: line and line != '|1x3 Cross validator')
-        | 'FixCommasTestData' >> beam.Map(lambda line: line.replace(', ', ','))
-        | 'RemoveTrailingPeriodsTestData' >> beam.Map(lambda line: line[:-1])
-        | 'DecodeTestData' >> beam.Map(converter.decode))
+      # Now apply transform function to test data.  In this case we also remove
+      # the header line from the CSV file and the trailing period at the end of
+      # each line.
+      raw_test_data = (
+          pipeline
+          | 'ReadTestData' >> textio.ReadFromText(test_data_file)
+          | 'FilterTestData' >> beam.Filter(
+              lambda line: line and line != '|1x3 Cross validator')
+          | 'FixCommasTestData' >> beam.Map(
+              lambda line: line.replace(', ', ','))
+          | 'RemoveTrailingPeriodsTestData' >> beam.Map(lambda line: line[:-1])
+          | 'DecodeTestData' >> beam.Map(converter.decode))
 
-    raw_test_dataset = (raw_test_data, raw_data_metadata)
+      raw_test_dataset = (raw_test_data, raw_data_metadata)
 
-    transformed_test_dataset = (
-        (raw_test_dataset, transform_fn) | beam_impl.TransformDataset())
-    # Don't need transformed data schema, it's the same as before.
-    transformed_test_data, _ = transformed_test_dataset
+      transformed_test_dataset = (
+          (raw_test_dataset, transform_fn) | beam_impl.TransformDataset())
+      # Don't need transformed data schema, it's the same as before.
+      transformed_test_data, _ = transformed_test_dataset
 
-    _ = transformed_test_data | 'WriteTestData' >> tfrecordio.WriteToTFRecord(
-        transformed_test_filebase,
-        coder=example_proto_coder.ExampleProtoCoder(
-            transformed_metadata.schema))
+      _ = transformed_test_data | 'WriteTestData' >> tfrecordio.WriteToTFRecord(
+          transformed_test_filebase,
+          coder=example_proto_coder.ExampleProtoCoder(
+              transformed_metadata.schema))
 
-    _ = (
-        transformed_metadata
-        | 'WriteMetadata' >> beam_metadata_io.WriteMetadata(
-            transformed_metadata_dir, pipeline=p))
+      _ = (
+          transformed_metadata
+          | 'WriteMetadata' >> beam_metadata_io.WriteMetadata(
+              transformed_metadata_dir, pipeline=pipeline))
 
 
 def train_and_evaluate(transformed_train_filepattern,
@@ -205,11 +207,11 @@ def train_and_evaluate(transformed_train_filepattern,
   Args:
     transformed_train_filepattern: File pattern for transformed training data
         shards
-    transformed_test_filepattern: File pattern for cleaned test data shards
-    transformed_metadata_dir: Directory containing transformed data metadata.
+    transformed_test_filepattern: File pattern for transformed test data shards
+    transformed_metadata_dir: Directory containing transformed data metadata
 
   Returns:
-    The results from the estimator's 'evaluate' method.
+    The results from the estimator's 'evaluate' method
   """
 
   # Wrap scalars as real valued columns.
@@ -247,15 +249,26 @@ def train_and_evaluate(transformed_train_filepattern,
   return estimator.evaluate(input_fn=eval_input_fn, steps=NUM_TEST_INSTANCES)
 
 
-def main(argv):
-  census_data_dir = argv[1]
-  temp_dir = tempfile.mkdtemp(dir=census_data_dir)
+def main():
+  parser = argparse.ArgumentParser()
+  parser.add_argument('input_data_dir',
+                      help='path to directory containing input data')
+  parser.add_argument('--transformed_data_dir',
+                      help='path to directory to hold transformed data')
+  args = parser.parse_args()
 
-  train_data_file = os.path.join(census_data_dir, 'adult.data')
-  test_data_file = os.path.join(census_data_dir, 'adult.test')
-  transformed_train_filebase = os.path.join(temp_dir, 'adult.data.transformed')
-  transformed_test_filebase = os.path.join(temp_dir, 'adult.test.transformed')
-  transformed_metadata_dir = os.path.join(temp_dir, 'metadata')
+  if args.transformed_data_dir:
+    transformed_data_dir = args.transformed_data_dir
+  else:
+    transformed_data_dir = tempfile.mkdtemp(dir=args.input_data_dir)
+
+  train_data_file = os.path.join(args.input_data_dir, 'adult.data')
+  test_data_file = os.path.join(args.input_data_dir, 'adult.test')
+  transformed_train_filebase = os.path.join(transformed_data_dir,
+                                            'adult.data.transformed')
+  transformed_test_filebase = os.path.join(transformed_data_dir,
+                                           'adult.test.transformed')
+  transformed_metadata_dir = os.path.join(transformed_data_dir, 'metadata')
 
   transform_data(train_data_file, test_data_file, transformed_train_filebase,
                  transformed_test_filebase, transformed_metadata_dir)
@@ -267,4 +280,4 @@ def main(argv):
   pprint.pprint(results)
 
 if __name__ == '__main__':
-  main(sys.argv)
+  main()

@@ -59,9 +59,10 @@ raw_data_metadata = dataset_metadata.DatasetMetadata(dataset_schema.Schema({
         tf.float32, [], dataset_schema.FixedColumnRepresentation())
 }))
 
-transformed_dataset, transform_fn = (
-    (raw_data, raw_data_metadata) | beam_impl.AnalyzeAndTransformDataset(
-        preprocessing_fn, tempfile.mkdtemp()))
+with beam_impl.Context(temp_dir=tempfile.mkdtemp()):
+  transformed_dataset, transform_fn = (
+      (raw_data, raw_data_metadata) | beam_impl.AnalyzeAndTransformDataset(
+          preprocessing_fn))
 
 transformed_data, transformed_metadata = transformed_dataset
 

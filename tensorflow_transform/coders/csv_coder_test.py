@@ -72,7 +72,7 @@ class TestCSVCoder(unittest.TestCase):
       ('a test', ['a test'], False,
        tf.VarLenFeature(dtype=tf.string)),
       # SparseFeature float one value.
-      ('5,2.0', ([2.0], [5]), False,
+      ('5,2.0', ([5], [2.0]), False,
        tf.SparseFeature('idx', 'value', tf.float32, 10)),
       # SparseFeature float no values.
       (',', ([], []), False,
@@ -209,7 +209,7 @@ class TestCSVCoder(unittest.TestCase):
                         'numeric2': [89.0],
                         'numeric3': [14.0],
                         'text1': 'this is a ,text',
-                        'y': ([12.0], [1])}
+                        'y': ([1], [12.0])}
     self._assert_encode_decode(coder, data, expected_decoded)
 
     # Numpy types.
@@ -218,7 +218,7 @@ class TestCSVCoder(unittest.TestCase):
                         'numeric2': np.array([89.0]),
                         'numeric3': np.array([14.0]),
                         'text1': np.array(['this is a ,text']),
-                        'y': (np.array([12.0]), np.array(1))}
+                        'y': (np.array(1), np.array([12.0]))}
     self._assert_encode_decode(coder, data, expected_decoded)
 
   def test_tsv_coder(self):
@@ -231,7 +231,7 @@ class TestCSVCoder(unittest.TestCase):
                         'numeric2': [89.0],
                         'numeric3': [14],
                         'text1': 'this is a \ttext',
-                        'y': ([12.0], [1])}
+                        'y': ([1], [12.0])}
     self._assert_encode_decode(coder, data, expected_decoded)
 
   def test_valency(self):
@@ -248,7 +248,7 @@ class TestCSVCoder(unittest.TestCase):
                         'numeric2': [89.0, 91.0],
                         'numeric3': [14],
                         'text1': 'this is a ,text',
-                        'y': ([12.0, 15.0], [1, 3])}
+                        'y': ([1, 3], [12.0, 15.0])}
     self._assert_encode_decode(coder, data, expected_decoded)
 
   # Test successful decoding with a single column.
@@ -367,7 +367,7 @@ class TestCSVCoder(unittest.TestCase):
                         'numeric2': [89.0],
                         'numeric3': [14],
                         'text1': 'this is a ,text',
-                        'y': ([12.0], [1])}
+                        'y': ([1], [12.0])}
 
     coder = csv_coder.CsvCoder(self._COLUMNS, self._INPUT_SCHEMA)
 

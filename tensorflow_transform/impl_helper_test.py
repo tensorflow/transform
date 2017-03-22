@@ -17,10 +17,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import itertools
 import os
 
 
 import numpy as np
+import six
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import api
@@ -100,20 +102,19 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         'c': [2.0],
         'd': [[1.0, 2.0], [3.0, 4.0]],
         'e': ['doe', 'a', 'deer'],
-        'idx': [2, 4, 8],
-        'val': [10.0, 20.0, 30.0]
+        'f': ([2, 4, 8], [10.0, 20.0, 30.0])
     }, {
         'a': 100,
         'b': 2.0,
         'c': [4.0],
         'd': [[5.0, 6.0], [7.0, 8.0]],
         'e': ['a', 'female', 'deer'],
-        'idx': [],
-        'val': []
+        'f': ([], [])
     }]
 
     feed_dict = impl_helper.make_feed_dict(tensors, schema, instances)
-    self.assertSetEqual(set(feed_dict.keys()), set(tensors.values()))
+    self.assertSetEqual(set(six.iterkeys(feed_dict)),
+                        set(six.itervalues(tensors)))
     self.assertAllEqual(feed_dict[tensors['a']], [100, 100])
     self.assertAllEqual(feed_dict[tensors['b']], [1.0, 2.0])
     self.assertAllEqual(feed_dict[tensors['c']], [[2.0], [4.0]])
@@ -134,20 +135,19 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         'c': np.array([2.0], np.float32),
         'd': np.array([[1.0, 2.0], [3.0, 4.0]], np.float32),
         'e': ['doe', 'a', 'deer'],
-        'idx': np.array([2, 4, 8]),
-        'val': np.array([10.0, 20.0, 30.0]),
+        'f': (np.array([2, 4, 8]), np.array([10.0, 20.0, 30.0])),
     }, {
         'a': np.int64(100),
         'b': np.array(2.0, np.float32),
         'c': np.array([4.0], np.float32),
         'd': np.array([[5.0, 6.0], [7.0, 8.0]], np.float32),
         'e': ['a', 'female', 'deer'],
-        'idx': np.array([], np.int32),
-        'val': np.array([], np.float32)
+        'f': (np.array([], np.int32), np.array([], np.float32))
     }]
 
     feed_dict = impl_helper.make_feed_dict(tensors, schema, instances)
-    self.assertSetEqual(set(feed_dict.keys()), set(tensors.values()))
+    self.assertSetEqual(set(six.iterkeys(feed_dict)),
+                        set(six.itervalues(tensors)))
     self.assertAllEqual(feed_dict[tensors['a']], [100, 100])
     self.assertAllEqual(feed_dict[tensors['b']], [1.0, 2.0])
     self.assertAllEqual(feed_dict[tensors['c']], [[2.0], [4.0]])
@@ -168,8 +168,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         'c': [1.0],
         'd': [[1.0, 2.0], [3.0, 4.0]],
         'e': [],
-        'idx': [],
-        'val': []
+        'f': ([], [])
     }]
     feed_dict = impl_helper.make_feed_dict(tensors, schema, instances)
     self.assertSparseValuesEqual(feed_dict[tensors['e']], tf.SparseTensorValue(
@@ -189,6 +188,40 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     })
     instances = [{'a': 100}]
     with self.assertRaises(KeyError):
+      _ = impl_helper.make_feed_dict(tensors, schema, instances)
+
+  def testMalformedSparseFeatures(self):
+    tensors = {
+        'a': tf.sparse_placeholder(tf.int64),
+    }
+
+    # Invalid indices.
+    schema = self.toSchema({
+        'a': tf.SparseFeature('idx', 'val', tf.float32, 10)
+    })
+    instances = [{'a': ([-1, 2], [1.0, 2.0])}]
+    with self.assertRaisesRegexp(
+        ValueError, 'has index .* out of range'):
+      _ = impl_helper.make_feed_dict(tensors, schema, instances)
+
+    instances = [{'a': ([11, 1], [1.0, 2.0])}]
+    with self.assertRaisesRegexp(
+        ValueError, 'has index .* out of range'):
+      _ = impl_helper.make_feed_dict(tensors, schema, instances)
+
+    # Indices and values of different lengths.
+    schema = self.toSchema({
+        'a': tf.SparseFeature('idx', 'val', tf.float32, 10)
+    })
+    instances = [{'a': ([1, 2], [1])}]
+    with self.assertRaisesRegexp(
+        ValueError, 'indices and values of different lengths'):
+      _ = impl_helper.make_feed_dict(tensors, schema, instances)
+
+    # Tuple of the wrong length.
+    instances = [{'a': ([1], [2], [3])}]
+    with self.assertRaisesRegexp(
+        ValueError, 'too many values to unpack'):
       _ = impl_helper.make_feed_dict(tensors, schema, instances)
 
   def testMakeOutputDict(self):
@@ -214,24 +247,19 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
                                   values=[10.0, 20.0, 30.0],
                                   dense_shape=(2, 20))
     }
-    output_dicts = impl_helper.make_output_dict(schema, fetches)
-    self.assertEqual(2, len(output_dicts))
-    self.assertSetEqual(set(output_dicts[0].keys()),
-                        set(['a', 'b', 'c', 'd', 'e', 'idx', 'val']))
-    self.assertAllEqual(output_dicts[0]['a'], 100)
-    self.assertAllEqual(output_dicts[0]['b'], 10.0)
-    self.assertAllEqual(output_dicts[0]['c'], [40.0])
-    self.assertAllEqual(output_dicts[0]['d'], [[1.0, 2.0], [3.0, 4.0]])
-    self.assertAllEqual(output_dicts[0]['e'], ['doe', 'a', 'deer'])
-    self.assertAllEqual(output_dicts[0]['idx'], [2, 4, 8])
-    self.assertAllEqual(output_dicts[0]['val'], [10.0, 20.0, 30.0])
-    self.assertAllEqual(output_dicts[1]['a'], 200)
-    self.assertAllEqual(output_dicts[1]['b'], 20.0)
-    self.assertAllEqual(output_dicts[1]['c'], [80.0])
-    self.assertAllEqual(output_dicts[1]['d'], [[5.0, 6.0], [7.0, 8.0]])
-    self.assertAllEqual(output_dicts[1]['e'], ['a', 'female', 'deer'])
-    self.assertAllEqual(output_dicts[1]['idx'], [])
-    self.assertAllEqual(output_dicts[1]['val'], [])
+    output_dict = impl_helper.make_output_dict(schema, fetches)
+    self.assertSetEqual(set(six.iterkeys(output_dict)),
+                        set(['a', 'b', 'c', 'd', 'e', 'f']))
+    self.assertAllEqual(output_dict['a'], [100, 200])
+    self.assertAllEqual(output_dict['b'], [10.0, 20.0])
+    self.assertAllEqual(output_dict['c'], [[40.0], [80.0]])
+    self.assertAllEqual(output_dict['d'], [[[1.0, 2.0], [3.0, 4.0]],
+                                           [[5.0, 6.0], [7.0, 8.0]]])
+    self.assertAllEqual(output_dict['e'], [['doe', 'a', 'deer'],
+                                           ['a', 'female', 'deer']])
+    self.assertEqual(len(output_dict['f']), 2)
+    self.assertAllEqual(output_dict['f'][0], [[2, 4, 8], []])
+    self.assertAllEqual(output_dict['f'][1], [[10.0, 20.0, 30.0], []])
 
   def testMakeOutputDictError(self):
     # SparseTensor that cannot be represented as VarLenFeature.
@@ -243,6 +271,40 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     }
     with self.assertRaises(ValueError):
       _ = impl_helper.make_output_dict(schema, fetches)
+
+  def testToInstanceDicts(self):
+    batch_dict = {
+        'a': [100, 200],
+        'b': [10.0, 20.0],
+        'c': [[40.0], [80.0]],
+        'd': [[[1.0, 2.0], [3.0, 4.0]],
+              [[5.0, 6.0], [7.0, 8.0]]],
+        'e': [['doe', 'a', 'deer'],
+              ['a', 'female', 'deer']],
+        'f': ([[2, 4, 8], []],
+              [[10.0, 20.0, 30.0], []])
+    }
+
+    instance_dicts = impl_helper.to_instance_dicts(batch_dict)
+    self.assertEqual(2, len(instance_dicts))
+    self.assertSetEqual(set(six.iterkeys(instance_dicts[0])),
+                        set(['a', 'b', 'c', 'd', 'e', 'f']))
+    self.assertAllEqual(instance_dicts[0]['a'], 100)
+    self.assertAllEqual(instance_dicts[0]['b'], 10.0)
+    self.assertAllEqual(instance_dicts[0]['c'], [40.0])
+    self.assertAllEqual(instance_dicts[0]['d'], [[1.0, 2.0], [3.0, 4.0]])
+    self.assertAllEqual(instance_dicts[0]['e'], ['doe', 'a', 'deer'])
+    self.assertEqual(len(instance_dicts[0]['f']), 2)
+    self.assertAllEqual(instance_dicts[0]['f'][0], [2, 4, 8])
+    self.assertAllEqual(instance_dicts[0]['f'][1], [10.0, 20.0, 30.0])
+    self.assertAllEqual(instance_dicts[1]['a'], 200)
+    self.assertAllEqual(instance_dicts[1]['b'], 20.0)
+    self.assertAllEqual(instance_dicts[1]['c'], [80.0])
+    self.assertAllEqual(instance_dicts[1]['d'], [[5.0, 6.0], [7.0, 8.0]])
+    self.assertAllEqual(instance_dicts[1]['e'], ['a', 'female', 'deer'])
+    self.assertEqual(len(instance_dicts[1]['f']), 2)
+    self.assertAllEqual(instance_dicts[1]['f'][0], [])
+    self.assertAllEqual(instance_dicts[1]['f'][1], [])
 
   def testImportAndExportDense(self):
     # Export the function "z = x * y + x + y"
@@ -402,7 +464,8 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         'sparse_out': (tf.float32, tf.TensorShape([None, None])),
     }
 
-    for key, column in inputs.items() + outputs.items():
+    for key, column in itertools.chain(six.iteritems(inputs),
+                                       six.iteritems(outputs)):
       dtype, shape = expected_dtype_and_shape[key]
       self.assertEqual(column.tensor.dtype, dtype)
       self.assertShapesEqual(column.tensor.get_shape(), shape)

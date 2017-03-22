@@ -42,22 +42,25 @@ def preprocessing_fn(inputs):
   ...
 
 with beam.Pipeline(...) as p:
-  input = p | beam_impl.read_examples(..., schema)
-  transformed, transform_fn = ((input, schema)
-      | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
-  transformed | beam_impl.write_examples_and_metadata(
-      examples_path, metadata_path)
-  transform_fn | beam_impl.write_transform_fn(transform_fn_path)
+  with beam_impl.Context(temp_dir=my_temp_dir):
+    input = p | beam_impl.read_examples(..., schema)
+    transformed, transform_fn = ((input, schema)
+        | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
+    transformed | beam_impl.write_examples_and_metadata(
+        examples_path, metadata_path)
+    transform_fn | beam_impl.write_transform_fn(transform_fn_path)
 
 """
 
 import collections
 import os
 import threading
+import uuid
 
 
 import apache_beam as beam
 
+from apache_beam.io import fileio
 from apache_beam.typehints import Dict
 from apache_beam.typehints import List
 from apache_beam.typehints import Union
@@ -69,64 +72,81 @@ import six
 import tensorflow as tf
 from tensorflow_transform import impl_helper
 import tensorflow_transform.api as api
+from tensorflow_transform.beam import analyzer_impls
+from tensorflow_transform.beam import common
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
 _DEFAULT_DESIRED_BATCH_SIZE = 1000
 
-_PRIMITIVE_TYPE = Union[float, int, long, str, unicode]
 
+class Context(object):
+  """Context manager for tensorflow-transform.
 
-class _BatchDoFn(beam.DoFn):
-  """Concatenates individual instances into batches.
-
-  DoFn that takes instances and creates batches of size up to
-  `desired_batch_size`.
+  All the attributes in this context are kept on a thread local state.
 
   Args:
-    desired_batch_size: The desired number of instances to convert into a batch.
+    teamp_dir: the temporary directory used within in this block.
 
-  Yields:
-    A list of size up to `desired_batch_size` representing a batch of instances.
+  Note that the temp dir should be accessible to worker jobs, e.g. if running
+  with the Cloud Dataflow runner, the temp dir should be on GCS and should have
+  permissions that allow both launcher and workers to access it.
+
+  When running on Cloud Dataflow, the temp dir should also be in a regional
+  bucket, as only regional buckets provide the consistency guarantees required
+  by tf.Transform.  This requirement will be removed in later versions.
   """
 
-  def __init__(self, desired_batch_size=_DEFAULT_DESIRED_BATCH_SIZE):
-    self._desired_batch_size = desired_batch_size
-    self._batch = []
+  class _State(object):
+    """State for this context manager (found in thread-local storage).
 
-    # Metrics.
-    self._num_batches = beam.metrics.Metrics.counter(self.__class__,
-                                                     'num_batches')
-    self._batch_size_distribution = beam.metrics.Metrics.distribution(
-        self.__class__, 'batch_size_distribution')
-    self._num_instances = beam.metrics.Metrics.counter(self.__class__,
-                                                       'num_instances')
+    Attributes:
+      temp_dirs: A stack for storing the nested-context temporary directories.
+    """
 
-  def _flush_batch(self):
-    self._num_batches.inc(1)
-    self._batch_size_distribution.update(len(self._batch))
-    self._num_instances.inc(len(self._batch))
-    result = self._batch
-    self._batch = []
-    return result
+    def __init__(self):
+      self.temp_dirs = []
 
-  def process(self, element):
-    self._batch.append(element)
-    if len(self._batch) >= self._desired_batch_size:
-      yield self._flush_batch()
+  _TEMP_SUBDIR = 'tftransform_tmp'
 
-  def finish_bundle(self):
-    if self._batch:
-      yield self._flush_batch()
+  _thread_local = threading.local()
+
+  def __init__(self, temp_dir):
+    state = getattr(self._thread_local, 'state', None)
+    if not state:
+      self._thread_local.state = self._State()
+    self._temp_dir = temp_dir
+
+  def __enter__(self):
+    self._thread_local.state.temp_dirs.append(self._temp_dir)
+
+  def __exit__(self, *exn_info):
+    self._thread_local.state.temp_dirs.pop()
+
+  @classmethod
+  def create_base_temp_dir(cls):
+    """Generate a temporary location."""
+    if cls._thread_local.state.temp_dirs:
+      base_temp_dir = os.path.join(cls._thread_local.state.temp_dirs[-1],
+                                   cls._TEMP_SUBDIR)
+    else:
+      raise ValueError(
+          'A tf.Transform function that required a temp dir was called but no '
+          'temp dir was set.  To set a temp dir use the impl.Context context '
+          'manager.')
+    if not fileio.ChannelFactory.exists(base_temp_dir):
+      # Recursively create base_temp_dir.
+      fileio.ChannelFactory.mkdir(base_temp_dir)
+    return base_temp_dir
 
 
 @with_input_types(Dict[str,
-                       Union[_PRIMITIVE_TYPE,
-                             List[_PRIMITIVE_TYPE],
+                       Union[common.PRIMITIVE_TYPE,
+                             List[common.PRIMITIVE_TYPE],
                              np.generic,
                              np.ndarray]],
                   str)
-@with_output_types(List[Dict[str, Union[np.generic, np.ndarray]]])
+@with_output_types(Dict[str, Union[np.ndarray, tf.SparseTensorValue]])
 class _RunMetaGraphDoFn(beam.DoFn):
   """Maps a PCollection of dicts to a PCollection of dicts via a TF graph.
 
@@ -137,6 +157,8 @@ class _RunMetaGraphDoFn(beam.DoFn):
   Args:
     input_schema: A `Schema` representing the inputs of this transform phase.
     output_schema: A `Schema` representing the outputs of this transform phase.
+    desired_batch_size: The desired number of instances to convert into a batch
+      before feeding to Tensorflow.
   """
 
   class _GraphState(object):
@@ -144,7 +166,19 @@ class _RunMetaGraphDoFn(beam.DoFn):
     def __init__(self, saved_model_dir, input_schema, output_schema):
       self.saved_model_dir = saved_model_dir
       self.graph = tf.Graph()
-      self.session = tf.Session(graph=self.graph)
+      self.session = tf.Session(
+          graph=self.graph,
+          # We rely on Beam to manage concurrency, i.e. we expect it to run one
+          # session per CPU--so we don't want to proliferate TF threads.
+          # Nonetheless we provide 4 threads per session for TF ops, 2 inter-
+          # and 2 intra-thread.  In many cases only 2 of these will be runnable
+          # at any given time.  This approach oversubscribes a bit to make sure
+          # the CPUs are really saturated.
+          #
+          config=tf.ConfigProto(
+              use_per_session_threads=True,
+              inter_op_parallelism_threads=2,
+              intra_op_parallelism_threads=2))
       with self.graph.as_default():
         inputs, outputs = impl_helper.load_transform_fn_def(saved_model_dir)
         # Run the op that initializes all tables in the graph.
@@ -165,15 +199,37 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
   _thread_local = threading.local()
 
-  def __init__(self, input_schema, output_schema, exclude_outputs=None):
+  def __init__(self,
+               input_schema,
+               output_schema,
+               exclude_outputs=None,
+               desired_batch_size=_DEFAULT_DESIRED_BATCH_SIZE):
     super(_RunMetaGraphDoFn, self).__init__()
     self._input_schema = input_schema
     self._output_schema = output_schema
     self._exclude_outputs = exclude_outputs
+    self._desired_batch_size = desired_batch_size
+    self._batch = []
+    self._graph_state = None
 
     # Metrics.
     self._num_graph_loads = beam.metrics.Metrics.counter(self.__class__,
                                                          'num_graph_loads')
+    self._batch_size_distribution = beam.metrics.Metrics.distribution(
+        self.__class__, 'batch_size_distribution')
+    self._num_instances = beam.metrics.Metrics.counter(self.__class__,
+                                                       'num_instances')
+
+  def _flush_batch(self):
+    self._batch_size_distribution.update(len(self._batch))
+    self._num_instances.inc(len(self._batch))
+
+    feed_dict = impl_helper.make_feed_dict(
+        self._graph_state.inputs, self._input_schema, self._batch)
+    del self._batch[:]
+
+    return self._graph_state.session.run(
+        self._graph_state.outputs, feed_dict=feed_dict)
 
   def process(self, element, saved_model_dir):
     """Runs the given graph to realize the output tensors (i.e. features).
@@ -191,17 +247,23 @@ class _RunMetaGraphDoFn(beam.DoFn):
       A representation of output features as a dict mapping keys (logical column
       names) to values.
     """
-    if (not hasattr(self._thread_local, 'graph_state') or
-        self._thread_local.graph_state.saved_model_dir != saved_model_dir):
-      self._num_graph_loads.inc(1)
-      self._thread_local.graph_state = self._GraphState(
-          saved_model_dir, self._input_schema, self._output_schema)
+    if self._graph_state is None:
+      if (not hasattr(self._thread_local, 'graph_state') or
+          self._thread_local.graph_state.saved_model_dir != saved_model_dir):
+        self._num_graph_loads.inc(1)
+        self._thread_local.graph_state = self._GraphState(
+            saved_model_dir, self._input_schema, self._output_schema)
+      self._graph_state = self._thread_local.graph_state
+    else:
+      assert self._graph_state.saved_model_dir == saved_model_dir
 
-    feed_dict = impl_helper.make_feed_dict(
-        self._thread_local.graph_state.inputs, self._input_schema, element)
-    fetched_dict = self._thread_local.graph_state.session.run(
-        self._thread_local.graph_state.outputs, feed_dict=feed_dict)
-    yield impl_helper.make_output_dict(self._output_schema, fetched_dict)
+    self._batch.append(element)
+    if len(self._batch) >= self._desired_batch_size:
+      yield self._flush_batch()
+
+  def finish_bundle(self):
+    if self._batch:
+      yield self._flush_batch()
 
 
 def _assert_tensorflow_version():
@@ -212,6 +274,11 @@ def _assert_tensorflow_version():
     raise RuntimeError(
         'Tensorflow version 1.0 is required. Please install the latest version '
         'from https://github.com/tensorflow/tensorflow.')
+
+
+def _make_unique_temp_dir(base_temp_dir):
+  """Create path to a unique temp dir from given base temp dir."""
+  return os.path.join(base_temp_dir, uuid.uuid4().hex)
 
 
 class AnalyzeDataset(beam.PTransform):
@@ -226,13 +293,10 @@ class AnalyzeDataset(beam.PTransform):
   Args:
     preprocessing_fn: A function that accepts and returns a dictionary from
       strings to `Column`s or `Statistic`s.
-    output_dir: Location of the SavedModel that will represent the transform
-      function.
   """
 
-  def __init__(self, preprocessing_fn, output_dir):
+  def __init__(self, preprocessing_fn):
     self._preprocessing_fn = preprocessing_fn
-    self._output_dir = output_dir
     _assert_tensorflow_version()
 
   def _extract_input_pvalues(self, dataset):
@@ -251,7 +315,8 @@ class AnalyzeDataset(beam.PTransform):
 
     input_values, input_metadata = dataset
     input_schema = input_metadata.schema
-    input_batches = input_values | 'BatchInstances' >> beam.ParDo(_BatchDoFn())
+
+    base_temp_dir = Context.create_base_temp_dir()
 
     class _CreateTransformFn(beam.PTransform):
       """Create a TransformFnDef, binding statistics in a deferred manner.
@@ -270,13 +335,12 @@ class AnalyzeDataset(beam.PTransform):
         temp_dir: Temp dir to store `SavedModel`s.
       """
 
-      def __init__(self, input_columns, output_columns, temp_dir):
+      def __init__(self, input_columns, output_columns):
         # Generally the pipeline is inferred from its inputs, however we need
         # to know the pipeline for beam.Create.
         self.pipeline = input_values.pipeline
         self._input_columns = input_columns
         self._output_columns = output_columns
-        self._temp_dir = temp_dir
 
       def expand(self, analyzer_outputs_to_pcoll):
         """Converts a dict of statistics to a transform function.
@@ -290,9 +354,7 @@ class AnalyzeDataset(beam.PTransform):
               SavedModel.
         """
         # Create a transform_fn with unbound values.
-
-        unbound_transform_fn_dir = os.path.join(self._temp_dir,
-                                                'unbound_transform_fn')
+        unbound_transform_fn_dir = _make_unique_temp_dir(base_temp_dir)
         input_columns_to_statistics = impl_helper.make_transform_fn_def(
             input_schema, self._input_columns, self._output_columns,
             unbound_transform_fn_dir)
@@ -307,7 +369,7 @@ class AnalyzeDataset(beam.PTransform):
         # Convert the statistics dict into a DictPCollectionView so it can be
         # passed as a side input to the beam Map below.
         tagged_statistics = []
-        for tag, statistic in input_columns_to_statistics.items():
+        for tag, statistic in six.iteritems(input_columns_to_statistics):
           pcoll = analyzer_outputs_to_pcoll[statistic]
           tagged_statistics.append(
               pcoll
@@ -316,12 +378,17 @@ class AnalyzeDataset(beam.PTransform):
         statistics_side_input = beam.pvalue.AsDict(
             tagged_statistics | 'MergeStatistics' >> beam.Flatten())
 
-        # Run a mapper that inserts statistic values into the graph.
+        # Run a mapper that inserts statistic values into the graph, using an
+        # idempotent version of replace_tensors_with_constant_values.
+        def replace_tensors_with_constant_values(
+            saved_model_dir, input_value_mapping):
+          temp_dir = _make_unique_temp_dir(base_temp_dir)
+          impl_helper.replace_tensors_with_constant_values(
+              saved_model_dir, temp_dir, input_value_mapping)
+          return temp_dir
         return (transform_fn |
                 'ReplaceTensorsWithConstantValues' >> beam.Map(
-                    impl_helper.replace_tensors_with_constant_values,
-                    bound_saved_model_dir=os.path.join(self._temp_dir,
-                                                       'transform_fn'),
+                    replace_tensors_with_constant_values,
                     input_value_mapping=statistics_side_input))
 
     inputs, outputs = impl_helper.run_preprocessing_fn(
@@ -350,36 +417,32 @@ class AnalyzeDataset(beam.PTransform):
       transform_fn = (
           analyzer_outputs_to_pcoll
           | 'CreateTransformFn_%d' % level >> _CreateTransformFn(
-              inputs, analyzer_input_columns,
-              os.path.join(self._output_dir, 'tmp', 'level_%s' % level)))
+              inputs, analyzer_input_columns))
       analyzer_input_schema = impl_helper.infer_feature_schema(
           analyzer_input_columns)
 
       # Run the TransformFnDef in a mapper.
       analysis_inputs = (
-          input_batches | 'ComputeAnalyzerInputs_%d' % level >> beam.ParDo(
+          input_values | 'ComputeAnalyzerInputs_%d' % level >> beam.ParDo(
               _RunMetaGraphDoFn(input_schema, analyzer_input_schema),
               saved_model_dir=beam.pvalue.AsSingleton(transform_fn)))
 
       # For each analyzer output, look up its input values (by tensor name)
-      # and run the analyzer in these values.
+      # and run the analyzer on these values.
+      #
       for idx, analyzer_output in enumerate(analyzer_outputs):
         analyzer_input_key = 'analyzer_%d_input' % idx
         analyzer_outputs_to_pcoll[analyzer_output] = (
             analysis_inputs
             | 'Extract_%d_%d' % (level, idx) >> beam.Map(
-                # pylint: disable=cell-var-from-loop
-                # This lint warning is prone to false positives, and it's not
-                # clear why the warning is required here.
-                lambda x, key=analyzer_input_key: [inst[key] for inst in x])
+                lambda batch, key: batch[key], key=analyzer_input_key)
             | 'Analyze_%d_%d' % (level, idx) >> self._Analyze(analyzer_output))
 
     output_metadata = dataset_metadata.DatasetMetadata(
         schema=impl_helper.infer_feature_schema(outputs))
     transform_fn = (
         analyzer_outputs_to_pcoll
-        | 'CreateTransformFn' >> _CreateTransformFn(
-            inputs, outputs, self._output_dir))
+        | 'CreateTransformFn' >> _CreateTransformFn(inputs, outputs))
 
     return transform_fn, output_metadata
 
@@ -452,14 +515,16 @@ class AnalyzeDataset(beam.PTransform):
 
     # Call column_level for all outputs, which has the side effect of populating
     # analyzers_by_level.
-    for column in outputs.values():
+    for column in six.itervalues(outputs):
       column_level(column)
 
     # Turn the defaultdict analyzers_by_level into a list.  We know that by
     # construction the set of keys will be of the form 0,1,...,k.
     return [analyzers_by_level[level]
-            for level in sorted(analyzers_by_level.keys())]
+            for level in sorted(six.iterkeys(analyzers_by_level))]
 
+  @with_input_types(Union[np.ndarray, tf.SparseTensorValue])
+  @with_output_types(impl_helper.ConstantTensorValue)
   class _Analyze(beam.PTransform):
 
     def __init__(self, analyzer_output):
@@ -469,93 +534,39 @@ class AnalyzeDataset(beam.PTransform):
 
     def expand(self, pcoll):
 
-      def combine_by_batch(fn):
-        """Reduces a PCollection of batches according to the given function."""
-        return (pcoll
-                | 'FlattenValue'  # Flatten N-d values into 1-d.
-                >> beam.Map(lambda x: np.array(x).ravel())
-                | 'CombineWithinBatch' >> beam.Map(fn)
-                | 'CombineGlobally'
-                >> beam.CombineGlobally(fn).without_defaults())
+      def flatten(batch):
+        """Converts an N-D dense or sparse batch to a 1-D iterable."""
+        if isinstance(batch, tf.SparseTensorValue):
+          dense_values = batch.values
+        else:
+          dense_values = batch
+        return dense_values.ravel()
 
-      analysis_result = None
+      pcoll |= 'FlattenValue' >> beam.Map(flatten)
+
       if self._analyzer_name == api.CanonicalAnalyzers.MIN:
-        assert not self._args_dict
-        analysis_result = combine_by_batch(min)
+        analysis_result = (pcoll
+                           | 'ComputeMin' >> analyzer_impls._NumericAnalyzer(
+                               min, **self._args_dict))
 
       elif self._analyzer_name == api.CanonicalAnalyzers.MAX:
-        assert not self._args_dict
-        analysis_result = combine_by_batch(max)
+        analysis_result = (pcoll
+                           | 'ComputeMax' >> analyzer_impls._NumericAnalyzer(
+                               max, **self._args_dict))
 
       elif self._analyzer_name == api.CanonicalAnalyzers.SUM:
-        assert not self._args_dict
-        analysis_result = combine_by_batch(sum)
+        analysis_result = (pcoll
+                           | 'ComputeSum' >> analyzer_impls._NumericAnalyzer(
+                               sum, **self._args_dict))
 
       elif self._analyzer_name == api.CanonicalAnalyzers.UNIQUES:
-        # Creates a PCollection of (count, element) pairs, then iterates over
-        # this to create a single element PCollection containing this list of
-        # pairs in sorted order by decreasing counts (and by values for equal
-        # counts).
+        analysis_result = (pcoll
+                           | 'ComputeUniques' >>
+                           analyzer_impls._UniquesAnalyzer(**self._args_dict))
 
-        top_k = self._args_dict['top_k']
-        assert top_k is None or top_k >= 0
-
-        frequency_threshold = self._args_dict['frequency_threshold']
-        assert frequency_threshold is None or frequency_threshold >= 0
-
-        def to_iterable(instance_value):
-          if isinstance(instance_value, (six.string_types, float, int, long)):
-            return [instance_value]
-          else:
-            # Value is a list or ndarray and so is already an iterable.
-            return instance_value
-
-        counts = (pcoll
-                  | 'Unbatch' >> beam.FlatMap(lambda batch: batch)
-                  | 'ExtractElements' >> beam.FlatMap(to_iterable)
-                  | 'CountPerElement'
-                  >> beam.transforms.combiners.Count.PerElement()
-                  | 'SwapElementsAndCounts' >> beam.KvSwap())
-
-        # Filtration is cheaper than TopK computation and the two commute, so do
-        # filtration first.
-        if frequency_threshold is not None:
-          counts |= ('FilterByFrequencyThreshold(%s)' % frequency_threshold >>
-                     beam.Filter(lambda kv: kv[0] >= frequency_threshold))
-
-        if top_k is not None:
-          counts = (counts
-                    | 'Top(%s)' % top_k
-                    >> beam.transforms.combiners.Top.Largest(top_k)
-                    | 'FlattenList' >> beam.FlatMap(lambda lst: lst))
-
-        # Performance optimization to obviate reading from finely sharded files
-        # via AsIter. By forcing all data into a single group we end up reading
-        # from a single file.
-        #
-        @beam.ptransform_fn
-        def Reshard(pcoll):  # pylint: disable=invalid-name
-          return (
-              pcoll
-              | 'PairWithNone' >> beam.Map(lambda x: (None, x))
-              | 'GroupByNone' >> beam.GroupByKey()
-              | 'ExtractValues' >> beam.FlatMap(lambda x: x[1]))
-        counts |= 'ReshardToOneGroup' >> Reshard()  # pylint: disable=no-value-for-parameter
-
-        # Using AsIter instead of AsList below in order to reduce max memory
-        # usage (due to AsList caching).
-        def order_by_decreasing_counts(_, counts_iter):
-          counts = list(counts_iter)
-          counts.sort(reverse=True)  # Largest first.
-          return [element for _, element in counts]
-
-        analysis_result = (pcoll.pipeline
-                           | 'Prepare' >> beam.Create([None])
-                           | 'OrderByDecreasingCounts' >> beam.Map(
-                               order_by_decreasing_counts,
-                               counts_iter=beam.pvalue.AsIter(counts)))
       else:
         raise NotImplementedError(self._analyzer_name)
+      # pylint: enable=protected-access
 
       # Note we pass in dtype as string and shape as a tuple, to avoid pickling
       # issues (b/35133536)
@@ -582,13 +593,10 @@ class AnalyzeAndTransformDataset(beam.PTransform):
   Args:
     preprocessing_fn: A function that accepts and returns a dictionary from
         strings to `Column`s or `Statistic`s
-    output_dir: Location of the SavedModel that will represent the transform
-      function.
   """
 
-  def __init__(self, preprocessing_fn, output_dir):
+  def __init__(self, preprocessing_fn):
     self._preprocessing_fn = preprocessing_fn
-    self._output_dir = output_dir
     _assert_tensorflow_version()
 
   def _extract_input_pvalues(self, dataset):
@@ -608,8 +616,7 @@ class AnalyzeAndTransformDataset(beam.PTransform):
     # Expand is currently implemented by composing AnalyzeDataset and
     # TransformDataset.  Future versions however could do somthing more optimal,
     # e.g. caching the values of expensive computations done in AnalyzeDataset.
-    transform_fn = dataset | AnalyzeDataset(self._preprocessing_fn,
-                                            self._output_dir)
+    transform_fn = dataset | AnalyzeDataset(self._preprocessing_fn)
     transformed_dataset = (dataset, transform_fn) | TransformDataset()
     return transformed_dataset, transform_fn
 
@@ -653,16 +660,19 @@ class TransformDataset(beam.PTransform):
       output_metadata = dataset_metadata.DatasetMetadata(
           schema=dataset_schema.Schema(
               {key: column_schema
-               for key, column_schema in schema.column_schemas.items()
+               for key, column_schema in six.iteritems(schema.column_schemas)
                if key not in self._exclude_outputs}))
+
+    def convert_and_unbatch(batch_dict):
+      return impl_helper.to_instance_dicts(
+          impl_helper.make_output_dict(output_metadata.schema, batch_dict))
 
     output_instances = (
         input_values
-        | 'BatchInstances' >> beam.ParDo(_BatchDoFn())
-        | 'TransformBatches' >> beam.ParDo(
+        | 'Transform' >> beam.ParDo(
             _RunMetaGraphDoFn(input_metadata.schema,
                               output_metadata.schema,
                               self._exclude_outputs),
             saved_model_dir=beam.pvalue.AsSingleton(transform_fn))
-        | 'Unbatch' >> beam.FlatMap(lambda batch: batch))
+        | 'ConvertAndUnbatch' >> beam.FlatMap(convert_and_unbatch))
     return (output_instances, output_metadata)
