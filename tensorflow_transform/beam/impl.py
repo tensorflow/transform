@@ -53,6 +53,7 @@ with beam.Pipeline(...) as p:
 """
 
 import collections
+import datetime
 import os
 import threading
 import uuid
@@ -213,10 +214,10 @@ class _RunMetaGraphDoFn(beam.DoFn):
     self._graph_state = None
 
     # Metrics.
-    self._num_graph_loads = beam.metrics.Metrics.counter(self.__class__,
-                                                         'num_graph_loads')
+    self._graph_load_seconds_distribution = beam.metrics.Metrics.distribution(
+        self.__class__, 'graph_load_seconds')
     self._batch_size_distribution = beam.metrics.Metrics.distribution(
-        self.__class__, 'batch_size_distribution')
+        self.__class__, 'batch_size')
     self._num_instances = beam.metrics.Metrics.counter(self.__class__,
                                                        'num_instances')
 
@@ -248,11 +249,13 @@ class _RunMetaGraphDoFn(beam.DoFn):
       names) to values.
     """
     if self._graph_state is None:
-      if (not hasattr(self._thread_local, 'graph_state') or
+      if (getattr(self._thread_local, 'graph_state', None) is None or
           self._thread_local.graph_state.saved_model_dir != saved_model_dir):
-        self._num_graph_loads.inc(1)
+        start = datetime.datetime.now()
         self._thread_local.graph_state = self._GraphState(
             saved_model_dir, self._input_schema, self._output_schema)
+        self._graph_load_seconds_distribution.update(
+            int((datetime.datetime.now() - start).total_seconds()))
       self._graph_state = self._thread_local.graph_state
     else:
       assert self._graph_state.saved_model_dir == saved_model_dir
@@ -534,15 +537,18 @@ class AnalyzeDataset(beam.PTransform):
 
     def expand(self, pcoll):
 
-      def flatten(batch):
-        """Converts an N-D dense or sparse batch to a 1-D iterable."""
+      def flatten_value_to_list(batch):
+        """Converts an N-D dense or sparse batch to a 1-D list."""
         if isinstance(batch, tf.SparseTensorValue):
           dense_values = batch.values
         else:
           dense_values = batch
-        return dense_values.ravel()
+        # Ravel for flattening and tolist so that we go to native Python types
+        # for more efficient followup processing.
+        #
+        return dense_values.ravel().tolist()
 
-      pcoll |= 'FlattenValue' >> beam.Map(flatten)
+      pcoll |= 'FlattenValueToList' >> beam.Map(flatten_value_to_list)
 
       if self._analyzer_name == api.CanonicalAnalyzers.MIN:
         analysis_result = (pcoll

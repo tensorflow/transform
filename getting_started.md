@@ -318,12 +318,6 @@ def preprocessing_fn(inputs):
   for key in CATEGORICAL_COLUMNS:
     outputs[key] = tft.string_to_int(inputs[key])
 
-  # Update outputs of both kinds to convert from shape (batch,), i.e. a batch
-  # of scalars, to shape (batch, 1), i.e. a batch of vectors of length 1.
-  # This is needed so the output can be easily wrapped in `FeatureColumn`s.
-  for key in NUMERIC_COLUMNS + CATEGORICAL_COLUMNS:
-    outputs[key] = tft.map(lambda x: tf.expand_dims(x, -1), outputs[key])
-
   # For the label column we provide the mapping from string to index.
   def convert_label(label):
     table = lookup.string_to_index_table_from_tensor(['>50K', '<=50K'])

@@ -30,7 +30,7 @@ from apache_beam.io import tfrecordio
 from tensorflow.contrib import learn
 from tensorflow.contrib.layers import feature_column
 from tensorflow_transform.beam import impl as beam_impl
-from tensorflow_transform.beam.io import beam_metadata_io
+from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.coders import example_proto_coder
 from tensorflow_transform.saved import input_fn_maker
 from tensorflow_transform.tf_metadata import dataset_metadata

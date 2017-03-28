@@ -25,11 +25,26 @@ from tensorflow_transform.saved import saved_transform_io
 from tensorflow.contrib.learn.python.learn.utils import input_fn_utils
 
 
+def _convert_scalars_to_vectors(features):
+  """Vectorize scalar columns to meet FeatureColumns input requirements."""
+  def maybe_expand_dims(tensor):
+    # Ignore the SparseTensor case.  In principle it's possible to have a
+    # rank-1 SparseTensor that needs to be expanded, but this is very
+    # unlikely.
+    if isinstance(tensor, tf.Tensor) and tensor.get_shape().ndims == 1:
+      tensor = tf.expand_dims(tensor, -1)
+    return tensor
+
+  return {name: maybe_expand_dims(tensor)
+          for name, tensor in six.iteritems(features)}
+
+
 def build_parsing_transforming_serving_input_fn(
     raw_metadata,
     transform_savedmodel_dir,
     raw_label_keys,
-    raw_feature_keys=None):
+    raw_feature_keys=None,
+    convert_scalars_to_vectors=True):
   """Creates input_fn that applies transforms to raw data in tf.Examples.
 
   Args:
@@ -39,6 +54,10 @@ def build_parsing_transforming_serving_input_fn(
     raw_label_keys: A list of string keys of the raw labels to be used.
     raw_feature_keys: A list of string keys of the raw features to be used.
       If None or empty, defaults to all features except labels.
+    convert_scalars_to_vectors: Boolean specifying whether this input_fn should
+      convert scalars into 1-d vectors.  This is necessary if the inputs will be
+      used with `FeatureColumn`s as `FeatureColumn`s cannot accept scalar
+      inputs. Default: True.
 
   Returns:
     An input_fn suitable for serving that applies transforms to raw data in
@@ -60,6 +79,10 @@ def build_parsing_transforming_serving_input_fn(
     _, transformed_features = (
         saved_transform_io.partially_apply_saved_transform(
             transform_savedmodel_dir, raw_features))
+
+    if convert_scalars_to_vectors:
+      transformed_features = _convert_scalars_to_vectors(transformed_features)
+
     return input_fn_utils.InputFnOps(transformed_features, None, inputs)
 
   return parsing_transforming_serving_input_fn
@@ -69,7 +92,8 @@ def build_default_transforming_serving_input_fn(
     raw_metadata,
     transform_savedmodel_dir,
     raw_label_keys,
-    raw_feature_keys=None):
+    raw_feature_keys=None,
+    convert_scalars_to_vectors=True):
   """Creates input_fn that applies transforms to raw data in Tensors.
 
   Args:
@@ -79,6 +103,10 @@ def build_default_transforming_serving_input_fn(
     raw_label_keys: A list of string keys of the raw labels to be used.
     raw_feature_keys: A list of string keys of the raw features to be used.
       If None or empty, defaults to all features except labels.
+    convert_scalars_to_vectors: Boolean specifying whether this input_fn should
+      convert scalars into 1-d vectors.  This is necessary if the inputs will be
+      used with `FeatureColumn`s as `FeatureColumn`s cannot accept scalar
+      inputs. Default: True.
 
   Returns:
     An input_fn suitable for serving that applies transforms to raw data in
@@ -90,8 +118,9 @@ def build_default_transforming_serving_input_fn(
   if raw_label_keys is None:
     raise ValueError("raw_label_keys must be specified.")
   if raw_feature_keys is None:
-    raw_feature_keys = (
-        raw_metadata.schema.column_schemas.keys() - raw_label_keys)
+    raw_feature_keys = list(
+        set(six.iterkeys(raw_metadata.schema.column_schemas))
+        - set(raw_label_keys))
 
   def default_transforming_serving_input_fn():
     """Serving input_fn that applies transforms to raw data in Tensors."""
@@ -108,6 +137,10 @@ def build_default_transforming_serving_input_fn(
     _, transformed_features = (
         saved_transform_io.partially_apply_saved_transform(
             transform_savedmodel_dir, raw_serving_features))
+
+    if convert_scalars_to_vectors:
+      transformed_features = _convert_scalars_to_vectors(transformed_features)
+
     return input_fn_utils.InputFnOps(
         transformed_features, None, raw_serving_features)
 
@@ -121,6 +154,7 @@ def build_training_input_fn(metadata,
                             feature_keys=None,
                             reader=tf.TFRecordReader,
                             key_feature_name=None,
+                            convert_scalars_to_vectors=True,
                             **read_batch_features_args):
   """Creates an input_fn that reads training data based on its metadata.
 
@@ -137,6 +171,10 @@ def build_training_input_fn(metadata,
       `read` method, (filename tensor) -> (example tensor).
     key_feature_name: A name to use to add a key column to the features dict.
       Defaults to None, meaning no key column will be created.
+    convert_scalars_to_vectors: Boolean specifying whether this input_fn should
+      convert scalars into 1-d vectors.  This is necessary if the inputs will be
+      used with `FeatureColumn`s as `FeatureColumn`s cannot accept scalar
+      inputs. Default: True.
     **read_batch_features_args: any additional arguments to be passed through to
       `read_batch_features()`, including e.g. queue parameters.
 
@@ -164,6 +202,10 @@ def build_training_input_fn(metadata,
     features = {k: v for k, v in six.iteritems(data) if k in feature_keys}
     labels = {k: v for k, v in six.iteritems(data) if k in label_keys}
 
+    if convert_scalars_to_vectors:
+      features = _convert_scalars_to_vectors(features)
+      labels = _convert_scalars_to_vectors(labels)
+
     if key_feature_name is not None:
       features[key_feature_name] = keys
 
@@ -185,6 +227,7 @@ def build_transforming_training_input_fn(raw_metadata,
                                          transformed_feature_keys=None,
                                          reader=tf.TFRecordReader,
                                          key_feature_name=None,
+                                         convert_scalars_to_vectors=True,
                                          **read_batch_features_args):
   """Creates training input_fn that reads raw data and applies transforms.
 
@@ -208,6 +251,10 @@ def build_transforming_training_input_fn(raw_metadata,
       `read` method, (filename tensor) -> (example tensor).
     key_feature_name: A name to use to add a key column to the features dict.
       Defaults to None, meaning no key column will be created.
+    convert_scalars_to_vectors: Boolean specifying whether this input_fn should
+      convert scalars into 1-d vectors.  This is necessary if the inputs will be
+      used with `FeatureColumn`s as `FeatureColumn`s cannot accept scalar
+      inputs. Default: True.
     **read_batch_features_args: any additional arguments to be passed through to
       `read_batch_features()`, including e.g. queue parameters.
 
@@ -246,6 +293,10 @@ def build_transforming_training_input_fn(raw_metadata,
     transformed_labels = {
         k: v for k, v in six.iteritems(transformed_data)
         if k in transformed_label_keys}
+
+    if convert_scalars_to_vectors:
+      transformed_features = _convert_scalars_to_vectors(transformed_features)
+      transformed_labels = _convert_scalars_to_vectors(transformed_labels)
 
     if key_feature_name is not None:
       transformed_features[key_feature_name] = keys

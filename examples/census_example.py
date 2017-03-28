@@ -31,7 +31,7 @@ from tensorflow.contrib import learn
 from tensorflow.contrib import lookup
 from tensorflow.contrib.layers import feature_column
 from tensorflow_transform.beam import impl as beam_impl
-from tensorflow_transform.beam.io import beam_metadata_io
+from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.coders import csv_coder
 from tensorflow_transform.coders import example_proto_coder
 from tensorflow_transform.saved import input_fn_maker
@@ -111,12 +111,6 @@ def transform_data(train_data_file, test_data_file,
     # to convert the strings to indices.
     for key in CATEGORICAL_COLUMNS:
       outputs[key] = tft.string_to_int(inputs[key])
-
-    # Update outputs of both kinds to convert from shape (batch,), i.e. a batch
-    # of scalars, to shape (batch, 1), i.e. a batch of vectors of length 1.
-    # This is needed so the output can be easily wrapped in `FeatureColumn`s.
-    for key in NUMERIC_COLUMNS + CATEGORICAL_COLUMNS:
-      outputs[key] = tft.map(lambda x: tf.expand_dims(x, -1), outputs[key])
 
     # For the label column we provide the mapping from string to index.
     def convert_label(label):

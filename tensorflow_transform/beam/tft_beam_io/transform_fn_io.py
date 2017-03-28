@@ -21,7 +21,7 @@ import os
 
 import apache_beam as beam
 from apache_beam.io import fileio
-from tensorflow_transform.beam.io import beam_metadata_io
+from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 
 
 class WriteTransformFn(beam.PTransform):

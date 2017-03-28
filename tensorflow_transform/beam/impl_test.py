@@ -26,8 +26,8 @@ import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import impl_helper
 from tensorflow_transform.beam import impl as beam_impl
-from tensorflow_transform.beam.io import beam_metadata_io
-from tensorflow_transform.beam.io import transform_fn_io
+from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
+from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema as sch
 
@@ -312,24 +312,31 @@ class BeamImplTest(test_util.TensorFlowTestCase):
   def testTransformMoreThanDesiredBatchSize(self):
     # User defined preprocessing_fn accepts and returns a dict of Columns.
     def preprocessing_fn(inputs):
-      return {'ab': tft.map(tf.multiply, inputs['a'], inputs['b'])}
+      return {'ab': tft.map(tf.multiply, inputs['a'], inputs['b']),
+              'i': tft.string_to_int(inputs['c'])}
 
     input_data = [{
-        'a': 1,
-        'b': i
+        'a': 2,
+        'b': i,
+        'c': '%.10i' % i,  # Front-padded to facilitate lexicographic sorting.
     } for i in range(beam_impl._DEFAULT_DESIRED_BATCH_SIZE + 1)]
     input_metadata = self.toMetadata({
         'a': tf.FixedLenFeature((), tf.float32, 0),
-        'b': tf.FixedLenFeature((), tf.float32, 0)
+        'b': tf.FixedLenFeature((), tf.float32, 0),
+        'c': tf.FixedLenFeature((), tf.string, ''),
     })
     with beam_impl.Context(temp_dir=self.get_temp_dir()):
       transformed_dataset, _ = (
           (input_data, input_metadata)
           | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
 
-    expected_transformed_data = [{'ab': i} for i in range(len(input_data))]
+    expected_transformed_data = [{
+        'ab': 2*i,
+        'i': (len(input_data) - 1) - i,  # Due to reverse lexicographic sorting.
+    } for i in range(len(input_data))]
     expected_transformed_metadata = self.toMetadata({
-        'ab': tf.FixedLenFeature((), tf.float32, None)
+        'ab': tf.FixedLenFeature((), tf.float32, None),
+        'i': tf.FixedLenFeature((), tf.int64, None),
     })
     self.assertDatasetsEqual(
         transformed_dataset,
