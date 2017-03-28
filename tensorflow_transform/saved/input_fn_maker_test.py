@@ -31,13 +31,51 @@ from tensorflow_transform.tf_metadata import dataset_schema as sch
 import unittest
 
 
+def _make_raw_schema(shape):
+  schema = sch.Schema()
+
+  schema.column_schemas['raw_a'] = (
+      sch.ColumnSchema(tf.int64, shape, sch.FixedColumnRepresentation()))
+
+  schema.column_schemas['raw_b'] = (
+      sch.ColumnSchema(tf.int64, shape, sch.FixedColumnRepresentation()))
+
+  schema.column_schemas['raw_label'] = (
+      sch.ColumnSchema(tf.int64, shape, sch.FixedColumnRepresentation()))
+
+  return schema
+
+
+def _make_transformed_schema(shape):
+  schema = sch.Schema()
+
+  schema.column_schemas['transformed_a'] = (
+      sch.ColumnSchema(tf.int64, shape, sch.FixedColumnRepresentation()))
+
+  schema.column_schemas['transformed_b'] = (
+      sch.ColumnSchema(tf.int64, shape, sch.FixedColumnRepresentation()))
+
+  schema.column_schemas['transformed_label'] = (
+      sch.ColumnSchema(tf.int64, shape, sch.FixedColumnRepresentation()))
+
+  return schema
+
+
 class InputFnMakerTest(unittest.TestCase):
 
-  def test_build_parsing_transforming_serving_input_fn(self):
+  def test_build_parsing_transforming_serving_input_fn_scalars(self):
+    self._test_build_parsing_transforming_serving_input_fn(
+        _make_raw_schema([]))
+
+  def test_build_parsing_transforming_serving_input_fn_vectors(self):
+    self._test_build_parsing_transforming_serving_input_fn(
+        _make_raw_schema([1]))
+
+  def _test_build_parsing_transforming_serving_input_fn(self, raw_schema):
     basedir = tempfile.mkdtemp()
 
     raw_metadata = dataset_metadata.DatasetMetadata(
-        schema=_make_raw_schema())
+        schema=raw_schema)
 
     transform_savedmodel_dir = os.path.join(basedir, 'transform-savedmodel')
     _write_transform_savedmodel(transform_savedmodel_dir)
@@ -51,7 +89,7 @@ class InputFnMakerTest(unittest.TestCase):
 
     examples = [_create_serialized_example(d)
                 for d in [
-                    {'raw_a': 15, 'raw_b': 5},
+                    {'raw_a': 15, 'raw_b': 6},
                     {'raw_a': 12, 'raw_b': 17}]]
 
     with tf.Graph().as_default():
@@ -62,16 +100,25 @@ class InputFnMakerTest(unittest.TestCase):
             [outputs['transformed_a'], outputs['transformed_b']],
             feed_dict=feed_inputs)
 
-    self.assertEqual(20, transformed_a[0][0])
-    self.assertEqual(10, transformed_b[0][0])
+    self.assertEqual(21, transformed_a[0][0])
+    self.assertEqual(9, transformed_b[0][0])
     self.assertEqual(29, transformed_a[1][0])
     self.assertEqual(-5, transformed_b[1][0])
 
-  def test_build_default_transforming_serving_input_fn(self):
+  def test_build_default_transforming_serving_input_fn_scalars(self):
+    self._test_build_default_transforming_serving_input_fn(
+        [], [[15, 12], [6, 17]])
+
+  def test_build_default_transforming_serving_input_fn_vectors(self):
+    self._test_build_default_transforming_serving_input_fn(
+        [1], [[[15], [12]], [[6], [17]]])
+
+  def _test_build_default_transforming_serving_input_fn(
+      self, shape, feed_input_values):
     basedir = tempfile.mkdtemp()
 
     raw_metadata = dataset_metadata.DatasetMetadata(
-        schema=_make_raw_schema())
+        schema=_make_raw_schema(shape))
 
     transform_savedmodel_dir = os.path.join(basedir, 'transform-savedmodel')
     _write_transform_savedmodel(transform_savedmodel_dir)
@@ -86,27 +133,28 @@ class InputFnMakerTest(unittest.TestCase):
     with tf.Graph().as_default():
       with tf.Session().as_default() as session:
         outputs, _, inputs = serving_input_fn()
-        feed_inputs = {inputs['raw_a']: [[15], [12]],
-                       inputs['raw_b']: [[5], [17]]}
+        feed_inputs = {inputs['raw_a']: feed_input_values[0],
+                       inputs['raw_b']: feed_input_values[1]}
         transformed_a, transformed_b = session.run(
             [outputs['transformed_a'], outputs['transformed_b']],
             feed_dict=feed_inputs)
 
-    self.assertEqual(20, transformed_a[0][0])
-    self.assertEqual(10, transformed_b[0][0])
+    self.assertEqual(21, transformed_a[0][0])
+    self.assertEqual(9, transformed_b[0][0])
     self.assertEqual(29, transformed_a[1][0])
     self.assertEqual(-5, transformed_b[1][0])
 
   def test_build_training_input_fn(self):
     basedir = tempfile.mkdtemp()
 
+    # the transformed schema should be vectorized already.
     metadata = dataset_metadata.DatasetMetadata(
-        schema=_make_transformed_schema())
+        schema=_make_transformed_schema([1]))
     data_file = os.path.join(basedir, 'data')
     examples = [_create_serialized_example(d)
                 for d in [
                     {'transformed_a': 15,
-                     'transformed_b': 5,
+                     'transformed_b': 6,
                      'transformed_label': 77},
                     {'transformed_a': 12,
                      'transformed_b': 17,
@@ -133,24 +181,32 @@ class InputFnMakerTest(unittest.TestCase):
              labels])
 
     self.assertEqual(15, transformed_a[0][0])
-    self.assertEqual(5, transformed_b[0][0])
+    self.assertEqual(6, transformed_b[0][0])
     self.assertEqual(77, transformed_label[0][0])
     self.assertEqual(12, transformed_a[1][0])
     self.assertEqual(17, transformed_b[1][0])
     self.assertEqual(44, transformed_label[1][0])
 
-  def test_build_transforming_training_input_fn(self):
+  def test_build_transforming_training_input_fn_scalars(self):
+    self._test_build_transforming_training_input_fn([])
+
+  def test_build_transforming_training_input_fn_vectors(self):
+    self._test_build_transforming_training_input_fn([1])
+
+  def _test_build_transforming_training_input_fn(self, shape):
     basedir = tempfile.mkdtemp()
 
     raw_metadata = dataset_metadata.DatasetMetadata(
-        schema=_make_raw_schema())
+        schema=_make_raw_schema(shape))
+
+    # the transformed schema should be vectorized already.
     transformed_metadata = dataset_metadata.DatasetMetadata(
-        schema=_make_transformed_schema())
+        schema=_make_transformed_schema([1]))
     data_file = os.path.join(basedir, 'data')
     examples = [_create_serialized_example(d)
                 for d in [
                     {'raw_a': 15,
-                     'raw_b': 5,
+                     'raw_b': 6,
                      'raw_label': 77},
                     {'raw_a': 12,
                      'raw_b': 17,
@@ -184,8 +240,8 @@ class InputFnMakerTest(unittest.TestCase):
              features['transformed_b'],
              labels])
 
-    self.assertEqual(20, transformed_a[0][0])
-    self.assertEqual(10, transformed_b[0][0])
+    self.assertEqual(21, transformed_a[0][0])
+    self.assertEqual(9, transformed_b[0][0])
     self.assertEqual(77000, transformed_label[0][0])
     self.assertEqual(29, transformed_a[1][0])
     self.assertEqual(-5, transformed_b[1][0])
@@ -204,36 +260,6 @@ def _create_serialized_example(data_dict):
   for k, v in six.iteritems(data_dict):
     example1.features.feature[k].int64_list.value.append(v)
   return example1.SerializeToString()
-
-
-def _make_raw_schema():
-  schema = sch.Schema()
-
-  schema.column_schemas['raw_a'] = (
-      sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation()))
-
-  schema.column_schemas['raw_b'] = (
-      sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation()))
-
-  schema.column_schemas['raw_label'] = (
-      sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation()))
-
-  return schema
-
-
-def _make_transformed_schema():
-  schema = sch.Schema()
-
-  schema.column_schemas['transformed_a'] = (
-      sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation()))
-
-  schema.column_schemas['transformed_b'] = (
-      sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation()))
-
-  schema.column_schemas['transformed_label'] = (
-      sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation()))
-
-  return schema
 
 
 def _write_transform_savedmodel(transform_savedmodel_dir):

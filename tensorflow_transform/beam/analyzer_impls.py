@@ -17,18 +17,21 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from collections import Counter
+
 
 import apache_beam as beam
 
+from apache_beam.typehints import KV
 from apache_beam.typehints import List
 from apache_beam.typehints import with_input_types
 from apache_beam.typehints import with_output_types
 
-import numpy as np
+import six
 from tensorflow_transform.beam import common
 
 
-@with_input_types(np.ndarray)
+@with_input_types(List[common.NUMERIC_TYPE])
 @with_output_types(common.NUMERIC_TYPE)
 class _NumericAnalyzer(beam.PTransform):
   """Reduces a PCollection of batches according to the given function."""
@@ -38,12 +41,12 @@ class _NumericAnalyzer(beam.PTransform):
 
   def expand(self, pcoll):
     return (pcoll
-            | 'CombineWithinArray' >> beam.Map(self._fn)
+            | 'CombineWithinList' >> beam.Map(self._fn)
             | 'CombineGlobally'
             >> beam.CombineGlobally(self._fn).without_defaults())
 
 
-@with_input_types(np.ndarray)
+@with_input_types(List[common.PRIMITIVE_TYPE])
 @with_output_types(List[common.PRIMITIVE_TYPE])
 class _UniquesAnalyzer(beam.PTransform):
   """Returns the unique elements in a PCollection of batches."""
@@ -61,11 +64,14 @@ class _UniquesAnalyzer(beam.PTransform):
     # pairs in sorted order by decreasing counts (and by values for equal
     # counts).
 
-    counts = (pcoll
-              | 'FlattenArray' >> beam.FlatMap(lambda np_array: np_array)
-              | 'CountPerElement'
-              >> beam.transforms.combiners.Count.PerElement()
-              | 'SwapElementsAndCounts' >> beam.KvSwap())
+    counts = (
+        pcoll
+        | 'CountWithinList' >>
+        # Specification of with_output_types allows for combiner optimizations.
+        beam.FlatMap(lambda lst: six.iteritems(Counter(lst))).with_output_types(
+            KV[common.PRIMITIVE_TYPE, int])
+        | 'CountGlobally' >> beam.CombinePerKey(sum)
+        | 'SwapElementsAndCounts' >> beam.KvSwap())
 
     # Filtration is cheaper than TopK computation and the two commute, so do
     # filtration first.

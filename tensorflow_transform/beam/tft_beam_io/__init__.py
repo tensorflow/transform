@@ -13,7 +13,7 @@
 # limitations under the License.
 """Module level imports for tensorflow_transform.beam.io."""
 
-from tensorflow_transform.beam.io.beam_metadata_io import ReadMetadata
-from tensorflow_transform.beam.io.beam_metadata_io import WriteMetadata
-from tensorflow_transform.beam.io.transform_fn_io import ReadTransformFn
-from tensorflow_transform.beam.io.transform_fn_io import WriteTransformFn
+from tensorflow_transform.beam.tft_beam_io.beam_metadata_io import ReadMetadata
+from tensorflow_transform.beam.tft_beam_io.beam_metadata_io import WriteMetadata
+from tensorflow_transform.beam.tft_beam_io.transform_fn_io import ReadTransformFn
+from tensorflow_transform.beam.tft_beam_io.transform_fn_io import WriteTransformFn

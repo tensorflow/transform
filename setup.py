@@ -13,6 +13,7 @@
 # limitations under the License.
 """Package Setup script for the tf.Transform binary.
 """
+import os
 
 from setuptools import find_packages
 from setuptools import setup
@@ -20,21 +21,20 @@ from setuptools import setup
 
 def get_required_install_packages():
   return [
-      # We force a specific version of dill, as dill is used to serialize code
-      # when sent to services.  By specifying a specific dill version here,
-      # we ensure that everyone has the same version of dill installed, provided
-      # all install the same version of tensorflow-transform.
-      'dill == 0.2.6',
-
 
       # Using >= for better integration tests. During release this is
       # automatically changed to a ==.
-      'google-cloud-dataflow == 0.5.5',
+      'google-cloud-dataflow == 0.6.0',
   ]
 
 
 def get_version():
-  return '0.1.6'
+  # Obtain the version from the global names on version.py
+  # We cannot do 'from tensorflow_transform import version' since the transitive
+  # dependencies will not be available when the installer is created.
+  global_names = {}
+  execfile(os.path.normpath('tensorflow_transform/version.py'), global_names)
+  return global_names['__version__']
 
 
 setup(
