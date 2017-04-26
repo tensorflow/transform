@@ -46,9 +46,10 @@ NUM_TRAIN_INSTANCES = 25000
 NUM_TEST_INSTANCES = 25000
 
 REVIEW_COLUMN = 'review'
+REVIEW_WEIGHT = 'review_weight'
 LABEL_COLUMN = 'label'
 
-PUNCTUATION_CHARACTERS = ['.', ',', '!', '?', '(', ')']
+DELIMITERS = '.,!?() '
 
 
 # pylint: disable=invalid-name
@@ -139,43 +140,14 @@ def transform_data(train_neg_filepattern, train_pos_filepattern,
         """Preprocess input columns into transformed columns."""
         review = inputs[REVIEW_COLUMN]
 
-        def remove_character(s, char):
-          """Remove a character from a string.
-
-          Args:
-            s: A SparseTensor of rank 1 of type tf.string
-            char: A string of length 1
-
-          Returns:
-            The string `s` with the given character removed (i.e. replaced by
-            '')
-          """
-          # Hacky implementation where we split and rejoin.
-          split = tf.string_split(s, char)
-          rejoined = tf.reduce_join(
-              tf.sparse_to_dense(
-                  split.indices, split.dense_shape, split.values, ''),
-              1)
-          return rejoined
-
-        def remove_punctuation(s):
-          """Remove puncuation from a string.
-
-          Args:
-            s: A SparseTensor of rank 1 of type tf.string
-
-          Returns:
-            The string `s` with punctuation removed.
-          """
-          for char in PUNCTUATION_CHARACTERS:
-            s = remove_character(s, char)
-          return s
-
-        cleaned_review = tft.map(remove_punctuation, review)
-        review_tokens = tft.map(tf.string_split, cleaned_review)
+        review_tokens = tft.map(lambda x: tf.string_split(x, DELIMITERS),
+                                review)
         review_indices = tft.string_to_int(review_tokens, top_k=VOCAB_SIZE)
+        # Add one for the oov bucket created by string_to_int.
+        review_weight = tft.tfidf_weights(review_indices, VOCAB_SIZE + 1)
         return {
             REVIEW_COLUMN: review_indices,
+            REVIEW_WEIGHT: review_weight,
             LABEL_COLUMN: inputs[LABEL_COLUMN]
         }
 
@@ -230,9 +202,11 @@ def train_and_evaluate(transformed_train_filepattern,
   review_column = feature_column.sparse_column_with_integerized_feature(
       REVIEW_COLUMN,
       bucket_size=VOCAB_SIZE + 1,
-      combiner='sqrtn')
+      combiner='sum')
+  weighted_reviews = feature_column.weighted_sparse_column(review_column,
+                                                           REVIEW_WEIGHT)
 
-  estimator = learn.LinearClassifier([review_column])
+  estimator = learn.LinearClassifier([weighted_reviews])
 
   transformed_metadata = metadata_io.read_metadata(transformed_metadata_dir)
   train_input_fn = input_fn_maker.build_training_input_fn(

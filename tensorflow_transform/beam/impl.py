@@ -61,7 +61,7 @@ import uuid
 
 import apache_beam as beam
 
-from apache_beam.io import fileio
+from apache_beam.typehints import Any
 from apache_beam.typehints import Dict
 from apache_beam.typehints import List
 from apache_beam.typehints import Union
@@ -135,15 +135,13 @@ class Context(object):
           'A tf.Transform function that required a temp dir was called but no '
           'temp dir was set.  To set a temp dir use the impl.Context context '
           'manager.')
-    if not fileio.ChannelFactory.exists(base_temp_dir):
-      # Recursively create base_temp_dir.
-      fileio.ChannelFactory.mkdir(base_temp_dir)
+    tf.gfile.MakeDirs(base_temp_dir)
     return base_temp_dir
 
 
 @with_input_types(Dict[str,
                        Union[common.PRIMITIVE_TYPE,
-                             List[common.PRIMITIVE_TYPE],
+                             List[Any],  # Arbitrarily-nested lists are allowed.
                              np.generic,
                              np.ndarray]],
                   str)
@@ -537,33 +535,28 @@ class AnalyzeDataset(beam.PTransform):
 
     def expand(self, pcoll):
 
-      def flatten_value_to_list(batch):
-        """Converts an N-D dense or sparse batch to a 1-D list."""
-        if isinstance(batch, tf.SparseTensorValue):
-          dense_values = batch.values
-        else:
-          dense_values = batch
-        # Ravel for flattening and tolist so that we go to native Python types
-        # for more efficient followup processing.
-        #
-        return dense_values.ravel().tolist()
-
-      pcoll |= 'FlattenValueToList' >> beam.Map(flatten_value_to_list)
+      reduce_instance_dims = self._args_dict.pop('reduce_instance_dims', True)
 
       if self._analyzer_name == api.CanonicalAnalyzers.MIN:
-        analysis_result = (pcoll
-                           | 'ComputeMin' >> analyzer_impls._NumericAnalyzer(
-                               min, **self._args_dict))
+        analyzer = (analyzer_impls._NumericAnalyzer(min, **self._args_dict)
+                    if reduce_instance_dims else
+                    analyzer_impls._NumericAnalyzerOnBatchDim(
+                        np.min, **self._args_dict))
+        analysis_result = (pcoll | 'ComputeMin' >> analyzer)
 
       elif self._analyzer_name == api.CanonicalAnalyzers.MAX:
-        analysis_result = (pcoll
-                           | 'ComputeMax' >> analyzer_impls._NumericAnalyzer(
-                               max, **self._args_dict))
+        analyzer = (analyzer_impls._NumericAnalyzer(max, **self._args_dict)
+                    if reduce_instance_dims else
+                    analyzer_impls._NumericAnalyzerOnBatchDim(
+                        np.max, **self._args_dict))
+        analysis_result = (pcoll | 'ComputeMax' >> analyzer)
 
       elif self._analyzer_name == api.CanonicalAnalyzers.SUM:
-        analysis_result = (pcoll
-                           | 'ComputeSum' >> analyzer_impls._NumericAnalyzer(
-                               sum, **self._args_dict))
+        analyzer = (analyzer_impls._NumericAnalyzer(sum, **self._args_dict)
+                    if reduce_instance_dims else
+                    analyzer_impls._NumericAnalyzerOnBatchDim(
+                        np.sum, **self._args_dict))
+        analysis_result = (pcoll | 'ComputeSum' >> analyzer)
 
       elif self._analyzer_name == api.CanonicalAnalyzers.UNIQUES:
         analysis_result = (pcoll
@@ -576,11 +569,13 @@ class AnalyzeDataset(beam.PTransform):
 
       # Note we pass in dtype as string and shape as a tuple, to avoid pickling
       # issues (b/35133536)
+      shape = (tuple(dim.value for dim in self._tensor.get_shape()) if
+               self._tensor.get_shape() else None)
       return (analysis_result
               | 'ConstantTensorValue' >> beam.Map(
                   impl_helper.ConstantTensorValue,
                   dtype=self._tensor.dtype.name,
-                  shape=tuple(dim.value for dim in self._tensor.get_shape())))
+                  shape=shape))
 
 
 class AnalyzeAndTransformDataset(beam.PTransform):

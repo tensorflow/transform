@@ -30,9 +30,11 @@ from tensorflow_transform import impl_helper
 from tensorflow_transform import mappers
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_schema as sch
-
 import unittest
 from tensorflow.python.framework import test_util
+from tensorflow.python.saved_model import builder as saved_model_builder
+from tensorflow.python.saved_model import signature_def_utils
+from tensorflow.python.saved_model import tag_constants
 
 
 class ImplHelperTest(test_util.TensorFlowTestCase):
@@ -52,6 +54,112 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
 
   def toSchema(self, feature_spec):
     return sch.from_feature_spec(feature_spec)
+
+  def save_model_with_single_input(self, export_dir):
+    builder = saved_model_builder.SavedModelBuilder(export_dir)
+    with self.test_session(graph=tf.Graph()) as sess:
+      input1 = tf.placeholder(dtype=tf.int32, shape=[5], name='myinput')
+      initializer = tf.constant_initializer([1, 2, 3, 4, 5])
+      with tf.variable_scope('Model', reuse=None, initializer=initializer):
+        v1 = tf.get_variable('v1', [5], dtype=tf.int32)
+      output1 = tf.add(v1, input1, name='myadd')
+      inputs = {'single_input': input1}
+      outputs = {'single_output': output1}
+      signature_def_map = {
+          'my_signature_single_input':
+              signature_def_utils.predict_signature_def(inputs, outputs)
+      }
+      sess.run(tf.global_variables_initializer())
+      builder.add_meta_graph_and_variables(
+          sess, [tag_constants.SERVING], signature_def_map=signature_def_map)
+      builder.save(False)
+
+  def save_model_with_multi_inputs(self, export_dir):
+    builder = saved_model_builder.SavedModelBuilder(export_dir)
+    with self.test_session(graph=tf.Graph()) as sess:
+      input1 = tf.placeholder(dtype=tf.int32, shape=[5], name='myinput1')
+      input2 = tf.placeholder(dtype=tf.int32, shape=[5], name='myinput2')
+      input3 = tf.placeholder(dtype=tf.int32, shape=[5], name='myinput3')
+      initializer = tf.constant_initializer([1, 2, 3, 4, 5])
+      with tf.variable_scope('Model', reuse=None, initializer=initializer):
+        v1 = tf.get_variable('v1', [5], dtype=tf.int32)
+      o1 = tf.add(v1, input1, name='myadd1')
+      o2 = tf.add(o1, input2, name='myadd2')
+      output1 = tf.add(o2, input3, name='myadd3')
+      inputs = {'input_name1': input1, 'input_name2': input2,
+                'input_name3': input3}
+      outputs = {'single_output': output1}
+      signature_def_map = {
+          'my_signature_multi_input':
+              signature_def_utils.predict_signature_def(inputs, outputs)
+      }
+      sess.run(tf.global_variables_initializer())
+      builder.add_meta_graph_and_variables(
+          sess, [tag_constants.SERVING], signature_def_map=signature_def_map)
+      builder.save(False)
+
+  def make_tensor_fn_two_inputs(self):
+    def tensor_fn(input1, input2):
+      initializer = tf.constant_initializer([1, 2, 3])
+      with tf.variable_scope('Model', reuse=None, initializer=initializer):
+        v1 = tf.get_variable('v1', [3], dtype=tf.int64)
+        o1 = tf.add(v1, input1, name='myadda1')
+        o = tf.subtract(o1, input2, name='myadda2')
+        return o
+    return tensor_fn
+
+  def save_checkpoint_with_two_inputs(self, checkpoint_path):
+    test_tensor_fn = self.make_tensor_fn_two_inputs()
+    with self.test_session(graph=tf.Graph()) as sess:
+      input1 = tf.placeholder(dtype=tf.int64, shape=[3], name='myinputa')
+      input2 = tf.placeholder(dtype=tf.int64, shape=[3], name='myinputb')
+      test_tensor_fn(input1, input2)
+      saver = tf.train.Saver()
+      sess.run(tf.global_variables_initializer())
+      saver.save(sess, checkpoint_path)
+
+  def testMakeTensorFuncFromSavedModelSingleInput(self):
+    export_dir = os.path.join(self.get_temp_dir(), 'single_input')
+    self.save_model_with_single_input(export_dir)
+    tensor_fn = impl_helper.make_tensor_func_from_saved_model(
+        export_dir, [tag_constants.SERVING])
+    with self.test_session(graph=tf.Graph()) as sess:
+      si = tf.placeholder(dtype=tf.int32, shape=[5], name='si')
+      so = tensor_fn(si)
+      feed_dict = {si: [2, 2, 2, 2, 2]}
+      vo = sess.run(so, feed_dict=feed_dict)
+      self.assertAllEqual(vo, [3, 4, 5, 6, 7])
+
+  def testMakeTensorFuncFromSavedModelMultiInputs(self):
+    export_dir = os.path.join(self.get_temp_dir(), 'multi_inputs')
+    self.save_model_with_multi_inputs(export_dir)
+    tensor_fn = impl_helper.make_tensor_func_from_saved_model(
+        export_dir, [tag_constants.SERVING],
+        signature_name='my_signature_multi_input',
+        input_keys_in_signature=['input_name1', 'input_name2', 'input_name3'])
+    with self.test_session(graph=tf.Graph()) as sess:
+      s1 = tf.placeholder(dtype=tf.int32, shape=[5], name='s1')
+      s2 = tf.placeholder(dtype=tf.int32, shape=[5], name='s2')
+      s3 = tf.placeholder(dtype=tf.int32, shape=[5], name='s3')
+      so = tensor_fn(s1, s2, s3)
+      feed_dict = {s1: [2, 3, 4, 5, 6], s2: [1, 1, 1, 1, 1],
+                   s3: [1, 1, 1, 1, -1]}
+      vo = sess.run(so, feed_dict=feed_dict)
+      self.assertAllEqual(vo, [5, 7, 9, 11, 11])
+
+  def testMakeTensorFuncFromCheckpointTwoInputs(self):
+    checkpoint = os.path.join(self.get_temp_dir(), 'checkpoint_two')
+    self.save_checkpoint_with_two_inputs(checkpoint)
+    tensor_fn = impl_helper.make_tensor_func_from_checkpoint(
+        self.make_tensor_fn_two_inputs(), checkpoint)
+    with self.test_session(graph=tf.Graph()) as sess:
+      input1 = tf.placeholder(dtype=tf.int64, shape=[3], name='input1')
+      input2 = tf.placeholder(dtype=tf.int64, shape=[3], name='input2')
+      output = tensor_fn(input1, input2)
+      feed_dict = {input1: [1, 2, 3], input2: [3, 2, 1]}
+      vo = sess.run(output, feed_dict=feed_dict)
+      # [1, 2, 3] + [1, 2, 3] - [3, 2, 1] = [-1, 2, 5]
+      self.assertAllEqual(vo, [-1, 2, 5])
 
   def testInferFeatureSchema(self):
     columns = {
@@ -235,41 +343,73 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     })
 
     fetches = {
-        'a': np.array([100, 200]),
-        'b': np.array([10.0, 20.0]),
-        'c': np.array([[40.0], [80.0]]),
-        'd': np.array([[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]),
+        'a': np.array([100, 200, 300]),
+        'b': np.array([10.0, 20.0, 30.0]),
+        'c': np.array([[40.0], [80.0], [120.0]]),
+        'd': np.array([[[1.0, 2.0], [3.0, 4.0]],
+                       [[5.0, 6.0], [7.0, 8.0]],
+                       [[9.0, 10.0], [11.0, 12.0]]]),
         'e': tf.SparseTensorValue(
-            indices=[(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)],
-            values=['doe', 'a', 'deer', 'a', 'female', 'deer'],
-            dense_shape=(2, 3)),
-        'f': tf.SparseTensorValue(indices=[(0, 2), (0, 4), (0, 8)],
-                                  values=[10.0, 20.0, 30.0],
-                                  dense_shape=(2, 20))
+            indices=np.array([(0, 0), (0, 1), (0, 2), (2, 0), (2, 1), (2, 2)]),
+            values=np.array(['doe', 'a', 'deer', 'a', 'female', 'deer']),
+            dense_shape=(3, 3)),
+        'f': tf.SparseTensorValue(
+            indices=np.array([(0, 2), (0, 4), (0, 8), (1, 8), (1, 4)]),
+            values=np.array([10.0, 20.0, 30.0, 40.0, 50.0]),
+            dense_shape=(3, 20))
     }
     output_dict = impl_helper.make_output_dict(schema, fetches)
     self.assertSetEqual(set(six.iterkeys(output_dict)),
                         set(['a', 'b', 'c', 'd', 'e', 'f']))
-    self.assertAllEqual(output_dict['a'], [100, 200])
-    self.assertAllEqual(output_dict['b'], [10.0, 20.0])
-    self.assertAllEqual(output_dict['c'], [[40.0], [80.0]])
+    self.assertAllEqual(output_dict['a'], [100, 200, 300])
+    self.assertAllEqual(output_dict['b'], [10.0, 20.0, 30.0])
+    self.assertAllEqual(output_dict['c'], [[40.0], [80.0], [120.0]])
     self.assertAllEqual(output_dict['d'], [[[1.0, 2.0], [3.0, 4.0]],
-                                           [[5.0, 6.0], [7.0, 8.0]]])
-    self.assertAllEqual(output_dict['e'], [['doe', 'a', 'deer'],
-                                           ['a', 'female', 'deer']])
+                                           [[5.0, 6.0], [7.0, 8.0]],
+                                           [[9.0, 10.0], [11.0, 12.0]]])
+    self.assertAllEqual(output_dict['e'][0], ['doe', 'a', 'deer'])
+    self.assertAllEqual(output_dict['e'][1], [])
+    self.assertAllEqual(output_dict['e'][2], ['a', 'female', 'deer'])
     self.assertEqual(len(output_dict['f']), 2)
-    self.assertAllEqual(output_dict['f'][0], [[2, 4, 8], []])
-    self.assertAllEqual(output_dict['f'][1], [[10.0, 20.0, 30.0], []])
+    self.assertAllEqual(output_dict['f'][0][0], [2, 4, 8])
+    self.assertAllEqual(output_dict['f'][0][1], [8, 4])
+    self.assertAllEqual(output_dict['f'][0][2], [])
+    self.assertAllEqual(output_dict['f'][1][0], [10.0, 20.0, 30.0])
+    self.assertAllEqual(output_dict['f'][1][1], [40.0, 50.0])
+    self.assertAllEqual(output_dict['f'][1][2], [])
 
   def testMakeOutputDictError(self):
-    # SparseTensor that cannot be represented as VarLenFeature.
     schema = self.toSchema({'a': tf.VarLenFeature(tf.string)})
+
+    # SparseTensor that cannot be represented as VarLenFeature.
     fetches = {
-        'a': tf.SparseTensorValue(indices=[(0, 2), (0, 4), (0, 8)],
-                                  values=[10.0, 20.0, 30.0],
+        'a': tf.SparseTensorValue(indices=np.array([(0, 2), (0, 4), (0, 8)]),
+                                  values=np.array([10.0, 20.0, 30.0]),
                                   dense_shape=(1, 20))
     }
-    with self.assertRaises(ValueError):
+    with self.assertRaisesRegexp(
+        ValueError, 'cannot be decoded by ListColumnRepresentation'):
+      _ = impl_helper.make_output_dict(schema, fetches)
+
+    # SparseTensor of invalid rank.
+    fetches = {
+        'a': tf.SparseTensorValue(
+            indices=np.array([(0, 0, 1), (0, 0, 2), (0, 0, 3)]),
+            values=np.array([10.0, 20.0, 30.0]),
+            dense_shape=(1, 10, 10))
+    }
+    with self.assertRaisesRegexp(
+        ValueError, 'cannot be decoded by ListColumnRepresentation'):
+      _ = impl_helper.make_output_dict(schema, fetches)
+
+    # SparseTensor with indices that are out of order.
+    fetches = {
+        'a': tf.SparseTensorValue(indices=np.array([(0, 2), (2, 4), (1, 8)]),
+                                  values=np.array([10.0, 20.0, 30.0]),
+                                  dense_shape=(3, 20))
+    }
+    with self.assertRaisesRegexp(
+        ValueError, 'Encountered out-of-order sparse index'):
       _ = impl_helper.make_output_dict(schema, fetches)
 
   def testToInstanceDicts(self):

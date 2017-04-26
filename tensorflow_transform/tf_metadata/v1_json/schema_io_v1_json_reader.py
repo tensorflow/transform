@@ -29,12 +29,12 @@ def from_schema_json(schema_json):
   schema_dict = json.loads(schema_json)
   feature_column_schemas = {
       feature_dict['name']: _from_feature_dict(feature_dict)
-      for feature_dict in schema_dict['feature']
+      for feature_dict in schema_dict.get('feature', [])
   }
   sparse_feature_column_schemas = {
       sparse_feature_dict['name']: _from_sparse_feature_dict(
           sparse_feature_dict)
-      for sparse_feature_dict in schema_dict['sparseFeature']
+      for sparse_feature_dict in schema_dict.get('sparseFeature', [])
   }
   overlapping_keys = set(six.iterkeys(feature_column_schemas)).intersection(
       six.iterkeys(sparse_feature_column_schemas))
@@ -51,7 +51,7 @@ def _from_feature_dict(feature_dict):
 
   axes = []
   if 'fixedShape' in feature_dict:
-    for axis in feature_dict['fixedShape']['axis']:
+    for axis in feature_dict['fixedShape'].get('axis', []):
       # int() is needed because protobuf JSON encodes int64 as string
       axes.append(sch.Axis(int(axis.get('size'))))
   elif 'valueCount' in feature_dict:

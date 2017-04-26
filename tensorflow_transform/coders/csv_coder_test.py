@@ -30,14 +30,14 @@ class TestCSVCoder(unittest.TestCase):
 
 
   _COLUMNS = ['numeric1', 'text1', 'category1', 'idx', 'numeric2', 'value',
-              'numeric3']
+              'boolean1']
   # The following input schema has no default values, so any invocations to
   # decode with missing values should raise an error. CsvCoderDecodeTest adds
   # good coverage for missing value handling.
   _INPUT_SCHEMA = dataset_schema.from_feature_spec({
-      'numeric1': tf.FixedLenFeature(shape=[], dtype=tf.int32),
+      'numeric1': tf.FixedLenFeature(shape=[], dtype=tf.int64),
       'numeric2': tf.VarLenFeature(dtype=tf.float32),
-      'numeric3': tf.FixedLenFeature(shape=[1], dtype=tf.int32),
+      'boolean1': tf.FixedLenFeature(shape=[1], dtype=tf.bool),
       'text1': tf.FixedLenFeature(shape=[], dtype=tf.string),
       'category1': tf.VarLenFeature(dtype=tf.string),
       'y': tf.SparseFeature('idx', 'value', tf.float32, 10),
@@ -46,16 +46,22 @@ class TestCSVCoder(unittest.TestCase):
   _ENCODE_DECODE_CASES = [
       # FixedLenFeature scalar int.
       ('12', 12, False,
-       tf.FixedLenFeature(shape=[], dtype=tf.int32)),
+       tf.FixedLenFeature(shape=[], dtype=tf.int64)),
       # FixedLenFeature scalar float without decimal point.
       ('12', 12, False,
        tf.FixedLenFeature(shape=[], dtype=tf.float32)),
+      # FixedLenFeature scalar boolean.
+      ('True', True, False,
+       tf.FixedLenFeature(shape=[], dtype=tf.bool)),
+      # FixedLenFeature scalar boolean.
+      ('False', False, False,
+       tf.FixedLenFeature(shape=[], dtype=tf.bool)),
       # FixedLenFeature length 1 vector int.
       ('12', [12], False,
-       tf.FixedLenFeature(shape=[1], dtype=tf.int32)),
+       tf.FixedLenFeature(shape=[1], dtype=tf.int64)),
       # FixedLenFeature size 1 matrix int.
       ('12', [[12]], False,
-       tf.FixedLenFeature(shape=[1, 1], dtype=tf.int32)),
+       tf.FixedLenFeature(shape=[1, 1], dtype=tf.int64)),
       # FixedLenFeature unquoted text.
       ('this is unquoted text', 'this is unquoted text', False,
        tf.FixedLenFeature(shape=[], dtype=tf.string)),
@@ -64,7 +70,7 @@ class TestCSVCoder(unittest.TestCase):
        tf.FixedLenFeature(shape=[], dtype=tf.string)),
       # FixedLenFeature scalar numeric with default value.
       ('4', 4, False,
-       tf.FixedLenFeature(shape=[], dtype=tf.int32, default_value=-1)),
+       tf.FixedLenFeature(shape=[], dtype=tf.int64, default_value=-1)),
       # FixedLenFeature scalar text with default value set.
       ('a test', 'a test', False,
        tf.FixedLenFeature(shape=[], dtype=tf.string, default_value='d')),
@@ -79,32 +85,32 @@ class TestCSVCoder(unittest.TestCase):
        tf.SparseFeature('idx', 'value', tf.float32, 10)),
       # FixedLenFeature scalar int, multivalent.
       ('12', 12, True,
-       tf.FixedLenFeature(shape=[], dtype=tf.int32)),
+       tf.FixedLenFeature(shape=[], dtype=tf.int64)),
       # FixedLenFeature length 1 vector int, multivalent.
       ('12', [12], True,
-       tf.FixedLenFeature(shape=[1], dtype=tf.int32)),
+       tf.FixedLenFeature(shape=[1], dtype=tf.int64)),
       # FixedLenFeature length 2 vector int, multivalent.
       ('12|14', [12, 14], True,
-       tf.FixedLenFeature(shape=[2], dtype=tf.int32)),
+       tf.FixedLenFeature(shape=[2], dtype=tf.int64)),
       # FixedLenFeature size 1 matrix int.
       ('12', [[12]], True,
-       tf.FixedLenFeature(shape=[1, 1], dtype=tf.int32)),
+       tf.FixedLenFeature(shape=[1, 1], dtype=tf.int64)),
       # FixedLenFeature size (2, 2) matrix int.
       ('12|13|14|15', [[12, 13], [14, 15]], True,
-       tf.FixedLenFeature(shape=[2, 2], dtype=tf.int32)),
+       tf.FixedLenFeature(shape=[2, 2], dtype=tf.int64)),
   ]
 
   _DECODE_ERROR_CASES = [
       # FixedLenFeature scalar numeric missing value.
       ('', ValueError, r'expected a value on column \'x\'', False,
-       tf.FixedLenFeature(shape=[], dtype=tf.int32)),
+       tf.FixedLenFeature(shape=[], dtype=tf.int64)),
       # FixedLenFeature length 1 vector numeric missing value.
       ('', ValueError, r'expected a value on column \'x\'', False,
-       tf.FixedLenFeature(shape=[1], dtype=tf.int32)),
+       tf.FixedLenFeature(shape=[1], dtype=tf.int64)),
       # FixedLenFeature length >1 vector.
       ('1', ValueError,
        r'FixedLenFeature \'x\' was not multivalent', False,
-       tf.FixedLenFeature(shape=[2], dtype=tf.int32)),
+       tf.FixedLenFeature(shape=[2], dtype=tf.int64)),
       # FixedLenFeature scalar text missing value.
       ('', ValueError, r'expected a value on column \'x\'', False,
        tf.FixedLenFeature(shape=[], dtype=tf.string)),
@@ -161,14 +167,14 @@ class TestCSVCoder(unittest.TestCase):
        tf.FixedLenFeature(shape=[], dtype=tf.float32)),
       # FixedLenFeature scalar numeric with missing value and default value set.
       ('', -1, False,
-       tf.FixedLenFeature(shape=[], dtype=tf.int32, default_value=-1)),
+       tf.FixedLenFeature(shape=[], dtype=tf.int64, default_value=-1)),
       # FixedLenFeature scalar text with missing value and default value set.
       ('', 'd', False,
        tf.FixedLenFeature(shape=[], dtype=tf.string, default_value='d')),
       # FixedLenFeature scalar numeric with missing value and default value set,
       # where default value is falsy.
       ('', 0, False,
-       tf.FixedLenFeature(shape=[], dtype=tf.int32, default_value=0)),
+       tf.FixedLenFeature(shape=[], dtype=tf.int64, default_value=0)),
       # FixedLenFeature scalar text with missing value and default value set,
       # where default value is falsy.
       ('', '', False,
@@ -176,6 +182,9 @@ class TestCSVCoder(unittest.TestCase):
       # VarLenFeature text with missing value.
       ('', [], False,
        tf.VarLenFeature(dtype=tf.string)),
+      # FixedLenFeature scalar text with default value set.
+      ('', True, False,
+       tf.FixedLenFeature(shape=[], dtype=tf.bool, default_value=True)),
   ]
 
   longMessage = True
@@ -190,63 +199,64 @@ class TestCSVCoder(unittest.TestCase):
 
   def _assert_encode_decode(self, coder, data, expected_decoded):
     decoded = coder.decode(data)
-    self.assertEqual(decoded, expected_decoded)
+    np.testing.assert_equal(decoded, expected_decoded)
 
     encoded = coder.encode(decoded)
-    self.assertEqual(encoded, data)
+    np.testing.assert_equal(encoded, data)
 
     decoded_again = coder.decode(encoded)
-    self.assertEqual(decoded_again, expected_decoded)
+    np.testing.assert_equal(decoded_again, expected_decoded)
 
   def test_csv_coder(self):
-    data = '12,"this is a ,text",female,1,89.0,12.0,14'
+    data = '12,"this is a ,text",categorical_value,1,89.0,12.0,False'
 
     coder = csv_coder.CsvCoder(self._COLUMNS, self._INPUT_SCHEMA)
 
     # Python types.
-    expected_decoded = {'category1': ['female'],
+    expected_decoded = {'category1': ['categorical_value'],
                         'numeric1': 12,
                         'numeric2': [89.0],
-                        'numeric3': [14.0],
+                        'boolean1': [False],
                         'text1': 'this is a ,text',
                         'y': ([1], [12.0])}
     self._assert_encode_decode(coder, data, expected_decoded)
 
     # Numpy types.
-    expected_decoded = {'category1': np.array(['female']),
+    expected_decoded = {'category1': np.array(['categorical_value']),
                         'numeric1': np.array(12),
                         'numeric2': np.array([89.0]),
-                        'numeric3': np.array([14.0]),
+                        'boolean1': np.array([False]),
                         'text1': np.array(['this is a ,text']),
                         'y': (np.array(1), np.array([12.0]))}
     self._assert_encode_decode(coder, data, expected_decoded)
 
   def test_tsv_coder(self):
-    data = '12\t"this is a \ttext"\tfemale\t1\t89.0\t12.0\t14'
+    data = '12\t"this is a \ttext"\tcategorical_value\t1\t89.0\t12.0\tTrue'
 
     coder = csv_coder.CsvCoder(self._COLUMNS, self._INPUT_SCHEMA,
                                delimiter='\t')
-    expected_decoded = {'category1': ['female'],
+    expected_decoded = {'category1': ['categorical_value'],
                         'numeric1': 12,
                         'numeric2': [89.0],
-                        'numeric3': [14],
+                        'boolean1': [True],
                         'text1': 'this is a \ttext',
                         'y': ([1], [12.0])}
     self._assert_encode_decode(coder, data, expected_decoded)
 
   def test_valency(self):
-    data = '11|12,"this is a ,text",female|male,1|3,89.0|91.0,12.0|15.0,14'
+    data = ('11|12,"this is a ,text",categorical_value|other_value,1|3,89.0|'
+            '91.0,12.0|15.0,False')
     feature_spec = self._INPUT_SCHEMA.as_feature_spec().copy()
-    feature_spec['numeric1'] = tf.FixedLenFeature(shape=[2], dtype=tf.int32)
+    feature_spec['numeric1'] = tf.FixedLenFeature(shape=[2], dtype=tf.int64)
     schema = dataset_schema.from_feature_spec(feature_spec)
     multivalent_columns = ['numeric1', 'numeric2', 'y']
     coder = csv_coder.CsvCoder(self._COLUMNS, schema,
                                delimiter=',', secondary_delimiter='|',
                                multivalent_columns=multivalent_columns)
-    expected_decoded = {'category1': ['female|male'],
+    expected_decoded = {'category1': ['categorical_value|other_value'],
                         'numeric1': [11, 12],
                         'numeric2': [89.0, 91.0],
-                        'numeric3': [14],
+                        'boolean1': [False],
                         'text1': 'this is a ,text',
                         'y': ([1, 3], [12.0, 15.0])}
     self._assert_encode_decode(coder, data, expected_decoded)
@@ -267,8 +277,8 @@ class TestCSVCoder(unittest.TestCase):
       else:
         coder = csv_coder.CsvCoder(columns, schema)
 
-      self.assertEqual(coder.decode(csv_line), {'x': value},
-                       msg=self._msg_for_decode_case(csv_line, feature_spec))
+      np.testing.assert_equal(coder.decode(csv_line), {'x': value},
+                              self._msg_for_decode_case(csv_line, feature_spec))
 
   # Test decode errors with a single column.
   def testDecodeErrors(self):
@@ -334,22 +344,31 @@ class TestCSVCoder(unittest.TestCase):
   def test_missing_data(self):
     coder = csv_coder.CsvCoder(self._COLUMNS, self._INPUT_SCHEMA)
 
-    data = '12,,female,1,89.0,12.0,14'
+    data = '12,,categorical_value,1,89.0,12.0,True'
     with self.assertRaisesRegexp(ValueError,
                                  'expected a value on column \'text1\''):
+      coder.decode(data)
+
+  def test_bad_boolean_data(self):
+    coder = csv_coder.CsvCoder(self._COLUMNS, self._INPUT_SCHEMA)
+
+    data = '12,text value,categorical_value,1,89.0,12.0,0'
+    with self.assertRaisesRegexp(ValueError,
+                                 'expected "True" or "False" as inputs'):
       coder.decode(data)
 
   def test_bad_row(self):
     coder = csv_coder.CsvCoder(self._COLUMNS, self._INPUT_SCHEMA)
 
     # The data has a more columns than expected.
-    data = '12,"this is a ,text",female,1,89.0,12.0,"oh no, I\'m an error",14'
+    data = ('12,"this is a ,text",categorical_value,1,89.0,12.0,'
+            '"oh no, I\'m an error",14')
     with self.assertRaisesRegexp(Exception,
                                  'Columns do not match specified csv headers'):
       coder.decode(data)
 
     # The data has a fewer columns than expected.
-    data = '12,"this is a ,text",female"'
+    data = '12,"this is a ,text",categorical_value"'
     with self.assertRaisesRegexp(Exception,
                                  'Columns do not match specified csv headers'):
       coder.decode(data)
@@ -360,12 +379,12 @@ class TestCSVCoder(unittest.TestCase):
       csv_coder.CsvCoder([], self._INPUT_SCHEMA)
 
   def test_picklable(self):
-    encoded_data = '12,"this is a ,text",female,1,89.0,12.0,14'
+    encoded_data = '12,"this is a ,text",categorical_value,1,89.0,12.0,False'
 
-    expected_decoded = {'category1': ['female'],
+    expected_decoded = {'category1': ['categorical_value'],
                         'numeric1': 12,
                         'numeric2': [89.0],
-                        'numeric3': [14],
+                        'boolean1': [False],
                         'text1': 'this is a ,text',
                         'y': ([1], [12.0])}
 

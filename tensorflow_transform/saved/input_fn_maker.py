@@ -21,6 +21,7 @@ import six
 
 import tensorflow as tf
 from tensorflow_transform.saved import saved_transform_io
+from tensorflow_transform.tf_metadata import dataset_schema
 
 from tensorflow.contrib.learn.python.learn.utils import input_fn_utils
 
@@ -39,6 +40,99 @@ def _convert_scalars_to_vectors(features):
           for name, tensor in six.iteritems(features)}
 
 
+def build_csv_transforming_serving_input_fn(
+    raw_metadata,
+    transform_savedmodel_dir,
+    raw_keys,
+    field_delim=",",
+    convert_scalars_to_vectors=True):
+  """Creates input_fn that applies transforms to raw data in csv format.
+
+  CSV files have many restrictions and are not suitable for every input source.
+  Consider using build_parsing_transforming_serving_input_fn (which is good for
+  input sources of tensorflow records containing tf.example) or
+  build_default_transforming_serving_input_fn (which is good for input sources
+  like json that list each input tensor).
+
+  CSV input sources have the following restrictions:
+    * Only columns with schema tf.FixedLenFeature colums are supported
+    * Text columns containing the delimiter must be wrapped in '"'
+    * If a string contains a double quote, the double quote must be escaped with
+      another double quote, for example: the first column in
+      '"quick ""brown"" fox",1,2' becomes 'quick "brown" fox'
+    * White space is kept. So a text column "label ," is parsed to 'label '
+
+  Args:
+    raw_metadata: a `DatasetMetadata` object describing the raw data.
+    transform_savedmodel_dir: a SavedModel directory produced by tf.Transform
+      embodying a transformation function to be applied to incoming raw data.
+    raw_keys: A list of string keys of the raw labels to be used. The order in
+      the list matches the parsing order in the csv file.
+    field_delim: Delimiter to separate fields in a record.
+    convert_scalars_to_vectors: Boolean specifying whether this input_fn should
+      convert scalars into 1-d vectors.  This is necessary if the inputs will be
+      used with `FeatureColumn`s as `FeatureColumn`s cannot accept scalar
+      inputs. Default: True.
+
+  Raises:
+    ValueError: if columns cannot be saved in a csv file.
+
+  Returns:
+    An input_fn suitable for serving that applies transforms to raw data in
+    CSV format.
+  """
+  if not raw_keys:
+    raise ValueError("raw_keys must be set.")
+
+  column_schemas = raw_metadata.schema.column_schemas
+
+  # Check for errors.
+  for k in raw_keys:
+    if k not in column_schemas:
+      raise ValueError("Key %s does not exist in the schema" % k)
+    if not isinstance(column_schemas[k].representation,
+                      dataset_schema.FixedColumnRepresentation):
+      raise ValueError(("CSV files can only support tensors of fixed size"
+                        "which %s is not.") % k)
+    shape = column_schemas[k].tf_shape().as_list()
+    if shape and shape != [1]:
+      # Column is not a scalar-like value. shape == [] or [1] is ok.
+      raise ValueError(("CSV files can only support features that are scalars "
+                        "having shape []. %s has shape %s")
+                       % (k, shape))
+
+  def default_transforming_serving_input_fn():
+    """Serving input_fn that applies transforms to raw data in Tensors."""
+
+    record_defaults = []
+    for k in raw_keys:
+      if column_schemas[k].representation.default_value:
+        value = tf.constant([column_schemas[k].representation.default_value],
+                            dtype=column_schemas[k].domain.dtype)
+      else:
+        value = tf.constant([], dtype=column_schemas[k].domain.dtype)
+      record_defaults.append(value)
+
+    placeholder = tf.placeholder(dtype=tf.string, shape=(None,),
+                                 name="csv_input_placeholder")
+    parsed_tensors = tf.decode_csv(placeholder, record_defaults,
+                                   field_delim=field_delim)
+
+    raw_serving_features = {k: v for k, v in zip(raw_keys, parsed_tensors)}
+
+    _, transformed_features = (
+        saved_transform_io.partially_apply_saved_transform(
+            transform_savedmodel_dir, raw_serving_features))
+
+    if convert_scalars_to_vectors:
+      transformed_features = _convert_scalars_to_vectors(transformed_features)
+
+    return input_fn_utils.InputFnOps(
+        transformed_features, None, {"csv_example": placeholder})
+
+  return default_transforming_serving_input_fn
+
+
 def build_parsing_transforming_serving_input_fn(
     raw_metadata,
     transform_savedmodel_dir,
@@ -51,7 +145,9 @@ def build_parsing_transforming_serving_input_fn(
     raw_metadata: a `DatasetMetadata` object describing the raw data.
     transform_savedmodel_dir: a SavedModel directory produced by tf.Transform
       embodying a transformation function to be applied to incoming raw data.
-    raw_label_keys: A list of string keys of the raw labels to be used.
+    raw_label_keys: A list of string keys of the raw labels to be used. These
+      labels are removed from the serving graph. To build a serving function
+      that expects labels in the input at serving time, pass raw_labels_keys=[].
     raw_feature_keys: A list of string keys of the raw features to be used.
       If None or empty, defaults to all features except labels.
     convert_scalars_to_vectors: Boolean specifying whether this input_fn should
@@ -100,7 +196,9 @@ def build_default_transforming_serving_input_fn(
     raw_metadata: a `DatasetMetadata` object describing the raw data.
     transform_savedmodel_dir: a SavedModel directory produced by tf.Transform
       embodying a transformation function to be applied to incoming raw data.
-    raw_label_keys: A list of string keys of the raw labels to be used.
+    raw_label_keys: A list of string keys of the raw labels to be used. These
+      labels are removed from the serving graph. To build a serving function
+      that expects labels in the input at serving time, pass raw_labels_keys=[].
     raw_feature_keys: A list of string keys of the raw features to be used.
       If None or empty, defaults to all features except labels.
     convert_scalars_to_vectors: Boolean specifying whether this input_fn should

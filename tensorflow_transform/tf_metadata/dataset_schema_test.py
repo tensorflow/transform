@@ -34,6 +34,18 @@ class DatasetSchemaTest(unittest.TestCase):
     generated_feature_spec = schema.as_feature_spec()
     self.assertEqual(test_common.test_feature_spec, generated_feature_spec)
 
+  def test_feature_spec_unsupported_dtype(self):
+    schema = sch.Schema()
+    schema.column_schemas['fixed_float_with_default'] = (
+        sch.ColumnSchema(tf.float64, [1], sch.FixedColumnRepresentation(0.0)))
+
+    with self.assertRaisesRegexp(ValueError,
+                                 'tf.Example parser supports only types '
+                                 r'\[tf.string, tf.int64, tf.float32, tf.bool\]'
+                                 ', so it is invalid to generate a feature_spec'
+                                 ' with type tf.float64.'):
+      schema.as_feature_spec()
+
 
   def test_sequence_feature_not_supported(self):
     feature_spec = {
@@ -132,6 +144,15 @@ class DatasetSchemaTest(unittest.TestCase):
     self.assertEqual(d1, d2)
     self.assertNotEqual(d1, d3)
     self.assertNotEqual(d3, d4)
+
+  def test_int_domain_defaults(self):
+    self.assertFalse(sch.IntDomain(tf.int64).is_categorical)
+    self.assertTrue(sch.IntDomain(tf.int64, is_categorical=True).is_categorical)
+    self.assertEqual(tf.int64.min, sch.IntDomain(tf.int64).min_value)
+    self.assertEqual(-3,
+                     sch.IntDomain(tf.int64, min_value=-3).min_value)
+    self.assertEqual(tf.int64.max, sch.IntDomain(tf.int64).max_value)
+    self.assertEqual(3, sch.IntDomain(tf.int64, max_value=3).max_value)
 
   def test_axis_equality(self):
     a1 = sch.Axis(0)

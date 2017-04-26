@@ -24,6 +24,9 @@ import six
 import tensorflow as tf
 
 
+_TF_EXAMPLE_ALLOWED_TYPES = [tf.string, tf.int64, tf.float32, tf.bool]
+
+
 class Schema(object):
   """The schema of a dataset.
 
@@ -207,7 +210,7 @@ class IntDomain(Domain):
   """A domain for an integral type."""
 
   def __init__(self, dtype, min_value=None, max_value=None,
-               is_categorical=False):
+               is_categorical=None):
     super(IntDomain, self).__init__(dtype)
     if not self.dtype.is_integer:
       raise ValueError('IntDomain must be initialized with an integral dtype.')
@@ -216,7 +219,11 @@ class IntDomain(Domain):
     # representation.
     self._min_value = min_value if min_value is not None else self.dtype.min
     self._max_value = max_value if max_value is not None else self.dtype.max
-    self._is_categorical = is_categorical
+    # Parsing a non-existing value from JSON will return None make sure it is
+    # translated to False.
+    self._is_categorical = (is_categorical
+                            if is_categorical is not None
+                            else False)
 
   @property
   def min_value(self):
@@ -325,10 +332,19 @@ class FixedColumnRepresentation(ColumnRepresentation):
     """Default value may be None, but then missing data produces an error."""
     return self._default_value
 
+  def __repr__(self):
+    return '%s(%r)' % (self.__class__.__name__, self._default_value)
+
   def as_feature_spec(self, column):
     if not column.is_fixed_size():
       raise ValueError('A column of unknown size cannot be represented as '
                        'fixed-size.')
+    if column.domain.dtype not in _TF_EXAMPLE_ALLOWED_TYPES:
+      raise ValueError('tf.Example parser supports only types {}, so it is '
+                       'invalid to generate a feature_spec with type '
+                       '{}.'.format(
+                           _TF_EXAMPLE_ALLOWED_TYPES,
+                           repr(column.domain.dtype)))
     return tf.FixedLenFeature(column.tf_shape().as_list(),
                               column.domain.dtype,
                               self.default_value)
@@ -347,7 +363,16 @@ class ListColumnRepresentation(ColumnRepresentation):
   def __init__(self):
     super(ListColumnRepresentation, self).__init__()
 
+  def __repr__(self):
+    return '%s()' % (self.__class__.__name__,)
+
   def as_feature_spec(self, column):
+    if column.domain.dtype not in _TF_EXAMPLE_ALLOWED_TYPES:
+      raise ValueError('tf.Example parser supports only types {}, so it is '
+                       'invalid to generate a feature_spec with type '
+                       '{}.'.format(
+                           _TF_EXAMPLE_ALLOWED_TYPES,
+                           repr(column.domain.dtype)))
     return tf.VarLenFeature(column.domain.dtype)
 
   def as_batched_placeholder(self, column):
@@ -373,11 +398,23 @@ class SparseColumnRepresentation(ColumnRepresentation):
     # SparseIndexes
     return self._index_fields
 
+  def __repr__(self):
+    return '%s(%r, %r)' % (self.__class__.__name__,
+                           self._value_field_name, self._index_fields)
+
   def as_feature_spec(self, column):
     ind = self.index_fields
     if len(ind) != 1 or len(column.axes) != 1:
       raise ValueError('tf.Example parser supports only 1-d sparse features.')
     index = ind[0]
+
+    if column.domain.dtype not in _TF_EXAMPLE_ALLOWED_TYPES:
+      raise ValueError('tf.Example parser supports only types {}, so it is '
+                       'invalid to generate a feature_spec with type '
+                       '{}.'.format(
+                           _TF_EXAMPLE_ALLOWED_TYPES,
+                           repr(column.domain.dtype)))
+
     return tf.SparseFeature(index.name,
                             self._value_field_name,
                             column.domain.dtype,

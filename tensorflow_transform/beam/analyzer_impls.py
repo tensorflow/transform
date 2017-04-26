@@ -28,7 +28,20 @@ from apache_beam.typehints import with_input_types
 from apache_beam.typehints import with_output_types
 
 import six
+import tensorflow as tf
 from tensorflow_transform.beam import common
+
+
+def flatten_value_to_list(batch):
+  """Converts an N-D dense or sparse batch to a 1-D list."""
+  if isinstance(batch, tf.SparseTensorValue):
+    dense_values = batch.values
+  else:
+    dense_values = batch
+  # Ravel for flattening and tolist so that we go to native Python types
+  # for more efficient followup processing.
+  #
+  return dense_values.ravel().tolist()
 
 
 @with_input_types(List[common.NUMERIC_TYPE])
@@ -40,10 +53,55 @@ class _NumericAnalyzer(beam.PTransform):
     self._fn = fn
 
   def expand(self, pcoll):
+    pcoll |= 'FlattenValueToList' >> beam.Map(flatten_value_to_list)
     return (pcoll
             | 'CombineWithinList' >> beam.Map(self._fn)
             | 'CombineGlobally'
             >> beam.CombineGlobally(self._fn).without_defaults())
+
+
+@with_input_types(List[common.PRIMITIVE_TYPE])
+@with_output_types(List[common.PRIMITIVE_TYPE])
+class _NumericAnalyzerOnBatchDim(beam.PTransform):
+  """Reduces a PCollection on the batche dimension using to the given function.
+
+  Args:
+    fn: The function used to reduce the PCollection. It must take as inputs an
+        ndarray of data, and an axis parameter used to specify that the
+        reduction should only happen along the batch dimension, and all
+        instance dimensions should be preserved.
+  """
+
+  class _CombineOnBatchDim(beam.CombineFn):
+    """Combines the PCollection only on the 0th dimension using nparray."""
+
+    def __init__(self, fn):
+      self._fn = fn
+
+    def create_accumulator(self):
+      return []
+
+    def add_input(self, accumulator, next_input):
+      batch = self._fn(next_input, axis=0)
+      if any(accumulator):
+        return self._fn((accumulator, batch), axis=0)
+      else:
+        return batch
+
+    def merge_accumulators(self, accumulators):
+      # numpy's sum, min, max, etc functions operate on array-like objects, but
+      # not arbitrary iterables. Convert the provided accumulators into a list
+      return self._fn(list(accumulators), axis=0)
+
+    def extract_output(self, accumulator):
+      return accumulator
+
+  def __init__(self, fn):
+    self._fn = fn
+
+  def expand(self, pcoll):
+    return (pcoll | 'CombineOnBatchDim'
+            >> beam.CombineGlobally(self._CombineOnBatchDim(self._fn)))
 
 
 @with_input_types(List[common.PRIMITIVE_TYPE])
@@ -63,6 +121,7 @@ class _UniquesAnalyzer(beam.PTransform):
     # this to create a single element PCollection containing this list of
     # pairs in sorted order by decreasing counts (and by values for equal
     # counts).
+    pcoll |= 'FlattenValueToList' >> beam.Map(flatten_value_to_list)
 
     counts = (
         pcoll
@@ -90,7 +149,7 @@ class _UniquesAnalyzer(beam.PTransform):
     # from a single file.
     #
     @beam.ptransform_fn
-    def Reshard(pcoll):
+    def Reshard(pcoll):  # pylint: disable=invalid-name
       return (
           pcoll
           | 'PairWithNone' >> beam.Map(lambda x: (None, x))

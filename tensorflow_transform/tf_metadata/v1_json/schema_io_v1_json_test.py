@@ -71,18 +71,85 @@ _SCHEMA_WITH_INVALID_KEYS = """
 
 class SchemaIOv1JsonTest(unittest.TestCase):
 
-  def test_read_with_invalid_keys(self):
-    basedir = tempfile.mkdtemp()
+  def _write_schema_to_disk(self, basedir, schema_string):
     version_basedir = os.path.join(basedir, 'v1-json')
 
     # Write a proto by hand to disk
     file_io.recursive_create_dir(version_basedir)
     file_io.write_string_to_file(os.path.join(version_basedir, 'schema.json'),
-                                 _SCHEMA_WITH_INVALID_KEYS)
+                                 schema_string)
 
-    with self.assertRaisesRegexp(
-        ValueError, 'Keys of dense and sparse features overlapped.*'):
-      _ = metadata_io.read_metadata(basedir, versions=_test_versions)
+  def test_read_with_invalid_keys(self):
+    basedir = tempfile.mkdtemp()
+    self._write_schema_to_disk(basedir, _SCHEMA_WITH_INVALID_KEYS)
+
+  def test_read_features_default_axis(self):
+    basedir = tempfile.mkdtemp()
+    schema_no_sparse_features = """
+    {
+      "feature": [{
+        "name": "my_key",
+        "fixedShape": {},
+        "type": "INT",
+        "domain": {
+          "ints": {}
+        },
+        "parsingOptions": {
+          "tfOptions": {
+            "fixedLenFeature": {}
+          }
+        }
+      }]
+    }
+    """
+    self._write_schema_to_disk(basedir, schema_no_sparse_features)
+    _ = metadata_io.read_metadata(basedir, versions=_test_versions)
+
+  def test_read_features(self):
+    basedir = tempfile.mkdtemp()
+    schema_no_sparse_features = """
+    {
+      "feature": [{
+        "name": "my_key",
+        "fixedShape": {
+          "axis": [{
+            "size": 2
+          }]
+        },
+        "type": "INT",
+        "domain": {
+          "ints": {}
+        },
+        "parsingOptions": {
+          "tfOptions": {
+            "fixedLenFeature": {}
+          }
+        }
+      }]
+    }
+    """
+    self._write_schema_to_disk(basedir, schema_no_sparse_features)
+    _ = metadata_io.read_metadata(basedir, versions=_test_versions)
+
+  def test_read_no_features(self):
+    basedir = tempfile.mkdtemp()
+    schema_no_features = """
+    {
+      "sparseFeature": [{
+        "name": "my_key",
+        "indexFeature": [],
+        "valueFeature": [{
+          "name": "value_key",
+          "type": "INT",
+          "domain": {
+            "ints": {}
+          }
+        }]
+      }]
+    }
+    """
+    self._write_schema_to_disk(basedir, schema_no_features)
+    _ = metadata_io.read_metadata(basedir, versions=_test_versions)
 
   def test_write_and_read(self):
     basedir = tempfile.mkdtemp()

@@ -32,17 +32,30 @@ def _make_cast_fn(dtype):
   For performance reasons it is preferred to have the cast fn
   constructed once (for each handler).
 
+  For boolean values the function will only accept "True" or "False" as input.
+
   Args:
     dtype: The type of the Tensorflow feature.
   Returns:
     A function to extract the value field from a string depending on dtype.
   """
+
+  def to_boolean(value):
+    if value == 'True':
+      return True
+    elif value == 'False':
+      return False
+    else:
+      raise ValueError('expected "True" or "False" as inputs.')
+
   if dtype.is_integer:
     # In Python 2, if the value is too large to fit into an int, int(..) returns
     # a long, but ints are cheaper to use when possible.
     return int
   elif dtype.is_floating:
     return float
+  elif dtype.is_bool:
+    return to_boolean
   else:
     return lambda x: x
 
@@ -120,13 +133,13 @@ class _FixedLenFeatureHandler(object):
         raise ValueError('expected a value on column %r' % self._name)
 
     if self._rank == 0:
-      # Encode the values as a scalar if shape == []
+      # Encode the values as a scalar if shape == [].
       return values[0]
     elif self._rank == 1:
       # Short-circuit the reshaping logic needed for rank > 1.
-      return list(values)
+      return np.asarray(values)
     else:
-      return np.asarray(values).reshape(self._shape).tolist()
+      return np.asarray(values).reshape(self._shape)
 
   def encode_value(self, string_list, values):
     """Encode the value of this feature into the CSV line."""
@@ -174,11 +187,12 @@ class _VarLenFeatureHandler(object):
     """Parse the value of this feature from string list split from CSV line."""
     value_str = string_list[self._index]
     if value_str and self._reader:
-      return map(self._cast_fn, _decode_with_reader(value_str, self._reader))
+      values = map(self._cast_fn, _decode_with_reader(value_str, self._reader))
     elif value_str:
-      return [self._cast_fn(value_str)]
+      values = [self._cast_fn(value_str)]
     else:
-      return []
+      values = []
+    return np.asarray(values)
 
   def encode_value(self, string_list, values):
     """Encode the value of this feature into the CSV line."""
@@ -243,7 +257,7 @@ class _SparseFeatureHandler(object):
           'SparseFeature %r has indices and values of different lengths: '
           'values: %r, indices: %r' % (self._name, values, indices))
 
-    return (indices, values)
+    return (np.asarray(indices), np.asarray(values))
 
   def encode_value(self, string_list, sparse_value):
     """Encode the value of this feature into the CSV line."""

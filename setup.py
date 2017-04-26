@@ -13,38 +13,29 @@
 # limitations under the License.
 """Package Setup script for the tf.Transform binary.
 """
-import os
-
 from setuptools import find_packages
 from setuptools import setup
 
+# Tensorflow transform version.
+__version__ = '0.1.8'
 
-def get_required_install_packages():
+
+def _make_required_install_packages():
   return [
-
       # Using >= for better integration tests. During release this is
       # automatically changed to a ==.
-      'google-cloud-dataflow == 0.6.0',
+      'apache-beam[gcp] == 0.6.0',
   ]
-
-
-def get_version():
-  # Obtain the version from the global names on version.py
-  # We cannot do 'from tensorflow_transform import version' since the transitive
-  # dependencies will not be available when the installer is created.
-  global_names = {}
-  execfile(os.path.normpath('tensorflow_transform/version.py'), global_names)
-  return global_names['__version__']
 
 
 setup(
     name='tensorflow-transform',
-    version=get_version(),
+    version=__version__,
     author='Google Inc.',
     author_email='tf-transform-feedback@google.com',
     license='Apache 2.0',
     namespace_packages=[],
-    install_requires=get_required_install_packages(),
+    install_requires=_make_required_install_packages(),
     packages=find_packages(),
     include_package_data=True,
     description='A library for data preprocessing with TensorFlow',

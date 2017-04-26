@@ -20,8 +20,20 @@ from __future__ import print_function
 import os
 
 import apache_beam as beam
-from apache_beam.io import fileio
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
+
+
+def _copy_tree(source, destination):
+  """Recursively copies source to destination."""
+  import tensorflow as tf  # pylint: disable=g-import-not-at-top
+
+  if tf.gfile.IsDirectory(source):
+    tf.gfile.MakeDirs(destination)
+    for filename in tf.gfile.ListDirectory(source):
+      _copy_tree(
+          os.path.join(source, filename), os.path.join(destination, filename))
+  else:
+    tf.gfile.Copy(source, destination)
 
 
 class WriteTransformFn(beam.PTransform):
@@ -46,13 +58,11 @@ class WriteTransformFn(beam.PTransform):
     # components, the deferred components will be written in a deferred manner
     # while the non-deferred components will be written in a non-deferred
     # manner.
-    def copy_tree(source, dest):
-      fileio.ChannelFactory.copytree(source + '/', dest + '/')
     _ = metadata | 'WriteMetadata' >> beam_metadata_io.WriteMetadata(
         os.path.join(self._path, 'transformed_metadata'),
         pipeline=saved_model_dir_pcoll.pipeline)
     return saved_model_dir_pcoll | 'WriteTransformFn' >> beam.Map(
-        copy_tree, os.path.join(self._path, 'transform_fn'))
+        _copy_tree, os.path.join(self._path, 'transform_fn'))
 
 
 class ReadTransformFn(beam.PTransform):

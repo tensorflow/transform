@@ -30,6 +30,10 @@ import tensorflow as tf
 from tensorflow_transform import api
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow.contrib.session_bundle import bundle_shim
+
+_EMPTY_ARRAY = np.array([])
+_EMPTY_ARRAY.setflags(write=False)
 
 
 def infer_feature_schema(columns):
@@ -166,27 +170,58 @@ def make_output_dict(schema, fetches):
 
     Args:
       sparse_value: A `SparseTensorValue` representing a batch of N sparse
-        instances.
+        instances. The indices of the SparseTensorValue are expected to be
+        sorted by row order.
 
     Returns:
       A tuple (instance_indices, instance_values) where the elements are lists
       of N lists representing the indices and values, respectively, of the
       instances in the batch.
+
+    Raises:
+      ValueError: If `sparse_value` contains out-of-order indices.
     """
     batch_indices, batch_values, batch_shape = sparse_value
-    # Preallocate a list (of lists) of length batch_size representing instances.
-    instance_indices = [[] for _ in range(batch_shape[0])]
-    instance_values = [[] for _ in range(batch_shape[0])]
-    # Iterate over the flat list of batch indices and values and assign them to
-    # the appropriate instance.
-    current_row = -1
-    for index, value in zip(batch_indices, batch_values):
-      row = index[0]
-      column = index[1] if len(index) == 2 else tuple(index[1:])
-      while row > current_row:
-        current_row += 1
-      instance_indices[current_row].append(column)
-      instance_values[current_row].append(value)
+    # Preallocate lists of length batch_size, initialized to empty ndarrays,
+    # representing the indices and values of instances. We can reuse
+    # _EMPTY_ARRAY here because it is immutable.
+    instance_indices = [_EMPTY_ARRAY] * batch_shape[0]
+    instance_values = [_EMPTY_ARRAY] * batch_shape[0]
+    instance_rank = len(batch_shape[1:])
+
+    # Iterate over the rows in the batch. At each row, consume all the elements
+    # that belong to that row.
+    current_offset = 0
+    for current_row in range(batch_shape[0]):
+      start_offset = current_offset
+
+      # Scan forward until we reach an element that does not belong to the
+      # current row.
+      while current_offset < len(batch_indices):
+        row = batch_indices[current_offset][0]
+        if row == current_row:
+          # This element belongs to the current row.
+          current_offset += 1
+        elif row > current_row:
+          # We've reached the end of the current row.
+          break
+        else:
+          raise ValueError('Encountered out-of-order sparse index: %r.' %
+                           batch_indices[current_offset])
+
+      if current_offset == start_offset:
+        # If the current row is empty, leave the default value, _EMPTY_ARRAY.
+        pass
+      else:
+        instance_indices[current_row] = batch_indices[
+            start_offset:current_offset, 1:]
+        if instance_rank == 1:
+          # In this case indices will have length 1, so for convenience we
+          # reshape from [-1, 1] to [-1].
+          instance_indices[current_row] = (
+              instance_indices[current_row].reshape([-1]))
+        instance_values[current_row] = batch_values[start_offset:current_offset]
+
     return instance_indices, instance_values
 
   # Make a dict where the values are lists with one element per instance.
@@ -200,10 +235,10 @@ def make_output_dict(schema, fetches):
       if not isinstance(value, tf.SparseTensorValue):
         raise ValueError('Expected a SparseTensorValue, but got %r' % value)
       instance_indices, instance_values = decompose_sparse_batch(value)
-      if any(indices != list(range(len(indices)))
-             for indices in instance_indices):
-        raise ValueError('Encountered a SparseTensorValue that cannot be '
-                         'decoded by ListColumnRepresentation.')
+      for indices in instance_indices:
+        if len(indices.shape) > 1 or np.any(indices != np.arange(len(indices))):
+          raise ValueError('Encountered a SparseTensorValue that cannot be '
+                           'decoded by ListColumnRepresentation.')
       result[key] = instance_values
 
     elif isinstance(representation, dataset_schema.SparseColumnRepresentation):
@@ -458,3 +493,179 @@ def run_preprocessing_fn(preprocessing_fn, schema):
     outputs = preprocessing_fn(inputs)
 
   return inputs, outputs
+
+
+def make_tensor_func_from_saved_model(model_dir,
+                                      tags,
+                                      signature_name=None,
+                                      input_keys_in_signature=None,
+                                      output_keys_in_signature=None):
+  """Create a tensor-in-tensor-out function as a transform used in tft.map.
+
+  When tft.map is called with this function as first parameter, the second
+  parameter (input columns) should match the `input_keys_in_signature`
+  in their orders.
+
+  Args:
+    model_dir: A path containing a saved model.
+    tags: The tags specifying which metagraph to load from the saved model.
+    signature_name: Specify signature of the loaded model. The default value
+       None can be used if there is only one signature in the MetaGraphDef.
+    input_keys_in_signature: A list of strings which should match the inputs
+       in the signature of the saved model. The purpose of this parameter is to
+       specify the order of the input columns passed to tft.map when called
+       with the returned tensor_fn. The default value None can be used if there
+       is only one input.
+    output_keys_in_signature: A list of strings which should be a subset of
+       the outputs in the signature of the saved model. The returned tensor_fn
+       will return the corresponding tensors, in the same order. The default
+       value None can be used if there is only one output from signature.
+
+  Returns:
+    A tensor-in-tensor-out function which can be used in tft.map.
+
+  Raises:
+    ValueError: If
+    `signature_name` is None but the saved model contains multiple signature, or
+    `input_keys_in_signature` do not match the signature inputs, or
+    `output_keys_in_signature` is not a subset of the signature outputs, or
+    the metagraph from saved model contains TABLE_INITIALIZERS operations.
+  """
+
+  # Load model, get graph, inputs and outputs.
+  loaded_graph = tf.Graph()
+  with loaded_graph.as_default():
+    session, meta_graph = (
+        bundle_shim.load_session_bundle_or_saved_model_bundle_from_path(
+            model_dir, tags=tags))
+    if signature_name:
+      signature = meta_graph.signature_def[signature_name]
+    elif len(meta_graph.signature_def) > 1:
+      raise ValueError(
+          'The saved model contains multiple signatures "%s". Specify a '
+          'signature_name.' % ','.join(meta_graph.signature_def.keys()))
+    else:
+      signature = meta_graph.signature_def.values()[0]
+
+    inputs = {
+        key: tensor_info_proto.name
+        for (key, tensor_info_proto) in signature.inputs.items()
+    }
+    outputs = {
+        key: tensor_info_proto.name
+        for (key, tensor_info_proto) in signature.outputs.items()
+    }
+
+  # Get input tensor names.
+  if input_keys_in_signature is not None:
+    if set(input_keys_in_signature) != set(inputs.keys()):
+      raise ValueError(
+          'keys in input logical names do not match inputs of saved model. ' +
+          'Model signature has "%s" but input logical names has "%s".' %
+          (','.join(inputs.keys()), ','.join(input_keys_in_signature)))
+    input_tensor_names = [
+        inputs[key] for key in input_keys_in_signature
+    ]
+  else:
+    if len(inputs) > 1:
+      raise ValueError(
+          'The signature from saved model contains multiple inputs "%s". '
+          'Input logical names are required.' % ','.join(inputs.keys()))
+    else:
+      input_tensor_names = [inputs.values()[0]]
+
+  # Get output tensor names.
+  if output_keys_in_signature:
+    if not set(output_keys_in_signature) <= set(outputs.keys()):
+      raise ValueError(
+          'output names are not a subset of outputs of saved model. ' +
+          'output names has "%s" but model signature has "%s".' %
+          (','.join(output_keys_in_signature), ','.join(outputs.keys())))
+
+    output_tensor_names = [
+        outputs[key] for key in output_keys_in_signature
+    ]
+  else:
+    if len(outputs) > 1:
+      raise ValueError(
+          'The signature from saved model contains multiple outputs "%s". '
+          'Output names are required.' % ','.join(outputs.keys()))
+    output_tensor_names = [outputs.values()[0]]
+
+  if tf.get_collection(tf.GraphKeys.TABLE_INITIALIZERS):
+    raise ValueError(
+        'Models with table init ops in metagraph are not supported.')
+
+  # Convert_variables_to_constants() requires op name.
+  output_op_names = [loaded_graph.get_tensor_by_name(x).op.name
+                     for x in output_tensor_names]
+  constant_graph_def = tf.graph_util.convert_variables_to_constants(
+      session, loaded_graph.as_graph_def(), output_op_names)
+
+  def tensor_fn(*si):
+    input_name_to_tensor_map = dict(zip(input_tensor_names, si))
+    output_tensors = tf.import_graph_def(
+        constant_graph_def,
+        input_map=input_name_to_tensor_map,
+        return_elements=output_tensor_names)
+    return output_tensors[0]
+
+  return tensor_fn
+
+
+def make_tensor_func_from_checkpoint(input_tensor_func,
+                                     checkpoint,
+                                     include=None,
+                                     exclude=None):
+  """Create a tensor function from a checkpoint as a transform used in tft.map.
+
+  When tft.map is called with this function as first parameter, the second
+  parameter (input columns) should be the same as the parameters for
+  `input_tensor_func` function.
+
+  Args:
+    input_tensor_func: A tensor-in-tensor-out function that may contain
+       variables.
+    checkpoint: The checkpoint path to load variables from.
+    include: An optional list/tuple of scope strings for filtering which
+       variables from the VARIABLES collection to include. If None, all
+       variables will be included.
+    exclude: An optional list/tuple of scope strings for filtering which
+       variables from the VARIABLES collection to exclude. If None, no variables
+       will be excluded.
+
+  Returns:
+    A tensor-in-tensor-out function which can be used in tft.map.
+
+  Raises:
+    ValueError if the input tensor-in-tensor-out function adds to
+       TABLE_INITIALIZERS collections.
+  """
+
+  def tensor_fn(*si):
+    """The returned tensor-in-tensor-out function."""
+
+    loaded_graph = tf.Graph()
+    with loaded_graph.as_default():
+      input_tensors = [
+          tf.placeholder(dtype=x.dtype, shape=x.shape, name=x.op.name)
+          for x in si]
+      output_tensor = input_tensor_func(*input_tensors)
+
+      if tf.get_collection(tf.GraphKeys.TABLE_INITIALIZERS):
+        raise ValueError('Models with table init ops are not supported.')
+
+      vars_to_restore = tf.contrib.slim.get_variables_to_restore(
+          include=include, exclude=exclude)
+      saver = tf.train.Saver(vars_to_restore)
+      with tf.Session() as sess:
+        saver.restore(sess, checkpoint)
+        output_graph_def = tf.graph_util.convert_variables_to_constants(
+            sess, loaded_graph.as_graph_def(), [output_tensor.op.name])
+
+    input_map = {x.name: x for x in si}
+    output_tensors = tf.import_graph_def(output_graph_def, input_map=input_map,
+                                         return_elements=[output_tensor.name])
+    return output_tensors[0]
+
+  return tensor_fn

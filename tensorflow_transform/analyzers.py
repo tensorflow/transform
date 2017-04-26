@@ -21,11 +21,38 @@ import tensorflow as tf
 from tensorflow_transform import api
 
 
-def min(x):  # pylint: disable=redefined-builtin
+def _get_output_shape(x, reduce_instance_dims):
+  """Determines the shape of the output of a numerical analyzer.
+
+  Args:
+    x: An input `Column' wrapping a `Tensor`.
+    reduce_instance_dims: If true, collapses the batch and instance dimensions
+        to arrive at a single scalar output. If False, only collapses the batch
+        dimension and outputs a vector of the same shape as the output.
+
+  Returns:
+    The shape to use for the output placeholder.
+  """
+  if reduce_instance_dims:
+    # Numerical analyzers produce scalar output by default
+    return ()
+  else:
+    in_shape = x.tensor.shape
+    if in_shape:
+      # The output will be the same shape as the input, but without the batch.
+      return in_shape.as_list()[1:]
+    else:
+      return None
+
+
+def min(x, reduce_instance_dims=True):  # pylint: disable=redefined-builtin
   """Computes the minimum of a `Column`.
 
   Args:
     x: An input `Column' wrapping a `Tensor`.
+    reduce_instance_dims: By default collapses the batch and instance dimensions
+        to arrive at a single scalar output. If False, only collapses the batch
+        dimension and outputs a vector of the same shape as the output.
 
   Returns:
     A `Statistic`.
@@ -33,17 +60,22 @@ def min(x):  # pylint: disable=redefined-builtin
   if not isinstance(x.tensor, tf.Tensor):
     raise TypeError('Expected a Tensor, but got %r' % x.tensor)
 
+  arg_dict = {'reduce_instance_dims': reduce_instance_dims}
 
   # pylint: disable=protected-access
-  return api._AnalyzerOutput(tf.placeholder(x.tensor.dtype, ()),
-                             api.CanonicalAnalyzers.MIN, [x], {})
+  return api._AnalyzerOutput(
+      tf.placeholder(x.tensor.dtype, _get_output_shape(
+          x, reduce_instance_dims)), api.CanonicalAnalyzers.MIN, [x], arg_dict)
 
 
-def max(x):  # pylint: disable=redefined-builtin
+def max(x, reduce_instance_dims=True):  # pylint: disable=redefined-builtin
   """Computes the maximum of a `Column`.
 
   Args:
     x: An input `Column' wrapping a `Tensor`.
+    reduce_instance_dims: By default collapses the batch and instance dimensions
+        to arrive at a single scalar output. If False, only collapses the batch
+        dimension and outputs a vector of the same shape as the output.
 
   Returns:
     A `Statistic`.
@@ -51,16 +83,21 @@ def max(x):  # pylint: disable=redefined-builtin
   if not isinstance(x.tensor, tf.Tensor):
     raise TypeError('Expected a Tensor, but got %r' % x.tensor)
 
+  arg_dict = {'reduce_instance_dims': reduce_instance_dims}
   # pylint: disable=protected-access
-  return api._AnalyzerOutput(tf.placeholder(x.tensor.dtype, ()),
-                             api.CanonicalAnalyzers.MAX, [x], {})
+  return api._AnalyzerOutput(
+      tf.placeholder(x.tensor.dtype, _get_output_shape(
+          x, reduce_instance_dims)), api.CanonicalAnalyzers.MAX, [x], arg_dict)
 
 
-def sum(x):  # pylint: disable=redefined-builtin
+def sum(x, reduce_instance_dims=True):  # pylint: disable=redefined-builtin
   """Computes the sum of a `Column`.
 
   Args:
     x: An input `Column' wrapping a `Tensor`.
+    reduce_instance_dims: By default collapses the batch and instance dimensions
+        to arrive at a single scalar output. If False, only collapses the batch
+        dimension and outputs a vector of the same shape as the output.
 
   Returns:
     A `Statistic`.
@@ -68,16 +105,21 @@ def sum(x):  # pylint: disable=redefined-builtin
   if not isinstance(x.tensor, tf.Tensor):
     raise TypeError('Expected a Tensor, but got %r' % x.tensor)
 
+  arg_dict = {'reduce_instance_dims': reduce_instance_dims}
   # pylint: disable=protected-access
-  return api._AnalyzerOutput(tf.placeholder(x.tensor.dtype, ()),
-                             api.CanonicalAnalyzers.SUM, [x], {})
+  return api._AnalyzerOutput(
+      tf.placeholder(x.tensor.dtype, _get_output_shape(
+          x, reduce_instance_dims)), api.CanonicalAnalyzers.SUM, [x], arg_dict)
 
 
-def size(x):
+def size(x, reduce_instance_dims=True):
   """Computes the total size of instances in a `Column`.
 
   Args:
     x: An input `Column' wrapping a `Tensor`.
+    reduce_instance_dims: By default collapses the batch and instance dimensions
+        to arrive at a single scalar output. If False, only collapses the batch
+        dimension and outputs a vector of the same shape as the output.
 
   Returns:
     A `Statistic`.
@@ -86,14 +128,17 @@ def size(x):
     raise TypeError('Expected a Tensor, but got %r' % x.tensor)
 
   # Note: Calling `sum` defined in this module, not the builtin.
-  return sum(api.map(tf.ones_like, x))
+  return sum(api.map(tf.ones_like, x), reduce_instance_dims)
 
 
-def mean(x):
+def mean(x, reduce_instance_dims=True):
   """Computes the mean of the values in a `Column`.
 
   Args:
     x: An input `Column' wrapping a `Tensor`.
+    reduce_instance_dims: By default collapses the batch and instance dimensions
+        to arrive at a single scalar output. If False, only collapses the batch
+        dimension and outputs a vector of the same shape as the output.
 
   Returns:
     A `Column` with an underlying `Tensor` of shape [1], containing the mean.
@@ -102,7 +147,9 @@ def mean(x):
     raise TypeError('Expected a Tensor, but got %r' % x.tensor)
 
   # Note: Calling `sum` defined in this module, not the builtin.
-  return api.map_statistics(tf.divide, sum(x), size(x))
+  return api.map_statistics(tf.divide,
+                            sum(x, reduce_instance_dims),
+                            size(x, reduce_instance_dims))
 
 
 def uniques(x, top_k=None, frequency_threshold=None):

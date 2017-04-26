@@ -49,4 +49,4 @@ independent from the specific runner as possible.
 ## Getting Started
 
 For instructions on using tf.Transform see the [getting started
-guide](./getting_started.md)
+guide](./getting_started.md).

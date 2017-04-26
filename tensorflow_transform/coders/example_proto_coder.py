@@ -20,8 +20,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import functools
-
 
 import numpy as np
 import six
@@ -58,14 +56,10 @@ def _make_cast_fn(np_dtype):
   def identity(x):
     return x
 
-  def numeric_cast(x, caster):
+  def numeric_cast(x):
     if isinstance(x, (np.generic, np.ndarray)):
       # This works for both np.generic and np.array (of any shape).
       return x.tolist()
-    elif isinstance(x, list):
-      # This works for python list which might contain np.generic values.
-      #
-      return map(caster, x)
     else:
       # This works for python scalars (or lists thereof), which require no
       # casting.
@@ -91,7 +85,7 @@ def _make_cast_fn(np_dtype):
       float_list.value.extend(np.array([0.1, 0.2]))  # Any dummy values will do.
       return identity
     except TypeError:
-      return functools.partial(numeric_cast, caster=float)
+      return numeric_cast
   elif issubclass(np_dtype, np.integer):
     try:
       int64_list = tf.train.Int64List()
@@ -100,9 +94,7 @@ def _make_cast_fn(np_dtype):
       int64_list.value.extend(np.array([1, 2]))  # Any dummy values will do.
       return identity
     except TypeError:
-      # In Python 2, if the value is too large to fit into an int, int(..)
-      # returns a long, but ints are cheaper to use when possible.
-      return functools.partial(numeric_cast, caster=int)
+      return numeric_cast
   else:
     return string_cast
 
@@ -166,30 +158,27 @@ class _FixedLenFeatureHandler(object):
                        ' %d but got %d' % (self._name, self._size, len(values)))
 
     if self._rank == 0:
-      # Encode the values as a scalar if shape == []
+      # Encode the values as a scalar if shape == [].
       return values[0]
     elif self._rank == 1:
       # Short-circuit the reshaping logic needed for rank > 1.
-      return list(values)
+      return np.asarray(values)
     else:
-      return np.asarray(values).reshape(self._shape).tolist()
+      return np.asarray(values).reshape(self._shape)
 
   def encode_value(self, values):
     """Encodes a feature into its Example proto representation."""
     del self._value[:]
     if self._rank == 0:
-      flattened_values = [values]
-    elif self._rank == 1:
-      # Short-circuit the reshaping logic needed for rank > 1.
-      flattened_values = values
+      self._value.append(self._cast_fn(values))
     else:
-      flattened_values = np.asarray(values).reshape(-1)
-
-    if len(flattened_values) != self._size:
-      raise ValueError('FixedLenFeature %r got wrong number of values. Expected'
-                       ' %d but got %d' %
-                       (self._name, self._size, len(flattened_values)))
-    self._value.extend(self._cast_fn(flattened_values))
+      flattened_values = (values if self._rank == 1 else
+                          np.asarray(values).reshape(-1))
+      if len(flattened_values) != self._size:
+        raise ValueError('FixedLenFeature %r got wrong number of values. '
+                         'Expected %d but got %d' %
+                         (self._name, self._size, len(flattened_values)))
+      self._value.extend(self._cast_fn(flattened_values))
 
 
 class _VarLenFeatureHandler(object):
@@ -219,7 +208,7 @@ class _VarLenFeatureHandler(object):
 
   def parse_value(self, feature_map):
     feature = feature_map[self._name]
-    return list(self._value_fn(feature))
+    return np.asarray(self._value_fn(feature))
 
   def encode_value(self, values):
     del self._value[:]
@@ -248,7 +237,8 @@ class _SparseFeatureHandler(object):
 
   def initialize_encode_cache(self, example):
     """Initialize fields (performance caches) that point to example's state."""
-    self._cast_fn = _make_cast_fn(self._np_dtype)
+    self._value_cast_fn = _make_cast_fn(self._np_dtype)
+    self._index_cast_fn = _make_cast_fn(np.int64)
     self._value = self._value_fn(example.features.feature[
         self._value_key])
     self._index = self._index_fn(example.features.feature[
@@ -261,16 +251,16 @@ class _SparseFeatureHandler(object):
   def parse_value(self, feature_map):
     value_feature = feature_map[self._value_key]
     index_feature = feature_map[self._index_key]
-    values = list(self._value_fn(value_feature))
-    indices = list(self._index_fn(index_feature))
+    values = np.asarray(self._value_fn(value_feature))
+    indices = np.asarray(self._index_fn(index_feature))
     return (indices, values)
 
   def encode_value(self, sparse_value):
     del self._value[:]
     del self._index[:]
     indices, values = sparse_value
-    self._value.extend(self._cast_fn(values))
-    self._index.extend(indices)
+    self._value.extend(self._value_cast_fn(values))
+    self._index.extend(self._index_cast_fn(indices))
 
 
 class ExampleProtoCoder(object):

@@ -34,14 +34,14 @@ import unittest
 def _make_raw_schema(shape):
   schema = sch.Schema()
 
-  schema.column_schemas['raw_a'] = (
-      sch.ColumnSchema(tf.int64, shape, sch.FixedColumnRepresentation()))
+  schema.column_schemas['raw_a'] = (sch.ColumnSchema(
+      tf.int64, shape, sch.FixedColumnRepresentation(default_value=0)))
 
-  schema.column_schemas['raw_b'] = (
-      sch.ColumnSchema(tf.int64, shape, sch.FixedColumnRepresentation()))
+  schema.column_schemas['raw_b'] = (sch.ColumnSchema(
+      tf.int64, shape, sch.FixedColumnRepresentation(default_value=1)))
 
-  schema.column_schemas['raw_label'] = (
-      sch.ColumnSchema(tf.int64, shape, sch.FixedColumnRepresentation()))
+  schema.column_schemas['raw_label'] = (sch.ColumnSchema(
+      tf.int64, shape, sch.FixedColumnRepresentation(default_value=-1)))
 
   return schema
 
@@ -63,13 +63,101 @@ def _make_transformed_schema(shape):
 
 class InputFnMakerTest(unittest.TestCase):
 
+  def test_build_csv_transforming_serving_input_fn_with_label(self):
+    feed_dict = ['15,6,1', '12,17,2']
+
+    basedir = tempfile.mkdtemp()
+
+    raw_metadata = dataset_metadata.DatasetMetadata(
+        schema=_make_raw_schema([]))
+
+    transform_savedmodel_dir = os.path.join(basedir, 'transform-savedmodel')
+    _write_transform_savedmodel(transform_savedmodel_dir)
+
+    serving_input_fn = (
+        input_fn_maker.build_csv_transforming_serving_input_fn(
+            raw_metadata=raw_metadata,
+            raw_keys=['raw_a', 'raw_b', 'raw_label'],
+            transform_savedmodel_dir=transform_savedmodel_dir))
+
+    with tf.Graph().as_default():
+      with tf.Session().as_default() as session:
+        outputs, labels, inputs = serving_input_fn()
+        feed_inputs = {inputs['csv_example']: feed_dict
+                      }
+        transformed_a, transformed_b, transformed_label = session.run(
+            [outputs['transformed_a'], outputs['transformed_b'],
+             outputs['transformed_label']],
+            feed_dict=feed_inputs)
+
+    self.assertEqual(21, transformed_a[0][0])
+    self.assertEqual(9, transformed_b[0][0])
+    self.assertEqual(1000, transformed_label[0][0])
+    self.assertEqual(29, transformed_a[1][0])
+    self.assertEqual(-5, transformed_b[1][0])
+    self.assertEqual(2000, transformed_label[1][0])
+    self.assertItemsEqual(
+        outputs,
+        {'transformed_a', 'transformed_b', 'transformed_label'})
+    self.assertIsNone(labels)
+    self.assertEqual(set(inputs.keys()), {'csv_example'})
+
   def test_build_parsing_transforming_serving_input_fn_scalars(self):
     self._test_build_parsing_transforming_serving_input_fn(
+        _make_raw_schema([]))
+
+    self._test_build_parsing_transforming_serving_input_fn_with_label(
         _make_raw_schema([]))
 
   def test_build_parsing_transforming_serving_input_fn_vectors(self):
     self._test_build_parsing_transforming_serving_input_fn(
         _make_raw_schema([1]))
+
+    self._test_build_parsing_transforming_serving_input_fn_with_label(
+        _make_raw_schema([1]))
+
+  def _test_build_parsing_transforming_serving_input_fn_with_label(
+      self, raw_schema):
+    basedir = tempfile.mkdtemp()
+
+    raw_metadata = dataset_metadata.DatasetMetadata(
+        schema=raw_schema)
+
+    transform_savedmodel_dir = os.path.join(basedir, 'transform-savedmodel')
+    _write_transform_savedmodel(transform_savedmodel_dir)
+
+    serving_input_fn = (
+        input_fn_maker.build_parsing_transforming_serving_input_fn(
+            raw_metadata=raw_metadata,
+            transform_savedmodel_dir=transform_savedmodel_dir,
+            raw_label_keys=[],  # Test labels are in output
+            raw_feature_keys=None))
+
+    examples = [_create_serialized_example(d)
+                for d in [
+                    {'raw_a': 15, 'raw_b': 6, 'raw_label': 1},
+                    {'raw_a': 12, 'raw_b': 17, 'raw_label': 2}]]
+
+    with tf.Graph().as_default():
+      with tf.Session().as_default() as session:
+        outputs, labels, inputs = serving_input_fn()
+        feed_inputs = {inputs['examples']: examples}
+        transformed_a, transformed_b, transformed_label = session.run(
+            [outputs['transformed_a'], outputs['transformed_b'],
+             outputs['transformed_label']],
+            feed_dict=feed_inputs)
+
+    self.assertEqual(21, transformed_a[0][0])
+    self.assertEqual(9, transformed_b[0][0])
+    self.assertEqual(1000, transformed_label[0][0])
+    self.assertEqual(29, transformed_a[1][0])
+    self.assertEqual(-5, transformed_b[1][0])
+    self.assertEqual(2000, transformed_label[1][0])
+    self.assertEqual(
+        set(outputs.keys()),
+        {'transformed_a', 'transformed_b', 'transformed_label'})
+    self.assertEqual(labels, None)
+    self.assertEqual(set(inputs.keys()), {'examples'})
 
   def _test_build_parsing_transforming_serving_input_fn(self, raw_schema):
     basedir = tempfile.mkdtemp()
@@ -94,24 +182,79 @@ class InputFnMakerTest(unittest.TestCase):
 
     with tf.Graph().as_default():
       with tf.Session().as_default() as session:
-        outputs, _, inputs = serving_input_fn()
+        outputs, labels, inputs = serving_input_fn()
         feed_inputs = {inputs['examples']: examples}
         transformed_a, transformed_b = session.run(
             [outputs['transformed_a'], outputs['transformed_b']],
             feed_dict=feed_inputs)
 
+        with self.assertRaises(Exception):
+          session.run(outputs['transformed_label'])
+
     self.assertEqual(21, transformed_a[0][0])
     self.assertEqual(9, transformed_b[0][0])
     self.assertEqual(29, transformed_a[1][0])
     self.assertEqual(-5, transformed_b[1][0])
+    self.assertEqual(
+        set(outputs.keys()),
+        {'transformed_a', 'transformed_b', 'transformed_label'})
+    self.assertEqual(labels, None)
+    self.assertEqual(set(inputs.keys()), {'examples'})
 
   def test_build_default_transforming_serving_input_fn_scalars(self):
     self._test_build_default_transforming_serving_input_fn(
         [], [[15, 12], [6, 17]])
 
+    self._test_build_default_transforming_serving_input_fn_with_label(
+        [], [[15, 12], [6, 17], [1, 2]])
+
   def test_build_default_transforming_serving_input_fn_vectors(self):
     self._test_build_default_transforming_serving_input_fn(
         [1], [[[15], [12]], [[6], [17]]])
+
+    self._test_build_default_transforming_serving_input_fn_with_label(
+        [1], [[[15], [12]], [[6], [17]], [[1], [2]]])
+
+  def _test_build_default_transforming_serving_input_fn_with_label(
+      self, shape, feed_input_values):
+    basedir = tempfile.mkdtemp()
+
+    raw_metadata = dataset_metadata.DatasetMetadata(
+        schema=_make_raw_schema(shape))
+
+    transform_savedmodel_dir = os.path.join(basedir, 'transform-savedmodel')
+    _write_transform_savedmodel(transform_savedmodel_dir)
+
+    serving_input_fn = (
+        input_fn_maker.build_default_transforming_serving_input_fn(
+            raw_metadata=raw_metadata,
+            raw_label_keys=[],  # Test labels are in output
+            raw_feature_keys=None,
+            transform_savedmodel_dir=transform_savedmodel_dir))
+
+    with tf.Graph().as_default():
+      with tf.Session().as_default() as session:
+        outputs, labels, inputs = serving_input_fn()
+        feed_inputs = {inputs['raw_a']: feed_input_values[0],
+                       inputs['raw_b']: feed_input_values[1],
+                       inputs['raw_label']: feed_input_values[2]
+                      }
+        transformed_a, transformed_b, transformed_label = session.run(
+            [outputs['transformed_a'], outputs['transformed_b'],
+             outputs['transformed_label']],
+            feed_dict=feed_inputs)
+
+    self.assertEqual(21, transformed_a[0][0])
+    self.assertEqual(9, transformed_b[0][0])
+    self.assertEqual(1000, transformed_label[0][0])
+    self.assertEqual(29, transformed_a[1][0])
+    self.assertEqual(-5, transformed_b[1][0])
+    self.assertEqual(2000, transformed_label[1][0])
+    self.assertEqual(
+        set(outputs.keys()),
+        {'transformed_a', 'transformed_b', 'transformed_label'})
+    self.assertEqual(labels, None)
+    self.assertEqual(set(inputs.keys()), {'raw_a', 'raw_b', 'raw_label'})
 
   def _test_build_default_transforming_serving_input_fn(
       self, shape, feed_input_values):
@@ -132,17 +275,25 @@ class InputFnMakerTest(unittest.TestCase):
 
     with tf.Graph().as_default():
       with tf.Session().as_default() as session:
-        outputs, _, inputs = serving_input_fn()
+        outputs, labels, inputs = serving_input_fn()
         feed_inputs = {inputs['raw_a']: feed_input_values[0],
                        inputs['raw_b']: feed_input_values[1]}
         transformed_a, transformed_b = session.run(
             [outputs['transformed_a'], outputs['transformed_b']],
             feed_dict=feed_inputs)
 
+        with self.assertRaises(Exception):
+          session.run(outputs['transformed_label'])
+
     self.assertEqual(21, transformed_a[0][0])
     self.assertEqual(9, transformed_b[0][0])
     self.assertEqual(29, transformed_a[1][0])
     self.assertEqual(-5, transformed_b[1][0])
+    self.assertEqual(
+        set(outputs.keys()),
+        {'transformed_a', 'transformed_b', 'transformed_label'})
+    self.assertEqual(labels, None)
+    self.assertEqual(set(inputs.keys()), {'raw_a', 'raw_b'})
 
   def test_build_training_input_fn(self):
     basedir = tempfile.mkdtemp()
@@ -280,4 +431,3 @@ def _write_transform_savedmodel(transform_savedmodel_dir):
 
 if __name__ == '__main__':
   unittest.main()
-
