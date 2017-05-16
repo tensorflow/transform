@@ -166,6 +166,46 @@ class ExampleProtoCoderTest(unittest.TestCase):
     self._assert_encode_decode(coder, example_proto_text, expected_decoded)
     self._assert_decode_encode(coder, example_proto_text, expected_decoded)
 
+  def test_example_proto_coder_default_value(self):
+    input_schema = dataset_schema.from_feature_spec({
+        'scalar_feature_3': tf.FixedLenFeature(shape=[], dtype=tf.float32,
+                                               default_value=1.0),
+    })
+    coder = example_proto_coder.ExampleProtoCoder(input_schema)
+
+    # Python types.
+    example_proto_text = """
+    features {
+    }
+    """
+    example = tf.train.Example()
+    text_format.Merge(example_proto_text, example)
+    data = example.SerializeToString()
+
+    # Assert the data is decoded into the expected format.
+    expected_decoded = {
+        'scalar_feature_3': 1.0,
+    }
+    decoded = coder.decode(data)
+    np.testing.assert_equal(expected_decoded, decoded)
+
+  def test_example_proto_coder_bad_default_value(self):
+    input_schema = dataset_schema.from_feature_spec({
+        'scalar_feature_2': tf.FixedLenFeature(shape=[2], dtype=tf.float32,
+                                               default_value=[1.0, 2.0]),
+    })
+    with self.assertRaisesRegexp(ValueError,
+                                 'only scalar default values are supported'):
+      example_proto_coder.ExampleProtoCoder(input_schema)
+
+    input_schema = dataset_schema.from_feature_spec({
+        'scalar_feature_2': tf.FixedLenFeature(shape=[], dtype=tf.float32,
+                                               default_value=[1.0]),
+    })
+    with self.assertRaisesRegexp(ValueError,
+                                 'only scalar default values are supported'):
+      example_proto_coder.ExampleProtoCoder(input_schema)
+
   def test_example_proto_coder_picklable(self):
     coder = example_proto_coder.ExampleProtoCoder(self._INPUT_SCHEMA)
 

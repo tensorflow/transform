@@ -16,9 +16,17 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+# pylint: disable=g-import-not-at-top
 import apache_beam as beam
-from apache_beam.transforms.util import assert_that
-from apache_beam.transforms.util import equal_to
+try:
+  from apache_beam.testing.util import assert_that
+  from apache_beam.testing.util import equal_to
+except ImportError:
+  from apache_beam.transforms.util import assert_that
+  from apache_beam.transforms.util import equal_to
+
+
 import numpy as np
 from tensorflow_transform.beam import analyzer_impls as impl
 from tensorflow_transform.beam import impl as beam_impl
@@ -26,6 +34,7 @@ from tensorflow_transform.beam import impl as beam_impl
 
 import unittest
 from tensorflow.python.framework import test_util
+# pylint: enable=g-import-not-at-top
 
 
 
@@ -54,11 +63,11 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
     lst_2 = [np.ones(6)]
     # pylint: disable=unused-variable
     out = [3 for i in range(6)]
-    analyzer = impl._NumericAnalyzerOnBatchDim._CombineOnBatchDim(np.sum)
+    analyzer = impl._NumericCombineAnalyzerImpl._CombineOnBatchDim(np.sum)
     self.assertCombine(analyzer, [lst_1, lst_2], out)
 
   def testCombineOnBatchAllEmptyRow(self):
-    analyzer = impl._NumericAnalyzerOnBatchDim._CombineOnBatchDim(np.sum)
+    analyzer = impl._NumericCombineAnalyzerImpl._CombineOnBatchDim(np.sum)
     self.assertCombine(analyzer, [[[]], [[]], [[]]], [])
 
   def testCombineOnBatchLotsOfData(self):
@@ -66,7 +75,7 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
     shards = [[np.ones(3)] for i in range(
         beam_impl._DEFAULT_DESIRED_BATCH_SIZE * 2)]
     out = [1 for i in range(3)]
-    analyzer = impl._NumericAnalyzerOnBatchDim._CombineOnBatchDim(np.min)
+    analyzer = impl._NumericCombineAnalyzerImpl._CombineOnBatchDim(np.min)
     self.assertCombine(analyzer, shards, out)
 
 

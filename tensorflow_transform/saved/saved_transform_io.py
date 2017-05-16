@@ -25,10 +25,6 @@ import tensorflow as tf
 from tensorflow_transform.saved import constants
 from tensorflow_transform.saved import saved_model_loader
 from tensorflow.python.framework import ops
-from tensorflow.python.saved_model import builder as saved_model_builder
-from tensorflow.python.saved_model import signature_constants
-from tensorflow.python.saved_model import signature_def_utils
-from tensorflow.python.saved_model import utils as saved_model_utils
 from tensorflow.python.training import saver as tf_saver
 
 
@@ -65,7 +61,8 @@ def _load_transform_saved_model(transform_savedmodel_dir):
   return meta_graph_def, input_signature, output_signature
 
 
-def partially_apply_saved_transform(saved_model_dir, input_tensors):
+def partially_apply_saved_transform(saved_model_dir, logical_input_map,
+                                    tensor_value_map=None):
   """Apply a transform graph, represented as a SavedModel, to existing Tensors.
 
   This adds nodes to a graph that already contains Tensors representing the
@@ -83,9 +80,10 @@ def partially_apply_saved_transform(saved_model_dir, input_tensors):
       graph.  The MetaGraphDef and signature are selected from the SavedModel
       using keys defined in `../constants.py` ('transform' and
       'transform_signature', respectively).
-    input_tensors: a dict of logical name to Tensor.  The logical names must
+    logical_input_map: a dict of logical name to Tensor.  The logical names must
       be a subset of those in the input signature of the transform graph, and
       the corresponding Tensors must have the expected types and shapes.
+    tensor_value_map: a dict of tensor names to values.
 
   Returns:
     A pair of (unbound_inputs, outputs) where unbound_inputs is a dict of
@@ -100,7 +98,7 @@ def partially_apply_saved_transform(saved_model_dir, input_tensors):
     RuntimeError: if there is no default graph available to which to apply the
       transform.
   """
-  decomposed_input_tensors = _decompose_sparse_tensors(input_tensors)
+  decomposed_input_tensors = _decompose_sparse_tensors(logical_input_map)
 
   meta_graph_def, input_signature, output_signature = (
       _load_transform_saved_model(saved_model_dir))
@@ -118,6 +116,10 @@ def partially_apply_saved_transform(saved_model_dir, input_tensors):
       input_signature[decomposed_logical_name]:
       decomposed_input_tensors[decomposed_logical_name]
       for decomposed_logical_name in decomposed_input_tensors}
+  if tensor_value_map:
+    input_map.update({
+        name: tf.constant(value)
+        for name, value in six.iteritems(tensor_value_map)})
 
   graph = tf.get_default_graph()
   if graph is None:
@@ -215,7 +217,7 @@ def write_saved_transform_from_session(
       _decompose_sparse_tensors(inputs),
       _decompose_sparse_tensors(outputs))
 
-  builder = saved_model_builder.SavedModelBuilder(export_path)
+  builder = tf.saved_model.builder.SavedModelBuilder(export_path)
   builder.add_meta_graph_and_variables(
       session, [constants.TRANSFORM_TAG],
       signature_def_map={'transform_signature': predict_signature_def},
@@ -306,11 +308,15 @@ def _predict_signature_def(inputs, outputs):
   if outputs is None:
     raise ValueError('outputs cannot be None or empty for prediction.')
 
-  signature_inputs = {key: saved_model_utils.build_tensor_info(tensor)
-                      for key, tensor in six.iteritems(inputs)}
-  signature_outputs = {key: saved_model_utils.build_tensor_info(tensor)
-                       for key, tensor in six.iteritems(outputs)}
+  signature_inputs = {
+      key: tf.saved_model.utils.build_tensor_info(tensor)
+      for key, tensor in six.iteritems(inputs)
+  }
+  signature_outputs = {
+      key: tf.saved_model.utils.build_tensor_info(tensor)
+      for key, tensor in six.iteritems(outputs)
+  }
 
-  return signature_def_utils.build_signature_def(
+  return tf.saved_model.signature_def_utils.build_signature_def(
       signature_inputs, signature_outputs,
-      signature_constants.PREDICT_METHOD_NAME)
+      tf.saved_model.signature_constants.PREDICT_METHOD_NAME)

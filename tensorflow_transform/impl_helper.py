@@ -27,26 +27,23 @@ import six
 from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 import tensorflow as tf
+from tensorflow_transform import analyzers
 from tensorflow_transform import api
-from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_schema
-from tensorflow.contrib.session_bundle import bundle_shim
 
 _EMPTY_ARRAY = np.array([])
 _EMPTY_ARRAY.setflags(write=False)
 
 
-def infer_feature_schema(columns):
-  """Given a dict of columns, creates a `Schema`.
+def infer_feature_schema(tensors):
+  """Given a dict of tensors, creates a `Schema`.
 
   Infers a schema, in the format of a tf.Transform `Schema`, for the given
-  dictionary of columns.
+  dictionary of tensors.
 
   Args:
-    columns: A dict mapping column names to `Column`s. The tensors represented
-      by these columns should have a 0'th dimension interpreted as the batch
-      dimension. In order to pass a tensor representing a single instance, it
-      must be wrapped in a batch of size 1.
+    tensors: A dict mapping column names to tensors. The tensors should have a
+      0'th dimension interpreted as the batch dimension.
 
   Returns:
     A `Schema` object.
@@ -54,9 +51,8 @@ def infer_feature_schema(columns):
   # If the column already has a schema attached, use that. Otherwise infer the
   # schema from the underlying tensor.
   return dataset_schema.Schema({
-      name: (column.schema if column.schema
-             else dataset_schema.infer_column_schema_from_tensor(column.tensor))
-      for name, column in six.iteritems(columns)
+      name: dataset_schema.infer_column_schema_from_tensor(tensor)
+      for name, tensor in six.iteritems(tensors)
   })
 
 
@@ -288,195 +284,147 @@ def check_valid_sparse_tensor(indices, values, size, name):
         'values: %r, indices: %r' % (name, values, indices))
 
 
-def _make_input_columns(schema):
-  """Create input columns based on a `Schema`."""
-  placeholders = schema.as_batched_placeholders()
-  return {
-      # pylint: disable=protected-access
-      key: api._InputColumn(placeholders[key], column_schema)
-      for key, column_schema in six.iteritems(schema.column_schemas)
-  }
+Phase = collections.namedtuple(
+    'Phase', ['analyzers', 'table_initializers'])
 
 
-# Arguments to the constructor of tf.Constant.
-ConstantTensorValue = collections.namedtuple(
-    'ConstantTensorValue', ['value', 'dtype', 'shape'])
+def create_phases(graph):
+  """Returns a list of `Phase`s describing how to execute the pipeline.
 
+  The `graph` is assumed to contain some `Analyzer`s which must be executed by
+  doing a full pass over the dataset, and passing the inputs for that analyzer
+  into some implementation, then taking the results and replacing the
+  `Analyzer`s outputs with constants in the graph containing these results.
 
-def replace_tensors_with_constant_values(
-    saved_model_dir, bound_saved_model_dir, input_value_mapping):
-  """Takes a SavedModel and replaces some inputs with constant values.
+  The execution plan is described by a list of `Phase`s.  Each phase contains
+  a list of `Analyzer`s, which are the `Analyzer`s which are ready to run in
+  that phase, together with a list of ops, which are the table initializers that
+  are ready to run in that phase.
 
-  Replaces some inputs from the SavedModel with constant tensors constructed
-  based on `tensor_value_mapping`.
+  An `Analyzer` or op is ready to run when all its dependencies in the graph
+  have been computed.  Thus if the graph is constructed by
 
-  Args:
-    saved_model_dir: The directory of a SavedModel.
-    bound_saved_model_dir: The directory to which to write the SavedModel with
-       some inputs bound to constants.
-    input_value_mapping: A map from inputs to `ConstantTensorValue`s.
-  """
-  with tf.Graph().as_default():
-    # Create constant tensors representing bound inputs.
-    bound_input_tensors = {
-        key: tf.constant(value.value, value.dtype)
-        for key, value in six.iteritems(input_value_mapping)
-    }
-    with tf.Session() as session:
-      input_tensors, output_tensors = (
-          saved_transform_io.partially_apply_saved_transform(
-              saved_model_dir, bound_input_tensors))
-      saved_transform_io.write_saved_transform_from_session(
-          session, input_tensors, output_tensors, bound_saved_model_dir)
+  def preprocessing_fn(input)
+    x = inputs['x']
+    scaled_0 = x - tft.min(x)
+    scaled_0_1 = scaled_0 / tft.max(scaled_0)
 
+  Then the first phase will contain the analyzer corresponding to the call to
+  `min`, because `x` is an input and so is ready to compute in the first phase,
+  while the second phase will contain the analyzer corresponding to the call to
+  `max` since `scaled_1` depends on the result of the call to `tft.min` which
+  is computed in the first phase.
 
-def _copy_placeholder(placeholder):
-  """Copies a placeholder to a new graph."""
-  if isinstance(placeholder, tf.SparseTensor):
-    # NOTE: We don't use sparse_placeholder because we want to ensure that the
-    # placeholder we produce is identical to the original tensor.
-    return tf.SparseTensor(
-        indices=_copy_placeholder(placeholder.indices),
-        values=_copy_placeholder(placeholder.values),
-        dense_shape=_copy_placeholder(placeholder.dense_shape))
-  else:
-    if placeholder.op.type != 'Placeholder':
-      raise ValueError(
-          'Attempted to copy a tensor that was not a placeholder: %s'
-          % placeholder.op.type)
-    return tf.placeholder(placeholder.dtype, shape=placeholder.get_shape())
+  More generally, we define a level for each op and each `Analyzer` by walking
+  the graph, assigning to each operation the max level of its inputs, to each
+  `Tensor` the level of its operation, unless it's the output of an `Analyzer`
+  in which case we assign the level of its `Analyzer` plus one.
 
-
-def make_transform_fn_def(schema, inputs, outputs, saved_model_dir):
-  """Loads the graph defined by a partial preprocesssing function.
-
-  Creates a SavedModel on disk representing the transform function.  The given
-  input and output columns implicitly define a transformation DAG; this is the
-  function that is written.  The resulting SavedModel requires additional inputs
-  providing analyzer results.  The mapping from these input names to the
-  `_AnalyzerOutput`s will be returned.
+  The above description omits the role of `FunctionApplication`s.  A
+  `FunctionApplication` is a hint to create_phases about the control flow of the
+  graph.  Because control flow ops can introduce circular dependencies (and
+  other circumstances such as mutable reference introduce similar problems) we
+  allow users to construct a `FunctionApplicaiton` which is a hint that the
+  outputs `Tensor`s depend only on the input `Tensor`s.  `FunctionApplication`s
+  are also needed to collect table initializers to determine which phase a table
+  initializer is ready to run in.
 
   Args:
-    schema: A `Schema` object.
-    inputs: A dict from strings to `Column`s.
-    outputs: A dict from strings to `Column`s.
-    saved_model_dir: The directory where the SavedModel should be stored.
+    graph: A `Graph`.
 
   Returns:
-    A dict from input names in saved model to statistics (`_AnalyzerOutput`s).
+    A list of `Phase`s.
 
   Raises:
-    ValueError: If `schema` and `inputs` do not have the same keys, or if output
-      columns cannot be derived from input columns.
+    ValueError: if the graph cannot be analyzed.
   """
-  # Construct the graph, keeping track of tensors for input columns, output
-  # columns, and statistic placeholders.  Note that while each column already
-  # has a tensor, these are only for validation.  We ignore these and construct
-  # a new graph here, because it's easier to construct the subgraph we are
-  # interested in, than to extract it from the graph we already have.
-  input_tensors = {}
-  column_names_to_statistics = {}
-  if (sorted(six.iterkeys(schema.as_feature_spec())) !=
-      sorted(six.iterkeys(inputs))):
-    raise ValueError('Schema and input columns had different keys (%s vs %s).'
-                     % (sorted(six.iterkeys(schema.as_feature_spec())),
-                        sorted(six.iterkeys(inputs))))
-
-  def get_new_input_column_name():
-    analyzer_idx = 0
-    while True:
-      name = 'analyzer_placeholder_input_column_%d' % analyzer_idx
-      analyzer_idx += 1
-      if name not in input_tensors:
-        return name
-
-  cached_column_to_tensor = {}
-  def column_to_tensor(column):
-    """Returns the tensor that represents the given column."""
-    if column in cached_column_to_tensor:
-      return cached_column_to_tensor[column]
-
-    # pylint: disable=protected-access
-    if isinstance(column, api._AnalyzerOutput):
-      # For analyzer outputs, copy over the placeholder tensor and add the
-      # placeholder to the dict that keeps track of the map between tensors and
-      # analyzer output placeholders.
-      tensor = _copy_placeholder(column.tensor)
-      name = get_new_input_column_name()
-      input_tensors[name] = tensor
-      column_names_to_statistics[name] = column
-    elif isinstance(column,
-                    (api._TransformedColumn, api._TransformedStatistic)):
-      # For transformed columns or statistics, apply the transformation.
-      tensor = column.fn(*[column_to_tensor(input_column)
-                           for input_column in column.inputs])
-    elif isinstance(column, api._InputColumn):
-      raise ValueError('Reached input column that wasn\'t in input dict')
-    # pylint: enable=protected-access
-
-    cached_column_to_tensor[column] = tensor
-    return tensor
-
-  graph = tf.Graph()
+  # Trace through the graph to determine the order in which analyzers must be
+  # run.
   with graph.as_default():
-    # Input columns form the roots of the graph, and so we need the create them
-    # again from scratch in this new graph.
-    new_input_columns = _make_input_columns(schema)
+    all_analyzers = tf.get_collection(analyzers.ANALYZER_COLLECTION)
+    all_maps = tf.get_collection(api.FUNCTION_APPLICATION_COLLECTION)
 
-    # Compute placeholder for input columns.
-    input_tensors.update({
-        key: column.placeholder
-        for key, column in six.iteritems(new_input_columns)
-    })
+    analyzer_outputs = {}
+    for analyzer in all_analyzers:
+      for output_tensor in analyzer.outputs:
+        analyzer_outputs[output_tensor] = analyzer
 
-    # Initialize cache of column tensors with the input columns.
-    cached_column_to_tensor.update({
-        inputs[key]: new_input_columns[key].tensor
-        for key in six.iterkeys(inputs)
-    })
+    map_outputs = {}
+    for m in all_maps:
+      for output_tensor in m.outputs:
+        map_outputs[output_tensor] = m
 
-    # Compute tensors representing output columns.  As a side effect this will
-    # populate column_names_to_statistics with all placeholders for
-    # `_AnalyzerOutputs` that are parents of outputs, and also augment
-    # input_tensors
-    output_tensors = {key: column_to_tensor(column)
-                      for key, column in six.iteritems(outputs)}
+    def _tensor_level(tensor):
+      if tensor in analyzer_outputs:
+        return _generalized_op_level(analyzer_outputs[tensor]) + 1
+      elif tensor in map_outputs:
+        return _generalized_op_level(map_outputs[tensor])
+      else:
+        return _generalized_op_level(tensor.op)
 
-    with tf.Session() as session:
-      saved_transform_io.write_saved_transform_from_session(
-          session, input_tensors, output_tensors, saved_model_dir)
-  return column_names_to_statistics
+    memoized_levels = {}
+    stack = []
+    def _generalized_op_level(op):
+      """Get the level of a tf.Operation, FunctionApplication or Analyzer."""
+      if op not in memoized_levels:
+        if op in stack:
+          # Append op to stack so cycle appears in error message.
+          stack.append(op)
+          raise ValueError(
+              'Cycle detected: %r.  Cycles may arise by failing to call '
+              'apply_function when calling a function that internally uses '
+              'tables or control flow ops.' % (stack,))
+        stack.append(op)
+        inputs = list(op.inputs) + list(getattr(op, 'control_flow_inputs', []))
+        memoized_levels[op] = max(
+            [_tensor_level(input_tensor) for input_tensor in inputs] + [0])
+        assert op == stack.pop()
+      return memoized_levels[op]
 
+    analyzers_by_level = collections.defaultdict(list)
+    for analyzer in all_analyzers:
+      analyzers_by_level[_generalized_op_level(analyzer)].append(analyzer)
 
-def load_transform_fn_def(saved_model_dir):
-  """Loads a TransformFnDef into a graph.
+    table_initializers_by_level = collections.defaultdict(list)
+    all_table_initializers = set()
+    for m in all_maps:
+      table_initializers_by_level[_generalized_op_level(m)].extend(
+          m.table_initializers)
+      all_table_initializers.update(m.table_initializers)
+    expected_table_initializers = set(
+        tf.get_collection(tf.GraphKeys.TABLE_INITIALIZERS))
+    if expected_table_initializers - all_table_initializers:
+      raise ValueError(
+          'Found table initializers (%r) that were not associated with any '
+          'FunctionApplication.  Use tft.apply_function to wrap any code '
+          'that generates tables.'
+          % (expected_table_initializers - all_table_initializers))
+    if all_table_initializers - expected_table_initializers:
+      raise ValueError(
+          'The operations (%r) were registered as table initializers during '
+          'a call to apply_function, but were not in the TABLE_INITIALIZERS '
+          'collection.  This may be a bug in tf.Transform, or you may have '
+          'cleared or altered this collection'
+          % (all_table_initializers - expected_table_initializers))
 
-  Similar to apply_transform_fn_def except it loads input placeholders and
-  returns a column to tensor mapping for inputs.
-
-  Args:
-    saved_model_dir: The location of the SavedModel.
-
-  Returns:
-    A pair of dicts, for inputs and outputs, whose keys are column names and
-    whose values are `Tensor`s or `SparseTensor`s representing these columns.
-  """
-  with tf.Session():
-    return saved_transform_io.partially_apply_saved_transform(
-        saved_model_dir, {})
+    assert len(table_initializers_by_level) <= len(analyzers_by_level) + 1
+    return [
+        Phase(analyzers_by_level[level], table_initializers_by_level[level])
+        for level in sorted(six.iterkeys(analyzers_by_level))]
 
 
 def run_preprocessing_fn(preprocessing_fn, schema):
-  """Runs the user-defined preprocessing function, returning a DAG of columns.
+  """Runs the user-defined preprocessing function.
 
   Args:
-    preprocessing_fn: A function that takes a dict of `Column`s as input and
-      returns a dict of `Column`s as output.
-    schema: A dict mapping column names to `tf.FixedLenFeature`,
-      `tf.VarLenFeature` or `tf.SparseFeature` objects.
+    preprocessing_fn: A function that takes a dict of `Tensor` or
+        `SparseTensor`s as input and returns a dict of `Tensor` or
+        `SparseTensor`s as output.
+    schema: A `tf_metadata.Schema`.
 
   Returns:
-    A tuple of input columns and output columns.
+    A tuple of a graph, and dicts from logical names to `Tensor` or
+        `SparseTensor`s, for inputs and outputs respectively.
 
   Raises:
     ValueError: If `schema` contains unsupported feature types.
@@ -486,186 +434,33 @@ def run_preprocessing_fn(preprocessing_fn, schema):
   # the DAG of columns in make_transform_fn_def.
   graph = tf.Graph()
   with graph.as_default():
-    inputs = _make_input_columns(schema)
+    inputs = {}
+    input_copies = {}
+
+    with tf.name_scope('inputs'):
+      for key, column_schema in six.iteritems(schema.column_schemas):
+        with tf.name_scope(key):
+          tensor = column_schema.as_batched_placeholder()
+          # In order to avoid a bug where import_graph_def fails when the
+          # input_map and return_elements of an imported graph are the same
+          # (b/34288791), we avoid using the placeholder of an input column as
+          # an output of a graph. We do this by applying tf.identity to the
+          # placeholder and using the output of tf.identity as the tensor
+          # representing the output of this column, thus preventing the
+          # placeholder from being used as both an input and an output.
+          if isinstance(tensor, tf.SparseTensor):
+            copied_tensor = tf.SparseTensor(
+                indices=tf.identity(tensor.indices),
+                values=tf.identity(tensor.values),
+                dense_shape=tf.identity(tensor.dense_shape))
+          else:
+            copied_tensor = tf.identity(tensor)
+
+          inputs[key] = tensor
+          input_copies[key] = copied_tensor
 
     # Construct the deferred preprocessing graph by calling preprocessing_fn on
     # the inputs.
-    outputs = preprocessing_fn(inputs)
+    outputs = preprocessing_fn(input_copies)
 
-  return inputs, outputs
-
-
-def make_tensor_func_from_saved_model(model_dir,
-                                      tags,
-                                      signature_name=None,
-                                      input_keys_in_signature=None,
-                                      output_keys_in_signature=None):
-  """Create a tensor-in-tensor-out function as a transform used in tft.map.
-
-  When tft.map is called with this function as first parameter, the second
-  parameter (input columns) should match the `input_keys_in_signature`
-  in their orders.
-
-  Args:
-    model_dir: A path containing a saved model.
-    tags: The tags specifying which metagraph to load from the saved model.
-    signature_name: Specify signature of the loaded model. The default value
-       None can be used if there is only one signature in the MetaGraphDef.
-    input_keys_in_signature: A list of strings which should match the inputs
-       in the signature of the saved model. The purpose of this parameter is to
-       specify the order of the input columns passed to tft.map when called
-       with the returned tensor_fn. The default value None can be used if there
-       is only one input.
-    output_keys_in_signature: A list of strings which should be a subset of
-       the outputs in the signature of the saved model. The returned tensor_fn
-       will return the corresponding tensors, in the same order. The default
-       value None can be used if there is only one output from signature.
-
-  Returns:
-    A tensor-in-tensor-out function which can be used in tft.map.
-
-  Raises:
-    ValueError: If
-    `signature_name` is None but the saved model contains multiple signature, or
-    `input_keys_in_signature` do not match the signature inputs, or
-    `output_keys_in_signature` is not a subset of the signature outputs, or
-    the metagraph from saved model contains TABLE_INITIALIZERS operations.
-  """
-
-  # Load model, get graph, inputs and outputs.
-  loaded_graph = tf.Graph()
-  with loaded_graph.as_default():
-    session, meta_graph = (
-        bundle_shim.load_session_bundle_or_saved_model_bundle_from_path(
-            model_dir, tags=tags))
-    if signature_name:
-      signature = meta_graph.signature_def[signature_name]
-    elif len(meta_graph.signature_def) > 1:
-      raise ValueError(
-          'The saved model contains multiple signatures "%s". Specify a '
-          'signature_name.' % ','.join(meta_graph.signature_def.keys()))
-    else:
-      signature = meta_graph.signature_def.values()[0]
-
-    inputs = {
-        key: tensor_info_proto.name
-        for (key, tensor_info_proto) in signature.inputs.items()
-    }
-    outputs = {
-        key: tensor_info_proto.name
-        for (key, tensor_info_proto) in signature.outputs.items()
-    }
-
-  # Get input tensor names.
-  if input_keys_in_signature is not None:
-    if set(input_keys_in_signature) != set(inputs.keys()):
-      raise ValueError(
-          'keys in input logical names do not match inputs of saved model. ' +
-          'Model signature has "%s" but input logical names has "%s".' %
-          (','.join(inputs.keys()), ','.join(input_keys_in_signature)))
-    input_tensor_names = [
-        inputs[key] for key in input_keys_in_signature
-    ]
-  else:
-    if len(inputs) > 1:
-      raise ValueError(
-          'The signature from saved model contains multiple inputs "%s". '
-          'Input logical names are required.' % ','.join(inputs.keys()))
-    else:
-      input_tensor_names = [inputs.values()[0]]
-
-  # Get output tensor names.
-  if output_keys_in_signature:
-    if not set(output_keys_in_signature) <= set(outputs.keys()):
-      raise ValueError(
-          'output names are not a subset of outputs of saved model. ' +
-          'output names has "%s" but model signature has "%s".' %
-          (','.join(output_keys_in_signature), ','.join(outputs.keys())))
-
-    output_tensor_names = [
-        outputs[key] for key in output_keys_in_signature
-    ]
-  else:
-    if len(outputs) > 1:
-      raise ValueError(
-          'The signature from saved model contains multiple outputs "%s". '
-          'Output names are required.' % ','.join(outputs.keys()))
-    output_tensor_names = [outputs.values()[0]]
-
-  if tf.get_collection(tf.GraphKeys.TABLE_INITIALIZERS):
-    raise ValueError(
-        'Models with table init ops in metagraph are not supported.')
-
-  # Convert_variables_to_constants() requires op name.
-  output_op_names = [loaded_graph.get_tensor_by_name(x).op.name
-                     for x in output_tensor_names]
-  constant_graph_def = tf.graph_util.convert_variables_to_constants(
-      session, loaded_graph.as_graph_def(), output_op_names)
-
-  def tensor_fn(*si):
-    input_name_to_tensor_map = dict(zip(input_tensor_names, si))
-    output_tensors = tf.import_graph_def(
-        constant_graph_def,
-        input_map=input_name_to_tensor_map,
-        return_elements=output_tensor_names)
-    return output_tensors[0]
-
-  return tensor_fn
-
-
-def make_tensor_func_from_checkpoint(input_tensor_func,
-                                     checkpoint,
-                                     include=None,
-                                     exclude=None):
-  """Create a tensor function from a checkpoint as a transform used in tft.map.
-
-  When tft.map is called with this function as first parameter, the second
-  parameter (input columns) should be the same as the parameters for
-  `input_tensor_func` function.
-
-  Args:
-    input_tensor_func: A tensor-in-tensor-out function that may contain
-       variables.
-    checkpoint: The checkpoint path to load variables from.
-    include: An optional list/tuple of scope strings for filtering which
-       variables from the VARIABLES collection to include. If None, all
-       variables will be included.
-    exclude: An optional list/tuple of scope strings for filtering which
-       variables from the VARIABLES collection to exclude. If None, no variables
-       will be excluded.
-
-  Returns:
-    A tensor-in-tensor-out function which can be used in tft.map.
-
-  Raises:
-    ValueError if the input tensor-in-tensor-out function adds to
-       TABLE_INITIALIZERS collections.
-  """
-
-  def tensor_fn(*si):
-    """The returned tensor-in-tensor-out function."""
-
-    loaded_graph = tf.Graph()
-    with loaded_graph.as_default():
-      input_tensors = [
-          tf.placeholder(dtype=x.dtype, shape=x.shape, name=x.op.name)
-          for x in si]
-      output_tensor = input_tensor_func(*input_tensors)
-
-      if tf.get_collection(tf.GraphKeys.TABLE_INITIALIZERS):
-        raise ValueError('Models with table init ops are not supported.')
-
-      vars_to_restore = tf.contrib.slim.get_variables_to_restore(
-          include=include, exclude=exclude)
-      saver = tf.train.Saver(vars_to_restore)
-      with tf.Session() as sess:
-        saver.restore(sess, checkpoint)
-        output_graph_def = tf.graph_util.convert_variables_to_constants(
-            sess, loaded_graph.as_graph_def(), [output_tensor.op.name])
-
-    input_map = {x.name: x for x in si}
-    output_tensors = tf.import_graph_def(output_graph_def, input_map=input_map,
-                                         return_elements=[output_tensor.name])
-    return output_tensors[0]
-
-  return tensor_fn
+  return graph, inputs, outputs

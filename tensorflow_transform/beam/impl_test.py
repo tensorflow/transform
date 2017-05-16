@@ -20,28 +20,32 @@ from __future__ import print_function
 import os
 
 
+# pylint: disable=g-import-not-at-top
 import apache_beam as beam
-from apache_beam.transforms import util as beam_test_util
+try:
+  from apache_beam.testing import util as beam_test_util
+except ImportError:
+  from apache_beam.transforms import util as beam_test_util
+
 import tensorflow as tf
 import tensorflow_transform as tft
-from tensorflow_transform import impl_helper
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
+from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema as sch
 
 import unittest
 from tensorflow.python.framework import test_util
-from tensorflow.python.saved_model import builder as saved_model_builder
-from tensorflow.python.saved_model import signature_def_utils
-from tensorflow.python.saved_model import tag_constants
+# pylint: enable=g-import-not-at-top
 
 
 class BeamImplTest(test_util.TensorFlowTestCase):
 
   def assertDataEqual(self, a_data, b_data):
-    self.assertEqual(len(a_data), len(b_data))
+    self.assertEqual(len(a_data), len(b_data),
+                     'len(%r) != len(%r)' % (a_data, b_data))
     for a_row, b_row in zip(a_data, b_data):
       self.assertItemsEqual(a_row.keys(), b_row.keys())
       for key in a_row.keys():
@@ -75,9 +79,9 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     self.assertDataEqual(expected_data, transformed_data)
     self.assertEqual(expected_metadata, transformed_metadata)
 
-  def testMapWithSavedModelSingleInput(self):
+  def testApplySavedModelSingleInput(self):
     def save_model_with_single_input(instance, export_dir):
-      builder = saved_model_builder.SavedModelBuilder(export_dir)
+      builder = tf.saved_model.builder.SavedModelBuilder(export_dir)
       with instance.test_session(graph=tf.Graph()) as sess:
         input1 = tf.placeholder(dtype=tf.int64, shape=[3], name='myinput1')
         initializer = tf.constant_initializer([1, 2, 3])
@@ -88,19 +92,21 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         outputs = {'single_output': output1}
         signature_def_map = {
             'serving_default':
-                signature_def_utils.predict_signature_def(inputs, outputs)
+                tf.saved_model.signature_def_utils.predict_signature_def(
+                    inputs, outputs)
         }
         sess.run(tf.global_variables_initializer())
         builder.add_meta_graph_and_variables(
-            sess, [tag_constants.SERVING], signature_def_map=signature_def_map)
+            sess, [tf.saved_model.tag_constants.SERVING],
+            signature_def_map=signature_def_map)
         builder.save(False)
 
     export_dir = os.path.join(self.get_temp_dir(), 'saved_model_single')
 
     def preprocessing_fn(inputs):
       x = inputs['x']
-      output_col = tft.map_with_saved_model(
-          export_dir, x, tags=[tag_constants.SERVING])
+      output_col = tft.apply_saved_model(
+          export_dir, x, tags=[tf.saved_model.tag_constants.SERVING])
       return {'out': output_col}
 
     save_model_with_single_input(self, export_dir)
@@ -121,10 +127,10 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
-  def testMapWithSavedModelMultiInputs(self):
+  def testApplySavedModelMultiInputs(self):
 
     def save_model_with_multi_inputs(instance, export_dir):
-      builder = saved_model_builder.SavedModelBuilder(export_dir)
+      builder = tf.saved_model.builder.SavedModelBuilder(export_dir)
       with instance.test_session(graph=tf.Graph()) as sess:
         input1 = tf.placeholder(dtype=tf.int64, shape=[3], name='myinput1')
         input2 = tf.placeholder(dtype=tf.int64, shape=[3], name='myinput2')
@@ -140,11 +146,13 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         outputs = {'single_output': output1}
         signature_def_map = {
             'serving_default':
-                signature_def_utils.predict_signature_def(inputs, outputs)
+                tf.saved_model.signature_def_utils.predict_signature_def(
+                    inputs, outputs)
         }
         sess.run(tf.global_variables_initializer())
         builder.add_meta_graph_and_variables(
-            sess, [tag_constants.SERVING], signature_def_map=signature_def_map)
+            sess, [tf.saved_model.tag_constants.SERVING],
+            signature_def_map=signature_def_map)
         builder.save(False)
 
     export_dir = os.path.join(self.get_temp_dir(), 'saved_model_multi')
@@ -153,10 +161,11 @@ class BeamImplTest(test_util.TensorFlowTestCase):
       x = inputs['x']
       y = inputs['y']
       z = inputs['z']
-      sum_column = tft.map_with_saved_model(
-          export_dir,
-          {'name1': x, 'name3': z, 'name2': y},
-          tags=[tag_constants.SERVING])
+      sum_column = tft.apply_saved_model(
+          export_dir, {'name1': x,
+                       'name3': z,
+                       'name2': y},
+          tags=[tf.saved_model.tag_constants.SERVING])
       return {'sum': sum_column}
 
     save_model_with_multi_inputs(self, export_dir)
@@ -179,7 +188,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
-  def testMapWithCheckpoint(self):
+  def testApplyFunctionWithCheckpoint(self):
 
     def tensor_fn(input1, input2):
       initializer = tf.constant_initializer([1, 2, 3])
@@ -205,7 +214,8 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     def preprocessing_fn(inputs):
       x = inputs['x']
       y = inputs['y']
-      out_value = tft.map_with_checkpoint(tensor_fn, [x, y], checkpoint_path)
+      out_value = tft.apply_function_with_checkpoint(
+          tensor_fn, [x, y], checkpoint_path)
       return {'out': out_value}
 
     save_checkpoint(self, checkpoint_path)
@@ -231,10 +241,8 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     # Test a preprocessing function similar to scale_to_0_1 except that it
     # involves multiple interleavings of analyzers and transforms.
     def preprocessing_fn(inputs):
-      scaled_to_0 = tft.map(lambda x, y: x - y,
-                            inputs['x'], tft.min(inputs['x']))
-      scaled_to_0_1 = tft.map(lambda x, y: x / y,
-                              scaled_to_0, tft.max(scaled_to_0))
+      scaled_to_0 = inputs['x'] - tft.min(inputs['x'])
+      scaled_to_0_1 = scaled_to_0 / tft.max(scaled_to_0)
       return {'x_scaled': scaled_to_0_1}
 
     input_data = [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}]
@@ -319,26 +327,10 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     # Define a transform that takes a sparse column and a varlen column, and
     # returns a combination of dense, sparse, and varlen columns.
     def preprocessing_fn(inputs):
-      sparse_sum = tft.map(
-          lambda x: tf.sparse_reduce_sum(x, axis=1), inputs['sparse'])
-      sparse_copy = tft.map(
-          lambda y: tf.SparseTensor(y.indices, y.values, y.dense_shape),
-          inputs['sparse'])
-      varlen_copy = tft.map(
-          lambda y: tf.SparseTensor(y.indices, y.values, y.dense_shape),
-          inputs['varlen'])
-
-      sparse_copy.schema = sch.ColumnSchema(
-          tf.float32, [10],
-          sch.SparseColumnRepresentation(
-              'val_copy', [sch.SparseIndexField('idx_copy', False)]))
-
+      sparse_sum = tf.sparse_reduce_sum(inputs['sparse'], axis=1)
       return {
           'fixed': sparse_sum,  # Schema should be inferred.
-          'sparse': inputs['sparse'],  # Schema manually attached above.
           'varlen': inputs['varlen'],  # Schema should be inferred.
-          'sparse_copy': sparse_copy,  # Schema should propagate from input.
-          'varlen_copy': varlen_copy   # Schema should propagate from input.
       }
 
     input_data = [
@@ -354,26 +346,15 @@ class BeamImplTest(test_util.TensorFlowTestCase):
             tf.float32, [None], sch.ListColumnRepresentation())
     })
     expected_data = [
-        {'fixed': 1.0, 'sparse': ([0, 1], [0., 1.]), 'varlen': [0., 1.],
-         'sparse_copy': ([0, 1], [0., 1.]), 'varlen_copy': [0., 1.]},
-        {'fixed': 5.0, 'sparse': ([2, 3], [2., 3.]), 'varlen': [3., 4., 5.],
-         'sparse_copy': ([2, 3], [2., 3.]), 'varlen_copy': [3., 4., 5.]},
-        {'fixed': 9.0, 'sparse': ([4, 5], [4., 5.]), 'varlen': [6., 7.],
-         'sparse_copy': ([4, 5], [4., 5.]), 'varlen_copy': [6., 7.]}
+        {'fixed': 1.0, 'varlen': [0., 1.]},
+        {'fixed': 5.0, 'varlen': [3., 4., 5.]},
+        {'fixed': 9.0, 'varlen': [6., 7.]}
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'fixed': sch.ColumnSchema(
             tf.float32, None, sch.FixedColumnRepresentation()),
-        'sparse': sch.ColumnSchema(
-            tf.float32, [10], sch.SparseColumnRepresentation(
-                'val', [sch.SparseIndexField('idx', False)])),
         'varlen': sch.ColumnSchema(
             tf.float32, [None], sch.ListColumnRepresentation()),
-        'sparse_copy': sch.ColumnSchema(
-            tf.float32, [10], sch.SparseColumnRepresentation(
-                'val_copy', [sch.SparseIndexField('idx_copy', False)])),
-        'varlen_copy': sch.ColumnSchema(
-            tf.float32, [None], sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -381,7 +362,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
 
   def testSingleMap(self):
     def preprocessing_fn(inputs):
-      return {'ab': tft.map(tf.multiply, inputs['a'], inputs['b'])}
+      return {'ab': tf.multiply(inputs['a'], inputs['b'])}
 
     input_data = [
         {'a': 4, 'b': 3},
@@ -406,9 +387,37 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
+  def testMapWithCond(self):
+    def preprocessing_fn(inputs):
+      return {'a': tf.cond(
+          tf.constant(True), lambda: inputs['a'], lambda: inputs['b'])}
+
+    input_data = [
+        {'a': 4, 'b': 3},
+        {'a': 1, 'b': 2},
+        {'a': 5, 'b': 6},
+        {'a': 2, 'b': 3}
+    ]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'a': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
+        'b': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    })
+    expected_data = [
+        {'a': 4},
+        {'a': 1},
+        {'a': 5},
+        {'a': 2}
+    ]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'a': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata, preprocessing_fn, expected_data,
+        expected_metadata)
+
   def testWithMoreThanDesiredBatchSize(self):
     def preprocessing_fn(inputs):
-      return {'ab': tft.map(tf.multiply, inputs['a'], inputs['b']),
+      return {'ab': tf.multiply(inputs['a'], inputs['b']),
               'i': tft.string_to_int(inputs['c'])}
 
     input_data = [{
@@ -435,11 +444,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
 
   def testWithUnicode(self):
     def preprocessing_fn(inputs):
-
-      def tito_string_join(*tensors):
-        return tf.string_join(tensors, separator=' ')
-
-      return {'a b': tft.map(tito_string_join, inputs['a'], inputs['b'])}
+      return {'a b': tf.string_join([inputs['a'], inputs['b']], separator=' ')}
 
     input_data = [{'a': 'Hello', 'b': 'world'}, {'a': 'Hello', 'b': u'κόσμε'}]
     input_metadata = dataset_metadata.DatasetMetadata({
@@ -460,9 +465,8 @@ class BeamImplTest(test_util.TensorFlowTestCase):
   def testComposedMaps(self):
     def preprocessing_fn(inputs):
       return {
-          'a(b+c)': tft.map(
-              tf.multiply, inputs['a'], tft.map(
-                  tf.add, inputs['b'], inputs['c']))
+          'a(b+c)': tf.multiply(
+              inputs['a'], tf.add(inputs['b'], inputs['c']))
       }
 
     input_data = [{'a': 4, 'b': 3, 'c': 3}, {'a': 1, 'b': 2, 'c': 1}]
@@ -586,11 +590,11 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         return tf.ones([batch_size], dtype=value.dtype) * value
 
       return {
-          'min': tft.map(repeat, inputs['a'], tft.min(inputs['a'])),
-          'max': tft.map(repeat, inputs['a'], tft.max(inputs['a'])),
-          'sum': tft.map(repeat, inputs['a'], tft.sum(inputs['a'])),
-          'size': tft.map(repeat, inputs['a'], tft.size(inputs['a'])),
-          'mean': tft.map(repeat, inputs['a'], tft.mean(inputs['a']))
+          'min': repeat(inputs['a'], tft.min(inputs['a'])),
+          'max': repeat(inputs['a'], tft.max(inputs['a'])),
+          'sum': repeat(inputs['a'], tft.sum(inputs['a'])),
+          'size': repeat(inputs['a'], tft.size(inputs['a'])),
+          'mean': repeat(inputs['a'], tft.mean(inputs['a']))
       }
 
     input_data = [{'a': 4}, {'a': 1}]
@@ -621,20 +625,20 @@ class BeamImplTest(test_util.TensorFlowTestCase):
 
       return {
           'min':
-              tft.map(repeat, inputs['a'],
-                      tft.min(inputs['a'], reduce_instance_dims=False)),
+              repeat(inputs['a'],
+                     tft.min(inputs['a'], reduce_instance_dims=False)),
           'max':
-              tft.map(repeat, inputs['a'],
-                      tft.max(inputs['a'], reduce_instance_dims=False)),
+              repeat(inputs['a'],
+                     tft.max(inputs['a'], reduce_instance_dims=False)),
           'sum':
-              tft.map(repeat, inputs['a'],
-                      tft.sum(inputs['a'], reduce_instance_dims=False)),
+              repeat(inputs['a'],
+                     tft.sum(inputs['a'], reduce_instance_dims=False)),
           'size':
-              tft.map(repeat, inputs['a'],
-                      tft.size(inputs['a'], reduce_instance_dims=False)),
+              repeat(inputs['a'],
+                     tft.size(inputs['a'], reduce_instance_dims=False)),
           'mean':
-              tft.map(repeat, inputs['a'],
-                      tft.mean(inputs['a'], reduce_instance_dims=False))
+              repeat(inputs['a'],
+                     tft.mean(inputs['a'], reduce_instance_dims=False))
       }
 
     input_data = [
@@ -681,21 +685,16 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         return tf.tile(expand, [batch_size, 1, 1])
 
       return {
-          'min':
-              tft.map(repeat, inputs['a'],
-                      tft.min(inputs['a'], reduce_instance_dims=False)),
-          'max':
-              tft.map(repeat, inputs['a'],
-                      tft.max(inputs['a'], reduce_instance_dims=False)),
-          'sum':
-              tft.map(repeat, inputs['a'],
-                      tft.sum(inputs['a'], reduce_instance_dims=False)),
-          'size':
-              tft.map(repeat, inputs['a'],
-                      tft.size(inputs['a'], reduce_instance_dims=False)),
-          'mean':
-              tft.map(repeat, inputs['a'],
-                      tft.mean(inputs['a'], reduce_instance_dims=False))
+          'min': repeat(inputs['a'],
+                        tft.min(inputs['a'], reduce_instance_dims=False)),
+          'max': repeat(inputs['a'],
+                        tft.max(inputs['a'], reduce_instance_dims=False)),
+          'sum': repeat(inputs['a'],
+                        tft.sum(inputs['a'], reduce_instance_dims=False)),
+          'size': repeat(inputs['a'],
+                         tft.size(inputs['a'], reduce_instance_dims=False)),
+          'mean': repeat(inputs['a'],
+                         tft.mean(inputs['a'], reduce_instance_dims=False))
       }
 
     input_data = [
@@ -740,11 +739,11 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         return tf.ones([batch_size], value.dtype) * value
 
       return {
-          'min': tft.map(repeat, inputs['a'], tft.min(inputs['a'])),
-          'max': tft.map(repeat, inputs['a'], tft.max(inputs['a'])),
-          'sum': tft.map(repeat, inputs['a'], tft.sum(inputs['a'])),
-          'size': tft.map(repeat, inputs['a'], tft.size(inputs['a'])),
-          'mean': tft.map(repeat, inputs['a'], tft.mean(inputs['a']))
+          'min': repeat(inputs['a'], tft.min(inputs['a'])),
+          'max': repeat(inputs['a'], tft.max(inputs['a'])),
+          'sum': repeat(inputs['a'], tft.sum(inputs['a'])),
+          'size': repeat(inputs['a'], tft.size(inputs['a'])),
+          'mean': repeat(inputs['a'], tft.mean(inputs['a']))
       }
 
     input_data = [
@@ -784,32 +783,32 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     with beam_impl.Context(temp_dir=self.get_temp_dir()):
       with self.assertRaises(TypeError):
         def min_fn(inputs):
-          return {'min': tft.map(repeat, inputs['a'], tft.min(inputs['a']))}
+          return {'min': repeat(inputs['a'], tft.min(inputs['a']))}
         _ = input_dataset | beam_impl.AnalyzeDataset(min_fn)
 
       with self.assertRaises(TypeError):
         def max_fn(inputs):
-          return {'max': tft.map(repeat, inputs['a'], tft.max(inputs['a']))}
+          return {'max': repeat(inputs['a'], tft.max(inputs['a']))}
         _ = input_dataset | beam_impl.AnalyzeDataset(max_fn)
 
       with self.assertRaises(TypeError):
         def sum_fn(inputs):
-          return {'sum': tft.map(repeat, inputs['a'], tft.sum(inputs['a']))}
+          return {'sum': repeat(inputs['a'], tft.sum(inputs['a']))}
         _ = input_dataset | beam_impl.AnalyzeDataset(sum_fn)
 
       with self.assertRaises(TypeError):
         def size_fn(inputs):
-          return {'size': tft.map(repeat, inputs['a'], tft.size(inputs['a']))}
+          return {'size': repeat(inputs['a'], tft.size(inputs['a']))}
         _ = input_dataset | beam_impl.AnalyzeDataset(size_fn)
 
       with self.assertRaises(TypeError):
         def mean_fn(inputs):
-          return {'mean': tft.map(repeat, inputs['a'], tft.mean(inputs['a']))}
+          return {'mean': repeat(inputs['a'], tft.mean(inputs['a']))}
         _ = input_dataset | beam_impl.AnalyzeDataset(mean_fn)
 
   def testStringToTFIDF(self):
     def preprocessing_fn(inputs):
-      inputs_as_ints = tft.string_to_int(tft.map(tf.string_split, inputs['a']))
+      inputs_as_ints = tft.string_to_int(tf.string_split(inputs['a']))
       return {
           'tf_idf': tft.tfidf_weights(inputs_as_ints, 6)
       }
@@ -837,7 +836,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
                    (1/5)*log_3_over_2, (1/5)*log_3_over_2]
     }]
     expected_transformed_schema = dataset_metadata.DatasetMetadata({
-        'tf_idf': sch.ColumnSchema(tf.double, [None],
+        'tf_idf': sch.ColumnSchema(tf.float32, [None],
                                    sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -863,7 +862,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
                    (1/5)*log_3_over_2, (1/5)*log_3_over_2]
     }]
     expected_schema = dataset_metadata.DatasetMetadata({
-        'tf_idf': sch.ColumnSchema(tf.double, [None],
+        'tf_idf': sch.ColumnSchema(tf.float32, [None],
                                    sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -873,7 +872,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
   def testTFIDFWithOOV(self):
     test_vocab_size = 3
     def preprocessing_fn(inputs):
-      inputs_as_ints = tft.string_to_int(tft.map(tf.string_split, inputs['a']),
+      inputs_as_ints = tft.string_to_int(tf.string_split(inputs['a']),
                                          top_k=test_vocab_size)
       return {
           'tf_idf': tft.tfidf_weights(inputs_as_ints, test_vocab_size+1)
@@ -900,7 +899,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
                    (1/5)*log_3_over_2, (1/5)*log_3_over_2]
     }]
     expected_transformed_schema = dataset_metadata.DatasetMetadata({
-        'tf_idf': sch.ColumnSchema(tf.double, [None],
+        'tf_idf': sch.ColumnSchema(tf.float32, [None],
                                    sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -930,7 +929,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
                    (1/5)*log_3_over_2, (1/5)*log_3_over_2]
     }]
     expected_transformed_schema = dataset_metadata.DatasetMetadata({
-        'tf_idf': sch.ColumnSchema(tf.double, [None],
+        'tf_idf': sch.ColumnSchema(tf.float32, [None],
                                    sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -1002,7 +1001,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
   def testUniquesAnalyzerWithTokenization(self):
     def preprocessing_fn(inputs):
       return {
-          'index': tft.string_to_int(tft.map(tf.string_split, inputs['a']))
+          'index': tft.string_to_int(tf.string_split(inputs['a']))
       }
 
     input_data = [{'a': 'hello hello world'}, {'a': 'hello goodbye world'}]
@@ -1021,12 +1020,12 @@ class BeamImplTest(test_util.TensorFlowTestCase):
   def testUniquesAnalyzerWithTopK(self):
     def preprocessing_fn(inputs):
       return {
-          'index1': tft.string_to_int(tft.map(tf.string_split, inputs['a']),
+          'index1': tft.string_to_int(tf.string_split(inputs['a']),
                                       default_value=-99, top_k=2),
 
           # As above but using a string for top_k (and changing the
           # default_value to showcase things).
-          'index2': tft.string_to_int(tft.map(tf.string_split, inputs['a']),
+          'index2': tft.string_to_int(tf.string_split(inputs['a']),
                                       default_value=-9, top_k='2')
       }
 
@@ -1059,12 +1058,12 @@ class BeamImplTest(test_util.TensorFlowTestCase):
   def testUniquesAnalyzerWithFrequencyThreshold(self):
     def preprocessing_fn(inputs):
       return {
-          'index1': tft.string_to_int(tft.map(tf.string_split, inputs['a']),
+          'index1': tft.string_to_int(tf.string_split(inputs['a']),
                                       default_value=-99, frequency_threshold=2),
 
           # As above but using a string for frequency_threshold (and changing
           # the default_value to showcase things).
-          'index2': tft.string_to_int(tft.map(tf.string_split, inputs['a']),
+          'index2': tft.string_to_int(tf.string_split(inputs['a']),
                                       default_value=-9, frequency_threshold='2')
       }
 
@@ -1101,7 +1100,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
       return {
           'index1':
               tft.string_to_int(
-                  tft.map(tf.string_split, inputs['a']),
+                  tf.string_split(inputs['a']),
                   default_value=-99,
                   frequency_threshold=77),
 
@@ -1109,7 +1108,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
           # the default_value to showcase things).
           'index2':
               tft.string_to_int(
-                  tft.map(tf.string_split, inputs['a']),
+                  tf.string_split(inputs['a']),
                   default_value=-9,
                   frequency_threshold='77')
       }
@@ -1250,11 +1249,9 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     # Run analyze_and_transform_columns on some dataset.
     def preprocessing_fn(inputs):
       x_scaled = tft.scale_to_0_1(inputs['x'])
-      y_sum = tft.map(
-          lambda y: tf.sparse_reduce_sum(y, axis=1), inputs['y'])
-      z_copy = tft.map(
-          lambda z: tf.SparseTensor(z.indices, z.values, z.dense_shape),
-          inputs['z'])
+      y_sum = tf.sparse_reduce_sum(inputs['y'], axis=1)
+      z_copy = tf.SparseTensor(
+          inputs['z'].indices, inputs['z'].values, inputs['z'].dense_shape)
       return {'x_scaled': x_scaled, 'y_sum': y_sum, 'z_copy': z_copy}
 
     metadata = dataset_metadata.DatasetMetadata({
@@ -1282,8 +1279,9 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     # Load the exported graph, and apply it to a batch of data.
     g = tf.Graph()
     with g.as_default():
-      inputs, outputs = impl_helper.load_transform_fn_def(
-          os.path.join(export_dir, 'transform_fn'))
+      with tf.Session():
+        inputs, outputs = saved_transform_io.partially_apply_saved_transform(
+            os.path.join(export_dir, 'transform_fn'), {})
       x, y, z = inputs['x'], inputs['y'], inputs['z']
       feed = {
           x: [6., 3., 0., 1.],

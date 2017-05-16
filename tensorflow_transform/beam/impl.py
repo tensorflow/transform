@@ -52,7 +52,6 @@ with beam.Pipeline(...) as p:
 
 """
 
-import collections
 import datetime
 import os
 import threading
@@ -61,20 +60,24 @@ import uuid
 
 import apache_beam as beam
 
+from apache_beam.transforms import window
 from apache_beam.typehints import Any
 from apache_beam.typehints import Dict
 from apache_beam.typehints import List
 from apache_beam.typehints import Union
 from apache_beam.typehints import with_input_types
 from apache_beam.typehints import with_output_types
+from apache_beam.utils.windowed_value import WindowedValue
 
 import numpy as np
 import six
 import tensorflow as tf
+from tensorflow_transform import analyzers as tft_analyzers
+from tensorflow_transform import api as tft_api
 from tensorflow_transform import impl_helper
-import tensorflow_transform.api as api
 from tensorflow_transform.beam import analyzer_impls
 from tensorflow_transform.beam import common
+from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
@@ -156,6 +159,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
   Args:
     input_schema: A `Schema` representing the inputs of this transform phase.
     output_schema: A `Schema` representing the outputs of this transform phase.
+    exclude_outputs: A list of names of outputs to exclude.
     desired_batch_size: The desired number of instances to convert into a batch
       before feeding to Tensorflow.
   """
@@ -179,8 +183,9 @@ class _RunMetaGraphDoFn(beam.DoFn):
               inter_op_parallelism_threads=2,
               intra_op_parallelism_threads=2))
       with self.graph.as_default():
-        inputs, outputs = impl_helper.load_transform_fn_def(saved_model_dir)
-        # Run the op that initializes all tables in the graph.
+        with tf.Session():
+          inputs, outputs = saved_transform_io.partially_apply_saved_transform(
+              saved_model_dir, {})
         self.session.run(tf.tables_initializer())
 
         input_schema_keys = input_schema.column_schemas.keys()
@@ -231,12 +236,11 @@ class _RunMetaGraphDoFn(beam.DoFn):
         self._graph_state.outputs, feed_dict=feed_dict)
 
   def process(self, element, saved_model_dir):
-    """Runs the given graph to realize the output tensors (i.e. features).
+    """Runs the given graph to realize the output `Tensor` or `SparseTensor`s.
 
     Runs the graph in a TF session for computing the output values of the
-    tensors, given an input row of data (input tensors). Due to the record-by
-    record nature of beam we are operating sess.run() on individual record
-    tensors vs batched tensors.
+    `Tensor` or `SparseTensor`s, given an input row of data (input `Tensor` or
+    `SparseTensor`s).
 
     Args:
       element: the element being processed by the DoFn
@@ -264,7 +268,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
   def finish_bundle(self):
     if self._batch:
-      yield self._flush_batch()
+      yield WindowedValue(self._flush_batch(), -1, [window.GlobalWindow()])
 
 
 def _assert_tensorflow_version():
@@ -282,6 +286,26 @@ def _make_unique_temp_dir(base_temp_dir):
   return os.path.join(base_temp_dir, uuid.uuid4().hex)
 
 
+def _write_saved_transform(graph, inputs, outputs, saved_model_dir):
+  """Write the given function as a saved transform."""
+  with tf.Session(graph=graph) as session:
+    # Remove collections that can't be serialized, as these produce annoying
+    # warnings.
+    collections_blacklist = [
+        tft_api.FUNCTION_APPLICATION_COLLECTION,
+        tft_analyzers.ANALYZER_COLLECTION
+    ]
+    removed_collections = []
+    for collection_name in collections_blacklist:
+      removed_collections.append(
+          (collection_name, graph.get_collection(collection_name)))
+      graph.clear_collection(collection_name)
+    saved_transform_io.write_saved_transform_from_session(
+        session, inputs, outputs, saved_model_dir)
+    for collection_name, collection in removed_collections:
+      graph.get_collection(collection_name).extend(collection)
+
+
 class AnalyzeDataset(beam.PTransform):
   """Takes a preprocessing_fn and computes the relevant statistics.
 
@@ -293,7 +317,7 @@ class AnalyzeDataset(beam.PTransform):
 
   Args:
     preprocessing_fn: A function that accepts and returns a dictionary from
-      strings to `Column`s or `Statistic`s.
+      strings to `Tensor` or `SparseTensor`s.
   """
 
   def __init__(self, preprocessing_fn):
@@ -319,263 +343,169 @@ class AnalyzeDataset(beam.PTransform):
 
     base_temp_dir = Context.create_base_temp_dir()
 
-    class _CreateTransformFn(beam.PTransform):
-      """Create a TransformFnDef, binding statistics in a deferred manner.
+    class _ReplaceTensorsWithConstants(beam.PTransform):
+      """Bind statistics in a deferred manner.
 
-      This function constructs a tensorflow graph eagerly and then (in a
-      deferred manner) fills in analyzer outputs with their actual computed
-      values. We construct the tensorflow graph up front because that implies
-      serializing MetaGraphDef protos rather than pickling the user-defined TITO
-      functions. The graph contains placeholders for `_AnalyzerOutput`s which
-      are then replaced with their actual values (as constant tensors) in a
-      deferred manner.
+      This transform fills in analyzer outputs with their actual computed
+      values.
 
       Args:
-        input_columns: A map from column names to `Column`s.
-        output_columns: A map from column names to `Column`s.
-        temp_dir: Temp dir to store `SavedModel`s.
+        saved_model_dir: The directory containing the SavedModel.
       """
 
-      def __init__(self, input_columns, output_columns):
+      def __init__(self, saved_model_dir):
         # Generally the pipeline is inferred from its inputs, however we need
         # to know the pipeline for beam.Create.
         self.pipeline = input_values.pipeline
-        self._input_columns = input_columns
-        self._output_columns = output_columns
+        self._saved_model_dir = saved_model_dir
 
-      def expand(self, analyzer_outputs_to_pcoll):
+      def expand(self, tensor_pcoll_mapping):
         """Converts a dict of statistics to a transform function.
 
         Args:
-          analyzer_outputs_to_pcoll: A dictionary mapping `_AnalyzerOutput`s
-              to the values of these statistics as a PCollection.
+          tensor_pcoll_mapping: A dictionary mapping `Tensor`s to singleton
+              `PCollection`s.
 
         Returns:
           A single-element PCollection containing the directory name with the
               SavedModel.
         """
-        # Create a transform_fn with unbound values.
-        unbound_transform_fn_dir = _make_unique_temp_dir(base_temp_dir)
-        input_columns_to_statistics = impl_helper.make_transform_fn_def(
-            input_schema, self._input_columns, self._output_columns,
-            unbound_transform_fn_dir)
-
         transform_fn = (
             self.pipeline | 'CreateTransformFn' >> beam.Create(
-                [unbound_transform_fn_dir]))
+                [self._saved_model_dir]))
 
-        if not analyzer_outputs_to_pcoll:
+        if not tensor_pcoll_mapping:
           return transform_fn
 
-        # Convert the statistics dict into a DictPCollectionView so it can be
+        # Convert tensor_value_mapping into a DictPCollectionView so it can be
         # passed as a side input to the beam Map below.
-        tagged_statistics = []
-        for tag, statistic in six.iteritems(input_columns_to_statistics):
-          pcoll = analyzer_outputs_to_pcoll[statistic]
-          tagged_statistics.append(
+        tensor_value_pairs = []
+        for name, pcoll in six.iteritems(tensor_pcoll_mapping):
+          tensor_value_pairs.append(
               pcoll
-              | 'AddTag[%s]' % tag >> beam.Map(lambda x, tag=tag: (tag, x)))
+              | 'AddName[%s]' % name
+              >> beam.Map(lambda x, name=name: (name, x)))
+        tensor_value_mapping = beam.pvalue.AsDict(
+            tensor_value_pairs | 'MergeTensorValuePairs' >> beam.Flatten())
 
-        statistics_side_input = beam.pvalue.AsDict(
-            tagged_statistics | 'MergeStatistics' >> beam.Flatten())
-
-        # Run a mapper that inserts statistic values into the graph, using an
-        # idempotent version of replace_tensors_with_constant_values.
+        # Run a mapper that inserts statistic values into the graph.  We wrap
+        # replace_tensors_with_constant_values in a wrapper that also creates
+        # a temp dir.  This makes the wrapper idempotent since any retry will
+        # use a different temp dir.
         def replace_tensors_with_constant_values(
-            saved_model_dir, input_value_mapping):
-          temp_dir = _make_unique_temp_dir(base_temp_dir)
-          impl_helper.replace_tensors_with_constant_values(
-              saved_model_dir, temp_dir, input_value_mapping)
+            saved_model_dir, tensor_value_mapping):
+          with tf.Session() as session:
+            temp_dir = _make_unique_temp_dir(base_temp_dir)
+            input_tensors, output_tensors = (
+                saved_transform_io.partially_apply_saved_transform(
+                    saved_model_dir, {}, tensor_value_mapping))
+            saved_transform_io.write_saved_transform_from_session(
+                session, input_tensors, output_tensors, temp_dir)
           return temp_dir
         return (transform_fn |
                 'ReplaceTensorsWithConstantValues' >> beam.Map(
                     replace_tensors_with_constant_values,
-                    input_value_mapping=statistics_side_input))
+                    tensor_value_mapping=tensor_value_mapping))
 
-    inputs, outputs = impl_helper.run_preprocessing_fn(
+    class _ComputeTensorPcollMappingUpdate(beam.PTransform):
+      """Create a mapping from `Tensor`s to PCollections.
+
+      Creates a mapping from `Tensor`s to PCollections for the outputs of the
+      new analyzers.  An existing mapping will be provided as the argument
+      to the extend() method.
+
+      Args:
+        phase: The Phase to run
+      """
+
+      def __init__(self, saved_model_dir, analyzer_inputs_schema, analyzers):
+        self._saved_model_dir = saved_model_dir
+        self._analyzer_inputs_schema = analyzer_inputs_schema
+        self._analyzers = analyzers
+
+      def expand(self, input_values_and_tensor_pcoll_mapping):
+        input_values, tensor_pcoll_mapping = (
+            input_values_and_tensor_pcoll_mapping)
+
+        # Create a transform_fn to produce inputs to new analyzers.
+        transform_fn = (
+            tensor_pcoll_mapping
+            | 'ReplaceTensorsWithConstants'
+            >> _ReplaceTensorsWithConstants(self._saved_model_dir))
+
+        # Run the transform_fn.
+        analyzer_input_values = (
+            input_values | 'ComputeAnalyzerInputs' >> beam.ParDo(
+                _RunMetaGraphDoFn(input_schema,
+                                  self._analyzer_inputs_schema),
+                saved_model_dir=beam.pvalue.AsSingleton(transform_fn)))
+
+        # For each analyzer output, look up its input values (by tensor name)
+        # and run the analyzer on these values.
+        #
+        tensor_pcoll_mapping_update = {}
+        for idx, analyzer in enumerate(self._analyzers):
+          analyzer_impl = analyzer_impls._impl_for_analyzer(analyzer.spec)
+          # pylint: enable=protected-access
+
+          assert len(analyzer.inputs) == 1
+          output_pcolls = (
+              analyzer_input_values
+              | 'Extract_%d' % idx >> beam.Map(
+                  lambda batch, key: batch[key],
+                  key=analyzer.inputs[0].name)
+              | 'Analyze_%d' % idx >> analyzer_impl)
+          assert len(analyzer.outputs) == len(output_pcolls)
+          for tensor, pcoll in zip(analyzer.outputs, output_pcolls):
+            tensor_pcoll_mapping_update[tensor.name] = pcoll
+        return tensor_pcoll_mapping_update
+
+    # NOTE: it's important that create_phases is called directly after
+    # run_preprocessing_fn, because we later mutate the graph's
+    # TABLE_INITIALIZERS collection which would break the logic in
+    # create_phases.
+    graph, inputs, outputs = impl_helper.run_preprocessing_fn(
         self._preprocessing_fn, input_schema)
+    phases = impl_helper.create_phases(graph)
 
-    # Get a list of lists, containing analyzers (i.e. _AnalyzerOutput objects)
-    # by level in the DAG of Columns/Statistics. Analyzers at level n are ready
-    # to run once all analyzers at level n - 1 are complete.
-    analyzers_by_level = self._analyzers_by_level(outputs)
+    # Iterate through levels, generating PCollections for columns that are the
+    # outputs of `Operations` that are not `MapOperation`s.
+    tensor_pcoll_mapping = {}
+    table_initializers = graph.get_collection_ref(
+        tf.GraphKeys.TABLE_INITIALIZERS)
+    original_table_initializers = list(table_initializers)
+    del table_initializers[:]
 
-    # Iterate through levels, keeping track of analyzer outputs (i.e.
-    # statistics) via a mapping of `_AnalyzerOutput` -> single element
-    # PCollection.
-    analyzer_outputs_to_pcoll = {}
-    for level, analyzer_outputs in enumerate(analyzers_by_level):
-      # Create a TransformFnDef representing the graph needed to generate
-      # all the inputs required by the analyzer_outputs at this level.  We
-      # assign arbitrary names to the outputs of this TransformFnDef.
-      analyzer_input_columns = {}
-      for idx, analyzer_output in enumerate(analyzer_outputs):
-        if len(analyzer_output.inputs) != 1:
-          raise NotImplementedError('Analyzers must have exactly one input')
-        analyzer_input_key = 'analyzer_%d_input' % idx
-        analyzer_input_columns[analyzer_input_key] = analyzer_output.inputs[0]
+    for level, phase in enumerate(phases):
+      analyzer_inputs = {}
+      for analyzer in phase.analyzers:
+        for input_tensor in analyzer.inputs:
+          analyzer_inputs[input_tensor.name] = input_tensor
+      analyzer_inputs_schema = impl_helper.infer_feature_schema(
+          analyzer_inputs)
+      table_initializers.extend(phase.table_initializers)
+      saved_model_dir = _make_unique_temp_dir(base_temp_dir)
+      _write_saved_transform(graph, inputs, analyzer_inputs, saved_model_dir)
 
-      transform_fn = (
-          analyzer_outputs_to_pcoll
-          | 'CreateTransformFn_%d' % level >> _CreateTransformFn(
-              inputs, analyzer_input_columns))
-      analyzer_input_schema = impl_helper.infer_feature_schema(
-          analyzer_input_columns)
-
-      # Run the TransformFnDef in a mapper.
-      analysis_inputs = (
-          input_values | 'ComputeAnalyzerInputs_%d' % level >> beam.ParDo(
-              _RunMetaGraphDoFn(input_schema, analyzer_input_schema),
-              saved_model_dir=beam.pvalue.AsSingleton(transform_fn)))
-
-      # For each analyzer output, look up its input values (by tensor name)
-      # and run the analyzer on these values.
-      #
-      for idx, analyzer_output in enumerate(analyzer_outputs):
-        analyzer_input_key = 'analyzer_%d_input' % idx
-        analyzer_outputs_to_pcoll[analyzer_output] = (
-            analysis_inputs
-            | 'Extract_%d_%d' % (level, idx) >> beam.Map(
-                lambda batch, key: batch[key], key=analyzer_input_key)
-            | 'Analyze_%d_%d' % (level, idx) >> self._Analyze(analyzer_output))
+      tensor_pcoll_mapping_update = (
+          (input_values, tensor_pcoll_mapping)
+          | 'ComputeTensorPcollMappingUpdate_%d' % level
+          >> _ComputeTensorPcollMappingUpdate(
+              saved_model_dir, analyzer_inputs_schema, phase.analyzers))
+      tensor_pcoll_mapping.update(tensor_pcoll_mapping_update)
 
     output_metadata = dataset_metadata.DatasetMetadata(
         schema=impl_helper.infer_feature_schema(outputs))
+    del table_initializers[:]
+    table_initializers.extend(original_table_initializers)
+    saved_model_dir = _make_unique_temp_dir(base_temp_dir)
+    _write_saved_transform(graph, inputs, outputs, saved_model_dir)
     transform_fn = (
-        analyzer_outputs_to_pcoll
-        | 'CreateTransformFn' >> _CreateTransformFn(inputs, outputs))
+        tensor_pcoll_mapping
+        | 'ReplaceTensorsWithConstants'
+        >> _ReplaceTensorsWithConstants(saved_model_dir))
 
     return transform_fn, output_metadata
-
-  def _analyzers_by_level(self, outputs):
-    """Returns a list of lists, containing analyzers by level.
-
-    We need to run analyzers in order so that when running the TF graph to get
-    the inputs of an analyzer, we only rely on analyzers that have already been
-    computed.
-
-    This is acheived by running analyzers in order of their `level` where the
-    level of an analyzer is defined as its depth in the dependency graph of
-    analyzers.
-
-    Instead of computing the dependency graph of analyzers explicitly, we
-    compute the level of each analyzer by recursively walking the tree of
-    Column/Statistics.  For each column/statistic we define its level to be the
-    greatest level of an analyzer that it depends on.  From this definition we
-    get the following rules for computing the level of a column:
-      - An `_AnalyzerOutput` has level one greater than the max of its inputs.
-      - A `_TransformedColumn` or `_TransformedStatistic` has level equal to the
-        max of its inputs.
-      - An `_InputColumn` has level -1 so that the first analyzer ready to run
-        has level 0.
-
-    Args:
-      outputs: All output columns.
-
-    Returns:
-      a list of lists of `_AnalyzerOutput`s ordered by level.
-    """
-    memoized_column_levels = {}
-    analyzers_by_level = collections.defaultdict(list)
-    def column_level(column):
-      """Adds all analyzers above this column to analyzers_by_level.
-
-      Visits all parents of this column or statistic in the `Column`/`Statistic`
-      graph, and adds each _AnalyzerOutput to analyzers_by_level according to
-      its level.
-
-      Args:
-        column: A Column or Statistic.
-
-      Returns:
-        The level of this column.
-
-      Raises:
-        ValueError: if the passed column argument is not a `Column`.
-      """
-      if column in memoized_column_levels:
-        return memoized_column_levels[column]
-
-      # pylint: disable=protected-access
-      if isinstance(column, api._AnalyzerOutput):
-        level = max(
-            [column_level(input_column) for input_column in column.inputs]) + 1
-        analyzers_by_level[level].append(column)
-      elif isinstance(column,
-                      (api._TransformedColumn, api._TransformedStatistic)):
-        level = max(
-            [column_level(input_column) for input_column in column.inputs])
-      elif isinstance(column, api._InputColumn):
-        level = -1
-      else:
-        raise ValueError('Not a Column: {}'.format(column))
-      # pylint: enable=protected-access
-
-      memoized_column_levels[column] = level
-      return level
-
-    # Call column_level for all outputs, which has the side effect of populating
-    # analyzers_by_level.
-    for column in six.itervalues(outputs):
-      column_level(column)
-
-    # Turn the defaultdict analyzers_by_level into a list.  We know that by
-    # construction the set of keys will be of the form 0,1,...,k.
-    return [analyzers_by_level[level]
-            for level in sorted(six.iterkeys(analyzers_by_level))]
-
-  @with_input_types(Union[np.ndarray, tf.SparseTensorValue])
-  @with_output_types(impl_helper.ConstantTensorValue)
-  class _Analyze(beam.PTransform):
-
-    def __init__(self, analyzer_output):
-      self._analyzer_name = analyzer_output.analyzer_name
-      self._args_dict = analyzer_output.args_dict
-      self._tensor = analyzer_output.tensor
-
-    def expand(self, pcoll):
-
-      reduce_instance_dims = self._args_dict.pop('reduce_instance_dims', True)
-
-      if self._analyzer_name == api.CanonicalAnalyzers.MIN:
-        analyzer = (analyzer_impls._NumericAnalyzer(min, **self._args_dict)
-                    if reduce_instance_dims else
-                    analyzer_impls._NumericAnalyzerOnBatchDim(
-                        np.min, **self._args_dict))
-        analysis_result = (pcoll | 'ComputeMin' >> analyzer)
-
-      elif self._analyzer_name == api.CanonicalAnalyzers.MAX:
-        analyzer = (analyzer_impls._NumericAnalyzer(max, **self._args_dict)
-                    if reduce_instance_dims else
-                    analyzer_impls._NumericAnalyzerOnBatchDim(
-                        np.max, **self._args_dict))
-        analysis_result = (pcoll | 'ComputeMax' >> analyzer)
-
-      elif self._analyzer_name == api.CanonicalAnalyzers.SUM:
-        analyzer = (analyzer_impls._NumericAnalyzer(sum, **self._args_dict)
-                    if reduce_instance_dims else
-                    analyzer_impls._NumericAnalyzerOnBatchDim(
-                        np.sum, **self._args_dict))
-        analysis_result = (pcoll | 'ComputeSum' >> analyzer)
-
-      elif self._analyzer_name == api.CanonicalAnalyzers.UNIQUES:
-        analysis_result = (pcoll
-                           | 'ComputeUniques' >>
-                           analyzer_impls._UniquesAnalyzer(**self._args_dict))
-
-      else:
-        raise NotImplementedError(self._analyzer_name)
-      # pylint: enable=protected-access
-
-      # Note we pass in dtype as string and shape as a tuple, to avoid pickling
-      # issues (b/35133536)
-      shape = (tuple(dim.value for dim in self._tensor.get_shape()) if
-               self._tensor.get_shape() else None)
-      return (analysis_result
-              | 'ConstantTensorValue' >> beam.Map(
-                  impl_helper.ConstantTensorValue,
-                  dtype=self._tensor.dtype.name,
-                  shape=shape))
 
 
 class AnalyzeAndTransformDataset(beam.PTransform):
@@ -593,7 +523,7 @@ class AnalyzeAndTransformDataset(beam.PTransform):
 
   Args:
     preprocessing_fn: A function that accepts and returns a dictionary from
-        strings to `Column`s or `Statistic`s
+        strings to `Tensor` or `SparseTensor`s
   """
 
   def __init__(self, preprocessing_fn):
@@ -673,7 +603,7 @@ class TransformDataset(beam.PTransform):
         | 'Transform' >> beam.ParDo(
             _RunMetaGraphDoFn(input_metadata.schema,
                               output_metadata.schema,
-                              self._exclude_outputs),
+                              exclude_outputs=self._exclude_outputs),
             saved_model_dir=beam.pvalue.AsSingleton(transform_fn))
         | 'ConvertAndUnbatch' >> beam.FlatMap(convert_and_unbatch))
     return (output_instances, output_metadata)

@@ -18,7 +18,6 @@ from __future__ import division
 from __future__ import print_function
 
 import itertools
-import os
 
 
 import numpy as np
@@ -28,13 +27,10 @@ from tensorflow_transform import analyzers
 from tensorflow_transform import api
 from tensorflow_transform import impl_helper
 from tensorflow_transform import mappers
-from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_schema as sch
 import unittest
+from tensorflow.contrib import lookup
 from tensorflow.python.framework import test_util
-from tensorflow.python.saved_model import builder as saved_model_builder
-from tensorflow.python.saved_model import signature_def_utils
-from tensorflow.python.saved_model import tag_constants
 
 
 class ImplHelperTest(test_util.TensorFlowTestCase):
@@ -55,119 +51,13 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
   def toSchema(self, feature_spec):
     return sch.from_feature_spec(feature_spec)
 
-  def save_model_with_single_input(self, export_dir):
-    builder = saved_model_builder.SavedModelBuilder(export_dir)
-    with self.test_session(graph=tf.Graph()) as sess:
-      input1 = tf.placeholder(dtype=tf.int32, shape=[5], name='myinput')
-      initializer = tf.constant_initializer([1, 2, 3, 4, 5])
-      with tf.variable_scope('Model', reuse=None, initializer=initializer):
-        v1 = tf.get_variable('v1', [5], dtype=tf.int32)
-      output1 = tf.add(v1, input1, name='myadd')
-      inputs = {'single_input': input1}
-      outputs = {'single_output': output1}
-      signature_def_map = {
-          'my_signature_single_input':
-              signature_def_utils.predict_signature_def(inputs, outputs)
-      }
-      sess.run(tf.global_variables_initializer())
-      builder.add_meta_graph_and_variables(
-          sess, [tag_constants.SERVING], signature_def_map=signature_def_map)
-      builder.save(False)
-
-  def save_model_with_multi_inputs(self, export_dir):
-    builder = saved_model_builder.SavedModelBuilder(export_dir)
-    with self.test_session(graph=tf.Graph()) as sess:
-      input1 = tf.placeholder(dtype=tf.int32, shape=[5], name='myinput1')
-      input2 = tf.placeholder(dtype=tf.int32, shape=[5], name='myinput2')
-      input3 = tf.placeholder(dtype=tf.int32, shape=[5], name='myinput3')
-      initializer = tf.constant_initializer([1, 2, 3, 4, 5])
-      with tf.variable_scope('Model', reuse=None, initializer=initializer):
-        v1 = tf.get_variable('v1', [5], dtype=tf.int32)
-      o1 = tf.add(v1, input1, name='myadd1')
-      o2 = tf.add(o1, input2, name='myadd2')
-      output1 = tf.add(o2, input3, name='myadd3')
-      inputs = {'input_name1': input1, 'input_name2': input2,
-                'input_name3': input3}
-      outputs = {'single_output': output1}
-      signature_def_map = {
-          'my_signature_multi_input':
-              signature_def_utils.predict_signature_def(inputs, outputs)
-      }
-      sess.run(tf.global_variables_initializer())
-      builder.add_meta_graph_and_variables(
-          sess, [tag_constants.SERVING], signature_def_map=signature_def_map)
-      builder.save(False)
-
-  def make_tensor_fn_two_inputs(self):
-    def tensor_fn(input1, input2):
-      initializer = tf.constant_initializer([1, 2, 3])
-      with tf.variable_scope('Model', reuse=None, initializer=initializer):
-        v1 = tf.get_variable('v1', [3], dtype=tf.int64)
-        o1 = tf.add(v1, input1, name='myadda1')
-        o = tf.subtract(o1, input2, name='myadda2')
-        return o
-    return tensor_fn
-
-  def save_checkpoint_with_two_inputs(self, checkpoint_path):
-    test_tensor_fn = self.make_tensor_fn_two_inputs()
-    with self.test_session(graph=tf.Graph()) as sess:
-      input1 = tf.placeholder(dtype=tf.int64, shape=[3], name='myinputa')
-      input2 = tf.placeholder(dtype=tf.int64, shape=[3], name='myinputb')
-      test_tensor_fn(input1, input2)
-      saver = tf.train.Saver()
-      sess.run(tf.global_variables_initializer())
-      saver.save(sess, checkpoint_path)
-
-  def testMakeTensorFuncFromSavedModelSingleInput(self):
-    export_dir = os.path.join(self.get_temp_dir(), 'single_input')
-    self.save_model_with_single_input(export_dir)
-    tensor_fn = impl_helper.make_tensor_func_from_saved_model(
-        export_dir, [tag_constants.SERVING])
-    with self.test_session(graph=tf.Graph()) as sess:
-      si = tf.placeholder(dtype=tf.int32, shape=[5], name='si')
-      so = tensor_fn(si)
-      feed_dict = {si: [2, 2, 2, 2, 2]}
-      vo = sess.run(so, feed_dict=feed_dict)
-      self.assertAllEqual(vo, [3, 4, 5, 6, 7])
-
-  def testMakeTensorFuncFromSavedModelMultiInputs(self):
-    export_dir = os.path.join(self.get_temp_dir(), 'multi_inputs')
-    self.save_model_with_multi_inputs(export_dir)
-    tensor_fn = impl_helper.make_tensor_func_from_saved_model(
-        export_dir, [tag_constants.SERVING],
-        signature_name='my_signature_multi_input',
-        input_keys_in_signature=['input_name1', 'input_name2', 'input_name3'])
-    with self.test_session(graph=tf.Graph()) as sess:
-      s1 = tf.placeholder(dtype=tf.int32, shape=[5], name='s1')
-      s2 = tf.placeholder(dtype=tf.int32, shape=[5], name='s2')
-      s3 = tf.placeholder(dtype=tf.int32, shape=[5], name='s3')
-      so = tensor_fn(s1, s2, s3)
-      feed_dict = {s1: [2, 3, 4, 5, 6], s2: [1, 1, 1, 1, 1],
-                   s3: [1, 1, 1, 1, -1]}
-      vo = sess.run(so, feed_dict=feed_dict)
-      self.assertAllEqual(vo, [5, 7, 9, 11, 11])
-
-  def testMakeTensorFuncFromCheckpointTwoInputs(self):
-    checkpoint = os.path.join(self.get_temp_dir(), 'checkpoint_two')
-    self.save_checkpoint_with_two_inputs(checkpoint)
-    tensor_fn = impl_helper.make_tensor_func_from_checkpoint(
-        self.make_tensor_fn_two_inputs(), checkpoint)
-    with self.test_session(graph=tf.Graph()) as sess:
-      input1 = tf.placeholder(dtype=tf.int64, shape=[3], name='input1')
-      input2 = tf.placeholder(dtype=tf.int64, shape=[3], name='input2')
-      output = tensor_fn(input1, input2)
-      feed_dict = {input1: [1, 2, 3], input2: [3, 2, 1]}
-      vo = sess.run(output, feed_dict=feed_dict)
-      # [1, 2, 3] + [1, 2, 3] - [3, 2, 1] = [-1, 2, 5]
-      self.assertAllEqual(vo, [-1, 2, 5])
-
   def testInferFeatureSchema(self):
-    columns = {
-        'a': api._InputColumn(tf.placeholder(tf.float32, (None,)), None),
-        'b': api._InputColumn(tf.placeholder(tf.string, (1, 2, 3)), None),
-        'c': api._InputColumn(tf.placeholder(tf.int64, None), None)
+    tensors = {
+        'a': tf.placeholder(tf.float32, (None,)),
+        'b': tf.placeholder(tf.string, (1, 2, 3)),
+        'c': tf.placeholder(tf.int64, None)
     }
-    schema = impl_helper.infer_feature_schema(columns)
+    schema = impl_helper.infer_feature_schema(tensors)
     expected_schema = sch.Schema(column_schemas={
         'a': sch.ColumnSchema(tf.float32, [],
                               sch.FixedColumnRepresentation()),
@@ -179,11 +69,11 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     self.assertEqual(schema, expected_schema)
 
   def testInferFeatureSchemaBadRank(self):
-    columns = {
-        'a': api._InputColumn(tf.placeholder(tf.float32, ()), None),
+    tensors = {
+        'a': tf.placeholder(tf.float32, ()),
     }
     with self.assertRaises(ValueError):
-      _ = impl_helper.infer_feature_schema(columns)
+      _ = impl_helper.infer_feature_schema(tensors)
 
   def testMakeFeedDict(self):
     tensors = {
@@ -446,138 +336,139 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     self.assertAllEqual(instance_dicts[1]['f'][0], [])
     self.assertAllEqual(instance_dicts[1]['f'][1], [])
 
-  def testImportAndExportDense(self):
-    # Export the function "z = x * y + x + y"
+  def testCreatePhasesWithDegenerateFunctionApplication(self):
+    # Tests the case of a function whose inputs and outputs overlap.
     def preprocessing_fn(inputs):
       return {
-          'z': api.map(lambda x, y: x * y + x + y,
-                       inputs['x'], inputs['y'])
+          'index': api.apply_function(lambda x: x, inputs['a'])
       }
-    input_schema = self.toSchema({
-        'x': tf.FixedLenFeature((), tf.float32),
-        'y': tf.FixedLenFeature((), tf.float32)
+
+    input_schema = sch.Schema({
+        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
     })
-
-    inputs, outputs = impl_helper.run_preprocessing_fn(
+    graph, _, _ = impl_helper.run_preprocessing_fn(
         preprocessing_fn, input_schema)
-    saved_model_dir = os.path.join(self.get_temp_dir(), 'dense')
-    _ = impl_helper.make_transform_fn_def(
-        input_schema, inputs, outputs, saved_model_dir)
+    phases = impl_helper.create_phases(graph)
+    self.assertEqual(len(phases), 0)
 
-    # Import the function, applying it to constants for x and y.
-    g = tf.Graph()
-    with g.as_default():
-      x = tf.constant(5, tf.float32, (1,))
-      y = tf.constant(6, tf.float32, (1,))
-      outputs = saved_transform_io.apply_saved_transform(
-          saved_model_dir, {'x': x, 'y': y})
-      z = outputs['z']
-
-      sess = tf.Session()
-      with sess.as_default():
-        # Check result is 5 * 6 + 5 + 6 = 41.
-        self.assertEqual(41, z.eval())
-
-    # Import the graph, feeding it values for x and y.
-    g = tf.Graph()
-    with g.as_default():
-      inputs, outputs = impl_helper.load_transform_fn_def(
-          saved_model_dir)
-      x = inputs['x']
-      y = inputs['y']
-      z = outputs['z']
-
-      sess = tf.Session()
-      with sess.as_default():
-        # Check result is 5 * 6 + 5 + 6 = 41.
-        self.assertEqual(41, sess.run(z, {x: [5], y: [6]}))
-
-  def testImportAndExportSparse(self):
-    # Export the function "z = x + y"
+  def testCreatePhasesWithMultipleLevelsOfAnalyzers(self):
+    # Test a preprocessing function similar to scale_to_0_1 except that it
+    # involves multiple interleavings of analyzers and transforms.
     def preprocessing_fn(inputs):
-      return {
-          'z': api.map(tf.sparse_add, inputs['x'], inputs['y'])
-      }
-    input_schema = self.toSchema({
-        'x': tf.VarLenFeature(tf.float32),
-        'y': tf.VarLenFeature(tf.float32)
+      scaled_to_0 = inputs['x'] - analyzers.min(inputs['x'])
+      scaled_to_0_1 = scaled_to_0 / analyzers.max(scaled_to_0)
+      return {'x_scaled': scaled_to_0_1}
+
+    input_schema = sch.Schema({
+        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
     })
-
-    inputs, outputs = impl_helper.run_preprocessing_fn(
+    graph, _, _ = impl_helper.run_preprocessing_fn(
         preprocessing_fn, input_schema)
-    saved_model_dir = os.path.join(self.get_temp_dir(), 'sparse')
-    _ = impl_helper.make_transform_fn_def(
-        input_schema, inputs, outputs, saved_model_dir)
+    phases = impl_helper.create_phases(graph)
+    self.assertEqual(len(phases), 2)
+    self.assertEqual(len(phases[0].analyzers), 1)
+    self.assertEqual(len(phases[1].analyzers), 1)
 
-    # Import the function, applying it to constants for x and y.
-    g = tf.Graph()
-    with g.as_default():
-      x = tf.SparseTensor(
-          indices=[[0]],
-          values=tf.constant(5, shape=(1,), dtype=tf.float32),
-          dense_shape=[1])
-      y = tf.SparseTensor(
-          indices=[[0]],
-          values=tf.constant(6, shape=(1,), dtype=tf.float32),
-          dense_shape=[1])
-      outputs = saved_transform_io.apply_saved_transform(
-          saved_model_dir, {'x': x, 'y': y})
-      z = outputs['z']
-
-      sess = tf.Session()
-      with sess.as_default():
-        # Check result is 5 + 6 = 11.
-        result = z.eval()
-        self.assertEqual(result.indices, [[0]])
-        self.assertEqual(result.values, [11])
-        self.assertEqual(result.dense_shape, [1])
-
-  def testImportAndExportWithTensorValueMapping(self):
-    # Export the function "z = x * min(y) + x + min(y)" with min(y) replaced by
-    # 6.
+  def testCreatePhasesWithTable(self):
+    # Test a preprocessing function with table that can only be run after the
+    # first analyzer has run.  Note converting an integerized string into a
+    # float doesn't make much sense, but is a legal tensorflow computation.
     def preprocessing_fn(inputs):
-      return {
-          'z': api.map(lambda x, y: x * y + x + y,
-                       inputs['x'], analyzers.min(inputs['y']))
-      }
-    input_schema = self.toSchema({
-        'x': tf.FixedLenFeature((), tf.float32),
-        'y': tf.FixedLenFeature((), tf.float32)
+      integerized = mappers.string_to_int(inputs['x'])
+      integerized = tf.to_float(integerized)
+      scaled_to_0_1 = integerized / analyzers.max(integerized)
+      return {'x_scaled': scaled_to_0_1}
+
+    input_schema = sch.Schema({
+        'x': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
     })
-
-    inputs, outputs = impl_helper.run_preprocessing_fn(
+    graph, _, _ = impl_helper.run_preprocessing_fn(
         preprocessing_fn, input_schema)
-    saved_model_dir = os.path.join(self.get_temp_dir(), 'replace_original')
-    input_columns_to_statistics = impl_helper.make_transform_fn_def(
-        input_schema, inputs, outputs, saved_model_dir)
-    self.assertEqual(len(input_columns_to_statistics.keys()), 1)
-    y_min_input_name = input_columns_to_statistics.keys()[0]
+    phases = impl_helper.create_phases(graph)
+    self.assertEqual(len(phases), 2)
+    self.assertEqual(len(phases[0].analyzers), 1)
+    self.assertEqual(len(phases[1].analyzers), 1)
+    self.assertEqual(len(phases[0].table_initializers), 0)
+    self.assertEqual(len(phases[1].table_initializers), 1)
 
-    g = tf.Graph()
-    with g.as_default():
-      x = tf.placeholder(tf.float32, ())
-      y = tf.placeholder(tf.float32, ())
-      z = x * y + x + y
-    new_saved_model_dir = os.path.join(self.get_temp_dir(), 'replace_new')
-    impl_helper.replace_tensors_with_constant_values(
-        saved_model_dir, new_saved_model_dir,
-        {y_min_input_name: impl_helper.ConstantTensorValue(6, tf.float32, ())})
+  def testCreatePhasesWithUnwrappedTable(self):
+    # Test a preprocessing function with a table that is not wrapped in
+    # `apply_function`.
+    def preprocessing_fn(inputs):
+      table = lookup.string_to_index_table_from_tensor(['a', 'b'])
+      integerized = table.lookup(inputs['x'])
+      return {'integerized': integerized}
 
-    # Import the function, applying it to constants for x and y.
-    g = tf.Graph()
-    with g.as_default():
-      x = tf.constant(5, tf.float32, (1,))
-      y = tf.constant(1000, tf.float32, (1,))  #  Value is never used.
-      outputs = saved_transform_io.apply_saved_transform(
-          new_saved_model_dir, {'x': x, 'y': y})
-      z = outputs['z']
+    input_schema = sch.Schema({
+        'x': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    })
+    graph, _, _ = impl_helper.run_preprocessing_fn(
+        preprocessing_fn, input_schema)
+    with self.assertRaisesRegexp(ValueError, 'Found table initializers'):
+      _ = impl_helper.create_phases(graph)
 
-      sess = tf.Session()
-      with sess.as_default():
-        # Check result is 5 * 6 + 5 + 6 = 41.
-        self.assertEqual(41, z.eval())
+  def testCreatePhasesWithLoop(self):
+    # Test a preprocessing function with control flow.
+    #
+    # The loop represents
+    #
+    # i = 0
+    # while i < 10:
+    #   i += 1
+    #   x += 1
+    #
+    # To get an error in the case where apply_function is not called, we have
+    # to call an analyzer first (see testCreatePhasesWithUnwrappedLoop).  So
+    # we also do so here.
+    def preprocessing_fn(inputs):
+      def _subtract_ten(x):
+        i = tf.constant(0)
+        c = lambda i, x: tf.less(i, 10)
+        b = lambda i, x: (tf.add(i, 1), tf.add(x, -1))
+        return tf.while_loop(c, b, [i, x])[1]
+      scaled_to_0_1 = mappers.scale_to_0_1(
+          api.apply_function(_subtract_ten, inputs['x']))
+      return {'x_scaled': scaled_to_0_1}
 
-  def testRunTransformFn(self):
+    input_schema = sch.Schema({
+        'x': sch.ColumnSchema(tf.int32, [], sch.FixedColumnRepresentation())
+    })
+    graph, _, _ = impl_helper.run_preprocessing_fn(
+        preprocessing_fn, input_schema)
+    phases = impl_helper.create_phases(graph)
+    self.assertEqual(len(phases), 1)
+    self.assertEqual(len(phases[0].analyzers), 2)
+
+  def testCreatePhasesWithUnwrappedLoop(self):
+    # Test a preprocessing function with control flow.
+    #
+    # The loop represents
+    #
+    # i = 0
+    # while i < 10:
+    #   i += 1
+    #   x += 1
+    #
+    # We need to call an analyzer after the loop because only the transitive
+    # parents of analyzers are inspected by create_phases
+    def preprocessing_fn(inputs):
+      def _subtract_ten(x):
+        i = tf.constant(0)
+        c = lambda i, x: tf.less(i, 10)
+        b = lambda i, x: (tf.add(i, 1), tf.add(x, -1))
+        return tf.while_loop(c, b, [i, x])[1]
+      scaled_to_0_1 = mappers.scale_to_0_1(_subtract_ten(inputs['x']))
+      return {'x_scaled': scaled_to_0_1}
+
+    input_schema = sch.Schema({
+        'x': sch.ColumnSchema(tf.int32, [], sch.FixedColumnRepresentation())
+    })
+    graph, _, _ = impl_helper.run_preprocessing_fn(
+        preprocessing_fn, input_schema)
+    with self.assertRaisesRegexp(ValueError, 'Cycle detected'):
+      _ = impl_helper.create_phases(graph)
+
+  def testRunPreprocessingFn(self):
     schema = self.toSchema({
         'dense_1': tf.FixedLenFeature((), tf.float32),
         'dense_2': tf.FixedLenFeature((1, 2), tf.int64),
@@ -587,11 +478,10 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     def preprocessing_fn(inputs):
       return {
           'dense_out': mappers.scale_to_0_1(inputs['dense_1']),
-          'sparse_out': api.map(lambda x: tf.sparse_reshape(x, (1, 10)),
-                                inputs['sparse'])
+          'sparse_out': tf.sparse_reshape(inputs['sparse'], (1, 10)),
       }
 
-    inputs, outputs = impl_helper.run_preprocessing_fn(
+    _, inputs, outputs = impl_helper.run_preprocessing_fn(
         preprocessing_fn, schema)
 
     # Verify that the input placeholders have the correct types.
@@ -604,24 +494,11 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         'sparse_out': (tf.float32, tf.TensorShape([None, None])),
     }
 
-    for key, column in itertools.chain(six.iteritems(inputs),
+    for key, tensor in itertools.chain(six.iteritems(inputs),
                                        six.iteritems(outputs)):
       dtype, shape = expected_dtype_and_shape[key]
-      self.assertEqual(column.tensor.dtype, dtype)
-      self.assertShapesEqual(column.tensor.get_shape(), shape)
-
-  def testRunTransformFnBadTransform(self):
-    schema = self.toSchema({
-        'x': tf.FixedLenFeature((3,), tf.float32),
-    })
-    def preprocessing_fn(inputs):
-      return {
-          'x_sum': api.map(tf.reduce_sum, inputs['x']),
-      }
-
-    # Verify that we raise if preprocessing_fn outputs a tensor with rank 0.
-    with self.assertRaises(ValueError):
-      _ = impl_helper.run_preprocessing_fn(preprocessing_fn, schema)
+      self.assertEqual(tensor.dtype, dtype)
+      self.assertShapesEqual(tensor.get_shape(), shape)
 
 
 if __name__ == '__main__':

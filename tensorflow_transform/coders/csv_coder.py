@@ -125,8 +125,8 @@ class _FixedLenFeatureHandler(object):
     if len(values) != self._size:
       if self._reader:
         raise ValueError(
-            'FixedLenFeature %r got wrong number of values: %r' %
-            (self._name, values))
+            'FixedLenFeature %r got wrong number of values. Expected'
+            ' %d but got %d' % (self._name, self._size, len(values)))
       else:
         # If there is no reader and size of values doesn't match, then this
         # must be because the value was missing.
