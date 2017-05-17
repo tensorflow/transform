@@ -29,12 +29,12 @@ def scale_by_min_max(x, output_min=0.0, output_max=1.0):
   """Scale a numerical column into the range [output_min, output_max].
 
   Args:
-    x: A `Column` representing a numeric value.
+    x: A numeric `Tensor`.
     output_min: The minimum of the range of output values.
     output_max: The maximum of the range of output values.
 
   Returns:
-    A `Column` representing the input column scaled to [output_min, output_max].
+    A `Tensor` containing the input column scaled to [output_min, output_max].
 
   Raises:
     ValueError: If output_min, output_max have the wrong order.
@@ -42,22 +42,20 @@ def scale_by_min_max(x, output_min=0.0, output_max=1.0):
   if output_min >= output_max:
     raise ValueError('output_min must be less than output_max')
 
-  # A TITO function that scales x.
-  def _scale(x, min_x_value, max_x_value):
-    return ((((x - min_x_value) * (output_max - output_min)) /
-             (max_x_value - min_x_value)) + output_min)
-
-  return api.map(_scale, x, analyzers.min(x), analyzers.max(x))
+  min_x_value = analyzers.min(x)
+  max_x_value = analyzers.max(x)
+  return ((((x - min_x_value) * (output_max - output_min)) /
+           (max_x_value - min_x_value)) + output_min)
 
 
 def scale_to_0_1(x):
   """Returns a column which is the input column scaled to have range [0,1].
 
   Args:
-    x: A `Column` representing a numeric value.
+    x: A numeric te`Tensor`sor.
 
   Returns:
-    A `Column` representing the input column scaled to [0, 1].
+    A `Tensor` containing the input column scaled to [0, 1].
   """
   return scale_by_min_max(x, 0, 1)
 
@@ -66,13 +64,13 @@ def tfidf_weights(x, vocab_size):
   """Maps the terms in x to their (1/doc_length) * inverse document frequency.
 
   Args:
-    x: A `Column` representing int64 values (most likely that are the result
-        of calling string_to_int on a tokenized string).
+    x: A `SparseTensor` representing int64 values (most likely that are the
+        result of calling string_to_int on a tokenized string).
     vocab_size: An int - the count of vocab used to turn the string into int64s
-        including any OOV buckets
+        including any OOV buckets.
 
   Returns:
-    A `Column` where each int value is mapped to a double equal to
+    A `SparseTensor` where each int value is mapped to a double equal to
     (1 if that term appears in that row, 0 otherwise / the number of terms in
     that row) * the log of (the number of rows in `x` / (1 + the number of
     rows in `x` where the term appears at least once))
@@ -82,14 +80,14 @@ def tfidf_weights(x, vocab_size):
     at the true term frequncies.
   """
 
-  def _map_to_vocab_range(x):
+  def _to_vocab_range(x):
     """Enforces that the vocab_ids in x are positive."""
     return tf.SparseTensor(
         indices=x.indices,
         values=tf.mod(x.values, vocab_size),
         dense_shape=x.dense_shape)
 
-  def _map_to_doc_contains_term(x):
+  def _to_doc_contains_term(x):
     """Creates a SparseTensor with 1s at every doc/term pair index.
 
     Args:
@@ -129,13 +127,13 @@ def tfidf_weights(x, vocab_size):
 
     return one_if_doc_contains_term
 
-  def _map_to_tfidf(x, reduced_term_freq, corpus_size):
+  def _to_tfidf(x, reduced_term_freq, corpus_size):
     """Calculates the inverse document frequency of terms in the corpus.
 
     Args:
-      x : a SparseTensor of int64 representing string indices in vocab.
-      reduced_term_freq: A dense tensor of shape (vocabSize,) that represents
-          the count of the number of documents with each term.
+      x : a `SparseTensor` of int64 representing string indices in vocab.
+      reduced_term_freq: A `Tensor` of shape (vocabSize,) that represents the
+          count of the number of documents with each term.
       corpus_size: A scalar count of the number of documents in the corpus
 
     Returns:
@@ -157,12 +155,12 @@ def tfidf_weights(x, vocab_size):
 
     return tf.SparseTensor(
         indices=x.indices,
-        values=idf_over_doc_size,
+        values=tf.to_float(idf_over_doc_size),
         dense_shape=x.dense_shape)
 
-  cleaned_input = api.map(_map_to_vocab_range, x)
+  cleaned_input = _to_vocab_range(x)
 
-  docs_with_terms = api.map(_map_to_doc_contains_term, cleaned_input)
+  docs_with_terms = _to_doc_contains_term(cleaned_input)
 
   def count_docs_with_term(term_frequency):
     # Sum w/in batch.
@@ -172,15 +170,14 @@ def tfidf_weights(x, vocab_size):
         dense_shape=term_frequency.dense_shape)
     out = tf.sparse_reduce_sum(count_of_doc_inter, axis=0)
     return tf.expand_dims(out, 0)
-  count_docs_with_term_column = api.map(count_docs_with_term, docs_with_terms)
 
+  count_docs_with_term_column = count_docs_with_term(docs_with_terms)
   # Expand dims to get around the min_tensor_rank checks
-  sizes = api.map(lambda y: tf.expand_dims(tf.shape(y)[0], 0), cleaned_input)
-
-  return api.map(_map_to_tfidf, cleaned_input,
-                 analyzers.sum(count_docs_with_term_column,
-                               reduce_instance_dims=False),
-                 analyzers.sum(sizes))
+  sizes = tf.expand_dims(tf.shape(cleaned_input)[0], 0)
+  return _to_tfidf(cleaned_input,
+                   analyzers.sum(count_docs_with_term_column,
+                                 reduce_instance_dims=False),
+                   analyzers.sum(sizes))
 
 
 def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
@@ -188,7 +185,7 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
   """Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
   Args:
-    x: A `Column` representing a string value or values.
+    x: A `Tensor` or `SparseTensor` of type tf.string.
     default_value: The value to use for out-of-vocabulary values, unless
       'num_oov_buckets' is greater than zero.
     top_k: Limit the generated vocabulary to the first `top_k` elements. If set
@@ -201,9 +198,9 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
       Otherwise it is assigned the `default_value`.
 
   Returns:
-    A `Column` where each string value is mapped to an integer where each unique
-    string value is mapped to a different integer and integers are consecutive
-    and starting from 0.
+    A `Tensor` or `SparseTensor` where each string value is mapped to an integer
+    where each unique string value is mapped to a different integer and integers
+    are consecutive and starting from 0.
 
   Raises:
     ValueError: If `top_k` or `count_threshold` is negative.
@@ -219,53 +216,41 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
       raise ValueError('frequency_threshold must be non-negative, but got: %r' %
                        frequency_threshold)
 
-  def _map_to_int(x, vocab):
-    """Maps string tensor into indexes using vocab.
+  def _fix_vocab_if_needed(vocab):
+    num_to_add = 1 - tf.minimum(tf.size(vocab), 1)
+    return tf.concat([
+        vocab, tf.fill(
+            tf.reshape(num_to_add, (1,)), '__dummy_value__index_zero__')
+    ], 0)
 
-    It uses a dummy vocab when the input vocab is empty.
-
-    Args:
-      x : a Tensor/SparseTensor of string.
-      vocab : a Tensor/SparseTensor containing unique string values within x.
-
-    Returns:
-      a Tensor/SparseTensor of indexes (int) of the same shape as x.
-    """
-
-    def _fix_vocab_if_needed(vocab):
-      num_to_add = 1 - tf.minimum(tf.size(vocab), 1)
-      return tf.concat([
-          vocab, tf.fill(
-              tf.reshape(num_to_add, (1,)), '__dummy_value__index_zero__')
-      ], 0)
-
+  def _apply_vocab(x, vocab):
     table = lookup.string_to_index_table_from_tensor(
-        _fix_vocab_if_needed(vocab), num_oov_buckets=num_oov_buckets,
-        default_value=default_value)
+        vocab, num_oov_buckets=num_oov_buckets, default_value=default_value)
     return table.lookup(x)
 
-  return api.map(_map_to_int, x,
-                 analyzers.uniques(
-                     x, top_k=top_k, frequency_threshold=frequency_threshold))
+  vocab = analyzers.uniques(
+      x, top_k=top_k, frequency_threshold=frequency_threshold)
+  vocab = _fix_vocab_if_needed(vocab)
+  return api.apply_function(_apply_vocab, x, vocab)
 
 
 def segment_indices(segment_ids):
-  """Returns a tensor of indices within each segment.
+  """Returns a `Tensor` of indices within each segment.
 
   segment_ids should be a sequence of non-decreasing non-negative integers that
   define a set of segments, e.g. [0, 0, 1, 2, 2, 2] defines 3 segments of length
-  2, 1 and 3.  The return value is a tensor containing the indices within each
+  2, 1 and 3.  The return value is a `Tensor` containing the indices within each
   segment.
 
   Example input: [0, 0, 1, 2, 2, 2]
   Example output: [0, 1, 0, 0, 1, 2]
 
   Args:
-    segment_ids: A 1-d tensor containing an non-decreasing sequence of
+    segment_ids: A 1-d `Tensor` containing an non-decreasing sequence of
         non-negative integers with type `tf.int32` or `tf.int64`.
 
   Returns:
-    A tensor containing the indices within each segment.
+    A `Tensor` containing the indices within each segment.
   """
   segment_lengths = tf.segment_sum(tf.ones_like(segment_ids), segment_ids)
   segment_starts = tf.gather(tf.concat([[0], tf.cumsum(segment_lengths)], 0),
@@ -275,11 +260,11 @@ def segment_indices(segment_ids):
 
 
 def ngrams(strings, ngram_range):
-  """Create a tensor of n-grams.
+  """Create a `SparseTensor` of n-grams.
 
   Given a vector of strings, return a sparse matrix containing the ngrams from
-  each string.  Each row in the output sparse tensor contains the set of
-  ngrams from the corresponding element in the input tensor.
+  each string.  Each row in the output `SparseTensor` contains the set of ngrams
+  from the corresponding element in the input `Tensor`.
 
   The output ngrams including all whitespace and punctuation from the original
   strings.
@@ -289,7 +274,7 @@ def ngrams(strings, ngram_range):
   strings = ['ab: c', 'wxy.']
   ngrams_range = (1,3)
 
-  output is a sparse tensor with
+  output is a `SparseTensor` with
 
   indices = [[0, 0], [0, 1], ..., [0, 11], [1, 0], [1, 1], ..., [1, 8]]
   values = ['a', 'ab', 'ab:', 'b', 'b:', 'b: ', ':', ': ', ': c', ' ', ' c',
@@ -297,17 +282,17 @@ def ngrams(strings, ngram_range):
   dense_shape = [2, 12]
 
   Args:
-    strings: A tensor of strings with size [batch_size,].
+    strings: A `Tensor` of strings with shape (batch_size,).
     ngram_range: A pair with the range (inclusive) of ngram sizes to return.
 
   Returns:
-    A SparseTensor containing all ngrams from each element of the input.
+    A `SparseTensor` containing all ngrams from each element of the input.
 
   Raises:
     ValueError: if ngram_range[0] < 1 or ngram_range[1] < ngram_range[0]
   """
   # This function is implemented as follows.  First we split the input.  If the
-  # input is ['abcd', 'q', 'xyz'] then the split opreation returns a
+  # input is ['abcd', 'q', 'xyz'] then the split operation returns a
   # SparseTensor with
   #
   # indices=[[0, 0], [0, 1], [0, 2], [0, 3], [1, 0], [2, 0], [2, 1], [2, 2]]

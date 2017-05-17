@@ -24,15 +24,27 @@ import apache_beam as beam
 
 from apache_beam.typehints import KV
 from apache_beam.typehints import List
+from apache_beam.typehints import Union
 from apache_beam.typehints import with_input_types
 from apache_beam.typehints import with_output_types
 
+import numpy as np
 import six
 import tensorflow as tf
+from tensorflow_transform import analyzers
 from tensorflow_transform.beam import common
 
 
-def flatten_value_to_list(batch):
+def _impl_for_analyzer(spec):
+  if isinstance(spec, analyzers.NumericCombineSpec):
+    return _NumericCombineAnalyzerImpl(spec)
+  elif isinstance(spec, analyzers.UniquesSpec):
+    return _UniquesAnalyzerImpl(spec)
+  else:
+    raise NotImplementedError(spec.__class__)
+
+
+def _flatten_value_to_list(batch):
   """Converts an N-D dense or sparse batch to a 1-D list."""
   if isinstance(batch, tf.SparseTensorValue):
     dense_values = batch.values
@@ -44,33 +56,30 @@ def flatten_value_to_list(batch):
   return dense_values.ravel().tolist()
 
 
-@with_input_types(List[common.NUMERIC_TYPE])
-@with_output_types(common.NUMERIC_TYPE)
-class _NumericAnalyzer(beam.PTransform):
+_BUILTIN_COMBINERS_BY_OPERATION = {
+    analyzers.NumericCombineSpec.MIN: min,
+    analyzers.NumericCombineSpec.MAX: max,
+    analyzers.NumericCombineSpec.SUM: sum
+}
+
+
+_NUMPY_COMBINERS_BY_OPERATION = {
+    analyzers.NumericCombineSpec.MIN: np.min,
+    analyzers.NumericCombineSpec.MAX: np.max,
+    analyzers.NumericCombineSpec.SUM: np.sum
+}
+
+
+@beam.ptransform_fn
+def WrapAsNDArray(x, dtype):  # pylint: disable=invalid-name
+  return x | beam.Map(
+      lambda v, np_dtype=dtype.as_numpy_dtype: np.asarray(v, np_dtype))
+
+
+@with_input_types(Union[np.ndarray, tf.SparseTensorValue])
+@with_output_types(List[np.ndarray])
+class _NumericCombineAnalyzerImpl(beam.PTransform):
   """Reduces a PCollection of batches according to the given function."""
-
-  def __init__(self, fn):
-    self._fn = fn
-
-  def expand(self, pcoll):
-    pcoll |= 'FlattenValueToList' >> beam.Map(flatten_value_to_list)
-    return (pcoll
-            | 'CombineWithinList' >> beam.Map(self._fn)
-            | 'CombineGlobally'
-            >> beam.CombineGlobally(self._fn).without_defaults())
-
-
-@with_input_types(List[common.PRIMITIVE_TYPE])
-@with_output_types(List[common.PRIMITIVE_TYPE])
-class _NumericAnalyzerOnBatchDim(beam.PTransform):
-  """Reduces a PCollection on the batche dimension using to the given function.
-
-  Args:
-    fn: The function used to reduce the PCollection. It must take as inputs an
-        ndarray of data, and an axis parameter used to specify that the
-        reduction should only happen along the batch dimension, and all
-        instance dimensions should be preserved.
-  """
 
   class _CombineOnBatchDim(beam.CombineFn):
     """Combines the PCollection only on the 0th dimension using nparray."""
@@ -96,35 +105,50 @@ class _NumericAnalyzerOnBatchDim(beam.PTransform):
     def extract_output(self, accumulator):
       return accumulator
 
-  def __init__(self, fn):
-    self._fn = fn
+  def __init__(self, spec):
+    assert isinstance(spec, analyzers.NumericCombineSpec)
+    self._spec = spec
 
   def expand(self, pcoll):
-    return (pcoll | 'CombineOnBatchDim'
-            >> beam.CombineGlobally(self._CombineOnBatchDim(self._fn)))
+    if self._spec.reduce_instance_dims:
+      fn = _BUILTIN_COMBINERS_BY_OPERATION[self._spec.combiner_type]
+      output = (pcoll
+                | 'FlattenValueToList' >> beam.Map(_flatten_value_to_list)
+                | 'CombineWithinList' >> beam.Map(fn)
+                | 'CombineGlobally'
+                >> beam.CombineGlobally(fn).without_defaults())
+    else:
+      fn = _NUMPY_COMBINERS_BY_OPERATION[self._spec.combiner_type]
+      output = (pcoll | 'CombineOnBatchDim'
+                >> beam.CombineGlobally(self._CombineOnBatchDim(fn)))
+
+    # pylint: disable=no-value-for-parameter
+    output |= 'WrapAsNDArray' >> WrapAsNDArray(self._spec.dtype)
+    return [output]
 
 
-@with_input_types(List[common.PRIMITIVE_TYPE])
-@with_output_types(List[common.PRIMITIVE_TYPE])
-class _UniquesAnalyzer(beam.PTransform):
+@with_input_types(Union[np.ndarray, tf.SparseTensorValue])
+@with_output_types(List[np.ndarray])
+class _UniquesAnalyzerImpl(beam.PTransform):
   """Returns the unique elements in a PCollection of batches."""
 
-  def __init__(self, top_k=None, frequency_threshold=None):
+  def __init__(self, spec):
+    assert isinstance(spec, analyzers.UniquesSpec)
+    self._spec = spec
+
+  def expand(self, pcoll):
+    top_k = self._spec.top_k
+    frequency_threshold = self._spec.frequency_threshold
     assert top_k is None or top_k >= 0
     assert frequency_threshold is None or frequency_threshold >= 0
 
-    self._top_k = top_k
-    self._frequency_threshold = frequency_threshold
-
-  def expand(self, pcoll):
     # Creates a PCollection of (count, element) pairs, then iterates over
     # this to create a single element PCollection containing this list of
     # pairs in sorted order by decreasing counts (and by values for equal
     # counts).
-    pcoll |= 'FlattenValueToList' >> beam.Map(flatten_value_to_list)
-
     counts = (
         pcoll
+        | 'FlattenValueToList' >> beam.Map(_flatten_value_to_list)
         | 'CountWithinList' >>
         # Specification of with_output_types allows for combiner optimizations.
         beam.FlatMap(lambda lst: six.iteritems(Counter(lst))).with_output_types(
@@ -134,14 +158,14 @@ class _UniquesAnalyzer(beam.PTransform):
 
     # Filtration is cheaper than TopK computation and the two commute, so do
     # filtration first.
-    if self._frequency_threshold is not None:
-      counts |= ('FilterByFrequencyThreshold(%s)' % self._frequency_threshold >>
-                 beam.Filter(lambda kv: kv[0] >= self._frequency_threshold))
+    if frequency_threshold is not None:
+      counts |= ('FilterByFrequencyThreshold(%s)' % frequency_threshold >>
+                 beam.Filter(lambda kv: kv[0] >= frequency_threshold))
 
-    if self._top_k is not None:
+    if top_k is not None:
       counts = (counts
-                | 'Top(%s)' % self._top_k
-                >> beam.transforms.combiners.Top.Largest(self._top_k)
+                | 'Top(%s)' % top_k
+                >> beam.transforms.combiners.Top.Largest(top_k)
                 | 'FlattenList' >> beam.FlatMap(lambda lst: lst))
 
     # Performance optimization to obviate reading from finely sharded files
@@ -164,8 +188,12 @@ class _UniquesAnalyzer(beam.PTransform):
       counts.sort(reverse=True)  # Largest first.
       return [element for _, element in counts]
 
-    return (pcoll.pipeline
-            | 'Prepare' >> beam.Create([None])
-            | 'OrderByDecreasingCounts' >> beam.Map(
-                order_by_decreasing_counts,
-                counts_iter=beam.pvalue.AsIter(counts)))
+    # pylint: disable=no-value-for-parameter
+    output = (pcoll.pipeline
+              | 'Prepare' >> beam.Create([None])
+              | 'OrderByDecreasingCounts' >> beam.Map(
+                  order_by_decreasing_counts,
+                  counts_iter=beam.pvalue.AsIter(counts))
+              | 'WrapAsNDArray' >> WrapAsNDArray(self._spec.dtype))
+    return [output]
+

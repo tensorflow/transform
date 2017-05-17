@@ -11,14 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""The core public API of TFTransform.  Provide functions to transform columns.
+"""The core public API of TFTransform.  Provide functions to transform tensors.
 
-The core TFTransform API provides a way for the user to construct an abstract
-representation of a transformation from an input data set to an output data set.
-This function is constructed using the provided functions that operate on the
-`Column` and `Statistic` classes.  In particular, the user combines these
-functions to build a function that accepts and returns a dictionary whose
-keys are strings and whose values are `Column`s or `Statistics`, e.g.
+The core tf.Transform API provides a way for the user to construct a function
+that accepts and returns `Tensor`s.  This function is built by composing regular
+functions built from TensorFlow ops, as well as special functions we refer to as
+`Analyzer`s.  `Analyzer`s behave similarly to TensorFlow ops but require a full
+pass over the whole dataset to compute their output value.
+
+The user-defined preprocessing function should accept and return `Tensor`s that
+are batches from the dataset, whose batch size may vary.  For example the
+following preprocessing function centers the input 'x' while returning 'y'
+unchanged.
 
 import tensorflow_transform as tft
 
@@ -29,261 +33,144 @@ def preprocessing_fn(inputs):
   # Apply the `mean` analyzer to obtain the mean x.
   x_mean = tft.mean(x)
 
-  # Apply `map` together with a function that accepts and returns tensors, to
-  # subtract the mean.
-  x_normalized = tft.map(lambda x, mean: x - mean, x, x_mean)
+  # Subtract the mean.
+  x_centered = x - mean
 
-  # Return a new dictionary containing x normalized, and y unchanged
+  # Return a new dictionary containing x_centered, and y unchanged
   return {
-    'x_normalized': x_normalized,
+    'x_centered': x_centered,
     'y': y
   }
 
-This user-defined function then must be run using an implementation which takes
-the user defined preprocessing function and runs it using some distributed
-computation framework.  The canonical beam implementation uses Apache Beam as
-the underlying framework.  See beam/impl.py for how to use the Beam
-implementation.
+The previous Column/Statistic API required that all TensorFlow functions be
+wrapped in tft.map before being applied to a Column or `Column`s.  This function
+is now no longer needed (and is deprecated) and it simply applies the function
+to its arguments.  However, in some cases `apply_function` must be used in a
+similar way; see the documentation of `apply_function` for details.
+
+This user-defined function then must be run using an implementation based on
+some distributed computation framework.  The canonical implementation uses
+Apache Beam as the underlying framework.  See beam/impl.py for how to use the
+Beam implementation.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-import abc
-
 import tensorflow as tf
+from tensorflow_transform import analyzers
+
+from tensorflow.python.util.deprecation import deprecated
+
+FUNCTION_APPLICATION_COLLECTION = 'tft_function_applications'
 
 
-class Statistic(object):
-  """Statistic represents a statistic of a column in a preprocessing function.
+class FunctionApplication(object):
+  """Contains data to help tf.Transform keep track of function applications."""
 
-  The result of a summary statistic (e.g. mean, sum or a vocabulary) computed
-  on one or more (possibly transformed) columns.
+  def __init__(self, fn, args):
+    def _decompose_tensors(tensor_list):
+      result = []
+      for tensor in tensor_list:
+        if isinstance(tensor, tf.SparseTensor):
+          result.append(tensor.indices)
+          result.append(tensor.values)
+          result.append(tensor.dense_shape)
+        else:
+          result.append(tensor)
+      return result
 
-  Args:
-    tensor: The `Tensor` or `SparseTensor` that will represent the statistic.
-  """
+    def _copy_tensor(tensor):
+      if isinstance(tensor, tf.SparseTensor):
+        return tf.SparseTensor(
+            tf.identity(tensor.indices),
+            tf.identity(tensor.values),
+            tf.identity(tensor.dense_shape))
+      else:
+        return tf.identity(tensor)
 
-  __metaclass__ = abc.ABCMeta
+    # Apply fn to its args, keeping track of any table initializers that are
+    # added while fn is running, and also checking that no analyzers are added
+    # while fn is running.
+    all_table_initializers = tf.get_collection_ref(
+        tf.GraphKeys.TABLE_INITIALIZERS)
+    all_analyzers = tf.get_collection_ref(analyzers.ANALYZER_COLLECTION)
+    original_num_table_initializers = len(all_table_initializers)
+    original_num_analyzers = len(all_analyzers)
+    output = fn(*args)
+    if len(all_analyzers) != original_num_analyzers:
+      raise ValueError(
+          'One or more `Analyzer`s were created while inside '
+          'FunctionApplication.__init__')
 
-  def __init__(self, tensor):
-    self._tensor = tensor
-
-  @property
-  def tensor(self):
-    return self._tensor
-
-
-class Column(object):
-  """A Column represents a column in a preprocessing function.
-
-  Columns are either the columns of the input dataset or a column constructed
-  by applying some row-wise transformation to the input dataset.
-
-  Args:
-    tensor: A `Tensor` or `SparseTensor` that will represent the column.
-    schema: A `ColumnSchema` describing the column. Defaults to None.
-  """
-
-  __metaclass__ = abc.ABCMeta
-
-  def __init__(self, tensor, schema=None):
-    self._tensor = tensor
-    self._schema = schema
-
-  @property
-  def tensor(self):
-    return self._tensor
-
-  @property
-  def schema(self):
-    return self._schema
-
-  @schema.setter
-  def schema(self, schema):
-    self._schema = schema
-
-
-class _AnalyzerOutput(Statistic):
-  """A Column containing the output of a transformation.
-
-  A `_AnalyzerOutput` is defined by zero or more inputs (which may be `Column`s
-  or `Statistic`s) and an analyzer applied to them.
-
-  Args:
-    tensor: The `Tensor` or `SparseTensor` that will represent the statistic.
-    analyzer_name: The name of the analyzer to be applied.
-    inputs: A list of `Column` or `Statistic`s to which the analyzer should
-        be applied.
-    args_dict: Extra arguments for the analyzer.
-  """
-
-  def __init__(self, tensor, analyzer_name, inputs, args_dict):
-    super(_AnalyzerOutput, self).__init__(tensor)
-    self._analyzer_name = analyzer_name
-    self._inputs = inputs
-    self._args_dict = args_dict
-
-  @property
-  def analyzer_name(self):
-    return self._analyzer_name
-
-  @property
-  def inputs(self):
-    return self._inputs
-
-  @property
-  def args_dict(self):
-    return self._args_dict
-
-
-class _InputColumn(Column):
-  """A Column representing a column in the input dataset.
-
-  Args:
-    placeholder: The `Tensor` or `SparseTensor` that will represent the column.
-    schema: A `ColumnSchema` describing the column.
-  """
-
-  def __init__(self, placeholder, schema):
-    # In order to avoid a bug where import_graph_def fails when the input_map
-    # and return_elements of an imported graph are the same (b/34288791), we
-    # avoid using the placeholder of an input column as an output of a graph.
-    # We do this by applying tf.identity to the placeholder and using the output
-    # of tf.identity as the tensor representing the output of this column, thus
-    # preventing the placeholder from being used as both an input and an output.
-    if isinstance(placeholder, tf.SparseTensor):
-      tensor = tf.SparseTensor(indices=tf.identity(placeholder.indices),
-                               values=tf.identity(placeholder.values),
-                               dense_shape=tf.identity(placeholder.dense_shape))
+    # Set inputs and outputs of this op, flattening inputs and outputs into a
+    # list of tensors, but storing outputs in the original format for the return
+    # value of `apply_function`.
+    self._table_initializers = all_table_initializers[
+        original_num_table_initializers:]
+    self._inputs = _decompose_tensors(args)
+    # When traversing the graph, there isn't a clean way to handle `Map`s whose
+    # inputs and outputs overlap.  Therefore we apply tf.identity to all outputs
+    # to ensure the outputs and inputs don't overlap.
+    if isinstance(output, tuple):
+      self._user_output = [_copy_tensor(tensor) for tensor in output]
+      self._outputs = _decompose_tensors(self._user_output)
     else:
-      tensor = tf.identity(placeholder)
-    super(_InputColumn, self).__init__(tensor, schema)
-    self._placeholder = placeholder
+      self._user_output = _copy_tensor(output)
+      self._outputs = _decompose_tensors([self._user_output])
+
+    tf.add_to_collection(FUNCTION_APPLICATION_COLLECTION, self)
 
   @property
-  def placeholder(self):
-    return self._placeholder
-
-
-class _TransformedColumn(Column):
-  """A Column containing the output of a transformation.
-
-  A `_TransformedColumn` is defined by zero or more inputs (which may be
-  `Column`s or `Statistic`s) and a function that accepts `Tensor`s or
-  `SparseTensor`s as arguments and returns a `Tensor` or `SparseTensor`.
-
-  Args:
-    tensor: The `Tensor` or `SparseTensor` that will represent the column.
-    fn: A function that accepts one or more `Tensor`s or `SparseTensor`s and
-      returns a `Tensor` or `SparseTensor`.
-    inputs: A list of `Column` or `Statistic`s to which the transform should
-        be applied.
-  """
-
-  def __init__(self, tensor, fn, inputs):
-    # Transforms are required to produce an output with a batch dimension. The
-    # assertions below attempt to verify this. In the case of dense tensors the
-    # check occurs statically if possible but falls back on a runtime check. In
-    # the case of sparse tensors, the check happens at runtime.
-    min_tensor_rank = 1
-    if isinstance(tensor, tf.SparseTensor):
-      with tf.control_dependencies(
-          [tf.assert_greater_equal(tf.size(tensor.dense_shape),
-                                   min_tensor_rank)]):
-        tensor = tf.SparseTensor(indices=tf.identity(tensor.indices),
-                                 values=tensor.values,
-                                 dense_shape=tensor.dense_shape)
-    else:
-      with tf.control_dependencies(
-          [tf.assert_rank_at_least(tensor, min_tensor_rank)]):
-        tensor = tf.identity(tensor)
-    super(_TransformedColumn, self).__init__(tensor)
-    self._fn = fn
-    self._inputs = inputs
-
-  @property
-  def fn(self):
-    return self._fn
+  def user_output(self):
+    """Outputs in the same format as the original return value of fn."""
+    return self._user_output
 
   @property
   def inputs(self):
     return self._inputs
 
+  @property
+  def outputs(self):
+    return self._outputs
 
-class _TransformedStatistic(Statistic):
-  """A Statistic containing the output of a transformation.
+  @property
+  def table_initializers(self):
+    return self._table_initializers
 
-  A `_TransformedStatistic` is defined by zero or more input `Statistic`s and a
-  function that accepts `Tensor`s or `SparseTensor`s as arguments and returns a
-  `Tensor` or `SparseTensor`.
+
+def apply_function(fn, *args):
+  """Apply a function to its args in a way that tf.Transform can track.
+
+  Functions that involve tables or control flow ops must be wrapped in
+  apply_function.  E.g.
+
+  def preprocessing_fn(inputs):
+    ...
+    label = inputs['label']
+    ...
+    def _convert_label(x):
+      table = lookup.index_table_from_tensor(['bad', 'good'])
+      return table.lookup(x)
+
+    label = api.apply_function(_convert_label, x) # Works
+    label = _convert_label(x)  # Doesn't work.
+
+  The reason this function is needed is so that tf.Transform knows to treat the
+  wrapped function as a single unit, and not try to trace the control flow in
+  TensorFlow by analyzing the ops that make up the function.  This function
+  does not need to be used when calling helper functions in mappers.py as those
+  functions already do the wrapping themselves.
 
   Args:
-    tensor: The `Tensor` or `SparseTensor` that will represent the statistic.
-    fn: A function that accepts one or more `Tensor`s or `SparseTensor`s and
-      returns a `Tensor` or `SparseTensor`.
-    inputs: A list of `Statistic`s to which the transform should be applied.
+    fn: The function to apply
+    *args: The arguments to apply `fn` to.
+
+  Returns:
+    The results of applying fn.
   """
-
-  def __init__(self, tensor, fn, inputs):
-    super(_TransformedStatistic, self).__init__(tensor)
-    self._fn = fn
-    self._inputs = inputs
-
-  @property
-  def fn(self):
-    return self._fn
-
-  @property
-  def inputs(self):
-    return self._inputs
+  return FunctionApplication(fn, args).user_output
 
 
+@deprecated('2017-06-04',
+            'map is no longer required, functions can be applied directly.')
 def map(fn, *args):  # pylint: disable=redefined-builtin
-  """Applies a function to some columns.
-
-  Applies a function to some columns given by the argument list. The number
-  of arguments should match the number of inputs to the function. The args can
-  also contain `Statistic`s in which case the values are the same for each
-  batch.
-
-  Args:
-    fn: A function that accepts one or more `Tensor`s or `SparseTensor`s and
-      returns a `Tensor` or `SparseTensor`.
-    *args: The list of `Column`s or `Statistic`s to apply the arguments to.
-
-  Returns:
-    A `Column` representing the application of the function.
-  """
-  input_tensors = [arg.tensor for arg in args]
-  output_tensor = fn(*input_tensors)
-  return _TransformedColumn(output_tensor, fn, args)
-
-
-def map_statistics(fn, *args):
-  """Applies a function to some statistics.
-
-  Applies a function to some `Statistics`s given by the argument list. The
-  number of arguments should match the number of inputs to the function.
-
-  Args:
-    fn: A function that accepts one or more `Tensor`s or `SparseTensor`s and
-      returns a `Tensor` or `SparseTensor`.
-    *args: The list of `Statistic`s to apply the arguments to.
-
-  Returns:
-    A `Statistic` representing the application of the function.
-  """
-  input_tensors = [arg.tensor for arg in args]
-  output_tensor = fn(*input_tensors)
-  return _TransformedStatistic(output_tensor, fn, args)
-
-
-class CanonicalAnalyzers(object):
-  """Enum-like class containing names of canonical analyzers."""
-
-  MIN = 'min'
-  MAX = 'max'
-  SUM = 'sum'
-  UNIQUES = 'uniques'
+  """Deprecated function for backwards compatibility."""
+  return apply_function(fn, *args)
