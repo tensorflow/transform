@@ -478,7 +478,8 @@ def _from_parse_feature(parse_feature):
     return ColumnSchema(parse_feature.dtype, [parse_feature.size],
                         representation)
 
-  raise ValueError('Cannot interpret feature spec: {}'.format(parse_feature))
+  raise ValueError('Cannot interpret feature spec {} with type {}'.format(
+    parse_feature, type(parse_feature)))
 
 
 def infer_column_schema_from_tensor(tensor):
