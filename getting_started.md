@@ -11,35 +11,27 @@ aspects of the usage of tf.Transform.
 ## Defining a Preprocessing Function
 
 The most important concept of tf.Transform is the "preprocessing function". This
-is a logical description of a transformation of a dataset. The dataset is
-conceptualized as a dictionary of columns, and the preprocessing function is
-defined by two basic mechanisms:
+is a logical description of a transformation of a dataset.  The preprocessing
+function accepts and returns a dictionary of tensors (in this guide, "tensors"
+generally means `Tensor`s or `SparseTensor`s).  There are two kinds of functions
+that can be used to define the preprocessing function:
 
-1) Applying `tft.map`, which takes a user-defined function that accepts and
-returns tensors. Such a function can use any TensorFlow operation to construct
-the output tensors from the inputs. The remaining arguments of `tft.map` are the
-columns that the function should be applied to. The number of columns provided
-should equal the number of arguments to the user-defined function. Like the
-Python `map` function, `tft.map` applies the user-provided function to the
-elements in the columns specified. Each row is treated independently, and the
-output is a column containing the results (but see the note on batching at the
-end of this section).
+1) Any function that accepts and returns tensors.  These will add TensorFlow
+operations to the graph that transforms raw data into transformed data.
 
-2) Applying any of the tf.Transform provided "analyzers". Analyzers are
-functions that accept one or more `Column`s and return some summary statistic
-for the input column or columns. A statistic is like a column except that it
-only has a single value. An example of an analyzer is `tft.min` which computes
-the minimum of a column. Currently tf.Transform provides a fixed set of
-analyzers, but this will be extensible in future versions.
+2) Any of the tf.Transform provided "analyzers". Analyzers also accept and return
+tensors, but unlike typical TensorFlow functions they don't add TF Operations
+to the graph.  Instead, they cause tf.Transform to compute a full pass operation
+outside of TensorFlow, using the input tensor values over the full dataset to
+generate a constant tensor that gets returned as the output.  For example
+`tft.min` computes the minimum of a tensor over the whole dataset. Currently
+tf.Transform provides a fixed set of analyzers, but this will be extensible in
+future versions.
 
-In fact, `tft.map` can also accept statistics, which is how statistics are
-incorporated into the user-defined pipeline. By combining analyzers and
-`tft.map`, users can flexibly create pipelines for transforming their data. In
-particular, users should define a "preprocessing function" which accepts and
-returns columns.
-
-The following preprocessing function transforms each of three columns in
-different ways, and combines two of the columns.
+By combining analyzers and regular TensorFlow functions, users can flexibly
+create pipelines for transforming their data.  The following preprocessing
+function transforms each of three features in different ways, and combines two
+of the features.
 
 ```
 import tensorflow as tf
@@ -49,11 +41,10 @@ def preprocessing_fn(inputs):
   x = inputs['x']
   y = inputs['y']
   s = inputs['s']
-  x_centered = tft.map(lambda x, mean: x - mean, x, tft.mean(x))
+  x_centered = x - tft.mean(x)
   y_normalized = tft.scale_to_0_1(y)
   s_integerized = tft.string_to_int(s)
-  x_centered_times_y_normalized = tft.map(lambda x, y: x * y,
-                                          x_centered, y_normalized)
+  x_centered_times_y_normalized = x_centered * y_normalized
   return {
       'x_centered': x_centered,
       'y_normalized': y_normalized,
@@ -62,32 +53,29 @@ def preprocessing_fn(inputs):
   }
 ```
 
-`x`, `y` and `s` are local variables that represent input columns, that are
-declared for code brevity. The first new column to be constructed, `x_centered`,
-is constructed by composing `tft.map` and `tft.mean`. `tft.mean(x)` returns a
-statistic representing the mean of the column `x`. The lambda passed to
-`tft.map` is simply subtraction, where the first argument is the column `x` and
-the second is the statistic `tft.mean(x)`. Thus `x_centered` is the column `x`
+`x`, `y` and `s` are `Tensor`s that represent input features. The first new
+tensor to be constructed, `x_centered`, is constructed by applying `tft.mean`
+to `x` and subtracting this from `x`. `tft.mean(x)` returns a tensor
+representing the mean of the tensor `x`. Thus `x_centered` is the tensor `x`
 with the mean subtracted.
 
-The second new column is `y_normalized`, created in a similar manner but using
+The second new tensor is `y_normalized`, created in a similar manner but using
 the convenience method `tft.scale_to_0_1`. This method does something similar
 under the hood to what is done to compute `x_centered`, namely computing a max
 and min and using these to scale `y`.
 
-The column `s_integerized` shows an example of string manipulation. In this
+The tensor `s_integerized` shows an example of string manipulation. In this
 simple case we take a string and map it to an integer. This too uses a
-convenience function, where the analyzer that is applied computes the unique
-values taken by the column, and the map uses these values as a dictionary to
-convert to an integer.
+convenience function, `tft.string_to_int`.   This function uses an analyzer to
+compute the unique values taken by the input strings, and then uses TensorFlow
+ops to convert the input strings to indices in the table of unique values.
 
-The final column shows that it is possible to use `tft.map` not only to
-manipulate a single column but also to combine columns.
+The final column shows that it is possible to use tensorflow operations to
+create new features by combining tensors.
 
-Note that `Column`s are not themselves wrappers around data. Rather they are
-placeholders used to construct a definition of the user's logical pipeline. In
-order to apply such a pipeline to data, we rely on a concrete implementation of
-the tf.Transform API. The Apache Beam implementation provides `PTransform`s that
+The preprocessing function defines a pipeline of operations on a dataset.  In
+order to apply such a pipeline, we rely on a concrete implementation of the
+tf.Transform API. The Apache Beam implementation provides `PTransform`s that
 apply a user's preprocessing function to data. The typical workflow of a
 tf.Transform user will be to construct a preprocessing function, and then
 incorporate this into a larger Beam pipeline, ultimately materializing the data
@@ -100,13 +88,14 @@ tf.Transform is to provide the TensorFlow graph for preprocessing that can be
 incorporated into the serving graph (and optionally the training graph),
 batching is also an important concept in tf.Transform.
 
-While it is not obvious from the example above, the user defined function passed
-to `tft.map` will be passed tensors representing *batches*, not individual
-instances, just as will happen during training and serving with TensorFlow. This
-is only the case for inputs that are `Column`s, not `Statistic`s. Thus the
-actual tensors used in the `tft.map` for `x_centered` are 1) a rank 1 tensor,
-representing a batch of values from the column `x`, whose first dimension is the
-batch dimension; and 2) a rank 0 tensor representing the mean of that column.
+While it is not obvious from the example above, the user defined preprocessing
+function will be passed tensors representing *batches*, not individual
+instances, just as will happen during training and serving with TensorFlow.  On
+the other hand, analyzers perform a computation over the whole dataset and
+return a single value, not a batch of values.  Thus `x` is a `Tensor` of shape
+`(batch_size,)` while `tft.mean(x)` is a `Tensor` of shape `()`.  The
+subtraction `x - tft.mean(x)` involves broadcasting where the value of
+`tft.mean(x)` is subtracted from every element of the batch represented by `x`.
 
 ## The Canonical Beam Implementation
 
@@ -322,17 +311,20 @@ def preprocessing_fn(inputs):
   def convert_label(label):
     table = lookup.string_to_index_table_from_tensor(['>50K', '<=50K'])
     return table.lookup(label)
-  outputs[LABEL_COLUMN] = tft.map(convert_label, inputs[LABEL_COLUMN])
+  outputs[LABEL_COLUMN] = tft.apply_function(
+      convert_label, inputs[LABEL_COLUMN])
 
   return outputs
 ```
 
-One difference from the previous example is that we convert the outputs from
-scalars to single element vectors. This allows the data to be correctly read
-during training. Also for the label column, we manually specify the mapping from
-string to index so that ">50K" gets mapped to 0 and "<=50K" gets mapped to 1.
-This is useful so that we know which index in the trained model corresponds to
-which label.
+One difference from the previous example is that for the label column, we
+manually specify the mapping from string to index so that ">50K" gets mapped to
+0 and "<=50K" gets mapped to 1. This is useful so that we know which index in
+the trained model corresponds to which label.  We cannot apply the function
+`convert_label` directly to its arguments because `tf.Transform` needs to know
+about the `Table` defined in `convert_label`.  That is, `convert_label` is not
+a pure function but involves table initialization.  For such functions, we use
+`tft.apply_function` to wrap the function application.
 
 The `raw_data` variable represents a `PCollection` containing data in the same
 format as the list `raw_data` from the previous example, and the use of the

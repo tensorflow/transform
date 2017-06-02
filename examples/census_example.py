@@ -116,7 +116,8 @@ def transform_data(train_data_file, test_data_file,
     def convert_label(label):
       table = lookup.string_to_index_table_from_tensor(['>50K', '<=50K'])
       return table.lookup(label)
-    outputs[LABEL_COLUMN] = tft.map(convert_label, inputs[LABEL_COLUMN])
+    outputs[LABEL_COLUMN] = tft.apply_function(convert_label,
+                                               inputs[LABEL_COLUMN])
 
     return outputs
 

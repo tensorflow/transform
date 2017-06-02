@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import json
 import os
 import tempfile
 
@@ -63,6 +64,43 @@ def _make_transformed_schema(shape):
 
 class InputFnMakerTest(unittest.TestCase):
 
+  def test_build_csv_transforming_serving_input_fn_with_defaults(self):
+    feed_dict = [',,']
+
+    basedir = tempfile.mkdtemp()
+
+    raw_metadata = dataset_metadata.DatasetMetadata(
+        schema=_make_raw_schema([]))
+
+    transform_savedmodel_dir = os.path.join(basedir, 'transform-savedmodel')
+    _write_transform_savedmodel(transform_savedmodel_dir)
+
+    serving_input_fn = (
+        input_fn_maker.build_csv_transforming_serving_input_fn(
+            raw_metadata=raw_metadata,
+            raw_keys=['raw_a', 'raw_b', 'raw_label'],
+            transform_savedmodel_dir=transform_savedmodel_dir))
+
+    with tf.Graph().as_default():
+      with tf.Session().as_default() as session:
+        outputs, labels, inputs = serving_input_fn()
+        feed_inputs = {inputs['csv_example']: feed_dict}
+        transformed_a, transformed_b, transformed_label = session.run(
+            [outputs['transformed_a'], outputs['transformed_b'],
+             outputs['transformed_label']],
+            feed_dict=feed_inputs)
+
+    # Note the feed dict is empy. So these values come from the defaults
+    # in _make_raw_schema()
+    self.assertEqual(1, transformed_a[0][0])
+    self.assertEqual(-1, transformed_b[0][0])
+    self.assertEqual(-1000, transformed_label[0][0])
+    self.assertItemsEqual(
+        outputs,
+        {'transformed_a', 'transformed_b', 'transformed_label'})
+    self.assertIsNone(labels)
+    self.assertEqual(set(inputs.keys()), {'csv_example'})
+
   def test_build_csv_transforming_serving_input_fn_with_label(self):
     feed_dict = ['15,6,1', '12,17,2']
 
@@ -101,6 +139,79 @@ class InputFnMakerTest(unittest.TestCase):
         {'transformed_a', 'transformed_b', 'transformed_label'})
     self.assertIsNone(labels)
     self.assertEqual(set(inputs.keys()), {'csv_example'})
+
+  def test_build_json_example_transforming_serving_input_fn(self):
+    example_all = {
+        'features': {
+            'feature': {
+                'raw_a': {
+                    'int64List': {
+                        'value': [42]
+                    }
+                },
+                'raw_b': {
+                    'int64List': {
+                        'value': [43]
+                    }
+                },
+                'raw_label': {
+                    'int64List': {
+                        'value': [44]
+                    }
+                }
+            }
+        }
+    }
+    # Default values for raw_a and raw_b come from _make_raw_schema()
+    example_missing = {
+        'features': {
+            'feature': {
+                'raw_label': {
+                    'int64List': {
+                        'value': [3]
+                    }
+                }
+            }
+        }
+    }
+    feed_dict = [json.dumps(example_all), json.dumps(example_missing)]
+
+    basedir = tempfile.mkdtemp()
+
+    raw_metadata = dataset_metadata.DatasetMetadata(
+        schema=_make_raw_schema([]))
+
+    transform_savedmodel_dir = os.path.join(basedir, 'transform-savedmodel')
+    _write_transform_savedmodel(transform_savedmodel_dir)
+
+    serving_input_fn = (
+        input_fn_maker.build_json_example_transforming_serving_input_fn(
+            raw_metadata=raw_metadata,
+            raw_label_keys=[],
+            raw_feature_keys=['raw_a', 'raw_b', 'raw_label'],
+            transform_savedmodel_dir=transform_savedmodel_dir))
+
+    with tf.Graph().as_default():
+      with tf.Session().as_default() as session:
+        outputs, labels, inputs = serving_input_fn()
+        feed_inputs = {inputs['json_example']: feed_dict
+                      }
+        transformed_a, transformed_b, transformed_label = session.run(
+            [outputs['transformed_a'], outputs['transformed_b'],
+             outputs['transformed_label']],
+            feed_dict=feed_inputs)
+
+    self.assertEqual(85, transformed_a[0][0])
+    self.assertEqual(-1, transformed_b[0][0])
+    self.assertEqual(44000, transformed_label[0][0])
+    self.assertEqual(1, transformed_a[1][0])
+    self.assertEqual(-1, transformed_b[1][0])
+    self.assertEqual(3000, transformed_label[1][0])
+    self.assertItemsEqual(
+        outputs,
+        {'transformed_a', 'transformed_b', 'transformed_label'})
+    self.assertIsNone(labels)
+    self.assertEqual(set(inputs.keys()), {'json_example'})
 
   def test_build_parsing_transforming_serving_input_fn_scalars(self):
     self._test_build_parsing_transforming_serving_input_fn(
