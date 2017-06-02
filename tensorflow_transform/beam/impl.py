@@ -83,6 +83,31 @@ from tensorflow_transform.tf_metadata import dataset_schema
 
 _DEFAULT_DESIRED_BATCH_SIZE = 1000
 
+_DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER = {
+    # We rely on Beam to manage concurrency, i.e. we expect it to run one
+    # session per CPU--so we don't want to proliferate TF threads.
+    # Nonetheless we provide 4 threads per session for TF ops, 2 inter-
+    # and 2 intra-thread.  In many cases only 2 of these will be runnable
+    # at any given time.  This approach oversubscribes a bit to make sure
+    # the CPUs are really saturated.
+    #
+    beam.runners.DataflowRunner:
+        tf.ConfigProto(
+            use_per_session_threads=True,
+            inter_op_parallelism_threads=2,
+            intra_op_parallelism_threads=2).SerializeToString(),
+
+}
+
+
+def _maybe_deserialize_tf_config(serialized_tf_config):
+  if serialized_tf_config is None:
+    return None
+
+  result = tf.ConfigProto()
+  result.ParseFromString(serialized_tf_config)
+  return result
+
 
 class Context(object):
   """Context manager for tensorflow-transform.
@@ -162,28 +187,19 @@ class _RunMetaGraphDoFn(beam.DoFn):
     exclude_outputs: A list of names of outputs to exclude.
     desired_batch_size: The desired number of instances to convert into a batch
       before feeding to Tensorflow.
+    serialized_tf_config: A serialized tf.ConfigProto to use in sessions. None
+      implies use Tensorflow defaults.
   """
 
   class _GraphState(object):
 
-    def __init__(self, saved_model_dir, input_schema, output_schema):
+    def __init__(self, saved_model_dir, input_schema, output_schema,
+                 tf_config):
       self.saved_model_dir = saved_model_dir
       self.graph = tf.Graph()
-      self.session = tf.Session(
-          graph=self.graph,
-          # We rely on Beam to manage concurrency, i.e. we expect it to run one
-          # session per CPU--so we don't want to proliferate TF threads.
-          # Nonetheless we provide 4 threads per session for TF ops, 2 inter-
-          # and 2 intra-thread.  In many cases only 2 of these will be runnable
-          # at any given time.  This approach oversubscribes a bit to make sure
-          # the CPUs are really saturated.
-          #
-          config=tf.ConfigProto(
-              use_per_session_threads=True,
-              inter_op_parallelism_threads=2,
-              intra_op_parallelism_threads=2))
+      self.session = tf.Session(graph=self.graph, config=tf_config)
       with self.graph.as_default():
-        with tf.Session():
+        with tf.Session(config=tf_config):
           inputs, outputs = saved_transform_io.partially_apply_saved_transform(
               saved_model_dir, {})
         self.session.run(tf.tables_initializer())
@@ -206,13 +222,16 @@ class _RunMetaGraphDoFn(beam.DoFn):
   def __init__(self,
                input_schema,
                output_schema,
+               serialized_tf_config,
                exclude_outputs=None,
                desired_batch_size=_DEFAULT_DESIRED_BATCH_SIZE):
     super(_RunMetaGraphDoFn, self).__init__()
     self._input_schema = input_schema
     self._output_schema = output_schema
+    self._serialized_tf_config = serialized_tf_config
     self._exclude_outputs = exclude_outputs
     self._desired_batch_size = desired_batch_size
+
     self._batch = []
     self._graph_state = None
 
@@ -232,8 +251,13 @@ class _RunMetaGraphDoFn(beam.DoFn):
         self._graph_state.inputs, self._input_schema, self._batch)
     del self._batch[:]
 
-    return self._graph_state.session.run(
-        self._graph_state.outputs, feed_dict=feed_dict)
+    try:
+      return self._graph_state.session.run(
+          self._graph_state.outputs, feed_dict=feed_dict)
+    except Exception as e:
+      tf.logging.error('%s while applying transform function for tensors %s' %
+                       (e, self._graph_state.outputs))
+      raise
 
   def process(self, element, saved_model_dir):
     """Runs the given graph to realize the output `Tensor` or `SparseTensor`s.
@@ -254,8 +278,9 @@ class _RunMetaGraphDoFn(beam.DoFn):
       if (getattr(self._thread_local, 'graph_state', None) is None or
           self._thread_local.graph_state.saved_model_dir != saved_model_dir):
         start = datetime.datetime.now()
+        tf_config = _maybe_deserialize_tf_config(self._serialized_tf_config)
         self._thread_local.graph_state = self._GraphState(
-            saved_model_dir, self._input_schema, self._output_schema)
+            saved_model_dir, self._input_schema, self._output_schema, tf_config)
         self._graph_load_seconds_distribution.update(
             int((datetime.datetime.now() - start).total_seconds()))
       self._graph_state = self._thread_local.graph_state
@@ -393,8 +418,10 @@ class AnalyzeDataset(beam.PTransform):
         # a temp dir.  This makes the wrapper idempotent since any retry will
         # use a different temp dir.
         def replace_tensors_with_constant_values(
-            saved_model_dir, tensor_value_mapping):
-          with tf.Session() as session:
+            saved_model_dir, tensor_value_mapping, serialized_tf_config):
+
+          tf_config = _maybe_deserialize_tf_config(serialized_tf_config)
+          with tf.Session(config=tf_config) as session:
             temp_dir = _make_unique_temp_dir(base_temp_dir)
             input_tensors, output_tensors = (
                 saved_transform_io.partially_apply_saved_transform(
@@ -402,10 +429,14 @@ class AnalyzeDataset(beam.PTransform):
             saved_transform_io.write_saved_transform_from_session(
                 session, input_tensors, output_tensors, temp_dir)
           return temp_dir
+
+        serialized_tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(
+            self.pipeline.runner)
         return (transform_fn |
                 'ReplaceTensorsWithConstantValues' >> beam.Map(
                     replace_tensors_with_constant_values,
-                    tensor_value_mapping=tensor_value_mapping))
+                    tensor_value_mapping=tensor_value_mapping,
+                    serialized_tf_config=serialized_tf_config))
 
     class _ComputeTensorPcollMappingUpdate(beam.PTransform):
       """Create a mapping from `Tensor`s to PCollections.
@@ -434,10 +465,12 @@ class AnalyzeDataset(beam.PTransform):
             >> _ReplaceTensorsWithConstants(self._saved_model_dir))
 
         # Run the transform_fn.
+        serialized_tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(
+            self.pipeline.runner)
         analyzer_input_values = (
             input_values | 'ComputeAnalyzerInputs' >> beam.ParDo(
-                _RunMetaGraphDoFn(input_schema,
-                                  self._analyzer_inputs_schema),
+                _RunMetaGraphDoFn(input_schema, self._analyzer_inputs_schema,
+                                  serialized_tf_config),
                 saved_model_dir=beam.pvalue.AsSingleton(transform_fn)))
 
         # For each analyzer output, look up its input values (by tensor name)
@@ -598,12 +631,16 @@ class TransformDataset(beam.PTransform):
       return impl_helper.to_instance_dicts(
           impl_helper.make_output_dict(output_metadata.schema, batch_dict))
 
+    serialized_tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(
+        self.pipeline.runner)
     output_instances = (
         input_values
         | 'Transform' >> beam.ParDo(
-            _RunMetaGraphDoFn(input_metadata.schema,
-                              output_metadata.schema,
-                              exclude_outputs=self._exclude_outputs),
+            _RunMetaGraphDoFn(
+                input_metadata.schema,
+                output_metadata.schema,
+                serialized_tf_config,
+                exclude_outputs=self._exclude_outputs),
             saved_model_dir=beam.pvalue.AsSingleton(transform_fn))
         | 'ConvertAndUnbatch' >> beam.FlatMap(convert_and_unbatch))
     return (output_instances, output_metadata)

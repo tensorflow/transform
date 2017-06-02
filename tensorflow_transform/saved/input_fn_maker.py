@@ -106,7 +106,8 @@ def build_csv_transforming_serving_input_fn(
 
     record_defaults = []
     for k in raw_keys:
-      if column_schemas[k].representation.default_value:
+      if column_schemas[k].representation.default_value is not None:
+        # Note that 0 and '' are valid defaults.
         value = tf.constant([column_schemas[k].representation.default_value],
                             dtype=column_schemas[k].domain.dtype)
       else:
@@ -131,6 +132,67 @@ def build_csv_transforming_serving_input_fn(
         transformed_features, None, {"csv_example": placeholder})
 
   return default_transforming_serving_input_fn
+
+
+def build_json_example_transforming_serving_input_fn(
+    raw_metadata,
+    transform_savedmodel_dir,
+    raw_label_keys,
+    raw_feature_keys=None,
+    convert_scalars_to_vectors=True):
+  """Creates input_fn that applies transforms to raw data formatted in json.
+
+  The json is formatted as tf.examples. For example, one input row could contain
+  the string for
+
+  {"features": {"feature": {"name": {"int64List": {"value": [42]}}}}}
+
+  which encodes an example containing only feature column 'name' with value 42.
+
+  Args:
+    raw_metadata: a `DatasetMetadata` object describing the raw data.
+    transform_savedmodel_dir: a SavedModel directory produced by tf.Transform
+      embodying a transformation function to be applied to incoming raw data.
+    raw_label_keys: A list of string keys of the raw labels to be used. These
+      labels are removed from the serving graph. To build a serving function
+      that expects labels in the input at serving time, pass raw_labels_keys=[].
+    raw_feature_keys: A list of string keys of the raw features to be used.
+      If None or empty, defaults to all features except labels.
+    convert_scalars_to_vectors: Boolean specifying whether this input_fn should
+      convert scalars into 1-d vectors.  This is necessary if the inputs will be
+      used with `FeatureColumn`s as `FeatureColumn`s cannot accept scalar
+      inputs. Default: True.
+
+  Returns:
+    An input_fn suitable for serving that applies transforms to raw data in
+    tf.Examples.
+  """
+
+  raw_feature_spec = raw_metadata.schema.as_feature_spec()
+  raw_feature_keys = _prepare_feature_keys(raw_metadata,
+                                           raw_label_keys,
+                                           raw_feature_keys)
+  raw_serving_feature_spec = {key: raw_feature_spec[key]
+                              for key in raw_feature_keys}
+
+  def _serving_input_fn():
+    """Applies transforms to raw data in json-example strings."""
+
+    json_example_placeholder = tf.placeholder(tf.string, shape=[None])
+    example_strings = tf.decode_json_example(json_example_placeholder)
+    raw_features = tf.parse_example(example_strings, raw_serving_feature_spec)
+    inputs = {"json_example": json_example_placeholder}
+
+    _, transformed_features = (
+        saved_transform_io.partially_apply_saved_transform(
+            transform_savedmodel_dir, raw_features))
+
+    if convert_scalars_to_vectors:
+      transformed_features = _convert_scalars_to_vectors(transformed_features)
+
+    return input_fn_utils.InputFnOps(transformed_features, None, inputs)
+
+  return _serving_input_fn
 
 
 def build_parsing_transforming_serving_input_fn(

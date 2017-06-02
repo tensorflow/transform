@@ -45,20 +45,20 @@ class Analyzer(object):
 
   Args:
     inputs: The inputs to the analyzer.
-    output_shapes_and_dtype: List of pairs of (shape, dtype) for each output.
+    output_shapes_and_dtype: List of pairs of (dtype, shape) for each output.
     spec: A description of the computation to be done.
 
   Raises:
     ValueError: If the inputs are not all `Tensor`s.
   """
 
-  def __init__(self, inputs, output_shapes_and_dtypes, spec):
+  def __init__(self, inputs, output_dtypes_and_shapes, spec):
     for tensor in inputs:
       if not isinstance(tensor, tf.Tensor):
         raise ValueError('Analyzers can only accept `Tensor`s as inputs')
     self._inputs = inputs
-    self._outputs = [tf.placeholder(shape, dtype)
-                     for shape, dtype in output_shapes_and_dtypes]
+    self._outputs = [tf.placeholder(dtype, shape)
+                     for dtype, shape in output_dtypes_and_shapes]
     self._spec = spec
     tf.add_to_collection(ANALYZER_COLLECTION, self)
 
@@ -131,7 +131,7 @@ def min(x, reduce_instance_dims=True):  # pylint: disable=redefined-builtin
         dimension and outputs a `Tensor` of the same shape as the input.
 
   Returns:
-    A `Tensor`.
+    A `Tensor`. Has the same type as `x`.
   """
   return _numeric_combine(x, NumericCombineSpec.MIN, reduce_instance_dims)
 
@@ -146,7 +146,7 @@ def max(x, reduce_instance_dims=True):  # pylint: disable=redefined-builtin
         dimension and outputs a vector of the same shape as the output.
 
   Returns:
-    A `Tensor`.
+    A `Tensor`. Has the same type as `x`.
   """
   return _numeric_combine(x, NumericCombineSpec.MAX, reduce_instance_dims)
 
@@ -161,7 +161,7 @@ def sum(x, reduce_instance_dims=True):  # pylint: disable=redefined-builtin
         dimension and outputs a vector of the same shape as the output.
 
   Returns:
-    A `Tensor`.
+    A `Tensor`. Has the same type as `x`.
   """
   return _numeric_combine(x, NumericCombineSpec.SUM, reduce_instance_dims)
 
@@ -176,7 +176,7 @@ def size(x, reduce_instance_dims=True):
         dimension and outputs a vector of the same shape as the output.
 
   Returns:
-    A `Tensor`.
+    A `Tensor`. Has the same type as `x`.
   """
   with tf.name_scope('size'):
     # Note: Calling `sum` defined in this module, not the builtin.
@@ -193,12 +193,42 @@ def mean(x, reduce_instance_dims=True):
         dimension and outputs a vector of the same shape as the output.
 
   Returns:
-    A `Tensor` containing the mean.
+    A `Tensor` containing the mean. If `x` is floating point, the mean will
+    have the same type as `x`. If `x` is integral, the output is cast to float32
+    for int8 and int16 and float64 for int32 and int64 (similar to the behavior
+    of tf.truediv).
   """
   with tf.name_scope('mean'):
     # Note: Calling `sum` defined in this module, not the builtin.
     return tf.divide(
         sum(x, reduce_instance_dims), size(x, reduce_instance_dims))
+
+
+def var(x, reduce_instance_dims=True):
+  """Computes the variance of the values of a `Tensor` over the whole dataset.
+
+  Uses the biased variance (0 delta degrees of freedom), as given by
+  (x - mean(x))**2 / length(x).
+
+  Args:
+    x: A `Tensor`.
+    reduce_instance_dims: By default collapses the batch and instance dimensions
+        to arrive at a single scalar output. If False, only collapses the batch
+        dimension and outputs a vector of the same shape as the output.
+
+  Returns:
+    A `Tensor` containing the variance. If `x` is floating point, the variance
+    will have the same type as `x`. If `x` is integral, the output is cast to
+    float32 for int8 and int16 and float64 for int32 and int64 (similar to the
+    behavior of tf.truediv).
+  """
+  with tf.name_scope('var'):
+    # Note: Calling `mean`, `sum`, and `size` as defined in this module, not the
+    # builtins.
+    x_mean = mean(x, reduce_instance_dims)
+    # x_mean will be float32 or float64, depending on type of x.
+    squared_deviations = tf.square(tf.cast(x, x_mean.dtype) - x_mean)
+    return mean(squared_deviations, reduce_instance_dims)
 
 
 class UniquesSpec(object):

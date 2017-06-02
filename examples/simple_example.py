@@ -32,11 +32,10 @@ def preprocessing_fn(inputs):
   x = inputs['x']
   y = inputs['y']
   s = inputs['s']
-  x_centered = tft.map(lambda x, mean: x - mean, x, tft.mean(x))
+  x_centered = x - tft.mean(x)
   y_normalized = tft.scale_to_0_1(y)
   s_integerized = tft.string_to_int(s)
-  x_centered_times_y_normalized = tft.map(lambda x, y: x * y,
-                                          x_centered, y_normalized)
+  x_centered_times_y_normalized = (x_centered * y_normalized)
   return {
       'x_centered': x_centered,
       'y_normalized': y_normalized,
