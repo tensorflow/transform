@@ -140,13 +140,13 @@ def transform_data(train_neg_filepattern, train_pos_filepattern,
         """Preprocess input columns into transformed columns."""
         review = inputs[REVIEW_COLUMN]
 
-        review_tokens = tft.map(lambda x: tf.string_split(x, DELIMITERS),
-                                review)
+        review_tokens = tf.string_split(review, DELIMITERS)
         review_indices = tft.string_to_int(review_tokens, top_k=VOCAB_SIZE)
         # Add one for the oov bucket created by string_to_int.
-        review_weight = tft.tfidf_weights(review_indices, VOCAB_SIZE + 1)
+        review_bow_indices, review_weight = tft.tfidf(review_indices,
+                                                      VOCAB_SIZE + 1)
         return {
-            REVIEW_COLUMN: review_indices,
+            REVIEW_COLUMN: review_bow_indices,
             REVIEW_WEIGHT: review_weight,
             LABEL_COLUMN: inputs[LABEL_COLUMN]
         }

@@ -17,14 +17,12 @@ from setuptools import find_packages
 from setuptools import setup
 
 # Tensorflow transform version.
-__version__ = '0.1.9'
+__version__ = '0.1.10'
 
 
 def _make_required_install_packages():
   return [
-      # Using >= for better integration tests. During release this is
-      # automatically changed to a ==.
-      'apache-beam[gcp] == 0.6.0',
+      'apache-beam[gcp]>=2,<3',
   ]
 
 

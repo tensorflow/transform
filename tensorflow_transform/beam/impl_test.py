@@ -77,6 +77,11 @@ class BeamImplTest(test_util.TensorFlowTestCase):
           | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
 
     self.assertDataEqual(expected_data, transformed_data)
+    # Use extra assertEqual for schemas, since full metadata assertEqual error
+    # message is not conducive to debugging.
+    self.assertEqual(
+        expected_metadata.schema.column_schemas,
+        transformed_metadata.schema.column_schemas)
     self.assertEqual(expected_metadata, transformed_metadata)
 
   def testApplySavedModelSingleInput(self):
@@ -583,7 +588,72 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     self.assertTrue(
         'output_min must be less than output_max' in context.exception)
 
-  def testNumericAnalyzersWithScalarInputs(self):
+  def testNumericAnalyzersWithScalarInputs_int64(self):
+    self.numericAnalyzersWithScalarInputs(
+        input_dtype=tf.int64,
+        output_dtypes={
+            'min': tf.int64,
+            'max': tf.int64,
+            'sum': tf.int64,
+            'size': tf.int64,
+            'mean': tf.float64,
+            'var': tf.float64
+        }
+    )
+
+  def testNumericAnalyzersWithScalarInputs_int32(self):
+    self.numericAnalyzersWithScalarInputs(
+        input_dtype=tf.int32,
+        output_dtypes={
+            'min': tf.int32,
+            'max': tf.int32,
+            'sum': tf.int32,
+            'size': tf.int32,
+            'mean': tf.float64,
+            'var': tf.float64
+        }
+    )
+
+  def testNumericAnalyzersWithScalarInputs_int16(self):
+    self.numericAnalyzersWithScalarInputs(
+        input_dtype=tf.int16,
+        output_dtypes={
+            'min': tf.int16,
+            'max': tf.int16,
+            'sum': tf.int16,
+            'size': tf.int16,
+            'mean': tf.float32,
+            'var': tf.float32
+        }
+    )
+
+  def testNumericAnalyzersWithScalarInputs_float64(self):
+    self.numericAnalyzersWithScalarInputs(
+        input_dtype=tf.float64,
+        output_dtypes={
+            'min': tf.float64,
+            'max': tf.float64,
+            'sum': tf.float64,
+            'size': tf.float64,
+            'mean': tf.float64,
+            'var': tf.float64
+        }
+    )
+
+  def testNumericAnalyzersWithScalarInputs_float32(self):
+    self.numericAnalyzersWithScalarInputs(
+        input_dtype=tf.float32,
+        output_dtypes={
+            'min': tf.float32,
+            'max': tf.float32,
+            'sum': tf.float32,
+            'size': tf.float32,
+            'mean': tf.float32,
+            'var': tf.float32
+        }
+    )
+
+  def numericAnalyzersWithScalarInputs(self, input_dtype, output_dtypes):
     def preprocessing_fn(inputs):
       def repeat(in_tensor, value):
         batch_size = tf.shape(in_tensor)[0]
@@ -594,24 +664,31 @@ class BeamImplTest(test_util.TensorFlowTestCase):
           'max': repeat(inputs['a'], tft.max(inputs['a'])),
           'sum': repeat(inputs['a'], tft.sum(inputs['a'])),
           'size': repeat(inputs['a'], tft.size(inputs['a'])),
-          'mean': repeat(inputs['a'], tft.mean(inputs['a']))
+          'mean': repeat(inputs['a'], tft.mean(inputs['a'])),
+          'var': repeat(inputs['a'], tft.var(inputs['a']))
       }
 
     input_data = [{'a': 4}, {'a': 1}]
     input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.int64, [], sch.FixedColumnRepresentation())
+        'a': sch.ColumnSchema(input_dtype, [], sch.FixedColumnRepresentation())
     })
     expected_data = [
-        {'min': 1, 'max': 4, 'sum': 5, 'size': 2, 'mean': 2.5},
-        {'min': 1, 'max': 4, 'sum': 5, 'size': 2, 'mean': 2.5}
+        {'min': 1, 'max': 4, 'sum': 5, 'size': 2, 'mean': 2.5, 'var': 2.25},
+        {'min': 1, 'max': 4, 'sum': 5, 'size': 2, 'mean': 2.5, 'var': 2.25}
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
-        'min': sch.ColumnSchema(tf.int64, [], sch.FixedColumnRepresentation()),
-        'max': sch.ColumnSchema(tf.int64, [], sch.FixedColumnRepresentation()),
-        'sum': sch.ColumnSchema(tf.int64, [], sch.FixedColumnRepresentation()),
-        'size': sch.ColumnSchema(tf.int64, [], sch.FixedColumnRepresentation()),
-        'mean': sch.ColumnSchema(tf.float64, [],
-                                 sch.FixedColumnRepresentation())
+        'min': sch.ColumnSchema(output_dtypes['min'], [],
+                                sch.FixedColumnRepresentation()),
+        'max': sch.ColumnSchema(output_dtypes['max'], [],
+                                sch.FixedColumnRepresentation()),
+        'sum': sch.ColumnSchema(output_dtypes['sum'], [],
+                                sch.FixedColumnRepresentation()),
+        'size': sch.ColumnSchema(output_dtypes['size'], [],
+                                 sch.FixedColumnRepresentation()),
+        'mean': sch.ColumnSchema(output_dtypes['mean'], [],
+                                 sch.FixedColumnRepresentation()),
+        'var': sch.ColumnSchema(output_dtypes['var'], [],
+                                sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -638,7 +715,10 @@ class BeamImplTest(test_util.TensorFlowTestCase):
                      tft.size(inputs['a'], reduce_instance_dims=False)),
           'mean':
               repeat(inputs['a'],
-                     tft.mean(inputs['a'], reduce_instance_dims=False))
+                     tft.mean(inputs['a'], reduce_instance_dims=False)),
+          'var':
+              repeat(inputs['a'],
+                     tft.var(inputs['a'], reduce_instance_dims=False))
       }
 
     input_data = [
@@ -653,13 +733,15 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         'max': [8, 9, 10, 11],
         'sum': [9, 11, 13, 15],
         'size': [2, 2, 2, 2],
-        'mean': [4.5, 5.5, 6.5, 7.5]
+        'mean': [4.5, 5.5, 6.5, 7.5],
+        'var': [12.25, 12.25, 12.25, 12.25]
     }, {
         'min': [1, 2, 3, 4],
         'max': [8, 9, 10, 11],
         'sum': [9, 11, 13, 15],
         'size': [2, 2, 2, 2],
-        'mean': [4.5, 5.5, 6.5, 7.5]
+        'mean': [4.5, 5.5, 6.5, 7.5],
+        'var': [12.25, 12.25, 12.25, 12.25]
     }]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'min': sch.ColumnSchema(
@@ -671,6 +753,8 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         'size': sch.ColumnSchema(
             tf.int64, [4], sch.FixedColumnRepresentation()),
         'mean': sch.ColumnSchema(
+            tf.float64, [4], sch.FixedColumnRepresentation()),
+        'var': sch.ColumnSchema(
             tf.float64, [4], sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -694,7 +778,9 @@ class BeamImplTest(test_util.TensorFlowTestCase):
           'size': repeat(inputs['a'],
                          tft.size(inputs['a'], reduce_instance_dims=False)),
           'mean': repeat(inputs['a'],
-                         tft.mean(inputs['a'], reduce_instance_dims=False))
+                         tft.mean(inputs['a'], reduce_instance_dims=False)),
+          'var': repeat(inputs['a'],
+                        tft.var(inputs['a'], reduce_instance_dims=False))
       }
 
     input_data = [
@@ -708,13 +794,15 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         'max': [[8, 9], [10, 11]],
         'sum': [[9, 11], [13, 15]],
         'size': [[2, 2], [2, 2]],
-        'mean': [[4.5, 5.5], [6.5, 7.5]]
+        'mean': [[4.5, 5.5], [6.5, 7.5]],
+        'var': [[12.25, 12.25], [12.25, 12.25]]
     }, {
         'min': [[1, 2], [3, 4]],
         'max': [[8, 9], [10, 11]],
         'sum': [[9, 11], [13, 15]],
         'size': [[2, 2], [2, 2]],
-        'mean': [[4.5, 5.5], [6.5, 7.5]]
+        'mean': [[4.5, 5.5], [6.5, 7.5]],
+        'var': [[12.25, 12.25], [12.25, 12.25]]
     }]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'min': sch.ColumnSchema(
@@ -726,6 +814,8 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         'size': sch.ColumnSchema(
             tf.int64, [2, 2], sch.FixedColumnRepresentation()),
         'mean': sch.ColumnSchema(
+            tf.float64, [2, 2], sch.FixedColumnRepresentation()),
+        'var': sch.ColumnSchema(
             tf.float64, [2, 2], sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -743,7 +833,8 @@ class BeamImplTest(test_util.TensorFlowTestCase):
           'max': repeat(inputs['a'], tft.max(inputs['a'])),
           'sum': repeat(inputs['a'], tft.sum(inputs['a'])),
           'size': repeat(inputs['a'], tft.size(inputs['a'])),
-          'mean': repeat(inputs['a'], tft.mean(inputs['a']))
+          'mean': repeat(inputs['a'], tft.mean(inputs['a'])),
+          'var': repeat(inputs['a'], tft.var(inputs['a']))
       }
 
     input_data = [
@@ -754,8 +845,8 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         'a': sch.ColumnSchema(tf.int64, [2, 2], sch.FixedColumnRepresentation())
     })
     expected_data = [
-        {'min': 1, 'max': 7, 'sum': 32, 'size': 8, 'mean': 4.0},
-        {'min': 1, 'max': 7, 'sum': 32, 'size': 8, 'mean': 4.0}
+        {'min': 1, 'max': 7, 'sum': 32, 'size': 8, 'mean': 4.0, 'var': 3.5},
+        {'min': 1, 'max': 7, 'sum': 32, 'size': 8, 'mean': 4.0, 'var': 3.5}
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'min': sch.ColumnSchema(tf.int64, [], sch.FixedColumnRepresentation()),
@@ -763,7 +854,9 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         'sum': sch.ColumnSchema(tf.int64, [], sch.FixedColumnRepresentation()),
         'size': sch.ColumnSchema(tf.int64, [], sch.FixedColumnRepresentation()),
         'mean': sch.ColumnSchema(tf.float64, [],
-                                 sch.FixedColumnRepresentation())
+                                 sch.FixedColumnRepresentation()),
+        'var': sch.ColumnSchema(tf.float64, [],
+                                sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -806,11 +899,18 @@ class BeamImplTest(test_util.TensorFlowTestCase):
           return {'mean': repeat(inputs['a'], tft.mean(inputs['a']))}
         _ = input_dataset | beam_impl.AnalyzeDataset(mean_fn)
 
+      with self.assertRaises(TypeError):
+        def var_fn(inputs):
+          return {'var': repeat(inputs['a'], tft.var(inputs['a']))}
+        _ = input_dataset | beam_impl.AnalyzeDataset(var_fn)
+
   def testStringToTFIDF(self):
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.string_to_int(tf.string_split(inputs['a']))
+      out_index, out_values = tft.tfidf(inputs_as_ints, 6)
       return {
-          'tf_idf': tft.tfidf_weights(inputs_as_ints, 6)
+          'tf_idf': out_values,
+          'index': out_index
       }
     input_data = [{'a': 'hello hello world'},
                   {'a': 'hello goodbye hello world'},
@@ -820,24 +920,93 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     })
 
     # IDFs
-    # hello = log(3/3) = 0
-    # world = log(3/3) = 0
-    # goodbye = log(3/2) = 0.4054651081
-    # I = log(3/2)
-    # like = log(3/2)
-    # pie = log(3/2)
-    log_3_over_2 = 0.4054651081
+    # hello = log(4/3) = 0.28768
+    # world = log(4/3)
+    # goodbye = log(4/2) = 0.69314
+    # I = log(4/2)
+    # like = log(4/2)
+    # pie = log(4/2)
+    log_4_over_2 = 0.69314718056
+    log_4_over_3 = 0.28768207245
     expected_transformed_data = [{
-        'tf_idf': [0, 0, 0]
+        'tf_idf': [(2/3)*log_4_over_3, (1/3)*log_4_over_3],
+        'index': [0, 2]
     }, {
-        'tf_idf': [0, (1/4)*log_3_over_2, 0, 0]
+        'tf_idf': [(2/4)*log_4_over_3, (1/4)*log_4_over_3, (1/4)*log_4_over_2],
+        'index': [0, 2, 4]
     }, {
-        'tf_idf': [(1/5)*log_3_over_2, (1/5)*log_3_over_2, (1/5)*log_3_over_2,
-                   (1/5)*log_3_over_2, (1/5)*log_3_over_2]
+        'tf_idf': [(3/5)*log_4_over_2, (1/5)*log_4_over_2, (1/5)*log_4_over_2],
+        'index': [1, 3, 5]
     }]
     expected_transformed_schema = dataset_metadata.DatasetMetadata({
         'tf_idf': sch.ColumnSchema(tf.float32, [None],
-                                   sch.ListColumnRepresentation())
+                                   sch.ListColumnRepresentation()),
+        'index': sch.ColumnSchema(tf.int64, [None],
+                                  sch.ListColumnRepresentation())
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_schema, preprocessing_fn, expected_transformed_data,
+        expected_transformed_schema)
+
+  def testTFIDFNoData(self):
+    def preprocessing_fn(inputs):
+      inputs_as_ints = tft.string_to_int(tf.string_split(inputs['a']))
+      out_index, out_values = tft.tfidf(inputs_as_ints, 6)
+      return {
+          'tf_idf': out_values,
+          'index': out_index
+      }
+    input_data = [{'a': ''}]
+    input_schema = dataset_metadata.DatasetMetadata({
+        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    })
+    expected_transformed_data = [{'tf_idf': [], 'index': []}]
+    expected_transformed_schema = dataset_metadata.DatasetMetadata({
+        'tf_idf': sch.ColumnSchema(tf.float32, [None],
+                                   sch.ListColumnRepresentation()),
+        'index': sch.ColumnSchema(tf.int64, [None],
+                                  sch.ListColumnRepresentation())
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_schema, preprocessing_fn, expected_transformed_data,
+        expected_transformed_schema)
+
+  def testStringToTFIDFEmptyDoc(self):
+    def preprocessing_fn(inputs):
+      inputs_as_ints = tft.string_to_int(tf.string_split(inputs['a']))
+      out_index, out_values = tft.tfidf(inputs_as_ints, 6)
+      return {
+          'tf_idf': out_values,
+          'index': out_index
+      }
+    input_data = [{'a': 'hello hello world'},
+                  {'a': ''},
+                  {'a': 'hello goodbye hello world'},
+                  {'a': 'I like pie pie pie'}]
+    input_schema = dataset_metadata.DatasetMetadata({
+        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    })
+
+    log_5_over_2 = 0.91629073187
+    log_5_over_3 = 0.51082562376
+    expected_transformed_data = [{
+        'tf_idf': [(2/3)*log_5_over_3, (1/3)*log_5_over_3],
+        'index': [0, 2]
+    }, {
+        'tf_idf': [],
+        'index': []
+    }, {
+        'tf_idf': [(2/4)*log_5_over_3, (1/4)*log_5_over_3, (1/4)*log_5_over_2],
+        'index': [0, 2, 4]
+    }, {
+        'tf_idf': [(3/5)*log_5_over_2, (1/5)*log_5_over_2, (1/5)*log_5_over_2],
+        'index': [1, 3, 5]
+    }]
+    expected_transformed_schema = dataset_metadata.DatasetMetadata({
+        'tf_idf': sch.ColumnSchema(tf.float32, [None],
+                                   sch.ListColumnRepresentation()),
+        'index': sch.ColumnSchema(tf.int64, [None],
+                                  sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_schema, preprocessing_fn, expected_transformed_data,
@@ -845,7 +1014,40 @@ class BeamImplTest(test_util.TensorFlowTestCase):
 
   def testIntToTFIDF(self):
     def preprocessing_fn(inputs):
-      return {'tf_idf': tft.tfidf_weights(inputs['a'], 13)}
+      out_index, out_values = tft.tfidf(inputs['a'], 13)
+      return {'tf_idf': out_values, 'index': out_index}
+    input_data = [{'a': [2, 2, 0]},
+                  {'a': [2, 6, 2, 0]},
+                  {'a': [8, 10, 12, 12, 12]},
+                 ]
+    input_schema = dataset_metadata.DatasetMetadata({
+        'a': sch.ColumnSchema(tf.int64, [], sch.ListColumnRepresentation())})
+    log_4_over_2 = 0.69314718056
+    log_4_over_3 = 0.28768207245
+    expected_data = [{
+        'tf_idf': [(1/3)*log_4_over_3, (2/3)*log_4_over_3],
+        'index': [0, 2]
+    }, {
+        'tf_idf': [(1/4)*log_4_over_3, (2/4)*log_4_over_3, (1/4)*log_4_over_2],
+        'index': [0, 2, 6]
+    }, {
+        'tf_idf': [(1/5)*log_4_over_2, (1/5)*log_4_over_2, (3/5)*log_4_over_2],
+        'index': [8, 10, 12]
+    }]
+    expected_schema = dataset_metadata.DatasetMetadata({
+        'tf_idf': sch.ColumnSchema(tf.float32, [None],
+                                   sch.ListColumnRepresentation()),
+        'index': sch.ColumnSchema(tf.int64, [None],
+                                  sch.ListColumnRepresentation())
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_schema, preprocessing_fn, expected_data,
+        expected_schema)
+
+  def testIntToTFIDFWithoutSmoothing(self):
+    def preprocessing_fn(inputs):
+      out_index, out_values = tft.tfidf(inputs['a'], 13, smooth=False)
+      return {'tf_idf': out_values, 'index': out_index}
     input_data = [{'a': [2, 2, 0]},
                   {'a': [2, 6, 2, 0]},
                   {'a': [8, 10, 12, 12, 12]},
@@ -853,17 +1055,22 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     input_schema = dataset_metadata.DatasetMetadata({
         'a': sch.ColumnSchema(tf.int64, [], sch.ListColumnRepresentation())})
     log_3_over_2 = 0.4054651081
+    log_3 = 1.0986122886
     expected_data = [{
-        'tf_idf': [0, 0, 0]
+        'tf_idf': [(1/3)*log_3_over_2, (2/3)*log_3_over_2],
+        'index': [0, 2]
     }, {
-        'tf_idf': [0, (1/4)*log_3_over_2, 0, 0]
+        'tf_idf': [(1/4)*log_3_over_2, (2/4)*log_3_over_2, (1/4)*log_3],
+        'index': [0, 2, 6]
     }, {
-        'tf_idf': [(1/5)*log_3_over_2, (1/5)*log_3_over_2, (1/5)*log_3_over_2,
-                   (1/5)*log_3_over_2, (1/5)*log_3_over_2]
+        'tf_idf': [(1/5)*log_3, (1/5)*log_3, (3/5)*log_3],
+        'index': [8, 10, 12]
     }]
     expected_schema = dataset_metadata.DatasetMetadata({
         'tf_idf': sch.ColumnSchema(tf.float32, [None],
-                                   sch.ListColumnRepresentation())
+                                   sch.ListColumnRepresentation()),
+        'index': sch.ColumnSchema(tf.int64, [None],
+                                  sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_schema, preprocessing_fn, expected_data,
@@ -874,8 +1081,11 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.string_to_int(tf.string_split(inputs['a']),
                                          top_k=test_vocab_size)
+      out_index, out_values = tft.tfidf(inputs_as_ints,
+                                        test_vocab_size+1)
       return {
-          'tf_idf': tft.tfidf_weights(inputs_as_ints, test_vocab_size+1)
+          'tf_idf': out_values,
+          'index': out_index
       }
     input_data = [{'a': 'hello hello world'},
                   {'a': 'hello goodbye hello world'},
@@ -889,18 +1099,23 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     # pie = log(3/2) = 0.4054651081
     # world = log(3/3) = 0
     # OOV - goodbye, I, like = log(3/3)
-    log_3_over_2 = 0.4054651081
+    log_4_over_2 = 0.69314718056
+    log_4_over_3 = 0.28768207245
     expected_transformed_data = [{
-        'tf_idf': [0, 0, 0]
+        'tf_idf': [(2/3)*log_4_over_3, (1/3)*log_4_over_3],
+        'index': [0, 2]
     }, {
-        'tf_idf': [0, 0, 0, 0]
+        'tf_idf': [(2/4)*log_4_over_3, (1/4)*log_4_over_3, (1/4)*log_4_over_3],
+        'index': [0, 2, 3]
     }, {
-        'tf_idf': [0, 0, (1/5)*log_3_over_2,
-                   (1/5)*log_3_over_2, (1/5)*log_3_over_2]
+        'tf_idf': [(3/5)*log_4_over_2, (2/5)*log_4_over_3],
+        'index': [1, 3]
     }]
     expected_transformed_schema = dataset_metadata.DatasetMetadata({
         'tf_idf': sch.ColumnSchema(tf.float32, [None],
-                                   sch.ListColumnRepresentation())
+                                   sch.ListColumnRepresentation()),
+        'index': sch.ColumnSchema(tf.int64, [None],
+                                  sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_schema, preprocessing_fn, expected_transformed_data,
@@ -908,8 +1123,10 @@ class BeamImplTest(test_util.TensorFlowTestCase):
 
   def testTFIDFWithNegatives(self):
     def preprocessing_fn(inputs):
+      out_index, out_values = tft.tfidf(inputs['a'], 14)
       return {
-          'tf_idf': tft.tfidf_weights(inputs['a'], 14)
+          'tf_idf': out_values,
+          'index': out_index
       }
     input_data = [{'a': [2, 2, -4]},
                   {'a': [2, 6, 2, -1]},
@@ -918,19 +1135,24 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     input_schema = dataset_metadata.DatasetMetadata({
         'a': sch.ColumnSchema(tf.int64, [], sch.ListColumnRepresentation())})
 
-    log_3_over_2 = 0.4054651081
+    log_4_over_2 = 0.69314718056
+    log_4_over_3 = 0.28768207245
     # NOTE: -4 mod 14 = 10
     expected_transformed_data = [{
-        'tf_idf': [0, 0, 0]
+        'tf_idf': [(2/3)*log_4_over_3, (1/3)*log_4_over_3],
+        'index': [2, 10]
     }, {
-        'tf_idf': [0, (1/4)*log_3_over_2, 0, (1/4)*log_3_over_2]
+        'tf_idf': [(2/4)*log_4_over_3, (1/4)*log_4_over_2, (1/4)*log_4_over_2],
+        'index': [2, 6, 13]
     }, {
-        'tf_idf': [(1/5)*log_3_over_2, 0, (1/5)*log_3_over_2,
-                   (1/5)*log_3_over_2, (1/5)*log_3_over_2]
+        'tf_idf': [(1/5)*log_4_over_2, (1/5)*log_4_over_3, (3/5)*log_4_over_2],
+        'index': [8, 10, 12]
     }]
     expected_transformed_schema = dataset_metadata.DatasetMetadata({
         'tf_idf': sch.ColumnSchema(tf.float32, [None],
-                                   sch.ListColumnRepresentation())
+                                   sch.ListColumnRepresentation()),
+        'index': sch.ColumnSchema(tf.int64, [None],
+                                  sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_schema, preprocessing_fn, expected_transformed_data,
@@ -1144,7 +1366,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
       return {
           'index1':
               tft.string_to_int(
-                  tft.map(tf.string_split, inputs['a']),
+                  tf.string_split(inputs['a']),
                   default_value=-99,
                   top_k=1,
                   num_oov_buckets=3)
