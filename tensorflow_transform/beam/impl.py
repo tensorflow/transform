@@ -644,3 +644,53 @@ class TransformDataset(beam.PTransform):
             saved_model_dir=beam.pvalue.AsSingleton(transform_fn))
         | 'ConvertAndUnbatch' >> beam.FlatMap(convert_and_unbatch))
     return (output_instances, output_metadata)
+
+class _getTensor(beam.DoFn):
+  """Gets the values of the tensor with the given name as used in the transform_fn.
+
+  Args:
+    name: The name of the Tensor to retrieve.
+  """
+
+  def __init__(self):
+    super(_getTensor, self).__init__()
+
+  def process(self, saved_model_dir, name):
+    graph = tf.Graph()
+    with graph.as_default():
+      with tf.Session() as session:
+        inputs, outputs = saved_transform_io.partially_apply_saved_transform(saved_model_dir, {})
+      tensor = session.graph.get_tensor_by_name("transform/transform/" + name + ":0")
+      values = tensor.eval(session=session)
+      output_metadata = dataset_metadata.DatasetMetadata(
+          {'tensor': session.graph.get_tensor_by_name("transform/transform/" + name + ":0")})
+      return values
+
+class GetTensorValues(beam.PTransform):
+  """Gets the values of the tensor with the given name as used in the transform_fn.
+
+  GetTensorValues 'expand' method is called on a transform_fn. It loads the
+  graph and gets the tensor with the given name from the graph.
+
+  Args:
+    name: The name of the Tensor to retrieve.
+  """
+  def __init__(self, name):
+    _assert_tensorflow_version()
+    self._name = name
+
+  def _extract_input_pvalues(self, transform_fn):
+    saved_model_dir, _ = transform_fn
+    return transform_fn, [saved_model_dir]
+
+  def expand(self, transform_fn):
+    """Gets the values of the tensor with the given name as used in the transform_fn.
+
+    Args:
+      name: The name of the Tensor to retrieve.
+
+    Returns:
+      The values of the Tensor.
+    """
+    transform_fn, _ = transform_fn
+    return transform_fn | 'getTensorValues' >> beam.ParDo(_getTensor(), name=self._name)

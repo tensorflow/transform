@@ -27,6 +27,7 @@ try:
 except ImportError:
   from apache_beam.transforms import util as beam_test_util
 
+import tempfile
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform.beam import impl as beam_impl
@@ -267,7 +268,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
-
+  
   def testAnalyzerBeforeMap(self):
     def preprocessing_fn(inputs):
       return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
@@ -1559,6 +1560,53 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     with self.assertRaises(ValueError):
       beam_impl.Context.create_base_temp_dir()
 
+  def testGetTensorValues(self):
+    def preprocessing_fn(inputs):
+      """Preprocess input columns into transformed columns."""
+      x = inputs['x']
+      # print(' X HIER ONDER')
+      # print(x)
+      y = inputs['y']
+      s = inputs['s']
+      print(tf.shape(s))
+      x_centered = x - tft.mean(x)
+      y_normalized = tft.scale_to_0_1(y)
+      s_integerized = tft.string_to_int(s, vocab_tensor_name="test")
+      x_centered_times_y_normalized = (x_centered * y_normalized)
+      return {
+          'x_centered': x_centered,
+          'y_normalized': y_normalized,
+          'x_centered_times_y_normalized': x_centered_times_y_normalized,
+          'blabla': tft.string_to_int(s),
+          's_integerized': s_integerized
+      }
+
+    raw_data = [
+        {'x': 1, 'y': 1, 's': 'hello'},
+        {'x': 2, 'y': 2, 's': 'world'},
+        {'x': 3, 'y': 3, 's': 'hello'}
+    ]
+
+    raw_data2 = [
+        {'x': 1, 'y': 1, 's': 'new'},
+        {'x': 2, 'y': 2, 's': 'world'},
+        {'x': 3, 'y': 3, 's': 'hello'}
+    ]
+
+    raw_data_metadata = dataset_metadata.DatasetMetadata(sch.Schema({
+        's': sch.ColumnSchema(
+            tf.string, [], sch.FixedColumnRepresentation()),
+        'y': sch.ColumnSchema(
+            tf.float32, [], sch.FixedColumnRepresentation()),
+        'x': sch.ColumnSchema(
+            tf.float32, [], sch.FixedColumnRepresentation())
+    }))
+
+    with beam_impl.Context(temp_dir=tempfile.mkdtemp()):
+      transform_fn = (raw_data, raw_data_metadata) | beam_impl.AnalyzeDataset(preprocessing_fn)
+      values = transform_fn | "retrieve" >> beam_impl.GetTensorValues('test')
+      expected = ['hello', 'world']
+      self.assertItemsEqual(values, expected)
 
 if __name__ == '__main__':
   unittest.main()
