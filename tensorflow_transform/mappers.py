@@ -258,7 +258,7 @@ def _count_docs_with_term(term_frequency):
 
 
 def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
-                  num_oov_buckets=0):
+                  num_oov_buckets=0, vocab_tensor_name=None):
   """Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
   Args:
@@ -273,6 +273,7 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
     num_oov_buckets:  Any lookup of an out-of-vocabulary token will return a
       bucket ID based on its hash if `num_oov_buckets` is greater than zero.
       Otherwise it is assigned the `default_value`.
+    vocab_tensor_name: The name given to the vocabulary tensor.
 
   Returns:
     A `Tensor` or `SparseTensor` where each string value is mapped to an integer
@@ -308,6 +309,9 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
   vocab = analyzers.uniques(
       x, top_k=top_k, frequency_threshold=frequency_threshold)
   vocab = _fix_vocab_if_needed(vocab)
+
+  if vocab_tensor_name != None:
+    vocab = tf.identity(vocab, name=vocab_tensor_name)
   return api.apply_function(_apply_vocab, x, vocab)
 
 
