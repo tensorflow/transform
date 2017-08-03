@@ -35,23 +35,29 @@ _EMPTY_ARRAY = np.array([])
 _EMPTY_ARRAY.setflags(write=False)
 
 
-def infer_feature_schema(tensors):
+def infer_feature_schema(graph, tensors):
   """Given a dict of tensors, creates a `Schema`.
 
   Infers a schema, in the format of a tf.Transform `Schema`, for the given
-  dictionary of tensors.
+  dictionary of tensors.  If a tensor has a ColumnSchema set using
+  api.set_column_schema then this schema will be used instead of inferring a
+  schema.
 
   Args:
+    graph: The graph that tensors belong to.
     tensors: A dict mapping column names to tensors. The tensors should have a
       0'th dimension interpreted as the batch dimension.
 
   Returns:
     A `Schema` object.
   """
-  # If the column already has a schema attached, use that. Otherwise infer the
+  schema_overrides = api.get_column_schemas(graph)
+
+  # If the tensor already has a schema attached, use that. Otherwise infer the
   # schema from the underlying tensor.
   return dataset_schema.Schema({
-      name: dataset_schema.infer_column_schema_from_tensor(tensor)
+      name: schema_overrides.get(
+          tensor, dataset_schema.infer_column_schema_from_tensor(tensor))
       for name, tensor in six.iteritems(tensors)
   })
 

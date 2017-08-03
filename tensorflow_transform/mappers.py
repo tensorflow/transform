@@ -21,9 +21,10 @@ from __future__ import print_function
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import api
+from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import futures
 
 from tensorflow.contrib import lookup
-from tensorflow.python.util.deprecation import deprecated
 
 
 def scale_by_min_max(x, output_min=0.0, output_max=1.0):
@@ -53,7 +54,7 @@ def scale_to_0_1(x):
   """Returns a column which is the input column scaled to have range [0,1].
 
   Args:
-    x: A numeric te`Tensor`sor.
+    x: A numeric `Tensor`.
 
   Returns:
     A `Tensor` containing the input column scaled to [0, 1].
@@ -61,10 +62,37 @@ def scale_to_0_1(x):
   return scale_by_min_max(x, 0, 1)
 
 
+def scale_to_z_score(x):
+  """Returns a standardized column with mean 0 and variance 1.
+
+  Scaling to z-score subtracts out the mean and divides by standard deviation.
+  Note that the standard deviation computed here is based on the biased variance
+  (0 delta degrees of freedom), as computed by analyzers.var.
+
+  Args:
+    x: A numeric `Tensor`.
+
+  Returns:
+    A `Tensor` containing the input column scaled to mean 0 and variance 1
+    (standard deviation 1), given by: (x - mean(x)) / std_dev(x).
+    If `x` is floating point, the mean will have the same type as `x`. If `x` is
+    integral, the output is cast to float32 for int8 and int16 and float64 for
+    int32 and int64 (similar to the behavior of tf.truediv).
+
+    Note that TFLearn generally permits only tf.int64 and tf.float32, so casting
+    this scaler's output may be necessary. In particular, scaling an int64
+    tensor yields a float64 tensor, which would need a cast to float32 to be
+    used in TFLearn.
+  """
+  # x_mean will be float32 or float64, depending on type of x.
+  x_mean = analyzers.mean(x)
+  return (tf.cast(x, x_mean.dtype) - x_mean) / tf.sqrt(analyzers.var(x))
+
+
 def tfidf(x, vocab_size, smooth=True):
   """Maps the terms in x to their term frequency * inverse document frequency.
 
-  The inverse document frequency of a term is calculated as
+  The inverse document frequency of a term is calculated as 1+
   log((corpus size + 1) / (document frequency of term + 1)) by default.
 
   Example usage:
@@ -75,8 +103,8 @@ def tfidf(x, vocab_size, smooth=True):
     out: SparseTensor(indices=[[0, 0], [0, 1], [0, 2], [1, 0], [1, 1]],
                       values=[1, 2, 0, 3, 0])
          SparseTensor(indices=[[0, 0], [0, 1], [0, 2], [1, 0], [1, 1]],
-                      values=[(1/5)*log(3/2), (1/5)*log(3/2), 0,
-                              0, (2/3)*log(3/2)])
+                      values=[(1/5)*(log(3/2)+1), (1/5)*(log(3/2)+1), (1/5),
+                              (1/3), (2/3)*(log(3/2)+1])
     NOTE that the first doc's duplicate "pie" strings have been combined to
     one output, as have the second doc's duplicate "yum" strings.
 
@@ -87,9 +115,9 @@ def tfidf(x, vocab_size, smooth=True):
         including any OOV buckets.
     smooth: A bool indicating if the inverse document frequency should be
         smoothed. If True, which is the default, then the idf is calculated as
-        log((corpus size + 1) / (document frequency of term + 1)).
+        1 + log((corpus size + 1) / (document frequency of term + 1)).
         Otherwise, the idf is
-        log((corpus size) / (document frequency of term)), which could
+        1 +log((corpus size) / (document frequency of term)), which could
         result in a divizion by zero error.
 
   Returns:
@@ -135,16 +163,19 @@ def _split_tfidfs_to_outputs(tfidfs):
   # The "dummy" index counts from 0 to the number of unique tokens in the doc.
   # So example doc ["I", "like", "pie", "pie", "pie"], with 3 unique tokens,
   # will have "dummy" indices [0, 1, 2]. The particular dummy index that any
-  # token recieves is not important, only that the tfidf value and vocab index
+  # token receives is not important, only that the tfidf value and vocab index
   # have the *same* dummy index, so that feature_column can apply the weight to
   # the correct vocab item.
   dummy_index = segment_indices(tfidfs.indices[:, 0])
   out_index = tf.concat(
       [tf.expand_dims(tfidfs.indices[:, 0], 1),
        tf.expand_dims(dummy_index, 1)], 1)
-  out_shape = [tfidfs.dense_shape[0], tf.reduce_max(dummy_index)+1]
 
-  de_duped_indicies_out = tf.SparseTensor(
+  out_shape_second_dim = tf.maximum(tf.reduce_max(dummy_index), -1) + 1
+  out_shape = tf.stack([tfidfs.dense_shape[0], out_shape_second_dim])
+  out_shape.set_shape([2])
+
+  de_duped_indicies_out = tf.SparseTensor(  # NOTYPO ('indices')
       indices=out_index,
       values=tfidfs.indices[:, 1],
       dense_shape=out_shape)
@@ -152,7 +183,7 @@ def _split_tfidfs_to_outputs(tfidfs):
       indices=out_index,
       values=tfidfs.values,
       dense_shape=out_shape)
-  return de_duped_indicies_out, de_duped_tfidf_out
+  return de_duped_indicies_out, de_duped_tfidf_out  # NOTYPO ('indices')
 
 
 def _to_term_frequency(x, vocab_size):
@@ -186,7 +217,7 @@ def _to_term_frequency(x, vocab_size):
       values=next_values,
       dense_shape=next_shape)
 
-  # Take the intermediar tensor and reduce over the term_index_in_doc
+  # Take the intermediary tensor and reduce over the term_index_in_doc
   # dimension. This produces a tensor with indices [<doc_id>, <term_id>]
   # and values [count_of_term_in_doc] and shape batch x vocab_size
   term_count_per_doc = tf.sparse_reduce_sum_sparse(next_tensor, 1)
@@ -226,10 +257,10 @@ def _to_tfidf(term_frequency, reduced_term_freq, corpus_size, smooth):
   # The idf tensor has shape (vocab_size,)
   if smooth:
     idf = tf.log((tf.to_double(corpus_size) + 1.0) / (
-        1.0 + tf.to_double(reduced_term_freq)))
+        1.0 + tf.to_double(reduced_term_freq))) + 1
   else:
     idf = tf.log(tf.to_double(corpus_size) / (
-        tf.to_double(reduced_term_freq)))
+        tf.to_double(reduced_term_freq))) + 1
 
   gathered_idfs = tf.gather(tf.squeeze(idf), term_frequency.indices[:, 1])
   tfidf_values = tf.to_float(term_frequency.values) * tf.to_float(gathered_idfs)
@@ -258,7 +289,7 @@ def _count_docs_with_term(term_frequency):
 
 
 def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
-                  num_oov_buckets=0):
+                  num_oov_buckets=0, vocab_filename=None):
   """Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
   Args:
@@ -273,6 +304,9 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
     num_oov_buckets:  Any lookup of an out-of-vocabulary token will return a
       bucket ID based on its hash if `num_oov_buckets` is greater than zero.
       Otherwise it is assigned the `default_value`.
+    vocab_filename: The file name for the vocabulary file. If none, the
+      "uniques" scope name in the context of this graph will be used as the file
+      name. If not None, should be unique within a given preprocessing function.
 
   Returns:
     A `Tensor` or `SparseTensor` where each string value is mapped to an integer
@@ -280,7 +314,7 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
     are consecutive and starting from 0.
 
   Raises:
-    ValueError: If `top_k` or `count_threshold` is negative.
+    ValueError: If `top_k` or `frequency_threshold` is negative.
   """
   if top_k is not None:
     top_k = int(top_k)
@@ -293,22 +327,40 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
       raise ValueError('frequency_threshold must be non-negative, but got: %r' %
                        frequency_threshold)
 
-  def _fix_vocab_if_needed(vocab):
-    num_to_add = 1 - tf.minimum(tf.size(vocab), 1)
-    return tf.concat([
-        vocab, tf.fill(
-            tf.reshape(num_to_add, (1,)), '__dummy_value__index_zero__')
-    ], 0)
+  def _apply_vocab(x, vocabulary_file):
+    table = lookup.string_to_index_table_from_file(
+        vocabulary_file, num_oov_buckets=num_oov_buckets,
+        default_value=default_value)
+    table_size = table.size()
+    return table.lookup(x), table_size
 
-  def _apply_vocab(x, vocab):
-    table = lookup.string_to_index_table_from_tensor(
-        vocab, num_oov_buckets=num_oov_buckets, default_value=default_value)
-    return table.lookup(x)
+  with tf.name_scope('string_to_int'):
+    vocab_filename = analyzers.sanitized_vocab_filename(vocab_filename)
+    vocabulary_file = analyzers.uniques(
+        x, top_k=top_k, frequency_threshold=frequency_threshold,
+        vocab_filename=vocab_filename)
+    result, table_size = api.apply_function(_apply_vocab, x, vocabulary_file)
 
-  vocab = analyzers.uniques(
-      x, top_k=top_k, frequency_threshold=frequency_threshold)
-  vocab = _fix_vocab_if_needed(vocab)
-  return api.apply_function(_apply_vocab, x, vocab)
+  # Set the min and max values of the domain, where the max value is a `Future`
+  # wrapping the max_value tensor.  Note that min_value is a regular Python
+  # value while max_value is a tensor.  This tensor's value cannot be known
+  # until the vocab has been computed.
+  #
+  # `table_size` includes the num oov buckets.  The default value is only used
+  # if num_oov_buckets > 0.
+  min_value = 0
+  max_value = table_size - 1
+  if num_oov_buckets <= 0:
+    min_value = min(min_value, default_value)
+    max_value = tf.maximum(max_value, default_value)
+  column_schema = dataset_schema.infer_column_schema_from_tensor(result)
+  column_schema.domain = dataset_schema.IntDomain(
+      result.dtype, min_value=min_value,
+      max_value=futures.Future(max_value.name),
+      vocabulary_file=vocab_filename)
+  api.set_column_schema(result, column_schema)
+
+  return result
 
 
 def segment_indices(segment_ids):
@@ -498,130 +550,3 @@ def hash_strings(strings, hash_buckets, key=None):
       strings, hash_buckets, key, name='hash_strings')
 
 
-##############################################################################
-###                                                                        ###
-###                               DEPRECATED                               ###
-###                                                                        ###
-##############################################################################
-
-
-@deprecated('2017-08-25',
-            'Use tfidf() instead.')
-def tfidf_weights(x, vocab_size):
-  """Maps the terms in x to their (1/doc_length) * inverse document frequency.
-
-  Args:
-    x: A `SparseTensor` representing int64 values (most likely that are the
-        result of calling string_to_int on a tokenized string).
-    vocab_size: An int - the count of vocab used to turn the string into int64s
-        including any OOV buckets.
-
-  Returns:
-    A `SparseTensor` where each int value is mapped to a double equal to
-    (1 if that term appears in that row, 0 otherwise / the number of terms in
-    that row) * the log of (the number of rows in `x` / (1 + the number of
-    rows in `x` where the term appears at least once))
-
-  NOTE:
-    This is intented to be used with the feature_column 'sum' combiner to arrive
-    at the true term frequncies.
-  """
-
-  def _to_vocab_range(x):
-    """Enforces that the vocab_ids in x are positive."""
-    return tf.SparseTensor(
-        indices=x.indices,
-        values=tf.mod(x.values, vocab_size),
-        dense_shape=x.dense_shape)
-
-  def _to_doc_contains_term(x):
-    """Creates a SparseTensor with 1s at every doc/term pair index.
-
-    Args:
-      x : a SparseTensor of int64 representing string indices in vocab.
-
-    Returns:
-      a SparseTensor with 1s at indices <doc_index_in_batch>,
-          <term_index_in_vocab> for every term/doc pair.
-    """
-    # Construct intermediary sparse tensor with indices
-    # [<doc>, <term_index_in_doc>, <vocab_id>] and tf.ones values.
-    split_indices = tf.to_int64(
-        tf.split(x.indices, axis=1, num_or_size_splits=2))
-    expanded_values = tf.to_int64(tf.expand_dims(x.values, 1))
-    next_index = tf.concat(
-        [split_indices[0], split_indices[1], expanded_values], axis=1)
-
-    next_values = tf.ones_like(x.values)
-    vocab_size_as_tensor = tf.constant([vocab_size], dtype=tf.int64)
-    next_shape = tf.concat(
-        [x.dense_shape, vocab_size_as_tensor], 0)
-
-    next_tensor = tf.SparseTensor(
-        indices=tf.to_int64(next_index),
-        values=next_values,
-        dense_shape=next_shape)
-
-    # Take the intermediar tensor and reduce over the term_index_in_doc
-    # dimension. This produces a tensor with indices [<doc_id>, <term_id>]
-    # and values [count_of_term_in_doc] and shape batch x vocab_size
-    term_count_per_doc = tf.sparse_reduce_sum_sparse(next_tensor, 1)
-
-    one_if_doc_contains_term = tf.SparseTensor(
-        indices=term_count_per_doc.indices,
-        values=tf.to_double(tf.greater(term_count_per_doc.values, 0)),
-        dense_shape=term_count_per_doc.dense_shape)
-
-    return one_if_doc_contains_term
-
-  def _to_idf_over_doc_size(x, reduced_term_freq, corpus_size):
-    """Calculates the inverse document frequency of terms in the corpus.
-
-    Args:
-      x : a `SparseTensor` of int64 representing string indices in vocab.
-      reduced_term_freq: A `Tensor` of shape (vocabSize,) that represents the
-          count of the number of documents with each term.
-      corpus_size: A scalar count of the number of documents in the corpus
-
-    Returns:
-      The tf*idf values
-    """
-    # Add one to the reduced term freqnencies to avoid dividing by zero.
-    idf = tf.log(tf.to_double(corpus_size) / (
-        1.0 + tf.to_double(reduced_term_freq)))
-
-    dense_doc_sizes = tf.to_double(tf.sparse_reduce_sum(tf.SparseTensor(
-        indices=x.indices,
-        values=tf.ones_like(x.values),
-        dense_shape=x.dense_shape), 1))
-
-    # For every term in x, divide the idf by the doc size.
-    # The two gathers both result in shape <sum_doc_sizes>
-    idf_over_doc_size = (tf.gather(idf, x.values) /
-                         tf.gather(dense_doc_sizes, x.indices[:, 0]))
-
-    return tf.SparseTensor(
-        indices=x.indices,
-        values=tf.to_float(idf_over_doc_size),
-        dense_shape=x.dense_shape)
-
-  cleaned_input = _to_vocab_range(x)
-
-  docs_with_terms = _to_doc_contains_term(cleaned_input)
-
-  def count_docs_with_term(term_frequency):
-    # Sum w/in batch.
-    count_of_doc_inter = tf.SparseTensor(
-        indices=term_frequency.indices,
-        values=tf.ones_like(term_frequency.values),
-        dense_shape=term_frequency.dense_shape)
-    out = tf.sparse_reduce_sum(count_of_doc_inter, axis=0)
-    return tf.expand_dims(out, 0)
-
-  count_docs_with_term_column = count_docs_with_term(docs_with_terms)
-  # Expand dims to get around the min_tensor_rank checks
-  sizes = tf.expand_dims(tf.shape(cleaned_input)[0], 0)
-  return _to_idf_over_doc_size(cleaned_input,
-                               analyzers.sum(count_docs_with_term_column,
-                                             reduce_instance_dims=False),
-                               analyzers.sum(sizes))

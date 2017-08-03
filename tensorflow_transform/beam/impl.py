@@ -52,6 +52,7 @@ with beam.Pipeline(...) as p:
 
 """
 
+import collections
 import datetime
 import os
 import threading
@@ -77,6 +78,7 @@ from tensorflow_transform import api as tft_api
 from tensorflow_transform import impl_helper
 from tensorflow_transform.beam import analyzer_impls
 from tensorflow_transform.beam import common
+from tensorflow_transform.beam import shared
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
@@ -98,6 +100,8 @@ _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER = {
             intra_op_parallelism_threads=2).SerializeToString(),
 
 }
+
+_METRICS_NAMESPACE = 'tensorflow_transform'
 
 
 def _maybe_deserialize_tf_config(serialized_tf_config):
@@ -191,18 +195,18 @@ class _RunMetaGraphDoFn(beam.DoFn):
       implies use Tensorflow defaults.
   """
 
+  # Thread-safe.
   class _GraphState(object):
 
     def __init__(self, saved_model_dir, input_schema, output_schema,
                  tf_config):
       self.saved_model_dir = saved_model_dir
       self.graph = tf.Graph()
-      self.session = tf.Session(graph=self.graph, config=tf_config)
+      self.tf_config = tf_config
       with self.graph.as_default():
         with tf.Session(config=tf_config):
           inputs, outputs = saved_transform_io.partially_apply_saved_transform(
               saved_model_dir, {})
-        self.session.run(tf.tables_initializer())
 
         input_schema_keys = input_schema.column_schemas.keys()
         output_schema_keys = output_schema.column_schemas.keys()
@@ -217,18 +221,22 @@ class _RunMetaGraphDoFn(beam.DoFn):
         self.inputs = {key: inputs[key] for key in input_schema_keys}
         self.outputs = {key: outputs[key] for key in output_schema_keys}
 
-  _thread_local = threading.local()
-
   def __init__(self,
                input_schema,
                output_schema,
                serialized_tf_config,
+               shared_graph_state_handle,
                exclude_outputs=None,
                desired_batch_size=_DEFAULT_DESIRED_BATCH_SIZE):
     super(_RunMetaGraphDoFn, self).__init__()
     self._input_schema = input_schema
     self._output_schema = output_schema
     self._serialized_tf_config = serialized_tf_config
+
+    # The shared graph state handle allows us to load the graph once and share
+    # it across multiple threads in the current process.
+    self._shared_graph_state_handle = shared_graph_state_handle
+
     self._exclude_outputs = exclude_outputs
     self._desired_batch_size = desired_batch_size
 
@@ -237,10 +245,10 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
     # Metrics.
     self._graph_load_seconds_distribution = beam.metrics.Metrics.distribution(
-        self.__class__, 'graph_load_seconds')
+        _METRICS_NAMESPACE, 'graph_load_seconds')
     self._batch_size_distribution = beam.metrics.Metrics.distribution(
-        self.__class__, 'batch_size')
-    self._num_instances = beam.metrics.Metrics.counter(self.__class__,
+        _METRICS_NAMESPACE, 'batch_size')
+    self._num_instances = beam.metrics.Metrics.counter(_METRICS_NAMESPACE,
                                                        'num_instances')
 
   def _flush_batch(self):
@@ -252,12 +260,20 @@ class _RunMetaGraphDoFn(beam.DoFn):
     del self._batch[:]
 
     try:
-      return self._graph_state.session.run(
-          self._graph_state.outputs, feed_dict=feed_dict)
+      return self._session.run(self._graph_state.outputs, feed_dict=feed_dict)
     except Exception as e:
       tf.logging.error('%s while applying transform function for tensors %s' %
                        (e, self._graph_state.outputs))
       raise
+
+  def _make_graph_state(self, saved_model_dir):
+    start = datetime.datetime.now()
+    tf_config = _maybe_deserialize_tf_config(self._serialized_tf_config)
+    result = self._GraphState(saved_model_dir, self._input_schema,
+                              self._output_schema, tf_config)
+    self._graph_load_seconds_distribution.update(
+        int((datetime.datetime.now() - start).total_seconds()))
+    return result
 
   def process(self, element, saved_model_dir):
     """Runs the given graph to realize the output `Tensor` or `SparseTensor`s.
@@ -275,17 +291,19 @@ class _RunMetaGraphDoFn(beam.DoFn):
       names) to values.
     """
     if self._graph_state is None:
-      if (getattr(self._thread_local, 'graph_state', None) is None or
-          self._thread_local.graph_state.saved_model_dir != saved_model_dir):
-        start = datetime.datetime.now()
-        tf_config = _maybe_deserialize_tf_config(self._serialized_tf_config)
-        self._thread_local.graph_state = self._GraphState(
-            saved_model_dir, self._input_schema, self._output_schema, tf_config)
-        self._graph_load_seconds_distribution.update(
-            int((datetime.datetime.now() - start).total_seconds()))
-      self._graph_state = self._thread_local.graph_state
-    else:
-      assert self._graph_state.saved_model_dir == saved_model_dir
+      # If available, acquire will return a cached _GraphState, since calling
+      # _make_graph_state is expensive.
+      self._graph_state = self._shared_graph_state_handle.acquire(
+          lambda: self._make_graph_state(saved_model_dir))
+
+      self._session = tf.Session(
+          graph=self._graph_state.graph, config=self._graph_state.tf_config)
+      with self._session.graph.as_default():
+        self._session.run(tf.tables_initializer())
+
+    # This should remain true throughout the lifetime of this DoFn, regardless
+    # of whether or not self._graph_state was cached.
+    assert self._graph_state.saved_model_dir == saved_model_dir
 
     self._batch.append(element)
     if len(self._batch) >= self._desired_batch_size:
@@ -296,13 +314,38 @@ class _RunMetaGraphDoFn(beam.DoFn):
       yield WindowedValue(self._flush_batch(), -1, [window.GlobalWindow()])
 
 
+def _asset_files_supported():
+  try:
+    # Fail with a clear error in case we are not using a compatible TF version.
+    with tf.Session(graph=tf.Graph()):
+      # Even if the file doesn't exist, this session never gets executed we just
+      # use it to find out if the string_to_index_table_from_file initializer is
+      # compatible with tf.Transform.
+      vocabulary_file = tf.constant('__test_file__')
+      tf.contrib.lookup.string_to_index_table_from_file(
+          vocabulary_file=vocabulary_file)
+
+    return True
+  except TypeError:
+    # Catch the following error from the previous TF version:
+    # TypeError: Using a `tf.Tensor` as a Python `bool` is not allowed.
+    # Use `if t is not None:` instead of `if t:` to test if a tensor is defined,
+    # and use TensorFlow ops such as tf.cond to execute subgraphs conditioned on
+    # the value of a tensor."
+    return False
+
+
 def _assert_tensorflow_version():
   try:
     _ = tf.SparseFeature
     _ = tf.tables_initializer
   except AttributeError:
     raise RuntimeError(
-        'Tensorflow version 1.0 is required. Please install the latest version '
+        'Tensorflow version 1.3 is required. Please install the latest version '
+        'from https://github.com/tensorflow/tensorflow.')
+  if not _asset_files_supported():
+    raise RuntimeError(
+        'Tensorflow version 1.3 is required. Please install the latest version '
         'from https://github.com/tensorflow/tensorflow.')
 
 
@@ -316,10 +359,14 @@ def _write_saved_transform(graph, inputs, outputs, saved_model_dir):
   with tf.Session(graph=graph) as session:
     # Remove collections that can't be serialized, as these produce annoying
     # warnings.
+    # pylint: disable=protected-access
     collections_blacklist = [
+        tft_api._TF_METADATA_TENSORS_COLLECTION,
+        tft_api._TF_METADATA_COLUMN_SCHEMAS_COLLECTION,
         tft_api.FUNCTION_APPLICATION_COLLECTION,
         tft_analyzers.ANALYZER_COLLECTION
     ]
+    # pylint: enable=protected-access
     removed_collections = []
     for collection_name in collections_blacklist:
       removed_collections.append(
@@ -328,7 +375,254 @@ def _write_saved_transform(graph, inputs, outputs, saved_model_dir):
     saved_transform_io.write_saved_transform_from_session(
         session, inputs, outputs, saved_model_dir)
     for collection_name, collection in removed_collections:
-      graph.get_collection(collection_name).extend(collection)
+      graph.get_collection_ref(collection_name).extend(collection)
+
+
+# An object used to construct a constant tensor in the graph, that will replace
+# a placeholder tensor.  `value` is a numpy array.  `is_asset_filename` is set
+# to true when the tensor contains an asset filename.  This information is
+# needed as asset filenames must get added to a special collection when they
+# are inserted into the graph, so that their names get updated when the
+# SavedModel is copied.
+_TensorValue = collections.namedtuple(
+    '_TensorValue', ['value', 'is_asset_filename'])
+
+
+class _ReplaceTensorsWithConstants(beam.PTransform):
+  """Writes a SavedModel with specified tensors replaced by constants.
+
+  This transform takes a SavedModel in its constructor, and in its expand()
+  method accepts a mapping from tensors to PCollections.  When run, it replaces
+  the tensors corresponding to the keys of this mapping, with the values
+  wrapped in the PCollections.
+
+  Args:
+    saved_model_dir: The directory containing the SavedModel.
+  """
+
+  def __init__(self, saved_model_dir, base_temp_dir, pipeline):
+    self._saved_model_dir = saved_model_dir
+    self._base_temp_dir = base_temp_dir
+    # Generally the pipeline is inferred from its inputs, however we need
+    # to know the pipeline for beam.Create.
+    self.pipeline = pipeline
+
+  def expand(self, tensor_pcoll_mapping):
+    """Converts a dict of statistics to a transform function.
+
+    Args:
+      tensor_pcoll_mapping: A dictionary mapping `Tensor`s to a singleton
+          PCollection containing a _TensorValue.
+
+    Returns:
+      A single-element PCollection containing the directory name with the
+          SavedModel.
+    """
+    transform_fn = (
+        self.pipeline | 'CreateTransformFn' >> beam.Create(
+            [self._saved_model_dir]))
+
+    if not tensor_pcoll_mapping:
+      return transform_fn
+
+    # Convert tensor_value_mapping into a DictPCollectionView so it can be
+    # passed as a side input to the beam Map below.
+    tensor_value_pairs = []
+    for name, pcoll in six.iteritems(tensor_pcoll_mapping):
+      tensor_value_pairs.append(
+          pcoll
+          | 'AddName[%s]' % name
+          >> beam.Map(lambda x, name=name: (name, x)))
+    tensor_value_mapping = beam.pvalue.AsDict(
+        tensor_value_pairs | 'MergeTensorValuePairs' >> beam.Flatten())
+
+    def replace_tensors_with_constant_values(
+        saved_model_dir, tensor_value_mapping):
+      """Replaces specified `Tensor`s with constant values.
+
+      Constants are accepted as Python values; these are automatically
+      wrapped in `tf.constant()`.
+
+      This method creates its own temp dir, and is therefore idempotent
+      since any retry will use a different temp dir.
+
+      Args:
+        saved_model_dir: A SavedModel directory providing a transform
+          graph.  The MetaGraphDef and signature are selected from the
+          SavedModel using keys defined in `../constants.py` ('transform'
+          and 'transform_signature', respectively).
+        tensor_value_mapping: a dict of tensor names to values to use in
+          place of those tensors.
+
+      Returns:
+        The directory name containing the updated SavedModel.
+
+      Raises:
+        RuntimeError: if there is no default graph available to which to
+          apply the transform.
+      """
+
+      graph = tf.get_default_graph()
+      if graph is None:
+        raise RuntimeError('replace_tensors_with_constant_values() '
+                           'requires a default graph.')
+
+      tensor_replacement_map = {}
+      for orig_tensor_name, (value, is_asset) in six.iteritems(
+          tensor_value_mapping):
+        new_tensor = tf.constant(value)
+        if is_asset:
+          # Any newly frozen constant tensors containing filenames must be
+          # added to the ASSET_FILENAMES collection.
+          graph.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, new_tensor)
+        tensor_replacement_map[orig_tensor_name] = new_tensor
+
+      with tf.Session() as session:
+        temp_dir = _make_unique_temp_dir(self._base_temp_dir)
+        input_tensors, output_tensors = (
+            saved_transform_io.partially_apply_saved_transform(
+                saved_model_dir, {}, tensor_replacement_map))
+        saved_transform_io.write_saved_transform_from_session(
+            session, input_tensors, output_tensors, temp_dir)
+      return temp_dir
+
+    return (transform_fn |
+            'ReplaceTensorsWithConstantValues' >> beam.Map(
+                replace_tensors_with_constant_values,
+                tensor_value_mapping=tensor_value_mapping))
+
+
+class _ComputeAnalyzerOutputs(beam.PTransform):
+  """Runs analyzers and return a map from tensor names to values.
+
+  This transform takes a PCollection of instances where each instance contains
+  the inputs to the analyzers (by tensor name).  It extracts the inputs of
+  each analyzer and then runs the analyzers.  The return value is a dictionary
+  from the output tensor names to `_TensorValue`s.
+  """
+
+  def __init__(self, analyzers, base_temp_dir):
+    self._analyzers = analyzers
+    self._base_temp_dir = base_temp_dir
+
+  def expand(self, analyzer_input_values):
+    # For each analyzer output, look up its input values (by tensor name)
+    # and run the analyzer on these values.
+    #
+    result = {}
+    for idx, analyzer in enumerate(self._analyzers):
+      temp_assets_dir = _make_unique_temp_dir(self._base_temp_dir)
+      tf.gfile.MkDir(temp_assets_dir)
+      analyzer_impl = analyzer_impls._impl_for_analyzer(
+          analyzer.spec, temp_assets_dir)
+      # pylint: enable=protected-access
+
+      assert len(analyzer.inputs) == 1
+      output_pcolls = (
+          analyzer_input_values
+          | 'Extract_%d' % idx >> beam.Map(
+              lambda batch, key: batch[key],
+              key=analyzer.inputs[0].name)
+          | 'Analyze_%d' % idx >> analyzer_impl)
+      assert len(analyzer.outputs) == len(output_pcolls), (
+          'Analyzer outputs don\'t match the expected outputs from the '
+          'Analyzer definition: %d != %d' %
+          (len(analyzer.outputs), len(output_pcolls)))
+
+      for collection_idx, (tensor, pcoll) in enumerate(
+          zip(analyzer.outputs, output_pcolls)):
+        is_asset = analyzer.output_is_asset(tensor)
+        pcoll |= ('WrapAsTensorValue_%d_%d' % (idx, collection_idx)
+                  >> beam.Map(_TensorValue, is_asset))
+        result[tensor.name] = pcoll
+    return result
+
+
+class _ComputeTensorValues(beam.PTransform):
+  """Extracts values of tensors from a transform function.
+
+  This transform takes the path to a SavedModel in its constructor, and in its
+  expand() method accepts a mapping from tensors to PCollections.  When run, it
+  replaces the tensors corresponding to the keys of this mapping, with the
+  values wrapped in the PCollections.  It then extracts the values of some
+  tensors in the new graph.  This allows us to compute values that depend on
+  values in the tensor-PCollection mapping in arbitrary ways, where the values
+  are represented by tensors in the graph that depend on the tensor-PCollection
+  mapping (but not on the inputs to the graph).
+
+  Args:
+    tensor_names: The names of the tensors to extract.
+    saved_model_dir: The model to extract the constants from.
+    pipeline: The beam Pipeline.
+  """
+
+  def __init__(self, tensor_names, saved_model_dir, pipeline):
+    self._tensor_names = tensor_names
+    self._saved_model_dir = saved_model_dir
+    # Generally the pipeline is inferred from its inputs, however we need
+    # to know the pipeline for beam.Create.
+    self.pipeline = pipeline
+
+  def expand(self, tensor_pcoll_mapping):
+    """Converts a dict of statistics to a transform function.
+
+    Args:
+      tensor_pcoll_mapping: A dictionary mapping `Tensor`s to a singleton
+          PCollection containing a _TensorValue.
+
+    Returns:
+      A single-element PCollection containing map from tensor names to values.
+    """
+    # Create a singleton PCollection containing self._tensor_names.  Note that
+    # the PCollection is a singeton containing a single list, that is the size
+    # of the PCollection is not equal to the length of self._tensor_names.
+    tensor_names_pcoll = (
+        self.pipeline |
+        'CreateTensorNames' >> beam.Create([self._tensor_names]))
+
+    # Convert tensor_value_mapping into a DictPCollectionView so it can be
+    # passed as a side input to the beam Map below.
+    tensor_value_pairs = []
+    for name, pcoll in six.iteritems(tensor_pcoll_mapping):
+      tensor_value_pairs.append(
+          pcoll
+          | 'AddName[%s]' % name
+          >> beam.Map(lambda x, name=name: (name, x)))
+    tensor_value_mapping = beam.pvalue.AsDict(
+        tensor_value_pairs
+        | 'MergeTensorValuePairs' >> beam.Flatten(pipeline=self.pipeline))
+
+    def extract_scalar_constants(
+        tensor_names, saved_model_dir, tensor_value_mapping):
+      """Extracts constant values from graph."""
+
+      graph = tf.get_default_graph()
+      if graph is None:
+        raise RuntimeError('replace_tensors_with_constant_values() '
+                           'requires a default graph.')
+
+      tensor_replacement_map = {}
+      for orig_tensor_name, (value, is_asset) in six.iteritems(
+          tensor_value_mapping):
+        new_tensor = tf.constant(value)
+        if is_asset:
+          # Any newly frozen constant tensors containing filenames must be
+          # added to the ASSET_FILENAMES collection.
+          graph.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, new_tensor)
+        tensor_replacement_map[orig_tensor_name] = new_tensor
+
+      with tf.Session() as session:
+        tensor_output_map = (
+            saved_transform_io.fetch_tensor_values(
+                saved_model_dir, tensor_replacement_map, tensor_names))
+        session.run(tf.tables_initializer())
+        return session.run(tensor_output_map)
+
+    return (tensor_names_pcoll |
+            'ExtractScalarConstants' >> beam.Map(
+                extract_scalar_constants,
+                saved_model_dir=self._saved_model_dir,
+                tensor_value_mapping=tensor_value_mapping))
 
 
 class AnalyzeDataset(beam.PTransform):
@@ -368,131 +662,6 @@ class AnalyzeDataset(beam.PTransform):
 
     base_temp_dir = Context.create_base_temp_dir()
 
-    class _ReplaceTensorsWithConstants(beam.PTransform):
-      """Bind statistics in a deferred manner.
-
-      This transform fills in analyzer outputs with their actual computed
-      values.
-
-      Args:
-        saved_model_dir: The directory containing the SavedModel.
-      """
-
-      def __init__(self, saved_model_dir):
-        # Generally the pipeline is inferred from its inputs, however we need
-        # to know the pipeline for beam.Create.
-        self.pipeline = input_values.pipeline
-        self._saved_model_dir = saved_model_dir
-
-      def expand(self, tensor_pcoll_mapping):
-        """Converts a dict of statistics to a transform function.
-
-        Args:
-          tensor_pcoll_mapping: A dictionary mapping `Tensor`s to singleton
-              `PCollection`s.
-
-        Returns:
-          A single-element PCollection containing the directory name with the
-              SavedModel.
-        """
-        transform_fn = (
-            self.pipeline | 'CreateTransformFn' >> beam.Create(
-                [self._saved_model_dir]))
-
-        if not tensor_pcoll_mapping:
-          return transform_fn
-
-        # Convert tensor_value_mapping into a DictPCollectionView so it can be
-        # passed as a side input to the beam Map below.
-        tensor_value_pairs = []
-        for name, pcoll in six.iteritems(tensor_pcoll_mapping):
-          tensor_value_pairs.append(
-              pcoll
-              | 'AddName[%s]' % name
-              >> beam.Map(lambda x, name=name: (name, x)))
-        tensor_value_mapping = beam.pvalue.AsDict(
-            tensor_value_pairs | 'MergeTensorValuePairs' >> beam.Flatten())
-
-        # Run a mapper that inserts statistic values into the graph.  We wrap
-        # replace_tensors_with_constant_values in a wrapper that also creates
-        # a temp dir.  This makes the wrapper idempotent since any retry will
-        # use a different temp dir.
-        def replace_tensors_with_constant_values(
-            saved_model_dir, tensor_value_mapping, serialized_tf_config):
-
-          tf_config = _maybe_deserialize_tf_config(serialized_tf_config)
-          with tf.Session(config=tf_config) as session:
-            temp_dir = _make_unique_temp_dir(base_temp_dir)
-            input_tensors, output_tensors = (
-                saved_transform_io.partially_apply_saved_transform(
-                    saved_model_dir, {}, tensor_value_mapping))
-            saved_transform_io.write_saved_transform_from_session(
-                session, input_tensors, output_tensors, temp_dir)
-          return temp_dir
-
-        serialized_tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(
-            self.pipeline.runner)
-        return (transform_fn |
-                'ReplaceTensorsWithConstantValues' >> beam.Map(
-                    replace_tensors_with_constant_values,
-                    tensor_value_mapping=tensor_value_mapping,
-                    serialized_tf_config=serialized_tf_config))
-
-    class _ComputeTensorPcollMappingUpdate(beam.PTransform):
-      """Create a mapping from `Tensor`s to PCollections.
-
-      Creates a mapping from `Tensor`s to PCollections for the outputs of the
-      new analyzers.  An existing mapping will be provided as the argument
-      to the extend() method.
-
-      Args:
-        phase: The Phase to run
-      """
-
-      def __init__(self, saved_model_dir, analyzer_inputs_schema, analyzers):
-        self._saved_model_dir = saved_model_dir
-        self._analyzer_inputs_schema = analyzer_inputs_schema
-        self._analyzers = analyzers
-
-      def expand(self, input_values_and_tensor_pcoll_mapping):
-        input_values, tensor_pcoll_mapping = (
-            input_values_and_tensor_pcoll_mapping)
-
-        # Create a transform_fn to produce inputs to new analyzers.
-        transform_fn = (
-            tensor_pcoll_mapping
-            | 'ReplaceTensorsWithConstants'
-            >> _ReplaceTensorsWithConstants(self._saved_model_dir))
-
-        # Run the transform_fn.
-        serialized_tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(
-            self.pipeline.runner)
-        analyzer_input_values = (
-            input_values | 'ComputeAnalyzerInputs' >> beam.ParDo(
-                _RunMetaGraphDoFn(input_schema, self._analyzer_inputs_schema,
-                                  serialized_tf_config),
-                saved_model_dir=beam.pvalue.AsSingleton(transform_fn)))
-
-        # For each analyzer output, look up its input values (by tensor name)
-        # and run the analyzer on these values.
-        #
-        tensor_pcoll_mapping_update = {}
-        for idx, analyzer in enumerate(self._analyzers):
-          analyzer_impl = analyzer_impls._impl_for_analyzer(analyzer.spec)
-          # pylint: enable=protected-access
-
-          assert len(analyzer.inputs) == 1
-          output_pcolls = (
-              analyzer_input_values
-              | 'Extract_%d' % idx >> beam.Map(
-                  lambda batch, key: batch[key],
-                  key=analyzer.inputs[0].name)
-              | 'Analyze_%d' % idx >> analyzer_impl)
-          assert len(analyzer.outputs) == len(output_pcolls)
-          for tensor, pcoll in zip(analyzer.outputs, output_pcolls):
-            tensor_pcoll_mapping_update[tensor.name] = pcoll
-        return tensor_pcoll_mapping_update
-
     # NOTE: it's important that create_phases is called directly after
     # run_preprocessing_fn, because we later mutate the graph's
     # TABLE_INITIALIZERS collection which would break the logic in
@@ -501,34 +670,61 @@ class AnalyzeDataset(beam.PTransform):
         self._preprocessing_fn, input_schema)
     phases = impl_helper.create_phases(graph)
 
-    # Iterate through levels, generating PCollections for columns that are the
-    # outputs of `Operations` that are not `MapOperation`s.
+    # Iterate through levels.  tensor_pcoll_mapping is a mapping from tensor
+    # names to singleton PCollections containing a _TensorValue.  We compute
+    # tensor_pcoll_mapping in phases, where at each phase we compute the
+    # analyzers that are ready to run and update tensor_pcoll_mapping.
     tensor_pcoll_mapping = {}
     table_initializers = graph.get_collection_ref(
         tf.GraphKeys.TABLE_INITIALIZERS)
     original_table_initializers = list(table_initializers)
     del table_initializers[:]
 
+    serialized_tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(
+        input_values.pipeline.runner)
     for level, phase in enumerate(phases):
+      # Create a SavedModel that describes the mapping from the input data
+      # to the inputs of the analyzers at this level.  The colum names of the
+      # outputs are the tensor names of the analyzer inputs in the graph.  This
+      # graph has the anaylzer outputs computed so far replaced with constants.
       analyzer_inputs = {}
       for analyzer in phase.analyzers:
         for input_tensor in analyzer.inputs:
           analyzer_inputs[input_tensor.name] = input_tensor
       analyzer_inputs_schema = impl_helper.infer_feature_schema(
-          analyzer_inputs)
+          graph, analyzer_inputs)
       table_initializers.extend(phase.table_initializers)
-      saved_model_dir = _make_unique_temp_dir(base_temp_dir)
-      _write_saved_transform(graph, inputs, analyzer_inputs, saved_model_dir)
+      unbound_saved_model_dir = _make_unique_temp_dir(base_temp_dir)
+      _write_saved_transform(
+          graph, inputs, analyzer_inputs, unbound_saved_model_dir)
+      saved_model_dir = (
+          tensor_pcoll_mapping
+          | 'CreateSavedModelForAnaylzerInputs_%d' % level
+          >> _ReplaceTensorsWithConstants(
+              unbound_saved_model_dir, base_temp_dir, input_values.pipeline))
 
-      tensor_pcoll_mapping_update = (
-          (input_values, tensor_pcoll_mapping)
-          | 'ComputeTensorPcollMappingUpdate_%d' % level
-          >> _ComputeTensorPcollMappingUpdate(
-              saved_model_dir, analyzer_inputs_schema, phase.analyzers))
-      tensor_pcoll_mapping.update(tensor_pcoll_mapping_update)
+      # Run this saved model on the input dataset to obtain the inputs to the
+      # analyzers.
+      analyzer_input_values = (
+          input_values
+          | 'ComputeAnalyzerInputs_%d' % level >> beam.ParDo(
+              _RunMetaGraphDoFn(
+                  input_schema,
+                  analyzer_inputs_schema,
+                  serialized_tf_config,
+                  shared_graph_state_handle=shared.Shared()),
+              saved_model_dir=beam.pvalue.AsSingleton(saved_model_dir)))
 
-    output_metadata = dataset_metadata.DatasetMetadata(
-        schema=impl_helper.infer_feature_schema(outputs))
+      # Compute the analyzers from their inputs.  `analyzer_outputs_dict` is a
+      # map from tensor names to singleton PCollections of `_TensorValue`s.
+      analyzer_outputs_dict = (
+          analyzer_input_values
+          | 'CompuateAnalyzerOutputs_%d' % level
+          >> _ComputeAnalyzerOutputs(phase.analyzers, base_temp_dir))
+
+      # Update the mapping for all analyzers.
+      tensor_pcoll_mapping.update(analyzer_outputs_dict)
+
     del table_initializers[:]
     table_initializers.extend(original_table_initializers)
     saved_model_dir = _make_unique_temp_dir(base_temp_dir)
@@ -536,9 +732,33 @@ class AnalyzeDataset(beam.PTransform):
     transform_fn = (
         tensor_pcoll_mapping
         | 'ReplaceTensorsWithConstants'
-        >> _ReplaceTensorsWithConstants(saved_model_dir))
+        >> _ReplaceTensorsWithConstants(
+            saved_model_dir, base_temp_dir, input_values.pipeline))
 
-    return transform_fn, output_metadata
+    # Infer metadata.  The metadata may contain Futures that refer to the values
+    # of tensors in the graph.  In that case, the tensors must be "constant" in
+    # that they don't depend on input data.  The tensors can depend on analyzer
+    # outputs though.  This allows us to set metadata that depends on analyzer
+    # outputs.
+    #
+    # We first extract the names of the tensors that are referenced by the
+    # Futures, and then compute them by calling _ComputeScalarConstants with the
+    # tensor-PCollection mapping representing the analyzer outputs.
+    metadata = dataset_metadata.DatasetMetadata(
+        schema=impl_helper.infer_feature_schema(graph, outputs))
+
+    deferred_metadata_tensor_names = [
+        future.name
+        for column_schema in tft_api.get_column_schemas(graph).values()
+        for future in column_schema.substitute_futures({})]
+    deferred_metadata = (
+        tensor_pcoll_mapping
+        | 'ComputeTensorValues' >>
+        _ComputeTensorValues(
+            deferred_metadata_tensor_names, saved_model_dir,
+            input_values.pipeline))
+
+    return transform_fn, (metadata, deferred_metadata)
 
 
 class AnalyzeAndTransformDataset(beam.PTransform):
@@ -600,9 +820,9 @@ class TransformDataset(beam.PTransform):
     _assert_tensorflow_version()
     self._exclude_outputs = exclude_outputs
 
-  def _extract_input_pvalues(self, dataset):
-    (data, _), (transform_fn, _) = dataset
-    return dataset, [data, transform_fn]
+  def _extract_input_pvalues(self, dataset_and_transform_fn):
+    (data, _), (transform_fn, (_, deferred_metadata)) = dataset_and_transform_fn
+    return dataset_and_transform_fn, [data, transform_fn, deferred_metadata]
 
   def expand(self, dataset_and_transform_fn):
     """Transforms the dataset using the transform_fn.
@@ -614,7 +834,7 @@ class TransformDataset(beam.PTransform):
     Returns:
       A dataset transformed according to the transform_fn.
     """
-    (input_values, input_metadata), (transform_fn, output_metadata) = (
+    (input_values, input_metadata), (transform_fn, (output_metadata, _)) = (
         dataset_and_transform_fn)
 
     # If exclude_outputs is set, update the output metadata, which will also
@@ -640,6 +860,7 @@ class TransformDataset(beam.PTransform):
                 input_metadata.schema,
                 output_metadata.schema,
                 serialized_tf_config,
+                shared_graph_state_handle=shared.Shared(),
                 exclude_outputs=self._exclude_outputs),
             saved_model_dir=beam.pvalue.AsSingleton(transform_fn))
         | 'ConvertAndUnbatch' >> beam.FlatMap(convert_and_unbatch))

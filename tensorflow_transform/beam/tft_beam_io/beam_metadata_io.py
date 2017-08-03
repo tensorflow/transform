@@ -11,47 +11,56 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Transforms to read/write metadata from disk."""
+"""Transforms to read/write metadata from disk.
+
+A write/read cycle will render all metadata deferred, but in general users
+should avoid doing this anyway and pass around live metadata objects.
+"""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 import apache_beam as beam
+from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 
 
-class ReadMetadata(beam.PTransform):
-  """A PTransform to read Metadata from disk."""
-
-  def __init__(self, path):
-    super(ReadMetadata, self).__init__()
-    self._path = path
-
-  def expand(self, pvalue):
-    # Read metadata in non-deferred manner.  Note that since this reads the
-    # whole metadata in a non-deferred manner, typically the roundtrip
-    #
-    # done = metadata | WriteMetadata(path)
-    # metadata = p | ReadMetadata(path).must_follow(done)
-    #
-    # will fail as the metadata on disk will not be complete when the read is
-    # done.
-    return metadata_io.read_metadata(self._path)
-
-
 class WriteMetadata(beam.PTransform):
+  """A PTransform to write Metadata to disk.
+
+  Input can either be a DatasetMetadata or a tuple of properties.
+  """
 
   # NOTE: The pipeline metadata is required by PTransform given that all the
-  # inpits are non-deferred.
+  # inputs may be non-deferred.
   def __init__(self, path, pipeline):
     super(WriteMetadata, self).__init__()
     self._path = path
     self.pipeline = pipeline
 
-  def _extract_input_pvalues(self, metadata):
-    return metadata, []
+  def _extract_input_pvalues(self, metadata_or_tuple):
+    if isinstance(metadata_or_tuple, dataset_metadata.DatasetMetadata):
+      return metadata_or_tuple, []
+    else:
+      return metadata_or_tuple, [metadata_or_tuple[1]]
 
-  def expand(self, metadata):
-    """A PTransform to write Metadata to disk."""
-    metadata_io.write_metadata(metadata, self._path)
+  def expand(self, metadata_or_tuple):
+    if isinstance(metadata_or_tuple, dataset_metadata.DatasetMetadata):
+      metadata = metadata_or_tuple
+      deferred_metadata = (
+          self.pipeline | 'CreateEmptyDeferredMetadata' >> beam.Create([{}]))
+    else:
+      metadata, deferred_metadata = metadata_or_tuple
+
+    def write_metadata(futures_dict, non_deferred_metadata, destination):
+      unresolved_futures = non_deferred_metadata.substitute_futures(
+          futures_dict)
+      if unresolved_futures:
+        raise ValueError(
+            'Some futures were unresolved: %r' % unresolved_futures)
+      metadata_io.write_metadata(non_deferred_metadata, destination)
+
+    return (
+        deferred_metadata
+        | 'WriteMetadata' >> beam.Map(write_metadata, metadata, self._path))
