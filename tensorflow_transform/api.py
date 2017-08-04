@@ -42,12 +42,6 @@ def preprocessing_fn(inputs):
     'y': y
   }
 
-The previous Column/Statistic API required that all TensorFlow functions be
-wrapped in tft.map before being applied to a Column or `Column`s.  This function
-is now no longer needed (and is deprecated) and it simply applies the function
-to its arguments.  However, in some cases `apply_function` must be used in a
-similar way; see the documentation of `apply_function` for details.
-
 This user-defined function then must be run using an implementation based on
 some distributed computation framework.  The canonical implementation uses
 Apache Beam as the underlying framework.  See beam/impl.py for how to use the
@@ -56,8 +50,6 @@ Beam implementation.
 
 import tensorflow as tf
 from tensorflow_transform import analyzers
-
-from tensorflow.python.util.deprecation import deprecated
 
 FUNCTION_APPLICATION_COLLECTION = 'tft_function_applications'
 
@@ -169,8 +161,19 @@ def apply_function(fn, *args):
   return FunctionApplication(fn, args).user_output
 
 
-@deprecated('2017-06-04',
-            'map is no longer required, functions can be applied directly.')
-def map(fn, *args):  # pylint: disable=redefined-builtin
-  """Deprecated function for backwards compatibility."""
-  return apply_function(fn, *args)
+_TF_METADATA_TENSORS_COLLECTION = 'tft_metadata_tensors'
+_TF_METADATA_COLUMN_SCHEMAS_COLLECTION = 'tft_metadata_schemas'
+
+
+def set_column_schema(tensor, column_schema):
+  """Sets the schema of a `Tensor` or `SparseTensor`."""
+  graph = tensor.graph
+  graph.add_to_collection(_TF_METADATA_TENSORS_COLLECTION, tensor)
+  graph.add_to_collection(_TF_METADATA_COLUMN_SCHEMAS_COLLECTION, column_schema)
+
+
+def get_column_schemas(graph):
+  """Gets a dict from `Tensor` or `SparseTensor`s to `ColumnSchema`s."""
+  return dict(zip(
+      graph.get_collection(_TF_METADATA_TENSORS_COLLECTION),
+      graph.get_collection(_TF_METADATA_COLUMN_SCHEMAS_COLLECTION)))

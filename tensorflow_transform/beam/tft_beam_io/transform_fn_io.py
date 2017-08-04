@@ -21,6 +21,7 @@ import os
 
 import apache_beam as beam
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
+from tensorflow_transform.tf_metadata import metadata_io
 
 
 def _copy_tree(source, destination):
@@ -37,48 +38,54 @@ def _copy_tree(source, destination):
 
 
 class WriteTransformFn(beam.PTransform):
-  """Writes a TransformFn to disk.
-
-  The transform function will be written to the specified directory, with the
-  SavedModel written to the transform_fn/ subdirectory and the output metadata
-  written to the transformed_metadata/ directory.
-  """
+  """Writes a TransformFn to disk."""
 
   def __init__(self, path):
     super(WriteTransformFn, self).__init__()
     self._path = path
 
   def _extract_input_pvalues(self, transform_fn):
-    saved_model_dir_pcoll, _ = transform_fn
-    return transform_fn, [saved_model_dir_pcoll]
+    saved_model_dir, (_, property_pcoll) = transform_fn
+    return transform_fn, [saved_model_dir, property_pcoll]
 
   def expand(self, transform_fn):
-    saved_model_dir_pcoll, metadata = transform_fn
-    # Write metadata in non-deferred manner.  Once metadata contains deferred
-    # components, the deferred components will be written in a deferred manner
-    # while the non-deferred components will be written in a non-deferred
-    # manner.
-    _ = metadata | 'WriteMetadata' >> beam_metadata_io.WriteMetadata(
-        os.path.join(self._path, 'transformed_metadata'),
-        pipeline=saved_model_dir_pcoll.pipeline)
-    return saved_model_dir_pcoll | 'WriteTransformFn' >> beam.Map(
-        _copy_tree, os.path.join(self._path, 'transform_fn'))
+    saved_model_dir, properties = transform_fn
+
+    metadata_path = os.path.join(self._path, 'transformed_metadata')
+    pipeline = saved_model_dir.pipeline
+    write_metadata_done = (
+        properties
+        | 'WriteMetadata'
+        >> beam_metadata_io.WriteMetadata(metadata_path, pipeline))
+
+    transform_fn_path = os.path.join(self._path, 'transform_fn')
+    write_transform_fn_done = (
+        saved_model_dir
+        | 'WriteTransformFn' >> beam.Map(_copy_tree, transform_fn_path))
+
+    return (
+        write_transform_fn_done
+        | 'WaitOnWriteMetadataDone' >> beam.Map(
+            lambda x, dummy: x,
+            dummy=beam.pvalue.AsSingleton(write_metadata_done)))
 
 
 class ReadTransformFn(beam.PTransform):
-  """Reads a TransformFn written by WriteTransformFn.
-
-  See WriteTransformFn for the directory layout.
-  """
+  """Reads a TransformFn written by WriteTransformFn."""
 
   def __init__(self, path):
     super(ReadTransformFn, self).__init__()
     self._path = path
 
   def expand(self, pvalue):
-    metadata = (
-        pvalue.pipeline | 'ReadMetadata' >> beam_metadata_io.ReadMetadata(
-            os.path.join(self._path, 'transformed_metadata')))
-    saved_model_dir_pcoll = pvalue | 'CreateDir' >> beam.Create(
-        [os.path.join(self._path, 'transform_fn')])
-    return (saved_model_dir_pcoll, metadata)
+    transform_fn_path = os.path.join(self._path, 'transform_fn')
+    saved_model_dir_pcoll = (
+        pvalue.pipeline
+        | 'CreateTransformFnPath' >> beam.Create([transform_fn_path]))
+
+    metadata = metadata_io.read_metadata(
+        os.path.join(self._path, 'transformed_metadata'))
+    deferred_metadata = (
+        pvalue.pipeline | 'CreateEmptyDeferredMetadata' >> beam.Create([{}]))
+
+    return saved_model_dir_pcoll, (metadata, deferred_metadata)

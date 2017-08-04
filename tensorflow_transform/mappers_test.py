@@ -192,11 +192,11 @@ class MappersTest(test_util.TensorFlowTestCase):
         [2, 4])
     reduced_term_freq = tf.constant([[2, 1, 1, 1]])
     output_tensor = mappers._to_tfidf(term_freq, reduced_term_freq, 2, True)
-    log_3_over_2 = 0.4054651
+    log_3_over_2 = 1.4054651
     self.assertSparseOutput(
         expected_indices=[[0, 0], [0, 1], [0, 2], [1, 0], [1, 3]],
-        expected_values=[0, (1/5)*log_3_over_2, (1/5)*log_3_over_2,
-                         0, (1/2)*log_3_over_2],
+        expected_values=[(3/5), (1/5)*log_3_over_2, (1/5)*log_3_over_2,
+                         (1/2), (1/2)*log_3_over_2],
         expected_shape=[2, 4],
         actual_sparse_tensor=output_tensor,
         close_values=True)
@@ -208,11 +208,11 @@ class MappersTest(test_util.TensorFlowTestCase):
         [2, 4])
     reduced_term_freq = tf.constant([[2, 1, 1, 1]])
     output_tensor = mappers._to_tfidf(term_freq, reduced_term_freq, 2, False)
-    log_2_over_1 = 0.6931471
+    log_2_over_1 = 1.6931471
     self.assertSparseOutput(
         expected_indices=[[0, 0], [0, 1], [0, 2], [1, 0], [1, 3]],
-        expected_values=[0, (1/5)*log_2_over_1, (1/5)*log_2_over_1,
-                         0, (1/2)*log_2_over_1],
+        expected_values=[(3/5), (1/5)*log_2_over_1, (1/5)*log_2_over_1,
+                         (1/2), (1/2)*log_2_over_1],
         expected_shape=[2, 4],
         actual_sparse_tensor=output_tensor,
         close_values=True)
@@ -236,6 +236,19 @@ class MappersTest(test_util.TensorFlowTestCase):
         expected_shape=[3, 2],
         actual_sparse_tensor=out_weight,
         close_values=True)
+
+  def testSplitTFIDFWithEmptyInput(self):
+    with tf.Graph().as_default():
+      tfidf = tf.SparseTensor(
+          values=tf.constant([], shape=[0], dtype=tf.float32),
+          indices=tf.constant([], shape=[0, 2], dtype=tf.int64),
+          dense_shape=[2, 0])
+
+      _, weights = mappers._split_tfidfs_to_outputs(tfidf)
+
+      with self.test_session() as sess:
+        weights_shape = sess.run(weights.dense_shape)
+    self.assertAllEqual(weights_shape, [2, 0])
 
   def testHashStringsNoKeyDenseInput(self):
     strings = tf.constant(['Car', 'Bus', 'Tree'])
