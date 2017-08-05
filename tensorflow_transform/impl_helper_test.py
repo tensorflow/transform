@@ -35,14 +35,6 @@ from tensorflow.python.framework import test_util
 
 class ImplHelperTest(test_util.TensorFlowTestCase):
 
-  def assertShapesEqual(self, a, b):
-    if a.dims is None and b.dims is None:
-      # TensorShape(None) != TensorShape(None) so we can't use assertEqual in
-      # this case. But for our purposes these shapes are equal.
-      pass
-    else:
-      self.assertAllEqual(a.as_list(), b.as_list())
-
   def assertSparseValuesEqual(self, a, b):
     self.assertAllEqual(a.indices, b.indices)
     self.assertAllEqual(a.values, b.values)
@@ -52,18 +44,25 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     return sch.from_feature_spec(feature_spec)
 
   def testInferFeatureSchema(self):
+    d = tf.placeholder(tf.int64, None)
     tensors = {
         'a': tf.placeholder(tf.float32, (None,)),
         'b': tf.placeholder(tf.string, (1, 2, 3)),
-        'c': tf.placeholder(tf.int64, None)
+        'c': tf.placeholder(tf.int64, None),
+        'd': d
     }
-    schema = impl_helper.infer_feature_schema(tensors)
+    d_column_schema = sch.ColumnSchema(tf.int64, [1, 2, 3],
+                                       sch.FixedColumnRepresentation())
+    api.set_column_schema(d, d_column_schema)
+    schema = impl_helper.infer_feature_schema(tf.get_default_graph(), tensors)
     expected_schema = sch.Schema(column_schemas={
         'a': sch.ColumnSchema(tf.float32, [],
                               sch.FixedColumnRepresentation()),
         'b': sch.ColumnSchema(tf.string, [2, 3],
                               sch.FixedColumnRepresentation()),
         'c': sch.ColumnSchema(tf.int64, None,
+                              sch.FixedColumnRepresentation()),
+        'd': sch.ColumnSchema(tf.int64, [1, 2, 3],
                               sch.FixedColumnRepresentation())
     })
     self.assertEqual(schema, expected_schema)
@@ -73,7 +72,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         'a': tf.placeholder(tf.float32, ()),
     }
     with self.assertRaises(ValueError):
-      _ = impl_helper.infer_feature_schema(tensors)
+      _ = impl_helper.infer_feature_schema(tf.get_default_graph(), tensors)
 
   def testMakeFeedDict(self):
     tensors = {
@@ -488,8 +487,8 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     expected_dtype_and_shape = {
         'dense_1': (tf.float32, tf.TensorShape([None])),
         'dense_2': (tf.int64, tf.TensorShape([None, 1, 2])),
-        'var_len': (tf.string, tf.TensorShape(None)),
-        'sparse': (tf.float32, tf.TensorShape(None)),
+        'var_len': (tf.string, tf.TensorShape([None, None])),
+        'sparse': (tf.float32, tf.TensorShape([None, None])),
         'dense_out': (tf.float32, tf.TensorShape([None])),
         'sparse_out': (tf.float32, tf.TensorShape([None, None])),
     }
@@ -498,7 +497,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
                                        six.iteritems(outputs)):
       dtype, shape = expected_dtype_and_shape[key]
       self.assertEqual(tensor.dtype, dtype)
-      self.assertShapesEqual(tensor.get_shape(), shape)
+      tensor.get_shape().assert_is_compatible_with(shape)
 
 
 if __name__ == '__main__':

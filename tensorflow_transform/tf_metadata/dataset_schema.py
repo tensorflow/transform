@@ -22,12 +22,13 @@ import collections
 import six
 
 import tensorflow as tf
+from tensorflow_transform.tf_metadata import futures
 
 
 _TF_EXAMPLE_ALLOWED_TYPES = [tf.string, tf.int64, tf.float32, tf.bool]
 
 
-class Schema(object):
+class Schema(futures.FutureContent):
   """The schema of a dataset.
 
   This is an in-memory representation that may be serialized and deserialized to
@@ -56,6 +57,9 @@ class Schema(object):
 
   def __ne__(self, other):
     return not self == other
+
+  def __repr__(self):
+    return '{}({})'.format(self.__class__.__name__, repr(self.__dict__))
 
   def __getitem__(self, index):
     return self.column_schemas[index]
@@ -91,8 +95,7 @@ class Schema(object):
             for key, column_schema in six.iteritems(self.column_schemas)}
 
 
-class ColumnSchema(collections.namedtuple(
-    'ColumnSchema', ['domain', 'axes', 'representation'])):
+class ColumnSchema(futures.FutureContent):
   """The schema for a single column in a dataset.
 
   The schema contains two parts: the logical description of the column, which
@@ -109,22 +112,45 @@ class ColumnSchema(collections.namedtuple(
         represented.
   """
 
-  def __new__(cls, domain, axes, representation):
-    if not isinstance(domain, Domain):
-      domain = _dtype_to_domain(domain)
-    if not (axes and isinstance(axes[0], Axis)):
-      axes = _tf_shape_to_axes(axes)
+  def __init__(self, domain, axes, representation):
+    self.domain = domain
+    self.axes = axes
+    self._representation = representation
 
-    return super(ColumnSchema, cls).__new__(
-        cls, domain=domain, axes=axes, representation=representation)
+  @property
+  def domain(self):
+    return self._domain
+
+  @domain.setter
+  def domain(self, value):
+    if not isinstance(value, Domain):
+      value = _dtype_to_domain(value)
+    self._domain = value
+
+  @property
+  def axes(self):
+    return self._axes
+
+  @axes.setter
+  def axes(self, value):
+    if not (value and isinstance(value[0], Axis)):
+      value = _shape_to_axes(value)
+    self._axes = value
+
+  @property
+  def representation(self):
+    return self._representation
 
   def __eq__(self, other):
     if isinstance(other, self.__class__):
-      return self._asdict() == other._asdict()
+      return self.__dict__ == other.__dict__
     return NotImplemented
 
   def __ne__(self, other):
     return not self == other
+
+  def __repr__(self):
+    return '{}({})'.format(self.__class__.__name__, repr(self.__dict__))
 
   def as_feature_spec(self):
     """Returns a representation of this ColumnSchema as a feature spec.
@@ -163,7 +189,7 @@ class ColumnSchema(collections.namedtuple(
     raise NotImplementedError('Merge not implemented yet.')
 
 
-class Domain(object):
+class Domain(futures.FutureContent):
   """A description of the valid values that a column can take."""
 
   __metaclass__ = abc.ABCMeta
@@ -180,7 +206,7 @@ class Domain(object):
     return not self == other
 
   def __repr__(self):
-    return '%s(%r)' % (self.__class__.__name__, self._dtype)
+    return '{}({})'.format(self.__class__.__name__, repr(self.__dict__))
 
   @property
   def dtype(self):
@@ -210,7 +236,7 @@ class IntDomain(Domain):
   """A domain for an integral type."""
 
   def __init__(self, dtype, min_value=None, max_value=None,
-               is_categorical=None):
+               is_categorical=None, vocabulary_file=''):
     super(IntDomain, self).__init__(dtype)
     if not self.dtype.is_integer:
       raise ValueError('IntDomain must be initialized with an integral dtype.')
@@ -224,6 +250,7 @@ class IntDomain(Domain):
     self._is_categorical = (is_categorical
                             if is_categorical is not None
                             else False)
+    self._vocabulary_file = vocabulary_file
 
   @property
   def min_value(self):
@@ -236,6 +263,27 @@ class IntDomain(Domain):
   @property
   def is_categorical(self):
     return self._is_categorical
+
+  @property
+  def vocabulary_file(self):
+    return self._vocabulary_file
+
+  # Serialize the tf.dtype as a string so that it can be unpickled on DataFlow.
+  def __getstate__(self):
+    return {
+        'dtype': self._dtype.name,
+        'is_categorical': self._is_categorical,
+        'min_value': self._min_value,
+        'max_value': self._max_value,
+        'vocabulary_file': self._vocabulary_file
+    }
+
+  def __setstate__(self, state):
+    self._dtype = tf.as_dtype(state['dtype'])
+    self._is_categorical = state['is_categorical']
+    self._min_value = state['min_value']
+    self._max_value = state['max_value']
+    self._vocabulary_file = state['vocabulary_file']
 
 
 class StringDomain(Domain):
@@ -269,23 +317,30 @@ def _dtype_to_domain(dtype):
   raise ValueError('Schema cannot accommodate dtype: {}'.format(dtype))
 
 
-class Axis(collections.namedtuple('Axis', ['size'])):
+class Axis(futures.FutureContent):
   """An axis representing one dimension of the shape of a column.
 
   Elements are:
     size: integer.  The length of the axis.  None = unknown.
   """
 
+  def __init__(self, size):
+    self._size = size
+
+  @property
+  def size(self):
+    return self._size
+
   def __eq__(self, other):
     if isinstance(other, self.__class__):
-      return self._asdict() == other._asdict()
+      return self.__dict__ == other.__dict__
     return NotImplemented
 
   def __ne__(self, other):
     return not self == other
 
 
-class ColumnRepresentation(object):
+class ColumnRepresentation(futures.FutureContent):
   """A description of the representation of a column in memory or on disk."""
 
   __metaclass__ = abc.ABCMeta
@@ -492,18 +547,17 @@ def infer_column_schema_from_tensor(tensor):
     axes = [Axis(None)]
     representation = ListColumnRepresentation()
   else:
-    axes = _tf_shape_to_axes(tensor.get_shape(),
-                             remove_batch_dimension=True)
+    axes = _shape_to_axes(tensor.get_shape(),
+                          remove_batch_dimension=True)
     representation = FixedColumnRepresentation()
   return ColumnSchema(tensor.dtype, axes, representation)
 
 
-def _tf_shape_to_axes(tf_shape, remove_batch_dimension=False):
+def _shape_to_axes(shape, remove_batch_dimension=False):
   """Create axes for the given shape.
 
   Args:
-    tf_shape: A `TensorShape` or anything that can be converted to a
-      `TensorShape`.
+    shape: A list of axis sizes, or a `TensorShape`.
     remove_batch_dimension: A boolean indicating whether to remove the 0th
       dimension.
 
@@ -514,12 +568,13 @@ def _tf_shape_to_axes(tf_shape, remove_batch_dimension=False):
     ValueError: If `remove_batch_dimension` is True and the given shape does not
       have rank >= 1.
   """
-  if not isinstance(tf_shape, tf.TensorShape):
-    tf_shape = tf.TensorShape(tf_shape)
-  if tf_shape.dims is None:
+  if shape is None or (isinstance(shape, tf.TensorShape)
+                       and shape.dims is None):
     axes = None
   else:
-    axes = [Axis(axis_size) for axis_size in tf_shape.as_list()]
+    if isinstance(shape, tf.TensorShape):
+      shape = shape.as_list()
+    axes = [Axis(axis_size) for axis_size in shape]
     if remove_batch_dimension:
       if len(axes) < 1:
         raise ValueError('Expected tf_shape to have rank >= 1')

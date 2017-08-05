@@ -17,7 +17,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from collections import Counter
+import collections
+import os
 
 
 import apache_beam as beam
@@ -35,11 +36,12 @@ from tensorflow_transform import analyzers
 from tensorflow_transform.beam import common
 
 
-def _impl_for_analyzer(spec):
+
+def _impl_for_analyzer(spec, temp_assets_dir):
   if isinstance(spec, analyzers.NumericCombineSpec):
     return _NumericCombineAnalyzerImpl(spec)
   elif isinstance(spec, analyzers.UniquesSpec):
-    return _UniquesAnalyzerImpl(spec)
+    return _UniquesAnalyzerImpl(spec, temp_assets_dir)
   else:
     raise NotImplementedError(spec.__class__)
 
@@ -71,7 +73,7 @@ _NUMPY_COMBINERS_BY_OPERATION = {
 
 
 @beam.ptransform_fn
-def WrapAsNDArray(x, dtype):  # pylint: disable=invalid-name
+def _WrapAsNDArray(x, dtype):  # pylint: disable=invalid-name
   return x | beam.Map(
       lambda v, np_dtype=dtype.as_numpy_dtype: np.asarray(v, np_dtype))
 
@@ -122,19 +124,19 @@ class _NumericCombineAnalyzerImpl(beam.PTransform):
       output = (pcoll | 'CombineOnBatchDim'
                 >> beam.CombineGlobally(self._CombineOnBatchDim(fn)))
 
-    # pylint: disable=no-value-for-parameter
-    output |= 'WrapAsNDArray' >> WrapAsNDArray(self._spec.dtype)
+    output |= 'WrapAsNDArray' >> _WrapAsNDArray(self._spec.dtype)  # pylint: disable=no-value-for-parameter
     return [output]
 
 
 @with_input_types(Union[np.ndarray, tf.SparseTensorValue])
-@with_output_types(List[np.ndarray])
+@with_output_types(str)
 class _UniquesAnalyzerImpl(beam.PTransform):
-  """Returns the unique elements in a PCollection of batches."""
+  """Saves the unique elements in a PCollection of batches."""
 
-  def __init__(self, spec):
+  def __init__(self, spec, temp_assets_dir):
     assert isinstance(spec, analyzers.UniquesSpec)
     self._spec = spec
+    self._temp_assets_dir = temp_assets_dir
 
   def expand(self, pcoll):
     top_k = self._spec.top_k
@@ -151,13 +153,18 @@ class _UniquesAnalyzerImpl(beam.PTransform):
         | 'FlattenValueToList' >> beam.Map(_flatten_value_to_list)
         | 'CountWithinList' >>
         # Specification of with_output_types allows for combiner optimizations.
-        beam.FlatMap(lambda lst: six.iteritems(Counter(lst))).with_output_types(
-            KV[common.PRIMITIVE_TYPE, int])
-        | 'CountGlobally' >> beam.CombinePerKey(sum)
+        (beam.FlatMap(lambda lst: six.iteritems(collections.Counter(lst))).
+         with_output_types(KV[common.PRIMITIVE_TYPE, int]))
+        | 'CountGlobally' >> beam.CombinePerKey(sum))
+
+    counts = (
+        counts
+        | 'FilterEmptyStrings' >> beam.Filter(
+            lambda kv: kv[0] and '\n' not in kv[0] and '\r' not in kv[0])
         | 'SwapElementsAndCounts' >> beam.KvSwap())
 
-    # Filtration is cheaper than TopK computation and the two commute, so do
-    # filtration first.
+    # Filter is cheaper than TopK computation and the two commute, so
+    # filter first.
     if frequency_threshold is not None:
       counts |= ('FilterByFrequencyThreshold(%s)' % frequency_threshold >>
                  beam.Filter(lambda kv: kv[0] >= frequency_threshold))
@@ -185,15 +192,28 @@ class _UniquesAnalyzerImpl(beam.PTransform):
     # usage (due to AsList caching).
     def order_by_decreasing_counts(_, counts_iter):  # pylint: disable=invalid-name
       counts = list(counts_iter)
+      if not counts:
+        counts = [(1, '49d0cd50-04bb-48c0-bc6f-5b575dce351a')]
       counts.sort(reverse=True)  # Largest first.
       return [element for _, element in counts]
 
-    # pylint: disable=no-value-for-parameter
-    output = (pcoll.pipeline
-              | 'Prepare' >> beam.Create([None])
-              | 'OrderByDecreasingCounts' >> beam.Map(
-                  order_by_decreasing_counts,
-                  counts_iter=beam.pvalue.AsIter(counts))
-              | 'WrapAsNDArray' >> WrapAsNDArray(self._spec.dtype))
-    return [output]
+    vocabulary_file = os.path.join(self._temp_assets_dir,
+                                   self._spec.vocab_filename)
+    vocab_is_written = (
+        pcoll.pipeline
+        | 'Prepare' >> beam.Create([None])
+        | 'OrderByDecreasingCounts' >> beam.FlatMap(
+            order_by_decreasing_counts,
+            counts_iter=beam.pvalue.AsIter(counts))
+        | 'WriteToFile' >> beam.io.WriteToText(vocabulary_file,
+                                               shard_name_template=''))
+    # Return the vocabulary path.
+    wait_for_vocabulary_transform = (
+        pcoll.pipeline
+        | 'CreatePath' >> beam.Create([vocabulary_file])
+        # Ensure that the analysis returns only after the file is written.
+        | 'WaitForVocabularyFile' >> beam.Map(
+            lambda x, y: x, y=beam.pvalue.AsIter(vocab_is_written)))
+    return [wait_for_vocabulary_transform]
+
 

@@ -28,6 +28,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import re
+
 import tensorflow as tf
 
 
@@ -45,20 +47,28 @@ class Analyzer(object):
 
   Args:
     inputs: The inputs to the analyzer.
-    output_shapes_and_dtype: List of pairs of (dtype, shape) for each output.
+    output_tensors_and_is_asset: List of pairs of `(Tensor, bool)` for each
+      output.  The `Tensor`s are typically placeholders; they will be later
+      be replaced with analysis results.  The boolean value states whether this
+      Tensor represents an asset filename or not.
     spec: A description of the computation to be done.
 
   Raises:
     ValueError: If the inputs are not all `Tensor`s.
   """
 
-  def __init__(self, inputs, output_dtypes_and_shapes, spec):
+  def __init__(self, inputs, output_tensors_and_is_asset, spec):
     for tensor in inputs:
       if not isinstance(tensor, tf.Tensor):
         raise ValueError('Analyzers can only accept `Tensor`s as inputs')
     self._inputs = inputs
-    self._outputs = [tf.placeholder(dtype, shape)
-                     for dtype, shape in output_dtypes_and_shapes]
+    for output_tensor, is_asset in output_tensors_and_is_asset:
+      if is_asset and output_tensor.dtype != tf.string:
+        raise ValueError(('Tensor {} cannot represent an asset, because it is '
+                          'not a string.').format(output_tensor.name))
+    self._outputs = [output_tensor
+                     for output_tensor, _ in output_tensors_and_is_asset]
+    self._output_is_asset_map = dict(output_tensors_and_is_asset)
     self._spec = spec
     tf.add_to_collection(ANALYZER_COLLECTION, self)
 
@@ -73,6 +83,9 @@ class Analyzer(object):
   @property
   def spec(self):
     return self._spec
+
+  def output_is_asset(self, output_tensor):
+    return self._output_is_asset_map[output_tensor]
 
 
 class NumericCombineSpec(object):
@@ -118,7 +131,9 @@ def _numeric_combine(x, combiner_type, reduce_instance_dims=True):
     shape = None
   with tf.name_scope(combiner_type):
     spec = NumericCombineSpec(x.dtype, combiner_type, reduce_instance_dims)
-    return Analyzer([x], [(x.dtype, shape)], spec).outputs[0]
+    return Analyzer([x],
+                    [(tf.placeholder(x.dtype, shape), False)],
+                    spec).outputs[0]
 
 
 def min(x, reduce_instance_dims=True):  # pylint: disable=redefined-builtin
@@ -234,10 +249,11 @@ def var(x, reduce_instance_dims=True):
 class UniquesSpec(object):
   """Operation to compute unique values."""
 
-  def __init__(self, dtype, top_k, frequency_threshold):
+  def __init__(self, dtype, top_k, frequency_threshold, vocab_filename):
     self._dtype = dtype
     self._top_k = top_k
     self._frequency_threshold = frequency_threshold
+    self._vocab_filename = vocab_filename
 
   @property
   def dtype(self):
@@ -251,13 +267,44 @@ class UniquesSpec(object):
   def frequency_threshold(self):
     return self._frequency_threshold
 
+  @property
+  def vocab_filename(self):
+    return self._vocab_filename
 
-def uniques(x, top_k=None, frequency_threshold=None):
-  """Computes the unique values of a `Tensor` over the whole dataset.
+
+def sanitized_vocab_filename(filename=None):
+  """Generates a sanitized filename either from the given filename or the scope.
+
+  If filename is specified, provide a sanitized version of the given filename.
+  Otherwise generate a filename from the current scope.  Note that it is the
+  callers responsibility to ensure that filenames are unique across calls within
+  a given preprocessing function.
+
+  Args:
+    filename: A filename with non-alpha characters replaced with underscores and
+      spaces to hyphens.
+
+  Returns:
+    A valid filename.
+  """
+  if filename is None:
+    filename = 'vocab_%s' % tf.get_default_graph().get_name_scope()
+  # Replace non-alpha characters (excluding whitespaces) with '_'.
+  filename = re.sub(r'[^\w\s-]', '_', filename).strip()
+  # Replace whitespaces with '-'.
+  return re.sub(r'[-\s]+', '-', filename)
+
+
+def uniques(x, top_k=None, frequency_threshold=None, vocab_filename=None):
+  r"""Computes the unique values of a `Tensor` over the whole dataset.
 
   Computes The unique values taken by `x`, which can be a `Tensor` or
   `SparseTensor` of any size.  The unique values will be aggregated over all
   dimensions of `x` and all instances.
+
+  In case one of the tokens contains the '\n' or '\r' characters or is empty it
+  will be discarded since we are currenlty writing the vocabularies as text
+  files. This behavior will likely be fixed/improved in the future.
 
   The unique values are sorted by decreasing frequency and then decreasing
   value.
@@ -268,10 +315,13 @@ def uniques(x, top_k=None, frequency_threshold=None):
       to None, the full vocabulary is generated.
     frequency_threshold: Limit the generated vocabulary only to elements whose
       frequency is >= to the supplied threshold. If set to None, the full
-      vocabulary is generated
+      vocabulary is generated.
+    vocab_filename: The file name for the vocabulary file. If none, the
+      "uniques" scope name in the context of this graph will be used as the file
+      name. If not None, should be unique within a given preprocessing function.
 
   Returns:
-    The unique values of `x`.
+    The path name for the vocabulary file containing the unique values of `x`.
 
   Raises:
     ValueError: If `top_k` or `frequency_threshold` is negative.
@@ -289,6 +339,34 @@ def uniques(x, top_k=None, frequency_threshold=None):
           frequency_threshold)
   if isinstance(x, tf.SparseTensor):
     x = x.values
+
   with tf.name_scope('uniques'):
-    spec = UniquesSpec(x.dtype, top_k, frequency_threshold)
-    return Analyzer([x], [(x.dtype, [None])], spec).outputs[0]
+    # Make the file name path safe.
+    vocab_filename = sanitized_vocab_filename(vocab_filename)
+    spec = UniquesSpec(tf.string, top_k, frequency_threshold, vocab_filename)
+    return Analyzer([x],
+                    [(tf.placeholder(tf.string, []), True)],
+                    spec).outputs[0]
+
+
+class QuantilesSpec(object):
+  """Operation to compute quantile boundaries."""
+
+  def __init__(self, epsilon, num_buckets, dtype):
+    self._epsilon = epsilon
+    self._num_buckets = num_buckets
+    self._dtype = dtype
+
+  @property
+  def epsilon(self):
+    return self._epsilon
+
+  @property
+  def num_buckets(self):
+    return self._num_buckets
+
+  @property
+  def dtype(self):
+    return self._dtype
+
+

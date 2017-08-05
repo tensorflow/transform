@@ -114,7 +114,8 @@ def _from_domain_dict(domain):
         tf.int64,
         maybe_to_int(domain['ints'].get('min')),
         maybe_to_int(domain['ints'].get('max')),
-        domain['ints'].get('is_categorical'))
+        domain['ints'].get('isCategorical'),
+        domain['ints'].get('vocabularyFile', ''))
   if domain.get('floats') is not None:
     return sch.FloatDomain(tf.float32)
   if domain.get('strings') is not None:
