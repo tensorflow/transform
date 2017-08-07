@@ -28,6 +28,7 @@ except ImportError:
 
 
 import numpy as np
+import tensorflow as tf
 from tensorflow_transform.beam import analyzer_impls as impl
 from tensorflow_transform.beam import impl as beam_impl
 
@@ -61,8 +62,7 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
   def testCombineOnBatchSimple(self):
     lst_1 = [np.ones(6), np.ones(6)]
     lst_2 = [np.ones(6)]
-    # pylint: disable=unused-variable
-    out = [3 for i in range(6)]
+    out = [3 for _ in range(6)]
     analyzer = impl._NumericCombineAnalyzerImpl._CombineOnBatchDim(np.sum)
     self.assertCombine(analyzer, [lst_1, lst_2], out)
 
@@ -71,12 +71,12 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
     self.assertCombine(analyzer, [[[]], [[]], [[]]], [])
 
   def testCombineOnBatchLotsOfData(self):
-    # pylint: disable=unused-variable
-    shards = [[np.ones(3)] for i in range(
+    shards = [[np.ones(3)] for _ in range(
         beam_impl._DEFAULT_DESIRED_BATCH_SIZE * 2)]
-    out = [1 for i in range(3)]
+    out = [1 for _ in range(3)]
     analyzer = impl._NumericCombineAnalyzerImpl._CombineOnBatchDim(np.min)
     self.assertCombine(analyzer, shards, out)
+
 
 
 if __name__ == '__main__':

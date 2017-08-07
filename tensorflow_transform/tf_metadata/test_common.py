@@ -32,6 +32,8 @@ test_feature_spec = {
         shape=[1], dtype=tf.int64, default_value=0),
     'fixed_categorical_int_with_range': tf.FixedLenFeature(
         shape=[1], dtype=tf.int64, default_value=0),
+    'fixed_categorical_int_with_vocab': tf.FixedLenFeature(
+        shape=[1], dtype=tf.int64, default_value=0),
     'fixed_int_without_default': tf.FixedLenFeature(
         shape=[5], dtype=tf.int64),
     'fixed_float_with_default': tf.FixedLenFeature(
@@ -77,30 +79,38 @@ def get_manually_created_schema():
 
   # FixedLenFeatures
   schema.column_schemas['fixed_bool_with_default'] = (
-      sch.ColumnSchema(tf.bool, [1], sch.FixedColumnRepresentation(False)))
+      sch.ColumnSchema(tf.bool, [1], sch.FixedColumnRepresentation(
+          default_value=False)))
 
   schema.column_schemas['fixed_bool_without_default'] = (
       sch.ColumnSchema(tf.bool, [5], sch.FixedColumnRepresentation()))
 
   schema.column_schemas['fixed_int_with_default'] = (
-      sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation(0)))
+      sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation(
+          default_value=0)))
 
   schema.column_schemas['fixed_categorical_int_with_range'] = (
       sch.ColumnSchema(sch.IntDomain(tf.int64, -5, 10, True), [1],
+                       sch.FixedColumnRepresentation(0)))
+
+  schema.column_schemas['fixed_categorical_int_with_vocab'] = (
+      sch.ColumnSchema(sch.IntDomain(tf.int64, vocabulary_file='test_filename'),
+                       [1],
                        sch.FixedColumnRepresentation(0)))
 
   schema.column_schemas['fixed_int_without_default'] = (
       sch.ColumnSchema(tf.int64, [5], sch.FixedColumnRepresentation()))
 
   schema.column_schemas['fixed_float_with_default'] = (
-      sch.ColumnSchema(tf.float32, [1], sch.FixedColumnRepresentation(0.0)))
+      sch.ColumnSchema(tf.float32, [1], sch.FixedColumnRepresentation(
+          default_value=0.0)))
 
   schema.column_schemas['fixed_float_without_default'] = (
       sch.ColumnSchema(tf.float32, [5], sch.FixedColumnRepresentation()))
 
   schema.column_schemas['fixed_string_with_default'] = (
       sch.ColumnSchema(tf.string, [1],
-                       sch.FixedColumnRepresentation('default')))
+                       sch.FixedColumnRepresentation(default_value='default')))
 
   schema.column_schemas['fixed_string_without_default'] = (
       sch.ColumnSchema(tf.string, [5], sch.FixedColumnRepresentation()))

@@ -18,71 +18,36 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import random
 
 
-# pylint: disable=g-import-not-at-top
 import apache_beam as beam
-try:
-  from apache_beam.testing import util as beam_test_util
-except ImportError:
-  from apache_beam.transforms import util as beam_test_util
+from apache_beam.testing import util as beam_test_util
 
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform.beam import impl as beam_impl
+from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
+from tensorflow_transform.saved import constants
+from tensorflow_transform.saved import saved_model_loader
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema as sch
+from tensorflow_transform.tf_metadata import metadata_io
 
 import unittest
-from tensorflow.python.framework import test_util
 # pylint: enable=g-import-not-at-top
 
 
-class BeamImplTest(test_util.TensorFlowTestCase):
+class BeamImplTest(tft_unit.TransformTestCase):
 
-  def assertDataEqual(self, a_data, b_data):
-    self.assertEqual(len(a_data), len(b_data),
-                     'len(%r) != len(%r)' % (a_data, b_data))
-    for a_row, b_row in zip(a_data, b_data):
-      self.assertItemsEqual(a_row.keys(), b_row.keys())
-      for key in a_row.keys():
-        a_value = a_row[key]
-        b_value = b_row[key]
-        if isinstance(a_value, tuple):
-          self.assertValuesCloseOrEqual(a_value[0], b_value[0])
-          self.assertValuesCloseOrEqual(a_value[1], b_value[1])
-        else:
-          self.assertValuesCloseOrEqual(a_value, b_value)
-
-  def assertValuesCloseOrEqual(self, a_value, b_value):
-    if (isinstance(a_value, str) or
-        isinstance(a_value, list) and a_value and isinstance(a_value[0], str)):
-      self.assertAllEqual(a_value, b_value)
-    else:
-      self.assertAllClose(a_value, b_value)
-
-  def assertAnalyzeAndTransformResults(
-      self, input_data, input_metadata, preprocessing_fn, expected_data,
-      expected_metadata):
-    with beam_impl.Context(temp_dir=self.get_temp_dir()):
-      # Note: we don't separately test AnalyzeDataset and TransformDataset as
-      # AnalyzeAndTransformDataset currently simply composes these two
-      # transforms.  If in future versions of the code, the implementation
-      # differs, we should also run AnalyzeDataset and TransformDatset composed.
-      (transformed_data, transformed_metadata), _ = (
-          (input_data, input_metadata)
-          | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
-
-    self.assertDataEqual(expected_data, transformed_data)
+  def assertMetadataEqual(self, a, b):
     # Use extra assertEqual for schemas, since full metadata assertEqual error
     # message is not conducive to debugging.
-    self.assertEqual(
-        expected_metadata.schema.column_schemas,
-        transformed_metadata.schema.column_schemas)
-    self.assertEqual(expected_metadata, transformed_metadata)
+    self.assertEqual(a.schema.column_schemas, b.schema.column_schemas)
+    self.assertEqual(a, b)
 
   def testApplySavedModelSingleInput(self):
     def save_model_with_single_input(instance, export_dir):
@@ -127,6 +92,58 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'out': sch.ColumnSchema(tf.int64, [3], sch.FixedColumnRepresentation())
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata, preprocessing_fn, expected_data,
+        expected_metadata)
+
+  def testApplySavedModelWithHashTable(self):
+    def save_model_with_hash_table(instance, export_dir):
+      builder = tf.saved_model.builder.SavedModelBuilder(export_dir)
+      with instance.test_session(graph=tf.Graph()) as sess:
+        key = tf.constant('test_key', shape=[1])
+        value = tf.constant('test_value', shape=[1])
+        table = tf.contrib.lookup.HashTable(
+            tf.contrib.lookup.KeyValueTensorInitializer(key, value),
+            '__MISSING__')
+
+        input1 = tf.placeholder(dtype=tf.string, shape=[1], name='myinput')
+        output1 = tf.reshape(table.lookup(input1), shape=[1])
+        inputs = {'input': input1}
+        outputs = {'output': output1}
+
+        signature_def_map = {
+            'serving_default':
+                tf.saved_model.signature_def_utils.predict_signature_def(
+                    inputs, outputs)
+        }
+
+        sess.run(table.init)
+        builder.add_meta_graph_and_variables(
+            sess, [tf.saved_model.tag_constants.SERVING],
+            signature_def_map=signature_def_map)
+        builder.save(False)
+
+    export_dir = os.path.join(self.get_temp_dir(), 'saved_model_hash_table')
+
+    def preprocessing_fn(inputs):
+      x = inputs['x']
+      output_col = tft.apply_saved_model(
+          export_dir, x, tags=[tf.saved_model.tag_constants.SERVING])
+      return {'out': output_col}
+
+    save_model_with_hash_table(self, export_dir)
+    input_data = [
+        {'x': ['test_key']}
+    ]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(tf.string, [1], sch.FixedColumnRepresentation()),
+    })
+    expected_data = [
+        {'out': 'test_value'}
+    ]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'out': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -324,7 +341,8 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         'x_scaled': sch.ColumnSchema(tf.float32, [],
                                      sch.FixedColumnRepresentation())
     })
-    self.assertDataEqual(transformed_eval_data, expected_transformed_eval_data)
+    self.assertDataCloseOrEqual(transformed_eval_data,
+                                expected_transformed_eval_data)
     self.assertEqual(transformed_eval_metadata,
                      expected_transformed_eval_metadata)
 
@@ -425,11 +443,12 @@ class BeamImplTest(test_util.TensorFlowTestCase):
       return {'ab': tf.multiply(inputs['a'], inputs['b']),
               'i': tft.string_to_int(inputs['c'])}
 
+    num_instances = beam_impl._DEFAULT_DESIRED_BATCH_SIZE + 1
     input_data = [{
         'a': 2,
         'b': i,
         'c': '%.10i' % i,  # Front-padded to facilitate lexicographic sorting.
-    } for i in range(beam_impl._DEFAULT_DESIRED_BATCH_SIZE + 1)]
+    } for i in range(num_instances)]
     input_metadata = dataset_metadata.DatasetMetadata({
         'a': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
         'b': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
@@ -441,7 +460,10 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     } for i in range(len(input_data))]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'ab': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'i': sch.ColumnSchema(tf.int64, [], sch.FixedColumnRepresentation())
+        'i': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -1, num_instances - 1, False,
+                          'vocab_string_to_int'),
+            [], sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -588,8 +610,52 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     self.assertTrue(
         'output_min must be less than output_max' in context.exception)
 
+  def testScaleToZScore_int64(self):
+    self._testScaleToZScore(input_dtype=tf.int64, output_dtype=tf.float64)
+
+  def testScaleToZScore_int32(self):
+    self._testScaleToZScore(input_dtype=tf.int32, output_dtype=tf.float64)
+
+  def testScaleToZScore_int16(self):
+    self._testScaleToZScore(input_dtype=tf.int16, output_dtype=tf.float32)
+
+  def testScaleToZScore_float64(self):
+    self._testScaleToZScore(input_dtype=tf.float64, output_dtype=tf.float64)
+
+  def testScaleToZScore_float32(self):
+    self._testScaleToZScore(input_dtype=tf.float32, output_dtype=tf.float32)
+
+  def _testScaleToZScore(self, input_dtype, output_dtype):
+
+    def preprocessing_fn(inputs):
+      return {'x_scaled': tft.scale_to_z_score(inputs['x'])}
+
+    input_data = [{'x': -4}, {'x': 10}, {'x': 2}, {'x': 4}]
+    # Mean: 3
+    # Var: (7^2 + 7^2 + 1^2 + 1^2) / 4 = 25
+    # Std Dev: 5
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(input_dtype, [], sch.FixedColumnRepresentation())
+    })
+    expected_data = [{
+        'x_scaled': -1.4  # (-4 - 3) / 5
+    }, {
+        'x_scaled': 1.4  # (10 - 3) / 5
+    }, {
+        'x_scaled': -0.2  # (2 - 3) / 5
+    }, {
+        'x_scaled': 0.2  # (4 - 3) / 5
+    }]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'x_scaled':
+            sch.ColumnSchema(output_dtype, [], sch.FixedColumnRepresentation())
+    })
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
   def testNumericAnalyzersWithScalarInputs_int64(self):
-    self.numericAnalyzersWithScalarInputs(
+    self._testNumericAnalyzersWithScalarInputs(
         input_dtype=tf.int64,
         output_dtypes={
             'min': tf.int64,
@@ -602,7 +668,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     )
 
   def testNumericAnalyzersWithScalarInputs_int32(self):
-    self.numericAnalyzersWithScalarInputs(
+    self._testNumericAnalyzersWithScalarInputs(
         input_dtype=tf.int32,
         output_dtypes={
             'min': tf.int32,
@@ -615,7 +681,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     )
 
   def testNumericAnalyzersWithScalarInputs_int16(self):
-    self.numericAnalyzersWithScalarInputs(
+    self._testNumericAnalyzersWithScalarInputs(
         input_dtype=tf.int16,
         output_dtypes={
             'min': tf.int16,
@@ -628,7 +694,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     )
 
   def testNumericAnalyzersWithScalarInputs_float64(self):
-    self.numericAnalyzersWithScalarInputs(
+    self._testNumericAnalyzersWithScalarInputs(
         input_dtype=tf.float64,
         output_dtypes={
             'min': tf.float64,
@@ -641,7 +707,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     )
 
   def testNumericAnalyzersWithScalarInputs_float32(self):
-    self.numericAnalyzersWithScalarInputs(
+    self._testNumericAnalyzersWithScalarInputs(
         input_dtype=tf.float32,
         output_dtypes={
             'min': tf.float32,
@@ -653,7 +719,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         }
     )
 
-  def numericAnalyzersWithScalarInputs(self, input_dtype, output_dtypes):
+  def _testNumericAnalyzersWithScalarInputs(self, input_dtype, output_dtypes):
     def preprocessing_fn(inputs):
       def repeat(in_tensor, value):
         batch_size = tf.shape(in_tensor)[0]
@@ -926,8 +992,8 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     # I = log(4/2)
     # like = log(4/2)
     # pie = log(4/2)
-    log_4_over_2 = 0.69314718056
-    log_4_over_3 = 0.28768207245
+    log_4_over_2 = 1.69314718056
+    log_4_over_3 = 1.28768207245
     expected_transformed_data = [{
         'tf_idf': [(2/3)*log_4_over_3, (1/3)*log_4_over_3],
         'index': [0, 2]
@@ -987,8 +1053,8 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
     })
 
-    log_5_over_2 = 0.91629073187
-    log_5_over_3 = 0.51082562376
+    log_5_over_2 = 1.91629073187
+    log_5_over_3 = 1.51082562376
     expected_transformed_data = [{
         'tf_idf': [(2/3)*log_5_over_3, (1/3)*log_5_over_3],
         'index': [0, 2]
@@ -1021,9 +1087,10 @@ class BeamImplTest(test_util.TensorFlowTestCase):
                   {'a': [8, 10, 12, 12, 12]},
                  ]
     input_schema = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.int64, [], sch.ListColumnRepresentation())})
-    log_4_over_2 = 0.69314718056
-    log_4_over_3 = 0.28768207245
+        'a': sch.ColumnSchema(tf.int64, [None],
+                              sch.ListColumnRepresentation())})
+    log_4_over_2 = 1.69314718056
+    log_4_over_3 = 1.28768207245
     expected_data = [{
         'tf_idf': [(1/3)*log_4_over_3, (2/3)*log_4_over_3],
         'index': [0, 2]
@@ -1053,9 +1120,10 @@ class BeamImplTest(test_util.TensorFlowTestCase):
                   {'a': [8, 10, 12, 12, 12]},
                  ]
     input_schema = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.int64, [], sch.ListColumnRepresentation())})
-    log_3_over_2 = 0.4054651081
-    log_3 = 1.0986122886
+        'a': sch.ColumnSchema(tf.int64, [None],
+                              sch.ListColumnRepresentation())})
+    log_3_over_2 = 1.4054651081
+    log_3 = 2.0986122886
     expected_data = [{
         'tf_idf': [(1/3)*log_3_over_2, (2/3)*log_3_over_2],
         'index': [0, 2]
@@ -1099,8 +1167,8 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     # pie = log(3/2) = 0.4054651081
     # world = log(3/3) = 0
     # OOV - goodbye, I, like = log(3/3)
-    log_4_over_2 = 0.69314718056
-    log_4_over_3 = 0.28768207245
+    log_4_over_2 = 1.69314718056
+    log_4_over_3 = 1.28768207245
     expected_transformed_data = [{
         'tf_idf': [(2/3)*log_4_over_3, (1/3)*log_4_over_3],
         'index': [0, 2]
@@ -1133,10 +1201,11 @@ class BeamImplTest(test_util.TensorFlowTestCase):
                   {'a': [8, 10, 12, 12, 12]},
                  ]
     input_schema = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.int64, [], sch.ListColumnRepresentation())})
+        'a': sch.ColumnSchema(tf.int64, [None],
+                              sch.ListColumnRepresentation())})
 
-    log_4_over_2 = 0.69314718056
-    log_4_over_3 = 0.28768207245
+    log_4_over_2 = 1.69314718056
+    log_4_over_3 = 1.28768207245
     # NOTE: -4 mod 14 = 10
     expected_transformed_data = [{
         'tf_idf': [(2/3)*log_4_over_3, (1/3)*log_4_over_3],
@@ -1159,11 +1228,6 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         expected_transformed_schema)
 
   def testUniquesAnalyzer(self):
-    def preprocessing_fn(inputs):
-      return {
-          'index': tft.string_to_int(inputs['a'])
-      }
-
     input_data = [
         {'a': 'hello'},
         {'a': 'world'},
@@ -1171,11 +1235,30 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         {'a': 'hello'},
         {'a': 'goodbye'},
         {'a': 'world'},
-        {'a': 'aaaaa'}
+        {'a': 'aaaaa'},
+        # Verify the analyzer can handle (dont-ignore) a space-only token.
+        {'a': ' '},
+        # Verify the analyzer can handle (ignore) the empty string.
+        {'a': ''},
+        # Verify the analyzer can handle (ignore) tokens that contain \n.
+        {'a': '\n'},
+        {'a': 'hi \n ho \n'},
+        {'a': ' \r'},
     ]
     input_metadata = dataset_metadata.DatasetMetadata({
         'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
     })
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'index': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -1, 4, False, 'vocab_string_to_int'),
+            [], sch.FixedColumnRepresentation())
+    })
+
+    # Assert empty string with default_value=-1
+    def preprocessing_fn(inputs):
+      return {
+          'index': tft.string_to_int(inputs['a'])
+      }
     expected_data = [
         {'index': 0},
         {'index': 1},
@@ -1183,14 +1266,115 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         {'index': 0},
         {'index': 2},
         {'index': 1},
-        {'index': 3}
+        {'index': 3},
+        {'index': 4},
+        # The empty string maps to string_to_int(default_value=-1).
+        {'index': -1},
+        # The tokens that contain \n map to string_to_int(default_value=-1).
+        {'index': -1},
+        {'index': -1},
+        {'index': -1}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index': sch.ColumnSchema(tf.int64, [], sch.FixedColumnRepresentation())
-    })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
+
+    # Assert empty string with num_oov_buckets=1
+    def preprocessing_fn_oov(inputs):
+      return {
+          'index': tft.string_to_int(inputs['a'], num_oov_buckets=1)
+      }
+    expected_data = [
+        {'index': 0},
+        {'index': 1},
+        {'index': 0},
+        {'index': 0},
+        {'index': 2},
+        {'index': 1},
+        {'index': 3},
+        {'index': 4},
+        # The empty string maps to the oov bucket.
+        {'index': 5},
+        # The tokens that contain \n map to the oov bucket.
+        {'index': 5},
+        {'index': 5},
+        {'index': 5}
+    ]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'index': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, 0, 5, False, 'vocab_string_to_int'),
+            [], sch.FixedColumnRepresentation())
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata, preprocessing_fn_oov, expected_data,
+        expected_metadata)
+
+  def testAssets(self):
+    def preprocessing_fn(inputs):
+      return {
+          'index': tft.string_to_int(inputs['a']),
+          'index_2': tft.string_to_int(
+              inputs['b'], vocab_filename='index_2_file')
+      }
+
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation()),
+        'b': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    })
+
+    transform_fn_dir = os.path.join(self.get_temp_dir(), 'export_transform_fn')
+    tft_tmp_dir = os.path.join(self.get_temp_dir(), 'temp_dir')
+    with beam_impl.Context(temp_dir=tft_tmp_dir):
+      with beam.Pipeline() as pipeline:
+        input_data = pipeline | beam.Create([
+            {'a': 'hello', 'b': 'hi'},
+            {'a': 'world', 'b': 'ho'}
+        ])
+        transform_fn = (
+            (input_data, input_metadata)
+            | beam_impl.AnalyzeDataset(preprocessing_fn))
+        print ('transform_fn', transform_fn[1][0].substitute_futures({}))
+        _ = transform_fn | transform_fn_io.WriteTransformFn(transform_fn_dir)
+
+    # Remove the temporary directories, including temporary save models and
+    # assets created by tf.Transform as part of the analysis pipeline execution.
+    self.assertTrue(os.path.isdir(tft_tmp_dir))
+    tf.gfile.DeleteRecursively(tft_tmp_dir)
+    self.assertFalse(os.path.isdir(tft_tmp_dir))
+
+    # Assert that the transform function can be read and metadata is as
+    # expected.
+    expected_output_metadata = dataset_metadata.DatasetMetadata({
+        'index': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -1, 1, False, 'vocab_string_to_int'), [],
+            sch.FixedColumnRepresentation()),
+        'index_2': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -1, 1, False, 'index_2_file'), [],
+            sch.FixedColumnRepresentation())
+    })
+    with beam.Pipeline() as pipeline:
+      _, (metadata, _) = (
+          pipeline | transform_fn_io.ReadTransformFn(transform_fn_dir))
+      self.assertMetadataEqual(metadata, expected_output_metadata)
+
+    # Finally assert that the output model contains the expected assets and
+    # the model can be loaded.
+    saved_model_path = os.path.join(transform_fn_dir, 'transform_fn')
+    saved_model = saved_model_loader.parse_saved_model(saved_model_path)
+    meta_graph_def = saved_model_loader.choose_meta_graph_def(
+        saved_model, [constants.TRANSFORM_TAG])
+    asset_tensors = saved_model_loader.get_asset_tensors(
+        saved_model_path, meta_graph_def)
+
+    # Assert that the assets directory contains the expected asset files
+    assets_path = os.path.join(saved_model_path, 'assets')
+    self.assertTrue(os.path.isdir(assets_path))
+    self.assertEqual(['index_2_file', 'vocab_string_to_int'],
+                     sorted(os.listdir(assets_path)))
+
+    # Verify that the paths are actually there.
+    for asset_tensor in asset_tensors.values():
+      self.assertTrue(os.path.isfile(asset_tensor))
 
   def testUniquesAnalyzerWithNDInputs(self):
     def preprocessing_fn(inputs):
@@ -1213,8 +1397,9 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         {'index': [[0, 1], [2, 6]]},
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
-        'index': sch.ColumnSchema(tf.int64, [2, 2],
-                                  sch.FixedColumnRepresentation())
+        'index': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -1, 8, False, 'vocab_string_to_int'),
+            [2, 2], sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -1232,8 +1417,9 @@ class BeamImplTest(test_util.TensorFlowTestCase):
     })
     expected_data = [{'index': [0, 0, 1]}, {'index': [0, 2, 1]}]
     expected_metadata = dataset_metadata.DatasetMetadata({
-        'index': sch.ColumnSchema(tf.int64, [None],
-                                  sch.ListColumnRepresentation())
+        'index': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -1, 2, False, 'vocab_string_to_int'),
+            [None], sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -1268,10 +1454,12 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         {'index1': [0, -99, -99], 'index2': [0, -9, -9]}
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
-        'index1': sch.ColumnSchema(tf.int64, [None],
-                                   sch.ListColumnRepresentation()),
-        'index2': sch.ColumnSchema(tf.int64, [None],
-                                   sch.ListColumnRepresentation())
+        'index1': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -99, 1, False, 'vocab_string_to_int'),
+            [None], sch.ListColumnRepresentation()),
+        'index2': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -9, 1, False, 'vocab_string_to_int_1'),
+            [None], sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -1307,10 +1495,12 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         {'index1': [0, 2, -99], 'index2': [0, 2, -9]}
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
-        'index1': sch.ColumnSchema(tf.int64, [None],
-                                   sch.ListColumnRepresentation()),
-        'index2': sch.ColumnSchema(tf.int64, [None],
-                                   sch.ListColumnRepresentation())
+        'index1': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -99, 2, False, 'vocab_string_to_int'),
+            [None], sch.ListColumnRepresentation()),
+        'index2': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -9, 2, False, 'vocab_string_to_int_1'),
+            [None], sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -1351,11 +1541,14 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         {'index1': [-99, -99, -99], 'index2': [-9, -9, -9]},
         {'index1': [-99, -99, -99], 'index2': [-9, -9, -9]}
     ]
+    # Note the vocabs are empty but the tables have size 1 so max_value is 1.
     expected_metadata = dataset_metadata.DatasetMetadata({
-        'index1': sch.ColumnSchema(tf.int64, [None],
-                                   sch.ListColumnRepresentation()),
-        'index2': sch.ColumnSchema(tf.int64, [None],
-                                   sch.ListColumnRepresentation())
+        'index1': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -99, 0, False, 'vocab_string_to_int'),
+            [None], sch.ListColumnRepresentation()),
+        'index2': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -9, 0, False, 'vocab_string_to_int_1'),
+            [None], sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -1391,8 +1584,9 @@ class BeamImplTest(test_util.TensorFlowTestCase):
         {'index1': [0, 2, 1]},
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
-        'index1': sch.ColumnSchema(tf.int64, [None],
-                                   sch.ListColumnRepresentation()),
+        'index1': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, 0, 3, False, 'vocab_string_to_int'), [None],
+            sch.ListColumnRepresentation()),
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -1432,7 +1626,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
           transformed_eval_data, beam_test_util.equal_to(expected_data))
 
   def testTransformFnExportAndImportRoundtrip(self):
-    tranform_fn_dir = os.path.join(self.get_temp_dir(), 'export_transform_fn')
+    transform_fn_dir = os.path.join(self.get_temp_dir(), 'export_transform_fn')
     metadata_dir = os.path.join(self.get_temp_dir(), 'export_metadata')
 
     with beam.Pipeline() as pipeline:
@@ -1450,13 +1644,16 @@ class BeamImplTest(test_util.TensorFlowTestCase):
             | 'AnalyzeAndTransform'
             >> beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
 
-      _ = transform_fn | transform_fn_io.WriteTransformFn(tranform_fn_dir)
+      _ = transform_fn | transform_fn_io.WriteTransformFn(transform_fn_dir)
       _ = metadata | beam_metadata_io.WriteMetadata(metadata_dir,
                                                     pipeline=pipeline)
 
     with beam.Pipeline() as pipeline:
-      transform_fn = pipeline | transform_fn_io.ReadTransformFn(tranform_fn_dir)
-      metadata = pipeline | beam_metadata_io.ReadMetadata(metadata_dir)
+      transform_fn = pipeline | transform_fn_io.ReadTransformFn(
+          transform_fn_dir)
+      # We have to load metadata in non-deferred manner to use it as an input to
+      # TransformDataset.
+      metadata = metadata_io.read_metadata(metadata_dir)
       # Run transform_columns on some eval dataset.
       eval_data = pipeline | 'CreateEvalData' >> beam.Create(
           [{'x': 6}, {'x': 3}])
@@ -1529,7 +1726,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
               values=[1., 2., 3.],
               dense_shape=[4, 10])
       }
-      self.assertDataEqual([expected_transformed_data], [result])
+      self.assertDataCloseOrEqual([expected_transformed_data], [result])
 
       # Verify that it breaks predictably if we feed unbatched data.
       with self.assertRaises(ValueError):
@@ -1558,6 +1755,7 @@ class BeamImplTest(test_util.TensorFlowTestCase):
           beam_impl.Context.create_base_temp_dir())
     with self.assertRaises(ValueError):
       beam_impl.Context.create_base_temp_dir()
+
 
 
 if __name__ == '__main__':

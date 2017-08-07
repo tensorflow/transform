@@ -139,7 +139,8 @@ def _to_domain(domain):
     result['ints'] = {
         'min': str(domain.min_value),
         'max': str(domain.max_value),
-        'isCategorical': domain.is_categorical
+        'isCategorical': domain.is_categorical,
+        'vocabularyFile': domain.vocabulary_file
     }
   elif isinstance(domain, dataset_schema.FloatDomain):
     result['floats'] = {}

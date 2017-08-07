@@ -26,6 +26,7 @@ from __future__ import print_function
 
 import tensorflow as tf
 
+from tensorflow_transform import api
 from tensorflow.contrib.session_bundle import bundle_shim
 
 
@@ -35,9 +36,7 @@ def apply_saved_model(model_dir, inputs, tags, signature_name=None,
 
   Applies a SavedModel to `inputs`. The SavedModel is specified with
   `model_dir`, `tags` and `signature_name`. Note that the SavedModel will be
-  converted to an all-constants graph, so ops requiring graph collections, such
-  as table lookup (which requires a table init op being added to
-  TABLE_INITIALIZERS collection), are not supported.
+  converted to an all-constants graph.
 
   Args:
     model_dir: A path containing a SavedModel.
@@ -66,10 +65,15 @@ def apply_saved_model(model_dir, inputs, tags, signature_name=None,
   """
   # Load model, get graph, inputs and outputs.
   loaded_graph = tf.Graph()
+  loaded_initializer_op_names = []
+
   with loaded_graph.as_default():
     session, meta_graph = (
         bundle_shim.load_session_bundle_or_saved_model_bundle_from_path(
             model_dir, tags=tags))
+    loaded_initializer_op_names = [op.name for op in tf.get_collection(
+        tf.GraphKeys.TABLE_INITIALIZERS)]
+
     if signature_name:
       signature = meta_graph.signature_def[signature_name]
     elif len(meta_graph.signature_def) > 1:
@@ -116,26 +120,43 @@ def apply_saved_model(model_dir, inputs, tags, signature_name=None,
     output_tensor_names = [signature.outputs.values()[0].name]
     output_single_tensor = True
 
-  if tf.get_collection(tf.GraphKeys.TABLE_INITIALIZERS):
-    raise ValueError(
-        'Models with table init ops in metagraph are not supported.')
-
   # Convert_variables_to_constants() requires op name.
   output_op_names = [loaded_graph.get_tensor_by_name(tensor_name).op.name
                      for tensor_name in output_tensor_names]
   constant_graph_def = tf.graph_util.convert_variables_to_constants(
-      session, loaded_graph.as_graph_def(), output_op_names)
+      session,
+      loaded_graph.as_graph_def(),
+      output_op_names + loaded_initializer_op_names)
 
-  output_tensors = tf.import_graph_def(
-      constant_graph_def,
-      input_map=input_name_to_tensor_map,
-      return_elements=output_tensor_names)
+  def import_graph_and_return_output_tensors():
+    """Imports the model's constant-converted GraphDef into the default graph.
 
-  if output_single_tensor:
-    assert len(output_tensors) == 1
-    return output_tensors[0]
-  else:
-    return output_tensors
+    We must also copy the table initializers from the model's graph into the
+    composed graph. As a result, this function must be wrapped in
+    api.apply_function().
+
+    Returns:
+      The model's output tensor(s).
+    """
+    returned_elements = tf.import_graph_def(
+        constant_graph_def,
+        input_map=input_name_to_tensor_map,
+        return_elements=output_tensor_names + loaded_initializer_op_names)
+    returned_output_tensors = returned_elements[:len(output_tensor_names)]
+    returned_initializer_ops = returned_elements[len(output_tensor_names):]
+
+    for initializer_op in returned_initializer_ops:
+      tf.add_to_collection(
+          tf.GraphKeys.TABLE_INITIALIZERS,
+          initializer_op)
+
+    if output_single_tensor:
+      assert len(output_tensor_names) == 1
+      return returned_output_tensors[0]
+    else:
+      return returned_output_tensors
+
+  return api.apply_function(import_graph_and_return_output_tensors)
 
 
 def apply_function_with_checkpoint(fn, inputs, checkpoint, include=None,
