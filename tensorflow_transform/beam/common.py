@@ -19,6 +19,7 @@ from __future__ import print_function
 
 
 from apache_beam.typehints import Union
+from six import integer_types, string_types
 
-NUMERIC_TYPE = Union[float, int, long]
-PRIMITIVE_TYPE = Union[NUMERIC_TYPE, str, unicode]
+NUMERIC_TYPE = Union[float, integer_types]
+PRIMITIVE_TYPE = Union[NUMERIC_TYPE, str, string_types]
