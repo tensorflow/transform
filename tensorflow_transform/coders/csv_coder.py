@@ -25,6 +25,11 @@ import six
 from six.moves import cStringIO
 import tensorflow as tf
 
+try:
+  long        # Python 2
+except NameError:
+  long = int  # Python 3
+
 
 def _make_cast_fn(dtype):
   """Return a function to extract the typed value from the feature.
