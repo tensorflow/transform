@@ -23,6 +23,7 @@ import tempfile
 
 
 import six
+from six.moves import xrange
 import tensorflow as tf
 
 from tensorflow_transform.saved import input_fn_maker
