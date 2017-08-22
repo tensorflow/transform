@@ -21,6 +21,7 @@ import gc
 import threading
 import time
 
+from six.moves import xrange
 from tensorflow_transform.beam import shared
 import unittest
 
