@@ -25,10 +25,8 @@ import six
 from six.moves import cStringIO
 import tensorflow as tf
 
-try:
-  long        # Python 2
-except NameError:
-  long = int  # Python 3
+if six.PY3:
+  long = int  # pylint: disable=redefined-builtin,invalid-name
 
 
 def _make_cast_fn(dtype):
