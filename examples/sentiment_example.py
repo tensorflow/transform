@@ -59,7 +59,8 @@ def Shuffle(pcoll):
   return (pcoll
           | 'PairWithHash' >> beam.Map(lambda x: (hash(x), x))
           | 'GroupByHash' >> beam.GroupByKey()
-          | 'DropHash' >> beam.FlatMap(lambda k, vs: vs))
+          | 'DropHash' >> beam.FlatMap(
+              lambda hash_and_values: hash_and_values[1]))
 
 
 # pylint: disable=invalid-name
