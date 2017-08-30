@@ -23,7 +23,6 @@ import tempfile
 
 
 import six
-from six.moves import xrange
 import tensorflow as tf
 
 from tensorflow_transform.saved import input_fn_maker
@@ -513,7 +512,7 @@ class InputFnMakerTest(unittest.TestCase):
 
 def _write_tfrecord(data_file, examples, count=1):
   with tf.python_io.TFRecordWriter(data_file) as writer:
-    for _ in xrange(count):
+    for _ in range(count):
       for e in examples:
         writer.write(e)
 
