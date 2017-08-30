@@ -21,7 +21,6 @@ import gc
 import threading
 import time
 
-from six.moves import xrange
 from tensorflow_transform.beam import shared
 import unittest
 
@@ -182,7 +181,7 @@ class SharedTest(unittest.TestCase):
         refs.append(p)
 
     threads = []
-    for _ in xrange(100):
+    for _ in range(100):
       t = threading.Thread(target=thread_fn)
       threads.append(t)
       t.start()
