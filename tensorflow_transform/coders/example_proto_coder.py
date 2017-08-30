@@ -70,12 +70,7 @@ def _make_cast_fn(np_dtype):
     # it also works for non-Unicode objects). It is also in agreement with the
     # testTransformUnicode of the Beam impl.
     def utf8(s):
-      try:
-        if isinstance(s, unicode):
-          return s.encode('utf-8')  # Python 2
-      except NameError:
-        pass                        # Python 3
-      return s
+      return s.encode('utf-8') if six.PY2 and isinstance(s, unicode) else s
 
     return map(utf8, x) if isinstance(x, (list, np.ndarray)) else utf8(x)
 
