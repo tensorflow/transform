@@ -113,6 +113,20 @@ def _maybe_deserialize_tf_config(serialized_tf_config):
   return result
 
 
+def _clear_shared_state_after_barrier(pipeline, input_barrier):
+  """Clears any shared state from within a pipeline context.
+
+  This will only be cleared once input_barrier becomes available.
+  """
+  empty_pcoll = input_barrier | 'MakeCheapBarrier' >> beam.FlatMap(
+      lambda x: None)
+  return (pipeline
+          | 'PrepareToClearSharedKeepAlives' >> beam.Create([None])
+          | 'WaitAndClearSharedKeepAlives' >> beam.Map(
+              lambda x, empty_side_input: shared.Shared().acquire(lambda: None),
+              beam.pvalue.AsIter(empty_pcoll)))
+
+
 class Context(object):
   """Context manager for tensorflow-transform.
 
@@ -201,12 +215,12 @@ class _RunMetaGraphDoFn(beam.DoFn):
     def __init__(self, saved_model_dir, input_schema, output_schema,
                  tf_config):
       self.saved_model_dir = saved_model_dir
-      self.graph = tf.Graph()
-      self.tf_config = tf_config
-      with self.graph.as_default():
+      self.session = tf.Session(graph=tf.Graph(), config=tf_config)
+      with self.session.graph.as_default():
         with tf.Session(config=tf_config):
           inputs, outputs = saved_transform_io.partially_apply_saved_transform(
               saved_model_dir, {})
+        self.session.run(tf.tables_initializer())
 
         input_schema_keys = input_schema.column_schemas.keys()
         output_schema_keys = output_schema.column_schemas.keys()
@@ -260,7 +274,8 @@ class _RunMetaGraphDoFn(beam.DoFn):
     del self._batch[:]
 
     try:
-      return self._session.run(self._graph_state.outputs, feed_dict=feed_dict)
+      return self._graph_state.session.run(
+          self._graph_state.outputs, feed_dict=feed_dict)
     except Exception as e:
       tf.logging.error('%s while applying transform function for tensors %s' %
                        (e, self._graph_state.outputs))
@@ -296,11 +311,6 @@ class _RunMetaGraphDoFn(beam.DoFn):
       self._graph_state = self._shared_graph_state_handle.acquire(
           lambda: self._make_graph_state(saved_model_dir))
 
-      self._session = tf.Session(
-          graph=self._graph_state.graph, config=self._graph_state.tf_config)
-      with self._session.graph.as_default():
-        self._session.run(tf.tables_initializer())
-
     # This should remain true throughout the lifetime of this DoFn, regardless
     # of whether or not self._graph_state was cached.
     assert self._graph_state.saved_model_dir == saved_model_dir
@@ -314,7 +324,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
       yield WindowedValue(self._flush_batch(), -1, [window.GlobalWindow()])
 
 
-def _asset_files_supported():
+def _assert_tensorflow_version():
   try:
     # Fail with a clear error in case we are not using a compatible TF version.
     with tf.Session(graph=tf.Graph()):
@@ -324,29 +334,23 @@ def _asset_files_supported():
       vocabulary_file = tf.constant('__test_file__')
       tf.contrib.lookup.string_to_index_table_from_file(
           vocabulary_file=vocabulary_file)
-
-    return True
   except TypeError:
     # Catch the following error from the previous TF version:
     # TypeError: Using a `tf.Tensor` as a Python `bool` is not allowed.
     # Use `if t is not None:` instead of `if t:` to test if a tensor is defined,
     # and use TensorFlow ops such as tf.cond to execute subgraphs conditioned on
     # the value of a tensor."
-    return False
+    raise RuntimeError(
+        'Tensorflow version 1.3 is required. Please install the latest version '
+        'from https://github.com/tensorflow/tensorflow.')
 
 
-def _assert_tensorflow_version():
+def _asset_files_supported():
   try:
-    _ = tf.SparseFeature
-    _ = tf.tables_initializer
-  except AttributeError:
-    raise RuntimeError(
-        'Tensorflow version 1.3 is required. Please install the latest version '
-        'from https://github.com/tensorflow/tensorflow.')
-  if not _asset_files_supported():
-    raise RuntimeError(
-        'Tensorflow version 1.3 is required. Please install the latest version '
-        'from https://github.com/tensorflow/tensorflow.')
+    _assert_tensorflow_version()
+    return True
+  except RuntimeError:
+    return False
 
 
 def _make_unique_temp_dir(base_temp_dir):
@@ -758,6 +762,8 @@ class AnalyzeDataset(beam.PTransform):
             deferred_metadata_tensor_names, saved_model_dir,
             input_values.pipeline))
 
+    _clear_shared_state_after_barrier(input_values.pipeline, deferred_metadata)
+
     return transform_fn, (metadata, deferred_metadata)
 
 
@@ -864,4 +870,7 @@ class TransformDataset(beam.PTransform):
                 exclude_outputs=self._exclude_outputs),
             saved_model_dir=beam.pvalue.AsSingleton(transform_fn))
         | 'ConvertAndUnbatch' >> beam.FlatMap(convert_and_unbatch))
+
+    _clear_shared_state_after_barrier(self.pipeline, output_instances)
+
     return (output_instances, output_metadata)

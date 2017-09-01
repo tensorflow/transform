@@ -190,12 +190,18 @@ class _UniquesAnalyzerImpl(beam.PTransform):
 
     # Using AsIter instead of AsList below in order to reduce max memory
     # usage (due to AsList caching).
-    def order_by_decreasing_counts(_, counts_iter):  # pylint: disable=invalid-name
+    def order_by_decreasing_counts(empty_list, counts_iter, store_frequency):
+      """Sort the vocabulary by frequency count."""
+      del empty_list
       counts = list(counts_iter)
       if not counts:
         counts = [(1, '49d0cd50-04bb-48c0-bc6f-5b575dce351a')]
       counts.sort(reverse=True)  # Largest first.
-      return [element for _, element in counts]
+      if store_frequency:
+        # Returns ['count1 element1\n', ... ]
+        return ['{} {}'.format(count, element) for count, element in counts]
+      else:
+        return [element for _, element in counts]
 
     vocabulary_file = os.path.join(self._temp_assets_dir,
                                    self._spec.vocab_filename)
@@ -204,7 +210,8 @@ class _UniquesAnalyzerImpl(beam.PTransform):
         | 'Prepare' >> beam.Create([None])
         | 'OrderByDecreasingCounts' >> beam.FlatMap(
             order_by_decreasing_counts,
-            counts_iter=beam.pvalue.AsIter(counts))
+            counts_iter=beam.pvalue.AsIter(counts),
+            store_frequency=self._spec.store_frequency)
         | 'WriteToFile' >> beam.io.WriteToText(vocabulary_file,
                                                shard_name_template=''))
     # Return the vocabulary path.

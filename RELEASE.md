@@ -1,7 +1,7 @@
 # Current version
 
 ## Major Features and Improvements
-* Added hash_strings mapper
+* Added hash_strings mapper.
 * Write vocabularies as asset files instead of constants in the SavedModel.
 
 ## Bug Fixes and Other Changes
@@ -9,9 +9,12 @@
   corpus have a non-zero tfidf value.
 * Performance and memory usage improvement when running with Beam runners that
   use multi-threaded workers.
+* Performance optimizations in ExampleProtoCoder.
+* Depends on `apache-beam[gcp]>=2.1,<3`.
+* Depends on `protobuf>=3.3.0<4`.
 
 ## Breaking changes
-* This version requires TensorFlow 1.3.
+* Requires pre-installed TensorFlow >= 1.3.
 * Removed `tft.map`  use `tft.apply_function` instead (as needed).
 * Removed `tft.tfidf_weights` use `tft.tfidf` instead.
 
@@ -25,9 +28,10 @@
 * Remove duplication in output of `tft.tfidf`.
 * Ensure ngrams output dense_shape is greater than or equal to 0.
 * Alters the behavior and interface of tensorflow_transform.mappers.ngrams.
-* Use `apache-beam[gcp] >=2,<3`
+* Depends on `apache-beam[gcp]=>2,<3`.
 * Making TF Parallelism runner-dependent.
 * Fixes issue with csv serving input function.
+* Various performance and stability improvements.
 
 ## Deprecations
 * `tft.map` will be removed on version 0.2.0, see the `examples` directory for
@@ -44,3 +48,4 @@
 * Return float32 from `tfidf_weights`
 * Update tensorflow_transform to use `tf.saved_model` APIs.
 * Add default values on example proto coder.
+* Various performance and stability improvements.

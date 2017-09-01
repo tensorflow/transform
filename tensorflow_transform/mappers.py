@@ -335,7 +335,11 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
     return table.lookup(x), table_size
 
   with tf.name_scope('string_to_int'):
-    vocab_filename = analyzers.sanitized_vocab_filename(vocab_filename)
+    prefix = None
+    if vocab_filename is None:
+      prefix = analyzers.VOCAB_FILENAME_PREFIX
+    vocab_filename = analyzers.sanitized_vocab_filename(
+        vocab_filename, prefix)
     vocabulary_file = analyzers.uniques(
         x, top_k=top_k, frequency_threshold=frequency_threshold,
         vocab_filename=vocab_filename)
