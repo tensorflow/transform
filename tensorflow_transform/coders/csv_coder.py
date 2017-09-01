@@ -25,6 +25,9 @@ import six
 from six.moves import cStringIO
 import tensorflow as tf
 
+if six.PY3:
+  long = int  # pylint: disable=redefined-builtin,invalid-name
+
 
 def _make_cast_fn(dtype):
   """Return a function to extract the typed value from the feature.
