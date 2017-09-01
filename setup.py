@@ -22,7 +22,11 @@ __version__ = '0.2.0dev'
 
 def _make_required_install_packages():
   return [
-      'apache-beam[gcp]>=2,<3',
+      'apache-beam[gcp]>=2.1,<3',
+
+      # Protobuf libraries <= 3.2 contain some map-related data corruption bugs
+      # (b/35874111).
+      'protobuf>=3.3,<4',
   ]
 
 

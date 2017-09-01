@@ -34,6 +34,8 @@ import tensorflow as tf
 
 
 ANALYZER_COLLECTION = 'tft_analyzers'
+VOCAB_FILENAME_PREFIX = 'vocab_'
+VOCAB_FREQUENCY_FILENAME_PREFIX = 'vocab_frequency_'
 
 
 class Analyzer(object):
@@ -249,11 +251,13 @@ def var(x, reduce_instance_dims=True):
 class UniquesSpec(object):
   """Operation to compute unique values."""
 
-  def __init__(self, dtype, top_k, frequency_threshold, vocab_filename):
+  def __init__(self, dtype, top_k, frequency_threshold,
+               vocab_filename, store_frequency):
     self._dtype = dtype
     self._top_k = top_k
     self._frequency_threshold = frequency_threshold
     self._vocab_filename = vocab_filename
+    self._store_frequency = store_frequency
 
   @property
   def dtype(self):
@@ -271,8 +275,12 @@ class UniquesSpec(object):
   def vocab_filename(self):
     return self._vocab_filename
 
+  @property
+  def store_frequency(self):
+    return self._store_frequency
 
-def sanitized_vocab_filename(filename=None):
+
+def sanitized_vocab_filename(filename=None, prefix=None):
   """Generates a sanitized filename either from the given filename or the scope.
 
   If filename is specified, provide a sanitized version of the given filename.
@@ -283,19 +291,32 @@ def sanitized_vocab_filename(filename=None):
   Args:
     filename: A filename with non-alpha characters replaced with underscores and
       spaces to hyphens.
+    prefix: Prefix to use for the name of the vocab file, if filename
+      is not given.
 
   Returns:
     A valid filename.
+
+  Raises:
+    ValueError: If neither filename and prefix are specified, or if both
+      are specified.
   """
+  if filename is None and prefix is None:
+    ValueError('Both filename and prefix cannot be None.')
+
+  if filename is not None and prefix is not None:
+    ValueError('Only one of filename or prefix can be specified.')
+
   if filename is None:
-    filename = 'vocab_%s' % tf.get_default_graph().get_name_scope()
+    filename = prefix + tf.get_default_graph().get_name_scope()
   # Replace non-alpha characters (excluding whitespaces) with '_'.
   filename = re.sub(r'[^\w\s-]', '_', filename).strip()
   # Replace whitespaces with '-'.
   return re.sub(r'[-\s]+', '-', filename)
 
 
-def uniques(x, top_k=None, frequency_threshold=None, vocab_filename=None):
+def uniques(x, top_k=None, frequency_threshold=None,
+            vocab_filename=None, store_frequency=False):
   r"""Computes the unique values of a `Tensor` over the whole dataset.
 
   Computes The unique values taken by `x`, which can be a `Tensor` or
@@ -303,7 +324,7 @@ def uniques(x, top_k=None, frequency_threshold=None, vocab_filename=None):
   dimensions of `x` and all instances.
 
   In case one of the tokens contains the '\n' or '\r' characters or is empty it
-  will be discarded since we are currenlty writing the vocabularies as text
+  will be discarded since we are currently writing the vocabularies as text
   files. This behavior will likely be fixed/improved in the future.
 
   The unique values are sorted by decreasing frequency and then decreasing
@@ -319,6 +340,9 @@ def uniques(x, top_k=None, frequency_threshold=None, vocab_filename=None):
     vocab_filename: The file name for the vocabulary file. If none, the
       "uniques" scope name in the context of this graph will be used as the file
       name. If not None, should be unique within a given preprocessing function.
+    store_frequency: If True, frequency of the words is stored in the
+      vocabulary file. Each line in the file will be of the form
+      '(frequency, word)\n'.
 
   Returns:
     The path name for the vocabulary file containing the unique values of `x`.
@@ -337,13 +361,23 @@ def uniques(x, top_k=None, frequency_threshold=None, vocab_filename=None):
       raise ValueError(
           'frequency_threshold must be non-negative, but got: %r' %
           frequency_threshold)
+
   if isinstance(x, tf.SparseTensor):
     x = x.values
 
   with tf.name_scope('uniques'):
+    if vocab_filename is not None:
+      prefix = None
+    elif store_frequency:
+      prefix = VOCAB_FREQUENCY_FILENAME_PREFIX
+    else:
+      prefix = VOCAB_FILENAME_PREFIX
+
     # Make the file name path safe.
-    vocab_filename = sanitized_vocab_filename(vocab_filename)
-    spec = UniquesSpec(tf.string, top_k, frequency_threshold, vocab_filename)
+    vocab_filename = sanitized_vocab_filename(vocab_filename, prefix=prefix)
+
+    spec = UniquesSpec(tf.string, top_k, frequency_threshold,
+                       vocab_filename, store_frequency)
     return Analyzer([x],
                     [(tf.placeholder(tf.string, []), True)],
                     spec).outputs[0]
@@ -352,10 +386,9 @@ def uniques(x, top_k=None, frequency_threshold=None, vocab_filename=None):
 class QuantilesSpec(object):
   """Operation to compute quantile boundaries."""
 
-  def __init__(self, epsilon, num_buckets, dtype):
+  def __init__(self, epsilon, num_buckets):
     self._epsilon = epsilon
     self._num_buckets = num_buckets
-    self._dtype = dtype
 
   @property
   def epsilon(self):
@@ -366,7 +399,7 @@ class QuantilesSpec(object):
     return self._num_buckets
 
   @property
-  def dtype(self):
-    return self._dtype
+  def bucket_dtype(self):
+    return tf.float32
 
 

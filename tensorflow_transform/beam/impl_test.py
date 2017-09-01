@@ -438,6 +438,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
+
   def testWithMoreThanDesiredBatchSize(self):
     def preprocessing_fn(inputs):
       return {'ab': tf.multiply(inputs['a'], inputs['b']),
@@ -1756,6 +1757,81 @@ class BeamImplTest(tft_unit.TransformTestCase):
     with self.assertRaises(ValueError):
       beam_impl.Context.create_base_temp_dir()
 
+
+  def testUniquesWithFrequency(self):
+    outfile = 'uniques_vocab_with_frequency'
+    def preprocessing_fn(inputs):
+
+      # Force the analyzer to be executed, and store the frequency file as a
+      # side-effect.
+      _ = tft.uniques(
+          inputs['a'], vocab_filename=outfile, store_frequency=True)
+      _ = tft.uniques(
+          inputs['a'], store_frequency=True)
+      _ = tft.uniques(
+          inputs['b'], store_frequency=True)
+
+      # The following must not produce frequency output, just the vocab words.
+      _ = tft.uniques(inputs['b'])
+      a_int = tft.string_to_int(inputs['a'])
+
+      # Return input unchanged, this preprocessing_fn is a no-op except for
+      # computing uniques.
+      return {'a_int': a_int}
+
+    def check_asset_file_contents(assets_path, filename, expected):
+      assets_file = os.path.join(assets_path, filename)
+      with tf.gfile.GFile(assets_file, 'r') as f:
+        contents = f.read()
+
+      self.assertMultiLineEqual(expected, contents)
+
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation()),
+        'b': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    })
+
+    tft_tmp_dir = os.path.join(self.get_temp_dir(), 'temp_dir')
+    transform_fn_dir = os.path.join(self.get_temp_dir(), 'export_transform_fn')
+
+    with beam_impl.Context(temp_dir=tft_tmp_dir):
+      with beam.Pipeline() as pipeline:
+        input_data = pipeline | beam.Create([
+            {'a': 'hello', 'b': 'hi'},
+            {'a': 'world', 'b': 'ho'},
+            {'a': 'hello', 'b': 'ho'},
+        ])
+        transform_fn = (
+            (input_data, input_metadata)
+            | beam_impl.AnalyzeDataset(preprocessing_fn))
+        _ = transform_fn | transform_fn_io.WriteTransformFn(transform_fn_dir)
+
+    self.assertTrue(os.path.isdir(tft_tmp_dir))
+
+    saved_model_path = os.path.join(transform_fn_dir, 'transform_fn')
+    assets_path = os.path.join(saved_model_path, 'assets')
+    self.assertTrue(os.path.isdir(assets_path))
+    self.assertItemsEqual([outfile,
+                           'vocab_frequency_uniques_1',
+                           'vocab_frequency_uniques_2',
+                           'vocab_string_to_int',
+                           'vocab_uniques_3'],
+                          os.listdir(assets_path))
+
+    check_asset_file_contents(assets_path, outfile,
+                              '2 hello\n1 world\n')
+
+    check_asset_file_contents(assets_path, 'vocab_frequency_uniques_1',
+                              '2 hello\n1 world\n')
+
+    check_asset_file_contents(assets_path, 'vocab_frequency_uniques_2',
+                              '2 ho\n1 hi\n')
+
+    check_asset_file_contents(assets_path, 'vocab_uniques_3',
+                              'ho\nhi\n')
+
+    check_asset_file_contents(assets_path, 'vocab_string_to_int',
+                              'hello\nworld\n')
 
 
 if __name__ == '__main__':

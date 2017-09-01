@@ -28,7 +28,6 @@ except ImportError:
 
 
 import numpy as np
-import tensorflow as tf
 from tensorflow_transform.beam import analyzer_impls as impl
 from tensorflow_transform.beam import impl as beam_impl
 
@@ -41,13 +40,14 @@ from tensorflow.python.framework import test_util
 
 class AnalyzerImplsTest(test_util.TensorFlowTestCase):
 
-  def assertCombine(self, combine_fn, shards, expected):
+  def assertCombine(self, combine_fn, shards, expected, check_np_type=False):
     """Tests the provided combiner.
 
     Args:
       combine_fn: A beam.ComineFn to exercise.
       shards: A list of next_inputs to add via the combiner.
       expected: The expected output from extract_output.
+      check_np_type: check strict equivalence of output numpy type.
 
     Exercises create_accumulator, add_input, merge_accumulators,
     and extract_output.
@@ -57,6 +57,13 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
         for shard in shards]
     final_accumulator = combine_fn.merge_accumulators(accumulators)
     extracted = combine_fn.extract_output(final_accumulator)
+    if check_np_type:
+      # This is currently applicable only for quantile buckets, which conains a
+      # single element list of numpy array; the numpy array contains the bucket
+      # boundaries.
+      self.assertEqual(len(expected), 1)
+      self.assertEqual(len(extracted), 1)
+      self.assertEqual(expected[0].dtype, extracted[0].dtype)
     self.assertAllEqual(expected, extracted)
 
   def testCombineOnBatchSimple(self):

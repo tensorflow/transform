@@ -25,12 +25,10 @@ import numpy as np
 import six
 import tensorflow as tf
 
-from google.protobuf.internal import api_implementation
-
 
 # This function needs to be called at pipeline execution time as it depends on
 # the protocol buffer library installed in the workers (which might be different
-# from the one install in the pipeline constructor).
+# from the one installed in the pipeline constructor).
 #
 def _make_cast_fn(np_dtype):
   """Return a function to extract the typed value from the feature.
@@ -154,10 +152,6 @@ class _FixedLenFeatureHandler(object):
     self._cast_fn = _make_cast_fn(self._np_dtype)
     self._value = self._value_fn(example.features.feature[self._name])
 
-  def set_encode_cache_dirty(self, example):
-    feature = example.features.feature[self._name]
-    del self._value_fn(feature)[:]
-
   def parse_value(self, feature_map):
     """Decodes a feature into its TF.Transform representation."""
     if self._name in feature_map:
@@ -217,10 +211,6 @@ class _VarLenFeatureHandler(object):
     self._cast_fn = _make_cast_fn(self._np_dtype)
     self._value = self._value_fn(example.features.feature[self._name])
 
-  def set_encode_cache_dirty(self, example):
-    feature = example.features.feature[self._name]
-    del self._value_fn(feature)[:]
-
   def parse_value(self, feature_map):
     feature = feature_map[self._name]
     return np.asarray(self._value_fn(feature))
@@ -258,10 +248,6 @@ class _SparseFeatureHandler(object):
         self._value_key])
     self._index = self._index_fn(example.features.feature[
         self._index_key])
-
-  def set_encode_cache_dirty(self, example):
-    feature = example.features.feature[self._value_key]
-    del self._value_fn(feature)[:]
 
   def parse_value(self, feature_map):
     value_feature = feature_map[self._value_key]
@@ -330,24 +316,16 @@ class ExampleProtoCoder(object):
 
   def encode(self, instance):
     """Encode a tf.transform encoded dict as serialized tf.Example."""
-    if (self._encode_example_cache is None or
-        api_implementation.Type() == 'python'):
+    if self._encode_example_cache is None:
       # Initialize the encode Example cache (used by this and all subsequent
-      # calls).
+      # calls to encode).
       example = tf.train.Example()
       for feature_handler in self._feature_handlers:
         feature_handler.initialize_encode_cache(example)
       self._encode_example_cache = example
 
     # Encode and serialize using the Example cache.
-    for index, feature_handler in enumerate(self._feature_handlers):
-      if index == 0:
-        # Clearing any part of _encode_example_cache via direct access to the
-        # map should be sufficient to mark the dirty bit that will cause the
-        # SerializeToString() at the end of this function to pick up all the
-        # changes of the current for-loop.
-        feature_handler.set_encode_cache_dirty(self._encode_example_cache)
-
+    for feature_handler in self._feature_handlers:
       value = instance[feature_handler.name]
       feature_handler.encode_value(value)
 
@@ -357,7 +335,7 @@ class ExampleProtoCoder(object):
     """Decode serialized tf.Example as a tf.transform encoded dict."""
     if self._decode_example_cache is None:
       # Initialize the decode Example cache (used by this and all subsequent
-      # calls).
+      # calls to decode).
       self._decode_example_cache = tf.train.Example()
 
     example = self._decode_example_cache

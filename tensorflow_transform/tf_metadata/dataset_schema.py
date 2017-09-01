@@ -534,7 +534,7 @@ def _from_parse_feature(parse_feature):
                         representation)
 
   raise ValueError('Cannot interpret feature spec {} with type {}'.format(
-    parse_feature, type(parse_feature)))
+      parse_feature, type(parse_feature)))
 
 
 def infer_column_schema_from_tensor(tensor):

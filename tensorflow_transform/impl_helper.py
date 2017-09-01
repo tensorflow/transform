@@ -330,7 +330,7 @@ def create_phases(graph):
   `FunctionApplication` is a hint to create_phases about the control flow of the
   graph.  Because control flow ops can introduce circular dependencies (and
   other circumstances such as mutable reference introduce similar problems) we
-  allow users to construct a `FunctionApplicaiton` which is a hint that the
+  allow users to construct a `FunctionApplication` which is a hint that the
   outputs `Tensor`s depend only on the input `Tensor`s.  `FunctionApplication`s
   are also needed to collect table initializers to determine which phase a table
   initializer is ready to run in.

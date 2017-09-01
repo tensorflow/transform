@@ -48,7 +48,7 @@ tf.Transform package will depend only on this base package, and users will be
 able to install their own runners. tf.Transform will attempt to be as
 independent from the specific runner as possible.
 
-Note: If you clonse tf.Transform's implementation and samples from GitHub's
+Note: If you clone tf.Transform's implementation and samples from GitHub's
 `master` branch (as opposed to using the released implementation and samples
 from PyPI) they will likely only work with TensorFlow's nightly
 [build](https://github.com/tensorflow/tensorflow).
