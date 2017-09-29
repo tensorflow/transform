@@ -25,6 +25,7 @@ import six
 from six.moves import cStringIO
 import tensorflow as tf
 
+
 if six.PY3:
   long = int  # pylint: disable=redefined-builtin,invalid-name
 
@@ -463,7 +464,12 @@ class CsvCoder(object):
     """
     string_list = [None] * len(self._column_names)
     for feature_handler in self._feature_handlers:
-      feature_handler.encode_value(string_list, instance[feature_handler.name])
+      try:
+        feature_handler.encode_value(string_list,
+                                     instance[feature_handler.name])
+      except TypeError as e:
+        raise TypeError('%s while encoding feature "%s"' %
+                        (e, feature_handler.name))
     return self._encoder.encode_record(string_list)
 
   # Please run tensorflow_transform/coders/benchmark_coders_test.py

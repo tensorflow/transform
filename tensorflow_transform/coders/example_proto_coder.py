@@ -69,7 +69,6 @@ def _make_cast_fn(np_dtype):
     # testTransformUnicode of the Beam impl.
     def utf8(s):
       return s.encode('utf-8') if six.PY2 and isinstance(s, unicode) else s
-
     return map(utf8, x) if isinstance(x, (list, np.ndarray)) else utf8(x)
 
   if issubclass(np_dtype, np.floating):
@@ -324,7 +323,11 @@ class ExampleProtoCoder(object):
     # Encode and serialize using the Example cache.
     for feature_handler in self._feature_handlers:
       value = instance[feature_handler.name]
-      feature_handler.encode_value(value)
+      try:
+        feature_handler.encode_value(value)
+      except TypeError as e:
+        raise TypeError('%s while encoding feature "%s"' %
+                        (e, feature_handler.name))
 
     return self._encode_example_cache.SerializeToString()
 

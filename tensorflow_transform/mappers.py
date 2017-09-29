@@ -290,7 +290,11 @@ def _count_docs_with_term(term_frequency):
 
 def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
                   num_oov_buckets=0, vocab_filename=None):
-  """Generates a vocabulary for `x` and maps it to an integer with this vocab.
+  r"""Generates a vocabulary for `x` and maps it to an integer with this vocab.
+
+  In case one of the tokens contains the '\n' or '\r' characters or is empty it
+  will be discarded since we are currently writing the vocabularies as text
+  files. This behavior will likely be fixed/improved in the future.
 
   Args:
     x: A `Tensor` or `SparseTensor` of type tf.string.

@@ -10,8 +10,9 @@
 * Performance and memory usage improvement when running with Beam runners that
   use multi-threaded workers.
 * Performance optimizations in ExampleProtoCoder.
-* Depends on `apache-beam[gcp]>=2.1,<3`.
+* Depends on `apache-beam[gcp]>=2.1.1,<3`.
 * Depends on `protobuf>=3.3.0<4`.
+* Depends on `six>=1.9,<1.11`.
 
 ## Breaking changes
 * Requires pre-installed TensorFlow >= 1.3.
