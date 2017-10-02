@@ -63,10 +63,29 @@ class TransformTestCase(test_util.TensorFlowTestCase):
         e.args = ((e.args[0] + ' : ' + msg,) + e.args[1:])
       raise
 
-  def assertAnalyzeAndTransformResults(
-      self, input_data, input_metadata, preprocessing_fn, expected_data,
-      expected_metadata=None):
+  def _assertDeferredMetadataIsResolved(self, transformed_metadata,
+                                        deferred_metadata):
+    """Asserts that there is no unresolved metadata."""
+
+    # deferred_metadata should be a singleton PCollection.
+    self.assertEqual(len(deferred_metadata), 1)
+
+    # No more unresolved metadata should remain.
+    unresolved_futures = transformed_metadata.substitute_futures(
+        deferred_metadata[0])
+    self.assertEqual(unresolved_futures, [])
+
+  def assertAnalyzeAndTransformResults(self,
+                                       input_data,
+                                       input_metadata,
+                                       preprocessing_fn,
+                                       expected_data=None,
+                                       expected_metadata=None,
+                                       only_check_core_metadata=False):
     """Assert that input data and metadata is transformed as expected.
+
+    This methods asserts transformed data and transformed metadata match
+    with expected_data and expected_metadata.
 
     Args:
       input_data: A sequence of dicts whose values are
@@ -74,41 +93,64 @@ class TransformTestCase(test_util.TensorFlowTestCase):
       input_metadata: DatasetMetadata describing input_data.
       preprocessing_fn: A function taking a dict of tensors and returning
           a dict of tensors.
-      expected_data: A dataset with the same type constraints as input_data,
-          but representing the output after transformation.
-      expected_metadata: (optional) DatasetMeatadata describing the transformed
-          data.
+      expected_data: (optional) A dataset with the same type constraints as
+          input_data, but representing the output after transformation.
+          If supplied, transformed data is asserted to be equal.
+      expected_metadata: (optional) DatasetMetadata describing the transformed
+          data. If supplied, transformed metadata is asserted to be equal.
+      only_check_core_metadata: A boolean to indicate if all elements in
+          the transformed metadata is asserted to be equal to expected metadata.
+          If True, only transformed feature names, dtypes and representations
+          are asserted.
     Raises:
       AssertionError: if the expected data does not match the results of
           transforming input_data according to preprocessing_fn, or
           (if provided) if the expected metadata does not match.
     """
+    # Note: we don't separately test AnalyzeDataset and TransformDataset as
+    # AnalyzeAndTransformDataset currently simply composes these two
+    # transforms.  If in future versions of the code, the implementation
+    # differs, we should also run AnalyzeDataset and TransformDatset composed.
+    #
+    # Also, the dataset_metadata that is returned along with
+    # `transformed_data` is incomplete as it does not contain the deferred
+    # components, so we instead inspect the metadata returned along with the
+    # transform function.
     temp_dir = self.get_temp_dir()
     with beam_impl.Context(temp_dir=temp_dir):
-      # Note: we don't separately test AnalyzeDataset and TransformDataset as
-      # AnalyzeAndTransformDataset currently simply composes these two
-      # transforms.  If in future versions of the code, the implementation
-      # differs, we should also run AnalyzeDataset and TransformDatset composed.
-      #
-      # Also, the dataset_metadata that is returned along with
-      # `transformed_data` is incomplete as it does not contain the deferred
-      # components, so we instead inspect the metadata returned along with the
-      # transform function.
       (transformed_data, _), (_, (transformed_metadata, deferred_metadata)) = (
           (input_data, input_metadata)
           | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
 
 
-    self.assertDataCloseOrEqual(expected_data, transformed_data)
-    if expected_metadata:
-      # deferred_metadata should be a singleton PCollection.
-      self.assertEqual(len(deferred_metadata), 1)
-      unresolved_futures = transformed_metadata.substitute_futures(
-          deferred_metadata[0])
-      self.assertEqual(unresolved_futures, [])
-      # Use extra assertEqual for schemas, since full metadata assertEqual error
-      # message is not conducive to debugging.
-      self.assertEqual(
-          expected_metadata.schema.column_schemas,
-          transformed_metadata.schema.column_schemas)
+    if expected_data:
+      self.assertDataCloseOrEqual(expected_data, transformed_data)
+
+    if not expected_metadata:
+      return
+
+    self._assertDeferredMetadataIsResolved(transformed_metadata,
+                                           deferred_metadata)
+
+    if only_check_core_metadata:
+      # preprocessing_fn may add metadata to column schema only relevant to
+      # internal implementation such as vocabulary_file. As such, only check
+      # feature names, dtypes and representations are as expected.
+      self.assertSameElements(transformed_metadata.schema.column_schemas.keys(),
+                              expected_metadata.schema.column_schemas.keys())
+
+      for k, v in transformed_metadata.schema.column_schemas.iteritems():
+        expected_schema = expected_metadata.schema.column_schemas[k]
+
+        self.assertEqual(expected_schema.representation, v.representation,
+                         "representation doesn't match for feature '%s'" % k)
+        self.assertEqual(expected_schema.domain.dtype, v.domain.dtype,
+                         "dtype doesn't match for feature '%s'" % k)
+
+    else:
+      # Check the entire DatasetMetadata is as expected.
+      # Use extra assertEqual for schemas, since full metadata assertEqual
+      # error message is not conducive to debugging.
+      self.assertEqual(expected_metadata.schema.column_schemas,
+                       transformed_metadata.schema.column_schemas)
       self.assertEqual(expected_metadata, transformed_metadata)

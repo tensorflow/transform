@@ -426,9 +426,13 @@ def build_transforming_training_input_fn(raw_metadata,
   raw_feature_spec = raw_metadata.schema.as_feature_spec()
   raw_feature_keys = _prepare_feature_keys(raw_metadata,
                                            raw_label_keys, raw_feature_keys)
-  raw_training_feature_spec = {
-      key: raw_feature_spec[key]
-      for key in raw_feature_keys + raw_label_keys}
+  raw_training_feature_spec = {}
+  for key in raw_feature_keys + raw_label_keys:
+    try:
+      raw_training_feature_spec[key] = raw_feature_spec[key]
+    except KeyError:
+      raise ValueError("Found feature '%s' that was not included in the "
+                       "schema's feature specification" % key)
 
   transformed_feature_keys = _prepare_feature_keys(
       transformed_metadata, transformed_label_keys, transformed_feature_keys)
@@ -444,7 +448,8 @@ def build_transforming_training_input_fn(raw_metadata,
       raw_data = tf.contrib.learn.io.read_batch_features(
           raw_data_file_pattern, training_batch_size, raw_training_feature_spec,
           reader, **read_batch_features_args)
-    transformed_data = saved_transform_io.apply_saved_transform(
+
+    _, transformed_data = saved_transform_io.partially_apply_saved_transform(
         transform_savedmodel_dir, raw_data)
 
     transformed_features = {

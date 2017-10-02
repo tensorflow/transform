@@ -32,7 +32,7 @@ from tensorflow_transform.tf_metadata import dataset_schema as sch
 import unittest
 
 
-def _make_raw_schema(shape):
+def _make_raw_schema(shape, should_add_unused_feature=False):
   schema = sch.Schema()
 
   schema.column_schemas['raw_a'] = (sch.ColumnSchema(
@@ -43,6 +43,10 @@ def _make_raw_schema(shape):
 
   schema.column_schemas['raw_label'] = (sch.ColumnSchema(
       tf.int64, shape, sch.FixedColumnRepresentation(default_value=-1)))
+
+  if should_add_unused_feature:
+    schema.column_schemas['raw_unused'] = (sch.ColumnSchema(
+        tf.int64, shape, sch.FixedColumnRepresentation(default_value=1)))
 
   return schema
 
@@ -69,8 +73,7 @@ class InputFnMakerTest(unittest.TestCase):
 
     basedir = tempfile.mkdtemp()
 
-    raw_metadata = dataset_metadata.DatasetMetadata(
-        schema=_make_raw_schema([]))
+    raw_metadata = dataset_metadata.DatasetMetadata(schema=_make_raw_schema([]))
 
     transform_savedmodel_dir = os.path.join(basedir, 'transform-savedmodel')
     _write_transform_savedmodel(transform_savedmodel_dir)
@@ -106,8 +109,7 @@ class InputFnMakerTest(unittest.TestCase):
 
     basedir = tempfile.mkdtemp()
 
-    raw_metadata = dataset_metadata.DatasetMetadata(
-        schema=_make_raw_schema([]))
+    raw_metadata = dataset_metadata.DatasetMetadata(schema=_make_raw_schema([]))
 
     transform_savedmodel_dir = os.path.join(basedir, 'transform-savedmodel')
     _write_transform_savedmodel(transform_savedmodel_dir)
@@ -178,8 +180,7 @@ class InputFnMakerTest(unittest.TestCase):
 
     basedir = tempfile.mkdtemp()
 
-    raw_metadata = dataset_metadata.DatasetMetadata(
-        schema=_make_raw_schema([]))
+    raw_metadata = dataset_metadata.DatasetMetadata(schema=_make_raw_schema([]))
 
     transform_savedmodel_dir = os.path.join(basedir, 'transform-savedmodel')
     _write_transform_savedmodel(transform_savedmodel_dir)
@@ -214,25 +215,20 @@ class InputFnMakerTest(unittest.TestCase):
     self.assertEqual(set(inputs.keys()), {'json_example'})
 
   def test_build_parsing_transforming_serving_input_fn_scalars(self):
-    self._test_build_parsing_transforming_serving_input_fn(
-        _make_raw_schema([]))
+    self._test_build_parsing_transforming_serving_input_fn([])
 
-    self._test_build_parsing_transforming_serving_input_fn_with_label(
-        _make_raw_schema([]))
+    self._test_build_parsing_transforming_serving_input_fn_with_label([])
 
   def test_build_parsing_transforming_serving_input_fn_vectors(self):
-    self._test_build_parsing_transforming_serving_input_fn(
-        _make_raw_schema([1]))
+    self._test_build_parsing_transforming_serving_input_fn([1])
 
-    self._test_build_parsing_transforming_serving_input_fn_with_label(
-        _make_raw_schema([1]))
+    self._test_build_parsing_transforming_serving_input_fn_with_label([1])
 
-  def _test_build_parsing_transforming_serving_input_fn_with_label(
-      self, raw_schema):
+  def _test_build_parsing_transforming_serving_input_fn_with_label(self, shape):
     basedir = tempfile.mkdtemp()
 
     raw_metadata = dataset_metadata.DatasetMetadata(
-        schema=raw_schema)
+        schema=_make_raw_schema(shape))
 
     transform_savedmodel_dir = os.path.join(basedir, 'transform-savedmodel')
     _write_transform_savedmodel(transform_savedmodel_dir)
@@ -270,14 +266,15 @@ class InputFnMakerTest(unittest.TestCase):
     self.assertEqual(labels, None)
     self.assertEqual(set(inputs.keys()), {'examples'})
 
-  def _test_build_parsing_transforming_serving_input_fn(self, raw_schema):
+  def _test_build_parsing_transforming_serving_input_fn(self, shape):
     basedir = tempfile.mkdtemp()
 
     raw_metadata = dataset_metadata.DatasetMetadata(
-        schema=raw_schema)
+        schema=_make_raw_schema(shape, should_add_unused_feature=True))
 
     transform_savedmodel_dir = os.path.join(basedir, 'transform-savedmodel')
-    _write_transform_savedmodel(transform_savedmodel_dir)
+    _write_transform_savedmodel(
+        transform_savedmodel_dir, should_add_unused_feature=True)
 
     serving_input_fn = (
         input_fn_maker.build_parsing_transforming_serving_input_fn(
@@ -372,10 +369,11 @@ class InputFnMakerTest(unittest.TestCase):
     basedir = tempfile.mkdtemp()
 
     raw_metadata = dataset_metadata.DatasetMetadata(
-        schema=_make_raw_schema(shape))
+        schema=_make_raw_schema(shape, should_add_unused_feature=True))
 
     transform_savedmodel_dir = os.path.join(basedir, 'transform-savedmodel')
-    _write_transform_savedmodel(transform_savedmodel_dir)
+    _write_transform_savedmodel(
+        transform_savedmodel_dir, should_add_unused_feature=True)
 
     serving_input_fn = (
         input_fn_maker.build_default_transforming_serving_input_fn(
@@ -459,7 +457,7 @@ class InputFnMakerTest(unittest.TestCase):
     basedir = tempfile.mkdtemp()
 
     raw_metadata = dataset_metadata.DatasetMetadata(
-        schema=_make_raw_schema(shape))
+        schema=_make_raw_schema(shape, should_add_unused_feature=True))
 
     # the transformed schema should be vectorized already.
     transformed_metadata = dataset_metadata.DatasetMetadata(
@@ -476,7 +474,8 @@ class InputFnMakerTest(unittest.TestCase):
     _write_tfrecord(data_file, examples)
 
     transform_savedmodel_dir = os.path.join(basedir, 'transform-savedmodel')
-    _write_transform_savedmodel(transform_savedmodel_dir)
+    _write_transform_savedmodel(
+        transform_savedmodel_dir, should_add_unused_feature=True)
 
     training_input_fn = (
         input_fn_maker.build_transforming_training_input_fn(
@@ -524,7 +523,16 @@ def _create_serialized_example(data_dict):
   return example1.SerializeToString()
 
 
-def _write_transform_savedmodel(transform_savedmodel_dir):
+def _write_transform_savedmodel(transform_savedmodel_dir,
+                                should_add_unused_feature=False):
+  """Writes a TransformFn to the given directory.
+
+  Args:
+    transform_savedmodel_dir: A directory to save to.
+    should_add_unused_feature: Whether or not an unused feature should be added
+      to the inputs. This has to be in sync with the value of
+      should_add_unused_feature used to invoke _make_raw_schema.
+  """
   with tf.Graph().as_default():
     with tf.Session().as_default() as session:
       raw_a = tf.placeholder(tf.int64)
@@ -534,6 +542,10 @@ def _write_transform_savedmodel(transform_savedmodel_dir):
       transformed_b = raw_a - raw_b
       transformed_label = raw_label * 1000
       inputs = {'raw_a': raw_a, 'raw_b': raw_b, 'raw_label': raw_label}
+
+      if should_add_unused_feature:
+        inputs['raw_unused'] = tf.placeholder(tf.int64)
+
       outputs = {'transformed_a': transformed_a,
                  'transformed_b': transformed_b,
                  'transformed_label': transformed_label}
