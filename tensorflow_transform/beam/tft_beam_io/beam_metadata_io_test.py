@@ -52,8 +52,6 @@ _TEST_METADATA_WITH_FUTURES = dataset_metadata.DatasetMetadata({
         (None,), dataset_schema.ListColumnRepresentation())
 })
 
-_FUTURES_DICT = {'a': 3, 'b': 5}
-
 
 class BeamMetadataIoTest(test_util.TensorFlowTestCase):
 
@@ -73,24 +71,20 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
     metadata = metadata_io.read_metadata(path)
     self.assertMetadataEqual(metadata, _TEST_METADATA)
 
-  def testWriteMetadataNonDeferredEmptyDict(self):
-    # Write properties as metadata to disk.
-    with beam.Pipeline() as pipeline:
-      path = self.get_temp_dir()
-      property_pcoll = pipeline | beam.Create([{}])
-      _ = ((_TEST_METADATA, property_pcoll)
-           | beam_metadata_io.WriteMetadata(path, pipeline))
-    # Load from disk and check that it is as expected.
-    metadata = metadata_io.read_metadata(path)
-    self.assertMetadataEqual(metadata, _TEST_METADATA)
-
   def testWriteMetadataDeferredProperties(self):
     # Write deferred properties as metadata to disk.
     with beam.Pipeline() as pipeline:
       path = self.get_temp_dir()
-      deferred_metadata = pipeline | beam.Create([_FUTURES_DICT])
-      _ = ((_TEST_METADATA_WITH_FUTURES, deferred_metadata)
-           | beam_metadata_io.WriteMetadata(path, pipeline))
+
+      # Combine test metadata with a dict of PCollections resolving futures.
+      metadata = beam_metadata_io.BeamDatasetMetadata(
+          _TEST_METADATA_WITH_FUTURES,
+          {
+              'a': pipeline | 'CreateA' >> beam.Create([3]),
+              'b': pipeline | 'CreateB' >> beam.Create([5])
+          })
+
+      _ = metadata | beam_metadata_io.WriteMetadata(path, pipeline)
     # Load from disk and check that it is as expected.
     metadata = metadata_io.read_metadata(path)
     self.assertMetadataEqual(metadata, _TEST_METADATA)

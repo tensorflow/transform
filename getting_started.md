@@ -119,9 +119,13 @@ raw_data = [
 ]
 
 raw_data_metadata = ...
-transformed_dataset, transform_fn = (
-    (raw_data, raw_data_metadata) | beam_impl.AnalyzeAndTransformDataset(
-        preprocessing_fn, tempfile.mkdtemp()))
+transform_fn = (
+    (raw_data, raw_data_metadata)
+    | beam_impl.AnalyzeDataset(preprocessing_fn))
+transformed_dataset = (
+    ((raw_data, raw_data_metadata), transform_fn)
+    | beam_impl.TransformDataset())
+transformed_data, transformed_metadata = transformed_dataset
 ```
 
 The content of `transformed_data` is shown below, and can be seen to contain the

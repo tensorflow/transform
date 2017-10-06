@@ -302,10 +302,10 @@ def sanitized_vocab_filename(filename=None, prefix=None):
       are specified.
   """
   if filename is None and prefix is None:
-    ValueError('Both filename and prefix cannot be None.')
+    raise ValueError('Both filename and prefix cannot be None.')
 
   if filename is not None and prefix is not None:
-    ValueError('Only one of filename or prefix can be specified.')
+    raise ValueError('Only one of filename or prefix can be specified.')
 
   if filename is None:
     filename = prefix + tf.get_default_graph().get_name_scope()

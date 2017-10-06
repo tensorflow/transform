@@ -1334,7 +1334,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         transform_fn = (
             (input_data, input_metadata)
             | beam_impl.AnalyzeDataset(preprocessing_fn))
-        print ('transform_fn', transform_fn[1][0].substitute_futures({}))
         _ = transform_fn | transform_fn_io.WriteTransformFn(transform_fn_dir)
 
     # Remove the temporary directories, including temporary save models and
@@ -1354,7 +1353,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
             sch.FixedColumnRepresentation())
     })
     with beam.Pipeline() as pipeline:
-      _, (metadata, _) = (
+      _, metadata = (
           pipeline | transform_fn_io.ReadTransformFn(transform_fn_dir))
       self.assertMetadataEqual(metadata, expected_output_metadata)
 

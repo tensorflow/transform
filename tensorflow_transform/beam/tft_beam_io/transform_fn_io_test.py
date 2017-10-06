@@ -24,6 +24,7 @@ import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
 
 import tensorflow as tf
+from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
@@ -53,8 +54,6 @@ _TEST_METADATA_WITH_FUTURES = dataset_metadata.DatasetMetadata({
         tf.float32, (None,), dataset_schema.ListColumnRepresentation())
 })
 
-_FUTURES_DICT = {'a': 3}
-
 
 class BeamMetadataIoTest(test_util.TensorFlowTestCase):
 
@@ -73,15 +72,13 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
     metadata_io.write_metadata(_TEST_METADATA, transformed_metadata_dir)
 
     with beam.Pipeline() as pipeline:
-      saved_model_dir_pcoll, (metadata, deferred_metadata) = (
+      saved_model_dir_pcoll, metadata = (
           pipeline | transform_fn_io.ReadTransformFn(path))
       beam_test_util.assert_that(
           saved_model_dir_pcoll, beam_test_util.equal_to([transform_fn_dir]),
           label='AssertSavedModelDir')
       # NOTE: metadata is currently read in a non-deferred manner.
       self.assertEqual(metadata, _TEST_METADATA)
-      beam_test_util.assert_that(
-          deferred_metadata, beam_test_util.equal_to([{}]))
 
   def testWriteTransformFn(self):
     path = os.path.join(self.get_temp_dir(), 'output')
@@ -92,11 +89,13 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
       file_io.recursive_create_dir(saved_model_dir)
       saved_model_dir_pcoll = (
           pipeline | 'CreateSavedModelDir' >> beam.Create([saved_model_dir]))
-      metadata = _TEST_METADATA
-      deferred_metadata = (
-          pipeline | 'CreateEmptyProperties' >> beam.Create([_FUTURES_DICT]))
+      metadata = beam_metadata_io.BeamDatasetMetadata(
+          _TEST_METADATA_WITH_FUTURES,
+          {
+              'a': pipeline | 'CreateA' >> beam.Create([3]),
+          })
 
-      _ = ((saved_model_dir_pcoll, (metadata, deferred_metadata))
+      _ = ((saved_model_dir_pcoll, metadata)
            | transform_fn_io.WriteTransformFn(path))
 
     transformed_metadata_dir = os.path.join(path, 'transformed_metadata')

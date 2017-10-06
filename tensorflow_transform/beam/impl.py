@@ -79,6 +79,7 @@ from tensorflow_transform import impl_helper
 from tensorflow_transform.beam import analyzer_impls
 from tensorflow_transform.beam import common
 from tensorflow_transform.beam import shared
+from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
@@ -575,7 +576,7 @@ class _ComputeTensorValues(beam.PTransform):
           PCollection containing a _TensorValue.
 
     Returns:
-      A single-element PCollection containing map from tensor names to values.
+      A dict from tensor names to singleton `PCollection`s.
     """
     # Create a singleton PCollection containing self._tensor_names.  Note that
     # the PCollection is a singeton containing a single list, that is the size
@@ -599,7 +600,6 @@ class _ComputeTensorValues(beam.PTransform):
     def extract_scalar_constants(
         tensor_names, saved_model_dir, tensor_value_mapping):
       """Extracts constant values from graph."""
-
       graph = tf.get_default_graph()
       if graph is None:
         raise RuntimeError('replace_tensors_with_constant_values() '
@@ -621,12 +621,19 @@ class _ComputeTensorValues(beam.PTransform):
                 saved_model_dir, tensor_replacement_map, tensor_names))
         session.run(tf.tables_initializer())
         return session.run(tensor_output_map)
+    tensor_values_by_name_pcoll = (
+        tensor_names_pcoll |
+        'ExtractScalarConstants' >> beam.Map(
+            extract_scalar_constants,
+            saved_model_dir=self._saved_model_dir,
+            tensor_value_mapping=tensor_value_mapping))
+    result = {}
+    for name in self._tensor_names:
+      result[name] = (
+          tensor_values_by_name_pcoll
+          | 'Extract[%s]' % name >> beam.Map(lambda d, name=name: d[name]))
 
-    return (tensor_names_pcoll |
-            'ExtractScalarConstants' >> beam.Map(
-                extract_scalar_constants,
-                saved_model_dir=self._saved_model_dir,
-                tensor_value_mapping=tensor_value_mapping))
+    return result
 
 
 class AnalyzeDataset(beam.PTransform):
@@ -648,8 +655,9 @@ class AnalyzeDataset(beam.PTransform):
     _assert_tensorflow_version()
 
   def _extract_input_pvalues(self, dataset):
-    data, _ = dataset
-    return dataset, [data]
+    data, metadata = dataset
+    pvalues = [data] + getattr(metadata, 'pcollections', {}).values()
+    return dataset, pvalues
 
   def expand(self, dataset):
     """Analyze the dataset.
@@ -755,16 +763,18 @@ class AnalyzeDataset(beam.PTransform):
         future.name
         for column_schema in tft_api.get_column_schemas(graph).values()
         for future in column_schema.substitute_futures({})]
-    deferred_metadata = (
+    name_pcoll_dict = (
         tensor_pcoll_mapping
         | 'ComputeTensorValues' >>
         _ComputeTensorValues(
             deferred_metadata_tensor_names, saved_model_dir,
             input_values.pipeline))
+    full_metadata = beam_metadata_io.BeamDatasetMetadata(
+        metadata, name_pcoll_dict)
 
-    _clear_shared_state_after_barrier(input_values.pipeline, deferred_metadata)
+    _clear_shared_state_after_barrier(input_values.pipeline, transform_fn)
 
-    return transform_fn, (metadata, deferred_metadata)
+    return transform_fn, full_metadata
 
 
 class AnalyzeAndTransformDataset(beam.PTransform):
@@ -790,8 +800,9 @@ class AnalyzeAndTransformDataset(beam.PTransform):
     _assert_tensorflow_version()
 
   def _extract_input_pvalues(self, dataset):
-    data, _ = dataset
-    return dataset, [data]
+    data, metadata = dataset
+    pvalues = [data] + getattr(metadata, 'pcollections', {}).values()
+    return dataset, pvalues
 
   def expand(self, dataset):
     """Transform the dataset by applying the preprocessing_fn.
@@ -806,8 +817,10 @@ class AnalyzeAndTransformDataset(beam.PTransform):
     # Expand is currently implemented by composing AnalyzeDataset and
     # TransformDataset.  Future versions however could do somthing more optimal,
     # e.g. caching the values of expensive computations done in AnalyzeDataset.
-    transform_fn = dataset | AnalyzeDataset(self._preprocessing_fn)
-    transformed_dataset = (dataset, transform_fn) | TransformDataset()
+    transform_fn = (
+        dataset | 'AnalyzeDataset' >> AnalyzeDataset(self._preprocessing_fn))
+    transformed_dataset = (
+        (dataset, transform_fn) | 'TransformDataset' >> TransformDataset())
     return transformed_dataset, transform_fn
 
 
@@ -827,8 +840,13 @@ class TransformDataset(beam.PTransform):
     self._exclude_outputs = exclude_outputs
 
   def _extract_input_pvalues(self, dataset_and_transform_fn):
-    (data, _), (transform_fn, (_, deferred_metadata)) = dataset_and_transform_fn
-    return dataset_and_transform_fn, [data, transform_fn, deferred_metadata]
+    (data, input_metadata), (transform_fn, output_metadata) = (
+        dataset_and_transform_fn)
+    pvalues = (
+        [data, transform_fn] +
+        getattr(input_metadata, 'pcollections', {}).values() +
+        getattr(output_metadata, 'pcollections', {}).values())
+    return dataset_and_transform_fn, pvalues
 
   def expand(self, dataset_and_transform_fn):
     """Transforms the dataset using the transform_fn.
@@ -840,7 +858,7 @@ class TransformDataset(beam.PTransform):
     Returns:
       A dataset transformed according to the transform_fn.
     """
-    (input_values, input_metadata), (transform_fn, (output_metadata, _)) = (
+    (input_values, input_metadata), (transform_fn, output_metadata) = (
         dataset_and_transform_fn)
 
     # If exclude_outputs is set, update the output metadata, which will also
