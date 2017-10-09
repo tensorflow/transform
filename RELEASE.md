@@ -1,4 +1,4 @@
-# Current version
+# Release 0.3.0
 
 ## Major Features and Improvements
 * Added hash_strings mapper.
