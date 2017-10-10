@@ -15,6 +15,7 @@
 
 
 from tensorflow_transform.beam import impl as beam_impl
+from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow.python.framework import test_util
 
 
@@ -63,17 +64,22 @@ class TransformTestCase(test_util.TensorFlowTestCase):
         e.args = ((e.args[0] + ' : ' + msg,) + e.args[1:])
       raise
 
-  def _assertDeferredMetadataIsResolved(self, transformed_metadata,
-                                        deferred_metadata):
+  def _resolveDeferredMetadata(self, transformed_metadata):
     """Asserts that there is no unresolved metadata."""
-
-    # deferred_metadata should be a singleton PCollection.
-    self.assertEqual(len(deferred_metadata), 1)
+    # We should be able to call ResolveBeamFutures in all cases, but because
+    # we are using Beam's automaterialization, we don't have access to an
+    # explicit pipeline.  Therefore we only call ResolveBeamFutures when we
+    # are sure that transformed_metadata contains at least one element.
+    if transformed_metadata.pcollections:
+      transformed_metadata = (
+          (transformed_metadata | beam_metadata_io.ResolveBeamFutures(None))[0])
+    else:
+      transformed_metadata = transformed_metadata.dataset_metadata
 
     # No more unresolved metadata should remain.
-    unresolved_futures = transformed_metadata.substitute_futures(
-        deferred_metadata[0])
+    unresolved_futures = transformed_metadata.substitute_futures({})
     self.assertEqual(unresolved_futures, [])
+    return transformed_metadata
 
   def assertAnalyzeAndTransformResults(self,
                                        input_data,
@@ -118,10 +124,12 @@ class TransformTestCase(test_util.TensorFlowTestCase):
     # transform function.
     temp_dir = self.get_temp_dir()
     with beam_impl.Context(temp_dir=temp_dir):
-      (transformed_data, _), (_, (transformed_metadata, deferred_metadata)) = (
+      transform_fn, transformed_metadata = (
           (input_data, input_metadata)
-          | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
-
+          | 'AnalyzeDataset' >> beam_impl.AnalyzeDataset(preprocessing_fn))
+      transformed_data, _ = (
+          ((input_data, input_metadata), (transform_fn, transformed_metadata))
+          | 'TransformDataset' >> beam_impl.TransformDataset())
 
     if expected_data:
       self.assertDataCloseOrEqual(expected_data, transformed_data)
@@ -129,8 +137,7 @@ class TransformTestCase(test_util.TensorFlowTestCase):
     if not expected_metadata:
       return
 
-    self._assertDeferredMetadataIsResolved(transformed_metadata,
-                                           deferred_metadata)
+    transformed_metadata = self._resolveDeferredMetadata(transformed_metadata)
 
     if only_check_core_metadata:
       # preprocessing_fn may add metadata to column schema only relevant to
@@ -153,4 +160,5 @@ class TransformTestCase(test_util.TensorFlowTestCase):
       # error message is not conducive to debugging.
       self.assertEqual(expected_metadata.schema.column_schemas,
                        transformed_metadata.schema.column_schemas)
+
       self.assertEqual(expected_metadata, transformed_metadata)

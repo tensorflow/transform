@@ -45,16 +45,17 @@ class WriteTransformFn(beam.PTransform):
     self._path = path
 
   def _extract_input_pvalues(self, transform_fn):
-    saved_model_dir, (_, property_pcoll) = transform_fn
-    return transform_fn, [saved_model_dir, property_pcoll]
+    saved_model_dir, metadata = transform_fn
+    pvalues = [saved_model_dir] + getattr(metadata, 'pcollections', {}).values()
+    return transform_fn, pvalues
 
   def expand(self, transform_fn):
-    saved_model_dir, properties = transform_fn
+    saved_model_dir, metadata = transform_fn
 
     metadata_path = os.path.join(self._path, 'transformed_metadata')
     pipeline = saved_model_dir.pipeline
     write_metadata_done = (
-        properties
+        metadata
         | 'WriteMetadata'
         >> beam_metadata_io.WriteMetadata(metadata_path, pipeline))
 
@@ -85,7 +86,5 @@ class ReadTransformFn(beam.PTransform):
 
     metadata = metadata_io.read_metadata(
         os.path.join(self._path, 'transformed_metadata'))
-    deferred_metadata = (
-        pvalue.pipeline | 'CreateEmptyDeferredMetadata' >> beam.Create([{}]))
 
-    return saved_model_dir_pcoll, (metadata, deferred_metadata)
+    return saved_model_dir_pcoll, metadata

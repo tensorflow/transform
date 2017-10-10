@@ -30,7 +30,7 @@ from apache_beam.io import tfrecordio
 from tensorflow.contrib import learn
 from tensorflow.contrib.layers import feature_column
 from tensorflow_transform.beam import impl as beam_impl
-from tensorflow_transform.beam.tft_beam_io import transform_fn_io
+from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.coders import example_proto_coder
 from tensorflow_transform.saved import input_fn_maker
 from tensorflow_transform.tf_metadata import dataset_metadata
@@ -102,7 +102,7 @@ def ReadAndShuffleData(pcoll, filepatterns):
 def transform_data(train_neg_filepattern, train_pos_filepattern,
                    test_neg_filepattern, test_pos_filepattern,
                    transformed_train_filebase, transformed_test_filebase,
-                   transform_fn_dir):
+                   transformed_metadata_dir):
   """Transform the data and write out as a TFRecord of Example protos.
 
   Read in the data from the positive and negative examples on disk, and
@@ -117,8 +117,8 @@ def transform_data(train_neg_filepattern, train_pos_filepattern,
     transformed_train_filebase: Base filename for transformed training data
         shards
     transformed_test_filebase: Base filename for transformed test data shards
-    transform_fn_dir: Directory where metadata for transform function should be
-        written
+    transformed_metadata_dir: Directory where metadata for transformed data
+        should be written
   """
 
   with beam.Pipeline() as pipeline:
@@ -175,13 +175,15 @@ def transform_data(train_neg_filepattern, train_pos_filepattern,
               coder=example_proto_coder.ExampleProtoCoder(
                   transformed_metadata.schema)))
 
-      _ = (transform_fn
-           | 'WriteTransformFn' >>
-           transform_fn_io.WriteTransformFn(transform_fn_dir))
+      _ = (
+          transformed_metadata
+          | 'WriteMetadata' >>
+          beam_metadata_io.WriteMetadata(
+              transformed_metadata_dir, pipeline=pipeline))
 
 
 def train_and_evaluate(transformed_train_filepattern,
-                       transformed_test_filepattern, transform_fn_dir):
+                       transformed_test_filepattern, transformed_metadata_dir):
   """Train the model on training data and evaluate on evaluation data.
 
   Args:
@@ -189,7 +191,7 @@ def train_and_evaluate(transformed_train_filepattern,
         shards
     transformed_test_filepattern: Base filename for transformed evaluation data
         shards
-    transform_fn_dir: Directory containing transform function
+    transformed_metadata_dir: Directory containing transformed data metadata
 
   Returns:
     The results from the estimator's 'evaluate' method
@@ -207,8 +209,7 @@ def train_and_evaluate(transformed_train_filepattern,
 
   estimator = learn.LinearClassifier([weighted_reviews])
 
-  transformed_metadata = metadata_io.read_metadata(
-      os.path.join(transform_fn_dir, 'transformed_metadata'))
+  transformed_metadata = metadata_io.read_metadata(transformed_metadata_dir)
   train_input_fn = input_fn_maker.build_training_input_fn(
       transformed_metadata,
       transformed_train_filepattern,

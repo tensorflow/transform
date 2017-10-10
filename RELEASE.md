@@ -18,6 +18,14 @@
 * Requires pre-installed TensorFlow >= 1.3.
 * Removed `tft.map`  use `tft.apply_function` instead (as needed).
 * Removed `tft.tfidf_weights` use `tft.tfidf` instead.
+* `beam_metadata_io.WriteMetadata` now requires a second `pipeline` argument
+  (see examples).
+* A Beam bug will now affect users who call AnalyzeAndTransformDataset in
+  certain circumstances.  Roughly speaking, if you call `beam.Pipeline()` at
+  some point (as all our examples do) you will not experience this bug.  The
+  bug is characterized by an error similar to
+  `KeyError: (u'AnalyzeAndTransformDataset/AnalyzeDataset/ComputeTensorValues/Extract[Maximum:0]', None)`
+  This [bug](https://issues.apache.org/jira/projects/BEAM/issues/BEAM-2966) will be fixed in Beam 2.2.
 
 # Release 0.1.10
 

@@ -21,9 +21,111 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
+
 import apache_beam as beam
-from tensorflow_transform.tf_metadata import dataset_metadata
+from apache_beam.transforms import ptransform
+import six
 from tensorflow_transform.tf_metadata import metadata_io
+
+
+class BeamDatasetMetadata(
+    collections.namedtuple(
+        'BeamDatasetMetadata', ['dataset_metadata', 'pcollections'])):
+  """A class like DatasetMetadata that also holds a dict of `PCollection`s.
+
+  DatasetMetadata allows values to be instances of the `Future` class which
+  allows us to represent deferred objects.  This class allows us to also
+  embed Beam values.  We do this by adding a dictionary, `pcollections` which
+  maps the names of futures to Beam `PCollection`s.
+  """
+
+  @property
+  def schema(self):
+    return self.dataset_metadata.schema
+
+  @schema.setter
+  def schema(self, value):
+    self.dataset_metadata.schema = value
+
+  @property
+  def provenance(self):
+    return self.dataset_metadata.provenance
+
+  @property
+  def statistics(self):
+    return self.dataset_metadata.statistics
+
+  @property
+  def anomalies(self):
+    return self.dataset_metadata.anomalies
+
+  @property
+  def problem_statements(self):
+    return self.dataset_metadata.problem_statements
+
+  def merge(self, other):
+    raise NotImplementedError
+
+
+# Monkey-patching of beam._PValueishTransform to allow Beam to handle
+# PCollections in instances of a namedtuple (or subclasses of a namedtuple).
+
+# pylint: disable=protected-access,invalid-name
+if hasattr(ptransform._PValueishTransform, 'visit'):
+  _old_PValueishTransform_visit = ptransform._PValueishTransform.visit
+
+  # Override `visit` method for the case of subclasses of tuple, specifically
+  # aimed at collections.namedtuple.  Note that the constructor is different
+  # from the tuple constructor.  The tuple constructor accepts an iterable while
+  # the namedtuple constructor accepts a fixed number of args.
+  def _new_PValueishTransform_visit(self, node, *args):
+    # Handle the case where node is an instance of a namedtuple (or an instance
+    # of a subclass of a namedtuple).
+    if isinstance(node, tuple) and hasattr(node.__class__, '_make'):
+      return node.__class__(*self.visit_tuple(node, *args))
+    return _old_PValueishTransform_visit(self, node, *args)
+
+  ptransform._PValueishTransform.visit = _new_PValueishTransform_visit
+
+
+class ResolveBeamFutures(beam.PTransform):
+  """A PTransform to resolve futures of a DatasetMetadata."""
+
+  # NOTE: The pipeline metadata is required by PTransform given that all the
+  # inputs may be non-deferred.
+  def __init__(self, pipeline):
+    super(ResolveBeamFutures, self).__init__()
+    self.pipeline = pipeline
+
+  def _extract_input_pvalues(self, metadata):
+    return metadata, getattr(metadata, 'pcollections', {}).values()
+
+  def expand(self, metadata):
+    if isinstance(metadata, BeamDatasetMetadata):
+      pcollections = metadata.pcollections
+      metadata = metadata.dataset_metadata
+    else:
+      pcollections = {}
+
+    # Extract `PCollection`s from futures.
+    tensor_value_pairs = []
+    for name, pcoll in six.iteritems(pcollections):
+      tensor_value_pairs.append(
+          pcoll
+          | 'AddName[%s]' % name >> beam.Map(lambda x, name=name: (name, x)))
+    tensor_value_mapping = beam.pvalue.AsDict(
+        tensor_value_pairs | 'MergeTensorValuePairs' >> beam.Flatten(
+            pipeline=self.pipeline))
+
+    def resolve_futures(dummy_input, updated_metadata, future_values):
+      updated_metadata.substitute_futures(future_values)
+      return updated_metadata
+
+    return (self.pipeline
+            | 'CreateSingleton' >> beam.Create([None])
+            | 'ResolveFutures' >> beam.Map(resolve_futures, metadata,
+                                           tensor_value_mapping))
 
 
 class WriteMetadata(beam.PTransform):
@@ -39,28 +141,11 @@ class WriteMetadata(beam.PTransform):
     self._path = path
     self.pipeline = pipeline
 
-  def _extract_input_pvalues(self, metadata_or_tuple):
-    if isinstance(metadata_or_tuple, dataset_metadata.DatasetMetadata):
-      return metadata_or_tuple, []
-    else:
-      return metadata_or_tuple, [metadata_or_tuple[1]]
+  def _extract_input_pvalues(self, metadata):
+    return metadata, getattr(metadata, 'pcollections', {}).values()
 
-  def expand(self, metadata_or_tuple):
-    if isinstance(metadata_or_tuple, dataset_metadata.DatasetMetadata):
-      metadata = metadata_or_tuple
-      deferred_metadata = (
-          self.pipeline | 'CreateEmptyDeferredMetadata' >> beam.Create([{}]))
-    else:
-      metadata, deferred_metadata = metadata_or_tuple
-
-    def write_metadata(futures_dict, non_deferred_metadata, destination):
-      unresolved_futures = non_deferred_metadata.substitute_futures(
-          futures_dict)
-      if unresolved_futures:
-        raise ValueError(
-            'Some futures were unresolved: %r' % unresolved_futures)
-      metadata_io.write_metadata(non_deferred_metadata, destination)
-
-    return (
-        deferred_metadata
-        | 'WriteMetadata' >> beam.Map(write_metadata, metadata, self._path))
+  def expand(self, metadata):
+    return (metadata
+            | 'ResolveBeamFutures' >> ResolveBeamFutures(self.pipeline)
+            | 'WriteMetadata' >> beam.Map(metadata_io.write_metadata,
+                                          self._path))
