@@ -463,7 +463,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'ab': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
         'i': sch.ColumnSchema(
             sch.IntDomain(tf.int64, -1, num_instances - 1, False,
-                          'vocab_string_to_int'),
+                          'vocab_string_to_int_uniques'),
             [], sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -1251,7 +1251,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 4, False, 'vocab_string_to_int'),
+            sch.IntDomain(tf.int64, -1, 4, False,
+                          'vocab_string_to_int_uniques'),
             [], sch.FixedColumnRepresentation())
     })
 
@@ -1303,11 +1304,143 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, 0, 5, False, 'vocab_string_to_int'),
+            sch.IntDomain(tf.int64, 0, 5, False, 'vocab_string_to_int_uniques'),
             [], sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn_oov, expected_data,
+        expected_metadata)
+
+  def testCreateApplyVocab(self):
+    input_data = [
+        {'a': 'hello', 'b': 'world', 'c': 'aaaaa'},
+        {'a': 'good', 'b': '', 'c': 'hello'},
+        {'a': 'goodbye', 'b': 'hello', 'c': '\n'},
+        {'a': ' ', 'b': 'aaaaa', 'c': 'bbbbb'}
+    ]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation()),
+        'b': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation()),
+        'c': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    })
+    vocab_filename = 'test_string_to_int'
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'index_a': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -1, 6, False, vocab_filename),
+            [], sch.FixedColumnRepresentation()),
+        'index_b': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -1, 6, False, vocab_filename),
+            [], sch.FixedColumnRepresentation())
+    })
+
+    def preprocessing_fn(inputs):
+      deferred_vocab_and_filename = tft.uniques(
+          tf.concat([inputs['a'],
+                     inputs['b'],
+                     inputs['c']], 0),
+          vocab_filename=vocab_filename)
+      return {
+          'index_a': tft.apply_vocab(inputs['a'], deferred_vocab_and_filename),
+          'index_b': tft.apply_vocab(inputs['b'], deferred_vocab_and_filename)
+      }
+
+    expected_data = [
+        # For tied frequencies, larger (lexicographic) items come first.
+        # Index 5 corresponds to the word bbbbb.
+        {'index_a': 0, 'index_b': 2},
+        {'index_a': 4, 'index_b': -1},
+        {'index_a': 3, 'index_b': 0},
+        {'index_a': 6, 'index_b': 1}
+    ]
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata, preprocessing_fn, expected_data,
+        expected_metadata)
+
+  # Example on how to use the vocab frequency as part of the transform
+  # function.
+  def testCreateVocabWithFrequency(self):
+    input_data = [
+        {'a': 'hello', 'b': 'world', 'c': 'aaaaa'},
+        {'a': 'good', 'b': '', 'c': 'hello'},
+        {'a': 'goodbye', 'b': 'hello', 'c': '\n'},
+        {'a': '_', 'b': 'aaaaa', 'c': 'bbbbb'}
+    ]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation()),
+        'b': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation()),
+        'c': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    })
+    vocab_filename = 'test_vocab_with_frequency'
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'index_a': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -1, 6, False, vocab_filename),
+            [], sch.FixedColumnRepresentation()),
+        'frequency_a': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -1, 6, False, vocab_filename),
+            [], sch.FixedColumnRepresentation()),
+        'index_b': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -1, 6, False, vocab_filename),
+            [], sch.FixedColumnRepresentation()),
+        'frequency_b': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -1, 6, False, vocab_filename),
+            [], sch.FixedColumnRepresentation())
+    })
+
+    def preprocessing_fn(inputs):
+      deferred_vocab_and_filename = tft.uniques(
+          tf.concat([inputs['a'],
+                     inputs['b'],
+                     inputs['c']], 0),
+          vocab_filename=vocab_filename,
+          store_frequency=True)
+
+      def _apply_vocab(y, deferred_vocab_filename_tensor):
+        # NOTE: Please be aware that TextFileInitializer assigns a special
+        # meaning to the constant tf.contrib.lookup.TextFileIndex.LINE_NUMBER.
+        table = tf.contrib.lookup.HashTable(
+            tf.contrib.lookup.TextFileInitializer(
+                deferred_vocab_filename_tensor,
+                tf.string, 1,
+                tf.int64, tf.contrib.lookup.TextFileIndex.LINE_NUMBER,
+                delimiter=' '), default_value=-1)
+        table_size = table.size()
+        return table.lookup(y), table_size
+
+      def _apply_frequency(y, deferred_vocab_filename_tensor):
+        table = tf.contrib.lookup.HashTable(
+            tf.contrib.lookup.TextFileInitializer(
+                deferred_vocab_filename_tensor,
+                tf.string, 1,
+                tf.int64, 0,
+                delimiter=' '), default_value=-1)
+        table_size = table.size()
+        return table.lookup(y), table_size
+
+      return {
+          'index_a': tft.apply_vocab(inputs['a'],
+                                     deferred_vocab_and_filename,
+                                     lookup_fn=_apply_vocab),
+          'frequency_a': tft.apply_vocab(inputs['a'],
+                                         deferred_vocab_and_filename,
+                                         lookup_fn=_apply_frequency),
+          'index_b': tft.apply_vocab(inputs['b'],
+                                     deferred_vocab_and_filename,
+                                     lookup_fn=_apply_vocab),
+          'frequency_b': tft.apply_vocab(inputs['b'],
+                                         deferred_vocab_and_filename,
+                                         lookup_fn=_apply_frequency),
+      }
+
+    expected_data = [
+        # For tied frequencies, larger (lexicographic) items come first.
+        # Index 5 corresponds to the word bbbbb.
+        {'index_a': 0, 'frequency_a': 3, 'index_b': 2, 'frequency_b': 1},
+        {'index_a': 4, 'frequency_a': 1, 'index_b': -1, 'frequency_b': -1},
+        {'index_a': 3, 'frequency_a': 1, 'index_b': 0, 'frequency_b': 3},
+        {'index_a': 6, 'frequency_a': 1, 'index_b': 1, 'frequency_b': 2}
+    ]
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
   def testAssets(self):
@@ -1346,7 +1479,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # expected.
     expected_output_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 1, False, 'vocab_string_to_int'), [],
+            sch.IntDomain(tf.int64, -1, 1, False,
+                          'vocab_string_to_int_uniques'), [],
             sch.FixedColumnRepresentation()),
         'index_2': sch.ColumnSchema(
             sch.IntDomain(tf.int64, -1, 1, False, 'index_2_file'), [],
@@ -1369,7 +1503,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # Assert that the assets directory contains the expected asset files
     assets_path = os.path.join(saved_model_path, 'assets')
     self.assertTrue(os.path.isdir(assets_path))
-    self.assertEqual(['index_2_file', 'vocab_string_to_int'],
+    self.assertEqual(['index_2_file', 'vocab_string_to_int_uniques'],
                      sorted(os.listdir(assets_path)))
 
     # Verify that the paths are actually there.
@@ -1398,7 +1532,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 8, False, 'vocab_string_to_int'),
+            sch.IntDomain(tf.int64, -1, 8, False,
+                          'vocab_string_to_int_uniques'),
             [2, 2], sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -1418,7 +1553,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_data = [{'index': [0, 0, 1]}, {'index': [0, 2, 1]}]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 2, False, 'vocab_string_to_int'),
+            sch.IntDomain(tf.int64, -1, 2, False,
+                          'vocab_string_to_int_uniques'),
             [None], sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -1455,10 +1591,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -99, 1, False, 'vocab_string_to_int'),
+            sch.IntDomain(tf.int64, -99, 1, False,
+                          'vocab_string_to_int_uniques'),
             [None], sch.ListColumnRepresentation()),
         'index2': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -9, 1, False, 'vocab_string_to_int_1'),
+            sch.IntDomain(tf.int64, -9, 1, False,
+                          'vocab_string_to_int_1_uniques'),
             [None], sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -1496,10 +1634,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -99, 2, False, 'vocab_string_to_int'),
+            sch.IntDomain(tf.int64, -99, 2, False,
+                          'vocab_string_to_int_uniques'),
             [None], sch.ListColumnRepresentation()),
         'index2': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -9, 2, False, 'vocab_string_to_int_1'),
+            sch.IntDomain(tf.int64, -9, 2, False,
+                          'vocab_string_to_int_1_uniques'),
             [None], sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -1544,10 +1684,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # Note the vocabs are empty but the tables have size 1 so max_value is 1.
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -99, 0, False, 'vocab_string_to_int'),
+            sch.IntDomain(tf.int64, -99, 0, False,
+                          'vocab_string_to_int_uniques'),
             [None], sch.ListColumnRepresentation()),
         'index2': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -9, 0, False, 'vocab_string_to_int_1'),
+            sch.IntDomain(tf.int64, -9, 0, False,
+                          'vocab_string_to_int_1_uniques'),
             [None], sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -1585,7 +1727,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, 0, 3, False, 'vocab_string_to_int'), [None],
+            sch.IntDomain(tf.int64, 0, 3, False,
+                          'vocab_string_to_int_uniques'), [None],
             sch.ListColumnRepresentation()),
     })
     self.assertAnalyzeAndTransformResults(
@@ -1797,8 +1940,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
       with beam.Pipeline() as pipeline:
         input_data = pipeline | beam.Create([
             {'a': 'hello', 'b': 'hi'},
-            {'a': 'world', 'b': 'ho'},
-            {'a': 'hello', 'b': 'ho'},
+            {'a': 'world', 'b': 'ho ho'},
+            {'a': 'hello', 'b': 'ho ho'},
         ])
         transform_fn = (
             (input_data, input_metadata)
@@ -1813,7 +1956,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertItemsEqual([outfile,
                            'vocab_frequency_uniques_1',
                            'vocab_frequency_uniques_2',
-                           'vocab_string_to_int',
+                           'vocab_string_to_int_uniques',
                            'vocab_uniques_3'],
                           os.listdir(assets_path))
 
@@ -1824,12 +1967,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
                               '2 hello\n1 world\n')
 
     check_asset_file_contents(assets_path, 'vocab_frequency_uniques_2',
-                              '2 ho\n1 hi\n')
+                              '2 ho ho\n1 hi\n')
 
     check_asset_file_contents(assets_path, 'vocab_uniques_3',
-                              'ho\nhi\n')
+                              'ho ho\nhi\n')
 
-    check_asset_file_contents(assets_path, 'vocab_string_to_int',
+    check_asset_file_contents(assets_path, 'vocab_string_to_int_uniques',
                               'hello\nworld\n')
 
 

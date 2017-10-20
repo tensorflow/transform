@@ -58,7 +58,7 @@ def _make_transformed_schema(shape):
       sch.ColumnSchema(tf.int64, shape, sch.FixedColumnRepresentation()))
 
   schema.column_schemas['transformed_b'] = (
-      sch.ColumnSchema(tf.int64, shape, sch.FixedColumnRepresentation()))
+      sch.ColumnSchema(tf.int64, shape, sch.ListColumnRepresentation()))
 
   schema.column_schemas['transformed_label'] = (
       sch.ColumnSchema(tf.int64, shape, sch.FixedColumnRepresentation()))
@@ -87,22 +87,34 @@ class InputFnMakerTest(unittest.TestCase):
     with tf.Graph().as_default():
       with tf.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
+
+        self.assertItemsEqual(
+            outputs,
+            {'transformed_a', 'transformed_b', 'transformed_label'})
+        self.assertIsNone(labels)
+        self.assertEqual(set(inputs.keys()), {'csv_example'})
+
         feed_inputs = {inputs['csv_example']: feed_dict}
         transformed_a, transformed_b, transformed_label = session.run(
             [outputs['transformed_a'], outputs['transformed_b'],
              outputs['transformed_label']],
             feed_dict=feed_inputs)
 
-    # Note the feed dict is empy. So these values come from the defaults
+    self.assertEqual((1, 1), tuple(transformed_a.shape))
+    # transformed_b is sparse so _convert_scalars_to_vectors did not fix it
+    self.assertEqual((1,), tuple(transformed_b.dense_shape))
+    self.assertEqual((1, 1), tuple(transformed_label.shape))
+
+    transformed_b_dict = dict(zip([tuple(x)
+                                   for x in transformed_b.indices.tolist()],
+                                  transformed_b.values.tolist()))
+
+    # Note the feed dict is empty. So these values come from the defaults
     # in _make_raw_schema()
     self.assertEqual(1, transformed_a[0][0])
-    self.assertEqual(-1, transformed_b[0][0])
+    # transformed_b is sparse so _convert_scalars_to_vectors did not fix it
+    self.assertEqual(-1, transformed_b_dict[(0,)])
     self.assertEqual(-1000, transformed_label[0][0])
-    self.assertItemsEqual(
-        outputs,
-        {'transformed_a', 'transformed_b', 'transformed_label'})
-    self.assertIsNone(labels)
-    self.assertEqual(set(inputs.keys()), {'csv_example'})
 
   def test_build_csv_transforming_serving_input_fn_with_label(self):
     feed_dict = ['15,6,1', '12,17,2']
@@ -123,24 +135,37 @@ class InputFnMakerTest(unittest.TestCase):
     with tf.Graph().as_default():
       with tf.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
-        feed_inputs = {inputs['csv_example']: feed_dict
-                      }
+
+        self.assertItemsEqual(
+            outputs,
+            {'transformed_a', 'transformed_b', 'transformed_label'})
+        self.assertIsNone(labels)
+        self.assertEqual(set(inputs.keys()), {'csv_example'})
+
+        feed_inputs = {inputs['csv_example']: feed_dict}
         transformed_a, transformed_b, transformed_label = session.run(
             [outputs['transformed_a'], outputs['transformed_b'],
              outputs['transformed_label']],
             feed_dict=feed_inputs)
 
+    batch_shape = (len(feed_dict), 1)
+
+    # transformed_b is sparse so _convert_scalars_to_vectors did not fix it
+    sparse_batch_shape = (len(feed_dict),)
+    transformed_b_dict = dict(zip([tuple(x + [0])
+                                   for x in transformed_b.indices.tolist()],
+                                  transformed_b.values.tolist()))
+
+    self.assertEqual(batch_shape, tuple(transformed_a.shape))
+    self.assertEqual(sparse_batch_shape, tuple(transformed_b.dense_shape))
+    self.assertEqual(batch_shape, tuple(transformed_label.shape))
+
     self.assertEqual(21, transformed_a[0][0])
-    self.assertEqual(9, transformed_b[0][0])
+    self.assertEqual(9, transformed_b_dict[(0, 0)])
     self.assertEqual(1000, transformed_label[0][0])
     self.assertEqual(29, transformed_a[1][0])
-    self.assertEqual(-5, transformed_b[1][0])
+    self.assertEqual(-5, transformed_b_dict[(1, 0)])
     self.assertEqual(2000, transformed_label[1][0])
-    self.assertItemsEqual(
-        outputs,
-        {'transformed_a', 'transformed_b', 'transformed_label'})
-    self.assertIsNone(labels)
-    self.assertEqual(set(inputs.keys()), {'csv_example'})
 
   def test_build_json_example_transforming_serving_input_fn(self):
     example_all = {
@@ -195,33 +220,48 @@ class InputFnMakerTest(unittest.TestCase):
     with tf.Graph().as_default():
       with tf.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
-        feed_inputs = {inputs['json_example']: feed_dict
-                      }
+
+        self.assertItemsEqual(
+            outputs,
+            {'transformed_a', 'transformed_b', 'transformed_label'})
+        self.assertIsNone(labels)
+        self.assertEqual(set(inputs.keys()), {'json_example'})
+
+        feed_inputs = {inputs['json_example']: feed_dict}
         transformed_a, transformed_b, transformed_label = session.run(
             [outputs['transformed_a'], outputs['transformed_b'],
              outputs['transformed_label']],
             feed_dict=feed_inputs)
 
+    batch_shape = (len(feed_dict), 1)
+
+    # transformed_b is sparse so _convert_scalars_to_vectors did not fix it
+    sparse_batch_shape = (len(feed_dict),)
+    transformed_b_dict = dict(zip([tuple(x + [0])
+                                   for x in transformed_b.indices.tolist()],
+                                  transformed_b.values.tolist()))
+
+    self.assertEqual(batch_shape, tuple(transformed_a.shape))
+    self.assertEqual(sparse_batch_shape, tuple(transformed_b.dense_shape))
+    self.assertEqual(batch_shape, tuple(transformed_label.shape))
+
     self.assertEqual(85, transformed_a[0][0])
-    self.assertEqual(-1, transformed_b[0][0])
+    self.assertEqual(-1, transformed_b_dict[(0, 0)])
     self.assertEqual(44000, transformed_label[0][0])
     self.assertEqual(1, transformed_a[1][0])
-    self.assertEqual(-1, transformed_b[1][0])
+    self.assertEqual(-1, transformed_b_dict[(1, 0)])
     self.assertEqual(3000, transformed_label[1][0])
-    self.assertItemsEqual(
-        outputs,
-        {'transformed_a', 'transformed_b', 'transformed_label'})
-    self.assertIsNone(labels)
-    self.assertEqual(set(inputs.keys()), {'json_example'})
 
   def test_build_parsing_transforming_serving_input_fn_scalars(self):
     self._test_build_parsing_transforming_serving_input_fn([])
 
+  def test_build_parsing_transforming_serving_input_fn_scalars_with_label(self):
     self._test_build_parsing_transforming_serving_input_fn_with_label([])
 
   def test_build_parsing_transforming_serving_input_fn_vectors(self):
     self._test_build_parsing_transforming_serving_input_fn([1])
 
+  def test_build_parsing_transforming_serving_input_fn_vectors_with_label(self):
     self._test_build_parsing_transforming_serving_input_fn_with_label([1])
 
   def _test_build_parsing_transforming_serving_input_fn_with_label(self, shape):
@@ -238,7 +278,8 @@ class InputFnMakerTest(unittest.TestCase):
             raw_metadata=raw_metadata,
             transform_savedmodel_dir=transform_savedmodel_dir,
             raw_label_keys=[],  # Test labels are in output
-            raw_feature_keys=None))
+            raw_feature_keys=None,
+            convert_scalars_to_vectors=True))
 
     examples = [_create_serialized_example(d)
                 for d in [
@@ -248,23 +289,43 @@ class InputFnMakerTest(unittest.TestCase):
     with tf.Graph().as_default():
       with tf.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
+
+        self.assertItemsEqual(
+            set(outputs.keys()),
+            {'transformed_a', 'transformed_b', 'transformed_label'})
+        self.assertEqual(labels, None)
+        self.assertEqual(set(inputs.keys()), {'examples'})
+
         feed_inputs = {inputs['examples']: examples}
         transformed_a, transformed_b, transformed_label = session.run(
             [outputs['transformed_a'], outputs['transformed_b'],
              outputs['transformed_label']],
             feed_dict=feed_inputs)
 
+    batch_shape = (len(examples), 1)
+    sparse_batch_shape = batch_shape
+
+    if not shape:
+      # transformed_b is sparse so _convert_scalars_to_vectors did not fix it
+      sparse_batch_shape = sparse_batch_shape[:1]
+      transformed_b_dict = dict(zip([tuple(x + [0])
+                                     for x in transformed_b.indices.tolist()],
+                                    transformed_b.values.tolist()))
+    else:
+      transformed_b_dict = dict(zip([tuple(x)
+                                     for x in transformed_b.indices.tolist()],
+                                    transformed_b.values.tolist()))
+
+    self.assertEqual(batch_shape, tuple(transformed_a.shape))
+    self.assertEqual(sparse_batch_shape, tuple(transformed_b.dense_shape))
+    self.assertEqual(batch_shape, tuple(transformed_label.shape))
+
     self.assertEqual(21, transformed_a[0][0])
-    self.assertEqual(9, transformed_b[0][0])
+    self.assertEqual(9, transformed_b_dict[(0, 0)])
     self.assertEqual(1000, transformed_label[0][0])
     self.assertEqual(29, transformed_a[1][0])
-    self.assertEqual(-5, transformed_b[1][0])
+    self.assertEqual(-5, transformed_b_dict[(1, 0)])
     self.assertEqual(2000, transformed_label[1][0])
-    self.assertEqual(
-        set(outputs.keys()),
-        {'transformed_a', 'transformed_b', 'transformed_label'})
-    self.assertEqual(labels, None)
-    self.assertEqual(set(inputs.keys()), {'examples'})
 
   def _test_build_parsing_transforming_serving_input_fn(self, shape):
     basedir = tempfile.mkdtemp()
@@ -280,8 +341,9 @@ class InputFnMakerTest(unittest.TestCase):
         input_fn_maker.build_parsing_transforming_serving_input_fn(
             raw_metadata=raw_metadata,
             transform_savedmodel_dir=transform_savedmodel_dir,
-            raw_label_keys=['raw_label'],
-            raw_feature_keys=['raw_a', 'raw_b']))
+            raw_label_keys=['raw_label'],  # Labels are excluded
+            raw_feature_keys=['raw_a', 'raw_b'],
+            convert_scalars_to_vectors=True))
 
     examples = [_create_serialized_example(d)
                 for d in [
@@ -291,28 +353,45 @@ class InputFnMakerTest(unittest.TestCase):
     with tf.Graph().as_default():
       with tf.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
+
+        self.assertItemsEqual(
+            set(outputs.keys()),
+            {'transformed_a', 'transformed_b', 'transformed_label'})
+        self.assertEqual(labels, None)
+        self.assertEqual(set(inputs.keys()), {'examples'})
+
         feed_inputs = {inputs['examples']: examples}
         transformed_a, transformed_b = session.run(
             [outputs['transformed_a'], outputs['transformed_b']],
             feed_dict=feed_inputs)
 
-        with self.assertRaises(Exception):
-          session.run(outputs['transformed_label'])
+    batch_shape = (len(examples), 1)
+    sparse_batch_shape = batch_shape
+
+    if not shape:
+      # transformed_b is sparse so _convert_scalars_to_vectors did not fix it
+      sparse_batch_shape = sparse_batch_shape[:1]
+      transformed_b_dict = dict(zip([tuple(x + [0])
+                                     for x in transformed_b.indices.tolist()],
+                                    transformed_b.values.tolist()))
+    else:
+      transformed_b_dict = dict(zip([tuple(x)
+                                     for x in transformed_b.indices.tolist()],
+                                    transformed_b.values.tolist()))
+
+    self.assertEqual(batch_shape, tuple(transformed_a.shape))
+    self.assertEqual(sparse_batch_shape, tuple(transformed_b.dense_shape))
 
     self.assertEqual(21, transformed_a[0][0])
-    self.assertEqual(9, transformed_b[0][0])
+    self.assertEqual(9, transformed_b_dict[(0, 0)])
     self.assertEqual(29, transformed_a[1][0])
-    self.assertEqual(-5, transformed_b[1][0])
-    self.assertEqual(
-        set(outputs.keys()),
-        {'transformed_a', 'transformed_b', 'transformed_label'})
-    self.assertEqual(labels, None)
-    self.assertEqual(set(inputs.keys()), {'examples'})
+    self.assertEqual(-5, transformed_b_dict[(1, 0)])
 
   def test_build_default_transforming_serving_input_fn_scalars(self):
     self._test_build_default_transforming_serving_input_fn(
         [], [[15, 12], [6, 17]])
 
+  def test_build_default_transforming_serving_input_fn_scalars_with_label(self):
     self._test_build_default_transforming_serving_input_fn_with_label(
         [], [[15, 12], [6, 17], [1, 2]])
 
@@ -320,6 +399,7 @@ class InputFnMakerTest(unittest.TestCase):
     self._test_build_default_transforming_serving_input_fn(
         [1], [[[15], [12]], [[6], [17]]])
 
+  def test_build_default_transforming_serving_input_fn_vectors_with_label(self):
     self._test_build_default_transforming_serving_input_fn_with_label(
         [1], [[[15], [12]], [[6], [17]], [[1], [2]]])
 
@@ -338,11 +418,19 @@ class InputFnMakerTest(unittest.TestCase):
             raw_metadata=raw_metadata,
             raw_label_keys=[],  # Test labels are in output
             raw_feature_keys=None,
-            transform_savedmodel_dir=transform_savedmodel_dir))
+            transform_savedmodel_dir=transform_savedmodel_dir,
+            convert_scalars_to_vectors=True))
 
     with tf.Graph().as_default():
       with tf.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
+
+        self.assertItemsEqual(
+            set(outputs.keys()),
+            {'transformed_a', 'transformed_b', 'transformed_label'})
+        self.assertEqual(labels, None)
+        self.assertEqual(set(inputs.keys()), {'raw_a', 'raw_b', 'raw_label'})
+
         feed_inputs = {inputs['raw_a']: feed_input_values[0],
                        inputs['raw_b']: feed_input_values[1],
                        inputs['raw_label']: feed_input_values[2]
@@ -352,17 +440,30 @@ class InputFnMakerTest(unittest.TestCase):
              outputs['transformed_label']],
             feed_dict=feed_inputs)
 
+    batch_shape = (len(feed_input_values[0]), 1)
+    sparse_batch_shape = batch_shape
+
+    if not shape:
+      # transformed_b is sparse so _convert_scalars_to_vectors did not fix it
+      sparse_batch_shape = sparse_batch_shape[:1]
+      transformed_b_dict = dict(zip([tuple(x + [0])
+                                     for x in transformed_b.indices.tolist()],
+                                    transformed_b.values.tolist()))
+    else:
+      transformed_b_dict = dict(zip([tuple(x)
+                                     for x in transformed_b.indices.tolist()],
+                                    transformed_b.values.tolist()))
+
+    self.assertEqual(batch_shape, tuple(transformed_a.shape))
+    self.assertEqual(sparse_batch_shape, tuple(transformed_b.dense_shape))
+    self.assertEqual(batch_shape, tuple(transformed_label.shape))
+
     self.assertEqual(21, transformed_a[0][0])
-    self.assertEqual(9, transformed_b[0][0])
+    self.assertEqual(9, transformed_b_dict[(0, 0)])
     self.assertEqual(1000, transformed_label[0][0])
     self.assertEqual(29, transformed_a[1][0])
-    self.assertEqual(-5, transformed_b[1][0])
+    self.assertEqual(-5, transformed_b_dict[(1, 0)])
     self.assertEqual(2000, transformed_label[1][0])
-    self.assertEqual(
-        set(outputs.keys()),
-        {'transformed_a', 'transformed_b', 'transformed_label'})
-    self.assertEqual(labels, None)
-    self.assertEqual(set(inputs.keys()), {'raw_a', 'raw_b', 'raw_label'})
 
   def _test_build_default_transforming_serving_input_fn(
       self, shape, feed_input_values):
@@ -380,11 +481,19 @@ class InputFnMakerTest(unittest.TestCase):
             raw_metadata=raw_metadata,
             raw_label_keys=['raw_label'],
             raw_feature_keys=['raw_a', 'raw_b'],
-            transform_savedmodel_dir=transform_savedmodel_dir))
+            transform_savedmodel_dir=transform_savedmodel_dir,
+            convert_scalars_to_vectors=True))
 
     with tf.Graph().as_default():
       with tf.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
+
+        self.assertItemsEqual(
+            set(outputs.keys()),
+            {'transformed_a', 'transformed_b', 'transformed_label'})
+        self.assertEqual(labels, None)
+        self.assertEqual(set(inputs.keys()), {'raw_a', 'raw_b'})
+
         feed_inputs = {inputs['raw_a']: feed_input_values[0],
                        inputs['raw_b']: feed_input_values[1]}
         transformed_a, transformed_b = session.run(
@@ -394,15 +503,27 @@ class InputFnMakerTest(unittest.TestCase):
         with self.assertRaises(Exception):
           session.run(outputs['transformed_label'])
 
+    batch_shape = (len(feed_input_values[0]), 1)
+    sparse_batch_shape = batch_shape
+
+    if not shape:
+      # transformed_b is sparse so _convert_scalars_to_vectors did not fix it
+      sparse_batch_shape = sparse_batch_shape[:1]
+      transformed_b_dict = dict(zip([tuple(x + [0])
+                                     for x in transformed_b.indices.tolist()],
+                                    transformed_b.values.tolist()))
+    else:
+      transformed_b_dict = dict(zip([tuple(x)
+                                     for x in transformed_b.indices.tolist()],
+                                    transformed_b.values.tolist()))
+
+    self.assertEqual(batch_shape, tuple(transformed_a.shape))
+    self.assertEqual(sparse_batch_shape, tuple(transformed_b.dense_shape))
+
     self.assertEqual(21, transformed_a[0][0])
-    self.assertEqual(9, transformed_b[0][0])
+    self.assertEqual(9, transformed_b_dict[(0, 0)])
     self.assertEqual(29, transformed_a[1][0])
-    self.assertEqual(-5, transformed_b[1][0])
-    self.assertEqual(
-        set(outputs.keys()),
-        {'transformed_a', 'transformed_b', 'transformed_label'})
-    self.assertEqual(labels, None)
-    self.assertEqual(set(inputs.keys()), {'raw_a', 'raw_b'})
+    self.assertEqual(-5, transformed_b_dict[(1, 0)])
 
   def test_build_training_input_fn(self):
     basedir = tempfile.mkdtemp()
@@ -440,11 +561,18 @@ class InputFnMakerTest(unittest.TestCase):
              features['transformed_b'],
              labels])
 
+    self.assertEqual((128, 1), tuple(transformed_a.shape))
+    self.assertEqual((128, 1), tuple(transformed_b.dense_shape))
+    self.assertEqual((128, 1), tuple(transformed_label.shape))
+    transformed_b_dict = dict(zip([tuple(x)
+                                   for x in transformed_b.indices.tolist()],
+                                  transformed_b.values.tolist()))
+
     self.assertEqual(15, transformed_a[0][0])
-    self.assertEqual(6, transformed_b[0][0])
+    self.assertEqual(6, transformed_b_dict[(0, 0)])
     self.assertEqual(77, transformed_label[0][0])
     self.assertEqual(12, transformed_a[1][0])
-    self.assertEqual(17, transformed_b[1][0])
+    self.assertEqual(17, transformed_b_dict[(1, 0)])
     self.assertEqual(44, transformed_label[1][0])
 
   def test_build_transforming_training_input_fn_scalars(self):
@@ -484,11 +612,9 @@ class InputFnMakerTest(unittest.TestCase):
             transform_savedmodel_dir=transform_savedmodel_dir,
             raw_data_file_pattern=[data_file],
             training_batch_size=128,
-            raw_label_keys=['raw_label'],
             transformed_label_keys=['transformed_label'],
-            raw_feature_keys=['raw_a', 'raw_b'],
-            transformed_feature_keys=['transformed_a', 'transformed_b'],
-            randomize_input=False))
+            randomize_input=False,
+            convert_scalars_to_vectors=True))
 
     with tf.Graph().as_default():
       features, labels = training_input_fn()
@@ -501,11 +627,29 @@ class InputFnMakerTest(unittest.TestCase):
              features['transformed_b'],
              labels])
 
+    batch_shape = (128, 1)
+    sparse_batch_shape = batch_shape
+
+    if not shape:
+      # transformed_b is sparse so _convert_scalars_to_vectors did not fix it
+      sparse_batch_shape = sparse_batch_shape[:1]
+      transformed_b_dict = dict(zip([tuple(x + [0])
+                                     for x in transformed_b.indices.tolist()],
+                                    transformed_b.values.tolist()))
+    else:
+      transformed_b_dict = dict(zip([tuple(x)
+                                     for x in transformed_b.indices.tolist()],
+                                    transformed_b.values.tolist()))
+
+    self.assertEqual(batch_shape, tuple(transformed_a.shape))
+    self.assertEqual(sparse_batch_shape, tuple(transformed_b.dense_shape))
+    self.assertEqual(batch_shape, tuple(transformed_label.shape))
+
     self.assertEqual(21, transformed_a[0][0])
-    self.assertEqual(9, transformed_b[0][0])
+    self.assertEqual(9, transformed_b_dict[(0, 0)])
     self.assertEqual(77000, transformed_label[0][0])
     self.assertEqual(29, transformed_a[1][0])
-    self.assertEqual(-5, transformed_b[1][0])
+    self.assertEqual(-5, transformed_b_dict[(1, 0)])
     self.assertEqual(44000, transformed_label[1][0])
 
 
@@ -539,7 +683,19 @@ def _write_transform_savedmodel(transform_savedmodel_dir,
       raw_b = tf.placeholder(tf.int64)
       raw_label = tf.placeholder(tf.int64)
       transformed_a = raw_a + raw_b
-      transformed_b = raw_a - raw_b
+      transformed_b_dense = raw_a - raw_b
+
+      idx = tf.where(tf.not_equal(transformed_b_dense, 0))
+      transformed_b_sparse = tf.SparseTensor(
+          idx,
+          tf.gather_nd(transformed_b_dense, idx),
+          tf.shape(transformed_b_dense, out_type=tf.int64))
+
+      # Ensure sparse shape is [batch_size, 1], not [batch_size,]
+      # transformed_b_sparse_wide = tf.sparse_reshape(
+      #     transformed_b_sparse,
+      #     tf.concat([transformed_b_sparse.dense_shape, [1]], 0))
+
       transformed_label = raw_label * 1000
       inputs = {'raw_a': raw_a, 'raw_b': raw_b, 'raw_label': raw_label}
 
@@ -547,7 +703,8 @@ def _write_transform_savedmodel(transform_savedmodel_dir,
         inputs['raw_unused'] = tf.placeholder(tf.int64)
 
       outputs = {'transformed_a': transformed_a,
-                 'transformed_b': transformed_b,
+                 'transformed_b': transformed_b_sparse,
+                 # 'transformed_b_wide': transformed_b_sparse_wide,
                  'transformed_label': transformed_label}
       saved_transform_io.write_saved_transform_from_session(
           session, inputs, outputs, transform_savedmodel_dir)

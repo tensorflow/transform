@@ -53,7 +53,18 @@ Note: If you clone tf.Transform's implementation and samples from GitHub's
 from PyPI) they will likely only work with TensorFlow's nightly
 [build](https://github.com/tensorflow/tensorflow).
 
+### Compatible Versions
 
+This is a table of versions known to be compatible with each other.  This is not
+a comprehensive list, meaning other combinations may also work, but these are
+the combinations tested by our testing framework and by the team before
+releasing a new version.
+
+|tensorflow-transform                                                            |tensorflow|apache-beam[gcp]|
+|--------------------------------------------------------------------------------|----------|----------------|
+|[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) |nightly   |latest (2.x)    |
+|[0.3.0](https://github.com/tensorflow/transform/blob/v0.3.0/RELEASE.md)         |1.3       |2.1.1           |
+|[0.1.10](https://github.com/tensorflow/transform/blob/v0.1.10/RELEASE.md)       |1.0       |2.0.0           |
 ## Getting Started
 
 For instructions on using tf.Transform see the [getting started

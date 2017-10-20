@@ -23,6 +23,7 @@ import os
 import pprint
 import tempfile
 
+
 import tensorflow as tf
 import tensorflow_transform as tft
 from apache_beam.io import textio
@@ -195,7 +196,9 @@ def transform_data(train_data_file, test_data_file, transformed_train_filebase,
 
 
 def train_and_evaluate(transformed_train_filepattern,
-                       transformed_test_filepattern, transformed_metadata_dir):
+                       transformed_test_filepattern, transformed_metadata_dir,
+                       num_train_instances=NUM_TRAIN_INSTANCES,
+                       num_test_instances=NUM_TEST_INSTANCES):
   """Train the model on training data and evaluate on test data.
 
   Args:
@@ -203,6 +206,8 @@ def train_and_evaluate(transformed_train_filepattern,
         shards
     transformed_test_filepattern: File pattern for transformed test data shards
     transformed_metadata_dir: Directory containing transformed data metadata
+    num_train_instances: Number of instances in train set
+    num_test_instances: Number of instances in test set
 
   Returns:
     The results from the estimator's 'evaluate' method
@@ -231,7 +236,7 @@ def train_and_evaluate(transformed_train_filepattern,
   # Estimate the model using the default optimizer.
   estimator.fit(
       input_fn=train_input_fn,
-      max_steps=TRAIN_NUM_EPOCHS * NUM_TRAIN_INSTANCES / TRAIN_BATCH_SIZE)
+      max_steps=TRAIN_NUM_EPOCHS * num_train_instances / TRAIN_BATCH_SIZE)
 
   # Evaluate model on test dataset.
   eval_input_fn = input_fn_maker.build_training_input_fn(
@@ -240,7 +245,7 @@ def train_and_evaluate(transformed_train_filepattern,
       training_batch_size=1,
       label_keys=[LABEL_COLUMN])
 
-  return estimator.evaluate(input_fn=eval_input_fn, steps=NUM_TEST_INSTANCES)
+  return estimator.evaluate(input_fn=eval_input_fn, steps=num_test_instances)
 
 
 def main():

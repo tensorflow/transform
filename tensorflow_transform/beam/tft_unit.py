@@ -59,7 +59,7 @@ class TransformTestCase(test_util.TensorFlowTestCase):
         self.assertAllEqual(a_value, b_value)
       else:
         self.assertAllClose(a_value, b_value)
-    except AssertionError as e:
+    except (AssertionError, TypeError) as e:
       if msg:
         e.args = ((e.args[0] + ' : ' + msg,) + e.args[1:])
       raise
