@@ -21,6 +21,7 @@ import six
 
 import tensorflow as tf
 from tensorflow_transform.saved import saved_transform_io
+from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
 from tensorflow.contrib.learn.python.learn.utils import input_fn_utils
@@ -40,7 +41,65 @@ def _convert_scalars_to_vectors(features):
           for name, tensor in six.iteritems(features)}
 
 
+def _legacy_serving_input_fn(receiver_fn):
+  def serving_input_fn():
+    receiver = receiver_fn()
+    return input_fn_utils.InputFnOps(
+        receiver.features, None, receiver.receiver_tensors)
+  return serving_input_fn
+
+
 def build_csv_transforming_serving_input_fn(
+    raw_metadata,
+    transform_savedmodel_dir,
+    raw_keys,
+    field_delim=",",
+    convert_scalars_to_vectors=True):
+  """Creates input_fn that applies transforms to raw data in csv format.
+
+  CSV files have many restrictions and are not suitable for every input source.
+  Consider using build_parsing_transforming_serving_input_fn (which is good for
+  input sources of tensorflow records containing tf.example) or
+  build_default_transforming_serving_input_fn (which is good for input sources
+  like json that list each input tensor).
+
+  CSV input sources have the following restrictions:
+    * Only columns with schema tf.FixedLenFeature colums are supported
+    * Text columns containing the delimiter must be wrapped in '"'
+    * If a string contains a double quote, the double quote must be escaped with
+      another double quote, for example: the first column in
+      '"quick ""brown"" fox",1,2' becomes 'quick "brown" fox'
+    * White space is kept. So a text column "label ," is parsed to 'label '
+
+  Args:
+    raw_metadata: a `DatasetMetadata` object describing the raw data.
+    transform_savedmodel_dir: a SavedModel directory produced by tf.Transform
+      embodying a transformation function to be applied to incoming raw data.
+    raw_keys: A list of string keys of the raw features to be used. The order in
+      the list matches the parsing order in the csv file.
+    field_delim: Delimiter to separate fields in a record.
+    convert_scalars_to_vectors: Boolean specifying whether this input_fn should
+      convert scalars into 1-d vectors.  This is necessary if the inputs will be
+      used with `FeatureColumn`s as `FeatureColumn`s cannot accept scalar
+      inputs. Default: True.
+
+  Raises:
+    ValueError: if columns cannot be saved in a csv file.
+
+  Returns:
+    An input_fn suitable for serving that applies transforms to raw data in
+    CSV format.
+  """
+  receiver_fn = build_csv_transforming_serving_input_receiver_fn(
+      raw_metadata,
+      transform_savedmodel_dir,
+      raw_keys,
+      field_delim,
+      convert_scalars_to_vectors)
+  return _legacy_serving_input_fn(receiver_fn)
+
+
+def build_csv_transforming_serving_input_receiver_fn(
     raw_metadata,
     transform_savedmodel_dir,
     raw_keys,
@@ -101,7 +160,7 @@ def build_csv_transforming_serving_input_fn(
                         "having shape []. %s has shape %s")
                        % (k, shape))
 
-  def default_transforming_serving_input_fn():
+  def default_transforming_serving_input_receiver_fn():
     """Serving input_fn that applies transforms to raw data in Tensors."""
 
     record_defaults = []
@@ -128,10 +187,10 @@ def build_csv_transforming_serving_input_fn(
     if convert_scalars_to_vectors:
       transformed_features = _convert_scalars_to_vectors(transformed_features)
 
-    return input_fn_utils.InputFnOps(
-        transformed_features, None, {"csv_example": placeholder})
+    return tf.estimator.export.ServingInputReceiver(
+        transformed_features, {"csv_example": placeholder})
 
-  return default_transforming_serving_input_fn
+  return default_transforming_serving_input_receiver_fn
 
 
 def build_json_example_transforming_serving_input_fn(
@@ -167,15 +226,57 @@ def build_json_example_transforming_serving_input_fn(
     An input_fn suitable for serving that applies transforms to raw data in
     tf.Examples.
   """
+  receiver_fn = build_json_example_transforming_serving_input_receiver_fn(
+      raw_metadata,
+      transform_savedmodel_dir,
+      raw_label_keys,
+      raw_feature_keys,
+      convert_scalars_to_vectors)
+  return _legacy_serving_input_fn(receiver_fn)
+
+
+def build_json_example_transforming_serving_input_receiver_fn(
+    raw_metadata,
+    transform_savedmodel_dir,
+    exclude_raw_keys,
+    include_raw_keys=None,
+    convert_scalars_to_vectors=True):
+  """Creates input_fn that applies transforms to raw data formatted in json.
+
+  The json is formatted as tf.examples. For example, one input row could contain
+  the string for
+
+  {"features": {"feature": {"name": {"int64List": {"value": [42]}}}}}
+
+  which encodes an example containing only feature column 'name' with value 42.
+
+  Args:
+    raw_metadata: a `DatasetMetadata` object describing the raw data.
+    transform_savedmodel_dir: a SavedModel directory produced by tf.Transform
+      embodying a transformation function to be applied to incoming raw data.
+    exclude_raw_keys: A list of string keys of features to exclude. This is
+      typically used to specify the raw labels and weights, so that
+      transformations involving these do not pollute the serving graph.
+    include_raw_keys: A list of string keys of the raw features to be used.
+      If None or empty, defaults to all keys except those excluded.
+    convert_scalars_to_vectors: Boolean specifying whether this input_fn should
+      convert scalars into 1-d vectors.  This is necessary if the inputs will be
+      used with `FeatureColumn`s as `FeatureColumn`s cannot accept scalar
+      inputs. Default: True.
+
+  Returns:
+    An input_fn suitable for serving that applies transforms to raw data in
+    tf.Examples.
+  """
 
   raw_feature_spec = raw_metadata.schema.as_feature_spec()
   raw_feature_keys = _prepare_feature_keys(raw_metadata,
-                                           raw_label_keys,
-                                           raw_feature_keys)
+                                           exclude_raw_keys,
+                                           include_raw_keys)
   raw_serving_feature_spec = {key: raw_feature_spec[key]
                               for key in raw_feature_keys}
 
-  def _serving_input_fn():
+  def _serving_input_receiver_fn():
     """Applies transforms to raw data in json-example strings."""
 
     json_example_placeholder = tf.placeholder(tf.string, shape=[None])
@@ -190,9 +291,10 @@ def build_json_example_transforming_serving_input_fn(
     if convert_scalars_to_vectors:
       transformed_features = _convert_scalars_to_vectors(transformed_features)
 
-    return input_fn_utils.InputFnOps(transformed_features, None, inputs)
+    return tf.estimator.export.ServingInputReceiver(
+        transformed_features, inputs)
 
-  return _serving_input_fn
+  return _serving_input_receiver_fn
 
 
 def build_parsing_transforming_serving_input_fn(
@@ -221,15 +323,49 @@ def build_parsing_transforming_serving_input_fn(
     An input_fn suitable for serving that applies transforms to raw data in
     tf.Examples.
   """
+  receiver_fn = build_parsing_transforming_serving_input_receiver_fn(
+      raw_metadata,
+      transform_savedmodel_dir,
+      raw_label_keys,
+      raw_feature_keys,
+      convert_scalars_to_vectors)
+  return _legacy_serving_input_fn(receiver_fn)
 
+
+def build_parsing_transforming_serving_input_receiver_fn(
+    raw_metadata,
+    transform_savedmodel_dir,
+    exclude_raw_keys,
+    include_raw_keys=None,
+    convert_scalars_to_vectors=True):
+  """Creates input_fn that applies transforms to raw data in tf.Examples.
+
+  Args:
+    raw_metadata: a `DatasetMetadata` object describing the raw data.
+    transform_savedmodel_dir: a SavedModel directory produced by tf.Transform
+      embodying a transformation function to be applied to incoming raw data.
+    exclude_raw_keys: A list of string keys of features to exclude. This is
+      typically used to specify the raw labels and weights, so that
+      transformations involving these do not pollute the serving graph.
+    include_raw_keys: A list of string keys of the raw features to be used.
+      If None or empty, defaults to all keys except those excluded.
+    convert_scalars_to_vectors: Boolean specifying whether this input_fn should
+      convert scalars into 1-d vectors.  This is necessary if the inputs will be
+      used with `FeatureColumn`s as `FeatureColumn`s cannot accept scalar
+      inputs. Default: True.
+
+  Returns:
+    An input_fn suitable for serving that applies transforms to raw data in
+    tf.Examples.
+  """
   raw_feature_spec = raw_metadata.schema.as_feature_spec()
   raw_feature_keys = _prepare_feature_keys(raw_metadata,
-                                           raw_label_keys,
-                                           raw_feature_keys)
+                                           exclude_raw_keys,
+                                           include_raw_keys)
   raw_serving_feature_spec = {key: raw_feature_spec[key]
                               for key in raw_feature_keys}
 
-  def parsing_transforming_serving_input_fn():
+  def parsing_transforming_serving_input_receiver_fn():
     """Serving input_fn that applies transforms to raw data in tf.Examples."""
     raw_input_fn = input_fn_utils.build_parsing_serving_input_fn(
         raw_serving_feature_spec, default_batch_size=None)
@@ -241,9 +377,10 @@ def build_parsing_transforming_serving_input_fn(
     if convert_scalars_to_vectors:
       transformed_features = _convert_scalars_to_vectors(transformed_features)
 
-    return input_fn_utils.InputFnOps(transformed_features, None, inputs)
+    return tf.estimator.export.ServingInputReceiver(
+        transformed_features, inputs)
 
-  return parsing_transforming_serving_input_fn
+  return parsing_transforming_serving_input_receiver_fn
 
 
 def build_default_transforming_serving_input_fn(
@@ -275,25 +412,68 @@ def build_default_transforming_serving_input_fn(
   Raises:
     ValueError: if raw_label_keys is not provided.
   """
-  if raw_label_keys is None:
-    raise ValueError("raw_label_keys must be specified.")
-  if raw_feature_keys is None:
-    raw_feature_keys = list(
-        set(six.iterkeys(raw_metadata.schema.column_schemas))
-        - set(raw_label_keys))
+  receiver_fn = build_default_transforming_serving_input_receiver_fn(
+      raw_metadata=raw_metadata,
+      transform_savedmodel_dir=transform_savedmodel_dir,
+      exclude_raw_keys=raw_label_keys,
+      include_raw_keys=raw_feature_keys,
+      convert_scalars_to_vectors=convert_scalars_to_vectors)
+  return _legacy_serving_input_fn(receiver_fn)
 
-  def default_transforming_serving_input_fn():
-    """Serving input_fn that applies transforms to raw data in Tensors."""
+
+def build_default_transforming_serving_input_receiver_fn(
+    raw_metadata,
+    transform_savedmodel_dir,
+    exclude_raw_keys,
+    include_raw_keys=None,
+    convert_scalars_to_vectors=True):
+  """Creates input_fn that applies transforms to raw data in Tensors.
+
+  Args:
+    raw_metadata: a `DatasetMetadata` object describing the raw data.
+    transform_savedmodel_dir: a SavedModel directory produced by tf.Transform
+      embodying a transformation function to be applied to incoming raw data.
+    exclude_raw_keys: A list of string keys of features to exclude. This is
+      typically used to specify the raw labels and weights, so that
+      transformations involving these do not pollute the serving graph.
+    include_raw_keys: A list of string keys of the raw features to be used.
+      If None or empty, defaults to all keys except those excluded.
+    convert_scalars_to_vectors: Boolean specifying whether this input_fn should
+      convert scalars into 1-d vectors.  This is necessary if the inputs will be
+      used with `FeatureColumn`s as `FeatureColumn`s cannot accept scalar
+      inputs. Default: True.
+
+  Returns:
+    An input_fn suitable for serving that applies transforms to raw data in
+    tf.Examples.
+
+  Raises:
+    ValueError: if raw_label_keys is not provided.
+  """
+  if exclude_raw_keys is None:
+    raise ValueError("exclude_raw_keys must be specified.")
+  exclude_raw_keys = set(exclude_raw_keys)
+  if include_raw_keys is None:
+    include_raw_keys = (set(six.iterkeys(raw_metadata.schema.column_schemas))
+                        - set(exclude_raw_keys))
+  include_raw_keys = set(include_raw_keys)
+  if include_raw_keys & exclude_raw_keys:
+    raise ValueError("include_raw_keys and exclude_raw_keys may not overlap.")
+
+  def default_transforming_serving_input_receiver_fn():
+    """Serving Input Receiver that applies transforms to raw data in Tensors."""
 
     raw_serving_features = {
         k: v
         for k, v in six.iteritems(raw_metadata.schema.as_batched_placeholders())
-        if k in raw_feature_keys}
+        if k in include_raw_keys}
+
     sparse_serving_features = [t for t in raw_serving_features
                                if isinstance(t, tf.SparseTensor)]
     if sparse_serving_features:
       raise ValueError("Feeding sparse tensors directly at serving time is not "
                        "supported.")
+
     _, transformed_features = (
         saved_transform_io.partially_apply_saved_transform(
             transform_savedmodel_dir, raw_serving_features))
@@ -301,10 +481,10 @@ def build_default_transforming_serving_input_fn(
     if convert_scalars_to_vectors:
       transformed_features = _convert_scalars_to_vectors(transformed_features)
 
-    return input_fn_utils.InputFnOps(
-        transformed_features, None, raw_serving_features)
+    return tf.estimator.export.ServingInputReceiver(
+        transformed_features, raw_serving_features)
 
-  return default_transforming_serving_input_fn
+  return default_transforming_serving_input_receiver_fn
 
 
 def build_training_input_fn(metadata,
@@ -369,7 +549,9 @@ def build_training_input_fn(metadata,
     if key_feature_name is not None:
       features[key_feature_name] = keys
 
-    if len(labels) == 1:
+    if not labels:
+      labels = None
+    elif len(labels) == 1:
       (_, labels), = labels.items()
     return features, labels
 
@@ -381,8 +563,8 @@ def build_transforming_training_input_fn(raw_metadata,
                                          transform_savedmodel_dir,
                                          raw_data_file_pattern,
                                          training_batch_size,
-                                         raw_label_keys,
                                          transformed_label_keys,
+                                         raw_label_keys=None,
                                          raw_feature_keys=None,
                                          transformed_feature_keys=None,
                                          reader=tf.TFRecordReader,
@@ -400,9 +582,9 @@ def build_transforming_training_input_fn(raw_metadata,
         `Example` records. See `tf.gfile.Glob` for pattern rules.
     training_batch_size: An int or scalar `Tensor` specifying the batch size to
       use.
-    raw_label_keys: A list of string keys of the raw labels to be used.
     transformed_label_keys: A list of string keys of the transformed labels to
       be used.
+    raw_label_keys: A list of string keys of the raw labels to be used.
     raw_feature_keys: A list of string keys of the raw features to be used.
       If None or empty, defaults to all features except labels.
     transformed_feature_keys: A list of string keys of the transformed features
@@ -423,17 +605,11 @@ def build_transforming_training_input_fn(raw_metadata,
     transforms.
   """
 
+  if raw_feature_keys or raw_label_keys:
+    tf.logging.warn("The raw_feature_keys and raw_label_keys arguments to "
+                    "build_transforming_training_input_fn() are deprecated and "
+                    "have no effect.")
   raw_feature_spec = raw_metadata.schema.as_feature_spec()
-  raw_feature_keys = _prepare_feature_keys(raw_metadata,
-                                           raw_label_keys, raw_feature_keys)
-  raw_training_feature_spec = {}
-  for key in raw_feature_keys + raw_label_keys:
-    try:
-      raw_training_feature_spec[key] = raw_feature_spec[key]
-    except KeyError:
-      raise ValueError("Found feature '%s' that was not included in the "
-                       "schema's feature specification" % key)
-
   transformed_feature_keys = _prepare_feature_keys(
       transformed_metadata, transformed_label_keys, transformed_feature_keys)
 
@@ -442,11 +618,11 @@ def build_transforming_training_input_fn(raw_metadata,
 
     if key_feature_name is not None:
       keys, raw_data = tf.contrib.learn.io.read_keyed_batch_features(
-          raw_data_file_pattern, training_batch_size, raw_training_feature_spec,
+          raw_data_file_pattern, training_batch_size, raw_feature_spec,
           reader, **read_batch_features_args)
     else:
       raw_data = tf.contrib.learn.io.read_batch_features(
-          raw_data_file_pattern, training_batch_size, raw_training_feature_spec,
+          raw_data_file_pattern, training_batch_size, raw_feature_spec,
           reader, **read_batch_features_args)
 
     _, transformed_data = saved_transform_io.partially_apply_saved_transform(
@@ -466,20 +642,23 @@ def build_transforming_training_input_fn(raw_metadata,
     if key_feature_name is not None:
       transformed_features[key_feature_name] = keys
 
-    if len(transformed_labels) == 1:
+    if not transformed_labels:
+      transformed_labels = None
+    elif len(transformed_labels) == 1:
       (_, transformed_labels), = transformed_labels.items()
     return transformed_features, transformed_labels
 
   return raw_training_input_fn
 
 
-def _prepare_feature_keys(metadata, label_keys, feature_keys=None):
+def _prepare_feature_keys(all_keys, label_keys, feature_keys=None):
   """Infer feature keys if needed, and sanity-check label and feature keys."""
+  if isinstance(all_keys, dataset_metadata.DatasetMetadata):
+    all_keys = six.iterkeys(all_keys.schema.column_schemas)
   if label_keys is None:
     raise ValueError("label_keys must be specified.")
   if feature_keys is None:
-    feature_keys = list(
-        set(six.iterkeys(metadata.schema.column_schemas)) - set(label_keys))
+    feature_keys = list(set(all_keys) - set(label_keys))
   overlap_keys = set(label_keys) & set(feature_keys)
   if overlap_keys:
     raise ValueError("Keys cannot be used as both a feature and a "

@@ -311,48 +311,74 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
     vocab_filename: The file name for the vocabulary file. If none, the
       "uniques" scope name in the context of this graph will be used as the file
       name. If not None, should be unique within a given preprocessing function.
+      NOTE To make your pipelines resilient to implementation details please
+      set `vocab_filename` when you are using the vocab_filename on a downstream
+      component.
 
   Returns:
-    A `Tensor` or `SparseTensor` where each string value is mapped to an integer
-    where each unique string value is mapped to a different integer and integers
-    are consecutive and starting from 0.
+    A `Tensor` or `SparseTensor` where each string value is mapped to an
+    integer; each unique string value is mapped to a different integer and
+    integers are consecutive and start from default_value.
 
   Raises:
     ValueError: If `top_k` or `frequency_threshold` is negative.
   """
-  if top_k is not None:
-    top_k = int(top_k)
-    if top_k < 0:
-      raise ValueError('top_k must be non-negative, but got: %r' % top_k)
+  with tf.name_scope('string_to_int'):
+    deferred_vocab_and_filename = analyzers.uniques(
+        x,
+        top_k=top_k,
+        frequency_threshold=frequency_threshold,
+        vocab_filename=vocab_filename)
+    return apply_vocab(
+        x, deferred_vocab_and_filename, default_value, num_oov_buckets)
 
-  if frequency_threshold is not None:
-    frequency_threshold = int(frequency_threshold)
-    if frequency_threshold < 0:
-      raise ValueError('frequency_threshold must be non-negative, but got: %r' %
-                       frequency_threshold)
 
-  def _apply_vocab(x, vocabulary_file):
+def apply_vocab(x, deferred_vocab_filename_tensor, default_value=-1,
+                num_oov_buckets=0, lookup_fn=None):
+  r"""Maps `x` to a vocabulary specified by the deferred tensor.
+
+  In case one of the tokens contains the '\n' or '\r' characters or is empty it
+  will be discarded since we are currently writing the vocabularies as text
+  files. This behavior will likely be fixed/improved in the future.
+
+  Args:
+    x: A `Tensor` or `SparseTensor` of type tf.string to which the vocabulary
+      transformation should be applied.
+      The colum names are those intended for the transformed tensors.
+    deferred_vocab_filename_tensor: The deferred vocab filename tensor as
+      returned by `tft.uniques`.
+    default_value: The value to use for out-of-vocabulary values, unless
+      'num_oov_buckets' is greater than zero.
+    num_oov_buckets:  Any lookup of an out-of-vocabulary token will return a
+      bucket ID based on its hash if `num_oov_buckets` is greater than zero.
+      Otherwise it is assigned the `default_value`.
+    lookup_fn: Optional lookup function, if specified it should take a
+      tensor and a deferred vocab filename as an input and return a lookup `op`
+      along with the table size, by default `apply_vocab` performs a
+      lookup.string_to_index_table_from_file for the table lookup.
+
+  Returns:
+    A `Tensor` or `SparseTensor` where each string value is mapped to an
+    integer; each unique string value is mapped to a different integer and
+    integers are consecutive and start from default_value.
+  """
+
+  def _apply_vocab(y, deferred_vocab_filename_tensor):
     table = lookup.string_to_index_table_from_file(
-        vocabulary_file, num_oov_buckets=num_oov_buckets,
+        deferred_vocab_filename_tensor, num_oov_buckets=num_oov_buckets,
         default_value=default_value)
     table_size = table.size()
-    return table.lookup(x), table_size
+    return table.lookup(y), table_size
 
-  with tf.name_scope('string_to_int'):
-    prefix = None
-    if vocab_filename is None:
-      prefix = analyzers.VOCAB_FILENAME_PREFIX
-    vocab_filename = analyzers.sanitized_vocab_filename(
-        vocab_filename, prefix)
-    vocabulary_file = analyzers.uniques(
-        x, top_k=top_k, frequency_threshold=frequency_threshold,
-        vocab_filename=vocab_filename)
-    result, table_size = api.apply_function(_apply_vocab, x, vocabulary_file)
+  lookup_fn = lookup_fn or _apply_vocab
 
-  # Set the min and max values of the domain, where the max value is a `Future`
-  # wrapping the max_value tensor.  Note that min_value is a regular Python
-  # value while max_value is a tensor.  This tensor's value cannot be known
-  # until the vocab has been computed.
+  result, table_size = api.apply_function(
+      lookup_fn, x, deferred_vocab_filename_tensor)
+
+  # Set the min and max values of the domain, where the max value is a
+  # `Future` wrapping the max_value tensor.  Note that min_value is a regular
+  # Python value while max_value is a tensor.  This tensor's value cannot be
+  # known until the vocab has been computed.
   #
   # `table_size` includes the num oov buckets.  The default value is only used
   # if num_oov_buckets > 0.
@@ -362,10 +388,13 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
     min_value = min(min_value, default_value)
     max_value = tf.maximum(max_value, default_value)
   column_schema = dataset_schema.infer_column_schema_from_tensor(result)
+  # Extract the relative vocab filename from the absolute pathname.
+  file_name_tensor = tf.string_split(
+      [deferred_vocab_filename_tensor], '/').values[-1]
   column_schema.domain = dataset_schema.IntDomain(
       result.dtype, min_value=min_value,
       max_value=futures.Future(max_value.name),
-      vocabulary_file=vocab_filename)
+      vocabulary_file=futures.Future(file_name_tensor.name))
   api.set_column_schema(result, column_schema)
 
   return result

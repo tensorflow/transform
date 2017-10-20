@@ -328,7 +328,7 @@ def uniques(x, top_k=None, frequency_threshold=None,
   files. This behavior will likely be fixed/improved in the future.
 
   The unique values are sorted by decreasing frequency and then decreasing
-  value.
+  lexicographical order.
 
   Args:
     x: An input `Tensor` or `SparseTensor`.
@@ -340,9 +340,12 @@ def uniques(x, top_k=None, frequency_threshold=None,
     vocab_filename: The file name for the vocabulary file. If none, the
       "uniques" scope name in the context of this graph will be used as the file
       name. If not None, should be unique within a given preprocessing function.
+      NOTE To make your pipelines resilient to implementation details please
+      set `vocab_filename` when you are using the vocab_filename on a downstream
+      component.
     store_frequency: If True, frequency of the words is stored in the
       vocabulary file. Each line in the file will be of the form
-      '(frequency, word)\n'.
+      'frequency word\n'.
 
   Returns:
     The path name for the vocabulary file containing the unique values of `x`.

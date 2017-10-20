@@ -23,6 +23,7 @@ import os
 import pprint
 import tempfile
 
+
 import tensorflow as tf
 import tensorflow_transform as tft
 from apache_beam.io import textio
@@ -48,6 +49,13 @@ NUM_TEST_INSTANCES = 25000
 REVIEW_COLUMN = 'review'
 REVIEW_WEIGHT = 'review_weight'
 LABEL_COLUMN = 'label'
+
+RAW_DATA_METADATA = dataset_metadata.DatasetMetadata(dataset_schema.Schema({
+    REVIEW_COLUMN: dataset_schema.ColumnSchema(
+        tf.string, [], dataset_schema.FixedColumnRepresentation()),
+    LABEL_COLUMN: dataset_schema.ColumnSchema(
+        tf.int64, [], dataset_schema.FixedColumnRepresentation()),
+}))
 
 DELIMITERS = '.,!?() '
 
@@ -99,8 +107,46 @@ def ReadAndShuffleData(pcoll, filepatterns):
       lambda p: {REVIEW_COLUMN: p[0], LABEL_COLUMN: p[1]})
 
 
-def transform_data(train_neg_filepattern, train_pos_filepattern,
-                   test_neg_filepattern, test_pos_filepattern,
+def read_and_shuffle_data(
+    train_neg_filepattern, train_pos_filepattern, test_neg_filepattern,
+    test_pos_filepattern, shuffled_train_filebase, shuffled_test_filebase):
+  """Read and shuffle the data and write out as a TFRecord of Example protos.
+
+  Read in the data from the positive and negative examples on disk, shuffle it
+  and write it out in TFRecord format.
+  transform it using a preprocessing pipeline that removes punctuation,
+  tokenizes and maps tokens to int64 values indices.
+
+  Args:
+    train_neg_filepattern: Filepattern for training data negative examples
+    train_pos_filepattern: Filepattern for training data positive examples
+    test_neg_filepattern: Filepattern for test data negative examples
+    test_pos_filepattern: Filepattern for test data positive examples
+    shuffled_train_filebase: Base filename for shuffled training data shards
+    shuffled_test_filebase: Base filename for shuffled test data shards
+  """
+  with beam.Pipeline() as pipeline:
+    # pylint: disable=no-value-for-parameter
+    _ = (
+        pipeline
+        | 'ReadAndShuffleTrain' >> ReadAndShuffleData(
+            (train_neg_filepattern, train_pos_filepattern))
+        | 'WriteTrainData' >> tfrecordio.WriteToTFRecord(
+            shuffled_train_filebase,
+            coder=example_proto_coder.ExampleProtoCoder(
+                RAW_DATA_METADATA.schema)))
+    _ = (
+        pipeline
+        | 'ReadAndShuffleTest' >> ReadAndShuffleData(
+            (test_neg_filepattern, test_pos_filepattern))
+        | 'WriteTestData' >> tfrecordio.WriteToTFRecord(
+            shuffled_test_filebase,
+            coder=example_proto_coder.ExampleProtoCoder(
+                RAW_DATA_METADATA.schema)))
+    # pylint: enable=no-value-for-parameter
+
+
+def transform_data(shuffled_train_filepattern, shuffled_test_filepattern,
                    transformed_train_filebase, transformed_test_filebase,
                    transformed_metadata_dir):
   """Transform the data and write out as a TFRecord of Example protos.
@@ -110,10 +156,8 @@ def transform_data(train_neg_filepattern, train_pos_filepattern,
   tokenizes and maps tokens to int64 values indices.
 
   Args:
-    train_neg_filepattern: Filepattern for training data negative examples
-    train_pos_filepattern: Filepattern for training data positive examples
-    test_neg_filepattern: Filepattern for test data negative examples
-    test_pos_filepattern: Filepattern for test data positive examples
+    shuffled_train_filepattern: Base filename for shuffled training data shards
+    shuffled_test_filepattern: Base filename for shuffled test data shards
     transformed_train_filebase: Base filename for transformed training data
         shards
     transformed_test_filebase: Base filename for transformed test data shards
@@ -123,19 +167,19 @@ def transform_data(train_neg_filepattern, train_pos_filepattern,
 
   with beam.Pipeline() as pipeline:
     with beam_impl.Context(temp_dir=tempfile.mkdtemp()):
-      # pylint: disable=no-value-for-parameter
-      train_data = pipeline | 'ReadTrain' >> ReadAndShuffleData(
-          (train_neg_filepattern, train_pos_filepattern))
-      # pylint: disable=no-value-for-parameter
-      test_data = pipeline | 'ReadTest' >> ReadAndShuffleData(
-          (test_neg_filepattern, test_pos_filepattern))
+      train_data = (
+          pipeline |
+          'ReadTrain' >> tfrecordio.ReadFromTFRecord(
+              shuffled_train_filepattern,
+              coder=example_proto_coder.ExampleProtoCoder(
+                  RAW_DATA_METADATA.schema)))
 
-      metadata = dataset_metadata.DatasetMetadata(dataset_schema.Schema({
-          REVIEW_COLUMN: dataset_schema.ColumnSchema(
-              tf.string, [], dataset_schema.FixedColumnRepresentation()),
-          LABEL_COLUMN: dataset_schema.ColumnSchema(
-              tf.int64, [], dataset_schema.FixedColumnRepresentation()),
-      }))
+      test_data = (
+          pipeline |
+          'ReadTest' >> tfrecordio.ReadFromTFRecord(
+              shuffled_test_filepattern,
+              coder=example_proto_coder.ExampleProtoCoder(
+                  RAW_DATA_METADATA.schema)))
 
       def preprocessing_fn(inputs):
         """Preprocess input columns into transformed columns."""
@@ -153,12 +197,12 @@ def transform_data(train_neg_filepattern, train_pos_filepattern,
         }
 
       (transformed_train_data, transformed_metadata), transform_fn = (
-          (train_data, metadata)
+          (train_data, RAW_DATA_METADATA)
           | 'AnalyzeAndTransform' >> beam_impl.AnalyzeAndTransformDataset(
               preprocessing_fn))
 
       transformed_test_data, _ = (
-          ((test_data, metadata), transform_fn)
+          ((test_data, RAW_DATA_METADATA), transform_fn)
           | 'Transform' >> beam_impl.TransformDataset())
 
       _ = (
@@ -183,7 +227,9 @@ def transform_data(train_neg_filepattern, train_pos_filepattern,
 
 
 def train_and_evaluate(transformed_train_filepattern,
-                       transformed_test_filepattern, transformed_metadata_dir):
+                       transformed_test_filepattern, transformed_metadata_dir,
+                       num_train_instances=NUM_TRAIN_INSTANCES,
+                       num_test_instances=NUM_TEST_INSTANCES):
   """Train the model on training data and evaluate on evaluation data.
 
   Args:
@@ -192,6 +238,8 @@ def train_and_evaluate(transformed_train_filepattern,
     transformed_test_filepattern: Base filename for transformed evaluation data
         shards
     transformed_metadata_dir: Directory containing transformed data metadata
+    num_train_instances: Number of instances in train set
+    num_test_instances: Number of instances in test set
 
   Returns:
     The results from the estimator's 'evaluate' method
@@ -219,7 +267,7 @@ def train_and_evaluate(transformed_train_filepattern,
   # Estimate the model using the default optimizer.
   estimator.fit(
       input_fn=train_input_fn,
-      max_steps=TRAIN_NUM_EPOCHS * NUM_TRAIN_INSTANCES / TRAIN_BATCH_SIZE)
+      max_steps=TRAIN_NUM_EPOCHS * num_train_instances / TRAIN_BATCH_SIZE)
 
   # Evaluate model on eval dataset.
   eval_input_fn = input_fn_maker.build_training_input_fn(
@@ -228,7 +276,7 @@ def train_and_evaluate(transformed_train_filepattern,
       training_batch_size=1,
       label_keys=[LABEL_COLUMN])
 
-  return estimator.evaluate(input_fn=eval_input_fn, steps=NUM_TEST_INSTANCES)
+  return estimator.evaluate(input_fn=eval_input_fn, steps=num_test_instances)
 
 
 def main():
@@ -248,14 +296,19 @@ def main():
   train_pos_filepattern = os.path.join(args.input_data_dir, 'train/pos/*')
   test_neg_filepattern = os.path.join(args.input_data_dir, 'test/neg/*')
   test_pos_filepattern = os.path.join(args.input_data_dir, 'test/pos/*')
+  shuffled_train_filebase = os.path.join(transformed_data_dir, 'train_shuffled')
+  shuffled_test_filebase = os.path.join(transformed_data_dir, 'test_shuffled')
   transformed_train_filebase = os.path.join(transformed_data_dir,
                                             'train_transformed')
   transformed_test_filebase = os.path.join(transformed_data_dir,
                                            'test_transformed')
   transformed_metadata_dir = os.path.join(transformed_data_dir, 'metadata')
 
-  transform_data(train_neg_filepattern, train_pos_filepattern,
-                 test_neg_filepattern, test_pos_filepattern,
+  read_and_shuffle_data(train_neg_filepattern, train_pos_filepattern,
+                        test_neg_filepattern, test_pos_filepattern,
+                        shuffled_train_filebase, shuffled_test_filebase)
+
+  transform_data(shuffled_train_filebase + '*', shuffled_test_filebase + '*',
                  transformed_train_filebase, transformed_test_filebase,
                  transformed_metadata_dir)
 

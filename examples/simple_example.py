@@ -20,6 +20,7 @@ from __future__ import print_function
 import pprint
 import tempfile
 
+
 import tensorflow as tf
 import tensorflow_transform as tft
 import tensorflow_transform.beam.impl as beam_impl
@@ -27,45 +28,50 @@ from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
 
-def preprocessing_fn(inputs):
-  """Preprocess input columns into transformed columns."""
-  x = inputs['x']
-  y = inputs['y']
-  s = inputs['s']
-  x_centered = x - tft.mean(x)
-  y_normalized = tft.scale_to_0_1(y)
-  s_integerized = tft.string_to_int(s)
-  x_centered_times_y_normalized = (x_centered * y_normalized)
-  return {
-      'x_centered': x_centered,
-      'y_normalized': y_normalized,
-      'x_centered_times_y_normalized': x_centered_times_y_normalized,
-      's_integerized': s_integerized
-  }
+def main():
+  def preprocessing_fn(inputs):
+    """Preprocess input columns into transformed columns."""
+    x = inputs['x']
+    y = inputs['y']
+    s = inputs['s']
+    x_centered = x - tft.mean(x)
+    y_normalized = tft.scale_to_0_1(y)
+    s_integerized = tft.string_to_int(s)
+    x_centered_times_y_normalized = (x_centered * y_normalized)
+    return {
+        'x_centered': x_centered,
+        'y_normalized': y_normalized,
+        'x_centered_times_y_normalized': x_centered_times_y_normalized,
+        's_integerized': s_integerized
+    }
 
-raw_data = [
-    {'x': 1, 'y': 1, 's': 'hello'},
-    {'x': 2, 'y': 2, 's': 'world'},
-    {'x': 3, 'y': 3, 's': 'hello'}
-]
+  raw_data = [
+      {'x': 1, 'y': 1, 's': 'hello'},
+      {'x': 2, 'y': 2, 's': 'world'},
+      {'x': 3, 'y': 3, 's': 'hello'}
+  ]
 
-raw_data_metadata = dataset_metadata.DatasetMetadata(dataset_schema.Schema({
-    's': dataset_schema.ColumnSchema(
-        tf.string, [], dataset_schema.FixedColumnRepresentation()),
-    'y': dataset_schema.ColumnSchema(
-        tf.float32, [], dataset_schema.FixedColumnRepresentation()),
-    'x': dataset_schema.ColumnSchema(
-        tf.float32, [], dataset_schema.FixedColumnRepresentation())
-}))
+  raw_data_metadata = dataset_metadata.DatasetMetadata(dataset_schema.Schema({
+      's': dataset_schema.ColumnSchema(
+          tf.string, [], dataset_schema.FixedColumnRepresentation()),
+      'y': dataset_schema.ColumnSchema(
+          tf.float32, [], dataset_schema.FixedColumnRepresentation()),
+      'x': dataset_schema.ColumnSchema(
+          tf.float32, [], dataset_schema.FixedColumnRepresentation())
+  }))
 
-with beam_impl.Context(temp_dir=tempfile.mkdtemp()):
-  transform_fn = (
-      (raw_data, raw_data_metadata)
-      | beam_impl.AnalyzeDataset(preprocessing_fn))
-  transformed_dataset = (
-      ((raw_data, raw_data_metadata), transform_fn)
-      | beam_impl.TransformDataset())
+  with beam_impl.Context(temp_dir=tempfile.mkdtemp()):
+    transform_fn = (
+        (raw_data, raw_data_metadata)
+        | beam_impl.AnalyzeDataset(preprocessing_fn))
+    transformed_dataset = (
+        ((raw_data, raw_data_metadata), transform_fn)
+        | beam_impl.TransformDataset())
 
-transformed_data, transformed_metadata = transformed_dataset
+  # pylint: disable=unused-variable
+  transformed_data, transformed_metadata = transformed_dataset
 
-pprint.pprint(transformed_data)
+  pprint.pprint(transformed_data)
+
+if __name__ == '__main__':
+  main()
