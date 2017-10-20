@@ -49,28 +49,36 @@ class Analyzer(object):
 
   Args:
     inputs: The inputs to the analyzer.
-    output_tensors_and_is_asset: List of pairs of `(Tensor, bool)` for each
-      output.  The `Tensor`s are typically placeholders; they will be later
-      be replaced with analysis results.  The boolean value states whether this
-      Tensor represents an asset filename or not.
+    output_dtype_shape_and_is_asset: List of tuples of `(DType, Shape, bool)`
+      for each output.  A tf.placeholder with the given DType and Shape will be
+      constructed to represent the output of the analyzer, and this placeholder
+      will eventually be replaced by the actual value of the analyzer.  The
+      boolean value states whether this Tensor represents an asset filename or
+      not.
     spec: A description of the computation to be done.
+    name: Similar to a TF op name.  Used to define a unique scope for this
+      analyzer, which can be used for debugging info.
 
   Raises:
     ValueError: If the inputs are not all `Tensor`s.
   """
 
-  def __init__(self, inputs, output_tensors_and_is_asset, spec):
+  def __init__(self, inputs, output_dtype_shape_and_is_asset, spec, name):
     for tensor in inputs:
       if not isinstance(tensor, tf.Tensor):
         raise ValueError('Analyzers can only accept `Tensor`s as inputs')
     self._inputs = inputs
-    for output_tensor, is_asset in output_tensors_and_is_asset:
-      if is_asset and output_tensor.dtype != tf.string:
-        raise ValueError(('Tensor {} cannot represent an asset, because it is '
-                          'not a string.').format(output_tensor.name))
-    self._outputs = [output_tensor
-                     for output_tensor, _ in output_tensors_and_is_asset]
-    self._output_is_asset_map = dict(output_tensors_and_is_asset)
+    self._outputs = []
+    self._output_is_asset_map = {}
+    with tf.name_scope(name) as scope:
+      self._name = scope
+      for dtype, shape, is_asset in output_dtype_shape_and_is_asset:
+        output_tensor = tf.placeholder(dtype, shape)
+        if is_asset and output_tensor.dtype != tf.string:
+          raise ValueError(('Tensor {} cannot represent an asset, because it '
+                            'is not a string.').format(output_tensor.name))
+        self._outputs.append(output_tensor)
+        self._output_is_asset_map[output_tensor] = is_asset
     self._spec = spec
     tf.add_to_collection(ANALYZER_COLLECTION, self)
 
@@ -85,6 +93,10 @@ class Analyzer(object):
   @property
   def spec(self):
     return self._spec
+
+  @property
+  def name(self):
+    return self._name
 
   def output_is_asset(self, output_tensor):
     return self._output_is_asset_map[output_tensor]
@@ -131,11 +143,9 @@ def _numeric_combine(x, combiner_type, reduce_instance_dims=True):
     # If reducing over batch dimensions, with unknown shape, the result will
     # also have unknown shape.
     shape = None
-  with tf.name_scope(combiner_type):
-    spec = NumericCombineSpec(x.dtype, combiner_type, reduce_instance_dims)
-    return Analyzer([x],
-                    [(tf.placeholder(x.dtype, shape), False)],
-                    spec).outputs[0]
+  spec = NumericCombineSpec(x.dtype, combiner_type, reduce_instance_dims)
+  return Analyzer(
+      [x], [(x.dtype, shape, False)], spec, combiner_type).outputs[0]
 
 
 def min(x, reduce_instance_dims=True):  # pylint: disable=redefined-builtin
@@ -381,9 +391,7 @@ def uniques(x, top_k=None, frequency_threshold=None,
 
     spec = UniquesSpec(tf.string, top_k, frequency_threshold,
                        vocab_filename, store_frequency)
-    return Analyzer([x],
-                    [(tf.placeholder(tf.string, []), True)],
-                    spec).outputs[0]
+    return Analyzer([x], [(tf.string, [], True)], spec, 'uniques').outputs[0]
 
 
 class QuantilesSpec(object):

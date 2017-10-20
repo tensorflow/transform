@@ -168,16 +168,8 @@ class ExampleProtoCoderTest(unittest.TestCase):
 
   def test_example_proto_coder_default_value(self):
     input_schema = dataset_schema.from_feature_spec({
-        'scalar_feature_3':
-            tf.FixedLenFeature(shape=[], dtype=tf.float32, default_value=1.0),
-        '1d_vector_feature':
-            tf.FixedLenFeature(
-                shape=[1], dtype=tf.float32, default_value=[2.0]),
-        '2d_vector_feature':
-            tf.FixedLenFeature(
-                shape=[2, 2],
-                dtype=tf.float32,
-                default_value=[[1.0, 2.0], [3.0, 4.0]])
+        'scalar_feature_3': tf.FixedLenFeature(shape=[], dtype=tf.float32,
+                                               default_value=1.0),
     })
     coder = example_proto_coder.ExampleProtoCoder(input_schema)
 
@@ -193,31 +185,25 @@ class ExampleProtoCoderTest(unittest.TestCase):
     # Assert the data is decoded into the expected format.
     expected_decoded = {
         'scalar_feature_3': 1.0,
-        '1d_vector_feature': [2.0],
-        '2d_vector_feature': [[1.0, 2.0], [3.0, 4.0]]
     }
     decoded = coder.decode(data)
     np.testing.assert_equal(expected_decoded, decoded)
 
   def test_example_proto_coder_bad_default_value(self):
     input_schema = dataset_schema.from_feature_spec({
-        '1d_vector_feature':
-            tf.FixedLenFeature(
-                shape=[2], dtype=tf.float32, default_value=[1.0]),
+        'scalar_feature_2': tf.FixedLenFeature(shape=[2], dtype=tf.float32,
+                                               default_value=[1.0, 2.0]),
     })
     with self.assertRaisesRegexp(ValueError,
-                                 'got default value with incorrect shape'):
+                                 'only scalar default values are supported'):
       example_proto_coder.ExampleProtoCoder(input_schema)
 
     input_schema = dataset_schema.from_feature_spec({
-        '2d_vector_feature':
-            tf.FixedLenFeature(
-                shape=[2, 3],
-                dtype=tf.float32,
-                default_value=[[1.0, 1.0], [1.0]]),
+        'scalar_feature_2': tf.FixedLenFeature(shape=[], dtype=tf.float32,
+                                               default_value=[1.0]),
     })
     with self.assertRaisesRegexp(ValueError,
-                                 'got default value with incorrect shape'):
+                                 'only scalar default values are supported'):
       example_proto_coder.ExampleProtoCoder(input_schema)
 
   def test_example_proto_coder_picklable(self):
