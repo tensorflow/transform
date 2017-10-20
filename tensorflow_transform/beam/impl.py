@@ -513,9 +513,8 @@ class _ComputeAnalyzerOutputs(beam.PTransform):
   def expand(self, analyzer_input_values):
     # For each analyzer output, look up its input values (by tensor name)
     # and run the analyzer on these values.
-    #
     result = {}
-    for idx, analyzer in enumerate(self._analyzers):
+    for analyzer in self._analyzers:
       temp_assets_dir = _make_unique_temp_dir(self._base_temp_dir)
       tf.gfile.MkDir(temp_assets_dir)
       analyzer_impl = analyzer_impls._impl_for_analyzer(
@@ -525,10 +524,10 @@ class _ComputeAnalyzerOutputs(beam.PTransform):
       assert len(analyzer.inputs) == 1
       output_pcolls = (
           analyzer_input_values
-          | 'Extract_%d' % idx >> beam.Map(
+          | 'ExtractInput[%s]' % analyzer.name >> beam.Map(
               lambda batch, key: batch[key],
               key=analyzer.inputs[0].name)
-          | 'Analyze_%d' % idx >> analyzer_impl)
+          | 'Analyze[%s]' % analyzer.name >> analyzer_impl)
       assert len(analyzer.outputs) == len(output_pcolls), (
           'Analyzer outputs don\'t match the expected outputs from the '
           'Analyzer definition: %d != %d' %
@@ -537,7 +536,7 @@ class _ComputeAnalyzerOutputs(beam.PTransform):
       for collection_idx, (tensor, pcoll) in enumerate(
           zip(analyzer.outputs, output_pcolls)):
         is_asset = analyzer.output_is_asset(tensor)
-        pcoll |= ('WrapAsTensorValue_%d_%d' % (idx, collection_idx)
+        pcoll |= ('WrapAsTensorValue[%s][%d]' % (analyzer.name, collection_idx)
                   >> beam.Map(_TensorValue, is_asset))
         result[tensor.name] = pcoll
     return result
@@ -711,7 +710,7 @@ class AnalyzeDataset(beam.PTransform):
           graph, inputs, analyzer_inputs, unbound_saved_model_dir)
       saved_model_dir = (
           tensor_pcoll_mapping
-          | 'CreateSavedModelForAnaylzerInputs_%d' % level
+          | 'CreateSavedModelForAnaylzerInputs[%d]' % level
           >> _ReplaceTensorsWithConstants(
               unbound_saved_model_dir, base_temp_dir, input_values.pipeline))
 
@@ -719,7 +718,7 @@ class AnalyzeDataset(beam.PTransform):
       # analyzers.
       analyzer_input_values = (
           input_values
-          | 'ComputeAnalyzerInputs_%d' % level >> beam.ParDo(
+          | 'ComputeAnalyzerInputs[%d]' % level >> beam.ParDo(
               _RunMetaGraphDoFn(
                   input_schema,
                   analyzer_inputs_schema,
