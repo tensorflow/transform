@@ -23,6 +23,9 @@ import apache_beam as beam
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.tf_metadata import metadata_io
 
+TRANSFORMED_METADATA_DIR = 'transformed_metadata'
+TRANSFORM_FN_DIR = 'transform_fn'
+
 
 def _copy_tree(source, destination):
   """Recursively copies source to destination."""
@@ -38,7 +41,13 @@ def _copy_tree(source, destination):
 
 
 class WriteTransformFn(beam.PTransform):
-  """Writes a TransformFn to disk."""
+  """Writes a TransformFn to disk.
+
+  The internal structure is a directory containing two subdirectories.  The
+  first is 'transformed_metadata' and contains metadata of the transformed data.
+  The second is 'transform_fn' and contains a SavedModel representing the
+  transformed data.
+  """
 
   def __init__(self, path):
     super(WriteTransformFn, self).__init__()
@@ -52,14 +61,14 @@ class WriteTransformFn(beam.PTransform):
   def expand(self, transform_fn):
     saved_model_dir, metadata = transform_fn
 
-    metadata_path = os.path.join(self._path, 'transformed_metadata')
+    metadata_path = os.path.join(self._path, TRANSFORMED_METADATA_DIR)
     pipeline = saved_model_dir.pipeline
     write_metadata_done = (
         metadata
         | 'WriteMetadata'
         >> beam_metadata_io.WriteMetadata(metadata_path, pipeline))
 
-    transform_fn_path = os.path.join(self._path, 'transform_fn')
+    transform_fn_path = os.path.join(self._path, TRANSFORM_FN_DIR)
     write_transform_fn_done = (
         saved_model_dir
         | 'WriteTransformFn' >> beam.Map(_copy_tree, transform_fn_path))
@@ -79,12 +88,12 @@ class ReadTransformFn(beam.PTransform):
     self._path = path
 
   def expand(self, pvalue):
-    transform_fn_path = os.path.join(self._path, 'transform_fn')
+    transform_fn_path = os.path.join(self._path, TRANSFORM_FN_DIR)
     saved_model_dir_pcoll = (
         pvalue.pipeline
         | 'CreateTransformFnPath' >> beam.Create([transform_fn_path]))
 
     metadata = metadata_io.read_metadata(
-        os.path.join(self._path, 'transformed_metadata'))
+        os.path.join(self._path, TRANSFORMED_METADATA_DIR))
 
     return saved_model_dir_pcoll, metadata

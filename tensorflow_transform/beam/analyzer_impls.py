@@ -38,10 +38,13 @@ from tensorflow_transform.beam import common
 
 
 def _impl_for_analyzer(spec, temp_assets_dir):
-  if isinstance(spec, analyzers.NumericCombineSpec):
+  # pylint: disable=protected-access
+  if isinstance(spec, analyzers._NumericCombineSpec):
     return _NumericCombineAnalyzerImpl(spec)
-  elif isinstance(spec, analyzers.UniquesSpec):
+  elif isinstance(spec, analyzers._UniquesSpec):
     return _UniquesAnalyzerImpl(spec, temp_assets_dir)
+  elif isinstance(spec, analyzers._CombinerSpec):
+    return _CombinerAnalyzerImpl(spec)
   else:
     raise NotImplementedError(spec.__class__)
 
@@ -59,16 +62,18 @@ def _flatten_value_to_list(batch):
 
 
 _BUILTIN_COMBINERS_BY_OPERATION = {
-    analyzers.NumericCombineSpec.MIN: min,
-    analyzers.NumericCombineSpec.MAX: max,
-    analyzers.NumericCombineSpec.SUM: sum
+    # pylint: disable=protected-access
+    analyzers._NumericCombineSpec.MIN: min,
+    analyzers._NumericCombineSpec.MAX: max,
+    analyzers._NumericCombineSpec.SUM: sum
 }
 
 
 _NUMPY_COMBINERS_BY_OPERATION = {
-    analyzers.NumericCombineSpec.MIN: np.min,
-    analyzers.NumericCombineSpec.MAX: np.max,
-    analyzers.NumericCombineSpec.SUM: np.sum
+    # pylint: disable=protected-access
+    analyzers._NumericCombineSpec.MIN: np.min,
+    analyzers._NumericCombineSpec.MAX: np.max,
+    analyzers._NumericCombineSpec.SUM: np.sum
 }
 
 
@@ -108,7 +113,7 @@ class _NumericCombineAnalyzerImpl(beam.PTransform):
       return accumulator
 
   def __init__(self, spec):
-    assert isinstance(spec, analyzers.NumericCombineSpec)
+    assert isinstance(spec, analyzers._NumericCombineSpec)  # pylint: disable=protected-access
     self._spec = spec
 
   def expand(self, pcoll):
@@ -134,7 +139,7 @@ class _UniquesAnalyzerImpl(beam.PTransform):
   """Saves the unique elements in a PCollection of batches."""
 
   def __init__(self, spec, temp_assets_dir):
-    assert isinstance(spec, analyzers.UniquesSpec)
+    assert isinstance(spec, analyzers._UniquesSpec)  # pylint: disable=protected-access
     self._spec = spec
     self._temp_assets_dir = temp_assets_dir
 
@@ -224,3 +229,21 @@ class _UniquesAnalyzerImpl(beam.PTransform):
     return [wait_for_vocabulary_transform]
 
 
+
+
+@with_input_types(Union[np.ndarray, tf.SparseTensorValue])
+@with_output_types(np.ndarray)
+class _CombinerAnalyzerImpl(beam.PTransform):
+  """Applies combiner to a PCollection of batches."""
+
+  def __init__(self, spec):
+    assert isinstance(spec, analyzers._CombinerSpec)  # pylint: disable=protected-access
+    self._spec = spec
+
+  def expand(self, pcoll):
+    output = (pcoll
+              | 'CombineGlobally' >> beam.CombineGlobally(
+                  self._spec.combiner).without_defaults()
+              | 'WrapAsNDArray'
+              >> _WrapAsNDArray(dtype=self._spec.output_dtype))  # pylint: disable=no-value-for-parameter
+    return [output]

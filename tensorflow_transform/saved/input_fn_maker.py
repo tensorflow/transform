@@ -41,6 +41,22 @@ def _convert_scalars_to_vectors(features):
           for name, tensor in six.iteritems(features)}
 
 
+def convert_scalars_to_vectors(features):
+  """Convert any scalar columns to size-1 vector columns.
+
+  This is necessary when using the contrib version of feature columns, which
+  only accept vectors.  The core version of features columns accepts tensors
+  of any size.
+
+  Args:
+    features: A dictionary of `FeatureColumn`s.
+
+  Returns:
+    a dictionary of `FeatureColumn`s.
+  """
+  return _convert_scalars_to_vectors(features)
+
+
 def _legacy_serving_input_fn(receiver_fn):
   def serving_input_fn():
     receiver = receiver_fn()
@@ -49,6 +65,7 @@ def _legacy_serving_input_fn(receiver_fn):
   return serving_input_fn
 
 
+# pylint: disable=redefined-outer-name
 def build_csv_transforming_serving_input_fn(
     raw_metadata,
     transform_savedmodel_dir,

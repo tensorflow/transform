@@ -42,8 +42,8 @@ class MappersTest(test_util.TensorFlowTestCase):
   def testSegmentIndices(self):
     with tf.Session():
       self.assertAllEqual(
-          mappers.segment_indices(tf.constant([0, 0, 1, 2, 2, 2],
-                                              tf.int64)).eval(),
+          mappers.segment_indices(tf.constant([0, 0, 1, 2, 2, 2], tf.int64),
+                                  name='test_name').eval(),
           [0, 1, 0, 0, 1, 2])
       self.assertAllEqual(
           mappers.segment_indices(tf.constant([], tf.int64)).eval(),

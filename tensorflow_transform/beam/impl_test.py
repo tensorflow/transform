@@ -24,8 +24,10 @@ import random
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
 
+import numpy as np
 import tensorflow as tf
 import tensorflow_transform as tft
+from tensorflow_transform.beam import analyzer_impls as beam_analyzer_impls
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
@@ -462,7 +464,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_metadata = dataset_metadata.DatasetMetadata({
         'ab': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
         'i': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, num_instances - 1, False,
+            sch.IntDomain(tf.int64, -1, num_instances - 1, True,
                           'vocab_string_to_int_uniques'),
             [], sch.FixedColumnRepresentation())
     })
@@ -567,20 +569,20 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testScaleMinMaxConstant(self):
 
     def preprocessing_fn(inputs):
-      return {'x_scaled': tft.scale_by_min_max(inputs['x'], -10, 10)}
+      return {'x_scaled': tft.scale_by_min_max(inputs['x'], 0, 10)}
 
     input_data = [{'x': 4}, {'x': 4}, {'x': 4}, {'x': 4}]
     input_metadata = dataset_metadata.DatasetMetadata({
         'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
     })
     expected_data = [{
-        'x_scaled': float('nan')
+        'x_scaled': 5
     }, {
-        'x_scaled': float('nan')
+        'x_scaled': 5
     }, {
-        'x_scaled': float('nan')
+        'x_scaled': 5
     }, {
-        'x_scaled': float('nan')
+        'x_scaled': 5
     }]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'x_scaled':
@@ -1251,7 +1253,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 4, False,
+            sch.IntDomain(tf.int64, -1, 4, True,
                           'vocab_string_to_int_uniques'),
             [], sch.FixedColumnRepresentation())
     })
@@ -1304,7 +1306,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, 0, 5, False, 'vocab_string_to_int_uniques'),
+            sch.IntDomain(tf.int64, 0, 5, True, 'vocab_string_to_int_uniques'),
             [], sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -1326,10 +1328,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
     vocab_filename = 'test_string_to_int'
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index_a': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, False, vocab_filename),
+            sch.IntDomain(tf.int64, -1, 6, True, vocab_filename),
             [], sch.FixedColumnRepresentation()),
         'index_b': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, False, vocab_filename),
+            sch.IntDomain(tf.int64, -1, 6, True, vocab_filename),
             [], sch.FixedColumnRepresentation())
     })
 
@@ -1373,16 +1375,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
     vocab_filename = 'test_vocab_with_frequency'
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index_a': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, False, vocab_filename),
+            sch.IntDomain(tf.int64, -1, 6, True, vocab_filename),
             [], sch.FixedColumnRepresentation()),
         'frequency_a': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, False, vocab_filename),
+            sch.IntDomain(tf.int64, -1, 6, True, vocab_filename),
             [], sch.FixedColumnRepresentation()),
         'index_b': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, False, vocab_filename),
+            sch.IntDomain(tf.int64, -1, 6, True, vocab_filename),
             [], sch.FixedColumnRepresentation()),
         'frequency_b': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, False, vocab_filename),
+            sch.IntDomain(tf.int64, -1, 6, True, vocab_filename),
             [], sch.FixedColumnRepresentation())
     })
 
@@ -1479,11 +1481,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # expected.
     expected_output_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 1, False,
+            sch.IntDomain(tf.int64, -1, 1, True,
                           'vocab_string_to_int_uniques'), [],
             sch.FixedColumnRepresentation()),
         'index_2': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 1, False, 'index_2_file'), [],
+            sch.IntDomain(tf.int64, -1, 1, True, 'index_2_file'), [],
             sch.FixedColumnRepresentation())
     })
     with beam.Pipeline() as pipeline:
@@ -1532,7 +1534,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 8, False,
+            sch.IntDomain(tf.int64, -1, 8, True,
                           'vocab_string_to_int_uniques'),
             [2, 2], sch.FixedColumnRepresentation())
     })
@@ -1553,7 +1555,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_data = [{'index': [0, 0, 1]}, {'index': [0, 2, 1]}]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 2, False,
+            sch.IntDomain(tf.int64, -1, 2, True,
                           'vocab_string_to_int_uniques'),
             [None], sch.ListColumnRepresentation())
     })
@@ -1591,11 +1593,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -99, 1, False,
+            sch.IntDomain(tf.int64, -99, 1, True,
                           'vocab_string_to_int_uniques'),
             [None], sch.ListColumnRepresentation()),
         'index2': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -9, 1, False,
+            sch.IntDomain(tf.int64, -9, 1, True,
                           'vocab_string_to_int_1_uniques'),
             [None], sch.ListColumnRepresentation())
     })
@@ -1634,11 +1636,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -99, 2, False,
+            sch.IntDomain(tf.int64, -99, 2, True,
                           'vocab_string_to_int_uniques'),
             [None], sch.ListColumnRepresentation()),
         'index2': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -9, 2, False,
+            sch.IntDomain(tf.int64, -9, 2, True,
                           'vocab_string_to_int_1_uniques'),
             [None], sch.ListColumnRepresentation())
     })
@@ -1684,11 +1686,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # Note the vocabs are empty but the tables have size 1 so max_value is 1.
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -99, 0, False,
+            sch.IntDomain(tf.int64, -99, 0, True,
                           'vocab_string_to_int_uniques'),
             [None], sch.ListColumnRepresentation()),
         'index2': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -9, 0, False,
+            sch.IntDomain(tf.int64, -9, 0, True,
                           'vocab_string_to_int_1_uniques'),
             [None], sch.ListColumnRepresentation())
     })
@@ -1727,7 +1729,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, 0, 3, False,
+            sch.IntDomain(tf.int64, 0, 3, True,
                           'vocab_string_to_int_uniques'), [None],
             sch.ListColumnRepresentation()),
     })
@@ -1974,6 +1976,115 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     check_asset_file_contents(assets_path, 'vocab_string_to_int_uniques',
                               'hello\nworld\n')
+
+  # Example to demonstrate a Combiner that implements combiner methods
+  # such as add_input() and merge_accumulators() that achieve computation
+  # through numpy primitives.
+  class _NumPyCombiner(beam.CombineFn):
+    """Combines the PCollection only on the 0th dimension using nparray."""
+
+    def __init__(self, fn, output_dtype, reduce_instance_dims=False):
+      self._fn = fn
+      self._output_dtype = output_dtype
+      self._reduce_instance_dims = reduce_instance_dims
+
+    def create_accumulator(self):
+      return []
+
+    def add_input(self, accumulator, next_input):
+      if self._reduce_instance_dims:
+        batch = self._fn(next_input)
+      else:
+        batch = self._fn(next_input, axis=0)
+      if any(accumulator):
+        return self._fn((accumulator, batch), axis=0)
+      else:
+        return batch
+
+    def merge_accumulators(self, accumulators):
+      # numpy's sum, min, max, etc functions operate on array-like objects, but
+      # not arbitrary iterables. Convert the provided accumulators into a list
+      return self._fn(list(accumulators), axis=0)
+
+    def extract_output(self, accumulator):
+      return [accumulator]
+
+    @property
+    def output_dtype(self):
+      return self._output_dtype
+
+  def testCombineAnalyzer(self):
+
+    def preprocessing_fn(inputs):
+      return {
+          'sum': tft.combine_analyzer(
+              inputs['x'], combiner=self._NumPyCombiner(np.sum, tf.int32)),
+          'max': tft.combine_analyzer(
+              inputs['x'], combiner=self._NumPyCombiner(np.max, tf.float32)),
+          'sum_reduced': tft.combine_analyzer(
+              inputs['x'],
+              combiner=self._NumPyCombiner(
+                  np.sum, tf.int32, reduce_instance_dims=True)),
+      }
+
+    input_dtype = tf.int32
+    input_list = [1, 1, 1, 2, 2, 8, 8, 9]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'sum': sch.ColumnSchema(
+            tf.int32, [None], sch.FixedColumnRepresentation()),
+        'max': sch.ColumnSchema(
+            tf.float32, [None], sch.FixedColumnRepresentation()),
+        'sum_reduced': sch.ColumnSchema(
+            tf.int32, [None], sch.FixedColumnRepresentation()),
+    })
+
+    # Scalar input.
+    input_data = [{'x': x} for x in input_list]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(input_dtype, [], sch.FixedColumnRepresentation())
+    })
+    expected_data = [{
+        'sum': 32, 'max': 9, 'sum_reduced': 32,
+    }]
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
+    # 1-dimensional input
+    input_data = [{'x': [x]} for x in input_list]
+
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(input_dtype, [1], sch.FixedColumnRepresentation())
+    })
+    expected_data = [{
+        'sum': [32], 'max': [9], 'sum_reduced': 32,
+    }]
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
+    # 2-dimensional input.
+    input_data = [{'x': [x, 2*x]} for x in input_list]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(input_dtype, [2], sch.FixedColumnRepresentation())
+    })
+    expected_data = [{
+        'sum': [32, 64], 'max': [9, 18], 'sum_reduced': 96
+    }]
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+    # Test with empty input, expected_* parameters below are no-op,
+    # since this will raise an exception.
+    input_data = [{'x': []}]
+    with self.assertRaises(ValueError) as context:
+      self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                            preprocessing_fn, expected_data,
+                                            expected_metadata)
+    self.assertRegexpMatches(
+        context.exception.message,
+        r'Cannot feed value of shape \(1, 0\)')
+
 
 
 if __name__ == '__main__':

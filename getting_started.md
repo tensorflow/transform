@@ -410,22 +410,36 @@ one_hot_columns = [
 estimator = learn.LinearClassifier(real_valued_columns + one_hot_columns)
 ```
 
-The next step is to create in input function that reads the data. Since the data
-was created with tf.Transform, it can be read in using the metadata for the
-transformed data. The input function is created with `build_training_input_fn`
-which accepts the metadata, the location of the transformed data, the batch size
-and the column of the data that contains the training label.
+The next step is to create in input function builder that generates the input
+function for training and eval.  The main difference from usual training using
+tf.Learn, is that to parse the transformed data, we don't have to provide a
+feature spec.  Instead, we take the metadata for the transformed data and use
+it to generate a feature spec.
 
 ```
-transformed_metadata = metadata_io.read_metadata(transformed_metadata_file)
-train_input_fn = input_fn_maker.build_training_input_fn(
-    transformed_metadata,
-    PREPROCESSED_TRAIN_DATA + '*',
-    training_batch_size=TRAIN_BATCH_SIZE,
-    label_keys=['label'])
+def _make_training_input_fn(working_dir, filebase, batch_size):
+  ...
+  transformed_metadata = metadata_io.read_metadata(
+      os.path.join(
+          working_dir, transform_fn_io.TRANSFORMED_METADATA_DIR))
+  transformed_feature_spec = transformed_metadata.schema.as_feature_spec()
+
+  def input_fn():
+    """Input function for training and eval."""
+    transformed_features = tf.contrib.learn.io.read_batch_features(
+        ..., transformed_feature_spec, ...)
+
+    ...
+
+  return input_fn
 ```
 
 The rest of the code is the same as the usual use of the `Estimator` class, see
 the [TensorFlow
 documentation](https://www.tensorflow.org/api_docs/python/tf/contrib/learn/BaseEstimator)
 for more details.
+
+The example code also contains code to export the model in the SavedModel
+format.  The exported model can be used by
+[Tensorflow Serving](https://www.tensorflow.org/serving/serving_basic) or
+[Cloud ML Engine](https://cloud.google.com/ml-engine/docs/prediction-overview).
