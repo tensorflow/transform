@@ -141,11 +141,6 @@ def _partially_apply_saved_transform_impl(
                                      import_scope=scope,
                                      input_map=input_map)
 
-  for op in graph.get_operations():
-    # pylint: disable=protected-access
-    if op.type == b'Where' and 'T' in op._node_def.attr:
-      del op._node_def.attr['T']
-
   # Wipe out AssetFileDef collection; it is obsolete after loading
   graph.clear_collection(tf.saved_model.constants.ASSETS_KEY)
 

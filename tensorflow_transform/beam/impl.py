@@ -242,7 +242,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
                serialized_tf_config,
                shared_graph_state_handle,
                exclude_outputs=None,
-               desired_batch_size=_DEFAULT_DESIRED_BATCH_SIZE):
+               desired_batch_size=None):
     super(_RunMetaGraphDoFn, self).__init__()
     self._input_schema = input_schema
     self._output_schema = output_schema
@@ -253,7 +253,12 @@ class _RunMetaGraphDoFn(beam.DoFn):
     self._shared_graph_state_handle = shared_graph_state_handle
 
     self._exclude_outputs = exclude_outputs
-    self._desired_batch_size = desired_batch_size
+
+    # Resolving the value of _DEFAULT_DESIRED_BATCH_SIZE at runtime in order to
+    # allow its value to be overridden if necessary.
+    self._desired_batch_size = _DEFAULT_DESIRED_BATCH_SIZE
+    if desired_batch_size is not None:
+      self._desired_batch_size = desired_batch_size
 
     self._batch = []
     self._graph_state = None

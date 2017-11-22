@@ -83,7 +83,7 @@ class DatasetMetadata(futures.FutureContent):
     return not self == other
 
   def __repr__(self):
-    return self._asdict().__repr__()
+    return self.__dict__.__repr__()
 
   def merge(self, other):
     self.schema.merge(other.schema)

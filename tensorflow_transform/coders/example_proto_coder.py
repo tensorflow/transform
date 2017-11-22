@@ -122,21 +122,21 @@ class _FixedLenFeatureHandler(object):
   def __init__(self, name, feature_spec):
     self._name = name
     self._np_dtype = feature_spec.dtype.as_numpy_dtype
-    self._default_value = feature_spec.default_value
     self._value_fn = _make_feature_value_fn(feature_spec.dtype)
     self._shape = feature_spec.shape
     self._rank = len(feature_spec.shape)
-    if self._rank > 0 and self._default_value:
-      raise ValueError('FixedLenFeature %r got default value for rank > 0, '
-                       'only scalar default values are supported'
-                       % (self._name,))
-    if isinstance(self._default_value, list):
-      raise ValueError('FixedLenFeature %r got non-scalar default value, '
-                       'only scalar default values are supported' %
-                       (self._name,))
     self._size = 1
     for dim in feature_spec.shape:
       self._size *= dim
+    default_value = feature_spec.default_value
+    if default_value is not None:
+      np_default_value = np.asarray(default_value)
+      if list(np_default_value.shape) != self._shape:
+        raise ValueError(
+            'FixedLenFeature %r got default value with incorrect shape' %
+            (self._name,))
+      default_value = np_default_value.reshape(-1).tolist()
+    self._default_value = default_value
 
   @property
   def name(self):
@@ -154,7 +154,7 @@ class _FixedLenFeatureHandler(object):
       feature = feature_map[self._name]
       values = self._value_fn(feature)
     elif self._default_value is not None:
-      values = [self._default_value]
+      values = self._default_value
     else:
       values = []
 

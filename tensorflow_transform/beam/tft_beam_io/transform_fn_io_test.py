@@ -67,8 +67,9 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
     path = self.get_temp_dir()
     # NOTE: we don't need to create or write to the transform_fn directory since
     # ReadTransformFn never inspects this directory.
-    transform_fn_dir = os.path.join(path, 'transform_fn')
-    transformed_metadata_dir = os.path.join(path, 'transformed_metadata')
+    transform_fn_dir = os.path.join(path, transform_fn_io.TRANSFORM_FN_DIR)
+    transformed_metadata_dir = os.path.join(
+        path, transform_fn_io.TRANSFORMED_METADATA_DIR)
     metadata_io.write_metadata(_TEST_METADATA, transformed_metadata_dir)
 
     with beam.Pipeline() as pipeline:
@@ -98,11 +99,12 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
       _ = ((saved_model_dir_pcoll, metadata)
            | transform_fn_io.WriteTransformFn(path))
 
-    transformed_metadata_dir = os.path.join(path, 'transformed_metadata')
+    transformed_metadata_dir = os.path.join(
+        path, transform_fn_io.TRANSFORMED_METADATA_DIR)
     metadata = metadata_io.read_metadata(transformed_metadata_dir)
     self.assertEqual(metadata, _TEST_METADATA)
 
-    transform_fn_dir = os.path.join(path, 'transform_fn')
+    transform_fn_dir = os.path.join(path, transform_fn_io.TRANSFORM_FN_DIR)
     self.assertTrue(file_io.file_exists(transform_fn_dir))
     self.assertTrue(file_io.is_directory(transform_fn_dir))
 

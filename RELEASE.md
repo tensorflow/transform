@@ -1,3 +1,30 @@
+# Current Release
+
+## Major Features and Improvements
+* Add a combine_analyzer() that supports user provided combiner, conforming to
+  beam.CombinFn(). This allows users to implement custom combiners
+  (e.g. median), to complement analyzers (like min, max) that are
+  prepackaged in TFT.
+
+## Bug Fixes and Other Changes
+
+* Allow all functions that accept and return tensors, to accept an optional
+  name scope, in line with TensorFlow coding conventions.
+
+* Update examples to construct input functions by hand instead of using helper
+  functions.
+
+* Change scale_by_min_max/scale_to_0_1 to return the average(min, max) of the
+  range in case all values are identical.
+
+* Added export of serving model to examples.
+
+## Breaking changes
+
+* Some functions now introduce a new name scope when they did not before so the
+  names of tensors may change.  This will only affect you if you directly lookup
+  tensors by name in the graph produced by tf.Transform.
+
 # Release 0.3.1
 
 ## Major Features and Improvements

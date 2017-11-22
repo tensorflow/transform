@@ -102,7 +102,7 @@ class Analyzer(object):
     return self._output_is_asset_map[output_tensor]
 
 
-class NumericCombineSpec(object):
+class _NumericCombineSpec(object):
   """Operation to combine numeric values."""
 
   MIN = 'min'
@@ -127,8 +127,8 @@ class NumericCombineSpec(object):
     return self._reduce_instance_dims
 
 
-def _numeric_combine(x, combiner_type, reduce_instance_dims=True):
-  """Apply an analyzer with NumericCombineSpec to given input."""
+def _numeric_combine(x, combiner_type, reduce_instance_dims=True, name=None):
+  """Apply an analyzer with _NumericCombineSpec to given input."""
   if not isinstance(x, tf.Tensor):
     raise TypeError('Expected a Tensor, but got %r' % x)
 
@@ -143,12 +143,13 @@ def _numeric_combine(x, combiner_type, reduce_instance_dims=True):
     # If reducing over batch dimensions, with unknown shape, the result will
     # also have unknown shape.
     shape = None
-  spec = NumericCombineSpec(x.dtype, combiner_type, reduce_instance_dims)
+  spec = _NumericCombineSpec(x.dtype, combiner_type, reduce_instance_dims)
   return Analyzer(
-      [x], [(x.dtype, shape, False)], spec, combiner_type).outputs[0]
+      [x], [(x.dtype, shape, False)], spec,
+      name if name is not None else combiner_type).outputs[0]
 
 
-def min(x, reduce_instance_dims=True):  # pylint: disable=redefined-builtin
+def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
   """Computes the minimum of the values of a `Tensor` over the whole dataset.
 
   Args:
@@ -156,68 +157,76 @@ def min(x, reduce_instance_dims=True):  # pylint: disable=redefined-builtin
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a `Tensor` of the same shape as the input.
+    name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor`. Has the same type as `x`.
   """
-  return _numeric_combine(x, NumericCombineSpec.MIN, reduce_instance_dims)
+  return _numeric_combine(
+      x, _NumericCombineSpec.MIN, reduce_instance_dims, name)
 
 
-def max(x, reduce_instance_dims=True):  # pylint: disable=redefined-builtin
+def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
   """Computes the maximum of the values of a `Tensor` over the whole dataset.
 
   Args:
     x: A `Tensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
-        dimension and outputs a vector of the same shape as the output.
+        dimension and outputs a vector of the same shape as the input.
+    name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor`. Has the same type as `x`.
   """
-  return _numeric_combine(x, NumericCombineSpec.MAX, reduce_instance_dims)
+  return _numeric_combine(
+      x, _NumericCombineSpec.MAX, reduce_instance_dims, name)
 
 
-def sum(x, reduce_instance_dims=True):  # pylint: disable=redefined-builtin
+def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
   """Computes the sum of the values of a `Tensor` over the whole dataset.
 
   Args:
     x: A `Tensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
-        dimension and outputs a vector of the same shape as the output.
+        dimension and outputs a vector of the same shape as the input.
+    name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor`. Has the same type as `x`.
   """
-  return _numeric_combine(x, NumericCombineSpec.SUM, reduce_instance_dims)
+  return _numeric_combine(
+      x, _NumericCombineSpec.SUM, reduce_instance_dims, name)
 
 
-def size(x, reduce_instance_dims=True):
+def size(x, reduce_instance_dims=True, name=None):
   """Computes the total size of instances in a `Tensor` over the whole dataset.
 
   Args:
     x: A `Tensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
-        dimension and outputs a vector of the same shape as the output.
+        dimension and outputs a vector of the same shape as the input.
+    name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor`. Has the same type as `x`.
   """
-  with tf.name_scope('size'):
+  with tf.name_scope(name, 'size'):
     # Note: Calling `sum` defined in this module, not the builtin.
     return sum(tf.ones_like(x), reduce_instance_dims)
 
 
-def mean(x, reduce_instance_dims=True):
+def mean(x, reduce_instance_dims=True, name=None):
   """Computes the mean of the values of a `Tensor` over the whole dataset.
 
   Args:
     x: A `Tensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
-        dimension and outputs a vector of the same shape as the output.
+        dimension and outputs a vector of the same shape as the input.
+    name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor` containing the mean. If `x` is floating point, the mean will
@@ -225,13 +234,13 @@ def mean(x, reduce_instance_dims=True):
     for int8 and int16 and float64 for int32 and int64 (similar to the behavior
     of tf.truediv).
   """
-  with tf.name_scope('mean'):
+  with tf.name_scope(name, 'mean'):
     # Note: Calling `sum` defined in this module, not the builtin.
     return tf.divide(
         sum(x, reduce_instance_dims), size(x, reduce_instance_dims))
 
 
-def var(x, reduce_instance_dims=True):
+def var(x, reduce_instance_dims=True, name=None):
   """Computes the variance of the values of a `Tensor` over the whole dataset.
 
   Uses the biased variance (0 delta degrees of freedom), as given by
@@ -241,7 +250,8 @@ def var(x, reduce_instance_dims=True):
     x: A `Tensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
-        dimension and outputs a vector of the same shape as the output.
+        dimension and outputs a vector of the same shape as the input.
+    name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor` containing the variance. If `x` is floating point, the variance
@@ -249,7 +259,7 @@ def var(x, reduce_instance_dims=True):
     float32 for int8 and int16 and float64 for int32 and int64 (similar to the
     behavior of tf.truediv).
   """
-  with tf.name_scope('var'):
+  with tf.name_scope(name, 'var'):
     # Note: Calling `mean`, `sum`, and `size` as defined in this module, not the
     # builtins.
     x_mean = mean(x, reduce_instance_dims)
@@ -258,7 +268,7 @@ def var(x, reduce_instance_dims=True):
     return mean(squared_deviations, reduce_instance_dims)
 
 
-class UniquesSpec(object):
+class _UniquesSpec(object):
   """Operation to compute unique values."""
 
   def __init__(self, dtype, top_k, frequency_threshold,
@@ -326,7 +336,7 @@ def sanitized_vocab_filename(filename=None, prefix=None):
 
 
 def uniques(x, top_k=None, frequency_threshold=None,
-            vocab_filename=None, store_frequency=False):
+            vocab_filename=None, store_frequency=False, name=None):
   r"""Computes the unique values of a `Tensor` over the whole dataset.
 
   Computes The unique values taken by `x`, which can be a `Tensor` or
@@ -356,6 +366,7 @@ def uniques(x, top_k=None, frequency_threshold=None,
     store_frequency: If True, frequency of the words is stored in the
       vocabulary file. Each line in the file will be of the form
       'frequency word\n'.
+    name: (Optional) A name for this operation.
 
   Returns:
     The path name for the vocabulary file containing the unique values of `x`.
@@ -378,7 +389,7 @@ def uniques(x, top_k=None, frequency_threshold=None,
   if isinstance(x, tf.SparseTensor):
     x = x.values
 
-  with tf.name_scope('uniques'):
+  with tf.name_scope(name, 'uniques'):
     if vocab_filename is not None:
       prefix = None
     elif store_frequency:
@@ -389,12 +400,12 @@ def uniques(x, top_k=None, frequency_threshold=None,
     # Make the file name path safe.
     vocab_filename = sanitized_vocab_filename(vocab_filename, prefix=prefix)
 
-    spec = UniquesSpec(tf.string, top_k, frequency_threshold,
-                       vocab_filename, store_frequency)
+    spec = _UniquesSpec(tf.string, top_k, frequency_threshold,
+                        vocab_filename, store_frequency)
     return Analyzer([x], [(tf.string, [], True)], spec, 'uniques').outputs[0]
 
 
-class QuantilesSpec(object):
+class _QuantilesSpec(object):
   """Operation to compute quantile boundaries."""
 
   def __init__(self, epsilon, num_buckets):
@@ -414,3 +425,50 @@ class QuantilesSpec(object):
     return tf.float32
 
 
+
+
+class _CombinerSpec(object):
+  """Analyze using combiner function.
+
+  Args:
+    combiner: Object of a class that implements beam.CombineFn() interface.
+      In addtion, the combiner class must implement a @property method called
+      output_dtype() that returns the tf.DType of the output of the combiner.
+  """
+
+  def __init__(self, combiner):
+    self._combiner = combiner
+
+  @property
+  def combiner(self):
+    return self._combiner
+
+  @property
+  def output_dtype(self):
+    return self._combiner.output_dtype
+
+
+def combine_analyzer(x, combiner, name=None):
+  """Applies the combiner over the whole dataset.
+
+  Args:
+    x: An input `Tensor` or `SparseTensor`.
+    combiner: Object of a class that implements beam.CombineFn() interface.
+      In addtion, the combiner class must implement a @property method called
+      output_dtype() that returns the type of the output of the combiner.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    The combined values as a list, where the each element in the list
+    is of type combiner.output_dtype().
+  """
+
+  # The TF node name will be of the form:
+  # original_scope/{combine_analyzer|name}/{class-name-of-combiner}
+  with tf.name_scope(name, 'combine_analyzer'):
+    spec = _CombinerSpec(combiner)
+    return Analyzer(
+        [x],
+        [(spec.output_dtype, [1, None], False)],
+        spec,
+        type(combiner).__name__).outputs[0]

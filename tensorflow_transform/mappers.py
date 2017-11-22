@@ -27,13 +27,14 @@ from tensorflow_transform.tf_metadata import futures
 from tensorflow.contrib import lookup
 
 
-def scale_by_min_max(x, output_min=0.0, output_max=1.0):
+def scale_by_min_max(x, output_min=0.0, output_max=1.0, name=None):
   """Scale a numerical column into the range [output_min, output_max].
 
   Args:
     x: A numeric `Tensor`.
     output_min: The minimum of the range of output values.
     output_max: The maximum of the range of output values.
+    name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor` containing the input column scaled to [output_min, output_max].
@@ -41,28 +42,40 @@ def scale_by_min_max(x, output_min=0.0, output_max=1.0):
   Raises:
     ValueError: If output_min, output_max have the wrong order.
   """
-  if output_min >= output_max:
-    raise ValueError('output_min must be less than output_max')
+  with tf.name_scope(name, 'scale_by_min_max'):
+    if output_min >= output_max:
+      raise ValueError('output_min must be less than output_max')
 
-  min_x_value = analyzers.min(x)
-  max_x_value = analyzers.max(x)
-  return ((((x - min_x_value) * (output_max - output_min)) /
-           (max_x_value - min_x_value)) + output_min)
+    x = tf.to_float(x)
+    min_x_value = analyzers.min(x)
+    max_x_value = analyzers.max(x)
+
+    x_shape = tf.shape(x)
+
+    # If min==max, the result will be the mean of the requested range.
+    # Note that both the options of tf.where are computed, which means that this
+    # will compute unused NaNs.
+    scaled_result = tf.where(
+        tf.fill(x_shape, min_x_value < max_x_value),
+        (x - min_x_value) / (max_x_value - min_x_value), tf.fill(x_shape, 0.5))
+
+    return (scaled_result * (output_max - output_min)) + output_min
 
 
-def scale_to_0_1(x):
+def scale_to_0_1(x, name=None):
   """Returns a column which is the input column scaled to have range [0,1].
 
   Args:
     x: A numeric `Tensor`.
+    name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor` containing the input column scaled to [0, 1].
   """
-  return scale_by_min_max(x, 0, 1)
+  return scale_by_min_max(x, 0, 1, name)
 
 
-def scale_to_z_score(x):
+def scale_to_z_score(x, name=None):
   """Returns a standardized column with mean 0 and variance 1.
 
   Scaling to z-score subtracts out the mean and divides by standard deviation.
@@ -71,6 +84,7 @@ def scale_to_z_score(x):
 
   Args:
     x: A numeric `Tensor`.
+    name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor` containing the input column scaled to mean 0 and variance 1
@@ -84,12 +98,13 @@ def scale_to_z_score(x):
     tensor yields a float64 tensor, which would need a cast to float32 to be
     used in TFLearn.
   """
-  # x_mean will be float32 or float64, depending on type of x.
-  x_mean = analyzers.mean(x)
-  return (tf.cast(x, x_mean.dtype) - x_mean) / tf.sqrt(analyzers.var(x))
+  with tf.name_scope(name, 'scale_to_z_score'):
+    # x_mean will be float32 or float64, depending on type of x.
+    x_mean = analyzers.mean(x)
+    return (tf.cast(x, x_mean.dtype) - x_mean) / tf.sqrt(analyzers.var(x))
 
 
-def tfidf(x, vocab_size, smooth=True):
+def tfidf(x, vocab_size, smooth=True, name=None):
   """Maps the terms in x to their term frequency * inverse document frequency.
 
   The inverse document frequency of a term is calculated as 1+
@@ -119,6 +134,7 @@ def tfidf(x, vocab_size, smooth=True):
         Otherwise, the idf is
         1 +log((corpus size) / (document frequency of term)), which could
         result in a divizion by zero error.
+    name: (Optional) A name for this operation.
 
   Returns:
     Two `SparseTensor`s with indices [index_in_batch, index_in_bag_of_words].
@@ -133,20 +149,21 @@ def tfidf(x, vocab_size, smooth=True):
         values=tf.mod(x.values, vocab_size),
         dense_shape=x.dense_shape)
 
-  cleaned_input = _to_vocab_range(x)
+  with tf.name_scope(name, 'tfidf'):
+    cleaned_input = _to_vocab_range(x)
 
-  term_frequencies = _to_term_frequency(cleaned_input, vocab_size)
+    term_frequencies = _to_term_frequency(cleaned_input, vocab_size)
 
-  count_docs_with_term_column = _count_docs_with_term(term_frequencies)
-  # Expand dims to get around the min_tensor_rank checks
-  sizes = tf.expand_dims(tf.shape(cleaned_input)[0], 0)
-  # [batch, vocab] - tfidf
-  tfidfs = _to_tfidf(term_frequencies,
-                     analyzers.sum(count_docs_with_term_column,
-                                   reduce_instance_dims=False),
-                     analyzers.sum(sizes),
-                     smooth)
-  return _split_tfidfs_to_outputs(tfidfs)
+    count_docs_with_term_column = _count_docs_with_term(term_frequencies)
+    # Expand dims to get around the min_tensor_rank checks
+    sizes = tf.expand_dims(tf.shape(cleaned_input)[0], 0)
+    # [batch, vocab] - tfidf
+    tfidfs = _to_tfidf(term_frequencies,
+                       analyzers.sum(count_docs_with_term_column,
+                                     reduce_instance_dims=False),
+                       analyzers.sum(sizes),
+                       smooth)
+    return _split_tfidfs_to_outputs(tfidfs)
 
 
 def _split_tfidfs_to_outputs(tfidfs):
@@ -289,7 +306,7 @@ def _count_docs_with_term(term_frequency):
 
 
 def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
-                  num_oov_buckets=0, vocab_filename=None):
+                  num_oov_buckets=0, vocab_filename=None, name=None):
   r"""Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
   In case one of the tokens contains the '\n' or '\r' characters or is empty it
@@ -314,6 +331,7 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
       NOTE To make your pipelines resilient to implementation details please
       set `vocab_filename` when you are using the vocab_filename on a downstream
       component.
+    name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor` or `SparseTensor` where each string value is mapped to an
@@ -323,7 +341,7 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
   Raises:
     ValueError: If `top_k` or `frequency_threshold` is negative.
   """
-  with tf.name_scope('string_to_int'):
+  with tf.name_scope(name, 'string_to_int'):
     deferred_vocab_and_filename = analyzers.uniques(
         x,
         top_k=top_k,
@@ -334,8 +352,12 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
 
 
 def apply_vocab(x, deferred_vocab_filename_tensor, default_value=-1,
-                num_oov_buckets=0, lookup_fn=None):
+                num_oov_buckets=0, lookup_fn=None, name=None):
   r"""Maps `x` to a vocabulary specified by the deferred tensor.
+
+  This function also writes domain statistics about the vocabulary min and max
+  values. Note that the min and max are inclusive, and depend on the vocab size,
+  num_oov_buckets and default_value.
 
   In case one of the tokens contains the '\n' or '\r' characters or is empty it
   will be discarded since we are currently writing the vocabularies as text
@@ -356,6 +378,7 @@ def apply_vocab(x, deferred_vocab_filename_tensor, default_value=-1,
       tensor and a deferred vocab filename as an input and return a lookup `op`
       along with the table size, by default `apply_vocab` performs a
       lookup.string_to_index_table_from_file for the table lookup.
+    name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor` or `SparseTensor` where each string value is mapped to an
@@ -370,37 +393,39 @@ def apply_vocab(x, deferred_vocab_filename_tensor, default_value=-1,
     table_size = table.size()
     return table.lookup(y), table_size
 
-  lookup_fn = lookup_fn or _apply_vocab
+  with tf.name_scope(name, 'apply_vocab'):
+    lookup_fn = lookup_fn or _apply_vocab
 
-  result, table_size = api.apply_function(
-      lookup_fn, x, deferred_vocab_filename_tensor)
+    result, table_size = api.apply_function(
+        lookup_fn, x, deferred_vocab_filename_tensor)
 
-  # Set the min and max values of the domain, where the max value is a
-  # `Future` wrapping the max_value tensor.  Note that min_value is a regular
-  # Python value while max_value is a tensor.  This tensor's value cannot be
-  # known until the vocab has been computed.
-  #
-  # `table_size` includes the num oov buckets.  The default value is only used
-  # if num_oov_buckets > 0.
-  min_value = 0
-  max_value = table_size - 1
-  if num_oov_buckets <= 0:
-    min_value = min(min_value, default_value)
-    max_value = tf.maximum(max_value, default_value)
-  column_schema = dataset_schema.infer_column_schema_from_tensor(result)
-  # Extract the relative vocab filename from the absolute pathname.
-  file_name_tensor = tf.string_split(
-      [deferred_vocab_filename_tensor], '/').values[-1]
-  column_schema.domain = dataset_schema.IntDomain(
-      result.dtype, min_value=min_value,
-      max_value=futures.Future(max_value.name),
-      vocabulary_file=futures.Future(file_name_tensor.name))
-  api.set_column_schema(result, column_schema)
+    # Set the min and max values of the domain, where the max value is a
+    # `Future` wrapping the max_value tensor.  Note that min_value is a regular
+    # Python value while max_value is a tensor.  This tensor's value cannot be
+    # known until the vocab has been computed.
+    #
+    # `table_size` includes the num oov buckets.  The default value is only used
+    # if num_oov_buckets > 0.
+    min_value = 0
+    max_value = table_size - 1
+    if num_oov_buckets <= 0:
+      min_value = min(min_value, default_value)
+      max_value = tf.maximum(max_value, default_value)
+    column_schema = dataset_schema.infer_column_schema_from_tensor(result)
+    # Extract the relative vocab filename from the absolute pathname.
+    file_name_tensor = tf.string_split(
+        [deferred_vocab_filename_tensor], '/').values[-1]
+    column_schema.domain = dataset_schema.IntDomain(
+        result.dtype, min_value=min_value,
+        max_value=futures.Future(max_value.name),
+        is_categorical=True,
+        vocabulary_file=futures.Future(file_name_tensor.name))
+    api.set_column_schema(result, column_schema)
 
-  return result
+    return result
 
 
-def segment_indices(segment_ids):
+def segment_indices(segment_ids, name=None):
   """Returns a `Tensor` of indices within each segment.
 
   segment_ids should be a sequence of non-decreasing non-negative integers that
@@ -414,18 +439,20 @@ def segment_indices(segment_ids):
   Args:
     segment_ids: A 1-d `Tensor` containing an non-decreasing sequence of
         non-negative integers with type `tf.int32` or `tf.int64`.
+    name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor` containing the indices within each segment.
   """
-  segment_lengths = tf.segment_sum(tf.ones_like(segment_ids), segment_ids)
-  segment_starts = tf.gather(tf.concat([[0], tf.cumsum(segment_lengths)], 0),
-                             segment_ids)
-  return (tf.range(tf.size(segment_ids, out_type=segment_ids.dtype)) -
-          segment_starts)
+  with tf.name_scope(name, 'segment_indices'):
+    segment_lengths = tf.segment_sum(tf.ones_like(segment_ids), segment_ids)
+    segment_starts = tf.gather(tf.concat([[0], tf.cumsum(segment_lengths)], 0),
+                               segment_ids)
+    return (tf.range(tf.size(segment_ids, out_type=segment_ids.dtype)) -
+            segment_starts)
 
 
-def ngrams(tokens, ngram_range, separator):
+def ngrams(tokens, ngram_range, separator, name=None):
   """Create a `SparseTensor` of n-grams.
 
   Given a `SparseTensor` of tokens, returns a `SparseTensor` containing the
@@ -461,6 +488,7 @@ def ngrams(tokens, ngram_range, separator):
     ngram_range: A pair with the range (inclusive) of ngram sizes to return.
     separator: a string that will be inserted between tokens when ngrams are
       constructed.
+    name: (Optional) A name for this operation.
 
   Returns:
     A `SparseTensor` containing all ngrams from each row of the input.
@@ -498,60 +526,61 @@ def ngrams(tokens, ngram_range, separator):
   #
   # This results in tensors of ngrams, their batch indices and a boolean mask,
   # which we then use to construct the output SparseTensor.
+  with tf.name_scope(name, 'ngrams'):
+    if ngram_range[0] < 1 or ngram_range[1] < ngram_range[0]:
+      raise ValueError('Invalid ngram_range: %r' % (ngram_range,))
 
-  if ngram_range[0] < 1 or ngram_range[1] < ngram_range[0]:
-    raise ValueError('Invalid ngram_range: %r' % (ngram_range,))
+    def _sliding_windows(values, num_shifts, fill_value):
+      buffered_values = tf.concat(
+          [values, tf.fill([num_shifts - 1], fill_value)], 0)
+      return [tf.slice(buffered_values, [i], tf.shape(values))
+              for i in range(num_shifts)]
 
-  def _sliding_windows(values, num_shifts, fill_value):
-    buffered_values = tf.concat(
-        [values, tf.fill([num_shifts - 1], fill_value)], 0)
-    return [tf.slice(buffered_values, [i], tf.shape(values))
-            for i in range(num_shifts)]
+    shifted_batch_indices = _sliding_windows(
+        tokens.indices[:, 0], ngram_range[1] + 1,
+        tf.constant(-1, dtype=tf.int64))
+    shifted_tokens = _sliding_windows(tokens.values, ngram_range[1] + 1, '')
 
-  shifted_batch_indices = _sliding_windows(
-      tokens.indices[:, 0], ngram_range[1] + 1, tf.constant(-1, dtype=tf.int64))
-  shifted_tokens = _sliding_windows(tokens.values, ngram_range[1] + 1, '')
+    # Construct a tensor of the form
+    # [['a', 'ab, 'abc'], ['b', 'bcd', cde'], ...]
+    def _string_join(tensors):
+      if tensors:
+        return tf.string_join(tensors, separator=separator)
+      else:
+        return
 
-  # Construct a tensor of the form
-  # [['a', 'ab, 'abc'], ['b', 'bcd', cde'], ...]
-  def _string_join(tensors):
-    if tensors:
-      return tf.string_join(tensors, separator=separator)
-    else:
-      return
+    ngrams_array = [_string_join(shifted_tokens[:k])
+                    for k in range(ngram_range[0], ngram_range[1] + 1)]
+    ngrams_tensor = tf.stack(ngrams_array, 1)
 
-  ngrams_array = [_string_join(shifted_tokens[:k])
-                  for k in range(ngram_range[0], ngram_range[1] + 1)]
-  ngrams_tensor = tf.stack(ngrams_array, 1)
+    # Construct a boolean mask for whether each ngram in ngram_tensor is valid,
+    # in that each character cam from the same batch.
+    valid_ngram = tf.equal(tf.cumprod(
+        tf.to_int32(tf.equal(tf.stack(shifted_batch_indices, 1),
+                             tf.expand_dims(shifted_batch_indices[0], 1))),
+        axis=1), 1)
+    valid_ngram = valid_ngram[:, (ngram_range[0] - 1):ngram_range[1]]
 
-  # Construct a boolean mask for whether each ngram in ngram_tensor is valid,
-  # in that each character cam from the same batch.
-  valid_ngram = tf.equal(tf.cumprod(
-      tf.to_int32(tf.equal(tf.stack(shifted_batch_indices, 1),
-                           tf.expand_dims(shifted_batch_indices[0], 1))),
-      axis=1), 1)
-  valid_ngram = valid_ngram[:, (ngram_range[0] - 1):ngram_range[1]]
+    # Construct a tensor with the batch that each ngram in ngram_tensor belongs
+    # to.
+    batch_indices = tf.tile(tf.expand_dims(tokens.indices[:, 0], 1),
+                            [1, ngram_range[1] + 1 - ngram_range[0]])
 
-  # Construct a tensor with the batch that each ngram in ngram_tensor belongs
-  # to.
-  batch_indices = tf.tile(tf.expand_dims(tokens.indices[:, 0], 1),
-                          [1, ngram_range[1] + 1 - ngram_range[0]])
-
-  # Apply the boolean mask and construct a SparseTensor with the given indices
-  # and values, where another index is added to give the position within a
-  # batch.
-  batch_indices = tf.boolean_mask(batch_indices, valid_ngram)
-  ngrams_tensor = tf.boolean_mask(ngrams_tensor, valid_ngram)
-  instance_indices = segment_indices(batch_indices)
-  dense_shape_second_dim = tf.maximum(tf.reduce_max(instance_indices), -1) + 1
-  return tf.SparseTensor(
-      indices=tf.stack([batch_indices, instance_indices], 1),
-      values=ngrams_tensor,
-      dense_shape=tf.stack(
-          [tokens.dense_shape[0], dense_shape_second_dim]))
+    # Apply the boolean mask and construct a SparseTensor with the given indices
+    # and values, where another index is added to give the position within a
+    # batch.
+    batch_indices = tf.boolean_mask(batch_indices, valid_ngram)
+    ngrams_tensor = tf.boolean_mask(ngrams_tensor, valid_ngram)
+    instance_indices = segment_indices(batch_indices)
+    dense_shape_second_dim = tf.maximum(tf.reduce_max(instance_indices), -1) + 1
+    return tf.SparseTensor(
+        indices=tf.stack([batch_indices, instance_indices], 1),
+        values=ngrams_tensor,
+        dense_shape=tf.stack(
+            [tokens.dense_shape[0], dense_shape_second_dim]))
 
 
-def hash_strings(strings, hash_buckets, key=None):
+def hash_strings(strings, hash_buckets, key=None, name=None):
   """Hash strings into buckets.
 
   Args:
@@ -560,6 +589,7 @@ def hash_strings(strings, hash_buckets, key=None):
     key: optional. An array of two Python `uint64`. If passed, output will be
       a deterministic function of `strings` and `key`. Note that hashing will be
       slower if this value is specified.
+    name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor` or `SparseTensor` of dtype `tf.int64` with the same shape as the
@@ -580,10 +610,10 @@ def hash_strings(strings, hash_buckets, key=None):
                            values=hash_strings(
                                strings.values, hash_buckets, key),
                            dense_shape=strings.dense_shape)
+  if name is None:
+    name = 'hash_strings'
   if key is None:
-    return tf.string_to_hash_bucket_fast(
-        strings, hash_buckets, name='hash_strings')
-  return tf.string_to_hash_bucket_strong(
-      strings, hash_buckets, key, name='hash_strings')
+    return tf.string_to_hash_bucket_fast(strings, hash_buckets, name=name)
+  return tf.string_to_hash_bucket_strong(strings, hash_buckets, key, name=name)
 
 

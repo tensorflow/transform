@@ -37,7 +37,6 @@ from tensorflow.python.framework import test_util
 # pylint: enable=g-import-not-at-top
 
 
-
 class AnalyzerImplsTest(test_util.TensorFlowTestCase):
 
   def assertCombine(self, combine_fn, shards, expected, check_np_type=False):
