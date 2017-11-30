@@ -22,12 +22,8 @@ import csv
 
 import numpy as np
 import six
-from six.moves import cStringIO
+from six import moves
 import tensorflow as tf
-
-
-if six.PY3:
-  long = int  # pylint: disable=redefined-builtin,invalid-name
 
 
 def _make_cast_fn(dtype):
@@ -241,10 +237,12 @@ class _SparseFeatureHandler(object):
     else:
       values = []
 
+    # In Python 2, if the value is too large to fit into an int, int(..) returns
+    # a long, but ints are cheaper to use when possible.
     if index_str and self._reader:
-      indices = map(long, _decode_with_reader(index_str, self._reader))
+      indices = map(int, _decode_with_reader(index_str, self._reader))
     elif index_str:
-      indices = [long(index_str)]
+      indices = [int(index_str)]
     else:
       indices = []
 
@@ -351,7 +349,7 @@ class CsvCoder(object):
         delimiter: A one-character string used to separate fields.
       """
       self._state = (delimiter)
-      self._buffer = cStringIO()
+      self._buffer = moves.cStringIO()
 
       # Since we use self._writer to encode individual rows, we set
       # lineterminator='' so that self._writer doesn't add a newline.

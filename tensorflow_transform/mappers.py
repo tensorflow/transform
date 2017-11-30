@@ -25,6 +25,7 @@ from tensorflow_transform.tf_metadata import dataset_schema
 from tensorflow_transform.tf_metadata import futures
 
 from tensorflow.contrib import lookup
+from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
 
 
 def scale_by_min_max(x, output_min=0.0, output_max=1.0, name=None):
@@ -387,8 +388,9 @@ def apply_vocab(x, deferred_vocab_filename_tensor, default_value=-1,
   """
 
   def _apply_vocab(y, deferred_vocab_filename_tensor):
-    table = lookup.string_to_index_table_from_file(
-        deferred_vocab_filename_tensor, num_oov_buckets=num_oov_buckets,
+    table = lookup.index_table_from_file(
+        deferred_vocab_filename_tensor,
+        num_oov_buckets=num_oov_buckets,
         default_value=default_value)
     table_size = table.size()
     return table.lookup(y), table_size
@@ -617,3 +619,50 @@ def hash_strings(strings, hash_buckets, key=None, name=None):
   return tf.string_to_hash_bucket_strong(strings, hash_buckets, key, name=name)
 
 
+def bucketize(x, num_buckets, epsilon=None, name=None):
+  """Returns a bucketized column, with a bucket index assigned to each input.
+
+  Args:
+    x: A numeric input `Tensor` whose values should be mapped to buckets.
+    num_buckets: Values in the input `x` are divided into approximately
+      equal-sized buckets, where the number of buckets is num_buckets.
+    epsilon: (Optional) Error tolerance, typically a small fraction close to
+      zero. If a value is not specified by the caller, a suitable value is
+      computed based on experimental results.  For `num_buckets` less than 100,
+      the value of 0.01 is chosen to handle a dataset of up to ~1 trillion input
+      data values.  If `num_buckets` is larger, then epsilon is set to
+      (1/`num_buckets`) to enforce a stricter error tolerance, because more
+      buckets will result in smaller range for each bucket, and so we want the
+      the boundaries to be less fuzzy.
+      See analyzers.quantiles() for details.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    A `Tensor` of the same shape as `x`, with each element in the
+    returned tensor representing the bucketized value. Bucketized value is
+    in the range [0, num_buckets).
+
+  Raises:
+    ValueError: If value of num_buckets is not > 1.
+  """
+  with tf.name_scope(name, 'bucketize'):
+    if not isinstance(num_buckets, int):
+      raise TypeError('num_buckets must be an int, got %s', type(num_buckets))
+
+    if num_buckets < 1:
+      raise ValueError('Invalid num_buckets %d', num_buckets)
+
+    if epsilon is None:
+      # See explanation in args documentation for epsilon.
+      epsilon = min(1.0 / num_buckets, 0.01)
+
+    bucket_boundaries = analyzers.quantiles(x, num_buckets, epsilon)
+    buckets = quantile_ops.bucketize_with_input_boundaries(
+        x,
+        boundaries=bucket_boundaries,
+        name='assign_buckets')
+
+    # Convert to int64 because int32 is not compatible with tf.Example parser.
+    # See _TF_EXAMPLE_ALLOWED_TYPES in FixedColumnRepresentation()
+    # in tf_metadata/dataset_schema.py
+    return tf.to_int64(buckets)

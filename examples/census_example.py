@@ -30,14 +30,12 @@ from apache_beam.io import textio
 from apache_beam.io import tfrecordio
 from tensorflow.contrib import learn
 from tensorflow.contrib import lookup
-from tensorflow.contrib.layers import feature_column
 from tensorflow.contrib.learn.python.learn.utils import input_fn_utils
 
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform.coders import csv_coder
 from tensorflow_transform.coders import example_proto_coder
-from tensorflow_transform.saved import input_fn_maker
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
@@ -126,7 +124,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
 
     # For the label column we provide the mapping from string to index.
     def convert_label(label):
-      table = lookup.string_to_index_table_from_tensor(['>50K', '<=50K'])
+      table = lookup.index_table_from_tensor(['>50K', '<=50K'])
       return table.lookup(label)
     outputs[LABEL_KEY] = tft.apply_function(convert_label, inputs[LABEL_KEY])
 
@@ -233,11 +231,6 @@ def _make_training_input_fn(working_dir, filebase, batch_size):
         os.path.join(working_dir, filebase + '*'),
         batch_size, transformed_feature_spec, tf.TFRecordReader)
 
-    # Apply convert_scalars_to_vectors to avoid errors where feature columns
-    # do not accept scalars but require length-1 vectors.
-    transformed_features = input_fn_maker.convert_scalars_to_vectors(
-        transformed_features)
-
     # Extract features and label from the transformed tensors.
     transformed_labels = transformed_features.pop(LABEL_KEY)
 
@@ -276,10 +269,6 @@ def _make_serving_input_fn(working_dir):
             os.path.join(working_dir, transform_fn_io.TRANSFORM_FN_DIR),
             raw_features))
 
-    # Apply convert_scalars_to_vectors since this was done in training.
-    transformed_features = input_fn_maker.convert_scalars_to_vectors(
-        transformed_features)
-
     return input_fn_utils.InputFnOps(transformed_features, None, default_inputs)
 
   return serving_input_fn
@@ -300,15 +289,15 @@ def train_and_evaluate(working_dir, num_train_instances=NUM_TRAIN_INSTANCES,
   """
 
   # Wrap scalars as real valued columns.
-  real_valued_columns = [feature_column.real_valued_column(key)
+  real_valued_columns = [tf.feature_column.numeric_column(key, shape=())
                          for key in NUMERIC_FEATURE_KEYS]
 
   # Wrap categorical columns.  Note the combiner is irrelevant since the input
   # only has one value set per feature per instance.
   one_hot_columns = [
-      feature_column.sparse_column_with_integerized_feature(
-          key, bucket_size=bucket_size, combiner='sum')
-      for key, bucket_size in zip(CATEGORICAL_FEATURE_KEYS, BUCKET_SIZES)]
+      tf.feature_column.categorical_column_with_identity(
+          key, num_buckets=num_buckets)
+      for key, num_buckets in zip(CATEGORICAL_FEATURE_KEYS, BUCKET_SIZES)]
 
   estimator = learn.LinearClassifier(real_valued_columns + one_hot_columns)
 

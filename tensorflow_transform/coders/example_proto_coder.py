@@ -63,12 +63,13 @@ def _make_cast_fn(np_dtype):
       # casting.
       return x
 
+  # This is in agreement with Tensorflow conversions for Unicode values for both
+  # Python 2 and 3 (and also works for non-Unicode objects). It is also in
+  # agreement with the testWithUnicode of the Beam impl.
+  def utf8(s):
+    return s if isinstance(s, bytes) else s.encode('utf-8')
+
   def string_cast(x):
-    # This is in agreement with Tensorflow conversions for Unicode values (and
-    # it also works for non-Unicode objects). It is also in agreement with the
-    # testTransformUnicode of the Beam impl.
-    def utf8(s):
-      return s.encode('utf-8') if six.PY2 and isinstance(s, unicode) else s
     return map(utf8, x) if isinstance(x, (list, np.ndarray)) else utf8(x)
 
   if issubclass(np_dtype, np.floating):

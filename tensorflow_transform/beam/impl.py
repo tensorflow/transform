@@ -86,32 +86,7 @@ from tensorflow_transform.tf_metadata import dataset_schema
 
 _DEFAULT_DESIRED_BATCH_SIZE = 1000
 
-_DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER = {
-    # We rely on Beam to manage concurrency, i.e. we expect it to run one
-    # session per CPU--so we don't want to proliferate TF threads.
-    # Nonetheless we provide 4 threads per session for TF ops, 2 inter-
-    # and 2 intra-thread.  In many cases only 2 of these will be runnable
-    # at any given time.  This approach oversubscribes a bit to make sure
-    # the CPUs are really saturated.
-    #
-    beam.runners.DataflowRunner:
-        tf.ConfigProto(
-            use_per_session_threads=True,
-            inter_op_parallelism_threads=2,
-            intra_op_parallelism_threads=2).SerializeToString(),
-
-}
-
 _METRICS_NAMESPACE = 'tensorflow_transform'
-
-
-def _maybe_deserialize_tf_config(serialized_tf_config):
-  if serialized_tf_config is None:
-    return None
-
-  result = tf.ConfigProto()
-  result.ParseFromString(serialized_tf_config)
-  return result
 
 
 def _clear_shared_state_after_barrier(pipeline, input_barrier):
@@ -202,18 +177,20 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
   Args:
     input_schema: A `Schema` representing the inputs of this transform phase.
-    output_schema: A `Schema` representing the outputs of this transform phase.
-    exclude_outputs: A list of names of outputs to exclude.
-    desired_batch_size: The desired number of instances to convert into a batch
-      before feeding to Tensorflow.
     serialized_tf_config: A serialized tf.ConfigProto to use in sessions. None
       implies use Tensorflow defaults.
+    shared_graph_state_handle: an instance of shared.Shared() that allows us to
+      load the graph once and share it across multiple threads in the current
+      process.
+    desired_batch_size: (Optional) The desired number of instances to convert
+      into a batch before feeding to Tensorflow.
+    exclude_outputs: (Optional) A list of names of outputs to exclude.
   """
 
   # Thread-safe.
   class _GraphState(object):
 
-    def __init__(self, saved_model_dir, input_schema, output_schema,
+    def __init__(self, saved_model_dir, input_schema, exclude_outputs,
                  tf_config):
       self.saved_model_dir = saved_model_dir
       self.session = tf.Session(graph=tf.Graph(), config=tf_config)
@@ -224,35 +201,34 @@ class _RunMetaGraphDoFn(beam.DoFn):
         self.session.run(tf.tables_initializer())
 
         input_schema_keys = input_schema.column_schemas.keys()
-        output_schema_keys = output_schema.column_schemas.keys()
         extra_input_keys = set(input_schema_keys).difference(inputs.keys())
         if extra_input_keys:
           raise ValueError('Input schema contained keys not in graph: %s' %
                            input_schema_keys)
-        extra_output_keys = set(output_schema_keys).difference(outputs.keys())
+        extra_output_keys = set(exclude_outputs).difference(outputs.keys())
         if extra_output_keys:
-          raise ValueError('Output schema contained keys not in graph: %s' %
-                           extra_output_keys)
+          raise ValueError('Excluded outputs contained keys not in graph: %s' %
+                           exclude_outputs)
+        non_excluded_output_keys = set(outputs.keys()).difference(
+            exclude_outputs)
         self.inputs = {key: inputs[key] for key in input_schema_keys}
-        self.outputs = {key: outputs[key] for key in output_schema_keys}
+        self.outputs = {key: outputs[key] for key in non_excluded_output_keys}
 
   def __init__(self,
                input_schema,
-               output_schema,
                serialized_tf_config,
                shared_graph_state_handle,
-               exclude_outputs=None,
-               desired_batch_size=None):
+               desired_batch_size=None,
+               exclude_outputs=None):
     super(_RunMetaGraphDoFn, self).__init__()
     self._input_schema = input_schema
-    self._output_schema = output_schema
+    self._exclude_outputs = (
+        exclude_outputs if exclude_outputs is not None else [])
     self._serialized_tf_config = serialized_tf_config
 
     # The shared graph state handle allows us to load the graph once and share
     # it across multiple threads in the current process.
     self._shared_graph_state_handle = shared_graph_state_handle
-
-    self._exclude_outputs = exclude_outputs
 
     # Resolving the value of _DEFAULT_DESIRED_BATCH_SIZE at runtime in order to
     # allow its value to be overridden if necessary.
@@ -289,9 +265,10 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
   def _make_graph_state(self, saved_model_dir):
     start = datetime.datetime.now()
-    tf_config = _maybe_deserialize_tf_config(self._serialized_tf_config)
+    tf_config = analyzer_impls._maybe_deserialize_tf_config(  # pylint: disable=protected-access
+        self._serialized_tf_config)
     result = self._GraphState(saved_model_dir, self._input_schema,
-                              self._output_schema, tf_config)
+                              self._exclude_outputs, tf_config)
     self._graph_load_seconds_distribution.update(
         int((datetime.datetime.now() - start).total_seconds()))
     return result
@@ -331,24 +308,13 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
 
 def _assert_tensorflow_version():
-  try:
-    # Fail with a clear error in case we are not using a compatible TF version.
-    with tf.Session(graph=tf.Graph()):
-      # Even if the file doesn't exist, this session never gets executed we just
-      # use it to find out if the string_to_index_table_from_file initializer is
-      # compatible with tf.Transform.
-      vocabulary_file = tf.constant('__test_file__')
-      tf.contrib.lookup.string_to_index_table_from_file(
-          vocabulary_file=vocabulary_file)
-  except TypeError:
-    # Catch the following error from the previous TF version:
-    # TypeError: Using a `tf.Tensor` as a Python `bool` is not allowed.
-    # Use `if t is not None:` instead of `if t:` to test if a tensor is defined,
-    # and use TensorFlow ops such as tf.cond to execute subgraphs conditioned on
-    # the value of a tensor."
+  # Fail with a clear error in case we are not using a compatible TF version.
+  major, minor, _ = tf.__version__.split('.')
+  if int(major) != 1 or int(minor) < 4:
     raise RuntimeError(
-        'Tensorflow version 1.3 is required. Please install the latest version '
-        'from https://github.com/tensorflow/tensorflow.')
+        'Tensorflow version >= 1.4, < 2 is required. Found (%s). Please '
+        'install the latest 1.x version from '
+        'https://github.com/tensorflow/tensorflow. ' % tf.__version__)
 
 
 def _asset_files_supported():
@@ -696,8 +662,9 @@ class AnalyzeDataset(beam.PTransform):
     original_table_initializers = list(table_initializers)
     del table_initializers[:]
 
-    serialized_tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(
-        input_values.pipeline.runner)
+    serialized_tf_config = (
+        analyzer_impls._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
+            input_values.pipeline.runner))
     for level, phase in enumerate(phases):
       # Create a SavedModel that describes the mapping from the input data
       # to the inputs of the analyzers at this level.  The colum names of the
@@ -707,8 +674,6 @@ class AnalyzeDataset(beam.PTransform):
       for analyzer in phase.analyzers:
         for input_tensor in analyzer.inputs:
           analyzer_inputs[input_tensor.name] = input_tensor
-      analyzer_inputs_schema = impl_helper.infer_feature_schema(
-          graph, analyzer_inputs)
       table_initializers.extend(phase.table_initializers)
       unbound_saved_model_dir = _make_unique_temp_dir(base_temp_dir)
       _write_saved_transform(
@@ -726,7 +691,6 @@ class AnalyzeDataset(beam.PTransform):
           | 'ComputeAnalyzerInputs[%d]' % level >> beam.ParDo(
               _RunMetaGraphDoFn(
                   input_schema,
-                  analyzer_inputs_schema,
                   serialized_tf_config,
                   shared_graph_state_handle=shared.Shared()),
               saved_model_dir=beam.pvalue.AsSingleton(saved_model_dir)))
@@ -735,7 +699,7 @@ class AnalyzeDataset(beam.PTransform):
       # map from tensor names to singleton PCollections of `_TensorValue`s.
       analyzer_outputs_dict = (
           analyzer_input_values
-          | 'ComputeAnalyzerOutputs_%d' % level
+          | 'ComputeAnalyzerOutputs[%d]' % level
           >> _ComputeAnalyzerOutputs(phase.analyzers, base_temp_dir))
 
       # Update the mapping for all analyzers.
@@ -879,14 +843,14 @@ class TransformDataset(beam.PTransform):
       return impl_helper.to_instance_dicts(
           impl_helper.make_output_dict(output_metadata.schema, batch_dict))
 
-    serialized_tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(
-        self.pipeline.runner)
+    serialized_tf_config = (
+        analyzer_impls._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
+            self.pipeline.runner))
     output_instances = (
         input_values
         | 'Transform' >> beam.ParDo(
             _RunMetaGraphDoFn(
                 input_metadata.schema,
-                output_metadata.schema,
                 serialized_tf_config,
                 shared_graph_state_handle=shared.Shared(),
                 exclude_outputs=self._exclude_outputs),

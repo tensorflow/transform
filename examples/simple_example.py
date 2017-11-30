@@ -61,15 +61,11 @@ def main():
   }))
 
   with beam_impl.Context(temp_dir=tempfile.mkdtemp()):
-    transform_fn = (
-        (raw_data, raw_data_metadata)
-        | beam_impl.AnalyzeDataset(preprocessing_fn))
-    transformed_dataset = (
-        ((raw_data, raw_data_metadata), transform_fn)
-        | beam_impl.TransformDataset())
+    transformed_dataset, transform_fn = (  # pylint: disable=unused-variable
+        (raw_data, raw_data_metadata) | beam_impl.AnalyzeAndTransformDataset(
+            preprocessing_fn))
 
-  # pylint: disable=unused-variable
-  transformed_data, transformed_metadata = transformed_dataset
+  transformed_data, transformed_metadata = transformed_dataset  # pylint: disable=unused-variable
 
   pprint.pprint(transformed_data)
 

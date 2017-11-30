@@ -1901,6 +1901,170 @@ class BeamImplTest(tft_unit.TransformTestCase):
     with self.assertRaises(ValueError):
       beam_impl.Context.create_base_temp_dir()
 
+  def _test_bucketization_helper(
+      self, test_inputs, expected_boundaries, input_dtype, do_shuffle=False,
+      epsilon=None):
+    # Shuffle the input to add randomness to input generated with
+    # simple range().
+    if do_shuffle:
+      random.shuffle(test_inputs)
+
+    def preprocessing_fn(inputs):
+      return {
+          'q_b': tft.bucketize(inputs['x'],
+                               num_buckets=len(expected_boundaries)+1,
+                               epsilon=epsilon)
+      }
+
+    input_data = [{'x': [x]} for x in test_inputs]
+
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(
+            input_dtype, [1], sch.FixedColumnRepresentation())
+    })
+
+    # Sort the input based on value, index is used to create expected_data.
+    indexed_input = enumerate(test_inputs)
+    sorted_list = sorted(indexed_input,
+                         cmp=lambda (xi, xv), (yi, yv): cmp(xv, yv))
+
+    # Expected data has the same size as input, one bucket per input value.
+    expected_data = [None] * len(test_inputs)
+    bucket = 0
+    for (index, x) in sorted_list:
+      # Increment the bucket number when crossing the boundary
+      if (bucket < len(expected_boundaries) and
+          x >= expected_boundaries[bucket]):
+        bucket += 1
+      expected_data[index] = {'q_b': [bucket]}
+
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'q_b': sch.ColumnSchema(
+            tf.int64, [1], sch.FixedColumnRepresentation())
+    })
+
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata, preprocessing_fn, expected_data,
+        expected_metadata)
+
+  def _test_bucketization_for_type(self, input_dtype):
+    self._test_bucketization_helper(range(1, 10), [4, 7], input_dtype)
+
+    self._test_bucketization_helper(range(1, 100), [26, 51, 76], input_dtype)
+
+    # The following is similar to range(1, 100) test above, except that
+    # only odd numbers are in the input; so boundaries differ (26 -> 27 and
+    # 76 -> 77).
+    self._test_bucketization_helper(range(1, 100, 2), [27, 51, 77], input_dtype)
+
+    # Test some inversely sorted inputs, and with different strides, and
+    # boundaries/buckets.
+    self._test_bucketization_helper(range(9, 0, -1), [4, 7], input_dtype)
+    self._test_bucketization_helper(range(19, 0, -1), [11], input_dtype)
+    self._test_bucketization_helper(range(99, 0, -1), [51], input_dtype)
+    self._test_bucketization_helper(range(99, 0, -1), [34, 67], input_dtype)
+    self._test_bucketization_helper(range(99, 0, -2), [34, 68], input_dtype)
+    self._test_bucketization_helper(
+        range(99, 0, -1), [11, 21, 31, 41, 51, 61, 71, 81, 91], input_dtype)
+
+    # These tests do a random shuffle of the inputs, which must not affect the
+    # boundaries (or the computed buckets)
+    self._test_bucketization_helper(
+        range(99, 0, -1), [11, 21, 31, 41, 51, 61, 71, 81, 91], input_dtype,
+        do_shuffle=True)
+    self._test_bucketization_helper(
+        range(1, 100), [11, 21, 31, 41, 51, 61, 71, 81, 91], input_dtype,
+        do_shuffle=True)
+
+    # The following test is with multiple batches (3 batches with default
+    # batch of 1000).
+    self._test_bucketization_helper(range(1, 3000), [1503], input_dtype)
+    self._test_bucketization_helper(range(1, 3000), [1001, 2001], input_dtype)
+
+    # Test with specific error for bucket boundaries. This is same as
+    # the test above with 3 batches and a single boundary, but with a stricter
+    # error tolerance (0.001) than the default error (0.01). The result is that
+    # the computed boundary in the test below is closer to the middle (1501)
+    # than that computed by the boundary of 1503 above.
+    self._test_bucketization_helper(range(1, 3000),
+                                    [1501],
+                                    input_dtype,
+                                    epsilon=0.001)
+    # Test with specific error for bucket boundaries, with more relaxed error
+    # tolerance (0.1) than the default (0.01). Now the boundary diverges further
+    # to 1519 (compared to boundary of 1501 with error 0.001, and boundary of
+    # 1503 with error 0.01).
+    self._test_bucketization_helper(range(1, 3000),
+                                    [1519],
+                                    input_dtype,
+                                    epsilon=0.1)
+
+  # Test for all integral types, each type is in a separate testcase to
+  # increase parallelism of test shards (and reduce test time from ~250 seconds
+  # to ~80 seconds)
+  def testBucketizationInt32(self):
+    self._test_bucketization_for_type(tf.int32)
+
+  def testBucketizationInt64(self):
+    self._test_bucketization_for_type(tf.int64)
+
+  def testBucketizationFloat32(self):
+    self._test_bucketization_for_type(tf.float32)
+
+  def testBucketizationFloat64(self):
+    self._test_bucketization_for_type(tf.float64)
+
+  def testBucketizationDouble(self):
+    self._test_bucketization_for_type(tf.double)
+
+  def testBucketizationFloat16Failure(self):
+    with self.assertRaisesRegexp(
+        TypeError,
+        '.*DataType float16 not in list of allowed values.*'):
+      self._test_bucketization_for_type(tf.float16)
+
+  def _test_quantile_buckets_helper(self, input_dtype):
+
+    def preprocessing_fn(inputs):
+      return {'q_b': tft.quantiles(inputs['x'], num_buckets=3, epsilon=0.00001)}
+
+    # Current batch size is 1000, force 3 batches.
+    input_data = []
+    for x in range(1, 3000):
+      input_data += [{'x': [x]}]
+
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(input_dtype, [1], sch.FixedColumnRepresentation())
+    })
+    # The expected data has 2 boundaries that divides the data into 3 buckets.
+    expected_data = [{'q_b': [1001, 2001]},
+                     {'q_b': [1001, 2001]},
+                     {'q_b': [1001, 2001]}]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'q_b': sch.ColumnSchema(
+            tf.float32, [None], sch.FixedColumnRepresentation())
+    })
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
+  # Test for all integral types, each type is in a separate testcase to
+  # increase parallelism of test shards and reduce test time.
+  def testQuantileBuckets_int32(self):
+    self._test_quantile_buckets_helper(tf.int32)
+
+  def testQuantileBuckets_int64(self):
+    self._test_quantile_buckets_helper(tf.int64)
+
+  def testQuantileBuckets_float32(self):
+    self._test_quantile_buckets_helper(tf.float32)
+
+  def testQuantileBuckets_float64(self):
+    self._test_quantile_buckets_helper(tf.float64)
+
+  def testQuantileBuckets_double(self):
+    self._test_quantile_buckets_helper(tf.double)
+
 
   def testUniquesWithFrequency(self):
     outfile = 'uniques_vocab_with_frequency'
@@ -2085,6 +2249,46 @@ class BeamImplTest(tft_unit.TransformTestCase):
         context.exception.message,
         r'Cannot feed value of shape \(1, 0\)')
 
+  # Example to demonstrate QuantileCombiner which implements combiner methods
+  # such as add_input() and merge_accumulators() that achieve computation
+  # through TF Graph and execution using TF Sesssion, e.g. graphs that contain
+  # TF Quantile Ops.
+  class _QuantileCombiner(beam_analyzer_impls._ComputeQuantiles):
+
+    def __init__(self, fn, output_dtype):
+      super(BeamImplTest._QuantileCombiner, self).__init__(
+          num_quantiles=2, epsilon=0.00001)
+
+    @property
+    def output_dtype(self):
+      return tf.int32
+
+  def testQuantileViaCombineAnalyzer(self):
+
+    def preprocessing_fn(inputs):
+      return {
+          'buckets': tft.combine_analyzer(
+              inputs['x'], combiner=self._QuantileCombiner(np.sum, tf.int32)),
+      }
+
+    input_dtype = tf.int32
+    input_data = []
+    for x in range(1, 1000):
+      input_data += [{'x': [x]}]
+
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(input_dtype, [1], sch.FixedColumnRepresentation())
+    })
+    expected_data = [{
+        'buckets': [1, 501, 999]
+    }]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'buckets': sch.ColumnSchema(
+            tf.int32, [None], sch.FixedColumnRepresentation()),
+    })
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
 
 
 if __name__ == '__main__':

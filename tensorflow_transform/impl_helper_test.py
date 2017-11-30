@@ -394,7 +394,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     # Test a preprocessing function with a table that is not wrapped in
     # `apply_function`.
     def preprocessing_fn(inputs):
-      table = lookup.string_to_index_table_from_tensor(['a', 'b'])
+      table = lookup.index_table_from_tensor(['a', 'b'])
       integerized = table.lookup(inputs['x'])
       return {'integerized': integerized}
 

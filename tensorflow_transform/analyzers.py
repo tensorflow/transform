@@ -425,6 +425,50 @@ class _QuantilesSpec(object):
     return tf.float32
 
 
+def quantiles(x, num_buckets, epsilon, name=None):
+  """Computes the quantile boundaries of a `Tensor` over the whole dataset.
+
+  quantile boundaries are computed using approximate quantiles,
+  and error tolerance is specified using `epsilon`. The boundaries divide the
+  input tensor into approximately equal `num_buckets` parts.
+  See go/squawd for details, and how to control the error due to approximation.
+
+  Args:
+    x: An input `Tensor` or `SparseTensor`.
+    num_buckets: Values in the `x` are divided into approximately equal-sized
+      buckets, where the number of buckets is num_buckets.
+    epsilon: Error tolerance, typically a small fraction close to zero
+      (e.g. 0.01). Higher values of epsilon increase the quantile approximation,
+      and hence result in more unequal buckets, but could improve performance,
+      and resource consumption.  Some measured results on memory consumption:
+      For epsilon = 0.001, the amount of memory for each buffer to hold the
+      summary for 1 trillion input values is ~25000 bytes. If epsilon is
+      relaxed to 0.01, the buffer size drops to ~2000 bytes for the same input
+      size. If we use a strict epsilon value of 0, the buffer size is same size
+      as the input, because the intermediate stages have to remember every input
+      and the quantile boundaries can be found only after an equivalent to a
+      full sorting of input. The buffer size also determines the amount of work
+      in the different stages of the beam pipeline, in general, larger epsilon
+      results in fewer and smaller stages, and less time. For more performance
+      trade-offs see also http://web.cs.ucla.edu/~weiwang/paper/SSDBM07_2.pdf
+    name: (Optional) A name for this operation.
+
+  Returns:
+    The bucket boundaries represented as a list, with num_bucket-1 elements
+    See bucket_dtype() above for type of bucket boundaries.
+  """
+
+  with tf.name_scope(name, 'quantiles'):
+    spec = _QuantilesSpec(epsilon, num_buckets)
+    quantile_boundaries = Analyzer(
+        [x], [(spec.bucket_dtype, [1, None], False)], spec,
+        'quantiles').outputs[0]
+
+    # quantile boundaries is of the form
+    #    [nd.arrary(first, <num_buckets-1>, last)]
+    # Drop the fist and last quantile boundaries, so that we end-up with
+    # num_buckets-1 boundaries, and hence num_buckets buckets.
+    return quantile_boundaries[0:1, 1:-1]
 
 
 class _CombinerSpec(object):

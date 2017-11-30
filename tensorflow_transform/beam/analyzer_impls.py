@@ -34,7 +34,33 @@ import six
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform.beam import common
+from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
+from tensorflow.python.ops import resources
 
+_DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER = {
+    # We rely on Beam to manage concurrency, i.e. we expect it to run one
+    # session per CPU--so we don't want to proliferate TF threads.
+    # Nonetheless we provide 4 threads per session for TF ops, 2 inter-
+    # and 2 intra-thread.  In many cases only 2 of these will be runnable
+    # at any given time.  This approach oversubscribes a bit to make sure
+    # the CPUs are really saturated.
+    #
+    beam.runners.DataflowRunner:
+        tf.ConfigProto(
+            use_per_session_threads=True,
+            inter_op_parallelism_threads=2,
+            intra_op_parallelism_threads=2).SerializeToString(),
+
+}
+
+
+def _maybe_deserialize_tf_config(serialized_tf_config):
+  if serialized_tf_config is None:
+    return None
+
+  result = tf.ConfigProto()
+  result.ParseFromString(serialized_tf_config)
+  return result
 
 
 def _impl_for_analyzer(spec, temp_assets_dir):
@@ -43,6 +69,8 @@ def _impl_for_analyzer(spec, temp_assets_dir):
     return _NumericCombineAnalyzerImpl(spec)
   elif isinstance(spec, analyzers._UniquesSpec):
     return _UniquesAnalyzerImpl(spec, temp_assets_dir)
+  elif isinstance(spec, analyzers._QuantilesSpec):
+    return _QuantilesAnalyzerImpl(spec)
   elif isinstance(spec, analyzers._CombinerSpec):
     return _CombinerAnalyzerImpl(spec)
   else:
@@ -164,7 +192,7 @@ class _UniquesAnalyzerImpl(beam.PTransform):
 
     counts = (
         counts
-        | 'FilterEmptyStrings' >> beam.Filter(
+        | 'FilterProblematicStrings' >> beam.Filter(
             lambda kv: kv[0] and '\n' not in kv[0] and '\r' not in kv[0])
         | 'SwapElementsAndCounts' >> beam.KvSwap())
 
@@ -195,15 +223,15 @@ class _UniquesAnalyzerImpl(beam.PTransform):
 
     # Using AsIter instead of AsList below in order to reduce max memory
     # usage (due to AsList caching).
-    def order_by_decreasing_counts(empty_list, counts_iter, store_frequency):
+    def order_by_decreasing_counts(ignored, counts_iter, store_frequency):
       """Sort the vocabulary by frequency count."""
-      del empty_list
+      del ignored
       counts = list(counts_iter)
       if not counts:
         counts = [(1, '49d0cd50-04bb-48c0-bc6f-5b575dce351a')]
       counts.sort(reverse=True)  # Largest first.
       if store_frequency:
-        # Returns ['count1 element1\n', ... ]
+        # Returns ['count1 element1', ... ]
         return ['{} {}'.format(count, element) for count, element in counts]
       else:
         return [element for _, element in counts]
@@ -229,6 +257,139 @@ class _UniquesAnalyzerImpl(beam.PTransform):
     return [wait_for_vocabulary_transform]
 
 
+class _ComputeQuantiles(beam.CombineFn):
+  """Computes quantiles on the PCollection.
+
+  This implementation is based on go/squawd.
+  For additional details on the algorithm, such as streaming and summary,
+  see also http://web.cs.ucla.edu/~weiwang/paper/SSDBM07_2.pdf
+  """
+
+  def __init__(self, num_quantiles, epsilon, serialized_tf_config=None):
+    self._num_quantiles = num_quantiles
+    self._epsilon = epsilon
+    self._serialized_tf_config = serialized_tf_config
+
+    # _stamp_token is used to commit the state of the qaccumulator. In
+    # this case, the qaccumulator state is completely returned and stored
+    # as part of quantile_state/summary in the combiner fn (i.e the summary is
+    # extracted and stored outside the qaccumulator). So we don't use
+    # the timestamp mechanism to signify progress in the qaccumulator state.
+    self._stamp_token = 0
+    # Represents an empty summary. This could be changed to a tf.constant
+    # implemented by the quantile ops library.
+    self._empty_summary = None
+
+    # Create a new session with a new graph for quantile ops.
+    self._session = tf.Session(
+        graph=tf.Graph(),
+        config=_maybe_deserialize_tf_config(serialized_tf_config))
+    with self._session.graph.as_default():
+      with self._session.as_default():
+        self._qaccumulator = quantile_ops.QuantileAccumulator(
+            init_stamp_token=self._stamp_token,
+            num_quantiles=self._num_quantiles,
+            epsilon=self._epsilon,
+            name='qaccumulator')
+        resources.initialize_resources(resources.shared_resources()).run()
+
+  def __reduce__(self):
+    return _ComputeQuantiles, (self._num_quantiles,
+                               self._epsilon, self._serialized_tf_config)
+
+  def create_accumulator(self):
+    return self._empty_summary
+
+  def add_input(self, summary, next_input):
+
+    next_input = _flatten_value_to_list(next_input)
+    with self._session.graph.as_default():
+      update = self._qaccumulator.add_summary(
+          stamp_token=self._stamp_token,
+          column=[next_input],
+          # All weights are equal, and the weight vector is the
+          # same length as the input.
+          example_weights=([[1] * len(next_input)]))
+
+      if summary is not self._empty_summary:
+        self._session.run(
+            self._qaccumulator.add_prebuilt_summary(
+                stamp_token=self._stamp_token,
+                summary=tf.constant(summary)))
+
+      self._session.run(update)
+
+      # After the flush_summary, qaccumulator will not contain any
+      # uncommitted information that represents the input. Instead all the
+      # digested information is returned as 'summary'. Many such summaries
+      # will be combined by merge_accumulators().
+      return self._session.run(
+          self._qaccumulator.flush_summary(
+              stamp_token=self._stamp_token,
+              next_stamp_token=self._stamp_token))
+
+  def merge_accumulators(self, summaries):
+    if summaries is self._empty_summary:
+      return self._empty_summary
+
+    with self._session.graph.as_default():
+      summary_placeholder = tf.placeholder(tf.string)
+      add_summary = self._qaccumulator.add_prebuilt_summary(
+          stamp_token=self._stamp_token,
+          summary=summary_placeholder)
+      for summary in summaries:
+        self._session.run(add_summary, {summary_placeholder: summary})
+
+      # Compute new summary.
+      # All relevant state about the input is captured by 'summary'
+      # (see comment at the end of add_input()).
+      return self._session.run(
+          self._qaccumulator.flush_summary(
+              stamp_token=self._stamp_token,
+              next_stamp_token=self._stamp_token))
+
+  def extract_output(self, summary):
+    if summary is self._empty_summary:
+      return []
+
+    # All relevant state about the input is captured by 'summary'
+    # (see comment in add_input() and merge_accumulators()).
+    with self._session.graph.as_default():
+      self._session.run(
+          self._qaccumulator.add_prebuilt_summary(
+              stamp_token=self._stamp_token, summary=tf.constant(summary)))
+      self._session.run(
+          self._qaccumulator.flush(
+              stamp_token=self._stamp_token,
+              next_stamp_token=self._stamp_token))
+      are_ready_flush, buckets = (
+          self._qaccumulator.get_buckets(stamp_token=self._stamp_token))
+      buckets, _ = self._session.run([buckets, are_ready_flush])
+
+    return [buckets]
+
+
+@with_input_types(Union[np.ndarray, tf.SparseTensorValue])
+@with_output_types(np.ndarray)
+class _QuantilesAnalyzerImpl(beam.PTransform):
+  """Computes the quantile buckets in a PCollection of batches."""
+
+  def __init__(self, spec):
+    assert isinstance(spec, analyzers._QuantilesSpec)  # pylint: disable=protected-access
+    self._spec = spec
+
+  def expand(self, pcoll):
+    serialized_tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(
+        pcoll.pipeline.runner)
+    output = (pcoll
+              | 'ComputeQuantiles' >> beam.CombineGlobally(
+                  _ComputeQuantiles(
+                      num_quantiles=self._spec.num_buckets,
+                      epsilon=self._spec.epsilon,
+                      serialized_tf_config=serialized_tf_config))
+              | 'WrapAsNDArray'
+              >> _WrapAsNDArray(dtype=self._spec.bucket_dtype))  # pylint: disable=no-value-for-parameter
+    return [output]
 
 
 @with_input_types(Union[np.ndarray, tf.SparseTensorValue])

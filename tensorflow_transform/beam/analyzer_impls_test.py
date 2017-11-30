@@ -17,15 +17,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# pylint: disable=g-import-not-at-top
 import apache_beam as beam
-try:
-  from apache_beam.testing.util import assert_that
-  from apache_beam.testing.util import equal_to
-except ImportError:
-  from apache_beam.transforms.util import assert_that
-  from apache_beam.transforms.util import equal_to
-
+from apache_beam.testing.util import assert_that
+from apache_beam.testing.util import equal_to
 
 import numpy as np
 from tensorflow_transform.beam import analyzer_impls as impl
@@ -34,7 +28,6 @@ from tensorflow_transform.beam import impl as beam_impl
 
 import unittest
 from tensorflow.python.framework import test_util
-# pylint: enable=g-import-not-at-top
 
 
 class AnalyzerImplsTest(test_util.TensorFlowTestCase):
@@ -83,6 +76,34 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
     analyzer = impl._NumericCombineAnalyzerImpl._CombineOnBatchDim(np.min)
     self.assertCombine(analyzer, shards, out)
 
+  def _test_compute_quantiles_single_batch_helper(self, nptype):
+    lst_1 = np.linspace(1, 100, 100, nptype).tolist()
+    analyzer = impl._ComputeQuantiles(num_quantiles=3, epsilon=0.00001)
+    out = [np.array([1, 35, 68, 100], dtype=np.float32)]
+    self.assertCombine(analyzer, np.array(lst_1), out, check_np_type=True)
+
+  def testComputeQuantilesSingleBatch(self):
+    self._test_compute_quantiles_single_batch_helper(np.double)
+    self._test_compute_quantiles_single_batch_helper(np.float32)
+    self._test_compute_quantiles_single_batch_helper(np.float64)
+    self._test_compute_quantiles_single_batch_helper(np.int32)
+    self._test_compute_quantiles_single_batch_helper(np.int64)
+
+  def _test_compute_quantiles_multipe_batch_helper(self, nptype):
+    lst_1 = np.linspace(1, 100, 100, dtype=nptype).tolist()
+    lst_2 = np.linspace(101, 200, 100, dtype=nptype).tolist()
+    lst_3 = np.linspace(201, 300, 100, dtype=nptype).tolist()
+    analyzer = impl._ComputeQuantiles(num_quantiles=5, epsilon=0.00001)
+    out = [np.array([1, 61, 121, 181, 241, 300], dtype=np.float32)]
+    self.assertCombine(
+        analyzer, np.array([lst_1, lst_2, lst_3]), out, check_np_type=True)
+
+  def testComputeQuantilesMultipleBatch(self):
+    self._test_compute_quantiles_multipe_batch_helper(np.double)
+    self._test_compute_quantiles_multipe_batch_helper(np.float32)
+    self._test_compute_quantiles_multipe_batch_helper(np.float64)
+    self._test_compute_quantiles_multipe_batch_helper(np.int32)
+    self._test_compute_quantiles_multipe_batch_helper(np.int64)
 
 
 if __name__ == '__main__':

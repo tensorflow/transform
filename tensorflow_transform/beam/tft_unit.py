@@ -124,12 +124,9 @@ class TransformTestCase(test_util.TensorFlowTestCase):
     # transform function.
     temp_dir = self.get_temp_dir()
     with beam_impl.Context(temp_dir=temp_dir):
-      transform_fn, transformed_metadata = (
+      (transformed_data, _), (_, transformed_metadata) = (
           (input_data, input_metadata)
-          | 'AnalyzeDataset' >> beam_impl.AnalyzeDataset(preprocessing_fn))
-      transformed_data, _ = (
-          ((input_data, input_metadata), (transform_fn, transformed_metadata))
-          | 'TransformDataset' >> beam_impl.TransformDataset())
+          | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
 
     if expected_data:
       self.assertDataCloseOrEqual(expected_data, transformed_data)

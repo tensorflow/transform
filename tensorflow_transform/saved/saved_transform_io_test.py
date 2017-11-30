@@ -138,7 +138,7 @@ class SavedTransformIOTest(unittest.TestCase):
       with tf.Session().as_default() as session:
         input_string = tf.placeholder(tf.string)
         # Map string through a table, in this case based on a constant tensor.
-        table = lookup.string_to_index_table_from_tensor(
+        table = lookup.index_table_from_tensor(
             tf.constant(['cat', 'dog', 'giraffe']))
         output = table.lookup(input_string)
         inputs = {'input': input_string}
@@ -200,9 +200,8 @@ class SavedTransformIOTest(unittest.TestCase):
       with tf.Session().as_default() as session:
         input_string = tf.placeholder(tf.string)
         # Map string through a table loaded from an asset file
-        table = lookup.string_to_index_table_from_file(
-            vocabulary_file, num_oov_buckets=12,
-            default_value=12)
+        table = lookup.index_table_from_file(
+            vocabulary_file, num_oov_buckets=12, default_value=12)
         output = table.lookup(input_string)
         inputs = {'input': input_string}
         outputs = {'output': output}

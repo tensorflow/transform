@@ -24,7 +24,6 @@ from __future__ import print_function
 import collections
 
 import apache_beam as beam
-from apache_beam.transforms import ptransform
 import six
 from tensorflow_transform.tf_metadata import metadata_io
 
@@ -66,27 +65,6 @@ class BeamDatasetMetadata(
 
   def merge(self, other):
     raise NotImplementedError
-
-
-# Monkey-patching of beam._PValueishTransform to allow Beam to handle
-# PCollections in instances of a namedtuple (or subclasses of a namedtuple).
-
-# pylint: disable=protected-access,invalid-name
-if hasattr(ptransform._PValueishTransform, 'visit'):
-  _old_PValueishTransform_visit = ptransform._PValueishTransform.visit
-
-  # Override `visit` method for the case of subclasses of tuple, specifically
-  # aimed at collections.namedtuple.  Note that the constructor is different
-  # from the tuple constructor.  The tuple constructor accepts an iterable while
-  # the namedtuple constructor accepts a fixed number of args.
-  def _new_PValueishTransform_visit(self, node, *args):
-    # Handle the case where node is an instance of a namedtuple (or an instance
-    # of a subclass of a namedtuple).
-    if isinstance(node, tuple) and hasattr(node.__class__, '_make'):
-      return node.__class__(*self.visit_tuple(node, *args))
-    return _old_PValueishTransform_visit(self, node, *args)
-
-  ptransform._PValueishTransform.visit = _new_PValueishTransform_visit
 
 
 class ResolveBeamFutures(beam.PTransform):

@@ -29,12 +29,10 @@ import tensorflow_transform as tft
 from apache_beam.io import textio
 from apache_beam.io import tfrecordio
 from tensorflow.contrib import learn
-from tensorflow.contrib.layers import feature_column
 from tensorflow.contrib.learn.python.learn.utils import input_fn_utils
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform.coders import example_proto_coder
-from tensorflow_transform.saved import input_fn_maker
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
@@ -261,11 +259,6 @@ def _make_training_input_fn(working_dir, filebase, batch_size):
         os.path.join(working_dir, filebase + '*'),
         batch_size, transformed_feature_spec, tf.TFRecordReader)
 
-    # Apply convert_scalars_to_vectors to avoid errors where feature columns
-    # do not accept scalars but require length-1 vectors.
-    transformed_features = input_fn_maker.convert_scalars_to_vectors(
-        transformed_features)
-
     # Extract features and label from the transformed tensors.
     transformed_labels = transformed_features.pop(LABEL_KEY)
 
@@ -304,10 +297,6 @@ def _make_serving_input_fn(working_dir):
             os.path.join(working_dir, transform_fn_io.TRANSFORM_FN_DIR),
             raw_features))
 
-    # Apply convert_scalars_to_vectors since this was done in training.
-    transformed_features = input_fn_maker.convert_scalars_to_vectors(
-        transformed_features)
-
     return input_fn_utils.InputFnOps(transformed_features, None, default_inputs)
 
   return serving_input_fn
@@ -327,15 +316,13 @@ def train_and_evaluate(working_dir,
     The results from the estimator's 'evaluate' method
   """
   # Unrecognized tokens are represented by -1, but
-  # sparse_column_with_integerized_feature uses the mod operator to map integers
+  # categorical_column_with_identity uses the mod operator to map integers
   # to the range [0, bucket_size).  By choosing bucket_size=VOCAB_SIZE + 1, we
   # represent unrecognized tokens as VOCAB_SIZE.
-  review_column = feature_column.sparse_column_with_integerized_feature(
-      REVIEW_KEY,
-      bucket_size=VOCAB_SIZE + 1,
-      combiner='sum')
-  weighted_reviews = feature_column.weighted_sparse_column(review_column,
-                                                           REVIEW_WEIGHT_KEY)
+  review_column = tf.feature_column.categorical_column_with_identity(
+      REVIEW_KEY, num_buckets=VOCAB_SIZE + 1)
+  weighted_reviews = tf.feature_column.weighted_categorical_column(
+      review_column, REVIEW_WEIGHT_KEY)
 
   estimator = learn.LinearClassifier([weighted_reviews])
 

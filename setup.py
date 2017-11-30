@@ -17,20 +17,20 @@ from setuptools import find_packages
 from setuptools import setup
 
 # Tensorflow transform version.
-__version__ = '0.3.1'
+__version__ = '0.4.0dev'
 
 
 def _make_required_install_packages():
   return [
-      # apache-beam[gcp] <= 2.1.0 has an issue with importing the six library.
-      'apache-beam[gcp]>=2.1.1,<3',
+      'apache-beam[gcp]>=2.2,<3',
 
-      # Protobuf libraries <= 3.2 contain some map-related data corruption bugs
+      # Protobuf libraries < 3.3 contain some map-related data corruption bugs
       # (b/35874111).
       'protobuf>=3.3,<4',
 
       # Six 1.11.0 incompatible with apitools.
       'six>=1.9,<1.11',
+
   ]
 
 
@@ -40,8 +40,27 @@ setup(
     author='Google Inc.',
     author_email='tf-transform-feedback@google.com',
     license='Apache 2.0',
+    classifiers=[
+        'Development Status :: 4 - Beta',
+        'Intended Audience :: Developers',
+        'Intended Audience :: Education',
+        'Intended Audience :: Science/Research',
+        'License :: OSI Approved :: Apache Software License',
+        'Operating System :: OS Independent',
+        'Programming Language :: Python',
+        'Programming Language :: Python :: 2',
+        'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 2 :: Only',
+        'Topic :: Scientific/Engineering',
+        'Topic :: Scientific/Engineering :: Artificial Intelligence',
+        'Topic :: Scientific/Engineering :: Mathematics',
+        'Topic :: Software Development',
+        'Topic :: Software Development :: Libraries',
+        'Topic :: Software Development :: Libraries :: Python Modules',
+    ],
     namespace_packages=[],
     install_requires=_make_required_install_packages(),
+    python_requires='>=2.7,<3',
     packages=find_packages(),
     include_package_data=True,
     description='A library for data preprocessing with TensorFlow',
