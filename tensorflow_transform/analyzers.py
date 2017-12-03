@@ -30,6 +30,7 @@ from __future__ import print_function
 
 import re
 
+import numpy as np
 import tensorflow as tf
 
 
@@ -102,32 +103,102 @@ class Analyzer(object):
     return self._output_is_asset_map[output_tensor]
 
 
-class _NumericCombineSpec(object):
-  """Operation to combine numeric values."""
+class CombinerSpec(object):
+  """Analyze using combiner function.
 
-  MIN = 'min'
-  MAX = 'max'
-  SUM = 'sum'
+  This object mirrors a beam.CombineFn, that will receive a beam PCollection
+  representing the batched input tensors.
+  """
 
-  def __init__(self, dtype, combiner_type, reduce_instance_dims):
-    self._dtype = dtype
-    self._combiner_type = combiner_type
+  def create_accumulator(self):
+    """Return a fresh, empty accumulator.
+
+    Returns: An empty accumulator.  This can be an Python value.
+    """
+    raise NotImplementedError
+
+  def add_input(self, accumulator, element):
+    """Return result of folding element into accumulator.
+
+    Args:
+      accumulator: the current accumulator
+      element: the element to add, which will be an ndarray representing the
+         value of the input for a batch.
+
+    Returns: An accumulator that includes the additional element.
+    """
+    raise NotImplementedError
+
+  def merge_accumulators(self, accumulators):
+    """Merges several accumulators to a single accumulator value.
+
+    Args:
+      accumulators: the accumulators to merge
+
+    Returns: The sole merged accumulator.
+    """
+    raise NotImplementedError
+
+  def extract_output(self, accumulator):
+    """Return result of converting accumulator into the output value.
+
+    Args:
+      accumulator: the final accumulator value.  Should be a list of ndarrays.
+
+    Returns: An ndarray representing the result of this combiner.
+    """
+    raise NotImplementedError
+
+
+def combine_analyzer(x, output_dtype, output_shape, combiner_spec, name):
+  """Applies the combiner over the whole dataset.
+
+  Args:
+    x: An input `Tensor` or `SparseTensor`.
+    output_dtype: The dtype of the output of the analyzer.
+    output_shape: The shape of the output of the analyzer.
+    combiner_spec: A subclass of CombinerSpec.
+    name: Similar to a TF op name.  Used to define a unique scope for this
+      analyzer, which can be used for debugging info.
+
+  Returns:
+    The combined values, which is a `Tensor` with type output_dtype and shape
+    `output_shape`.  These must be compatible with the combiner_spec.
+  """
+  return Analyzer([x], [(output_dtype, output_shape, False)], combiner_spec,
+                  name).outputs[0]
+
+
+class _NumPyCombinerSpec(CombinerSpec):
+  """Combines the PCollection only on the 0th dimension using nparray."""
+
+  def __init__(self, fn, reduce_instance_dims):
+    self._fn = fn
     self._reduce_instance_dims = reduce_instance_dims
 
-  @property
-  def dtype(self):
-    return self._dtype
+  def create_accumulator(self):
+    return None
 
-  @property
-  def combiner_type(self):
-    return self._combiner_type
+  def add_input(self, accumulator, next_input):
+    if self._reduce_instance_dims:
+      batch = self._fn(next_input)
+    else:
+      batch = self._fn(next_input, axis=0)
+    if accumulator is None:
+      return batch
+    else:
+      return self._fn((accumulator, batch), axis=0)
 
-  @property
-  def reduce_instance_dims(self):
-    return self._reduce_instance_dims
+  def merge_accumulators(self, accumulators):
+    # numpy's sum, min, max, etc functions operate on array-like objects, but
+    # not arbitrary iterables. Convert the provided accumulators into a list
+    return self._fn(list(accumulators), axis=0)
+
+  def extract_output(self, accumulator):
+    return [accumulator]
 
 
-def _numeric_combine(x, combiner_type, reduce_instance_dims=True, name=None):
+def _numeric_combine(x, fn, reduce_instance_dims=True, name=None):
   """Apply an analyzer with _NumericCombineSpec to given input."""
   if not isinstance(x, tf.Tensor):
     raise TypeError('Expected a Tensor, but got %r' % x)
@@ -143,10 +214,9 @@ def _numeric_combine(x, combiner_type, reduce_instance_dims=True, name=None):
     # If reducing over batch dimensions, with unknown shape, the result will
     # also have unknown shape.
     shape = None
-  spec = _NumericCombineSpec(x.dtype, combiner_type, reduce_instance_dims)
-  return Analyzer(
-      [x], [(x.dtype, shape, False)], spec,
-      name if name is not None else combiner_type).outputs[0]
+  return combine_analyzer(
+      x, x.dtype, shape, _NumPyCombinerSpec(fn, reduce_instance_dims),
+      name if name is not None else fn.__name__)
 
 
 def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
@@ -162,8 +232,7 @@ def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Returns:
     A `Tensor`. Has the same type as `x`.
   """
-  return _numeric_combine(
-      x, _NumericCombineSpec.MIN, reduce_instance_dims, name)
+  return _numeric_combine(x, np.min, reduce_instance_dims, name)
 
 
 def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
@@ -179,8 +248,7 @@ def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Returns:
     A `Tensor`. Has the same type as `x`.
   """
-  return _numeric_combine(
-      x, _NumericCombineSpec.MAX, reduce_instance_dims, name)
+  return _numeric_combine(x, np.max, reduce_instance_dims, name)
 
 
 def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
@@ -196,8 +264,7 @@ def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Returns:
     A `Tensor`. Has the same type as `x`.
   """
-  return _numeric_combine(
-      x, _NumericCombineSpec.SUM, reduce_instance_dims, name)
+  return _numeric_combine(x, np.sum, reduce_instance_dims, name)
 
 
 def size(x, reduce_instance_dims=True, name=None):
@@ -271,17 +338,12 @@ def var(x, reduce_instance_dims=True, name=None):
 class _UniquesSpec(object):
   """Operation to compute unique values."""
 
-  def __init__(self, dtype, top_k, frequency_threshold,
+  def __init__(self, top_k, frequency_threshold,
                vocab_filename, store_frequency):
-    self._dtype = dtype
     self._top_k = top_k
     self._frequency_threshold = frequency_threshold
     self._vocab_filename = vocab_filename
     self._store_frequency = store_frequency
-
-  @property
-  def dtype(self):
-    return self._dtype
 
   @property
   def top_k(self):
@@ -400,8 +462,8 @@ def uniques(x, top_k=None, frequency_threshold=None,
     # Make the file name path safe.
     vocab_filename = sanitized_vocab_filename(vocab_filename, prefix=prefix)
 
-    spec = _UniquesSpec(tf.string, top_k, frequency_threshold,
-                        vocab_filename, store_frequency)
+    spec = _UniquesSpec(top_k, frequency_threshold, vocab_filename,
+                        store_frequency)
     return Analyzer([x], [(tf.string, [], True)], spec, 'uniques').outputs[0]
 
 
@@ -469,50 +531,3 @@ def quantiles(x, num_buckets, epsilon, name=None):
     # Drop the fist and last quantile boundaries, so that we end-up with
     # num_buckets-1 boundaries, and hence num_buckets buckets.
     return quantile_boundaries[0:1, 1:-1]
-
-
-class _CombinerSpec(object):
-  """Analyze using combiner function.
-
-  Args:
-    combiner: Object of a class that implements beam.CombineFn() interface.
-      In addtion, the combiner class must implement a @property method called
-      output_dtype() that returns the tf.DType of the output of the combiner.
-  """
-
-  def __init__(self, combiner):
-    self._combiner = combiner
-
-  @property
-  def combiner(self):
-    return self._combiner
-
-  @property
-  def output_dtype(self):
-    return self._combiner.output_dtype
-
-
-def combine_analyzer(x, combiner, name=None):
-  """Applies the combiner over the whole dataset.
-
-  Args:
-    x: An input `Tensor` or `SparseTensor`.
-    combiner: Object of a class that implements beam.CombineFn() interface.
-      In addtion, the combiner class must implement a @property method called
-      output_dtype() that returns the type of the output of the combiner.
-    name: (Optional) A name for this operation.
-
-  Returns:
-    The combined values as a list, where the each element in the list
-    is of type combiner.output_dtype().
-  """
-
-  # The TF node name will be of the form:
-  # original_scope/{combine_analyzer|name}/{class-name-of-combiner}
-  with tf.name_scope(name, 'combine_analyzer'):
-    spec = _CombinerSpec(combiner)
-    return Analyzer(
-        [x],
-        [(spec.output_dtype, [1, None], False)],
-        spec,
-        type(combiner).__name__).outputs[0]

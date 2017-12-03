@@ -23,9 +23,9 @@ import os
 
 import apache_beam as beam
 
+from apache_beam.typehints import Any
 from apache_beam.typehints import KV
 from apache_beam.typehints import List
-from apache_beam.typehints import Union
 from apache_beam.typehints import with_input_types
 from apache_beam.typehints import with_output_types
 
@@ -63,106 +63,47 @@ def _maybe_deserialize_tf_config(serialized_tf_config):
   return result
 
 
-def _impl_for_analyzer(spec, temp_assets_dir):
-  # pylint: disable=protected-access
-  if isinstance(spec, analyzers._NumericCombineSpec):
-    return _NumericCombineAnalyzerImpl(spec)
-  elif isinstance(spec, analyzers._UniquesSpec):
-    return _UniquesAnalyzerImpl(spec, temp_assets_dir)
-  elif isinstance(spec, analyzers._QuantilesSpec):
-    return _QuantilesAnalyzerImpl(spec)
-  elif isinstance(spec, analyzers._CombinerSpec):
-    return _CombinerAnalyzerImpl(spec)
-  else:
-    raise NotImplementedError(spec.__class__)
+@with_input_types(np.ndarray)
+@with_output_types(List[Any])
+class _AnalyzerImpl(beam.PTransform):
+  """PTransform that implements a given analyzer.
+
+  _AnalyzerImpl accepts a PCollection where each element is a batch of values,
+  and returns a PCollection containing a single element representing which is a
+  list of values for each output, where each value can be converted to an
+  ndarray via np.asarray.
+
+  _AnalyzerImpl dispatches to an implementation transform, with the same
+  signature as _AnalyzerImpl.
+  """
+
+  def __init__(self, spec, temp_assets_dir):
+    self._spec = spec
+    self._temp_assets_dir = temp_assets_dir
+
+  def expand(self, pcoll):
+    # pylint: disable=protected-access
+    if isinstance(self._spec, analyzers._UniquesSpec):
+      return pcoll | _UniquesAnalyzerImpl(self._spec, self._temp_assets_dir)
+    elif isinstance(self._spec, analyzers._QuantilesSpec):
+      return pcoll | _QuantilesAnalyzerImpl(self._spec)
+    elif isinstance(self._spec, analyzers.CombinerSpec):
+      return pcoll | beam.CombineGlobally(
+          _CombineFnWrapper(self._spec)).without_defaults()
+    else:
+      raise NotImplementedError(self._spec.__class__)
 
 
 def _flatten_value_to_list(batch):
   """Converts an N-D dense or sparse batch to a 1-D list."""
-  if isinstance(batch, tf.SparseTensorValue):
-    dense_values = batch.values
-  else:
-    dense_values = batch
   # Ravel for flattening and tolist so that we go to native Python types
   # for more efficient followup processing.
   #
-  return dense_values.ravel().tolist()
+  return batch.ravel().tolist()
 
 
-_BUILTIN_COMBINERS_BY_OPERATION = {
-    # pylint: disable=protected-access
-    analyzers._NumericCombineSpec.MIN: min,
-    analyzers._NumericCombineSpec.MAX: max,
-    analyzers._NumericCombineSpec.SUM: sum
-}
-
-
-_NUMPY_COMBINERS_BY_OPERATION = {
-    # pylint: disable=protected-access
-    analyzers._NumericCombineSpec.MIN: np.min,
-    analyzers._NumericCombineSpec.MAX: np.max,
-    analyzers._NumericCombineSpec.SUM: np.sum
-}
-
-
-@beam.ptransform_fn
-def _WrapAsNDArray(x, dtype):  # pylint: disable=invalid-name
-  return x | beam.Map(
-      lambda v, np_dtype=dtype.as_numpy_dtype: np.asarray(v, np_dtype))
-
-
-@with_input_types(Union[np.ndarray, tf.SparseTensorValue])
-@with_output_types(List[np.ndarray])
-class _NumericCombineAnalyzerImpl(beam.PTransform):
-  """Reduces a PCollection of batches according to the given function."""
-
-  class _CombineOnBatchDim(beam.CombineFn):
-    """Combines the PCollection only on the 0th dimension using nparray."""
-
-    def __init__(self, fn):
-      self._fn = fn
-
-    def create_accumulator(self):
-      return []
-
-    def add_input(self, accumulator, next_input):
-      batch = self._fn(next_input, axis=0)
-      if any(accumulator):
-        return self._fn((accumulator, batch), axis=0)
-      else:
-        return batch
-
-    def merge_accumulators(self, accumulators):
-      # numpy's sum, min, max, etc functions operate on array-like objects, but
-      # not arbitrary iterables. Convert the provided accumulators into a list
-      return self._fn(list(accumulators), axis=0)
-
-    def extract_output(self, accumulator):
-      return accumulator
-
-  def __init__(self, spec):
-    assert isinstance(spec, analyzers._NumericCombineSpec)  # pylint: disable=protected-access
-    self._spec = spec
-
-  def expand(self, pcoll):
-    if self._spec.reduce_instance_dims:
-      fn = _BUILTIN_COMBINERS_BY_OPERATION[self._spec.combiner_type]
-      output = (pcoll
-                | 'FlattenValueToList' >> beam.Map(_flatten_value_to_list)
-                | 'CombineWithinList' >> beam.Map(fn)
-                | 'CombineGlobally'
-                >> beam.CombineGlobally(fn).without_defaults())
-    else:
-      fn = _NUMPY_COMBINERS_BY_OPERATION[self._spec.combiner_type]
-      output = (pcoll | 'CombineOnBatchDim'
-                >> beam.CombineGlobally(self._CombineOnBatchDim(fn)))
-
-    output |= 'WrapAsNDArray' >> _WrapAsNDArray(self._spec.dtype)  # pylint: disable=no-value-for-parameter
-    return [output]
-
-
-@with_input_types(Union[np.ndarray, tf.SparseTensorValue])
-@with_output_types(str)
+@with_input_types(np.ndarray)
+@with_output_types(List[Any])
 class _UniquesAnalyzerImpl(beam.PTransform):
   """Saves the unique elements in a PCollection of batches."""
 
@@ -250,13 +191,15 @@ class _UniquesAnalyzerImpl(beam.PTransform):
     # Return the vocabulary path.
     wait_for_vocabulary_transform = (
         pcoll.pipeline
-        | 'CreatePath' >> beam.Create([vocabulary_file])
+        | 'CreatePath' >> beam.Create([[vocabulary_file]])
         # Ensure that the analysis returns only after the file is written.
         | 'WaitForVocabularyFile' >> beam.Map(
             lambda x, y: x, y=beam.pvalue.AsIter(vocab_is_written)))
-    return [wait_for_vocabulary_transform]
+    return wait_for_vocabulary_transform
 
 
+@with_input_types(np.ndarray)
+@with_output_types(List[Any])
 class _ComputeQuantiles(beam.CombineFn):
   """Computes quantiles on the PCollection.
 
@@ -301,7 +244,6 @@ class _ComputeQuantiles(beam.CombineFn):
     return self._empty_summary
 
   def add_input(self, summary, next_input):
-
     next_input = _flatten_value_to_list(next_input)
     with self._session.graph.as_default():
       update = self._qaccumulator.add_summary(
@@ -350,7 +292,7 @@ class _ComputeQuantiles(beam.CombineFn):
 
   def extract_output(self, summary):
     if summary is self._empty_summary:
-      return []
+      return [[[]]]
 
     # All relevant state about the input is captured by 'summary'
     # (see comment in add_input() and merge_accumulators()).
@@ -366,11 +308,11 @@ class _ComputeQuantiles(beam.CombineFn):
           self._qaccumulator.get_buckets(stamp_token=self._stamp_token))
       buckets, _ = self._session.run([buckets, are_ready_flush])
 
-    return [buckets]
+    return [[buckets]]
 
 
-@with_input_types(Union[np.ndarray, tf.SparseTensorValue])
-@with_output_types(np.ndarray)
+@with_input_types(np.ndarray)
+@with_output_types(List[Any])
 class _QuantilesAnalyzerImpl(beam.PTransform):
   """Computes the quantile buckets in a PCollection of batches."""
 
@@ -381,30 +323,30 @@ class _QuantilesAnalyzerImpl(beam.PTransform):
   def expand(self, pcoll):
     serialized_tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(
         pcoll.pipeline.runner)
-    output = (pcoll
-              | 'ComputeQuantiles' >> beam.CombineGlobally(
-                  _ComputeQuantiles(
-                      num_quantiles=self._spec.num_buckets,
-                      epsilon=self._spec.epsilon,
-                      serialized_tf_config=serialized_tf_config))
-              | 'WrapAsNDArray'
-              >> _WrapAsNDArray(dtype=self._spec.bucket_dtype))  # pylint: disable=no-value-for-parameter
-    return [output]
+    return (pcoll
+            | 'ComputeQuantiles' >> beam.CombineGlobally(
+                _ComputeQuantiles(
+                    num_quantiles=self._spec.num_buckets,
+                    epsilon=self._spec.epsilon,
+                    serialized_tf_config=serialized_tf_config)))
 
 
-@with_input_types(Union[np.ndarray, tf.SparseTensorValue])
-@with_output_types(np.ndarray)
-class _CombinerAnalyzerImpl(beam.PTransform):
-  """Applies combiner to a PCollection of batches."""
+@with_input_types(np.ndarray)
+@with_output_types(List[Any])
+class _CombineFnWrapper(beam.CombineFn):
+  """Class to wrap a analyzers._CombinerSpec as a beam.CombineFn."""
 
   def __init__(self, spec):
-    assert isinstance(spec, analyzers._CombinerSpec)  # pylint: disable=protected-access
     self._spec = spec
 
-  def expand(self, pcoll):
-    output = (pcoll
-              | 'CombineGlobally' >> beam.CombineGlobally(
-                  self._spec.combiner).without_defaults()
-              | 'WrapAsNDArray'
-              >> _WrapAsNDArray(dtype=self._spec.output_dtype))  # pylint: disable=no-value-for-parameter
-    return [output]
+  def create_accumulator(self):
+    return self._spec.create_accumulator()
+
+  def add_input(self, accumulator, next_input):
+    return self._spec.add_input(accumulator, next_input)
+
+  def merge_accumulators(self, accumulators):
+    return self._spec.merge_accumulators(accumulators)
+
+  def extract_output(self, accumulator):
+    return self._spec.extract_output(accumulator)

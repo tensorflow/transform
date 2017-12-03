@@ -1,11 +1,12 @@
-# Current version (not yet released; still in development)
+# Release 0.4.0
 
 ## Major Features and Improvements
 * Added a combine_analyzer() that supports user provided combiner, conforming to
   beam.CombinFn(). This allows users to implement custom combiners
   (e.g. median), to complement analyzers (like min, max) that are
   prepackaged in TFT.
-* Quantiles Analyzer (`tft.quantiles`).
+* Quantiles Analyzer (`tft.quantiles`), with a corresponding `tft.bucketize`
+  mapper.
 
 ## Bug Fixes and Other Changes
 * Depends on `apache-beam[gcp]>=2.2,<3`.
@@ -33,9 +34,15 @@
 * Some functions now introduce a new name scope when they did not before so the
   names of tensors may change.  This will only affect you if you directly lookup
   tensors by name in the graph produced by tf.Transform.
-* Various Analyzer Specs (_NumericCombineSpec, _UniquesSpec, _QuantilesSpec) are
-  now private. Analyzers are accessible only via the top-level TFT functions (
-  min, max, sum, size, mean, var, uniques, quantiles).
+* Various Analyzer Specs (\_NumericCombineSpec, \_UniquesSpec, \_QuantilesSpec)
+  are now private. Analyzers are accessible only via the top-level TFT functions
+  (min, max, sum, size, mean, var, uniques, quantiles).
+
+## Upcoming deprecations
+* The `serving_input_fn`s on `tensorflow_transform/saved/input_fn_maker.py` will
+be removed on a future version and should not be used on new code,
+see the `examples` directory for details on how to migrate your code to define
+their own serving functions.
 
 # Release 0.3.1
 

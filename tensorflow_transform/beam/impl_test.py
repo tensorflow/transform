@@ -24,7 +24,6 @@ import random
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
 
-import numpy as np
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform.beam import analyzer_impls as beam_analyzer_impls
@@ -2141,134 +2140,40 @@ class BeamImplTest(tft_unit.TransformTestCase):
     check_asset_file_contents(assets_path, 'vocab_string_to_int_uniques',
                               'hello\nworld\n')
 
-  # Example to demonstrate a Combiner that implements combiner methods
-  # such as add_input() and merge_accumulators() that achieve computation
-  # through numpy primitives.
-  class _NumPyCombiner(beam.CombineFn):
-    """Combines the PCollection only on the 0th dimension using nparray."""
-
-    def __init__(self, fn, output_dtype, reduce_instance_dims=False):
-      self._fn = fn
-      self._output_dtype = output_dtype
-      self._reduce_instance_dims = reduce_instance_dims
-
-    def create_accumulator(self):
-      return []
-
-    def add_input(self, accumulator, next_input):
-      if self._reduce_instance_dims:
-        batch = self._fn(next_input)
-      else:
-        batch = self._fn(next_input, axis=0)
-      if any(accumulator):
-        return self._fn((accumulator, batch), axis=0)
-      else:
-        return batch
-
-    def merge_accumulators(self, accumulators):
-      # numpy's sum, min, max, etc functions operate on array-like objects, but
-      # not arbitrary iterables. Convert the provided accumulators into a list
-      return self._fn(list(accumulators), axis=0)
-
-    def extract_output(self, accumulator):
-      return [accumulator]
-
-    @property
-    def output_dtype(self):
-      return self._output_dtype
-
-  def testCombineAnalyzer(self):
-
-    def preprocessing_fn(inputs):
-      return {
-          'sum': tft.combine_analyzer(
-              inputs['x'], combiner=self._NumPyCombiner(np.sum, tf.int32)),
-          'max': tft.combine_analyzer(
-              inputs['x'], combiner=self._NumPyCombiner(np.max, tf.float32)),
-          'sum_reduced': tft.combine_analyzer(
-              inputs['x'],
-              combiner=self._NumPyCombiner(
-                  np.sum, tf.int32, reduce_instance_dims=True)),
-      }
-
-    input_dtype = tf.int32
-    input_list = [1, 1, 1, 2, 2, 8, 8, 9]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'sum': sch.ColumnSchema(
-            tf.int32, [None], sch.FixedColumnRepresentation()),
-        'max': sch.ColumnSchema(
-            tf.float32, [None], sch.FixedColumnRepresentation()),
-        'sum_reduced': sch.ColumnSchema(
-            tf.int32, [None], sch.FixedColumnRepresentation()),
-    })
-
-    # Scalar input.
-    input_data = [{'x': x} for x in input_list]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(input_dtype, [], sch.FixedColumnRepresentation())
-    })
-    expected_data = [{
-        'sum': 32, 'max': 9, 'sum_reduced': 32,
-    }]
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data,
-                                          expected_metadata)
-
-    # 1-dimensional input
-    input_data = [{'x': [x]} for x in input_list]
-
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(input_dtype, [1], sch.FixedColumnRepresentation())
-    })
-    expected_data = [{
-        'sum': [32], 'max': [9], 'sum_reduced': 32,
-    }]
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data,
-                                          expected_metadata)
-
-    # 2-dimensional input.
-    input_data = [{'x': [x, 2*x]} for x in input_list]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(input_dtype, [2], sch.FixedColumnRepresentation())
-    })
-    expected_data = [{
-        'sum': [32, 64], 'max': [9, 18], 'sum_reduced': 96
-    }]
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data,
-                                          expected_metadata)
-    # Test with empty input, expected_* parameters below are no-op,
-    # since this will raise an exception.
-    input_data = [{'x': []}]
-    with self.assertRaises(ValueError) as context:
-      self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                            preprocessing_fn, expected_data,
-                                            expected_metadata)
-    self.assertRegexpMatches(
-        context.exception.message,
-        r'Cannot feed value of shape \(1, 0\)')
-
   # Example to demonstrate QuantileCombiner which implements combiner methods
   # such as add_input() and merge_accumulators() that achieve computation
   # through TF Graph and execution using TF Sesssion, e.g. graphs that contain
   # TF Quantile Ops.
-  class _QuantileCombiner(beam_analyzer_impls._ComputeQuantiles):
+  #
+  # Note this wraps a beam_analyzer_impls._ComputeQuantiles which is a
+  # beam.CombineFn, as a _CombinerSpec, which then gets re-wrapped as a
+  # beam.CombineFn.  This is roundabout but necessary to maintain this test
+  # until we update the actual quantiles implementation.
+  class _QuantileCombinerSpec(tft.CombinerSpec):
 
-    def __init__(self, fn, output_dtype):
-      super(BeamImplTest._QuantileCombiner, self).__init__(
+    def __init__(self):
+      self._impl = beam_analyzer_impls._ComputeQuantiles(
           num_quantiles=2, epsilon=0.00001)
 
-    @property
-    def output_dtype(self):
-      return tf.int32
+    def create_accumulator(self):
+      return self._impl.create_accumulator()
+
+    def add_input(self, summary, next_input):
+      return self._impl.add_input(summary, next_input)
+
+    def merge_accumulators(self, accumulators):
+      return self._impl.merge_accumulators(accumulators)
+
+    def extract_output(self, accumulator):
+      return self._impl.extract_output(accumulator)
 
   def testQuantileViaCombineAnalyzer(self):
 
     def preprocessing_fn(inputs):
       return {
           'buckets': tft.combine_analyzer(
-              inputs['x'], combiner=self._QuantileCombiner(np.sum, tf.int32)),
+              inputs['x'], output_dtype=tf.int32, output_shape=[None],
+              combiner_spec=self._QuantileCombinerSpec(), name='quantiles'),
       }
 
     input_dtype = tf.int32
@@ -2284,7 +2189,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     }]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'buckets': sch.ColumnSchema(
-            tf.int32, [None], sch.FixedColumnRepresentation()),
+            tf.int32, [], sch.FixedColumnRepresentation()),
     })
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,

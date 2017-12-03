@@ -22,6 +22,7 @@ from apache_beam.testing.util import assert_that
 from apache_beam.testing.util import equal_to
 
 import numpy as np
+from tensorflow_transform import analyzers
 from tensorflow_transform.beam import analyzer_impls as impl
 from tensorflow_transform.beam import impl as beam_impl
 
@@ -49,6 +50,8 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
         for shard in shards]
     final_accumulator = combine_fn.merge_accumulators(accumulators)
     extracted = combine_fn.extract_output(final_accumulator)
+    # Extract output 0 since all analyzers have a single output
+    extracted = extracted[0]
     if check_np_type:
       # This is currently applicable only for quantile buckets, which conains a
       # single element list of numpy array; the numpy array contains the bucket
@@ -62,18 +65,21 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
     lst_1 = [np.ones(6), np.ones(6)]
     lst_2 = [np.ones(6)]
     out = [3 for _ in range(6)]
-    analyzer = impl._NumericCombineAnalyzerImpl._CombineOnBatchDim(np.sum)
+    analyzer = impl._CombineFnWrapper(
+        analyzers._NumPyCombinerSpec(np.sum, reduce_instance_dims=False))
     self.assertCombine(analyzer, [lst_1, lst_2], out)
 
   def testCombineOnBatchAllEmptyRow(self):
-    analyzer = impl._NumericCombineAnalyzerImpl._CombineOnBatchDim(np.sum)
+    analyzer = impl._CombineFnWrapper(
+        analyzers._NumPyCombinerSpec(np.sum, reduce_instance_dims=False))
     self.assertCombine(analyzer, [[[]], [[]], [[]]], [])
 
   def testCombineOnBatchLotsOfData(self):
     shards = [[np.ones(3)] for _ in range(
         beam_impl._DEFAULT_DESIRED_BATCH_SIZE * 2)]
     out = [1 for _ in range(3)]
-    analyzer = impl._NumericCombineAnalyzerImpl._CombineOnBatchDim(np.min)
+    analyzer = impl._CombineFnWrapper(
+        analyzers._NumPyCombinerSpec(np.min, reduce_instance_dims=False))
     self.assertCombine(analyzer, shards, out)
 
   def _test_compute_quantiles_single_batch_helper(self, nptype):

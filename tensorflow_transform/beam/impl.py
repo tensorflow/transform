@@ -482,34 +482,32 @@ class _ComputeAnalyzerOutputs(beam.PTransform):
     self._base_temp_dir = base_temp_dir
 
   def expand(self, analyzer_input_values):
+    def extract_and_wrap_as_tensor_value(outputs, index, numpy_dtype, is_asset):
+      return _TensorValue(np.asarray(outputs[index], numpy_dtype), is_asset)
+
     # For each analyzer output, look up its input values (by tensor name)
     # and run the analyzer on these values.
     result = {}
     for analyzer in self._analyzers:
       temp_assets_dir = _make_unique_temp_dir(self._base_temp_dir)
       tf.gfile.MkDir(temp_assets_dir)
-      analyzer_impl = analyzer_impls._impl_for_analyzer(
-          analyzer.spec, temp_assets_dir)
-      # pylint: enable=protected-access
-
       assert len(analyzer.inputs) == 1
-      output_pcolls = (
+      outputs_pcoll = (
           analyzer_input_values
           | 'ExtractInput[%s]' % analyzer.name >> beam.Map(
               lambda batch, key: batch[key],
               key=analyzer.inputs[0].name)
-          | 'Analyze[%s]' % analyzer.name >> analyzer_impl)
-      assert len(analyzer.outputs) == len(output_pcolls), (
-          'Analyzer outputs don\'t match the expected outputs from the '
-          'Analyzer definition: %d != %d' %
-          (len(analyzer.outputs), len(output_pcolls)))
+          | 'Analyze[%s]' % analyzer.name >> analyzer_impls._AnalyzerImpl(
+              analyzer.spec, temp_assets_dir))
+      # pylint: enable=protected-access
 
-      for collection_idx, (tensor, pcoll) in enumerate(
-          zip(analyzer.outputs, output_pcolls)):
+      for index, tensor in enumerate(analyzer.outputs):
         is_asset = analyzer.output_is_asset(tensor)
-        pcoll |= ('WrapAsTensorValue[%s][%d]' % (analyzer.name, collection_idx)
-                  >> beam.Map(_TensorValue, is_asset))
-        result[tensor.name] = pcoll
+        wrapped_output = outputs_pcoll | (
+            'ExtractAndWrapAsTensorValue[%s][%d]' % (analyzer.name, index)
+            >> beam.Map(extract_and_wrap_as_tensor_value, index,
+                        tensor.dtype.as_numpy_dtype, is_asset))
+        result[tensor.name] = wrapped_output
     return result
 
 
