@@ -87,7 +87,8 @@ class TransformTestCase(test_util.TensorFlowTestCase):
                                        preprocessing_fn,
                                        expected_data=None,
                                        expected_metadata=None,
-                                       only_check_core_metadata=False):
+                                       only_check_core_metadata=False,
+                                       test_data=None):
     """Assert that input data and metadata is transformed as expected.
 
     This methods asserts transformed data and transformed metadata match
@@ -108,6 +109,11 @@ class TransformTestCase(test_util.TensorFlowTestCase):
           the transformed metadata is asserted to be equal to expected metadata.
           If True, only transformed feature names, dtypes and representations
           are asserted.
+      test_data: (optional) If this is provided then instead of calling
+          AnalyzeAndTransformDataset with input_data, this function will call
+          AnalyzeDataset with input_data and TransformDataset with test_data.
+          Note that this is the case even if input_data and test_data are equal.
+          test_data should also conform to input_metadata.
     Raises:
       AssertionError: if the expected data does not match the results of
           transforming input_data according to preprocessing_fn, or
@@ -117,16 +123,19 @@ class TransformTestCase(test_util.TensorFlowTestCase):
     # AnalyzeAndTransformDataset currently simply composes these two
     # transforms.  If in future versions of the code, the implementation
     # differs, we should also run AnalyzeDataset and TransformDatset composed.
-    #
-    # Also, the dataset_metadata that is returned along with
-    # `transformed_data` is incomplete as it does not contain the deferred
-    # components, so we instead inspect the metadata returned along with the
-    # transform function.
     temp_dir = self.get_temp_dir()
     with beam_impl.Context(temp_dir=temp_dir):
-      (transformed_data, _), (_, transformed_metadata) = (
-          (input_data, input_metadata)
-          | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
+      if test_data is None:
+        (transformed_data, transformed_metadata), _ = (
+            (input_data, input_metadata)
+            | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
+      else:
+        transform_fn = (
+            (input_data, input_metadata)
+            | beam_impl.AnalyzeDataset(preprocessing_fn))
+        transformed_data, transformed_metadata = (
+            ((test_data, input_metadata), transform_fn)
+            | beam_impl.TransformDataset())
 
     if expected_data:
       self.assertDataCloseOrEqual(expected_data, transformed_data)

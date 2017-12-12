@@ -413,7 +413,7 @@ def uniques(x, top_k=None, frequency_threshold=None,
   lexicographical order.
 
   Args:
-    x: An input `Tensor` or `SparseTensor`.
+    x: An input `Tensor` or `SparseTensor` with dtype tf.string.
     top_k: Limit the generated vocabulary to the first `top_k` elements. If set
       to None, the full vocabulary is generated.
     frequency_threshold: Limit the generated vocabulary only to elements whose
@@ -450,6 +450,9 @@ def uniques(x, top_k=None, frequency_threshold=None,
 
   if isinstance(x, tf.SparseTensor):
     x = x.values
+
+  if x.dtype != tf.string:
+    raise ValueError('expected tf.string but got %r' % x.dtype)
 
   with tf.name_scope(name, 'uniques'):
     if vocab_filename is not None:

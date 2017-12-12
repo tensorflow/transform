@@ -23,7 +23,8 @@ import random
 
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
-
+import numpy as np
+import six
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform.beam import analyzer_impls as beam_analyzer_impls
@@ -49,6 +50,75 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # message is not conducive to debugging.
     self.assertEqual(a.schema.column_schemas, b.schema.column_schemas)
     self.assertEqual(a, b)
+
+  def assertAnalyzerOutputs(self,
+                            input_data,
+                            input_metadata,
+                            analyzer_fn,
+                            expected_outputs):
+    """Assert that input data and metadata is transformed as expected.
+
+    This methods asserts transformed data and transformed metadata match
+    with expected_data and expected_metadata.
+
+    Args:
+      input_data: A sequence of dicts whose values are
+          either strings, lists of strings, numeric types or a pair of those.
+          Must have at least one key so that we can infer the batch size.
+      input_metadata: DatasetMetadata describing input_data.
+      analyzer_fn: A function taking a dict of tensors and returning
+          a dict of tensors.  Unlike a preprocessing_fn, this should emit
+          the results of a call to an analyzer, while a preprocessing_fn must
+          typically add a batch dimension and broadcast across this batch
+          dimension.
+      expected_outputs: A dict whose keys are the same as those of the output
+          of `analyzer_fn` and whose values are convertible to an ndarrays.
+    Raises:
+      AssertionError: If the expected output does not match the results of
+          the analyzer_fn.
+    """
+    def preprocessing_fn(inputs):
+      # Get tensors representing the outputs of the analyzers
+      analyzer_outputs = analyzer_fn(inputs)
+
+      # Check that keys of analyzer_outputs match expected_output.
+      six.assertCountEqual(self, analyzer_outputs.keys(),
+                           expected_outputs.keys())
+
+      # Get batch size from any input tensor.
+      an_input = inputs.values()[0]
+      if isinstance(an_input, tf.SparseTensor):
+        batch_size = an_input.dense_shape[0]
+      else:
+        batch_size = tf.shape(an_input)[0]
+      result = {}
+
+      # Add a batch dimension and broadcast the analyzer outputs.
+      result = {}
+      for key, output_tensor in six.iteritems(analyzer_outputs):
+        # Get the expected shape, and set it.
+        output_shape = list(expected_outputs[key].shape)
+        output_tensor.set_shape(output_shape)
+        # Add a batch dimension
+        output_tensor = tf.expand_dims(output_tensor, 0)
+        # Broadcast along the batch dimension
+        result[key] = tf.tile(
+            output_tensor, multiples=[batch_size] + [1] * len(output_shape))
+
+      return result
+
+    # Create test dataset by repeating the first instance a number of times.
+    num_test_instances = 3
+    test_data = [input_data[0]] * num_test_instances
+    expected_data = [expected_outputs] * num_test_instances
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        key: sch.ColumnSchema(tf.as_dtype(value.dtype), value.shape,
+                              sch.FixedColumnRepresentation())
+        for key, value in six.iteritems(expected_outputs)})
+
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata, preprocessing_fn, expected_data,
+        expected_metadata, test_data=test_data)
 
   def testApplySavedModelSingleInput(self):
     def save_model_with_single_input(instance, export_dir):
@@ -344,7 +414,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertDataCloseOrEqual(transformed_eval_data,
                                 expected_transformed_eval_data)
-    self.assertEqual(transformed_eval_metadata,
+    self.assertEqual(transformed_eval_metadata.dataset_metadata,
                      expected_transformed_eval_metadata)
 
   def testMapSparseColumns(self):
@@ -722,71 +792,40 @@ class BeamImplTest(tft_unit.TransformTestCase):
     )
 
   def _testNumericAnalyzersWithScalarInputs(self, input_dtype, output_dtypes):
-    def preprocessing_fn(inputs):
-      def repeat(in_tensor, value):
-        batch_size = tf.shape(in_tensor)[0]
-        return tf.ones([batch_size], dtype=value.dtype) * value
-
+    def analyzer_fn(inputs):
       return {
-          'min': repeat(inputs['a'], tft.min(inputs['a'])),
-          'max': repeat(inputs['a'], tft.max(inputs['a'])),
-          'sum': repeat(inputs['a'], tft.sum(inputs['a'])),
-          'size': repeat(inputs['a'], tft.size(inputs['a'])),
-          'mean': repeat(inputs['a'], tft.mean(inputs['a'])),
-          'var': repeat(inputs['a'], tft.var(inputs['a']))
+          'min': tft.min(inputs['a']),
+          'max': tft.max(inputs['a']),
+          'sum': tft.sum(inputs['a']),
+          'size': tft.size(inputs['a']),
+          'mean': tft.mean(inputs['a']),
+          'var': tft.var(inputs['a']),
       }
 
     input_data = [{'a': 4}, {'a': 1}]
     input_metadata = dataset_metadata.DatasetMetadata({
         'a': sch.ColumnSchema(input_dtype, [], sch.FixedColumnRepresentation())
     })
-    expected_data = [
-        {'min': 1, 'max': 4, 'sum': 5, 'size': 2, 'mean': 2.5, 'var': 2.25},
-        {'min': 1, 'max': 4, 'sum': 5, 'size': 2, 'mean': 2.5, 'var': 2.25}
-    ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'min': sch.ColumnSchema(output_dtypes['min'], [],
-                                sch.FixedColumnRepresentation()),
-        'max': sch.ColumnSchema(output_dtypes['max'], [],
-                                sch.FixedColumnRepresentation()),
-        'sum': sch.ColumnSchema(output_dtypes['sum'], [],
-                                sch.FixedColumnRepresentation()),
-        'size': sch.ColumnSchema(output_dtypes['size'], [],
-                                 sch.FixedColumnRepresentation()),
-        'mean': sch.ColumnSchema(output_dtypes['mean'], [],
-                                 sch.FixedColumnRepresentation()),
-        'var': sch.ColumnSchema(output_dtypes['var'], [],
-                                sch.FixedColumnRepresentation())
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
+    expected_outputs = {
+        'min': np.array(1, output_dtypes['min'].as_numpy_dtype),
+        'max': np.array(4, output_dtypes['max'].as_numpy_dtype),
+        'sum': np.array(5, output_dtypes['sum'].as_numpy_dtype),
+        'size': np.array(2, output_dtypes['size'].as_numpy_dtype),
+        'mean': np.array(2.5, output_dtypes['mean'].as_numpy_dtype),
+        'var': np.array(2.25, output_dtypes['var'].as_numpy_dtype)
+    }
+    self.assertAnalyzerOutputs(
+        input_data, input_metadata, analyzer_fn, expected_outputs)
 
   def testNumericAnalyzersWithInputsAndAxis(self):
-    def preprocessing_fn(inputs):
-      def repeat(in_tensor, value):
-        batch_size = tf.shape(in_tensor)[0]
-        return tf.ones([batch_size, 1], dtype=value.dtype) * value
-
+    def analyzer_fn(inputs):
       return {
-          'min':
-              repeat(inputs['a'],
-                     tft.min(inputs['a'], reduce_instance_dims=False)),
-          'max':
-              repeat(inputs['a'],
-                     tft.max(inputs['a'], reduce_instance_dims=False)),
-          'sum':
-              repeat(inputs['a'],
-                     tft.sum(inputs['a'], reduce_instance_dims=False)),
-          'size':
-              repeat(inputs['a'],
-                     tft.size(inputs['a'], reduce_instance_dims=False)),
-          'mean':
-              repeat(inputs['a'],
-                     tft.mean(inputs['a'], reduce_instance_dims=False)),
-          'var':
-              repeat(inputs['a'],
-                     tft.var(inputs['a'], reduce_instance_dims=False))
+          'min': tft.min(inputs['a'], reduce_instance_dims=False),
+          'max': tft.max(inputs['a'], reduce_instance_dims=False),
+          'sum': tft.sum(inputs['a'], reduce_instance_dims=False),
+          'size': tft.size(inputs['a'], reduce_instance_dims=False),
+          'mean': tft.mean(inputs['a'], reduce_instance_dims=False),
+          'var': tft.var(inputs['a'], reduce_instance_dims=False)
       }
 
     input_data = [
@@ -796,59 +835,26 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_metadata = dataset_metadata.DatasetMetadata({
         'a': sch.ColumnSchema(tf.int64, [4], sch.FixedColumnRepresentation())
     })
-    expected_data = [{
-        'min': [1, 2, 3, 4],
-        'max': [8, 9, 10, 11],
-        'sum': [9, 11, 13, 15],
-        'size': [2, 2, 2, 2],
-        'mean': [4.5, 5.5, 6.5, 7.5],
-        'var': [12.25, 12.25, 12.25, 12.25]
-    }, {
-        'min': [1, 2, 3, 4],
-        'max': [8, 9, 10, 11],
-        'sum': [9, 11, 13, 15],
-        'size': [2, 2, 2, 2],
-        'mean': [4.5, 5.5, 6.5, 7.5],
-        'var': [12.25, 12.25, 12.25, 12.25]
-    }]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'min': sch.ColumnSchema(
-            tf.int64, [4], sch.FixedColumnRepresentation()),
-        'max': sch.ColumnSchema(
-            tf.int64, [4], sch.FixedColumnRepresentation()),
-        'sum': sch.ColumnSchema(
-            tf.int64, [4], sch.FixedColumnRepresentation()),
-        'size': sch.ColumnSchema(
-            tf.int64, [4], sch.FixedColumnRepresentation()),
-        'mean': sch.ColumnSchema(
-            tf.float64, [4], sch.FixedColumnRepresentation()),
-        'var': sch.ColumnSchema(
-            tf.float64, [4], sch.FixedColumnRepresentation())
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
+    expected_outputs = {
+        'min': np.array([1, 2, 3, 4], np.int64),
+        'max': np.array([8, 9, 10, 11], np.int64),
+        'sum': np.array([9, 11, 13, 15], np.int64),
+        'size': np.array([2, 2, 2, 2], np.int64),
+        'mean': np.array([4.5, 5.5, 6.5, 7.5], np.float64),
+        'var': np.array([12.25, 12.25, 12.25, 12.25], np.float64)
+    }
+    self.assertAnalyzerOutputs(
+        input_data, input_metadata, analyzer_fn, expected_outputs)
 
   def testNumericAnalyzersWithNDInputsAndAxis(self):
-    def preprocessing_fn(inputs):
-      def repeat(in_tensor, value):
-        batch_size = tf.shape(in_tensor)[0]
-        expand = tf.expand_dims(value, 0)
-        return tf.tile(expand, [batch_size, 1, 1])
-
+    def analyzer_fn(inputs):
       return {
-          'min': repeat(inputs['a'],
-                        tft.min(inputs['a'], reduce_instance_dims=False)),
-          'max': repeat(inputs['a'],
-                        tft.max(inputs['a'], reduce_instance_dims=False)),
-          'sum': repeat(inputs['a'],
-                        tft.sum(inputs['a'], reduce_instance_dims=False)),
-          'size': repeat(inputs['a'],
-                         tft.size(inputs['a'], reduce_instance_dims=False)),
-          'mean': repeat(inputs['a'],
-                         tft.mean(inputs['a'], reduce_instance_dims=False)),
-          'var': repeat(inputs['a'],
-                        tft.var(inputs['a'], reduce_instance_dims=False))
+          'min': tft.min(inputs['a'], reduce_instance_dims=False),
+          'max': tft.max(inputs['a'], reduce_instance_dims=False),
+          'sum': tft.sum(inputs['a'], reduce_instance_dims=False),
+          'size': tft.size(inputs['a'], reduce_instance_dims=False),
+          'mean': tft.mean(inputs['a'], reduce_instance_dims=False),
+          'var': tft.var(inputs['a'], reduce_instance_dims=False)
       }
 
     input_data = [
@@ -857,52 +863,26 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_metadata = dataset_metadata.DatasetMetadata({
         'a': sch.ColumnSchema(tf.int64, [2, 2], sch.FixedColumnRepresentation())
     })
-    expected_data = [{
-        'min': [[1, 2], [3, 4]],
-        'max': [[8, 9], [10, 11]],
-        'sum': [[9, 11], [13, 15]],
-        'size': [[2, 2], [2, 2]],
-        'mean': [[4.5, 5.5], [6.5, 7.5]],
-        'var': [[12.25, 12.25], [12.25, 12.25]]
-    }, {
-        'min': [[1, 2], [3, 4]],
-        'max': [[8, 9], [10, 11]],
-        'sum': [[9, 11], [13, 15]],
-        'size': [[2, 2], [2, 2]],
-        'mean': [[4.5, 5.5], [6.5, 7.5]],
-        'var': [[12.25, 12.25], [12.25, 12.25]]
-    }]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'min': sch.ColumnSchema(
-            tf.int64, [2, 2], sch.FixedColumnRepresentation()),
-        'max': sch.ColumnSchema(
-            tf.int64, [2, 2], sch.FixedColumnRepresentation()),
-        'sum': sch.ColumnSchema(
-            tf.int64, [2, 2], sch.FixedColumnRepresentation()),
-        'size': sch.ColumnSchema(
-            tf.int64, [2, 2], sch.FixedColumnRepresentation()),
-        'mean': sch.ColumnSchema(
-            tf.float64, [2, 2], sch.FixedColumnRepresentation()),
-        'var': sch.ColumnSchema(
-            tf.float64, [2, 2], sch.FixedColumnRepresentation())
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
+    expected_outputs = {
+        'min': np.array([[1, 2], [3, 4]], np.int64),
+        'max': np.array([[8, 9], [10, 11]], np.int64),
+        'sum': np.array([[9, 11], [13, 15]], np.int64),
+        'size': np.array([[2, 2], [2, 2]], np.int64),
+        'mean': np.array([[4.5, 5.5], [6.5, 7.5]], np.float64),
+        'var': np.array([[12.25, 12.25], [12.25, 12.25]], np.float64),
+    }
+    self.assertAnalyzerOutputs(
+        input_data, input_metadata, analyzer_fn, expected_outputs)
 
   def testNumericAnalyzersWithNDInputs(self):
-    def preprocessing_fn(inputs):
-      def repeat(in_tensor, value):
-        batch_size = tf.shape(in_tensor)[0]
-        return tf.ones([batch_size], value.dtype) * value
-
+    def analyzer_fn(inputs):
       return {
-          'min': repeat(inputs['a'], tft.min(inputs['a'])),
-          'max': repeat(inputs['a'], tft.max(inputs['a'])),
-          'sum': repeat(inputs['a'], tft.sum(inputs['a'])),
-          'size': repeat(inputs['a'], tft.size(inputs['a'])),
-          'mean': repeat(inputs['a'], tft.mean(inputs['a'])),
-          'var': repeat(inputs['a'], tft.var(inputs['a']))
+          'min': tft.min(inputs['a']),
+          'max': tft.max(inputs['a']),
+          'sum': tft.sum(inputs['a']),
+          'size': tft.size(inputs['a']),
+          'mean': tft.mean(inputs['a']),
+          'var': tft.var(inputs['a'])
       }
 
     input_data = [
@@ -912,23 +892,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_metadata = dataset_metadata.DatasetMetadata({
         'a': sch.ColumnSchema(tf.int64, [2, 2], sch.FixedColumnRepresentation())
     })
-    expected_data = [
-        {'min': 1, 'max': 7, 'sum': 32, 'size': 8, 'mean': 4.0, 'var': 3.5},
-        {'min': 1, 'max': 7, 'sum': 32, 'size': 8, 'mean': 4.0, 'var': 3.5}
-    ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'min': sch.ColumnSchema(tf.int64, [], sch.FixedColumnRepresentation()),
-        'max': sch.ColumnSchema(tf.int64, [], sch.FixedColumnRepresentation()),
-        'sum': sch.ColumnSchema(tf.int64, [], sch.FixedColumnRepresentation()),
-        'size': sch.ColumnSchema(tf.int64, [], sch.FixedColumnRepresentation()),
-        'mean': sch.ColumnSchema(tf.float64, [],
-                                 sch.FixedColumnRepresentation()),
-        'var': sch.ColumnSchema(tf.float64, [],
-                                sch.FixedColumnRepresentation())
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
+    expected_outputs = {
+        'min': np.array(1, np.int64),
+        'max': np.array(7, np.int64),
+        'sum': np.array(32, np.int64),
+        'size': np.array(8, np.int64),
+        'mean': np.array(4.0, np.float64),
+        'var': np.array(3.5, np.float64)
+    }
+    self.assertAnalyzerOutputs(
+        input_data, input_metadata, analyzer_fn, expected_outputs)
 
   def testNumericAnalyzersWithSparseInputs(self):
     def repeat(in_tensor, value):
@@ -2023,29 +1996,18 @@ class BeamImplTest(tft_unit.TransformTestCase):
       self._test_bucketization_for_type(tf.float16)
 
   def _test_quantile_buckets_helper(self, input_dtype):
-
-    def preprocessing_fn(inputs):
+    def analyzer_fn(inputs):
       return {'q_b': tft.quantiles(inputs['x'], num_buckets=3, epsilon=0.00001)}
 
     # Current batch size is 1000, force 3 batches.
-    input_data = []
-    for x in range(1, 3000):
-      input_data += [{'x': [x]}]
-
+    input_data = [{'x': [x]} for  x in range(1, 3000)]
     input_metadata = dataset_metadata.DatasetMetadata({
         'x': sch.ColumnSchema(input_dtype, [1], sch.FixedColumnRepresentation())
     })
     # The expected data has 2 boundaries that divides the data into 3 buckets.
-    expected_data = [{'q_b': [1001, 2001]},
-                     {'q_b': [1001, 2001]},
-                     {'q_b': [1001, 2001]}]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'q_b': sch.ColumnSchema(
-            tf.float32, [None], sch.FixedColumnRepresentation())
-    })
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data,
-                                          expected_metadata)
+    expected_outputs = {'q_b': np.array([[1001, 2001]], np.float32)}
+    self.assertAnalyzerOutputs(
+        input_data, input_metadata, analyzer_fn, expected_outputs)
 
   # Test for all integral types, each type is in a separate testcase to
   # increase parallelism of test shards and reduce test time.
@@ -2118,12 +2080,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
     saved_model_path = os.path.join(transform_fn_dir, 'transform_fn')
     assets_path = os.path.join(saved_model_path, 'assets')
     self.assertTrue(os.path.isdir(assets_path))
-    self.assertItemsEqual([outfile,
-                           'vocab_frequency_uniques_1',
-                           'vocab_frequency_uniques_2',
-                           'vocab_string_to_int_uniques',
-                           'vocab_uniques_3'],
-                          os.listdir(assets_path))
+    six.assertCountEqual(self,
+                         [outfile,
+                          'vocab_frequency_uniques_1',
+                          'vocab_frequency_uniques_2',
+                          'vocab_string_to_int_uniques',
+                          'vocab_uniques_3'],
+                         os.listdir(assets_path))
 
     check_asset_file_contents(assets_path, outfile,
                               '2 hello\n1 world\n')
@@ -2168,32 +2131,20 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return self._impl.extract_output(accumulator)
 
   def testQuantileViaCombineAnalyzer(self):
-
-    def preprocessing_fn(inputs):
+    def analyzer_fn(inputs):
       return {
           'buckets': tft.combine_analyzer(
-              inputs['x'], output_dtype=tf.int32, output_shape=[None],
+              inputs['x'], output_dtype=tf.int32, output_shape=[1, None],
               combiner_spec=self._QuantileCombinerSpec(), name='quantiles'),
       }
 
-    input_dtype = tf.int32
-    input_data = []
-    for x in range(1, 1000):
-      input_data += [{'x': [x]}]
-
+    input_data = [{'x': [x]} for x in range(1, 1000)]
     input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(input_dtype, [1], sch.FixedColumnRepresentation())
+        'x': sch.ColumnSchema(tf.int32, [1], sch.FixedColumnRepresentation())
     })
-    expected_data = [{
-        'buckets': [1, 501, 999]
-    }]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'buckets': sch.ColumnSchema(
-            tf.int32, [], sch.FixedColumnRepresentation()),
-    })
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data,
-                                          expected_metadata)
+    expected_outputs = {'buckets': np.array([[1, 501, 999]], np.int32)}
+    self.assertAnalyzerOutputs(
+        input_data, input_metadata, analyzer_fn, expected_outputs)
 
 
 if __name__ == '__main__':

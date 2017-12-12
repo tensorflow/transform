@@ -89,7 +89,7 @@ class InputFnMakerTest(unittest.TestCase):
         outputs, labels, inputs = serving_input_fn()
 
         self.assertItemsEqual(
-            outputs,
+            outputs.keys(),
             {'transformed_a', 'transformed_b', 'transformed_label'})
         self.assertIsNone(labels)
         self.assertEqual(set(inputs.keys()), {'csv_example'})
@@ -137,7 +137,7 @@ class InputFnMakerTest(unittest.TestCase):
         outputs, labels, inputs = serving_input_fn()
 
         self.assertItemsEqual(
-            outputs,
+            outputs.keys(),
             {'transformed_a', 'transformed_b', 'transformed_label'})
         self.assertIsNone(labels)
         self.assertEqual(set(inputs.keys()), {'csv_example'})
@@ -222,7 +222,7 @@ class InputFnMakerTest(unittest.TestCase):
         outputs, labels, inputs = serving_input_fn()
 
         self.assertItemsEqual(
-            outputs,
+            outputs.keys(),
             {'transformed_a', 'transformed_b', 'transformed_label'})
         self.assertIsNone(labels)
         self.assertEqual(set(inputs.keys()), {'json_example'})

@@ -317,14 +317,6 @@ def _assert_tensorflow_version():
         'https://github.com/tensorflow/tensorflow. ' % tf.__version__)
 
 
-def _asset_files_supported():
-  try:
-    _assert_tensorflow_version()
-    return True
-  except RuntimeError:
-    return False
-
-
 def _make_unique_temp_dir(base_temp_dir):
   """Create path to a unique temp dir from given base temp dir."""
   return os.path.join(base_temp_dir, uuid.uuid4().hex)
@@ -827,15 +819,36 @@ class TransformDataset(beam.PTransform):
     (input_values, input_metadata), (transform_fn, output_metadata) = (
         dataset_and_transform_fn)
 
-    # If exclude_outputs is set, update the output metadata, which will also
-    # cause _RunMetaGraphDoFn not to create the excluded outputs.
+    # If exclude_outputs is set, update the output metadata.
     if self._exclude_outputs is not None:
-      schema = output_metadata.schema
-      output_metadata = dataset_metadata.DatasetMetadata(
-          schema=dataset_schema.Schema(
-              {key: column_schema
-               for key, column_schema in six.iteritems(schema.column_schemas)
-               if key not in self._exclude_outputs}))
+      if isinstance(output_metadata, beam_metadata_io.BeamDatasetMetadata):
+        # Unwrap BeamDatasetMetadata into DatasetMetadata and pcollections dict.
+        output_metadata, pcollections = output_metadata
+        schema = output_metadata.schema
+        # Update DatasetMetadata to remove excluded outputs
+        output_metadata = dataset_metadata.DatasetMetadata(
+            schema=dataset_schema.Schema(
+                {key: column_schema
+                 for key, column_schema in six.iteritems(schema.column_schemas)
+                 if key not in self._exclude_outputs}))
+        # Update pcollections to keep only pcollections that resolve futures in
+        # the updated metadata.
+        unresolved_future_names = set(
+            future.name for future in output_metadata.substitute_futures({}))
+        pcollections = {
+            name: pcollection
+            for name, pcollection in six.iteritems(pcollections)
+            if name in unresolved_future_names}
+        # Wrap DatasetMetadata and pcollections as BeamDatasetMetadata
+        output_metadata = beam_metadata_io.BeamDatasetMetadata(
+            output_metadata, pcollections)
+      else:
+        schema = output_metadata.schema
+        output_metadata = dataset_metadata.DatasetMetadata(
+            schema=dataset_schema.Schema(
+                {key: column_schema
+                 for key, column_schema in six.iteritems(schema.column_schemas)
+                 if key not in self._exclude_outputs}))
 
     def convert_and_unbatch(batch_dict):
       return impl_helper.to_instance_dicts(

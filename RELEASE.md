@@ -1,3 +1,15 @@
+# Current version (not yet released; still in development)
+
+## Major Features and Improvements
+
+## Bug Fixes and Other Changes
+* Fixes a bug where TransformDataset would not return correct output if the
+  output DatasetMetadata contained deferred values (such as vocabularies).
+
+## Breaking changes
+
+## Deprecations
+
 # Release 0.4.0
 
 ## Major Features and Improvements
@@ -25,7 +37,6 @@
 * A few bug fixes and improvements for coders regarding Python 3.
 
 ## Breaking changes
-
 * Requires pre-installed TensorFlow >= 1.4.
 * No longer distributing a WHL file in PyPI. Only doing a source distribution
   which should however be compatible with all platforms (ie you are still able
@@ -38,7 +49,7 @@
   are now private. Analyzers are accessible only via the top-level TFT functions
   (min, max, sum, size, mean, var, uniques, quantiles).
 
-## Upcoming deprecations
+## Deprecations
 * The `serving_input_fn`s on `tensorflow_transform/saved/input_fn_maker.py` will
 be removed on a future version and should not be used on new code,
 see the `examples` directory for details on how to migrate your code to define
