@@ -121,7 +121,7 @@ raw_data = [
 raw_data_metadata = ...
 transformed_dataset, transform_fn = (
     (raw_data, raw_data_metadata) | beam_impl.AnalyzeAndTransformDataset(
-        preprocessing_fn, tempfile.mkdtemp()))
+        preprocessing_fn))
 transformed_data, transformed_metadata = transformed_dataset
 ```
 
