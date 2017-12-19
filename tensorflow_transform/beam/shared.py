@@ -141,7 +141,7 @@ class _SharedMap(object):
      displaces S2.
 
   Related bugs:
-    b/30837990
+    b/69922446
     BEAM-562 - DoFn reuse
   """
 
