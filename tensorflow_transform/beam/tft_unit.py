@@ -88,7 +88,8 @@ class TransformTestCase(test_util.TensorFlowTestCase):
                                        expected_data=None,
                                        expected_metadata=None,
                                        only_check_core_metadata=False,
-                                       test_data=None):
+                                       test_data=None,
+                                       desired_batch_size=None):
     """Assert that input data and metadata is transformed as expected.
 
     This methods asserts transformed data and transformed metadata match
@@ -114,6 +115,8 @@ class TransformTestCase(test_util.TensorFlowTestCase):
           AnalyzeDataset with input_data and TransformDataset with test_data.
           Note that this is the case even if input_data and test_data are equal.
           test_data should also conform to input_metadata.
+      desired_batch_size: (optional) A batch size to batch elements by. If not
+          provided, a batch size will be computed automatically.
     Raises:
       AssertionError: if the expected data does not match the results of
           transforming input_data according to preprocessing_fn, or
@@ -124,15 +127,15 @@ class TransformTestCase(test_util.TensorFlowTestCase):
     # transforms.  If in future versions of the code, the implementation
     # differs, we should also run AnalyzeDataset and TransformDatset composed.
     temp_dir = self.get_temp_dir()
-    with beam_impl.Context(temp_dir=temp_dir):
+    with beam_impl.Context(
+        temp_dir=temp_dir, desired_batch_size=desired_batch_size):
       if test_data is None:
         (transformed_data, transformed_metadata), _ = (
             (input_data, input_metadata)
             | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
       else:
-        transform_fn = (
-            (input_data, input_metadata)
-            | beam_impl.AnalyzeDataset(preprocessing_fn))
+        transform_fn = ((input_data, input_metadata)
+                        | beam_impl.AnalyzeDataset(preprocessing_fn))
         transformed_data, transformed_metadata = (
             ((test_data, input_metadata), transform_fn)
             | beam_impl.TransformDataset())

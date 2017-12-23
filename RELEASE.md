@@ -1,10 +1,16 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
+* Batching of input instances is now done automatically and dynamically.
 
 ## Bug Fixes and Other Changes
-* Fixes a bug where TransformDataset would not return correct output if the
-  output DatasetMetadata contained deferred values (such as vocabularies).
+
+*   Fixes a bug where TransformDataset would not return correct output if the
+    output DatasetMetadata contained deferred values (such as vocabularies).
+*   Added checks that the prepreprocessing function's outputs all have the same
+    size in the batch dimension.
+*   Added `tft.apply_buckets` which takes an input tensor and a list of bucket
+    boundaries, and returns bucketized data.
 
 ## Breaking changes
 

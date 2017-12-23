@@ -640,7 +640,9 @@ def bucketize(x, num_buckets, epsilon=None, name=None):
   Returns:
     A `Tensor` of the same shape as `x`, with each element in the
     returned tensor representing the bucketized value. Bucketized value is
-    in the range [0, num_buckets).
+    in the range [0, num_buckets). Some times the actual number of buckets can
+    be smaller than num_buckets, for example in case the number of distinct
+    values is smaller than num_buckets.
 
   Raises:
     ValueError: If value of num_buckets is not > 1.
@@ -657,12 +659,27 @@ def bucketize(x, num_buckets, epsilon=None, name=None):
       epsilon = min(1.0 / num_buckets, 0.01)
 
     bucket_boundaries = analyzers.quantiles(x, num_buckets, epsilon)
-    buckets = quantile_ops.bucketize_with_input_boundaries(
-        x,
-        boundaries=bucket_boundaries,
-        name='assign_buckets')
+    return apply_buckets(x, bucket_boundaries)
 
+
+def apply_buckets(x, bucket_boundaries, name=None):
+  """Returns a bucketized column, with a bucket index assigned to each input.
+
+  Args:
+    x: A numeric input `Tensor` whose values should be mapped to buckets.
+    bucket_boundaries: The bucket boundaries represented as a list.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    A `Tensor` of the same shape as `x`, with each element in the
+    returned tensor representing the bucketized value. Bucketized value is
+    in the range [0, len(bucket_boundaries)].
+  """
+  with tf.name_scope(name, 'apply_buckets'):
+    buckets = quantile_ops.bucketize_with_input_boundaries(
+        x, boundaries=bucket_boundaries, name='assign_buckets')
     # Convert to int64 because int32 is not compatible with tf.Example parser.
     # See _TF_EXAMPLE_ALLOWED_TYPES in FixedColumnRepresentation()
     # in tf_metadata/dataset_schema.py
     return tf.to_int64(buckets)
+
