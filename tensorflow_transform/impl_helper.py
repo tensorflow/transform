@@ -154,7 +154,7 @@ def make_feed_dict(input_tensors, schema, instances):
   return result
 
 
-def make_output_dict(schema, fetches):
+def to_instance_dicts(schema, fetches):
   """Maps the values fetched by `tf.Session.run` to the internal batch format.
 
   Args:
@@ -162,11 +162,13 @@ def make_output_dict(schema, fetches):
     fetches: A dict representing a batch of data, as returned by `Session.run`.
 
   Returns:
-    A dict from keys to a list or 2-tuple of lists.
+    A list of dicts where each dict is an in-memory representation of an
+        instance.
 
   Raises:
     ValueError: If `schema` is invalid.
   """
+
   def decompose_sparse_batch(sparse_value):
     """Decomposes a sparse batch into a list of sparse instances.
 
@@ -226,12 +228,13 @@ def make_output_dict(schema, fetches):
 
     return instance_indices, instance_values
 
-  # Make a dict where the values are lists with one element per instance.
-  result = {}
+  batch_dict = {}
+  batch_sizes = {}
   for key, value in six.iteritems(fetches):
     representation = schema.column_schemas[key].representation
     if isinstance(representation, dataset_schema.FixedColumnRepresentation):
-      result[key] = [value[i] for i in range(value.shape[0])]
+      batch_dict[key] = [value[i] for i in range(value.shape[0])]
+      batch_sizes[key] = value.shape[0]
 
     elif isinstance(representation, dataset_schema.ListColumnRepresentation):
       if not isinstance(value, tf.SparseTensorValue):
@@ -241,38 +244,35 @@ def make_output_dict(schema, fetches):
         if len(indices.shape) > 1 or np.any(indices != np.arange(len(indices))):
           raise ValueError('Encountered a SparseTensorValue that cannot be '
                            'decoded by ListColumnRepresentation.')
-      result[key] = instance_values
+      batch_dict[key] = instance_values
+      batch_sizes[key] = len(instance_values)
 
     elif isinstance(representation, dataset_schema.SparseColumnRepresentation):
       if not isinstance(value, tf.SparseTensorValue):
         raise ValueError('Expected a SparseTensorValue, but got %r' % value)
-      result[key] = decompose_sparse_batch(value)
+      instance_indices, instance_values = decompose_sparse_batch(value)
+      batch_dict[key] = zip(instance_indices, instance_values)
+      batch_sizes[key] = len(instance_values)
 
     else:
       raise ValueError('Unhandled column representation: %r.' % representation)
 
-  return result
+  # Check batch size is the same for each output.  Note this assumes that
+  # fetches is not empty.
+  batch_size = batch_sizes.values()[0]
+  for name, batch_size_for_name in six.iteritems(batch_sizes):
+    if batch_size_for_name != batch_size:
+      raise ValueError(
+          'Inconsistent batch sizes: "%s" had batch dimension %d, "%s" had'
+          ' batch dimension %d'
+          % (name, batch_size_for_name, batch_sizes.keys()[0], batch_size))
 
-
-def to_instance_dicts(batch_dict):
-  """Converts from the internal batch format to a list of instances.
-
-  Args:
-    batch_dict: A dict in the in-memory batch format, as returned by
-      `make_output_dict`.
-
-  Returns:
-    A list of dicts in the in-memory instance format.
-  """
-  def get_instance_values(batch_dict):
-    # SparseFeatures are represented as a 2-tuple of list of lists, so
-    # in that case we convert to a list of 2-tuples of lists.
-    columns = (column if not isinstance(column, tuple) else zip(*column)
-               for column in six.itervalues(batch_dict))
-    return itertools.izip(*columns)
-
+  # The following is the simplest way to convert batch_dict from a dict of
+  # iterables to a list of dicts.  It does this by first extracting the values
+  # of batch_dict, and reversing the order of iteration, then recombining with
+  # the keys of batch_dict to create a dict.
   return [dict(zip(six.iterkeys(batch_dict), instance_values))
-          for instance_values in get_instance_values(batch_dict)]
+          for instance_values in zip(*six.itervalues(batch_dict))]
 
 
 def check_valid_sparse_tensor(indices, values, size, name):
@@ -422,6 +422,10 @@ def create_phases(graph):
 def run_preprocessing_fn(preprocessing_fn, schema):
   """Runs the user-defined preprocessing function.
 
+  At this point we check that the preprocessing_fn has at least one output.
+  This is because if we allowed the output of preprocessing_fn to be empty, we
+  wouldn't be able to determine how many instances to "unbatch" the output into.
+
   Args:
     preprocessing_fn: A function that takes a dict of `Tensor` or
         `SparseTensor`s as input and returns a dict of `Tensor` or
@@ -433,7 +437,8 @@ def run_preprocessing_fn(preprocessing_fn, schema):
         `SparseTensor`s, for inputs and outputs respectively.
 
   Raises:
-    ValueError: If `schema` contains unsupported feature types.
+    ValueError: If `schema` contains unsupported feature types or the
+        preprocessing_fn has no outputs.
   """
   # Run the preprocessing function, which will construct a TF graph for the
   # purpose of validation.  The graphs used for computation will be built from
@@ -468,5 +473,8 @@ def run_preprocessing_fn(preprocessing_fn, schema):
     # Construct the deferred preprocessing graph by calling preprocessing_fn on
     # the inputs.
     outputs = preprocessing_fn(input_copies)
+
+    if not outputs:
+      raise ValueError('The preprocessing function returned an empty dict')
 
   return graph, inputs, outputs

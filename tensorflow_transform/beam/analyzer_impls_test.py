@@ -24,7 +24,6 @@ from apache_beam.testing.util import equal_to
 import numpy as np
 from tensorflow_transform import analyzers
 from tensorflow_transform.beam import analyzer_impls as impl
-from tensorflow_transform.beam import impl as beam_impl
 
 
 import unittest
@@ -75,8 +74,7 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
     self.assertCombine(analyzer, [[[]], [[]], [[]]], [])
 
   def testCombineOnBatchLotsOfData(self):
-    shards = [[np.ones(3)] for _ in range(
-        beam_impl._DEFAULT_DESIRED_BATCH_SIZE * 2)]
+    shards = [[np.ones(3)] for _ in range(2000)]
     out = [1 for _ in range(3)]
     analyzer = impl._CombineFnWrapper(
         analyzers._NumPyCombinerSpec(np.min, reduce_instance_dims=False))

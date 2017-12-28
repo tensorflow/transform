@@ -55,7 +55,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
                             input_data,
                             input_metadata,
                             analyzer_fn,
-                            expected_outputs):
+                            expected_outputs,
+                            desired_batch_size=None):
     """Assert that input data and metadata is transformed as expected.
 
     This methods asserts transformed data and transformed metadata match
@@ -73,6 +74,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
           dimension.
       expected_outputs: A dict whose keys are the same as those of the output
           of `analyzer_fn` and whose values are convertible to an ndarrays.
+      desired_batch_size: (Optional) A batch size to batch elements by. If not
+          provided, a batch size will be computed automatically.
     Raises:
       AssertionError: If the expected output does not match the results of
           the analyzer_fn.
@@ -117,8 +120,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
         for key, value in six.iteritems(expected_outputs)})
 
     self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata, test_data=test_data)
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata,
+        test_data=test_data,
+        desired_batch_size=desired_batch_size)
 
   def testApplySavedModelSingleInput(self):
     def save_model_with_single_input(instance, export_dir):
@@ -515,7 +523,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'ab': tf.multiply(inputs['a'], inputs['b']),
               'i': tft.string_to_int(inputs['c'])}
 
-    num_instances = beam_impl._DEFAULT_DESIRED_BATCH_SIZE + 1
+    batch_size = 100
+    num_instances = batch_size + 1
     input_data = [{
         'a': 2,
         'b': i,
@@ -538,8 +547,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
             [], sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata,
+        desired_batch_size=batch_size)
 
   def testWithUnicode(self):
     def preprocessing_fn(inputs):
@@ -1875,18 +1888,20 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def _test_bucketization_helper(
       self, test_inputs, expected_boundaries, input_dtype, do_shuffle=False,
-      epsilon=None):
+      epsilon=None, preprocessing_fn=None):
     # Shuffle the input to add randomness to input generated with
     # simple range().
     if do_shuffle:
       random.shuffle(test_inputs)
 
-    def preprocessing_fn(inputs):
+    def default_preprocessing_fn(inputs):
       return {
           'q_b': tft.bucketize(inputs['x'],
                                num_buckets=len(expected_boundaries)+1,
                                epsilon=epsilon)
       }
+
+    preprocessing_fn = preprocessing_fn or default_preprocessing_fn
 
     input_data = [{'x': [x]} for x in test_inputs]
 
@@ -1916,8 +1931,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
 
     self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata,
+        desired_batch_size=1000)
 
   def _test_bucketization_for_type(self, input_dtype):
     self._test_bucketization_helper(range(1, 10), [4, 7], input_dtype)
@@ -1995,6 +2014,25 @@ class BeamImplTest(tft_unit.TransformTestCase):
         '.*DataType float16 not in list of allowed values.*'):
       self._test_bucketization_for_type(tf.float16)
 
+  def testApplyBuckets(self):
+    expected_boundaries = [26, 51, 76]
+    def preprocessing_fn(inputs):
+      bucket_boundaries = tft.quantiles(inputs['x'], len(expected_boundaries)+1)
+      return {
+          'q_b': tft.apply_buckets(inputs['x'], bucket_boundaries)
+      }
+    self._test_bucketization_helper(range(1, 100), expected_boundaries,
+                                    tf.int32, preprocessing_fn)
+
+  def testApplyBucketsManualBoundaries(self):
+    expected_boundaries = [26, 51, 76]
+    def preprocessing_fn(inputs):
+      return {
+          'q_b': tft.apply_buckets(inputs['x'], expected_boundaries)
+      }
+    self._test_bucketization_helper(range(1, 100), expected_boundaries,
+                                    tf.int32, preprocessing_fn)
+
   def _test_quantile_buckets_helper(self, input_dtype):
     def analyzer_fn(inputs):
       return {'q_b': tft.quantiles(inputs['x'], num_buckets=3, epsilon=0.00001)}
@@ -2007,7 +2045,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # The expected data has 2 boundaries that divides the data into 3 buckets.
     expected_outputs = {'q_b': np.array([[1001, 2001]], np.float32)}
     self.assertAnalyzerOutputs(
-        input_data, input_metadata, analyzer_fn, expected_outputs)
+        input_data,
+        input_metadata,
+        analyzer_fn,
+        expected_outputs,
+        desired_batch_size=1000)
 
   # Test for all integral types, each type is in a separate testcase to
   # increase parallelism of test shards and reduce test time.

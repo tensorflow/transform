@@ -232,89 +232,22 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     })
 
     fetches = {
-        'a': np.array([100, 200, 300]),
-        'b': np.array([10.0, 20.0, 30.0]),
-        'c': np.array([[40.0], [80.0], [120.0]]),
+        'a': np.array([100, 200]),
+        'b': np.array([10.0, 20.0]),
+        'c': np.array([[40.0], [80.0]]),
         'd': np.array([[[1.0, 2.0], [3.0, 4.0]],
-                       [[5.0, 6.0], [7.0, 8.0]],
-                       [[9.0, 10.0], [11.0, 12.0]]]),
+                       [[5.0, 6.0], [7.0, 8.0]]]),
         'e': tf.SparseTensorValue(
-            indices=np.array([(0, 0), (0, 1), (0, 2), (2, 0), (2, 1), (2, 2)]),
+            indices=np.array([(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]),
             values=np.array(['doe', 'a', 'deer', 'a', 'female', 'deer']),
-            dense_shape=(3, 3)),
+            dense_shape=(2, 3)),
         'f': tf.SparseTensorValue(
-            indices=np.array([(0, 2), (0, 4), (0, 8), (1, 8), (1, 4)]),
+            indices=np.array([(0, 2), (0, 4), (0, 8), (1, 4), (1, 8)]),
             values=np.array([10.0, 20.0, 30.0, 40.0, 50.0]),
-            dense_shape=(3, 20))
-    }
-    output_dict = impl_helper.make_output_dict(schema, fetches)
-    self.assertSetEqual(set(six.iterkeys(output_dict)),
-                        set(['a', 'b', 'c', 'd', 'e', 'f']))
-    self.assertAllEqual(output_dict['a'], [100, 200, 300])
-    self.assertAllEqual(output_dict['b'], [10.0, 20.0, 30.0])
-    self.assertAllEqual(output_dict['c'], [[40.0], [80.0], [120.0]])
-    self.assertAllEqual(output_dict['d'], [[[1.0, 2.0], [3.0, 4.0]],
-                                           [[5.0, 6.0], [7.0, 8.0]],
-                                           [[9.0, 10.0], [11.0, 12.0]]])
-    self.assertAllEqual(output_dict['e'][0], ['doe', 'a', 'deer'])
-    self.assertAllEqual(output_dict['e'][1], [])
-    self.assertAllEqual(output_dict['e'][2], ['a', 'female', 'deer'])
-    self.assertEqual(len(output_dict['f']), 2)
-    self.assertAllEqual(output_dict['f'][0][0], [2, 4, 8])
-    self.assertAllEqual(output_dict['f'][0][1], [8, 4])
-    self.assertAllEqual(output_dict['f'][0][2], [])
-    self.assertAllEqual(output_dict['f'][1][0], [10.0, 20.0, 30.0])
-    self.assertAllEqual(output_dict['f'][1][1], [40.0, 50.0])
-    self.assertAllEqual(output_dict['f'][1][2], [])
-
-  def testMakeOutputDictError(self):
-    schema = self.toSchema({'a': tf.VarLenFeature(tf.string)})
-
-    # SparseTensor that cannot be represented as VarLenFeature.
-    fetches = {
-        'a': tf.SparseTensorValue(indices=np.array([(0, 2), (0, 4), (0, 8)]),
-                                  values=np.array([10.0, 20.0, 30.0]),
-                                  dense_shape=(1, 20))
-    }
-    with self.assertRaisesRegexp(
-        ValueError, 'cannot be decoded by ListColumnRepresentation'):
-      _ = impl_helper.make_output_dict(schema, fetches)
-
-    # SparseTensor of invalid rank.
-    fetches = {
-        'a': tf.SparseTensorValue(
-            indices=np.array([(0, 0, 1), (0, 0, 2), (0, 0, 3)]),
-            values=np.array([10.0, 20.0, 30.0]),
-            dense_shape=(1, 10, 10))
-    }
-    with self.assertRaisesRegexp(
-        ValueError, 'cannot be decoded by ListColumnRepresentation'):
-      _ = impl_helper.make_output_dict(schema, fetches)
-
-    # SparseTensor with indices that are out of order.
-    fetches = {
-        'a': tf.SparseTensorValue(indices=np.array([(0, 2), (2, 4), (1, 8)]),
-                                  values=np.array([10.0, 20.0, 30.0]),
-                                  dense_shape=(3, 20))
-    }
-    with self.assertRaisesRegexp(
-        ValueError, 'Encountered out-of-order sparse index'):
-      _ = impl_helper.make_output_dict(schema, fetches)
-
-  def testToInstanceDicts(self):
-    batch_dict = {
-        'a': [100, 200],
-        'b': [10.0, 20.0],
-        'c': [[40.0], [80.0]],
-        'd': [[[1.0, 2.0], [3.0, 4.0]],
-              [[5.0, 6.0], [7.0, 8.0]]],
-        'e': [['doe', 'a', 'deer'],
-              ['a', 'female', 'deer']],
-        'f': ([[2, 4, 8], []],
-              [[10.0, 20.0, 30.0], []])
+            dense_shape=(2, 20))
     }
 
-    instance_dicts = impl_helper.to_instance_dicts(batch_dict)
+    instance_dicts = impl_helper.to_instance_dicts(schema, fetches)
     self.assertEqual(2, len(instance_dicts))
     self.assertSetEqual(set(six.iterkeys(instance_dicts[0])),
                         set(['a', 'b', 'c', 'd', 'e', 'f']))
@@ -332,8 +265,77 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     self.assertAllEqual(instance_dicts[1]['d'], [[5.0, 6.0], [7.0, 8.0]])
     self.assertAllEqual(instance_dicts[1]['e'], ['a', 'female', 'deer'])
     self.assertEqual(len(instance_dicts[1]['f']), 2)
-    self.assertAllEqual(instance_dicts[1]['f'][0], [])
-    self.assertAllEqual(instance_dicts[1]['f'][1], [])
+    self.assertAllEqual(instance_dicts[1]['f'][0], [4, 8])
+    self.assertAllEqual(instance_dicts[1]['f'][1], [40.0, 50.0])
+
+  def testMakeOutputDictErrorSparse(self):
+    schema = self.toSchema({'a': tf.VarLenFeature(tf.string)})
+
+    # SparseTensor that cannot be represented as VarLenFeature.
+    fetches = {
+        'a': tf.SparseTensorValue(indices=np.array([(0, 2), (0, 4), (0, 8)]),
+                                  values=np.array([10.0, 20.0, 30.0]),
+                                  dense_shape=(1, 20))
+    }
+    with self.assertRaisesRegexp(
+        ValueError, 'cannot be decoded by ListColumnRepresentation'):
+      _ = impl_helper.to_instance_dicts(schema, fetches)
+
+    # SparseTensor of invalid rank.
+    fetches = {
+        'a': tf.SparseTensorValue(
+            indices=np.array([(0, 0, 1), (0, 0, 2), (0, 0, 3)]),
+            values=np.array([10.0, 20.0, 30.0]),
+            dense_shape=(1, 10, 10))
+    }
+    with self.assertRaisesRegexp(
+        ValueError, 'cannot be decoded by ListColumnRepresentation'):
+      _ = impl_helper.to_instance_dicts(schema, fetches)
+
+    # SparseTensor with indices that are out of order.
+    fetches = {
+        'a': tf.SparseTensorValue(indices=np.array([(0, 2), (2, 4), (1, 8)]),
+                                  values=np.array([10.0, 20.0, 30.0]),
+                                  dense_shape=(3, 20))
+    }
+    with self.assertRaisesRegexp(
+        ValueError, 'Encountered out-of-order sparse index'):
+      _ = impl_helper.to_instance_dicts(schema, fetches)
+
+    # SparseTensors with different batch dimension sizes.
+    schema = self.toSchema({
+        'a': tf.VarLenFeature(tf.string),
+        'b': tf.VarLenFeature(tf.string)
+    })
+    fetches = {
+        'a': tf.SparseTensorValue(indices=np.array([(0, 0)]),
+                                  values=np.array([10.0]),
+                                  dense_shape=(1, 20)),
+        'b': tf.SparseTensorValue(indices=np.array([(0, 0)]),
+                                  values=np.array([10.0]),
+                                  dense_shape=(2, 20))
+    }
+    with self.assertRaisesRegexp(
+        ValueError,
+        r'Inconsistent batch sizes: "\w" had batch dimension \d, "\w" had batch'
+        r' dimension \d'):
+      _ = impl_helper.to_instance_dicts(schema, fetches)
+
+  def testMakeOutputDictErrorDense(self):
+    schema = self.toSchema({
+        'a': tf.FixedLenFeature((), tf.string),
+        'b': tf.FixedLenFeature((), tf.string)
+    })
+    # Tensors with different batch dimension sizes.
+    fetches = {
+        'a': np.array([1]),
+        'b': np.array([1, 2])
+    }
+    with self.assertRaisesRegexp(
+        ValueError,
+        r'Inconsistent batch sizes: "\w" had batch dimension \d, "\w" had batch'
+        r' dimension \d'):
+      _ = impl_helper.to_instance_dicts(schema, fetches)
 
   def testCreatePhasesWithDegenerateFunctionApplication(self):
     # Tests the case of a function whose inputs and outputs overlap.
