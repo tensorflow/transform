@@ -1,18 +1,26 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
-* Batching of input instances is now done automatically and dynamically.
+*   Batching of input instances is now done automatically and dynamically.
+*   Added analyzers to compute covarance matrices (`tft.covariance`) and
+    principal components for PCA (`tft.pca`).
+*   CombinerSpec and combine_analyzer now accept multiple inputs/outputs.
 
 ## Bug Fixes and Other Changes
-
 *   Fixes a bug where TransformDataset would not return correct output if the
     output DatasetMetadata contained deferred values (such as vocabularies).
 *   Added checks that the prepreprocessing function's outputs all have the same
     size in the batch dimension.
 *   Added `tft.apply_buckets` which takes an input tensor and a list of bucket
     boundaries, and returns bucketized data.
+*   `tft.bucketize` and `tft.apply_buckets` now set metadata for the output
+    tensor, which means the resulting tf.Metadata for the output of these
+    functions will contain min and max values based on the number of buckets,
+    and also be set to categorical.
 
 ## Breaking changes
+*   The interfaces of CombinerSpec and combine_analyzer have changed to allow
+    for multiple inputs/outputs.
 
 ## Deprecations
 

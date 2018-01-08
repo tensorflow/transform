@@ -448,29 +448,26 @@ class _ReplaceTensorsWithConstants(beam.PTransform):
           apply the transform.
       """
 
-      graph = tf.get_default_graph()
-      if graph is None:
-        raise RuntimeError('replace_tensors_with_constant_values() '
-                           'requires a default graph.')
+      graph = tf.Graph()
+      with graph.as_default():
+        tensor_replacement_map = {}
+        for orig_tensor_name, (value,
+                               is_asset) in six.iteritems(tensor_value_mapping):
+          new_tensor = tf.constant(value)
+          if is_asset:
+            # Any newly frozen constant tensors containing filenames must be
+            # added to the ASSET_FILENAMES collection.
+            graph.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, new_tensor)
+          tensor_replacement_map[orig_tensor_name] = new_tensor
 
-      tensor_replacement_map = {}
-      for orig_tensor_name, (value,
-                             is_asset) in six.iteritems(tensor_value_mapping):
-        new_tensor = tf.constant(value)
-        if is_asset:
-          # Any newly frozen constant tensors containing filenames must be
-          # added to the ASSET_FILENAMES collection.
-          graph.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, new_tensor)
-        tensor_replacement_map[orig_tensor_name] = new_tensor
-
-      with tf.Session() as session:
-        temp_dir = _make_unique_temp_dir(self._base_temp_dir)
-        input_tensors, output_tensors = (
-            saved_transform_io.partially_apply_saved_transform(
-                saved_model_dir, {}, tensor_replacement_map))
-        saved_transform_io.write_saved_transform_from_session(
-            session, input_tensors, output_tensors, temp_dir)
-      return temp_dir
+        with tf.Session(graph=graph) as session:
+          temp_dir = _make_unique_temp_dir(self._base_temp_dir)
+          input_tensors, output_tensors = (
+              saved_transform_io.partially_apply_saved_transform(
+                  saved_model_dir, {}, tensor_replacement_map))
+          saved_transform_io.write_saved_transform_from_session(
+              session, input_tensors, output_tensors, temp_dir)
+        return temp_dir
 
     return (transform_fn | 'ReplaceTensorsWithConstantValues' >> beam.Map(
         replace_tensors_with_constant_values,
@@ -501,11 +498,11 @@ class _ComputeAnalyzerOutputs(beam.PTransform):
     for analyzer in self._analyzers:
       temp_assets_dir = _make_unique_temp_dir(self._base_temp_dir)
       tf.gfile.MkDir(temp_assets_dir)
-      assert len(analyzer.inputs) == 1
       outputs_pcoll = (
           analyzer_input_values
-          | 'ExtractInput[%s]' % analyzer.name >> beam.Map(
-              lambda batch, key: batch[key], key=analyzer.inputs[0].name)
+          | 'ExtractInputs[%s]' % analyzer.name >> beam.Map(
+              lambda batch, keys: [batch[key] for key in keys],
+              keys=[tensor.name for tensor in analyzer.inputs])
           | 'Analyze[%s]' % analyzer.name >> analyzer_impls._AnalyzerImpl(
               analyzer.spec, temp_assets_dir))
       # pylint: enable=protected-access
@@ -576,27 +573,24 @@ class _ComputeTensorValues(beam.PTransform):
     def extract_scalar_constants(tensor_names, saved_model_dir,
                                  tensor_value_mapping):
       """Extracts constant values from graph."""
-      graph = tf.get_default_graph()
-      if graph is None:
-        raise RuntimeError('replace_tensors_with_constant_values() '
-                           'requires a default graph.')
+      graph = tf.Graph()
+      with graph.as_default():
+        tensor_replacement_map = {}
+        for orig_tensor_name, (value,
+                               is_asset) in six.iteritems(tensor_value_mapping):
+          new_tensor = tf.constant(value)
+          if is_asset:
+            # Any newly frozen constant tensors containing filenames must be
+            # added to the ASSET_FILENAMES collection.
+            graph.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, new_tensor)
+          tensor_replacement_map[orig_tensor_name] = new_tensor
 
-      tensor_replacement_map = {}
-      for orig_tensor_name, (value,
-                             is_asset) in six.iteritems(tensor_value_mapping):
-        new_tensor = tf.constant(value)
-        if is_asset:
-          # Any newly frozen constant tensors containing filenames must be
-          # added to the ASSET_FILENAMES collection.
-          graph.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, new_tensor)
-        tensor_replacement_map[orig_tensor_name] = new_tensor
-
-      with tf.Session() as session:
-        tensor_output_map = (
-            saved_transform_io.fetch_tensor_values(
-                saved_model_dir, tensor_replacement_map, tensor_names))
-        session.run(tf.tables_initializer())
-        return session.run(tensor_output_map)
+        with tf.Session(graph=graph) as session:
+          tensor_output_map = (
+              saved_transform_io.fetch_tensor_values(
+                  saved_model_dir, tensor_replacement_map, tensor_names))
+          session.run(tf.tables_initializer())
+          return session.run(tensor_output_map)
 
     tensor_values_by_name_pcoll = (
         tensor_names_pcoll | 'ExtractScalarConstants' >> beam.Map(

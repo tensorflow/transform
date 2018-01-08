@@ -117,15 +117,15 @@ class CombinerSpec(object):
     """
     raise NotImplementedError
 
-  def add_input(self, accumulator, element):
-    """Return result of folding element into accumulator.
+  def add_input(self, accumulator, batch_values):
+    """Return result of folding a batch of inputs into accumulator.
 
     Args:
       accumulator: the current accumulator
-      element: the element to add, which will be an ndarray representing the
-         value of the input for a batch.
+      batch_values: A list of ndarrays representing the values of the inputs for
+          a batch, which should be added to the accumulator.
 
-    Returns: An accumulator that includes the additional element.
+    Returns: An accumulator that includes the batch of inputs.
     """
     raise NotImplementedError
 
@@ -145,28 +145,40 @@ class CombinerSpec(object):
     Args:
       accumulator: the final accumulator value.  Should be a list of ndarrays.
 
-    Returns: An ndarray representing the result of this combiner.
+    Returns: A list of ndarrays representing the result of this combiner.
     """
     raise NotImplementedError
 
 
-def combine_analyzer(x, output_dtype, output_shape, combiner_spec, name):
+def combine_analyzer(inputs, output_dtypes, output_shapes, combiner_spec, name):
   """Applies the combiner over the whole dataset.
 
   Args:
-    x: An input `Tensor` or `SparseTensor`.
-    output_dtype: The dtype of the output of the analyzer.
-    output_shape: The shape of the output of the analyzer.
+    inputs: A list of input `Tensor`s or `SparseTensor`s.
+    output_dtypes: The list of dtypes of the output of the analyzer.
+    output_shapes: The list of dtypes of the output of the analyzer.  Must have
+      the same length as output_dtypes.
     combiner_spec: A subclass of CombinerSpec.
     name: Similar to a TF op name.  Used to define a unique scope for this
       analyzer, which can be used for debugging info.
 
   Returns:
-    The combined values, which is a `Tensor` with type output_dtype and shape
-    `output_shape`.  These must be compatible with the combiner_spec.
+    A list of `Tensor`s representing the combined values.  These will have
+        `dtype` and `shape` given by `output_dtypes` and `output_shapes`.  These
+        dtypes and shapes must be compatible with the combiner_spec.
+
+  Raises:
+    ValueError: If output_dtypes and output_shapes have different lengths.
   """
-  return Analyzer([x], [(output_dtype, output_shape, False)], combiner_spec,
-                  name).outputs[0]
+  if len(output_dtypes) != len(output_shapes):
+    raise ValueError('output_dtypes (%r) and output_shapes (%r) had different'
+                     ' lengths' % output_dtypes, output_shapes)
+  return Analyzer(
+      inputs,
+      [(output_dtype, output_shape, False)
+       for output_dtype, output_shape in zip(output_dtypes, output_shapes)],
+      combiner_spec,
+      name).outputs
 
 
 class _NumPyCombinerSpec(CombinerSpec):
@@ -179,43 +191,67 @@ class _NumPyCombinerSpec(CombinerSpec):
   def create_accumulator(self):
     return None
 
-  def add_input(self, accumulator, next_input):
+  def add_input(self, accumulator, batch_values):
     if self._reduce_instance_dims:
-      batch = self._fn(next_input)
+      reduced_values = [self._fn(batch_value) for batch_value in batch_values]
     else:
-      batch = self._fn(next_input, axis=0)
+      reduced_values = [self._fn(batch_value, axis=0)
+                        for batch_value in batch_values]
     if accumulator is None:
-      return batch
+      return reduced_values
     else:
-      return self._fn((accumulator, batch), axis=0)
+      return [
+          self._fn((sub_accumulator, reduced_value), axis=0)
+          for sub_accumulator, reduced_value
+          in zip(accumulator, reduced_values)]
 
   def merge_accumulators(self, accumulators):
     # numpy's sum, min, max, etc functions operate on array-like objects, but
     # not arbitrary iterables. Convert the provided accumulators into a list
-    return self._fn(list(accumulators), axis=0)
+    return [
+        self._fn(list(sub_accumulators), axis=0)
+        for sub_accumulators in zip(*accumulators)]
 
   def extract_output(self, accumulator):
-    return [accumulator]
+    return accumulator
 
 
-def _numeric_combine(x, fn, reduce_instance_dims=True, name=None):
-  """Apply an analyzer with _NumericCombineSpec to given input."""
-  if not isinstance(x, tf.Tensor):
-    raise TypeError('Expected a Tensor, but got %r' % x)
+def _numeric_combine(inputs, fn, reduce_instance_dims=True, name=None):
+  """Apply a reduction, defined by a numpy function to multiple inputs.
+
+  Args:
+    inputs: A list of tensors, which will be indpendently reduced.
+    fn: A function to reduce tensors across instances/batches, to get a single
+        output.
+    reduce_instance_dims: By default collapses the batch and instance dimensions
+        to arrive at a single scalar output. If False, only collapses the batch
+        dimension and outputs a vector of the same shape as the input.
+    name: (Optional) A name for this operation.
+
+  Returns:
+     A list of tensors with the same length as `inputs`, representing the
+         input tensors that have been reduced by `fn` across instances and
+         batches.
+  """
+  for x in inputs:
+    if not isinstance(x, tf.Tensor):
+      raise TypeError('Expected a Tensor, but got %r' % x)
 
   if reduce_instance_dims:
     # If reducing over all dimensions, result is scalar.
-    shape = ()
-  elif x.shape.dims is not None:
-    # If reducing over batch dimensions, with known shape, the result will be
-    # the same shape as the input, but without the batch.
-    shape = x.shape.as_list()[1:]
+    shapes = [() for _ in inputs]
   else:
-    # If reducing over batch dimensions, with unknown shape, the result will
-    # also have unknown shape.
-    shape = None
+    # If reducing over batch dimensions, with known shape, the result will be
+    # the same shape as the input, but without the batch.  If reducing over
+    # batch dimensions, with unknown shape, the result will also have unknown
+    # shape.
+    shapes = [x.shape.as_list()[1:] if x.shape.dims is not None else None
+              for x in inputs]
   return combine_analyzer(
-      x, x.dtype, shape, _NumPyCombinerSpec(fn, reduce_instance_dims),
+      inputs,
+      [x.dtype for x in inputs],
+      shapes,
+      _NumPyCombinerSpec(fn, reduce_instance_dims),
       name if name is not None else fn.__name__)
 
 
@@ -232,7 +268,7 @@ def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Returns:
     A `Tensor`. Has the same type as `x`.
   """
-  return _numeric_combine(x, np.min, reduce_instance_dims, name)
+  return _numeric_combine([x], np.min, reduce_instance_dims, name)[0]
 
 
 def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
@@ -248,7 +284,7 @@ def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Returns:
     A `Tensor`. Has the same type as `x`.
   """
-  return _numeric_combine(x, np.max, reduce_instance_dims, name)
+  return _numeric_combine([x], np.max, reduce_instance_dims, name)[0]
 
 
 def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
@@ -264,7 +300,7 @@ def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Returns:
     A `Tensor`. Has the same type as `x`.
   """
-  return _numeric_combine(x, np.sum, reduce_instance_dims, name)
+  return _numeric_combine([x], np.sum, reduce_instance_dims, name)[0]
 
 
 def size(x, reduce_instance_dims=True, name=None):
@@ -302,9 +338,11 @@ def mean(x, reduce_instance_dims=True, name=None):
     of tf.truediv).
   """
   with tf.name_scope(name, 'mean'):
-    # Note: Calling `sum` defined in this module, not the builtin.
-    return tf.divide(
-        sum(x, reduce_instance_dims), size(x, reduce_instance_dims))
+    # For now _numeric_combine will return a tuple with as many elements as the
+    # input tuple.
+    x_count, x_sum = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
+        [tf.ones_like(x), x], np.sum, reduce_instance_dims)
+    return tf.divide(x_sum, x_count)
 
 
 def var(x, reduce_instance_dims=True, name=None):
@@ -534,3 +572,247 @@ def quantiles(x, num_buckets, epsilon, name=None):
     # Drop the fist and last quantile boundaries, so that we end-up with
     # num_buckets-1 boundaries, and hence num_buckets buckets.
     return quantile_boundaries[0:1, 1:-1]
+
+
+class _CovarianceCombinerSpec(CombinerSpec):
+  """Combines the PCollection to compute the biased covariance matrix."""
+
+  def __init__(self, dtype=tf.float64):
+    """Store the dtype for np arrays/matrices for precision."""
+    self._output_dtype = dtype
+    self._np_dtype = dtype.as_numpy_dtype
+
+  def create_accumulator(self):
+    """Create an accumulator with all zero entries."""
+    return None
+
+  def add_input(self, accumulator, batch_values):
+    """Compute sum of input cross-terms, sum of inputs, and count.
+
+    The cross terms for a numeric 1d array x are given by the set:
+    {z_ij = x_i * x_j for all indices i and j}. This is stored as a 2d array.
+    Since next_input is an array of 1d numeric arrays (i.e. a 2d array),
+    matmul(transpose(next_input), next_input) will automatically sum up
+    the cross terms of each 1d array in next_input.
+
+    Args:
+      accumulator: running sum of cross terms, input vectors, and count
+      batch_values: entries from the pipeline, which must be single element list
+          containing a 2d array
+      representing multiple 1d arrays
+
+    Returns:
+      An accumulator with next_input considered in its running list of
+      sum_product, sum_vectors, and count of input rows.
+    """
+    # Expect a single input representing the batch for the input tensor.
+    batch_value, = batch_values
+
+    assert len(np.shape(batch_value)) == 2
+
+    batch_cross_terms = np.matmul(
+        np.transpose(batch_value),
+        batch_value
+    ).astype(self._np_dtype)
+
+    batch_sum = np.array(np.sum(batch_value, axis=0), self._np_dtype)
+    batch_count = np.shape(batch_value)[0]
+
+    if accumulator is None:
+      return [batch_cross_terms, batch_sum, batch_count]
+    else:
+      sum_product, sum_vectors, count = accumulator
+      return [sum_product + batch_cross_terms,
+              sum_vectors + batch_sum,
+              count + batch_count]
+
+  def merge_accumulators(self, accumulators):
+    """Sums values in each accumulator entry."""
+    # Because each accumulator contains multiple arrays of different dimensions,
+    # the np.sum operation must be explicitly used across the entries within
+    # each accumulator. np.sum(list(accumulators)) does not work.
+
+    sum_product = np.sum(
+        [accumulator[0] for accumulator in accumulators], axis=0)
+    sum_vectors = np.sum(
+        [accumulator[1] for accumulator in accumulators], axis=0)
+    count = np.sum([accumulator[2] for accumulator in accumulators], axis=0)
+    return [sum_product, sum_vectors, count]
+
+  def extract_output(self, accumulator):
+    """Run covariance logic on sum_product, sum of input vectors, and count.
+
+    The formula used to compute the covariance is cov(x) = E(xx^T) - uu^T,
+    where x is the original input to the combiner, and u = mean(x).
+    E(xx^T) is computed by dividing sum of cross terms (index 0) by count
+    (index 2). u is computed by taking the sum of rows (index 1) and dividing by
+    the count (index 2).
+
+    Args:
+      accumulator: final accumulator as a list of the sum of cross-terms matrix,
+        sum of input vectors, and count.
+
+    Returns:
+      A list containing a single 2d ndarray, the covariance matrix.
+    """
+
+    sum_product, sum_vectors, count = accumulator
+    expected_cross_terms = sum_product / count
+    expected_terms = sum_vectors / count
+
+    return [expected_cross_terms - np.outer(expected_terms, expected_terms)]
+
+
+def covariance(x, dtype, name=None):
+  """Computes the covariance matrix over the whole dataset.
+
+  The covariance matrix M is defined as follows:
+  Let x[:j] be a tensor of the jth element of all input vectors in x, and let
+  u_j = mean(x[:j]). The entry M[i,j] = E[(x[:i] - u_i)(x[:j] - u_j)].
+  Notice that the diagonal entries correspond to variances of individual
+  elements in the vector, i.e. M[i,i] corresponds to the variance of x[:i].
+
+  Args:
+    x: A rank-2 `Tensor`, 0th dim are rows, 1st dim are indices in each input
+    vector.
+    dtype: numpy dtype of entries in the returned matrix.
+    name: (Optional) A name for this operation.
+
+  Raises:
+    ValueError: if input is not a rank-2 Tensor.
+
+  Returns:
+    A rank-2 (matrix) covariance `Tensor`
+  """
+
+  if not isinstance(x, tf.Tensor):
+    raise TypeError('Expected a Tensor, but got %r' % x)
+
+  x.shape.assert_has_rank(2)
+
+  input_dim = x.shape.as_list()[1]
+  shape = (input_dim, input_dim)
+
+  spec = _CovarianceCombinerSpec(dtype)
+  return combine_analyzer(
+      [x], [dtype], [shape], spec,
+      name if name is not None else 'covariance')[0]
+
+
+class _PCACombinerSpec(_CovarianceCombinerSpec):
+
+  def __init__(self, output_dim=None, dtype=tf.float64):
+    """Store pca output dimension, and dtype for precision."""
+    super(_PCACombinerSpec, self).__init__(dtype=dtype)
+    self._output_dim = output_dim
+
+  def extract_output(self, accumulator):
+    """Compute PCA the accumulated data using the biased covariance matrix.
+
+    Following the covariance computation in _CovarianceCombinerSpec,
+    this method runs eigenvalue decomposition on the covariance matrix,
+    sorts eigenvalues in decreasing order, and returns the first output_dim
+    corresponding eigenvectors (principal components) as a matrix.
+
+    Args:
+      accumulator: final accumulator as a list of the sum of cross-terms matrix,
+        sum of input vectors, and count.
+
+    Returns:
+      A list containing a matrix of shape (input_dim, output_dim).
+    """
+    sum_product, sum_vectors, count = accumulator
+    expected_cross_terms = sum_product / count
+    expected_terms = sum_vectors / count
+    cov = expected_cross_terms - np.outer(expected_terms, expected_terms)
+    vals, vecs = np.linalg.eigh(cov)
+    sorted_vecs = vecs[:, np.argsort(vals)[::-1]]
+    if self._output_dim is None:
+      return [sorted_vecs]
+    else:
+      return [sorted_vecs[:, :self._output_dim]]
+
+
+def pca(x, output_dim, dtype, name=None):
+  """Computes pca on the dataset using biased covariance.
+
+  The pca analyzer computes output_dim orthonormal vectors that capture
+  directions/axes corresponding to the highest variances in the input vectors of
+  x. The output vectors are returned as a rank-2 tensor with shape
+  (input_dim, output_dim), where the 0th dimension are the components of each
+  output vector, and the 1st dimension are the output vectors representing
+  orthogonal directions in the input space, sorted in order of decreasing
+  variances.
+
+  The output rank-2 tensor (matrix) serves a useful transform purpose. Formally,
+  the matrix can be used downstream in the transform step by multiplying it to
+  the input tensor x. This transform reduces the dimension of input vectors to
+  output_dim in a way that retains the maximal variance.
+
+  NOTE: To properly use PCA, input vector components should be converted to
+  similar units of measurement such that the vectors represent a Euclidean
+  space. If no such conversion is available (e.g. one element represents time,
+  another element distance), the canonical approach is to first apply a
+  transformation to the input data to normalize numerical variances, i.e.
+  tft.scale_to_z_score(). Normalization allows PCA to choose output axes that
+  help decorrelate input axes.
+
+  Below are a couple intuitive examples of PCA.
+
+  Consider a simple 2-dimensional example:
+
+  Input x is a series of vectors [e, e] where e is Gaussian with mean 0,
+  variance 1. The two components are perfectly correlated, and the resulting
+  covariance matrix is
+  [[1 1],
+   [1 1]].
+  Applying PCA with output_dim = 1 would discover the first principal component
+  [1 / sqrt(2), 1 / sqrt(2)]. When multipled to the original example, each
+  vector [e, e] would be mapped to a scalar sqrt(2) * e. The second principal
+  component would be [-1 / sqrt(2), 1 / sqrt(2)] and would map [e, e] to 0,
+  which indicates that the second component captures no variance at all. This
+  agrees with our intuition since we know that the two axes in the input are
+  perfectly correlated and can be fully explained by a single scalar e.
+
+  Consider a 3-dimensional example:
+
+  Input x is a series of vectors [a, a, b], where a is a zero-mean, unit
+  variance Gaussian. b is a zero-mean, variance 4 Gaussian and is independent of
+  a. The first principal component of the unnormalized vector would be [0, 0, 1]
+  since b has a much larger variance than any linear combination of the first
+  two components. This would map [a, a, b] onto b, asserting that the axis with
+  highest energy is the third component. While this may be the desired
+  output if a and b correspond to the same units, it is not statistically
+  desireable when the units are irreconciliable. In such a case, one should
+  first normalize each component to unit variance first, i.e. b := b / 2.
+  The first principal component of a normalized vector would yield
+  [1 / sqrt(2), 1 / sqrt(2), 0], and would map [a, a, b] to sqrt(2) * a. The
+  second component would be [0, 0, 1] and map [a, a, b] to b. As can be seen,
+  the benefit of normalization is that PCA would capture highly correlated
+  components first and collapse them into a lower dimension.
+
+  Args:
+    x: A rank-2 `Tensor`, 0th dim are rows, 1st dim are indices in row vectors.
+    output_dim: The PCA output dimension (number of eigenvectors to return).
+    dtype: numpy dtype of entries in the returned matrix.
+    name: (Optional) A name for this operation.
+
+  Raises:
+    ValueError: if input is not a rank-2 Tensor.
+
+  Returns:
+    A 2D `Tensor` (matrix) M of shape (input_dim, output_dim).
+  """
+
+  if not isinstance(x, tf.Tensor):
+    raise TypeError('Expected a Tensor, but got %r' % x)
+
+  x.shape.assert_has_rank(2)
+
+  input_dim = x.shape.as_list()[1]
+  shape = (input_dim, output_dim)
+
+  spec = _PCACombinerSpec(output_dim, dtype)
+  return combine_analyzer(
+      [x], [dtype], [shape], spec,
+      name if name is not None else 'pca')[0]
