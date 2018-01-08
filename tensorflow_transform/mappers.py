@@ -681,5 +681,15 @@ def apply_buckets(x, bucket_boundaries, name=None):
     # Convert to int64 because int32 is not compatible with tf.Example parser.
     # See _TF_EXAMPLE_ALLOWED_TYPES in FixedColumnRepresentation()
     # in tf_metadata/dataset_schema.py
-    return tf.to_int64(buckets)
+    result = tf.to_int64(buckets)
+
+    # Attach the relevant metadata to result, so that the corresponding
+    # output feature will have this metadata set.
+    max_value = tf.shape(bucket_boundaries)[1]
+    column_schema = dataset_schema.infer_column_schema_from_tensor(result)
+    column_schema.domain = dataset_schema.IntDomain(
+        result.dtype, min_value=0, max_value=futures.Future(max_value.name),
+        is_categorical=True)
+    api.set_column_schema(result, column_schema)
+    return result
 

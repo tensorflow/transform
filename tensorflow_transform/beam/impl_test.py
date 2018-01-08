@@ -25,6 +25,7 @@ import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
 import numpy as np
 import six
+
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform.beam import analyzer_impls as beam_analyzer_impls
@@ -1927,7 +1928,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     expected_metadata = dataset_metadata.DatasetMetadata({
         'q_b': sch.ColumnSchema(
-            tf.int64, [1], sch.FixedColumnRepresentation())
+            sch.IntDomain(tf.int64, 0, len(expected_boundaries), True),
+            [1], sch.FixedColumnRepresentation())
     })
 
     self.assertAnalyzeAndTransformResults(
@@ -2174,10 +2176,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testQuantileViaCombineAnalyzer(self):
     def analyzer_fn(inputs):
+      buckets, = tft.combine_analyzer(
+          [inputs['x']], output_dtypes=[tf.int32],
+          output_shapes=[(1, None)],
+          combiner_spec=self._QuantileCombinerSpec(), name='quantiles')
       return {
-          'buckets': tft.combine_analyzer(
-              inputs['x'], output_dtype=tf.int32, output_shape=[1, None],
-              combiner_spec=self._QuantileCombinerSpec(), name='quantiles'),
+          'buckets': buckets
       }
 
     input_data = [{'x': [x]} for x in range(1, 1000)]
@@ -2185,6 +2189,49 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x': sch.ColumnSchema(tf.int32, [1], sch.FixedColumnRepresentation())
     })
     expected_outputs = {'buckets': np.array([[1, 501, 999]], np.int32)}
+    self.assertAnalyzerOutputs(
+        input_data, input_metadata, analyzer_fn, expected_outputs)
+
+  def testCovarianceTwoDimensions(self):
+    def analyzer_fn(inputs):
+      return {'y': tft.covariance(inputs['x'], dtype=tf.float64)}
+
+    input_data = [{'x': x} for x in [[0, 0], [4, 0], [2, -2], [2, 2]]]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(tf.float64,
+                              [2],
+                              sch.FixedColumnRepresentation())
+    })
+    expected_outputs = {'y': np.array([[2, 0], [0, 2]], np.float64)}
+    self.assertAnalyzerOutputs(
+        input_data, input_metadata, analyzer_fn, expected_outputs)
+
+  def testCovarianceOneDimension(self):
+    def analyzer_fn(inputs):
+      return {'y': tft.covariance(inputs['x'], dtype=tf.float64)}
+
+    input_data = [{'x': x} for x in [[0], [2], [4], [6]]]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(tf.float64,
+                              [1],
+                              sch.FixedColumnRepresentation())
+    })
+    expected_outputs = {'y': np.array([[5]], np.float64)}
+    self.assertAnalyzerOutputs(
+        input_data, input_metadata, analyzer_fn, expected_outputs)
+
+  def testPCAThreeToTwoDimensions(self):
+    def analyzer_fn(inputs):
+      return {'y': tft.pca(inputs['x'], 2, dtype=tf.float64)}
+
+    input_data = [{'x': x}
+                  for x in  [[0, 0, 1], [4, 0, 1], [2, -1, 1], [2, 1, 1]]]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(tf.float64,
+                              [3],
+                              sch.FixedColumnRepresentation())
+    })
+    expected_outputs = {'y': np.array([[1, 0], [0, 1], [0, 0]], np.float64)}
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
 

@@ -63,15 +63,17 @@ def _maybe_deserialize_tf_config(serialized_tf_config):
   return result
 
 
-@with_input_types(np.ndarray)
+@with_input_types(List[np.ndarray])
 @with_output_types(List[Any])
 class _AnalyzerImpl(beam.PTransform):
   """PTransform that implements a given analyzer.
 
-  _AnalyzerImpl accepts a PCollection where each element is a batch of values,
-  and returns a PCollection containing a single element representing which is a
-  list of values for each output, where each value can be converted to an
-  ndarray via np.asarray.
+  _AnalyzerImpl accepts a PCollection where each element is a list of ndarrays.
+  Each element in this list contains a batch of values for the corresponding
+  input tensor of the analyzer. _AnalyzerImpl returns a PCollection containing a
+  single element which is a list of values.  Each element should be convertible
+  to an ndarray via np.asarray, and the converted value will be the
+  corresponding output tensor of the analyzer.
 
   _AnalyzerImpl dispatches to an implementation transform, with the same
   signature as _AnalyzerImpl.
@@ -94,15 +96,16 @@ class _AnalyzerImpl(beam.PTransform):
       raise NotImplementedError(self._spec.__class__)
 
 
-def _flatten_value_to_list(batch):
+def _flatten_value_to_list(batch_values):
   """Converts an N-D dense or sparse batch to a 1-D list."""
   # Ravel for flattening and tolist so that we go to native Python types
   # for more efficient followup processing.
   #
-  return batch.ravel().tolist()
+  batch_value, = batch_values
+  return batch_value.ravel().tolist()
 
 
-@with_input_types(np.ndarray)
+@with_input_types(List[np.ndarray])
 @with_output_types(List[Any])
 class _UniquesAnalyzerImpl(beam.PTransform):
   """Saves the unique elements in a PCollection of batches."""
@@ -198,7 +201,7 @@ class _UniquesAnalyzerImpl(beam.PTransform):
     return wait_for_vocabulary_transform
 
 
-@with_input_types(np.ndarray)
+@with_input_types(List[np.ndarray])
 @with_output_types(List[Any])
 class _ComputeQuantiles(beam.CombineFn):
   """Computes quantiles on the PCollection.
@@ -244,14 +247,14 @@ class _ComputeQuantiles(beam.CombineFn):
     return self._empty_summary
 
   def add_input(self, summary, next_input):
-    next_input = _flatten_value_to_list(next_input)
+    batch_value_as_list = _flatten_value_to_list(next_input)
     with self._session.graph.as_default():
       update = self._qaccumulator.add_summary(
           stamp_token=self._stamp_token,
-          column=[next_input],
+          column=[batch_value_as_list],
           # All weights are equal, and the weight vector is the
           # same length as the input.
-          example_weights=([[1] * len(next_input)]))
+          example_weights=([[1] * len(batch_value_as_list)]))
 
       if summary is not self._empty_summary:
         self._session.run(
@@ -311,7 +314,7 @@ class _ComputeQuantiles(beam.CombineFn):
     return [[buckets]]
 
 
-@with_input_types(np.ndarray)
+@with_input_types(List[np.ndarray])
 @with_output_types(List[Any])
 class _QuantilesAnalyzerImpl(beam.PTransform):
   """Computes the quantile buckets in a PCollection of batches."""
@@ -331,7 +334,7 @@ class _QuantilesAnalyzerImpl(beam.PTransform):
                     serialized_tf_config=serialized_tf_config)))
 
 
-@with_input_types(np.ndarray)
+@with_input_types(List[np.ndarray])
 @with_output_types(List[Any])
 class _CombineFnWrapper(beam.CombineFn):
   """Class to wrap a analyzers._CombinerSpec as a beam.CombineFn."""
