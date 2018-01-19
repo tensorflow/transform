@@ -48,8 +48,7 @@ def scale_by_min_max(x, output_min=0.0, output_max=1.0, name=None):
       raise ValueError('output_min must be less than output_max')
 
     x = tf.to_float(x)
-    min_x_value = analyzers.min(x)
-    max_x_value = analyzers.max(x)
+    min_x_value, max_x_value = analyzers._min_and_max(x)  # pylint: disable=protected-access
 
     x_shape = tf.shape(x)
 
@@ -101,8 +100,8 @@ def scale_to_z_score(x, name=None):
   """
   with tf.name_scope(name, 'scale_to_z_score'):
     # x_mean will be float32 or float64, depending on type of x.
-    x_mean = analyzers.mean(x)
-    return (tf.cast(x, x_mean.dtype) - x_mean) / tf.sqrt(analyzers.var(x))
+    x_mean, x_var = analyzers._mean_and_var(x)  # pylint: disable=protected-access
+    return (tf.cast(x, x_mean.dtype) - x_mean) / tf.sqrt(x_var)
 
 
 def tfidf(x, vocab_size, smooth=True, name=None):

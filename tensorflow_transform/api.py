@@ -167,13 +167,12 @@ _TF_METADATA_COLUMN_SCHEMAS_COLLECTION = 'tft_metadata_schemas'
 
 def set_column_schema(tensor, column_schema):
   """Sets the schema of a `Tensor` or `SparseTensor`."""
-  graph = tensor.graph
-  graph.add_to_collection(_TF_METADATA_TENSORS_COLLECTION, tensor)
-  graph.add_to_collection(_TF_METADATA_COLUMN_SCHEMAS_COLLECTION, column_schema)
+  tf.add_to_collection(_TF_METADATA_TENSORS_COLLECTION, tensor)
+  tf.add_to_collection(_TF_METADATA_COLUMN_SCHEMAS_COLLECTION, column_schema)
 
 
-def get_column_schemas(graph):
+def get_column_schemas():
   """Gets a dict from `Tensor` or `SparseTensor`s to `ColumnSchema`s."""
   return dict(zip(
-      graph.get_collection(_TF_METADATA_TENSORS_COLLECTION),
-      graph.get_collection(_TF_METADATA_COLUMN_SCHEMAS_COLLECTION)))
+      tf.get_collection(_TF_METADATA_TENSORS_COLLECTION),
+      tf.get_collection(_TF_METADATA_COLUMN_SCHEMAS_COLLECTION)))

@@ -35,7 +35,7 @@ _EMPTY_ARRAY = np.array([])
 _EMPTY_ARRAY.setflags(write=False)
 
 
-def infer_feature_schema(graph, tensors):
+def infer_feature_schema(tensors):
   """Given a dict of tensors, creates a `Schema`.
 
   Infers a schema, in the format of a tf.Transform `Schema`, for the given
@@ -44,14 +44,13 @@ def infer_feature_schema(graph, tensors):
   schema.
 
   Args:
-    graph: The graph that tensors belong to.
     tensors: A dict mapping column names to tensors. The tensors should have a
       0'th dimension interpreted as the batch dimension.
 
   Returns:
     A `Schema` object.
   """
-  schema_overrides = api.get_column_schemas(graph)
+  schema_overrides = api.get_column_schemas()
 
   # If the tensor already has a schema attached, use that. Otherwise infer the
   # schema from the underlying tensor.
@@ -294,13 +293,13 @@ Phase = collections.namedtuple(
     'Phase', ['analyzers', 'table_initializers'])
 
 
-def create_phases(graph):
+def create_phases():
   """Returns a list of `Phase`s describing how to execute the pipeline.
 
-  The `graph` is assumed to contain some `Analyzer`s which must be executed by
-  doing a full pass over the dataset, and passing the inputs for that analyzer
-  into some implementation, then taking the results and replacing the
-  `Analyzer`s outputs with constants in the graph containing these results.
+  The default graph is assumed to contain some `Analyzer`s which must be
+  executed by doing a full pass over the dataset, and passing the inputs for
+  that analyzer into some implementation, then taking the results and replacing
+  the `Analyzer`s outputs with constants in the graph containing these results.
 
   The execution plan is described by a list of `Phase`s.  Each phase contains
   a list of `Analyzer`s, which are the `Analyzer`s which are ready to run in
@@ -335,9 +334,6 @@ def create_phases(graph):
   are also needed to collect table initializers to determine which phase a table
   initializer is ready to run in.
 
-  Args:
-    graph: A `Graph`.
-
   Returns:
     A list of `Phase`s.
 
@@ -346,77 +342,76 @@ def create_phases(graph):
   """
   # Trace through the graph to determine the order in which analyzers must be
   # run.
-  with graph.as_default():
-    all_analyzers = tf.get_collection(analyzers.ANALYZER_COLLECTION)
-    all_maps = tf.get_collection(api.FUNCTION_APPLICATION_COLLECTION)
+  all_analyzers = tf.get_collection(analyzers.ANALYZER_COLLECTION)
+  all_maps = tf.get_collection(api.FUNCTION_APPLICATION_COLLECTION)
 
-    analyzer_outputs = {}
-    for analyzer in all_analyzers:
-      for output_tensor in analyzer.outputs:
-        analyzer_outputs[output_tensor] = analyzer
+  analyzer_outputs = {}
+  for analyzer in all_analyzers:
+    for output_tensor in analyzer.outputs:
+      analyzer_outputs[output_tensor] = analyzer
 
-    map_outputs = {}
-    for m in all_maps:
-      for output_tensor in m.outputs:
-        map_outputs[output_tensor] = m
+  map_outputs = {}
+  for m in all_maps:
+    for output_tensor in m.outputs:
+      map_outputs[output_tensor] = m
 
-    def _tensor_level(tensor):
-      if tensor in analyzer_outputs:
-        return _generalized_op_level(analyzer_outputs[tensor]) + 1
-      elif tensor in map_outputs:
-        return _generalized_op_level(map_outputs[tensor])
-      else:
-        return _generalized_op_level(tensor.op)
+  def _tensor_level(tensor):
+    if tensor in analyzer_outputs:
+      return _generalized_op_level(analyzer_outputs[tensor]) + 1
+    elif tensor in map_outputs:
+      return _generalized_op_level(map_outputs[tensor])
+    else:
+      return _generalized_op_level(tensor.op)
 
-    memoized_levels = {}
-    stack = []
-    def _generalized_op_level(op):
-      """Get the level of a tf.Operation, FunctionApplication or Analyzer."""
-      if op not in memoized_levels:
-        if op in stack:
-          # Append op to stack so cycle appears in error message.
-          stack.append(op)
-          raise ValueError(
-              'Cycle detected: %r.  Cycles may arise by failing to call '
-              'apply_function when calling a function that internally uses '
-              'tables or control flow ops.' % (stack,))
+  memoized_levels = {}
+  stack = []
+  def _generalized_op_level(op):
+    """Get the level of a tf.Operation, FunctionApplication or Analyzer."""
+    if op not in memoized_levels:
+      if op in stack:
+        # Append op to stack so cycle appears in error message.
         stack.append(op)
-        inputs = list(op.inputs) + list(getattr(op, 'control_flow_inputs', []))
-        memoized_levels[op] = max(
-            [_tensor_level(input_tensor) for input_tensor in inputs] + [0])
-        assert op == stack.pop()
-      return memoized_levels[op]
+        raise ValueError(
+            'Cycle detected: %r.  Cycles may arise by failing to call '
+            'apply_function when calling a function that internally uses '
+            'tables or control flow ops.' % (stack,))
+      stack.append(op)
+      inputs = list(op.inputs) + list(getattr(op, 'control_flow_inputs', []))
+      memoized_levels[op] = max(
+          [_tensor_level(input_tensor) for input_tensor in inputs] + [0])
+      assert op == stack.pop()
+    return memoized_levels[op]
 
-    analyzers_by_level = collections.defaultdict(list)
-    for analyzer in all_analyzers:
-      analyzers_by_level[_generalized_op_level(analyzer)].append(analyzer)
+  analyzers_by_level = collections.defaultdict(list)
+  for analyzer in all_analyzers:
+    analyzers_by_level[_generalized_op_level(analyzer)].append(analyzer)
 
-    table_initializers_by_level = collections.defaultdict(list)
-    all_table_initializers = set()
-    for m in all_maps:
-      table_initializers_by_level[_generalized_op_level(m)].extend(
-          m.table_initializers)
-      all_table_initializers.update(m.table_initializers)
-    expected_table_initializers = set(
-        tf.get_collection(tf.GraphKeys.TABLE_INITIALIZERS))
-    if expected_table_initializers - all_table_initializers:
-      raise ValueError(
-          'Found table initializers (%r) that were not associated with any '
-          'FunctionApplication.  Use tft.apply_function to wrap any code '
-          'that generates tables.'
-          % (expected_table_initializers - all_table_initializers))
-    if all_table_initializers - expected_table_initializers:
-      raise ValueError(
-          'The operations (%r) were registered as table initializers during '
-          'a call to apply_function, but were not in the TABLE_INITIALIZERS '
-          'collection.  This may be a bug in tf.Transform, or you may have '
-          'cleared or altered this collection'
-          % (all_table_initializers - expected_table_initializers))
+  table_initializers_by_level = collections.defaultdict(list)
+  all_table_initializers = set()
+  for m in all_maps:
+    table_initializers_by_level[_generalized_op_level(m)].extend(
+        m.table_initializers)
+    all_table_initializers.update(m.table_initializers)
+  expected_table_initializers = set(
+      tf.get_collection(tf.GraphKeys.TABLE_INITIALIZERS))
+  if expected_table_initializers - all_table_initializers:
+    raise ValueError(
+        'Found table initializers (%r) that were not associated with any '
+        'FunctionApplication.  Use tft.apply_function to wrap any code '
+        'that generates tables.'
+        % (expected_table_initializers - all_table_initializers))
+  if all_table_initializers - expected_table_initializers:
+    raise ValueError(
+        'The operations (%r) were registered as table initializers during '
+        'a call to apply_function, but were not in the TABLE_INITIALIZERS '
+        'collection.  This may be a bug in tf.Transform, or you may have '
+        'cleared or altered this collection'
+        % (all_table_initializers - expected_table_initializers))
 
-    assert len(table_initializers_by_level) <= len(analyzers_by_level) + 1
-    return [
-        Phase(analyzers_by_level[level], table_initializers_by_level[level])
-        for level in sorted(six.iterkeys(analyzers_by_level))]
+  assert len(table_initializers_by_level) <= len(analyzers_by_level) + 1
+  return [
+      Phase(analyzers_by_level[level], table_initializers_by_level[level])
+      for level in sorted(six.iterkeys(analyzers_by_level))]
 
 
 def run_preprocessing_fn(preprocessing_fn, schema):
@@ -433,8 +428,8 @@ def run_preprocessing_fn(preprocessing_fn, schema):
     schema: A `tf_metadata.Schema`.
 
   Returns:
-    A tuple of a graph, and dicts from logical names to `Tensor` or
-        `SparseTensor`s, for inputs and outputs respectively.
+    A pair of dicts from logical names to `Tensor` or `SparseTensor`s, for
+        inputs and outputs respectively.
 
   Raises:
     ValueError: If `schema` contains unsupported feature types or the
@@ -443,38 +438,36 @@ def run_preprocessing_fn(preprocessing_fn, schema):
   # Run the preprocessing function, which will construct a TF graph for the
   # purpose of validation.  The graphs used for computation will be built from
   # the DAG of columns in make_transform_fn_def.
-  graph = tf.Graph()
-  with graph.as_default():
-    inputs = {}
-    input_copies = {}
+  inputs = {}
+  input_copies = {}
 
-    with tf.name_scope('inputs'):
-      for key, column_schema in six.iteritems(schema.column_schemas):
-        with tf.name_scope(key):
-          tensor = column_schema.as_batched_placeholder()
-          # In order to avoid a bug where import_graph_def fails when the
-          # input_map and return_elements of an imported graph are the same
-          # (b/34288791), we avoid using the placeholder of an input column as
-          # an output of a graph. We do this by applying tf.identity to the
-          # placeholder and using the output of tf.identity as the tensor
-          # representing the output of this column, thus preventing the
-          # placeholder from being used as both an input and an output.
-          if isinstance(tensor, tf.SparseTensor):
-            copied_tensor = tf.SparseTensor(
-                indices=tf.identity(tensor.indices),
-                values=tf.identity(tensor.values),
-                dense_shape=tf.identity(tensor.dense_shape))
-          else:
-            copied_tensor = tf.identity(tensor)
+  with tf.name_scope('inputs'):
+    for key, column_schema in six.iteritems(schema.column_schemas):
+      with tf.name_scope(key):
+        tensor = column_schema.as_batched_placeholder()
+        # In order to avoid a bug where import_graph_def fails when the
+        # input_map and return_elements of an imported graph are the same
+        # (b/34288791), we avoid using the placeholder of an input column as
+        # an output of a graph. We do this by applying tf.identity to the
+        # placeholder and using the output of tf.identity as the tensor
+        # representing the output of this column, thus preventing the
+        # placeholder from being used as both an input and an output.
+        if isinstance(tensor, tf.SparseTensor):
+          copied_tensor = tf.SparseTensor(
+              indices=tf.identity(tensor.indices),
+              values=tf.identity(tensor.values),
+              dense_shape=tf.identity(tensor.dense_shape))
+        else:
+          copied_tensor = tf.identity(tensor)
 
-          inputs[key] = tensor
-          input_copies[key] = copied_tensor
+        inputs[key] = tensor
+        input_copies[key] = copied_tensor
 
-    # Construct the deferred preprocessing graph by calling preprocessing_fn on
-    # the inputs.
-    outputs = preprocessing_fn(input_copies)
+  # Construct the deferred preprocessing graph by calling preprocessing_fn on
+  # the inputs.
+  outputs = preprocessing_fn(input_copies)
 
-    if not outputs:
-      raise ValueError('The preprocessing function returned an empty dict')
+  if not outputs:
+    raise ValueError('The preprocessing function returned an empty dict')
 
-  return graph, inputs, outputs
+  return inputs, outputs

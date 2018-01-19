@@ -50,6 +50,19 @@ with beam.Pipeline(...) as p:
         examples_path, metadata_path)
     transform_fn | beam_impl.write_transform_fn(transform_fn_path)
 
+Implementation note: TensorFlow code (including our code) makes frequent use of
+the default graph.  We want to avoid adding to the default graph, or including
+the default graph in our own SavedModel's.  This means that wherever we call
+TensorFlow code (or our code that uses the default graph) we should create a
+graph and mark it as the default.  This is achieved by identifying the
+entrypoints into our code where this happens and creating a
+"with ... .as_default()" block.  There are four places this happens.
+
+1) In AnalyzeDatset.expand() which is typically called from the main thread
+2) In _GraphState.__init__ which is called from the worker running
+   _RunMetaGraphDoFn
+3) In replace_tensors_with_constant_values, which is called in a beam.Map.
+4) In extract_scalar_constants, which is called in a beam.Map.
 """
 
 import collections
@@ -644,105 +657,108 @@ class AnalyzeDataset(beam.PTransform):
 
     base_temp_dir = Context.create_base_temp_dir()
 
-    # NOTE: it's important that create_phases is called directly after
-    # run_preprocessing_fn, because we later mutate the graph's
-    # TABLE_INITIALIZERS collection which would break the logic in
-    # create_phases.
-    graph, inputs, outputs = impl_helper.run_preprocessing_fn(
-        self._preprocessing_fn, input_schema)
-    phases = impl_helper.create_phases(graph)
+    graph = tf.Graph()
+    with graph.as_default():
+      # NOTE: it's important that create_phases is called directly after
+      # run_preprocessing_fn, because we later mutate the graph's
+      # TABLE_INITIALIZERS collection which would break the logic in
+      # create_phases.
+      inputs, outputs = impl_helper.run_preprocessing_fn(
+          self._preprocessing_fn, input_schema)
+      phases = impl_helper.create_phases()
 
-    # Iterate through levels.  tensor_pcoll_mapping is a mapping from tensor
-    # names to singleton PCollections containing a _TensorValue.  We compute
-    # tensor_pcoll_mapping in phases, where at each phase we compute the
-    # analyzers that are ready to run and update tensor_pcoll_mapping.
-    tensor_pcoll_mapping = {}
-    table_initializers = graph.get_collection_ref(
-        tf.GraphKeys.TABLE_INITIALIZERS)
-    original_table_initializers = list(table_initializers)
-    del table_initializers[:]
+      # Iterate through levels.  tensor_pcoll_mapping is a mapping from tensor
+      # names to singleton PCollections containing a _TensorValue.  We compute
+      # tensor_pcoll_mapping in phases, where at each phase we compute the
+      # analyzers that are ready to run and update tensor_pcoll_mapping.
+      tensor_pcoll_mapping = {}
+      table_initializers = graph.get_collection_ref(
+          tf.GraphKeys.TABLE_INITIALIZERS)
+      original_table_initializers = list(table_initializers)
+      del table_initializers[:]
 
-    serialized_tf_config = (
-        analyzer_impls._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
-            input_values.pipeline.runner))
-    for level, phase in enumerate(phases):
-      # Create a SavedModel that describes the mapping from the input data
-      # to the inputs of the analyzers at this level.  The colum names of the
-      # outputs are the tensor names of the analyzer inputs in the graph.  This
-      # graph has the anaylzer outputs computed so far replaced with constants.
-      analyzer_inputs = {}
-      for analyzer in phase.analyzers:
-        for input_tensor in analyzer.inputs:
-          analyzer_inputs[input_tensor.name] = input_tensor
-      table_initializers.extend(phase.table_initializers)
-      unbound_saved_model_dir = _make_unique_temp_dir(base_temp_dir)
-      _write_saved_transform(graph, inputs, analyzer_inputs,
-                             unbound_saved_model_dir)
-      saved_model_dir = (
+      serialized_tf_config = (
+          analyzer_impls._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
+              input_values.pipeline.runner))
+      for level, phase in enumerate(phases):
+        # Create a SavedModel that describes the mapping from the input data
+        # to the inputs of the analyzers at this level.  The colum names of the
+        # outputs are the tensor names of the analyzer inputs in the graph.
+        # This graph has the anaylzer outputs computed so far replaced with
+        # constants.
+        analyzer_inputs = {}
+        for analyzer in phase.analyzers:
+          for input_tensor in analyzer.inputs:
+            analyzer_inputs[input_tensor.name] = input_tensor
+        table_initializers.extend(phase.table_initializers)
+        unbound_saved_model_dir = _make_unique_temp_dir(base_temp_dir)
+        _write_saved_transform(graph, inputs, analyzer_inputs,
+                               unbound_saved_model_dir)
+        saved_model_dir = (
+            tensor_pcoll_mapping
+            | 'CreateSavedModelForAnaylzerInputs[%d]' % level >>
+            _ReplaceTensorsWithConstants(unbound_saved_model_dir, base_temp_dir,
+                                         input_values.pipeline))
+
+        # Run this saved model on the input dataset to obtain the inputs to the
+        # analyzers.
+        analyzer_input_values = (
+            input_values
+            | 'BatchAnalyzerInputs[%d]' % level >> _BatchElements()
+            | 'ComputeAnalyzerInputs[%d]' % level >> beam.ParDo(
+                _RunMetaGraphDoFn(
+                    input_schema,
+                    serialized_tf_config,
+                    shared_graph_state_handle=shared.Shared()),
+                saved_model_dir=beam.pvalue.AsSingleton(saved_model_dir)))
+
+        # Compute the analyzers from their inputs.  `analyzer_outputs_dict` is a
+        # map from tensor names to singleton PCollections of `_TensorValue`s.
+        analyzer_outputs_dict = (
+            analyzer_input_values
+            | 'ComputeAnalyzerOutputs[%d]' % level >> _ComputeAnalyzerOutputs(
+                phase.analyzers, base_temp_dir))
+
+        # Update the mapping for all analyzers.
+        tensor_pcoll_mapping.update(analyzer_outputs_dict)
+
+      del table_initializers[:]
+      table_initializers.extend(original_table_initializers)
+      saved_model_dir = _make_unique_temp_dir(base_temp_dir)
+      _write_saved_transform(graph, inputs, outputs, saved_model_dir)
+      transform_fn = (
           tensor_pcoll_mapping
-          | 'CreateSavedModelForAnaylzerInputs[%d]' % level >>
-          _ReplaceTensorsWithConstants(unbound_saved_model_dir, base_temp_dir,
-                                       input_values.pipeline))
+          | 'ReplaceTensorsWithConstants' >> _ReplaceTensorsWithConstants(
+              saved_model_dir, base_temp_dir, input_values.pipeline))
 
-      # Run this saved model on the input dataset to obtain the inputs to the
-      # analyzers.
-      analyzer_input_values = (
-          input_values
-          | 'BatchAnalyzerInputs[%d]' % level >> _BatchElements()
-          | 'ComputeAnalyzerInputs[%d]' % level >> beam.ParDo(
-              _RunMetaGraphDoFn(
-                  input_schema,
-                  serialized_tf_config,
-                  shared_graph_state_handle=shared.Shared()),
-              saved_model_dir=beam.pvalue.AsSingleton(saved_model_dir)))
+      # Infer metadata.  The metadata may contain Futures that refer to the
+      # values of tensors in the graph.  In that case, the tensors must be
+      # "constant" in that they don't depend on input data.  The tensors can
+      # depend on analyzer outputs though.  This allows us to set metadata that
+      # depends on analyzer outputs.
+      #
+      # We first extract the names of the tensors that are referenced by the
+      # Futures, and then compute them by calling _ComputeScalarConstants with
+      # the tensor-PCollection mapping representing the analyzer outputs.
+      metadata = dataset_metadata.DatasetMetadata(
+          schema=impl_helper.infer_feature_schema(outputs))
 
-      # Compute the analyzers from their inputs.  `analyzer_outputs_dict` is a
-      # map from tensor names to singleton PCollections of `_TensorValue`s.
-      analyzer_outputs_dict = (
-          analyzer_input_values
-          | 'ComputeAnalyzerOutputs[%d]' % level >> _ComputeAnalyzerOutputs(
-              phase.analyzers, base_temp_dir))
+      deferred_metadata_tensor_names = [
+          future.name
+          for column_schema in tft_api.get_column_schemas().values()
+          for future in column_schema.substitute_futures({})
+      ]
+      name_pcoll_dict = (
+          tensor_pcoll_mapping
+          | 'ComputeTensorValues' >>
+          _ComputeTensorValues(deferred_metadata_tensor_names, saved_model_dir,
+                               input_values.pipeline))
+      full_metadata = beam_metadata_io.BeamDatasetMetadata(
+          metadata, name_pcoll_dict)
 
-      # Update the mapping for all analyzers.
-      tensor_pcoll_mapping.update(analyzer_outputs_dict)
+      _clear_shared_state_after_barrier(input_values.pipeline, transform_fn)
 
-    del table_initializers[:]
-    table_initializers.extend(original_table_initializers)
-    saved_model_dir = _make_unique_temp_dir(base_temp_dir)
-    _write_saved_transform(graph, inputs, outputs, saved_model_dir)
-    transform_fn = (
-        tensor_pcoll_mapping
-        | 'ReplaceTensorsWithConstants' >> _ReplaceTensorsWithConstants(
-            saved_model_dir, base_temp_dir, input_values.pipeline))
-
-    # Infer metadata.  The metadata may contain Futures that refer to the values
-    # of tensors in the graph.  In that case, the tensors must be "constant" in
-    # that they don't depend on input data.  The tensors can depend on analyzer
-    # outputs though.  This allows us to set metadata that depends on analyzer
-    # outputs.
-    #
-    # We first extract the names of the tensors that are referenced by the
-    # Futures, and then compute them by calling _ComputeScalarConstants with the
-    # tensor-PCollection mapping representing the analyzer outputs.
-    metadata = dataset_metadata.DatasetMetadata(
-        schema=impl_helper.infer_feature_schema(graph, outputs))
-
-    deferred_metadata_tensor_names = [
-        future.name
-        for column_schema in tft_api.get_column_schemas(graph).values()
-        for future in column_schema.substitute_futures({})
-    ]
-    name_pcoll_dict = (
-        tensor_pcoll_mapping
-        | 'ComputeTensorValues' >>
-        _ComputeTensorValues(deferred_metadata_tensor_names, saved_model_dir,
-                             input_values.pipeline))
-    full_metadata = beam_metadata_io.BeamDatasetMetadata(
-        metadata, name_pcoll_dict)
-
-    _clear_shared_state_after_barrier(input_values.pipeline, transform_fn)
-
-    return transform_fn, full_metadata
+      return transform_fn, full_metadata
 
 
 class AnalyzeAndTransformDataset(beam.PTransform):
@@ -804,8 +820,8 @@ class TransformDataset(beam.PTransform):
   """
 
   def __init__(self, exclude_outputs=None):
-    _assert_tensorflow_version()
     self._exclude_outputs = exclude_outputs
+    _assert_tensorflow_version()
 
   def _extract_input_pvalues(self, dataset_and_transform_fn):
     (data, input_metadata), (transform_fn, output_metadata) = (

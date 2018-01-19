@@ -287,6 +287,14 @@ def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   return _numeric_combine([x], np.max, reduce_instance_dims, name)[0]
 
 
+def _min_and_max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
+  with tf.name_scope(name, 'min_and_max'):
+    # Unary minus op doesn't support tf.int64, so use 0 - x instead of -x.
+    minus_x_min, x_max = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
+        [0 - x, x], np.max, reduce_instance_dims)
+    return 0 - minus_x_min, x_max
+
+
 def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
   """Computes the sum of the values of a `Tensor` over the whole dataset.
 
@@ -371,6 +379,18 @@ def var(x, reduce_instance_dims=True, name=None):
     # x_mean will be float32 or float64, depending on type of x.
     squared_deviations = tf.square(tf.cast(x, x_mean.dtype) - x_mean)
     return mean(squared_deviations, reduce_instance_dims)
+
+
+def _mean_and_var(x, reduce_instance_dims=True, name=None):
+  """More efficient combined `mean` and `var`.  See `var`."""
+  with tf.name_scope(name, 'mean_and_var'):
+    # Note: Calling `mean`, `sum`, and `size` as defined in this module, not the
+    # builtins.
+    x_mean = mean(x, reduce_instance_dims)
+    # x_mean will be float32 or float64, depending on type of x.
+    squared_deviations = tf.square(tf.cast(x, x_mean.dtype) - x_mean)
+    x_var = mean(squared_deviations, reduce_instance_dims)
+    return x_mean, x_var
 
 
 class _UniquesSpec(object):

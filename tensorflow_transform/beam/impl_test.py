@@ -28,6 +28,7 @@ import six
 
 import tensorflow as tf
 import tensorflow_transform as tft
+from tensorflow_transform import analyzers
 from tensorflow_transform.beam import analyzer_impls as beam_analyzer_impls
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam import tft_unit
@@ -807,13 +808,20 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def _testNumericAnalyzersWithScalarInputs(self, input_dtype, output_dtypes):
     def analyzer_fn(inputs):
+      # Also test private analyzers that fuse min/max and mean/var analyzers.
+      min_opt, max_opt = analyzers._min_and_max(inputs['a'])
+      mean_opt, var_opt = analyzers._mean_and_var(inputs['a'])
       return {
           'min': tft.min(inputs['a']),
           'max': tft.max(inputs['a']),
+          'min_opt': min_opt,
+          'max_opt': max_opt,
           'sum': tft.sum(inputs['a']),
           'size': tft.size(inputs['a']),
           'mean': tft.mean(inputs['a']),
           'var': tft.var(inputs['a']),
+          'mean_opt': mean_opt,
+          'var_opt': var_opt
       }
 
     input_data = [{'a': 4}, {'a': 1}]
@@ -823,23 +831,36 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_outputs = {
         'min': np.array(1, output_dtypes['min'].as_numpy_dtype),
         'max': np.array(4, output_dtypes['max'].as_numpy_dtype),
+        'min_opt': np.array(1, output_dtypes['min'].as_numpy_dtype),
+        'max_opt': np.array(4, output_dtypes['max'].as_numpy_dtype),
         'sum': np.array(5, output_dtypes['sum'].as_numpy_dtype),
         'size': np.array(2, output_dtypes['size'].as_numpy_dtype),
         'mean': np.array(2.5, output_dtypes['mean'].as_numpy_dtype),
-        'var': np.array(2.25, output_dtypes['var'].as_numpy_dtype)
+        'var': np.array(2.25, output_dtypes['var'].as_numpy_dtype),
+        'mean_opt': np.array(2.5, output_dtypes['mean'].as_numpy_dtype),
+        'var_opt': np.array(2.25, output_dtypes['var'].as_numpy_dtype)
     }
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
   def testNumericAnalyzersWithInputsAndAxis(self):
     def analyzer_fn(inputs):
+      # Also test private analyzers that fuse min/max and mean/var analyzers.
+      min_opt, max_opt = analyzers._min_and_max(
+          inputs['a'], reduce_instance_dims=False)
+      mean_opt, var_opt = analyzers._mean_and_var(
+          inputs['a'], reduce_instance_dims=False)
       return {
           'min': tft.min(inputs['a'], reduce_instance_dims=False),
           'max': tft.max(inputs['a'], reduce_instance_dims=False),
+          'min_opt': min_opt,
+          'max_opt': max_opt,
           'sum': tft.sum(inputs['a'], reduce_instance_dims=False),
           'size': tft.size(inputs['a'], reduce_instance_dims=False),
           'mean': tft.mean(inputs['a'], reduce_instance_dims=False),
-          'var': tft.var(inputs['a'], reduce_instance_dims=False)
+          'var': tft.var(inputs['a'], reduce_instance_dims=False),
+          'mean_opt': mean_opt,
+          'var_opt': var_opt
       }
 
     input_data = [
@@ -852,23 +873,36 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_outputs = {
         'min': np.array([1, 2, 3, 4], np.int64),
         'max': np.array([8, 9, 10, 11], np.int64),
+        'min_opt': np.array([1, 2, 3, 4], np.int64),
+        'max_opt': np.array([8, 9, 10, 11], np.int64),
         'sum': np.array([9, 11, 13, 15], np.int64),
         'size': np.array([2, 2, 2, 2], np.int64),
         'mean': np.array([4.5, 5.5, 6.5, 7.5], np.float64),
-        'var': np.array([12.25, 12.25, 12.25, 12.25], np.float64)
+        'var': np.array([12.25, 12.25, 12.25, 12.25], np.float64),
+        'mean_opt': np.array([4.5, 5.5, 6.5, 7.5], np.float64),
+        'var_opt': np.array([12.25, 12.25, 12.25, 12.25], np.float64)
     }
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
   def testNumericAnalyzersWithNDInputsAndAxis(self):
     def analyzer_fn(inputs):
+      # Also test private analyzers that fuse min/max and mean/var analyzers.
+      min_opt, max_opt = analyzers._min_and_max(
+          inputs['a'], reduce_instance_dims=False)
+      mean_opt, var_opt = analyzers._mean_and_var(
+          inputs['a'], reduce_instance_dims=False)
       return {
           'min': tft.min(inputs['a'], reduce_instance_dims=False),
           'max': tft.max(inputs['a'], reduce_instance_dims=False),
+          'min_opt': min_opt,
+          'max_opt': max_opt,
           'sum': tft.sum(inputs['a'], reduce_instance_dims=False),
           'size': tft.size(inputs['a'], reduce_instance_dims=False),
           'mean': tft.mean(inputs['a'], reduce_instance_dims=False),
-          'var': tft.var(inputs['a'], reduce_instance_dims=False)
+          'var': tft.var(inputs['a'], reduce_instance_dims=False),
+          'mean_opt': mean_opt,
+          'var_opt': var_opt
       }
 
     input_data = [
@@ -880,23 +914,34 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_outputs = {
         'min': np.array([[1, 2], [3, 4]], np.int64),
         'max': np.array([[8, 9], [10, 11]], np.int64),
+        'min_opt': np.array([[1, 2], [3, 4]], np.int64),
+        'max_opt': np.array([[8, 9], [10, 11]], np.int64),
         'sum': np.array([[9, 11], [13, 15]], np.int64),
         'size': np.array([[2, 2], [2, 2]], np.int64),
         'mean': np.array([[4.5, 5.5], [6.5, 7.5]], np.float64),
         'var': np.array([[12.25, 12.25], [12.25, 12.25]], np.float64),
+        'mean_opt': np.array([[4.5, 5.5], [6.5, 7.5]], np.float64),
+        'var_opt': np.array([[12.25, 12.25], [12.25, 12.25]], np.float64)
     }
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
   def testNumericAnalyzersWithNDInputs(self):
     def analyzer_fn(inputs):
+      # Also test private analyzers that fuse min/max and mean/var analyzers.
+      min_opt, max_opt = analyzers._min_and_max(inputs['a'])
+      mean_opt, var_opt = analyzers._mean_and_var(inputs['a'])
       return {
           'min': tft.min(inputs['a']),
           'max': tft.max(inputs['a']),
+          'min_opt': min_opt,
+          'max_opt': max_opt,
           'sum': tft.sum(inputs['a']),
           'size': tft.size(inputs['a']),
           'mean': tft.mean(inputs['a']),
-          'var': tft.var(inputs['a'])
+          'var': tft.var(inputs['a']),
+          'mean_opt': mean_opt,
+          'var_opt': var_opt
       }
 
     input_data = [
@@ -909,10 +954,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_outputs = {
         'min': np.array(1, np.int64),
         'max': np.array(7, np.int64),
+        'min_opt': np.array(1, np.int64),
+        'max_opt': np.array(7, np.int64),
         'sum': np.array(32, np.int64),
         'size': np.array(8, np.int64),
         'mean': np.array(4.0, np.float64),
-        'var': np.array(3.5, np.float64)
+        'var': np.array(3.5, np.float64),
+        'mean_opt': np.array(4.0, np.float64),
+        'var_opt': np.array(3.5, np.float64)
     }
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
@@ -1272,7 +1321,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # Assert empty string with num_oov_buckets=1
     def preprocessing_fn_oov(inputs):
       return {
-          'index': tft.string_to_int(inputs['a'], num_oov_buckets=1)
+          'index': tft.string_to_int(inputs['a'], num_oov_buckets=1,
+                                     vocab_filename='my_vocab')
       }
     expected_data = [
         {'index': 0},
@@ -1292,12 +1342,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, 0, 5, True, 'vocab_string_to_int_uniques'),
+            sch.IntDomain(tf.int64, 0, 5, True, 'my_vocab'),
             [], sch.FixedColumnRepresentation())
     })
+    expected_asset_file_contents = {
+        'my_vocab': ['hello\n', 'world\n', 'goodbye\n', 'aaaaa\n', ' \n']
+    }
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn_oov, expected_data,
-        expected_metadata)
+        expected_metadata,
+        expected_asset_file_contents=expected_asset_file_contents)
 
   def testCreateApplyVocab(self):
     input_data = [

@@ -91,7 +91,7 @@ class Schema(futures.FutureContent):
     Returns:
       A representation of this Schema as placeholder Tensors.
     """
-    return {key: column_schema.as_batched_placeholder()
+    return {key: column_schema.as_batched_placeholder(name=key)
             for key, column_schema in six.iteritems(self.column_schemas)}
 
 
@@ -163,13 +163,16 @@ class ColumnSchema(futures.FutureContent):
     """
     return self.representation.as_feature_spec(self)
 
-  def as_batched_placeholder(self):
+  def as_batched_placeholder(self, name=None):
     """Returns a representation of this ColumnSchema as a placeholder Tensor.
+
+    Args:
+      name: (optional) A name for the placeholder op.
 
     Returns:
       A representation of this ColumnSchema as a placeholder Tensor.
     """
-    return self.representation.as_batched_placeholder(self)
+    return self.representation.as_batched_placeholder(self, name)
 
   def tf_shape(self):
     """Represent the shape of this column as a `TensorShape`."""
@@ -363,11 +366,12 @@ class ColumnRepresentation(futures.FutureContent):
     raise NotImplementedError()
 
   @abc.abstractmethod
-  def as_batched_placeholder(self, column):
+  def as_batched_placeholder(self, column, name=None):
     """Returns the representation of this column as a placeholder Tensor.
 
     Args:
       column: The column to be represented.
+      name: (optional) A name for the placeholder op.
     """
     raise NotImplementedError()
 
@@ -404,12 +408,13 @@ class FixedColumnRepresentation(ColumnRepresentation):
                               column.domain.dtype,
                               self.default_value)
 
-  def as_batched_placeholder(self, column):
+  def as_batched_placeholder(self, column, name=None):
     if not column.is_fixed_size():
       raise ValueError('A column of unknown size cannot be represented as '
                        'fixed-size.')
     return tf.placeholder(column.domain.dtype,
-                          [None] + column.tf_shape().as_list())
+                          [None] + column.tf_shape().as_list(),
+                          name=name)
 
 
 class ListColumnRepresentation(ColumnRepresentation):
@@ -430,10 +435,11 @@ class ListColumnRepresentation(ColumnRepresentation):
                            repr(column.domain.dtype)))
     return tf.VarLenFeature(column.domain.dtype)
 
-  def as_batched_placeholder(self, column):
+  def as_batched_placeholder(self, column, name=None):
     return tf.sparse_placeholder(
         column.domain.dtype,
-        [None] + column.tf_shape().as_list())
+        [None] + column.tf_shape().as_list(),
+        name=name)
 
 
 class SparseColumnRepresentation(ColumnRepresentation):
@@ -476,10 +482,11 @@ class SparseColumnRepresentation(ColumnRepresentation):
                             column.axes[0].size,
                             index.is_sorted)
 
-  def as_batched_placeholder(self, column):
+  def as_batched_placeholder(self, column, name=None):
     return tf.sparse_placeholder(
         column.domain.dtype,
-        [None] + column.tf_shape().as_list())
+        [None] + column.tf_shape().as_list(),
+        name=name)
 
 
 class SparseIndexField(collections.namedtuple('SparseIndexField',

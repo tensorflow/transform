@@ -17,6 +17,10 @@
     tensor, which means the resulting tf.Metadata for the output of these
     functions will contain min and max values based on the number of buckets,
     and also be set to categorical.
+*   Testing helper function assertAnalyzeAndTransformResults can now also test
+    the content of vocabulary files and other assets.
+*   Reduces the number of beam stages needed for certain analyzers, which can be
+    a performance bottleneck when transforming many features.
 
 ## Breaking changes
 *   The interfaces of CombinerSpec and combine_analyzer have changed to allow

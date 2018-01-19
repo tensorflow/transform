@@ -13,9 +13,14 @@
 # limitations under the License.
 """Library for testing Tensorflow Transform."""
 
+import os
 
+
+import six
+import tensorflow as tf
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
+from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow.python.framework import test_util
 
 
@@ -88,6 +93,7 @@ class TransformTestCase(test_util.TensorFlowTestCase):
                                        expected_data=None,
                                        expected_metadata=None,
                                        only_check_core_metadata=False,
+                                       expected_asset_file_contents=None,
                                        test_data=None,
                                        desired_batch_size=None):
     """Assert that input data and metadata is transformed as expected.
@@ -110,6 +116,10 @@ class TransformTestCase(test_util.TensorFlowTestCase):
           the transformed metadata is asserted to be equal to expected metadata.
           If True, only transformed feature names, dtypes and representations
           are asserted.
+      expected_asset_file_contents: (optional) A dictionary from asset filenames
+          to their expected content as a list of text lines.  Values should be
+          the expected result of calling f.readlines() on the given asset files.
+          Asset filenames are relative to the saved model's asset directory.
       test_data: (optional) If this is provided then instead of calling
           AnalyzeAndTransformDataset with input_data, this function will call
           AnalyzeDataset with input_data and TransformDataset with test_data.
@@ -122,6 +132,8 @@ class TransformTestCase(test_util.TensorFlowTestCase):
           transforming input_data according to preprocessing_fn, or
           (if provided) if the expected metadata does not match.
     """
+    if expected_asset_file_contents is None:
+      expected_asset_file_contents = {}
     # Note: we don't separately test AnalyzeDataset and TransformDataset as
     # AnalyzeAndTransformDataset currently simply composes these two
     # transforms.  If in future versions of the code, the implementation
@@ -130,7 +142,7 @@ class TransformTestCase(test_util.TensorFlowTestCase):
     with beam_impl.Context(
         temp_dir=temp_dir, desired_batch_size=desired_batch_size):
       if test_data is None:
-        (transformed_data, transformed_metadata), _ = (
+        (transformed_data, transformed_metadata), transform_fn = (
             (input_data, input_metadata)
             | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
       else:
@@ -140,34 +152,39 @@ class TransformTestCase(test_util.TensorFlowTestCase):
             ((test_data, input_metadata), transform_fn)
             | beam_impl.TransformDataset())
 
-    if expected_data:
+      # Write transform_fn so we can test its assets
+      if expected_asset_file_contents:
+        _ = transform_fn | transform_fn_io.WriteTransformFn(temp_dir)
+
+    if expected_data is not None:
       self.assertDataCloseOrEqual(expected_data, transformed_data)
 
-    if not expected_metadata:
-      return
+    if expected_metadata:
+      transformed_metadata = self._resolveDeferredMetadata(transformed_metadata)
 
-    transformed_metadata = self._resolveDeferredMetadata(transformed_metadata)
+      if only_check_core_metadata:
+        # preprocessing_fn may add metadata to column schema only relevant to
+        # internal implementation such as vocabulary_file. As such, only check
+        # feature names, dtypes and representations are as expected.
+        self.assertSameElements(
+            transformed_metadata.schema.column_schemas.keys(),
+            expected_metadata.schema.column_schemas.keys())
+        for k, v in transformed_metadata.schema.column_schemas.iteritems():
+          expected_schema = expected_metadata.schema.column_schemas[k]
+          self.assertEqual(expected_schema.representation, v.representation,
+                           "representation doesn't match for feature '%s'" % k)
+          self.assertEqual(expected_schema.domain.dtype, v.domain.dtype,
+                           "dtype doesn't match for feature '%s'" % k)
+      else:
+        # Check the entire DatasetMetadata is as expected.
+        # Use extra assertEqual for schemas, since full metadata assertEqual
+        # error message is not conducive to debugging.
+        self.assertEqual(expected_metadata.schema.column_schemas,
+                         transformed_metadata.schema.column_schemas)
+        self.assertEqual(expected_metadata, transformed_metadata)
 
-    if only_check_core_metadata:
-      # preprocessing_fn may add metadata to column schema only relevant to
-      # internal implementation such as vocabulary_file. As such, only check
-      # feature names, dtypes and representations are as expected.
-      self.assertSameElements(transformed_metadata.schema.column_schemas.keys(),
-                              expected_metadata.schema.column_schemas.keys())
-
-      for k, v in transformed_metadata.schema.column_schemas.iteritems():
-        expected_schema = expected_metadata.schema.column_schemas[k]
-
-        self.assertEqual(expected_schema.representation, v.representation,
-                         "representation doesn't match for feature '%s'" % k)
-        self.assertEqual(expected_schema.domain.dtype, v.domain.dtype,
-                         "dtype doesn't match for feature '%s'" % k)
-
-    else:
-      # Check the entire DatasetMetadata is as expected.
-      # Use extra assertEqual for schemas, since full metadata assertEqual
-      # error message is not conducive to debugging.
-      self.assertEqual(expected_metadata.schema.column_schemas,
-                       transformed_metadata.schema.column_schemas)
-
-      self.assertEqual(expected_metadata, transformed_metadata)
+    for filename, file_contents in six.iteritems(expected_asset_file_contents):
+      full_filename = os.path.join(
+          temp_dir, transform_fn_io.TRANSFORM_FN_DIR, 'assets', filename)
+      with tf.gfile.Open(full_filename) as f:
+        self.assertEqual(f.readlines(), file_contents)

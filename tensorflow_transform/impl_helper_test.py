@@ -54,7 +54,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     d_column_schema = sch.ColumnSchema(tf.int64, [1, 2, 3],
                                        sch.FixedColumnRepresentation())
     api.set_column_schema(d, d_column_schema)
-    schema = impl_helper.infer_feature_schema(tf.get_default_graph(), tensors)
+    schema = impl_helper.infer_feature_schema(tensors)
     expected_schema = sch.Schema(column_schemas={
         'a': sch.ColumnSchema(tf.float32, [],
                               sch.FixedColumnRepresentation()),
@@ -72,7 +72,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         'a': tf.placeholder(tf.float32, ()),
     }
     with self.assertRaises(ValueError):
-      _ = impl_helper.infer_feature_schema(tf.get_default_graph(), tensors)
+      _ = impl_helper.infer_feature_schema(tensors)
 
   def testMakeFeedDict(self):
     tensors = {
@@ -347,9 +347,9 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     input_schema = sch.Schema({
         'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
     })
-    graph, _, _ = impl_helper.run_preprocessing_fn(
+    _, _ = impl_helper.run_preprocessing_fn(
         preprocessing_fn, input_schema)
-    phases = impl_helper.create_phases(graph)
+    phases = impl_helper.create_phases()
     self.assertEqual(len(phases), 0)
 
   def testCreatePhasesWithMultipleLevelsOfAnalyzers(self):
@@ -363,9 +363,9 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     input_schema = sch.Schema({
         'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
     })
-    graph, _, _ = impl_helper.run_preprocessing_fn(
+    _, _ = impl_helper.run_preprocessing_fn(
         preprocessing_fn, input_schema)
-    phases = impl_helper.create_phases(graph)
+    phases = impl_helper.create_phases()
     self.assertEqual(len(phases), 2)
     self.assertEqual(len(phases[0].analyzers), 1)
     self.assertEqual(len(phases[1].analyzers), 1)
@@ -383,9 +383,9 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     input_schema = sch.Schema({
         'x': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
     })
-    graph, _, _ = impl_helper.run_preprocessing_fn(
+    _, _ = impl_helper.run_preprocessing_fn(
         preprocessing_fn, input_schema)
-    phases = impl_helper.create_phases(graph)
+    phases = impl_helper.create_phases()
     self.assertEqual(len(phases), 2)
     self.assertEqual(len(phases[0].analyzers), 1)
     self.assertEqual(len(phases[1].analyzers), 1)
@@ -403,10 +403,10 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     input_schema = sch.Schema({
         'x': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
     })
-    graph, _, _ = impl_helper.run_preprocessing_fn(
+    _, _ = impl_helper.run_preprocessing_fn(
         preprocessing_fn, input_schema)
     with self.assertRaisesRegexp(ValueError, 'Found table initializers'):
-      _ = impl_helper.create_phases(graph)
+      _ = impl_helper.create_phases()
 
   def testCreatePhasesWithLoop(self):
     # Test a preprocessing function with control flow.
@@ -434,11 +434,12 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     input_schema = sch.Schema({
         'x': sch.ColumnSchema(tf.int32, [], sch.FixedColumnRepresentation())
     })
-    graph, _, _ = impl_helper.run_preprocessing_fn(
+    _, _ = impl_helper.run_preprocessing_fn(
         preprocessing_fn, input_schema)
-    phases = impl_helper.create_phases(graph)
+    phases = impl_helper.create_phases()
     self.assertEqual(len(phases), 1)
-    self.assertEqual(len(phases[0].analyzers), 2)
+    #  tft.scale_to_0_1 uses a single analyzer: analyzers._min_and_max.
+    self.assertEqual(len(phases[0].analyzers), 1)
 
   def testCreatePhasesWithUnwrappedLoop(self):
     # Test a preprocessing function with control flow.
@@ -464,10 +465,10 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     input_schema = sch.Schema({
         'x': sch.ColumnSchema(tf.int32, [], sch.FixedColumnRepresentation())
     })
-    graph, _, _ = impl_helper.run_preprocessing_fn(
+    _, _ = impl_helper.run_preprocessing_fn(
         preprocessing_fn, input_schema)
     with self.assertRaisesRegexp(ValueError, 'Cycle detected'):
-      _ = impl_helper.create_phases(graph)
+      _ = impl_helper.create_phases()
 
   def testRunPreprocessingFn(self):
     schema = self.toSchema({
@@ -482,7 +483,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
           'sparse_out': tf.sparse_reshape(inputs['sparse'], (1, 10)),
       }
 
-    _, inputs, outputs = impl_helper.run_preprocessing_fn(
+    inputs, outputs = impl_helper.run_preprocessing_fn(
         preprocessing_fn, schema)
 
     # Verify that the input placeholders have the correct types.
