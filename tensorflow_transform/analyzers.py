@@ -220,7 +220,7 @@ def _numeric_combine(inputs, fn, reduce_instance_dims=True, name=None):
   """Apply a reduction, defined by a numpy function to multiple inputs.
 
   Args:
-    inputs: A list of tensors, which will be indpendently reduced.
+    inputs: A list of tensors, which will be independently reduced.
     fn: A function to reduce tensors across instances/batches, to get a single
         output.
     reduce_instance_dims: By default collapses the batch and instance dimensions
