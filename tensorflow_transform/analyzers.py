@@ -470,6 +470,10 @@ def uniques(x, top_k=None, frequency_threshold=None,
   The unique values are sorted by decreasing frequency and then decreasing
   lexicographical order.
 
+  For large datasets it is highly recommended to either set frequency_threshold
+  or top_k to control the size of the output, and also the run time of this
+  operation.
+
   Args:
     x: An input `Tensor` or `SparseTensor` with dtype tf.string.
     top_k: Limit the generated vocabulary to the first `top_k` elements. If set
@@ -587,11 +591,9 @@ def quantiles(x, num_buckets, epsilon, name=None):
         [x], [(spec.bucket_dtype, [1, None], False)], spec,
         'quantiles').outputs[0]
 
-    # quantile boundaries is of the form
-    #    [nd.arrary(first, <num_buckets-1>, last)]
-    # Drop the fist and last quantile boundaries, so that we end-up with
-    # num_buckets-1 boundaries, and hence num_buckets buckets.
-    return quantile_boundaries[0:1, 1:-1]
+    # The Analyzer returns a 2d matrix of 1*num_buckets.  Below, we remove
+    # the first dimension and return the boundaries as a simple 1d list.
+    return quantile_boundaries[0:1]
 
 
 class _CovarianceCombinerSpec(CombinerSpec):

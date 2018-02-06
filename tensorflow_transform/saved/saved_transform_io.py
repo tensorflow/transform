@@ -131,6 +131,16 @@ def _partially_apply_saved_transform_impl(
   # unique_name may produce e.g. transform_5.  The result has no trailing slash.
   scope = graph.unique_name('transform', mark_as_used=False)
 
+  # unique_name returns an "absolute" name while we want a name relative to the
+  # current scope.  Therefore, we check if the current name stack is non-empty,
+  # and if so, strip out the existing name scope.
+  if graph.get_name_scope():
+    current_name_scope = graph.get_name_scope() + '/'
+    assert scope.startswith(current_name_scope)
+    import_scope = scope[len(current_name_scope):]
+  else:
+    import_scope = scope
+
 
   # Save the ASSET_FILEPATHS before importing the MetaGraphDef
   current_assets = graph.get_collection(ops.GraphKeys.ASSET_FILEPATHS)
@@ -138,7 +148,7 @@ def _partially_apply_saved_transform_impl(
   # Load the transform graph, applying it to existing Tensors via input_map.
   # Throws ValueError if the input_map gives mismatched types or shapes.
   saver = tf_saver.import_meta_graph(meta_graph_def,
-                                     import_scope=scope,
+                                     import_scope=import_scope,
                                      input_map=input_map)
 
   # Wipe out AssetFileDef collection; it is obsolete after loading

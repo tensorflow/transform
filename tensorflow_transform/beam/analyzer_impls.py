@@ -19,6 +19,7 @@ from __future__ import print_function
 
 import collections
 import os
+import random
 
 
 import apache_beam as beam
@@ -153,17 +154,17 @@ class _UniquesAnalyzerImpl(beam.PTransform):
                 | 'FlattenList' >> beam.FlatMap(lambda lst: lst))
 
     # Performance optimization to obviate reading from finely sharded files
-    # via AsIter. By forcing all data into a single group we end up reading
-    # from a single file.
-    #
+    # via AsIter. By breaking fusion, we allow sharded files' sizes to be
+    # automatically computed (when possible), so we end up reading from fewer
+    # and larger files.
     @beam.ptransform_fn
     def Reshard(pcoll):  # pylint: disable=invalid-name
       return (
           pcoll
-          | 'PairWithNone' >> beam.Map(lambda x: (None, x))
-          | 'GroupByNone' >> beam.GroupByKey()
+          | 'PairWithRandom' >> beam.Map(lambda x: (random.getrandbits(32), x))
+          | 'GroupByRandom' >> beam.GroupByKey()
           | 'ExtractValues' >> beam.FlatMap(lambda x: x[1]))
-    counts |= 'ReshardToOneGroup' >> Reshard()  # pylint: disable=no-value-for-parameter
+    counts |= 'Reshard' >> Reshard()  # pylint: disable=no-value-for-parameter
 
     # Using AsIter instead of AsList below in order to reduce max memory
     # usage (due to AsList caching).
@@ -310,6 +311,21 @@ class _ComputeQuantiles(beam.CombineFn):
       are_ready_flush, buckets = (
           self._qaccumulator.get_buckets(stamp_token=self._stamp_token))
       buckets, _ = self._session.run([buckets, are_ready_flush])
+
+    # Quantile boundaries is a list of the form
+    #    [np.ndarrary(min, <num_buckets-1>, max)]
+    # Drop the min and/or max quantile boundaries as needed, so that we end-up
+    # with num_buckets-1 boundaries, and hence num_buckets buckets.
+
+    if buckets.size == (self._num_quantiles + 1):
+      # Trim min/max.
+      buckets = buckets[1:-1]
+    elif buckets.size == self._num_quantiles:
+      # Trim min only.
+      buckets = buckets[1:]
+    else:
+      # Do not trim min/max, these are part of requested boundaries.
+      pass
 
     return [[buckets]]
 

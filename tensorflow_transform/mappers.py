@@ -28,13 +28,18 @@ from tensorflow.contrib import lookup
 from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
 
 
-def scale_by_min_max(x, output_min=0.0, output_max=1.0, name=None):
+def scale_by_min_max(x,
+                     output_min=0.0,
+                     output_max=1.0,
+                     elementwise=False,
+                     name=None):
   """Scale a numerical column into the range [output_min, output_max].
 
   Args:
     x: A numeric `Tensor`.
     output_min: The minimum of the range of output values.
     output_max: The maximum of the range of output values.
+    elementwise: If true, scale each element of the tensor independently.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -48,34 +53,42 @@ def scale_by_min_max(x, output_min=0.0, output_max=1.0, name=None):
       raise ValueError('output_min must be less than output_max')
 
     x = tf.to_float(x)
-    min_x_value, max_x_value = analyzers._min_and_max(x)  # pylint: disable=protected-access
+    min_x_value, max_x_value = analyzers._min_and_max(  # pylint: disable=protected-access
+        x, reduce_instance_dims=not elementwise)
 
     x_shape = tf.shape(x)
 
     # If min==max, the result will be the mean of the requested range.
     # Note that both the options of tf.where are computed, which means that this
     # will compute unused NaNs.
-    scaled_result = tf.where(
-        tf.fill(x_shape, min_x_value < max_x_value),
-        (x - min_x_value) / (max_x_value - min_x_value), tf.fill(x_shape, 0.5))
+    if elementwise:
+      where_cond = tf.tile(
+          tf.expand_dims(min_x_value < max_x_value, 0),
+          tf.concat([[x_shape[0]], tf.ones_like(x_shape[1:])], axis=0))
+    else:
+      where_cond = tf.fill(x_shape, min_x_value < max_x_value)
+    scaled_result = tf.where(where_cond,
+                             (x - min_x_value) / (max_x_value - min_x_value),
+                             tf.fill(x_shape, 0.5))
 
     return (scaled_result * (output_max - output_min)) + output_min
 
 
-def scale_to_0_1(x, name=None):
+def scale_to_0_1(x, elementwise=False, name=None):
   """Returns a column which is the input column scaled to have range [0,1].
 
   Args:
     x: A numeric `Tensor`.
+    elementwise: If true, scale each element of the tensor independently.
     name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor` containing the input column scaled to [0, 1].
   """
-  return scale_by_min_max(x, 0, 1, name)
+  return scale_by_min_max(x, 0, 1, elementwise=elementwise, name=name)
 
 
-def scale_to_z_score(x, name=None):
+def scale_to_z_score(x, elementwise=False, name=None):
   """Returns a standardized column with mean 0 and variance 1.
 
   Scaling to z-score subtracts out the mean and divides by standard deviation.
@@ -84,6 +97,8 @@ def scale_to_z_score(x, name=None):
 
   Args:
     x: A numeric `Tensor`.
+    elementwise: If true, scales each element of the tensor independently;
+        otherwise uses the mean and variance of the whole tensor.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -100,7 +115,8 @@ def scale_to_z_score(x, name=None):
   """
   with tf.name_scope(name, 'scale_to_z_score'):
     # x_mean will be float32 or float64, depending on type of x.
-    x_mean, x_var = analyzers._mean_and_var(x)  # pylint: disable=protected-access
+    x_mean, x_var = analyzers._mean_and_var(  # pylint: disable=protected-access
+        x, reduce_instance_dims=not elementwise)
     return (tf.cast(x, x_mean.dtype) - x_mean) / tf.sqrt(x_var)
 
 
@@ -312,6 +328,11 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
   In case one of the tokens contains the '\n' or '\r' characters or is empty it
   will be discarded since we are currently writing the vocabularies as text
   files. This behavior will likely be fixed/improved in the future.
+
+  Note that this function will cause a vocabulary to be computed.  For large
+  datasets it is highly recommended to either set frequency_threshold or top_k
+  to control the size of the vocabulary, and also the run time of this
+  operation.
 
   Args:
     x: A `Tensor` or `SparseTensor` of type tf.string.
@@ -691,4 +712,3 @@ def apply_buckets(x, bucket_boundaries, name=None):
         is_categorical=True)
     api.set_column_schema(result, column_schema)
     return result
-

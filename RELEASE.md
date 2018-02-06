@@ -7,6 +7,7 @@
 *   CombinerSpec and combine_analyzer now accept multiple inputs/outputs.
 
 ## Bug Fixes and Other Changes
+
 *   Fixes a bug where TransformDataset would not return correct output if the
     output DatasetMetadata contained deferred values (such as vocabularies).
 *   Added checks that the prepreprocessing function's outputs all have the same
@@ -21,6 +22,13 @@
     the content of vocabulary files and other assets.
 *   Reduces the number of beam stages needed for certain analyzers, which can be
     a performance bottleneck when transforming many features.
+*   Performance improvements in `tft.uniques`.
+*   Fix a bug in `tft.bucketize` where the bucket boundary could be same as a 
+    min/max value, and was getting dropped.
+*   Allows scaling individual components of a tensor independently with
+    `tft.scale_by_min_max`, `tft.scale_to_0_1`, and `tft.scale_to_z_score`.
+*   Fix a bug where `apply_saved_transform` could only be applied in the global
+    name scope.
 
 ## Breaking changes
 *   The interfaces of CombinerSpec and combine_analyzer have changed to allow

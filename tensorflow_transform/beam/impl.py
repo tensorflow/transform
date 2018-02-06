@@ -696,7 +696,7 @@ class AnalyzeDataset(beam.PTransform):
                                unbound_saved_model_dir)
         saved_model_dir = (
             tensor_pcoll_mapping
-            | 'CreateSavedModelForAnaylzerInputs[%d]' % level >>
+            | 'CreateSavedModelForAnalyzerInputs[%d]' % level >>
             _ReplaceTensorsWithConstants(unbound_saved_model_dir, base_temp_dir,
                                          input_values.pipeline))
 
@@ -743,11 +743,11 @@ class AnalyzeDataset(beam.PTransform):
       metadata = dataset_metadata.DatasetMetadata(
           schema=impl_helper.infer_feature_schema(outputs))
 
-      deferred_metadata_tensor_names = [
+      deferred_metadata_tensor_names = {
           future.name
-          for column_schema in tft_api.get_column_schemas().values()
+          for column_schema in metadata.schema.column_schemas.values()
           for future in column_schema.substitute_futures({})
-      ]
+      }
       name_pcoll_dict = (
           tensor_pcoll_mapping
           | 'ComputeTensorValues' >>

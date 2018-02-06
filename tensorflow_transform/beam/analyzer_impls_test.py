@@ -104,7 +104,7 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
   def _test_compute_quantiles_single_batch_helper(self, nptype):
     batch_1 = [np.linspace(1, 100, 100, nptype)]
     analyzer = impl._ComputeQuantiles(num_quantiles=3, epsilon=0.00001)
-    out = np.array([[1, 35, 68, 100]], dtype=np.float32)
+    out = np.array([[35, 68]], dtype=np.float32)
     self.assertCombine(analyzer, np.array([batch_1]), out, check_np_type=True)
 
   def testComputeQuantilesSingleBatch(self):
@@ -119,7 +119,7 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
     batch_2 = [np.linspace(101, 200, 100, dtype=nptype)]
     batch_3 = [np.linspace(201, 300, 100, dtype=nptype)]
     analyzer = impl._ComputeQuantiles(num_quantiles=5, epsilon=0.00001)
-    out = np.array([[1, 61, 121, 181, 241, 300]], dtype=np.float32)
+    out = np.array([[61, 121, 181, 241]], dtype=np.float32)
     self.assertCombine(
         analyzer, np.array([batch_1, batch_2, batch_3]), out,
         check_np_type=True)
