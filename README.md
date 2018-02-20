@@ -1,8 +1,9 @@
-# tf.Transform
+# tf.Transform [![PyPI](https://img.shields.io/pypi/pyversions/tensorflow-transform.svg?style=plastic)](https://github.com/tensorflow/transform)
 
-**tf.Transform** is a library for doing data preprocessing with TensorFlow. It
-allows users to combine various data processing frameworks (currently Apache
-Beam is supported but tf.Transform can be extended to support other frameworks),
+**tf.Transform** is a library for doing data preprocessing with
+[TensorFlow](https://www.tensorflow.org). It allows users to combine various
+data processing frameworks (currently [Apache Beam](https://beam.apache.org/) is
+supported but tf.Transform can be extended to support other frameworks),
 with TensorFlow, to transform data. Because tf.Transform is built on TensorFlow,
 it allows users to export a graph which re-creates the transformations they did
 to their data as a TensorFlow graph. This is important as the user can then
@@ -39,13 +40,9 @@ tf.Transform does though have a dependency on the GCP distribution of Apache
 Beam. Apache Beam is the framework used to run distributed pipelines. Apache
 Beam is able to run pipelines in multiple ways, depending on the "runner" used,
 and the "runner" is usually provided by a distribution of Apache
-Beam. With the GCP distribution of Apache Beam, one can run beam pipelines
-locally, or on Google Cloud Dataflow.
-
-Note: If you clone tf.Transform's implementation and samples from GitHub's
-`master` branch (as opposed to using the released implementation and samples
-from PyPI) they will likely only work with TensorFlow's nightly
-[build](https://github.com/tensorflow/tensorflow).
+Beam. With the GCP distribution of Apache Beam, one can run Apache Beam
+pipelines locally, or on
+[Google Cloud Dataflow](https://cloud.google.com/dataflow/).
 
 ### Compatible Versions
 
@@ -56,7 +53,7 @@ releasing a new version.
 
 |tensorflow-transform                                                            |tensorflow    |apache-beam[gcp]|
 |--------------------------------------------------------------------------------|--------------|----------------|
-|[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) |nightly (1.x) |2.2.0           |
+|[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) |nightly (1.x) |2.3.0           |
 |[0.4.0](https://github.com/tensorflow/transform/blob/v0.4.0/RELEASE.md)         |1.4           |2.2.0           |
 |[0.3.1](https://github.com/tensorflow/transform/blob/v0.3.1/RELEASE.md)         |1.3           |2.1.1           |
 |[0.3.0](https://github.com/tensorflow/transform/blob/v0.3.0/RELEASE.md)         |1.3           |2.1.1           |

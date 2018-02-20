@@ -342,6 +342,9 @@ class Axis(futures.FutureContent):
   def __ne__(self, other):
     return not self == other
 
+  def __repr__(self):
+    return '{}({})'.format(self.__class__.__name__, repr(self.__dict__))
+
 
 class ColumnRepresentation(futures.FutureContent):
   """A description of the representation of a column in memory or on disk."""

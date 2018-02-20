@@ -479,8 +479,10 @@ def uniques(x, top_k=None, frequency_threshold=None,
     top_k: Limit the generated vocabulary to the first `top_k` elements. If set
       to None, the full vocabulary is generated.
     frequency_threshold: Limit the generated vocabulary only to elements whose
-      frequency is >= to the supplied threshold. If set to None, the full
-      vocabulary is generated.
+      absolute frequency is >= to the supplied threshold. If set to None, the
+      full vocabulary is generated.  Absolute frequency means the number of
+      occurences of the element in the dataset, as opposed to the proportion of
+      instances that contain that element.
     vocab_filename: The file name for the vocabulary file. If none, the
       "uniques" scope name in the context of this graph will be used as the file
       name. If not None, should be unique within a given preprocessing function.
@@ -508,6 +510,10 @@ def uniques(x, top_k=None, frequency_threshold=None,
     if frequency_threshold < 0:
       raise ValueError(
           'frequency_threshold must be non-negative, but got: %r' %
+          frequency_threshold)
+    elif frequency_threshold <= 1:
+      tf.logging.warn(
+          'frequency_threshold %d <= 1 is a no-op, use None instead.',
           frequency_threshold)
 
   if isinstance(x, tf.SparseTensor):

@@ -1,38 +1,42 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
-*   Batching of input instances is now done automatically and dynamically.
-*   Added analyzers to compute covarance matrices (`tft.covariance`) and
-    principal components for PCA (`tft.pca`).
-*   CombinerSpec and combine_analyzer now accept multiple inputs/outputs.
+* Batching of input instances is now done automatically and dynamically.
+* Added analyzers to compute covarance matrices (`tft.covariance`) and
+  principal components for PCA (`tft.pca`).
+* CombinerSpec and combine_analyzer now accept multiple inputs/outputs.
 
 ## Bug Fixes and Other Changes
-
-*   Fixes a bug where TransformDataset would not return correct output if the
-    output DatasetMetadata contained deferred values (such as vocabularies).
-*   Added checks that the prepreprocessing function's outputs all have the same
-    size in the batch dimension.
-*   Added `tft.apply_buckets` which takes an input tensor and a list of bucket
-    boundaries, and returns bucketized data.
-*   `tft.bucketize` and `tft.apply_buckets` now set metadata for the output
-    tensor, which means the resulting tf.Metadata for the output of these
-    functions will contain min and max values based on the number of buckets,
-    and also be set to categorical.
-*   Testing helper function assertAnalyzeAndTransformResults can now also test
-    the content of vocabulary files and other assets.
-*   Reduces the number of beam stages needed for certain analyzers, which can be
-    a performance bottleneck when transforming many features.
-*   Performance improvements in `tft.uniques`.
-*   Fix a bug in `tft.bucketize` where the bucket boundary could be same as a 
-    min/max value, and was getting dropped.
-*   Allows scaling individual components of a tensor independently with
-    `tft.scale_by_min_max`, `tft.scale_to_0_1`, and `tft.scale_to_z_score`.
-*   Fix a bug where `apply_saved_transform` could only be applied in the global
-    name scope.
+* Depends on `apache-beam[gcp]>=2.2,<3`.
+* Fixes a bug where TransformDataset would not return correct output if the
+  output DatasetMetadata contained deferred values (such as vocabularies).
+* Added checks that the prepreprocessing function's outputs all have the same
+  size in the batch dimension.
+* Added `tft.apply_buckets` which takes an input tensor and a list of bucket
+  boundaries, and returns bucketized data.
+* `tft.bucketize` and `tft.apply_buckets` now set metadata for the output
+  tensor, which means the resulting tf.Metadata for the output of these
+  functions will contain min and max values based on the number of buckets,
+  and also be set to categorical.
+* Testing helper function assertAnalyzeAndTransformResults can now also test
+  the content of vocabulary files and other assets.
+* Reduces the number of beam stages needed for certain analyzers, which can be
+  a performance bottleneck when transforming many features.
+* Performance improvements in `tft.uniques`.
+* Fix a bug in `tft.bucketize` where the bucket boundary could be same as a
+  min/max value, and was getting dropped.
+* Allows scaling individual components of a tensor independently with
+  `tft.scale_by_min_max`, `tft.scale_to_0_1`, and `tft.scale_to_z_score`.
+* Fix a bug where `apply_saved_transform` could only be applied in the global
+  name scope.
+* Add warning when `frequency_threshold` that are <= 1.  This is a no-op and
+  generally reflects mistaking `frequency_threshold` for a relative frequency
+  where in fact it is an absolute frequency.
 
 ## Breaking changes
 *   The interfaces of CombinerSpec and combine_analyzer have changed to allow
     for multiple inputs/outputs.
+* Requires pre-installed TensorFlow >=1.5,<2.
 
 ## Deprecations
 

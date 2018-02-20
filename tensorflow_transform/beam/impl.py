@@ -241,11 +241,13 @@ class _RunMetaGraphDoFn(beam.DoFn):
     def __init__(self, saved_model_dir, input_schema, exclude_outputs,
                  tf_config):
       self.saved_model_dir = saved_model_dir
-      self.session = tf.Session(graph=tf.Graph(), config=tf_config)
-      with self.session.graph.as_default():
-        with tf.Session(config=tf_config):
+      graph = tf.Graph()
+      self.session = tf.Session(graph=graph, config=tf_config)
+      with graph.as_default():
+        with self.session.as_default():
           inputs, outputs = saved_transform_io.partially_apply_saved_transform(
               saved_model_dir, {})
+        self.session.run(tf.global_variables_initializer())
         self.session.run(tf.tables_initializer())
 
         input_schema_keys = input_schema.column_schemas.keys()
@@ -342,9 +344,9 @@ class _RunMetaGraphDoFn(beam.DoFn):
 def _assert_tensorflow_version():
   # Fail with a clear error in case we are not using a compatible TF version.
   major, minor, _ = tf.__version__.split('.')
-  if int(major) != 1 or int(minor) < 4:
+  if int(major) != 1 or int(minor) < 5:
     raise RuntimeError(
-        'Tensorflow version >= 1.4, < 2 is required. Found (%s). Please '
+        'TensorFlow version >= 1.5, < 2 is required. Found (%s). Please '
         'install the latest 1.x version from '
         'https://github.com/tensorflow/tensorflow. ' % tf.__version__)
 
@@ -372,6 +374,8 @@ def _write_saved_transform(graph, inputs, outputs, saved_model_dir):
       removed_collections.append((collection_name,
                                   graph.get_collection(collection_name)))
       graph.clear_collection(collection_name)
+    # Initialize all variables so they can be saved.
+    session.run(tf.global_variables_initializer())
     saved_transform_io.write_saved_transform_from_session(
         session, inputs, outputs, saved_model_dir)
     for collection_name, collection in removed_collections:
@@ -478,6 +482,7 @@ class _ReplaceTensorsWithConstants(beam.PTransform):
           input_tensors, output_tensors = (
               saved_transform_io.partially_apply_saved_transform(
                   saved_model_dir, {}, tensor_replacement_map))
+          session.run(tf.global_variables_initializer())
           saved_transform_io.write_saved_transform_from_session(
               session, input_tensors, output_tensors, temp_dir)
         return temp_dir
@@ -602,6 +607,7 @@ class _ComputeTensorValues(beam.PTransform):
           tensor_output_map = (
               saved_transform_io.fetch_tensor_values(
                   saved_model_dir, tensor_replacement_map, tensor_names))
+          session.run(tf.global_variables_initializer())
           session.run(tf.tables_initializer())
           return session.run(tensor_output_map)
 
@@ -650,8 +656,10 @@ class AnalyzeDataset(beam.PTransform):
 
     Returns:
       A TransformFn containing the deferred transform function.
-    """
 
+    Raises:
+      ValueError: If preprocessing_fn has no outputs.
+    """
     input_values, input_metadata = dataset
     input_schema = input_metadata.schema
 
@@ -659,12 +667,32 @@ class AnalyzeDataset(beam.PTransform):
 
     graph = tf.Graph()
     with graph.as_default():
+
+      with tf.name_scope('inputs'):
+        inputs = input_schema.as_batched_placeholders()
+      # In order to avoid a bug where import_graph_def fails when the input_map
+      # and return_elements of an imported graph are the same (b/34288791), we
+      # avoid using the placeholder of an input column as an output of a graph.
+      # We do this by applying tf.identity to all inputs of the
+      # preprocessing_fn.  Note this applies at the level of raw tensors.
+      outputs = self._preprocessing_fn(impl_helper.copy_tensors(inputs))
+
+      # At this point we check that the preprocessing_fn has at least one
+      # output. This is because if we allowed the output of preprocessing_fn to
+      # be empty, we wouldn't be able to determine how many instances to
+      # "unbatch" the output into.
+      if not outputs:
+        raise ValueError('The preprocessing function returned an empty dict')
+
+      if graph.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES):
+        raise ValueError(
+            'The preprocessing function contained trainable variables '
+            '{}'.format(
+                graph.get_collection_ref(tf.GraphKeys.TRAINABLE_VARIABLES)))
+
       # NOTE: it's important that create_phases is called directly after
-      # run_preprocessing_fn, because we later mutate the graph's
-      # TABLE_INITIALIZERS collection which would break the logic in
-      # create_phases.
-      inputs, outputs = impl_helper.run_preprocessing_fn(
-          self._preprocessing_fn, input_schema)
+      # preprocessing_fn, because we later mutate the graph's TABLE_INITIALIZERS
+      # collection which would break the logic in create_phases.
       phases = impl_helper.create_phases()
 
       # Iterate through levels.  tensor_pcoll_mapping is a mapping from tensor

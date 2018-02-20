@@ -20,6 +20,7 @@ from __future__ import print_function
 import math
 import os
 import random
+import shutil
 
 
 import apache_beam as beam
@@ -42,8 +43,9 @@ from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema as sch
 from tensorflow_transform.tf_metadata import metadata_io
 
+from google.protobuf import text_format
 import unittest
-# pylint: enable=g-import-not-at-top
+from tensorflow.core.example import example_pb2
 
 
 class BeamImplTest(tft_unit.TransformTestCase):
@@ -366,6 +368,91 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
+
+  def testRawFeedDictInput(self):
+    # Test the ability to feed raw data into AnalyzeDataset and TransformDataset
+    # by using subclasses of these transforms which create batches of size 1.
+    def preprocessing_fn(inputs):
+      sequence_example = inputs['sequence_example']
+
+      # Ordinarily this would have shape (batch_size,) since 'sequence_example'
+      # was defined as a FixedLenFeature with shape ().  But since we specified
+      # desired_batch_size, we can assume that the shape is (1,), and reshape
+      # to ().
+      sequence_example = tf.reshape(sequence_example, ())
+
+      # Parse the sequence example.
+      feature_spec = {
+          'x': tf.FixedLenSequenceFeature(shape=[], dtype=tf.string,
+                                          default_value=None)
+      }
+      _, sequences = tf.parse_single_sequence_example(
+          sequence_example, sequence_features=feature_spec)
+
+      # Create a batch based on the sequence "x".
+      return {'x': sequences['x']}
+
+    def text_sequence_example_to_binary(text_proto):
+      proto = text_format.Merge(text_proto, example_pb2.SequenceExample())
+      return proto.SerializeToString()
+
+    sequence_examples = [
+        """
+        feature_lists: {
+          feature_list: {
+            key: "x"
+            value: {
+              feature: {bytes_list: {value: 'ab'}}
+              feature: {bytes_list: {value: ''}}
+              feature: {bytes_list: {value: 'c'}}
+              feature: {bytes_list: {value: 'd'}}
+            }
+          }
+        }
+        """,
+        """
+        feature_lists: {
+          feature_list: {
+            key: "x"
+            value: {
+              feature: {bytes_list: {value: 'ef'}}
+              feature: {bytes_list: {value: 'g'}}
+            }
+          }
+        }
+        """
+    ]
+    input_data = [
+        {'sequence_example': text_sequence_example_to_binary(sequence_example)}
+        for sequence_example in sequence_examples]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'sequence_example': sch.ColumnSchema(tf.string, [],
+                                             sch.FixedColumnRepresentation())
+    })
+    expected_data = [
+        {'x': 'ab'},
+        {'x': ''},
+        {'x': 'c'},
+        {'x': 'd'},
+        {'x': 'ef'},
+        {'x': 'g'}
+    ]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    })
+
+    with beam_impl.Context(temp_dir=self.get_temp_dir(), desired_batch_size=1):
+      transform_fn = ((input_data, input_metadata)
+                      | beam_impl.AnalyzeDataset(preprocessing_fn))
+      transformed_data, transformed_metadata = (
+          ((input_data, input_metadata), transform_fn)
+          | beam_impl.TransformDataset())
+
+    self.assertDataCloseOrEqual(expected_data, transformed_data)
+    transformed_metadata = self._resolveDeferredMetadata(transformed_metadata)
+    self.assertEqual(expected_metadata.schema.column_schemas,
+                     transformed_metadata.schema.column_schemas)
+    self.assertEqual(expected_metadata, transformed_metadata)
 
   def testAnalyzerBeforeMap(self):
     def preprocessing_fn(inputs):
@@ -2593,6 +2680,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_buckets = range(1, 101)
     self._asssert_quantile_boundaries(
         inputs, expected_buckets, tf.int32, num_buckets=101)
+
 
 
 if __name__ == '__main__':

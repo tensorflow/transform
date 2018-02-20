@@ -17,8 +17,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import itertools
-
 
 import numpy as np
 import six
@@ -72,7 +70,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         'a': tf.placeholder(tf.float32, ()),
     }
     with self.assertRaises(ValueError):
-      _ = impl_helper.infer_feature_schema(tensors)
+      impl_helper.infer_feature_schema(tensors)
 
   def testMakeFeedDict(self):
     tensors = {
@@ -185,7 +183,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     })
     instances = [{'a': 100}]
     with self.assertRaises(KeyError):
-      _ = impl_helper.make_feed_dict(tensors, schema, instances)
+      impl_helper.make_feed_dict(tensors, schema, instances)
 
   def testMalformedSparseFeatures(self):
     tensors = {
@@ -199,12 +197,12 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     instances = [{'a': ([-1, 2], [1.0, 2.0])}]
     with self.assertRaisesRegexp(
         ValueError, 'has index .* out of range'):
-      _ = impl_helper.make_feed_dict(tensors, schema, instances)
+      impl_helper.make_feed_dict(tensors, schema, instances)
 
     instances = [{'a': ([11, 1], [1.0, 2.0])}]
     with self.assertRaisesRegexp(
         ValueError, 'has index .* out of range'):
-      _ = impl_helper.make_feed_dict(tensors, schema, instances)
+      impl_helper.make_feed_dict(tensors, schema, instances)
 
     # Indices and values of different lengths.
     schema = self.toSchema({
@@ -213,13 +211,13 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     instances = [{'a': ([1, 2], [1])}]
     with self.assertRaisesRegexp(
         ValueError, 'indices and values of different lengths'):
-      _ = impl_helper.make_feed_dict(tensors, schema, instances)
+      impl_helper.make_feed_dict(tensors, schema, instances)
 
     # Tuple of the wrong length.
     instances = [{'a': ([1], [2], [3])}]
     with self.assertRaisesRegexp(
         ValueError, 'too many values to unpack'):
-      _ = impl_helper.make_feed_dict(tensors, schema, instances)
+      impl_helper.make_feed_dict(tensors, schema, instances)
 
   def testMakeOutputDict(self):
     schema = self.toSchema({
@@ -279,7 +277,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     }
     with self.assertRaisesRegexp(
         ValueError, 'cannot be decoded by ListColumnRepresentation'):
-      _ = impl_helper.to_instance_dicts(schema, fetches)
+      impl_helper.to_instance_dicts(schema, fetches)
 
     # SparseTensor of invalid rank.
     fetches = {
@@ -290,7 +288,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     }
     with self.assertRaisesRegexp(
         ValueError, 'cannot be decoded by ListColumnRepresentation'):
-      _ = impl_helper.to_instance_dicts(schema, fetches)
+      impl_helper.to_instance_dicts(schema, fetches)
 
     # SparseTensor with indices that are out of order.
     fetches = {
@@ -300,7 +298,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     }
     with self.assertRaisesRegexp(
         ValueError, 'Encountered out-of-order sparse index'):
-      _ = impl_helper.to_instance_dicts(schema, fetches)
+      impl_helper.to_instance_dicts(schema, fetches)
 
     # SparseTensors with different batch dimension sizes.
     schema = self.toSchema({
@@ -319,7 +317,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         ValueError,
         r'Inconsistent batch sizes: "\w" had batch dimension \d, "\w" had batch'
         r' dimension \d'):
-      _ = impl_helper.to_instance_dicts(schema, fetches)
+      impl_helper.to_instance_dicts(schema, fetches)
 
   def testMakeOutputDictErrorDense(self):
     schema = self.toSchema({
@@ -335,56 +333,39 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         ValueError,
         r'Inconsistent batch sizes: "\w" had batch dimension \d, "\w" had batch'
         r' dimension \d'):
-      _ = impl_helper.to_instance_dicts(schema, fetches)
+      impl_helper.to_instance_dicts(schema, fetches)
 
-  def testCreatePhasesWithDegenerateFunctionApplication(self):
-    # Tests the case of a function whose inputs and outputs overlap.
-    def preprocessing_fn(inputs):
-      return {
-          'index': api.apply_function(lambda x: x, inputs['a'])
-      }
+  def testCreatePhasesWithApplyFunctionWithOverlappingInputsAndOutputs(self):
+    string_placeholder = tf.placeholder(tf.string, shape=(None,))
+    def degenerate_function(x):
+      """A function whose input tensors and output tensors overlap."""
+      return x
+    api.apply_function(degenerate_function, string_placeholder)
 
-    input_schema = sch.Schema({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
-    })
-    _, _ = impl_helper.run_preprocessing_fn(
-        preprocessing_fn, input_schema)
     phases = impl_helper.create_phases()
     self.assertEqual(len(phases), 0)
 
   def testCreatePhasesWithMultipleLevelsOfAnalyzers(self):
-    # Test a preprocessing function similar to scale_to_0_1 except that it
-    # involves multiple interleavings of analyzers and transforms.
-    def preprocessing_fn(inputs):
-      scaled_to_0 = inputs['x'] - analyzers.min(inputs['x'])
-      scaled_to_0_1 = scaled_to_0 / analyzers.max(scaled_to_0)
-      return {'x_scaled': scaled_to_0_1}
+    # Create graph similar to calling scale_to_0_1 except involving multiple
+    # interleavings of analyzers and transforms.
+    float_placeholder = tf.placeholder(tf.float32, shape=(None,))
+    scaled_to_0 = float_placeholder - analyzers.min(float_placeholder)
+    scaled_to_0 / analyzers.max(scaled_to_0)  # pylint: disable=expression-not-assigned
 
-    input_schema = sch.Schema({
-        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
-    })
-    _, _ = impl_helper.run_preprocessing_fn(
-        preprocessing_fn, input_schema)
     phases = impl_helper.create_phases()
     self.assertEqual(len(phases), 2)
     self.assertEqual(len(phases[0].analyzers), 1)
     self.assertEqual(len(phases[1].analyzers), 1)
 
   def testCreatePhasesWithTable(self):
-    # Test a preprocessing function with table that can only be run after the
-    # first analyzer has run.  Note converting an integerized string into a
-    # float doesn't make much sense, but is a legal tensorflow computation.
-    def preprocessing_fn(inputs):
-      integerized = mappers.string_to_int(inputs['x'])
-      integerized = tf.to_float(integerized)
-      scaled_to_0_1 = integerized / analyzers.max(integerized)
-      return {'x_scaled': scaled_to_0_1}
+    # Create a graph with table that can only be run after the first analyzer
+    # has run.  Note converting an integerized string into a float doesn't make
+    # much sense, but is a legal tensorflow computation.
+    string_placeholder = tf.placeholder(tf.string, shape=(None,))
+    integerized = mappers.string_to_int(string_placeholder)
+    integerized = tf.to_float(integerized)
+    integerized / analyzers.max(integerized)  # pylint: disable=expression-not-assigned
 
-    input_schema = sch.Schema({
-        'x': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
-    })
-    _, _ = impl_helper.run_preprocessing_fn(
-        preprocessing_fn, input_schema)
     phases = impl_helper.create_phases()
     self.assertEqual(len(phases), 2)
     self.assertEqual(len(phases[0].analyzers), 1)
@@ -393,114 +374,98 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     self.assertEqual(len(phases[1].table_initializers), 1)
 
   def testCreatePhasesWithUnwrappedTable(self):
-    # Test a preprocessing function with a table that is not wrapped in
-    # `apply_function`.
-    def preprocessing_fn(inputs):
-      table = lookup.index_table_from_tensor(['a', 'b'])
-      integerized = table.lookup(inputs['x'])
-      return {'integerized': integerized}
+    # Create a graph with a table that is not wrapped in `apply_function`.
+    string_placeholder = tf.placeholder(tf.string, shape=(None,))
+    table = lookup.index_table_from_tensor(['a', 'b'])
+    table.lookup(string_placeholder)
 
-    input_schema = sch.Schema({
-        'x': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
-    })
-    _, _ = impl_helper.run_preprocessing_fn(
-        preprocessing_fn, input_schema)
     with self.assertRaisesRegexp(ValueError, 'Found table initializers'):
-      _ = impl_helper.create_phases()
+      impl_helper.create_phases()
 
-  def testCreatePhasesWithLoop(self):
-    # Test a preprocessing function with control flow.
-    #
-    # The loop represents
-    #
-    # i = 0
-    # while i < 10:
-    #   i += 1
-    #   x += 1
-    #
-    # To get an error in the case where apply_function is not called, we have
-    # to call an analyzer first (see testCreatePhasesWithUnwrappedLoop).  So
-    # we also do so here.
-    def preprocessing_fn(inputs):
-      def _subtract_ten(x):
-        i = tf.constant(0)
-        c = lambda i, x: tf.less(i, 10)
-        b = lambda i, x: (tf.add(i, 1), tf.add(x, -1))
-        return tf.while_loop(c, b, [i, x])[1]
-      scaled_to_0_1 = mappers.scale_to_0_1(
-          api.apply_function(_subtract_ten, inputs['x']))
-      return {'x_scaled': scaled_to_0_1}
+  def testCreatePhasesWithControlFlowOpsWrappedInApplyFunction(self):
+    int_placeholder = tf.placeholder(tf.int64, shape=(None,))
+    int_placeholder_minus_10 = api.apply_function(_subtract_ten,
+                                                  int_placeholder)
+    # We need to call an analyzer after the loop because only the transitive
+    # parents of analyzers are inspected by create_phases
+    mappers.scale_to_0_1(int_placeholder_minus_10)
 
-    input_schema = sch.Schema({
-        'x': sch.ColumnSchema(tf.int32, [], sch.FixedColumnRepresentation())
-    })
-    _, _ = impl_helper.run_preprocessing_fn(
-        preprocessing_fn, input_schema)
     phases = impl_helper.create_phases()
     self.assertEqual(len(phases), 1)
     #  tft.scale_to_0_1 uses a single analyzer: analyzers._min_and_max.
     self.assertEqual(len(phases[0].analyzers), 1)
 
-  def testCreatePhasesWithUnwrappedLoop(self):
-    # Test a preprocessing function with control flow.
-    #
-    # The loop represents
-    #
-    # i = 0
-    # while i < 10:
-    #   i += 1
-    #   x += 1
-    #
+  def testCreatePhasesWithControlFlowOpsNotWrappedInApplyFunction(self):
+    int_placeholder = tf.placeholder(tf.int64, shape=(None,))
+    int_placeholder_minus_10 = _subtract_ten(int_placeholder)
     # We need to call an analyzer after the loop because only the transitive
     # parents of analyzers are inspected by create_phases
-    def preprocessing_fn(inputs):
-      def _subtract_ten(x):
-        i = tf.constant(0)
-        c = lambda i, x: tf.less(i, 10)
-        b = lambda i, x: (tf.add(i, 1), tf.add(x, -1))
-        return tf.while_loop(c, b, [i, x])[1]
-      scaled_to_0_1 = mappers.scale_to_0_1(_subtract_ten(inputs['x']))
-      return {'x_scaled': scaled_to_0_1}
+    mappers.scale_to_0_1(int_placeholder_minus_10)
 
-    input_schema = sch.Schema({
-        'x': sch.ColumnSchema(tf.int32, [], sch.FixedColumnRepresentation())
-    })
-    _, _ = impl_helper.run_preprocessing_fn(
-        preprocessing_fn, input_schema)
     with self.assertRaisesRegexp(ValueError, 'Cycle detected'):
-      _ = impl_helper.create_phases()
+      impl_helper.create_phases()
 
-  def testRunPreprocessingFn(self):
-    schema = self.toSchema({
-        'dense_1': tf.FixedLenFeature((), tf.float32),
-        'dense_2': tf.FixedLenFeature((1, 2), tf.int64),
-        'var_len': tf.VarLenFeature(tf.string),
-        'sparse': tf.SparseFeature('ix', 'val', tf.float32, 100)
-    })
-    def preprocessing_fn(inputs):
-      return {
-          'dense_out': mappers.scale_to_0_1(inputs['dense_1']),
-          'sparse_out': tf.sparse_reshape(inputs['sparse'], (1, 10)),
-      }
-
-    inputs, outputs = impl_helper.run_preprocessing_fn(
-        preprocessing_fn, schema)
-
-    # Verify that the input placeholders have the correct types.
-    expected_dtype_and_shape = {
-        'dense_1': (tf.float32, tf.TensorShape([None])),
-        'dense_2': (tf.int64, tf.TensorShape([None, 1, 2])),
-        'var_len': (tf.string, tf.TensorShape([None, None])),
-        'sparse': (tf.float32, tf.TensorShape([None, None])),
-        'dense_out': (tf.float32, tf.TensorShape([None])),
-        'sparse_out': (tf.float32, tf.TensorShape([None, None])),
+  def testCopyTensorsCopiesProducesDifferentTensors(self):
+    tensors = {
+        'dense': tf.placeholder(tf.int64, (None,), name='my_dense_input'),
+        'sparse': tf.sparse_placeholder(tf.int64, name='my_sparse_input')
     }
+    copied_tensors = impl_helper.copy_tensors(tensors)
 
-    for key, tensor in itertools.chain(six.iteritems(inputs),
-                                       six.iteritems(outputs)):
-      dtype, shape = expected_dtype_and_shape[key]
-      self.assertEqual(tensor.dtype, dtype)
-      tensor.get_shape().assert_is_compatible_with(shape)
+    self.assertNotEqual(tensors['dense'],
+                        copied_tensors['dense'])
+    self.assertNotEqual(tensors['sparse'].indices,
+                        copied_tensors['sparse'].indices)
+    self.assertNotEqual(tensors['sparse'].values,
+                        copied_tensors['sparse'].values)
+    self.assertNotEqual(tensors['sparse'].dense_shape,
+                        copied_tensors['sparse'].dense_shape)
+
+  def testCopyTensorsProducesEquivalentTensors(self):
+    tensors = {
+        'dense': tf.placeholder(tf.int64, (None,), name='my_dense_input'),
+        'sparse': tf.sparse_placeholder(tf.int64, name='my_sparse_input')
+    }
+    copied_tensors = impl_helper.copy_tensors(tensors)
+
+    with tf.Session() as session:
+      dense_value = [1, 2]
+      sparse_value = tf.SparseTensorValue(
+          indices=[[0, 0], [0, 2], [1, 1]],
+          values=[3, 4, 5],
+          dense_shape=[2, 3])
+      sample_tensors = session.run(copied_tensors, feed_dict={
+          tensors['dense']: dense_value,
+          tensors['sparse']: sparse_value
+      })
+      self.assertAllEqual(sample_tensors['dense'], dense_value)
+      self.assertAllEqual(sample_tensors['sparse'].indices,
+                          sparse_value.indices)
+      self.assertAllEqual(sample_tensors['sparse'].values,
+                          sparse_value.values)
+      self.assertAllEqual(sample_tensors['sparse'].dense_shape,
+                          sparse_value.dense_shape)
+
+
+def _subtract_ten(x):
+  """Subtracts 10 from x using control flow ops.
+
+  This function is equivalent to "x - 10" but uses a tf.while_loop, in order
+  to test the use of functions that involve control flow ops.
+
+  Args:
+    x: A tensor of integral type.
+
+  Returns:
+    A tensor representing x - 10.
+  """
+  def stop_condition(counter, x_minus_counter):
+    del x_minus_counter  # unused
+    return tf.less(counter, 10)
+  def iteration(counter, x_minus_counter):
+    return tf.add(counter, 1), tf.add(x_minus_counter, -1)
+  initial_values = [tf.constant(0), x]
+  return tf.while_loop(stop_condition, iteration, initial_values)[1]
 
 
 if __name__ == '__main__':

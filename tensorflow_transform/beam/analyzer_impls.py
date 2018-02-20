@@ -19,7 +19,6 @@ from __future__ import print_function
 
 import collections
 import os
-import random
 
 
 import apache_beam as beam
@@ -157,14 +156,7 @@ class _UniquesAnalyzerImpl(beam.PTransform):
     # via AsIter. By breaking fusion, we allow sharded files' sizes to be
     # automatically computed (when possible), so we end up reading from fewer
     # and larger files.
-    @beam.ptransform_fn
-    def Reshard(pcoll):  # pylint: disable=invalid-name
-      return (
-          pcoll
-          | 'PairWithRandom' >> beam.Map(lambda x: (random.getrandbits(32), x))
-          | 'GroupByRandom' >> beam.GroupByKey()
-          | 'ExtractValues' >> beam.FlatMap(lambda x: x[1]))
-    counts |= 'Reshard' >> Reshard()  # pylint: disable=no-value-for-parameter
+    counts |= 'Reshard' >> beam.transforms.Reshuffle()  # pylint: disable=no-value-for-parameter
 
     # Using AsIter instead of AsList below in order to reduce max memory
     # usage (due to AsList caching).

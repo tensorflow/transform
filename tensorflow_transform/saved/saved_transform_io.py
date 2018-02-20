@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
 import re
 
 
@@ -143,7 +144,16 @@ def _partially_apply_saved_transform_impl(
 
 
   # Save the ASSET_FILEPATHS before importing the MetaGraphDef
-  current_assets = graph.get_collection(ops.GraphKeys.ASSET_FILEPATHS)
+  current_assets = graph.get_collection(tf.GraphKeys.ASSET_FILEPATHS)
+
+  # Warn user if meta_graph_def has saved variables
+  trainable_vars = meta_graph_def.collection_def[
+      tf.GraphKeys.TRAINABLE_VARIABLES].bytes_list.value
+  if trainable_vars:
+    raise ValueError(
+        'The SavedModel contained trainable variables {}.  Because this '
+        'function is typically called in the input_fn, trainable variables '
+        'are disallowed'.format(trainable_vars))
 
   # Load the transform graph, applying it to existing Tensors via input_map.
   # Throws ValueError if the input_map gives mismatched types or shapes.
@@ -158,16 +168,28 @@ def _partially_apply_saved_transform_impl(
   # were substituted via input_map.  To account for this, wipe out the
   # collection, restore the preexisting collection values, and then write in
   # the new substituted Tensors.
-  graph.clear_collection(ops.GraphKeys.ASSET_FILEPATHS)
+  graph.clear_collection(tf.GraphKeys.ASSET_FILEPATHS)
   for asset_path_tensor in current_assets:
-    graph.add_to_collection(ops.GraphKeys.ASSET_FILEPATHS, asset_path_tensor)
+    graph.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, asset_path_tensor)
   for asset_path_tensor in asset_tensor_dict.values():
-    graph.add_to_collection(ops.GraphKeys.ASSET_FILEPATHS, asset_path_tensor)
+    graph.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, asset_path_tensor)
 
   if saver:
-    tf.logging.warn(
-        'Transform graphs should not have saved Variables, but this '
-        'one does.  Variable values will *not* be restored.')
+    checkpoint_path = os.path.join(
+        tf.compat.as_bytes(saved_model_dir),
+        tf.compat.as_bytes(tf.saved_model.constants.VARIABLES_DIRECTORY),
+        tf.compat.as_bytes(tf.saved_model.constants.VARIABLES_FILENAME))
+
+    # We can't use the scope rename from init_from_checkpoint because it relies
+    # on var scopes not rebuilt by import_meta_graph. So we need to construct it
+    # explicitly by iterating over the variables.
+    var_map = {}
+    for var in tf.global_variables():
+      if var.op.name.startswith(scope):
+        var_map[var.op.name[len(scope)+1:]] = var
+
+    if var_map:
+      tf.train.init_from_checkpoint(checkpoint_path, var_map)
 
   # Add computed output tensors to the output.  There are two cases.  When the
   # output is not in the input_map, then we look up the tensor in the imported

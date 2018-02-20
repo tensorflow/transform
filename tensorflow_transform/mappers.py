@@ -341,8 +341,10 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
     top_k: Limit the generated vocabulary to the first `top_k` elements. If set
       to None, the full vocabulary is generated.
     frequency_threshold: Limit the generated vocabulary only to elements whose
-      frequency is >= to the supplied threshold. If set to None, the full
-      vocabulary is generated.
+      absolute frequency is >= to the supplied threshold. If set to None, the
+      full vocabulary is generated.  Absolute frequency means the number of
+      occurences of the element in the dataset, as opposed to the proportion of
+      instances that contain that element.
     num_oov_buckets:  Any lookup of an out-of-vocabulary token will return a
       bucket ID based on its hash if `num_oov_buckets` is greater than zero.
       Otherwise it is assigned the `default_value`.
