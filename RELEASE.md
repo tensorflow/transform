@@ -7,7 +7,7 @@
 * CombinerSpec and combine_analyzer now accept multiple inputs/outputs.
 
 ## Bug Fixes and Other Changes
-* Depends on `apache-beam[gcp]>=2.2,<3`.
+* Depends on `apache-beam[gcp]>=2.3,<3`.
 * Fixes a bug where TransformDataset would not return correct output if the
   output DatasetMetadata contained deferred values (such as vocabularies).
 * Added checks that the prepreprocessing function's outputs all have the same
