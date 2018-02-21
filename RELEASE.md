@@ -1,4 +1,4 @@
-# Current version (not yet released; still in development)
+# Release 0.5.0
 
 ## Major Features and Improvements
 * Batching of input instances is now done automatically and dynamically.
