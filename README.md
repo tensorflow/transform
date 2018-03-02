@@ -10,6 +10,10 @@ to their data as a TensorFlow graph. This is important as the user can then
 incorporate the exported TensorFlow graph into their serving model, thus
 avoiding skew between the served model and the training data.
 
+# tf.Transform Samples
+
+You can take a look at our tf.Transform samples on [Cloud ML Engine Github](https://github.com/GoogleCloudPlatform/cloudml-samples#cpu-and-gpu) specifically [Criteo](https://github.com/GoogleCloudPlatform/cloudml-samples/tree/master/criteo_tft), [Reddit](https://github.com/GoogleCloudPlatform/cloudml-samples/tree/master/reddit_tft) and [Movielens](https://github.com/GoogleCloudPlatform/cloudml-samples/tree/master/movielens).
+
 **tf.Transform may introduce backwards incompatible changes before version
 1.0**.
 
