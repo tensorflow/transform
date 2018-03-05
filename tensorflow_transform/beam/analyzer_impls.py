@@ -305,11 +305,13 @@ class _ComputeQuantiles(beam.CombineFn):
       buckets, _ = self._session.run([buckets, are_ready_flush])
 
     # Quantile boundaries is a list of the form
-    #    [np.ndarrary(min, <num_buckets-1>, max)]
-    # Drop the min and/or max quantile boundaries as needed, so that we end-up
-    # with num_buckets-1 boundaries, and hence num_buckets buckets.
-
-    if buckets.size == (self._num_quantiles + 1):
+    #    [np.ndarrary(min, <internal-boundaries>, max)]
+    # The approximate quantile library can return less or more than requested
+    # number of buckets. The max value can be same as the last internal
+    # boundary, due to removal of duplicates.
+    # Below, the min and/or max quantile boundaries are trimmed depending
+    # on the actual boundaries returned by the library.
+    if buckets.size >= (self._num_quantiles + 1):
       # Trim min/max.
       buckets = buckets[1:-1]
     elif buckets.size == self._num_quantiles:

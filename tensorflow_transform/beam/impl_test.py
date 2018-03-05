@@ -2681,6 +2681,34 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self._asssert_quantile_boundaries(
         inputs, expected_buckets, tf.int32, num_buckets=101)
 
+  def testBucketizationSpecificDistribution(self):
+    # Distribution of input values.
+    # This distribution is taken from one of the user pipelines.
+    dist = (
+        # Format: ((<min-value-in-range>, <max-value-in-range>), num-values)
+        ((0.51, 0.67), 4013),
+        ((0.67, 0.84), 2321),
+        ((0.84, 1.01), 7145),
+        ((1.01, 1.17), 64524),
+        ((1.17, 1.34), 42886),
+        ((1.34, 1.51), 154809),
+        ((1.51, 1.67), 382678),
+        ((1.67, 1.84), 582744),
+        ((1.84, 2.01), 252221),
+        ((2.01, 2.17), 7299))
+
+    inputs = []
+    for (mn, mx), num in dist:
+      for _ in range(num//100):
+        inputs += [random.uniform(mn, mx)]
+    # NOTE: for this input data, the number of boundaries returned is more
+    # than that needed to form the number of buckets. Below, we request 5
+    # buckets, which translates to 4 boundaries. But, due to approximate
+    # quantiles, the number of boundaries returned is 5.
+    expected_boundaries = [1.520135, 1.646375, 1.738915, 1.827343, 2.166727]
+    self._asssert_quantile_boundaries(
+        inputs, expected_boundaries, tf.float32, num_buckets=5)
+
 
 
 if __name__ == '__main__':

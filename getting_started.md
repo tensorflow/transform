@@ -120,7 +120,7 @@ raw_data = [
 
 raw_data_metadata = ...
 transformed_dataset, transform_fn = (
-    (raw_data, raw_data_metadata) | beam_impl.AnalyzeAndTransformDataset(
+    (raw_data, raw_data_metadata) | tft.AnalyzeAndTransformDataset(
         preprocessing_fn))
 transformed_data, transformed_metadata = transformed_dataset
 ```
@@ -278,7 +278,7 @@ between reading the lines of the CSV file, and applying the converter that
 converts each CSV row to an instance in the in-memory format.
 
 ```
-converter = csv_coder.CsvCoder(ordered_columns, raw_data_schema)
+converter = tft.CsvCoder(ordered_columns, raw_data_schema)
 
 raw_data = (
     p
@@ -351,13 +351,13 @@ shards that are written.
 ```
 transformed_data | "WriteTrainData" >> tfrecordio.WriteToTFRecord(
     transformed_eval_data_base,
-    coder=example_proto_coder.ExampleProtoCoder(transformed_metadata))
+    coder=tft.ExampleProtoCoder(transformed_metadata))
 ```
 
 In addition to the training data, we also write out the metadata.
 
 ```
-transformed_metadata | 'WriteMetadata' >> beam_metadata_io.WriteMetadata(
+transformed_metadata | 'WriteMetadata' >> tft.WriteMetadata(
     transformed_metadata_file, pipeline=p)
 ```
 

@@ -1,8 +1,26 @@
+# Current version (not yet released; still in development)
+
+## Major Features and Improvements
+
+## Bug Fixes and Other Changes
+* Trim min/max value in `tft.bucketize where the computed number of bucket
+  boundaries is more than requested.  Updated documentation to
+  clearly indicate that the number of buckets is computed using approximate
+  algorithms, and that computed number can be more or less than requested.
+* Change the namespace used for Beam metrics from `tensorflow_transform` to
+  `tfx.Transform`.
+* Export all required names from top level module, so only one import is needed
+  in user code.
+
+## Breaking changes
+
+## Deprecations
+
 # Release 0.5.0
 
 ## Major Features and Improvements
 * Batching of input instances is now done automatically and dynamically.
-* Added analyzers to compute covarance matrices (`tft.covariance`) and
+* Added analyzers to compute covariance matrices (`tft.covariance`) and
   principal components for PCA (`tft.pca`).
 * CombinerSpec and combine_analyzer now accept multiple inputs/outputs.
 
@@ -34,8 +52,8 @@
   where in fact it is an absolute frequency.
 
 ## Breaking changes
-*   The interfaces of CombinerSpec and combine_analyzer have changed to allow
-    for multiple inputs/outputs.
+* The interfaces of CombinerSpec and combine_analyzer have changed to allow
+  for multiple inputs/outputs.
 * Requires pre-installed TensorFlow >=1.5,<2.
 
 ## Deprecations

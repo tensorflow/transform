@@ -23,7 +23,6 @@ import tempfile
 
 import tensorflow as tf
 import tensorflow_transform as tft
-import tensorflow_transform.beam.impl as beam_impl
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
@@ -60,9 +59,9 @@ def main():
           tf.float32, [], dataset_schema.FixedColumnRepresentation())
   }))
 
-  with beam_impl.Context(temp_dir=tempfile.mkdtemp()):
+  with tft.Context(temp_dir=tempfile.mkdtemp()):
     transformed_dataset, transform_fn = (  # pylint: disable=unused-variable
-        (raw_data, raw_data_metadata) | beam_impl.AnalyzeAndTransformDataset(
+        (raw_data, raw_data_metadata) | tft.AnalyzeAndTransformDataset(
             preprocessing_fn))
 
   transformed_data, transformed_metadata = transformed_dataset  # pylint: disable=unused-variable

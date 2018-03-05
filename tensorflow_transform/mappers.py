@@ -648,23 +648,27 @@ def bucketize(x, num_buckets, epsilon=None, name=None):
     x: A numeric input `Tensor` whose values should be mapped to buckets.
     num_buckets: Values in the input `x` are divided into approximately
       equal-sized buckets, where the number of buckets is num_buckets.
+      This is a hint. The actual number of buckets computed can be
+      less or more than the requested number. Use the generated metadata to
+      find the computed number of buckets.
     epsilon: (Optional) Error tolerance, typically a small fraction close to
       zero. If a value is not specified by the caller, a suitable value is
-      computed based on experimental results.  For `num_buckets` less than 100,
-      the value of 0.01 is chosen to handle a dataset of up to ~1 trillion input
-      data values.  If `num_buckets` is larger, then epsilon is set to
-      (1/`num_buckets`) to enforce a stricter error tolerance, because more
-      buckets will result in smaller range for each bucket, and so we want the
-      the boundaries to be less fuzzy.
+      computed based on experimental results.  For `num_buckets` less
+      than 100, the value of 0.01 is chosen to handle a dataset of up to
+      ~1 trillion input data values.  If `num_buckets` is larger,
+      then epsilon is set to (1/`num_buckets`) to enforce a stricter
+      error tolerance, because more buckets will result in smaller range for
+      each bucket, and so we want the boundaries to be less fuzzy.
       See analyzers.quantiles() for details.
     name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor` of the same shape as `x`, with each element in the
     returned tensor representing the bucketized value. Bucketized value is
-    in the range [0, num_buckets). Some times the actual number of buckets can
-    be smaller than num_buckets, for example in case the number of distinct
-    values is smaller than num_buckets.
+    in the range [0, actual_num_buckets). Sometimes the actual number of buckets
+    can be different than num_buckets hint, for example in case the number of
+    distinct values is smaller than num_buckets, or in cases where the
+    input values are not uniformly distributed.
 
   Raises:
     ValueError: If value of num_buckets is not > 1.

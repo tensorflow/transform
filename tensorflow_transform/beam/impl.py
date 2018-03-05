@@ -96,7 +96,7 @@ from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
-_METRICS_NAMESPACE = 'tensorflow_transform'
+_METRICS_NAMESPACE = 'tfx.Transform'
 
 _DATASET_ELEMENT_TYPE = Dict[str, Union[common.PRIMITIVE_TYPE,
                                         # Arbitrarily-nested lists are allowed.

@@ -568,8 +568,11 @@ def quantiles(x, num_buckets, epsilon, name=None):
 
   Args:
     x: An input `Tensor` or `SparseTensor`.
-    num_buckets: Values in the `x` are divided into approximately equal-sized
-      buckets, where the number of buckets is num_buckets.
+    num_buckets: Values in the `x` are divided into approximately
+      equal-sized buckets, where the number of buckets is num_buckets.
+      This is a hint. The actual number of buckets computed can be
+      less or more than the requested number. Use the generated metadata to
+      find the computed number of buckets.
     epsilon: Error tolerance, typically a small fraction close to zero
       (e.g. 0.01). Higher values of epsilon increase the quantile approximation,
       and hence result in more unequal buckets, but could improve performance,
