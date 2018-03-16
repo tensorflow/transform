@@ -167,6 +167,15 @@ class _UniquesAnalyzerImpl(beam.PTransform):
       if not counts:
         counts = [(1, '49d0cd50-04bb-48c0-bc6f-5b575dce351a')]
       counts.sort(reverse=True)  # Largest first.
+
+      # Log vocabulary size to metrics.  Note we can call
+      # beam.metrics.Metrics.distribution here because this function only gets
+      # called once, so there is no need to amortize the cost of calling the
+      # constructor by putting in a DoFn initializer.
+      vocab_size_distribution = beam.metrics.Metrics.distribution(
+          common.METRICS_NAMESPACE, 'vocabulary_size')
+      vocab_size_distribution.update(len(counts))
+
       if store_frequency:
         # Returns ['count1 element1', ... ]
         return ['{} {}'.format(count, element) for count, element in counts]

@@ -4,13 +4,12 @@
 
 ## Bug Fixes and Other Changes
 * Trim min/max value in `tft.bucketize where the computed number of bucket
-  boundaries is more than requested.  Updated documentation to
-  clearly indicate that the number of buckets is computed using approximate
-  algorithms, and that computed number can be more or less than requested.
+  boundaries is more than requested. Updated documentation to clearly indicate
+  that the number of buckets is computed using approximate algorithms, and that
+  computed number can be more or less than requested.
 * Change the namespace used for Beam metrics from `tensorflow_transform` to
   `tfx.Transform`.
-* Export all required names from top level module, so only one import is needed
-  in user code.
+* Update Beam metrics to also log vocabulary sizes.
 
 ## Breaking changes
 

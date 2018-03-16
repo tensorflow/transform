@@ -28,6 +28,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import re
 
 import numpy as np
@@ -38,7 +39,19 @@ ANALYZER_COLLECTION = 'tft_analyzers'
 VOCAB_FILENAME_PREFIX = 'vocab_'
 VOCAB_FREQUENCY_FILENAME_PREFIX = 'vocab_frequency_'
 
+# Named tuple with details for each output of an Analyzer.
+_AnalyzerOutputInfo = collections.namedtuple(
+    'AnalyzerOutputInfo', ['name', 'dtype', 'is_asset'])
 
+
+# NOTE: this code is designed so that Analyzer is pickleable, and in particular
+# does not try to pickle a tf.Graph or tf.Tensor which may not be pickleable.
+# This is due to https://issues.apache.org/jira/browse/BEAM-3812.  Until that
+# issue is fixed, anything that is a member variable of a Beam PTransform may
+# end up getting pickled.  Instances of Analyzer do end up as member variables
+# of a PTransform in our implementation of tf.Transform on Beam currently, so
+# we must avoid directly putting `Tensor`s inside `Analyzer`, and instead use
+# tensor names.
 class Analyzer(object):
   """An operation-like class for full-pass analyses of data.
 
@@ -68,9 +81,8 @@ class Analyzer(object):
     for tensor in inputs:
       if not isinstance(tensor, tf.Tensor):
         raise ValueError('Analyzers can only accept `Tensor`s as inputs')
-    self._inputs = inputs
-    self._outputs = []
-    self._output_is_asset_map = {}
+    self._input_tensor_names = [tensor.name for tensor in inputs]
+    self._output_infos = []
     with tf.name_scope(name) as scope:
       self._name = scope
       for dtype, shape, is_asset in output_dtype_shape_and_is_asset:
@@ -78,18 +90,28 @@ class Analyzer(object):
         if is_asset and output_tensor.dtype != tf.string:
           raise ValueError(('Tensor {} cannot represent an asset, because it '
                             'is not a string.').format(output_tensor.name))
-        self._outputs.append(output_tensor)
-        self._output_is_asset_map[output_tensor] = is_asset
+        self._output_infos.append(_AnalyzerOutputInfo(
+            output_tensor.name, output_tensor.dtype, is_asset))
     self._spec = spec
     tf.add_to_collection(ANALYZER_COLLECTION, self)
 
   @property
+  def input_tensor_names(self):
+    return self._input_tensor_names
+
+  @property
+  def output_infos(self):
+    return self._output_infos
+
+  @property
   def inputs(self):
-    return self._inputs
+    return [tf.get_default_graph().get_tensor_by_name(name)
+            for name in self._input_tensor_names]
 
   @property
   def outputs(self):
-    return self._outputs
+    return [tf.get_default_graph().get_tensor_by_name(output_info.name)
+            for output_info in self._output_infos]
 
   @property
   def spec(self):
@@ -98,9 +120,6 @@ class Analyzer(object):
   @property
   def name(self):
     return self._name
-
-  def output_is_asset(self, output_tensor):
-    return self._output_is_asset_map[output_tensor]
 
 
 class CombinerSpec(object):

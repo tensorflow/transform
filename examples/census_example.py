@@ -32,6 +32,11 @@ from tensorflow.contrib import learn
 from tensorflow.contrib import lookup
 from tensorflow.contrib.learn.python.learn.utils import input_fn_utils
 
+from tensorflow_transform.beam import impl as beam_impl
+from tensorflow_transform.beam.tft_beam_io import transform_fn_io
+from tensorflow_transform.coders import csv_coder
+from tensorflow_transform.coders import example_proto_coder
+from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 from tensorflow_transform.tf_metadata import metadata_io
@@ -128,7 +133,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
   # The "with" block will create a pipeline, and run that pipeline at the exit
   # of the block.
   with beam.Pipeline() as pipeline:
-    with tft.Context(temp_dir=tempfile.mkdtemp()):
+    with beam_impl.Context(temp_dir=tempfile.mkdtemp()):
       # Create a coder to read the census data with the schema.  To do this we
       # need to list all columns in order since the schema doesn't specify the
       # order of columns in the csv.
@@ -138,7 +143,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
           'capital-gain', 'capital-loss', 'hours-per-week', 'native-country',
           'label'
       ]
-      converter = tft.CsvCoder(ordered_columns, RAW_DATA_METADATA.schema)
+      converter = csv_coder.CsvCoder(ordered_columns, RAW_DATA_METADATA.schema)
 
       # Read in raw data and convert using CSV converter.  Note that we apply
       # some Beam transformations here, which will not be encoded in the TF
@@ -159,12 +164,13 @@ def transform_data(train_data_file, test_data_file, working_dir):
       # raw_data.
       raw_dataset = (raw_data, RAW_DATA_METADATA)
       transformed_dataset, transform_fn = (
-          raw_dataset | tft.AnalyzeAndTransformDataset(preprocessing_fn))
+          raw_dataset | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
       transformed_data, transformed_metadata = transformed_dataset
 
       _ = transformed_data | 'WriteTrainData' >> tfrecordio.WriteToTFRecord(
           os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE),
-          coder=tft.ExampleProtoCoder(transformed_metadata.schema))
+          coder=example_proto_coder.ExampleProtoCoder(
+              transformed_metadata.schema))
 
       # Now apply transform function to test data.  In this case we also remove
       # the header line from the CSV file and the trailing period at the end of
@@ -182,21 +188,22 @@ def transform_data(train_data_file, test_data_file, working_dir):
       raw_test_dataset = (raw_test_data, RAW_DATA_METADATA)
 
       transformed_test_dataset = (
-          (raw_test_dataset, transform_fn) | tft.TransformDataset())
+          (raw_test_dataset, transform_fn) | beam_impl.TransformDataset())
       # Don't need transformed data schema, it's the same as before.
       transformed_test_data, _ = transformed_test_dataset
 
       _ = transformed_test_data | 'WriteTestData' >> tfrecordio.WriteToTFRecord(
           os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE),
-          coder=tft.ExampleProtoCoder(transformed_metadata.schema))
+          coder=example_proto_coder.ExampleProtoCoder(
+              transformed_metadata.schema))
 
       # Will write a SavedModel and metadata to two subdirectories of
-      # working_dir, given by tft.TRANSFORM_FN_DIR and
-      # tft.TRANSFORMED_METADATA_DIR respectively.
+      # working_dir, given by transform_fn_io.TRANSFORM_FN_DIR and
+      # transform_fn_io.TRANSFORMED_METADATA_DIR respectively.
       _ = (
           transform_fn
           | 'WriteTransformFn' >>
-          tft.WriteTransformFn(working_dir))
+          transform_fn_io.WriteTransformFn(working_dir))
 
 # Functions for training
 
@@ -214,7 +221,8 @@ def _make_training_input_fn(working_dir, filebase, batch_size):
     The input function for training or eval.
   """
   transformed_metadata = metadata_io.read_metadata(
-      os.path.join(working_dir, tft.TRANSFORMED_METADATA_DIR))
+      os.path.join(
+          working_dir, transform_fn_io.TRANSFORMED_METADATA_DIR))
   transformed_feature_spec = transformed_metadata.schema.as_feature_spec()
 
   def input_fn():
@@ -257,8 +265,9 @@ def _make_serving_input_fn(working_dir):
     # Apply the transform function that was used to generate the materialized
     # data.
     _, transformed_features = (
-        tft.partially_apply_saved_transform(
-            os.path.join(working_dir, tft.TRANSFORM_FN_DIR), raw_features))
+        saved_transform_io.partially_apply_saved_transform(
+            os.path.join(working_dir, transform_fn_io.TRANSFORM_FN_DIR),
+            raw_features))
 
     return input_fn_utils.InputFnOps(transformed_features, None, default_inputs)
 

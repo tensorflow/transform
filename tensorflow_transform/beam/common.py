@@ -24,3 +24,5 @@ from six import string_types
 
 NUMERIC_TYPE = Union[float, Union[integer_types]]
 PRIMITIVE_TYPE = Union[NUMERIC_TYPE, Union[string_types]]
+
+METRICS_NAMESPACE = 'tfx.Transform'

@@ -96,8 +96,6 @@ from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
-_METRICS_NAMESPACE = 'tfx.Transform'
-
 _DATASET_ELEMENT_TYPE = Dict[str, Union[common.PRIMITIVE_TYPE,
                                         # Arbitrarily-nested lists are allowed.
                                         List[Any], np.generic, np.ndarray]]
@@ -282,11 +280,11 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
     # Metrics.
     self._graph_load_seconds_distribution = beam.metrics.Metrics.distribution(
-        _METRICS_NAMESPACE, 'graph_load_seconds')
+        common.METRICS_NAMESPACE, 'graph_load_seconds')
     self._batch_size_distribution = beam.metrics.Metrics.distribution(
-        _METRICS_NAMESPACE, 'batch_size')
-    self._num_instances = beam.metrics.Metrics.counter(_METRICS_NAMESPACE,
-                                                       'num_instances')
+        common.METRICS_NAMESPACE, 'batch_size')
+    self._num_instances = beam.metrics.Metrics.counter(
+        common.METRICS_NAMESPACE, 'num_instances')
 
   def _handle_batch(self, batch):
     self._batch_size_distribution.update(len(batch))
@@ -520,18 +518,17 @@ class _ComputeAnalyzerOutputs(beam.PTransform):
           analyzer_input_values
           | 'ExtractInputs[%s]' % analyzer.name >> beam.Map(
               lambda batch, keys: [batch[key] for key in keys],
-              keys=[tensor.name for tensor in analyzer.inputs])
+              keys=analyzer.input_tensor_names)
           | 'Analyze[%s]' % analyzer.name >> analyzer_impls._AnalyzerImpl(
               analyzer.spec, temp_assets_dir))
       # pylint: enable=protected-access
 
-      for index, tensor in enumerate(analyzer.outputs):
-        is_asset = analyzer.output_is_asset(tensor)
+      for index, (name, dtype, is_asset) in enumerate(analyzer.output_infos):
         wrapped_output = outputs_pcoll | (
-            'ExtractAndWrapAsTensorValue[%s][%d]' % (analyzer.name, index) >>
+            'ExtractAndWrapAsTensorValue[%s][%d]' % (name, index) >>
             beam.Map(extract_and_wrap_as_tensor_value, index,
-                     tensor.dtype.as_numpy_dtype, is_asset))
-        result[tensor.name] = wrapped_output
+                     dtype.as_numpy_dtype, is_asset))
+        result[name] = wrapped_output
     return result
 
 
