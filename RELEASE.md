@@ -1,8 +1,9 @@
-# Current version (not yet released; still in development)
+# Release 0.6.0
 
 ## Major Features and Improvements
 
 ## Bug Fixes and Other Changes
+* Depends on `apache-beam[gcp]>=2.4,<3`.
 * Trim min/max value in `tft.bucketize where the computed number of bucket
   boundaries is more than requested. Updated documentation to clearly indicate
   that the number of buckets is computed using approximate algorithms, and that
@@ -10,8 +11,10 @@
 * Change the namespace used for Beam metrics from `tensorflow_transform` to
   `tfx.Transform`.
 * Update Beam metrics to also log vocabulary sizes.
+* `CsvCoder` updated to support unicode.
 
 ## Breaking changes
+* Requires pre-installed TensorFlow >=1.6,<2.
 
 ## Deprecations
 

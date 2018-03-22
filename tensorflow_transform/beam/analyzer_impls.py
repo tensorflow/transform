@@ -23,7 +23,6 @@ import os
 
 import apache_beam as beam
 
-from apache_beam.typehints import Any
 from apache_beam.typehints import KV
 from apache_beam.typehints import List
 from apache_beam.typehints import with_input_types
@@ -64,16 +63,14 @@ def _maybe_deserialize_tf_config(serialized_tf_config):
 
 
 @with_input_types(List[np.ndarray])
-@with_output_types(List[Any])
+@with_output_types(List[np.ndarray])
 class _AnalyzerImpl(beam.PTransform):
   """PTransform that implements a given analyzer.
 
   _AnalyzerImpl accepts a PCollection where each element is a list of ndarrays.
   Each element in this list contains a batch of values for the corresponding
   input tensor of the analyzer. _AnalyzerImpl returns a PCollection containing a
-  single element which is a list of values.  Each element should be convertible
-  to an ndarray via np.asarray, and the converted value will be the
-  corresponding output tensor of the analyzer.
+  single element which is a list of `ndarray`s.
 
   _AnalyzerImpl dispatches to an implementation transform, with the same
   signature as _AnalyzerImpl.
@@ -106,7 +103,7 @@ def _flatten_value_to_list(batch_values):
 
 
 @with_input_types(List[np.ndarray])
-@with_output_types(List[Any])
+@with_output_types(List[np.ndarray])
 class _UniquesAnalyzerImpl(beam.PTransform):
   """Saves the unique elements in a PCollection of batches."""
 
@@ -196,7 +193,7 @@ class _UniquesAnalyzerImpl(beam.PTransform):
     # Return the vocabulary path.
     wait_for_vocabulary_transform = (
         pcoll.pipeline
-        | 'CreatePath' >> beam.Create([[vocabulary_file]])
+        | 'CreatePath' >> beam.Create([[np.array(vocabulary_file)]])
         # Ensure that the analysis returns only after the file is written.
         | 'WaitForVocabularyFile' >> beam.Map(
             lambda x, y: x, y=beam.pvalue.AsIter(vocab_is_written)))
@@ -204,7 +201,7 @@ class _UniquesAnalyzerImpl(beam.PTransform):
 
 
 @with_input_types(List[np.ndarray])
-@with_output_types(List[Any])
+@with_output_types(List[np.ndarray])
 class _ComputeQuantiles(beam.CombineFn):
   """Computes quantiles on the PCollection.
 
@@ -213,9 +210,11 @@ class _ComputeQuantiles(beam.CombineFn):
   see also http://web.cs.ucla.edu/~weiwang/paper/SSDBM07_2.pdf
   """
 
-  def __init__(self, num_quantiles, epsilon, serialized_tf_config=None):
+  def __init__(self, num_quantiles, epsilon, bucket_dtype,
+               serialized_tf_config=None):
     self._num_quantiles = num_quantiles
     self._epsilon = epsilon
+    self._bucket_dtype = bucket_dtype
     self._serialized_tf_config = serialized_tf_config
 
     # _stamp_token is used to commit the state of the qaccumulator. In
@@ -297,7 +296,8 @@ class _ComputeQuantiles(beam.CombineFn):
 
   def extract_output(self, summary):
     if summary is self._empty_summary:
-      return [[[]]]
+      # Return an empty (1, 0) ndarray using np.zeros.
+      return [np.zeros(shape=(1, 0), dtype=self._bucket_dtype)]
 
     # All relevant state about the input is captured by 'summary'
     # (see comment in add_input() and merge_accumulators()).
@@ -330,11 +330,14 @@ class _ComputeQuantiles(beam.CombineFn):
       # Do not trim min/max, these are part of requested boundaries.
       pass
 
-    return [[buckets]]
+    # Convert to a (1, ?) shape array.
+    buckets = np.expand_dims(buckets, 0)
+
+    return [buckets]
 
 
 @with_input_types(List[np.ndarray])
-@with_output_types(List[Any])
+@with_output_types(List[np.ndarray])
 class _QuantilesAnalyzerImpl(beam.PTransform):
   """Computes the quantile buckets in a PCollection of batches."""
 
@@ -350,11 +353,12 @@ class _QuantilesAnalyzerImpl(beam.PTransform):
                 _ComputeQuantiles(
                     num_quantiles=self._spec.num_buckets,
                     epsilon=self._spec.epsilon,
+                    bucket_dtype=self._spec.bucket_dtype.as_numpy_dtype,
                     serialized_tf_config=serialized_tf_config)))
 
 
 @with_input_types(List[np.ndarray])
-@with_output_types(List[Any])
+@with_output_types(List[np.ndarray])
 class _CombineFnWrapper(beam.CombineFn):
   """Class to wrap a analyzers._CombinerSpec as a beam.CombineFn."""
 

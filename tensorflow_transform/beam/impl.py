@@ -129,10 +129,6 @@ class Context(object):
   Note that the temp dir should be accessible to worker jobs, e.g. if running
   with the Cloud Dataflow runner, the temp dir should be on GCS and should have
   permissions that allow both launcher and workers to access it.
-
-  When running on Cloud Dataflow, the temp dir should also be in a regional
-  bucket, as only regional buckets provide the consistency guarantees required
-  by tf.Transform.  This requirement will be removed in later versions.
   """
 
   _State = collections.namedtuple(  # pylint: disable=invalid-name
@@ -342,9 +338,9 @@ class _RunMetaGraphDoFn(beam.DoFn):
 def _assert_tensorflow_version():
   # Fail with a clear error in case we are not using a compatible TF version.
   major, minor, _ = tf.__version__.split('.')
-  if int(major) != 1 or int(minor) < 5:
+  if int(major) != 1 or int(minor) < 6:
     raise RuntimeError(
-        'TensorFlow version >= 1.5, < 2 is required. Found (%s). Please '
+        'TensorFlow version >= 1.6, < 2 is required. Found (%s). Please '
         'install the latest 1.x version from '
         'https://github.com/tensorflow/tensorflow. ' % tf.__version__)
 
@@ -505,8 +501,8 @@ class _ComputeAnalyzerOutputs(beam.PTransform):
 
   def expand(self, analyzer_input_values):
 
-    def extract_and_wrap_as_tensor_value(outputs, index, numpy_dtype, is_asset):
-      return _TensorValue(np.asarray(outputs[index], numpy_dtype), is_asset)
+    def extract_and_wrap_as_tensor_value(outputs, index, is_asset):
+      return _TensorValue(outputs[index], is_asset)
 
     # For each analyzer output, look up its input values (by tensor name)
     # and run the analyzer on these values.
@@ -523,11 +519,10 @@ class _ComputeAnalyzerOutputs(beam.PTransform):
               analyzer.spec, temp_assets_dir))
       # pylint: enable=protected-access
 
-      for index, (name, dtype, is_asset) in enumerate(analyzer.output_infos):
+      for index, (name, is_asset) in enumerate(analyzer.output_infos):
         wrapped_output = outputs_pcoll | (
             'ExtractAndWrapAsTensorValue[%s][%d]' % (name, index) >>
-            beam.Map(extract_and_wrap_as_tensor_value, index,
-                     dtype.as_numpy_dtype, is_asset))
+            beam.Map(extract_and_wrap_as_tensor_value, index, is_asset))
         result[name] = wrapped_output
     return result
 

@@ -22,7 +22,6 @@ from apache_beam.testing.util import assert_that
 from apache_beam.testing.util import equal_to
 
 import numpy as np
-import tensorflow as tf
 
 from tensorflow_transform import analyzers
 from tensorflow_transform.beam import analyzer_impls as impl
@@ -66,19 +65,22 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
     batch_2 = [np.ones((1, 6))]
     out = [3 for _ in range(6)]
     analyzer = impl._CombineFnWrapper(
-        analyzers._NumPyCombinerSpec(np.sum, reduce_instance_dims=False))
+        analyzers._NumPyCombinerSpec(np.sum, reduce_instance_dims=False,
+                                     output_dtypes=[np.int64]))
     self.assertCombine(analyzer, [batch_1, batch_2], out)
 
   def testCombineOnBatchAllEmptyRow(self):
     analyzer = impl._CombineFnWrapper(
-        analyzers._NumPyCombinerSpec(np.sum, reduce_instance_dims=False))
+        analyzers._NumPyCombinerSpec(np.sum, reduce_instance_dims=False,
+                                     output_dtypes=[np.int64]))
     self.assertCombine(analyzer, [[[[]]], [[[]]], [[[]]]], [])
 
   def testCombineOnBatchLotsOfData(self):
     shards = [[np.ones((1, 3))] for _ in range(2000)]
     out = [1 for _ in range(3)]
     analyzer = impl._CombineFnWrapper(
-        analyzers._NumPyCombinerSpec(np.min, reduce_instance_dims=False))
+        analyzers._NumPyCombinerSpec(np.min, reduce_instance_dims=False,
+                                     output_dtypes=[np.int64]))
     self.assertCombine(analyzer, shards, out)
 
   def testCombineOnBatchWithBeamPipeline(self):
@@ -86,15 +88,16 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
     # directly.  This surfaces bugs that only occur within a Beam pipeline, e.g.
     # due to Beam passing iterators to merge_accumulators instead of lists.
     with beam.Pipeline() as p:
-      batch_1 = [np.ones((2, 6), dtype=np.int)]
-      batch_2 = [np.ones((1, 6), dtype=np.int)]
+      batch_1 = [np.ones((2, 6), dtype=np.int64)]
+      batch_2 = [np.ones((1, 6), dtype=np.int64)]
       expected_output = np.ones(6) * 3
       def assert_equals_expected(outputs):
         output, = outputs  # Expect exactly one analyzer output
         return np.array_equal(output, expected_output)
 
       analyzer = impl._CombineFnWrapper(
-          analyzers._NumPyCombinerSpec(np.sum, reduce_instance_dims=False))
+          analyzers._NumPyCombinerSpec(np.sum, reduce_instance_dims=False,
+                                       output_dtypes=[np.int64]))
       assert_that(p
                   | beam.Create([batch_1, batch_2])
                   | beam.CombineGlobally(analyzer)
@@ -103,7 +106,8 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
 
   def _test_compute_quantiles_single_batch_helper(self, nptype):
     batch_1 = [np.linspace(1, 100, 100, nptype)]
-    analyzer = impl._ComputeQuantiles(num_quantiles=3, epsilon=0.00001)
+    analyzer = impl._ComputeQuantiles(num_quantiles=3, epsilon=0.00001,
+                                      bucket_dtype=np.float32)
     out = np.array([[35, 68]], dtype=np.float32)
     self.assertCombine(analyzer, np.array([batch_1]), out, check_np_type=True)
 
@@ -118,7 +122,8 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
     batch_1 = [np.linspace(1, 100, 100, dtype=nptype)]
     batch_2 = [np.linspace(101, 200, 100, dtype=nptype)]
     batch_3 = [np.linspace(201, 300, 100, dtype=nptype)]
-    analyzer = impl._ComputeQuantiles(num_quantiles=5, epsilon=0.00001)
+    analyzer = impl._ComputeQuantiles(num_quantiles=5, epsilon=0.00001,
+                                      bucket_dtype=np.float32)
     out = np.array([[61, 121, 181, 241]], dtype=np.float32)
     self.assertCombine(
         analyzer, np.array([batch_1, batch_2, batch_3]), out,
@@ -133,14 +138,14 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
 
   def testCovarianceEmpty(self):
     """Test empty array of inputs."""
-    analyzer = analyzers._CovarianceCombinerSpec(dtype=tf.float64)
+    analyzer = analyzers._CovarianceCombinerSpec(numpy_dtype=np.float64)
     shards = [[[[]]], [[[]]]]
     out = np.empty((0, 0))
     self.assertCombine(analyzer, shards, out)
 
   def testCovarianceWithZeroAxis(self):
     """Test an example with one zero variance axis."""
-    analyzer = analyzers._CovarianceCombinerSpec(dtype=tf.float64)
+    analyzer = analyzers._CovarianceCombinerSpec(numpy_dtype=np.float64)
     shards = [
         [[[0, 0, 1]]],
         [[[4, 0, 1], [2, -1, 1]]],
@@ -151,7 +156,7 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
 
   def testCovarianceWithLargeNumbers(self):
     """Test floating point precision with very large doubles."""
-    analyzer = analyzers._CovarianceCombinerSpec(dtype=tf.float64)
+    analyzer = analyzers._CovarianceCombinerSpec(numpy_dtype=np.float64)
     shards = [
         [[[2e15, 0], [1e15, 0]]],
         [[[-2e15, 0], [-1e15, 0]]]
@@ -161,7 +166,7 @@ class AnalyzerImplsTest(test_util.TensorFlowTestCase):
 
   def testPCAWithZeroAxis(self):
     """Test a PCA example with one zero variance axis."""
-    analyzer = analyzers._PCACombinerSpec(output_dim=2, dtype=tf.float64)
+    analyzer = analyzers._PCACombinerSpec(output_dim=2, numpy_dtype=np.float64)
     shards = [
         [[[0, 0, 1]]],
         [[[4, 0, 1], [2, -1, 1]]],

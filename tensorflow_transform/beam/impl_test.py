@@ -2522,7 +2522,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   # Example to demonstrate QuantileCombiner which implements combiner methods
   # such as add_input() and merge_accumulators() that achieve computation
-  # through TF Graph and execution using TF Sesssion, e.g. graphs that contain
+  # through TF Graph and execution using TF Session, e.g. graphs that contain
   # TF Quantile Ops.
   #
   # Note this wraps a beam_analyzer_impls._ComputeQuantiles which is a
@@ -2533,7 +2533,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     def __init__(self):
       self._impl = beam_analyzer_impls._ComputeQuantiles(
-          num_quantiles=2, epsilon=0.00001)
+          num_quantiles=2, epsilon=0.00001, bucket_dtype=np.float32)
 
     def create_accumulator(self):
       return self._impl.create_accumulator()
@@ -2550,7 +2550,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testQuantileViaCombineAnalyzer(self):
     def analyzer_fn(inputs):
       buckets, = tft.combine_analyzer(
-          [inputs['x']], output_dtypes=[tf.int32],
+          [inputs['x']], output_dtypes=[tf.float32],
           output_shapes=[(1, None)],
           combiner_spec=self._QuantileCombinerSpec(), name='quantiles')
       return {
@@ -2559,9 +2559,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     input_data = [{'x': [x]} for x in range(1, 1000)]
     input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.int32, [1], sch.FixedColumnRepresentation())
+        'x': sch.ColumnSchema(tf.float32, [1], sch.FixedColumnRepresentation())
     })
-    expected_outputs = {'buckets': np.array([[501]], np.int32)}
+    expected_outputs = {'buckets': np.array([[501]], np.float32)}
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
 

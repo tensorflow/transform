@@ -41,7 +41,7 @@ VOCAB_FREQUENCY_FILENAME_PREFIX = 'vocab_frequency_'
 
 # Named tuple with details for each output of an Analyzer.
 _AnalyzerOutputInfo = collections.namedtuple(
-    'AnalyzerOutputInfo', ['name', 'dtype', 'is_asset'])
+    'AnalyzerOutputInfo', ['name', 'is_asset'])
 
 
 # NOTE: this code is designed so that Analyzer is pickleable, and in particular
@@ -52,6 +52,10 @@ _AnalyzerOutputInfo = collections.namedtuple(
 # of a PTransform in our implementation of tf.Transform on Beam currently, so
 # we must avoid directly putting `Tensor`s inside `Analyzer`, and instead use
 # tensor names.
+#
+# Due to these pickling issues and also logical separation of TensorFlow and
+# numpy code, the spec should also not contain TensorFlow dtypes but rather
+# their numpy equivalent.
 class Analyzer(object):
   """An operation-like class for full-pass analyses of data.
 
@@ -91,7 +95,7 @@ class Analyzer(object):
           raise ValueError(('Tensor {} cannot represent an asset, because it '
                             'is not a string.').format(output_tensor.name))
         self._output_infos.append(_AnalyzerOutputInfo(
-            output_tensor.name, output_tensor.dtype, is_asset))
+            output_tensor.name, is_asset))
     self._spec = spec
     tf.add_to_collection(ANALYZER_COLLECTION, self)
 
@@ -201,11 +205,18 @@ def combine_analyzer(inputs, output_dtypes, output_shapes, combiner_spec, name):
 
 
 class _NumPyCombinerSpec(CombinerSpec):
-  """Combines the PCollection only on the 0th dimension using nparray."""
+  """Combines the PCollection only on the 0th dimension using nparray.
 
-  def __init__(self, fn, reduce_instance_dims):
+  Args:
+    fn: The numpy function representing the reduction to be done.
+    reduce_instance_dims: Whether to reduce across non-batch dimensions.
+    output_dtypes: The numpy dtype to cast each output to.
+  """
+
+  def __init__(self, fn, reduce_instance_dims, output_dtypes):
     self._fn = fn
     self._reduce_instance_dims = reduce_instance_dims
+    self._output_dtypes = output_dtypes
 
   def create_accumulator(self):
     return None
@@ -232,7 +243,13 @@ class _NumPyCombinerSpec(CombinerSpec):
         for sub_accumulators in zip(*accumulators)]
 
   def extract_output(self, accumulator):
-    return accumulator
+    if accumulator is None:
+      return None
+    # For each output, cast that output to the specified type.  Note there will
+    # be one output for each input tensor to the analyzer.
+    return [sub_accumulator.astype(output_dtype)
+            for sub_accumulator, output_dtype
+            in zip(accumulator, self._output_dtypes)]
 
 
 def _numeric_combine(inputs, fn, reduce_instance_dims=True, name=None):
@@ -266,11 +283,10 @@ def _numeric_combine(inputs, fn, reduce_instance_dims=True, name=None):
     # shape.
     shapes = [x.shape.as_list()[1:] if x.shape.dims is not None else None
               for x in inputs]
+  spec = _NumPyCombinerSpec(fn, reduce_instance_dims,
+                            [x.dtype.as_numpy_dtype for x in inputs])
   return combine_analyzer(
-      inputs,
-      [x.dtype for x in inputs],
-      shapes,
-      _NumPyCombinerSpec(fn, reduce_instance_dims),
+      inputs, [x.dtype for x in inputs], shapes, spec,
       name if name is not None else fn.__name__)
 
 
@@ -615,22 +631,17 @@ def quantiles(x, num_buckets, epsilon, name=None):
 
   with tf.name_scope(name, 'quantiles'):
     spec = _QuantilesSpec(epsilon, num_buckets)
-    quantile_boundaries = Analyzer(
+    return Analyzer(
         [x], [(spec.bucket_dtype, [1, None], False)], spec,
         'quantiles').outputs[0]
-
-    # The Analyzer returns a 2d matrix of 1*num_buckets.  Below, we remove
-    # the first dimension and return the boundaries as a simple 1d list.
-    return quantile_boundaries[0:1]
 
 
 class _CovarianceCombinerSpec(CombinerSpec):
   """Combines the PCollection to compute the biased covariance matrix."""
 
-  def __init__(self, dtype=tf.float64):
+  def __init__(self, numpy_dtype=np.float64):
     """Store the dtype for np arrays/matrices for precision."""
-    self._output_dtype = dtype
-    self._np_dtype = dtype.as_numpy_dtype
+    self._numpy_dtype = numpy_dtype
 
   def create_accumulator(self):
     """Create an accumulator with all zero entries."""
@@ -663,9 +674,9 @@ class _CovarianceCombinerSpec(CombinerSpec):
     batch_cross_terms = np.matmul(
         np.transpose(batch_value),
         batch_value
-    ).astype(self._np_dtype)
+    ).astype(self._numpy_dtype)
 
-    batch_sum = np.array(np.sum(batch_value, axis=0), self._np_dtype)
+    batch_sum = np.array(np.sum(batch_value, axis=0), self._numpy_dtype)
     batch_count = np.shape(batch_value)[0]
 
     if accumulator is None:
@@ -725,7 +736,7 @@ def covariance(x, dtype, name=None):
   Args:
     x: A rank-2 `Tensor`, 0th dim are rows, 1st dim are indices in each input
     vector.
-    dtype: numpy dtype of entries in the returned matrix.
+    dtype: Tensorflow dtype of entries in the returned matrix.
     name: (Optional) A name for this operation.
 
   Raises:
@@ -743,7 +754,7 @@ def covariance(x, dtype, name=None):
   input_dim = x.shape.as_list()[1]
   shape = (input_dim, input_dim)
 
-  spec = _CovarianceCombinerSpec(dtype)
+  spec = _CovarianceCombinerSpec(dtype.as_numpy_dtype)
   return combine_analyzer(
       [x], [dtype], [shape], spec,
       name if name is not None else 'covariance')[0]
@@ -751,9 +762,9 @@ def covariance(x, dtype, name=None):
 
 class _PCACombinerSpec(_CovarianceCombinerSpec):
 
-  def __init__(self, output_dim=None, dtype=tf.float64):
+  def __init__(self, output_dim=None, numpy_dtype=np.float64):
     """Store pca output dimension, and dtype for precision."""
-    super(_PCACombinerSpec, self).__init__(dtype=dtype)
+    super(_PCACombinerSpec, self).__init__(numpy_dtype=numpy_dtype)
     self._output_dim = output_dim
 
   def extract_output(self, accumulator):
@@ -844,7 +855,7 @@ def pca(x, output_dim, dtype, name=None):
   Args:
     x: A rank-2 `Tensor`, 0th dim are rows, 1st dim are indices in row vectors.
     output_dim: The PCA output dimension (number of eigenvectors to return).
-    dtype: numpy dtype of entries in the returned matrix.
+    dtype: Tensorflow dtype of entries in the returned matrix.
     name: (Optional) A name for this operation.
 
   Raises:
@@ -862,7 +873,7 @@ def pca(x, output_dim, dtype, name=None):
   input_dim = x.shape.as_list()[1]
   shape = (input_dim, output_dim)
 
-  spec = _PCACombinerSpec(output_dim, dtype)
+  spec = _PCACombinerSpec(output_dim, dtype.as_numpy_dtype)
   return combine_analyzer(
       [x], [dtype], [shape], spec,
       name if name is not None else 'pca')[0]
