@@ -88,7 +88,7 @@ def scale_to_0_1(x, elementwise=False, name=None):
   return scale_by_min_max(x, 0, 1, elementwise=elementwise, name=name)
 
 
-def scale_to_z_score(x, elementwise=False, name=None):
+def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
   """Returns a standardized column with mean 0 and variance 1.
 
   Scaling to z-score subtracts out the mean and divides by standard deviation.
@@ -100,23 +100,21 @@ def scale_to_z_score(x, elementwise=False, name=None):
     elementwise: If true, scales each element of the tensor independently;
         otherwise uses the mean and variance of the whole tensor.
     name: (Optional) A name for this operation.
+    output_dtype: (Optional) If not None, casts the output tensor to this type.
 
   Returns:
     A `Tensor` containing the input column scaled to mean 0 and variance 1
     (standard deviation 1), given by: (x - mean(x)) / std_dev(x).
     If `x` is floating point, the mean will have the same type as `x`. If `x` is
-    integral, the output is cast to float32 for int8 and int16 and float64 for
-    int32 and int64 (similar to the behavior of tf.truediv).
+    integral, the output is cast to tf.float32.
 
     Note that TFLearn generally permits only tf.int64 and tf.float32, so casting
-    this scaler's output may be necessary. In particular, scaling an int64
-    tensor yields a float64 tensor, which would need a cast to float32 to be
-    used in TFLearn.
+    this scaler's output may be necessary.
   """
   with tf.name_scope(name, 'scale_to_z_score'):
-    # x_mean will be float32 or float64, depending on type of x.
+    # x_mean will be float16, float32, or float64, depending on type of x.
     x_mean, x_var = analyzers._mean_and_var(  # pylint: disable=protected-access
-        x, reduce_instance_dims=not elementwise)
+        x, reduce_instance_dims=not elementwise, output_dtype=output_dtype)
     return (tf.cast(x, x_mean.dtype) - x_mean) / tf.sqrt(x_var)
 
 

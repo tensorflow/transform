@@ -30,36 +30,8 @@ from apache_beam.typehints import with_output_types
 
 import numpy as np
 import six
-import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform.beam import common
-from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
-from tensorflow.python.ops import resources
-
-_DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER = {
-    # We rely on Beam to manage concurrency, i.e. we expect it to run one
-    # session per CPU--so we don't want to proliferate TF threads.
-    # Nonetheless we provide 4 threads per session for TF ops, 2 inter-
-    # and 2 intra-thread.  In many cases only 2 of these will be runnable
-    # at any given time.  This approach oversubscribes a bit to make sure
-    # the CPUs are really saturated.
-    #
-    beam.runners.DataflowRunner:
-        tf.ConfigProto(
-            use_per_session_threads=True,
-            inter_op_parallelism_threads=2,
-            intra_op_parallelism_threads=2).SerializeToString(),
-
-}
-
-
-def _maybe_deserialize_tf_config(serialized_tf_config):
-  if serialized_tf_config is None:
-    return None
-
-  result = tf.ConfigProto()
-  result.ParseFromString(serialized_tf_config)
-  return result
 
 
 @with_input_types(List[np.ndarray])
@@ -84,11 +56,8 @@ class _AnalyzerImpl(beam.PTransform):
     # pylint: disable=protected-access
     if isinstance(self._spec, analyzers._UniquesSpec):
       return pcoll | _UniquesAnalyzerImpl(self._spec, self._temp_assets_dir)
-    elif isinstance(self._spec, analyzers._QuantilesSpec):
-      return pcoll | _QuantilesAnalyzerImpl(self._spec)
     elif isinstance(self._spec, analyzers.CombinerSpec):
-      return pcoll | beam.CombineGlobally(
-          _CombineFnWrapper(self._spec)).without_defaults()
+      return pcoll | _CombinerAnalyzerImpl(self._spec)
     else:
       raise NotImplementedError(self._spec.__class__)
 
@@ -202,168 +171,18 @@ class _UniquesAnalyzerImpl(beam.PTransform):
 
 @with_input_types(List[np.ndarray])
 @with_output_types(List[np.ndarray])
-class _ComputeQuantiles(beam.CombineFn):
-  """Computes quantiles on the PCollection.
-
-  This implementation is based on go/squawd.
-  For additional details on the algorithm, such as streaming and summary,
-  see also http://web.cs.ucla.edu/~weiwang/paper/SSDBM07_2.pdf
-  """
-
-  def __init__(self, num_quantiles, epsilon, bucket_dtype,
-               serialized_tf_config=None):
-    self._num_quantiles = num_quantiles
-    self._epsilon = epsilon
-    self._bucket_dtype = bucket_dtype
-    self._serialized_tf_config = serialized_tf_config
-
-    # _stamp_token is used to commit the state of the qaccumulator. In
-    # this case, the qaccumulator state is completely returned and stored
-    # as part of quantile_state/summary in the combiner fn (i.e the summary is
-    # extracted and stored outside the qaccumulator). So we don't use
-    # the timestamp mechanism to signify progress in the qaccumulator state.
-    self._stamp_token = 0
-    # Represents an empty summary. This could be changed to a tf.constant
-    # implemented by the quantile ops library.
-    self._empty_summary = None
-
-    # Create a new session with a new graph for quantile ops.
-    self._session = tf.Session(
-        graph=tf.Graph(),
-        config=_maybe_deserialize_tf_config(serialized_tf_config))
-    with self._session.graph.as_default():
-      with self._session.as_default():
-        self._qaccumulator = quantile_ops.QuantileAccumulator(
-            init_stamp_token=self._stamp_token,
-            num_quantiles=self._num_quantiles,
-            epsilon=self._epsilon,
-            name='qaccumulator')
-        resources.initialize_resources(resources.shared_resources()).run()
-
-  def __reduce__(self):
-    return _ComputeQuantiles, (self._num_quantiles,
-                               self._epsilon, self._serialized_tf_config)
-
-  def create_accumulator(self):
-    return self._empty_summary
-
-  def add_input(self, summary, next_input):
-    batch_value_as_list = _flatten_value_to_list(next_input)
-    with self._session.graph.as_default():
-      update = self._qaccumulator.add_summary(
-          stamp_token=self._stamp_token,
-          column=[batch_value_as_list],
-          # All weights are equal, and the weight vector is the
-          # same length as the input.
-          example_weights=([[1] * len(batch_value_as_list)]))
-
-      if summary is not self._empty_summary:
-        self._session.run(
-            self._qaccumulator.add_prebuilt_summary(
-                stamp_token=self._stamp_token,
-                summary=tf.constant(summary)))
-
-      self._session.run(update)
-
-      # After the flush_summary, qaccumulator will not contain any
-      # uncommitted information that represents the input. Instead all the
-      # digested information is returned as 'summary'. Many such summaries
-      # will be combined by merge_accumulators().
-      return self._session.run(
-          self._qaccumulator.flush_summary(
-              stamp_token=self._stamp_token,
-              next_stamp_token=self._stamp_token))
-
-  def merge_accumulators(self, summaries):
-    if summaries is self._empty_summary:
-      return self._empty_summary
-
-    with self._session.graph.as_default():
-      summary_placeholder = tf.placeholder(tf.string)
-      add_summary = self._qaccumulator.add_prebuilt_summary(
-          stamp_token=self._stamp_token,
-          summary=summary_placeholder)
-      for summary in summaries:
-        self._session.run(add_summary, {summary_placeholder: summary})
-
-      # Compute new summary.
-      # All relevant state about the input is captured by 'summary'
-      # (see comment at the end of add_input()).
-      return self._session.run(
-          self._qaccumulator.flush_summary(
-              stamp_token=self._stamp_token,
-              next_stamp_token=self._stamp_token))
-
-  def extract_output(self, summary):
-    if summary is self._empty_summary:
-      # Return an empty (1, 0) ndarray using np.zeros.
-      return [np.zeros(shape=(1, 0), dtype=self._bucket_dtype)]
-
-    # All relevant state about the input is captured by 'summary'
-    # (see comment in add_input() and merge_accumulators()).
-    with self._session.graph.as_default():
-      self._session.run(
-          self._qaccumulator.add_prebuilt_summary(
-              stamp_token=self._stamp_token, summary=tf.constant(summary)))
-      self._session.run(
-          self._qaccumulator.flush(
-              stamp_token=self._stamp_token,
-              next_stamp_token=self._stamp_token))
-      are_ready_flush, buckets = (
-          self._qaccumulator.get_buckets(stamp_token=self._stamp_token))
-      buckets, _ = self._session.run([buckets, are_ready_flush])
-
-    # Quantile boundaries is a list of the form
-    #    [np.ndarrary(min, <internal-boundaries>, max)]
-    # The approximate quantile library can return less or more than requested
-    # number of buckets. The max value can be same as the last internal
-    # boundary, due to removal of duplicates.
-    # Below, the min and/or max quantile boundaries are trimmed depending
-    # on the actual boundaries returned by the library.
-    if buckets.size >= (self._num_quantiles + 1):
-      # Trim min/max.
-      buckets = buckets[1:-1]
-    elif buckets.size == self._num_quantiles:
-      # Trim min only.
-      buckets = buckets[1:]
-    else:
-      # Do not trim min/max, these are part of requested boundaries.
-      pass
-
-    # Convert to a (1, ?) shape array.
-    buckets = np.expand_dims(buckets, 0)
-
-    return [buckets]
-
-
-@with_input_types(List[np.ndarray])
-@with_output_types(List[np.ndarray])
-class _QuantilesAnalyzerImpl(beam.PTransform):
-  """Computes the quantile buckets in a PCollection of batches."""
-
-  def __init__(self, spec):
-    assert isinstance(spec, analyzers._QuantilesSpec)  # pylint: disable=protected-access
-    self._spec = spec
-
-  def expand(self, pcoll):
-    serialized_tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(
-        pcoll.pipeline.runner)
-    return (pcoll
-            | 'ComputeQuantiles' >> beam.CombineGlobally(
-                _ComputeQuantiles(
-                    num_quantiles=self._spec.num_buckets,
-                    epsilon=self._spec.epsilon,
-                    bucket_dtype=self._spec.bucket_dtype.as_numpy_dtype,
-                    serialized_tf_config=serialized_tf_config)))
-
-
-@with_input_types(List[np.ndarray])
-@with_output_types(List[np.ndarray])
 class _CombineFnWrapper(beam.CombineFn):
   """Class to wrap a analyzers._CombinerSpec as a beam.CombineFn."""
 
-  def __init__(self, spec):
+  def __init__(self, spec, serialized_tf_config):
+    if isinstance(spec, analyzers._QuantilesCombinerSpec):  # pylint: disable=protected-access
+      spec.initialize_local_state(
+          common._maybe_deserialize_tf_config(serialized_tf_config))  # pylint: disable=protected-access
     self._spec = spec
+    self._serialized_tf_config = serialized_tf_config
+
+  def __reduce__(self):
+    return _CombineFnWrapper, (self._spec, self._serialized_tf_config)
 
   def create_accumulator(self):
     return self._spec.create_accumulator()
@@ -376,3 +195,28 @@ class _CombineFnWrapper(beam.CombineFn):
 
   def extract_output(self, accumulator):
     return self._spec.extract_output(accumulator)
+
+
+@with_input_types(List[np.ndarray])
+@with_output_types(List[np.ndarray])
+class _CombinerAnalyzerImpl(beam.PTransform):
+  """Computes the quantile buckets in a PCollection of batches."""
+
+  def __init__(self, spec):
+    self._spec = spec
+
+  def expand(self, pcoll):
+    serialized_tf_config = None
+    if isinstance(self._spec, analyzers._QuantilesCombinerSpec):  # pylint: disable=protected-access
+      serialized_tf_config = common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
+          pcoll.pipeline.runner)
+
+    combine_ptransform = beam.CombineGlobally(
+        _CombineFnWrapper(self._spec, serialized_tf_config))
+    # NOTE: Currently, all combiner specs except _QuantilesCombinerSpec
+    # require .without_defaults() to be set.
+    if not isinstance(self._spec, analyzers._QuantilesCombinerSpec):  # pylint: disable=protected-access
+      combine_ptransform = combine_ptransform.without_defaults()
+
+    return pcoll | 'CombineGlobally' >> combine_ptransform
+

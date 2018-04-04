@@ -299,7 +299,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
   def _make_graph_state(self, saved_model_dir):
     start = datetime.datetime.now()
-    tf_config = analyzer_impls._maybe_deserialize_tf_config(  # pylint: disable=protected-access
+    tf_config = common._maybe_deserialize_tf_config(  # pylint: disable=protected-access
         self._serialized_tf_config)
     result = self._GraphState(saved_model_dir, self._input_schema,
                               self._exclude_outputs, tf_config)
@@ -698,7 +698,7 @@ class AnalyzeDataset(beam.PTransform):
       del table_initializers[:]
 
       serialized_tf_config = (
-          analyzer_impls._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
+          common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
               input_values.pipeline.runner))
       for level, phase in enumerate(phases):
         # Create a SavedModel that describes the mapping from the input data
@@ -902,7 +902,7 @@ class TransformDataset(beam.PTransform):
       return impl_helper.to_instance_dicts(output_metadata.schema, batch_dict)
 
     serialized_tf_config = (
-        analyzer_impls._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
+        common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
             self.pipeline.runner))
     output_instances = (
         input_values

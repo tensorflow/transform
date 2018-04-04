@@ -18,11 +18,38 @@ from __future__ import division
 from __future__ import print_function
 
 
+import apache_beam as beam
 from apache_beam.typehints import Union
 from six import integer_types
 from six import string_types
+import tensorflow as tf
 
 NUMERIC_TYPE = Union[float, Union[integer_types]]
 PRIMITIVE_TYPE = Union[NUMERIC_TYPE, Union[string_types]]
 
 METRICS_NAMESPACE = 'tfx.Transform'
+
+_DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER = {
+    # We rely on Beam to manage concurrency, i.e. we expect it to run one
+    # session per CPU--so we don't want to proliferate TF threads.
+    # Nonetheless we provide 4 threads per session for TF ops, 2 inter-
+    # and 2 intra-thread.  In many cases only 2 of these will be runnable
+    # at any given time.  This approach oversubscribes a bit to make sure
+    # the CPUs are really saturated.
+    #
+    beam.runners.DataflowRunner:
+        tf.ConfigProto(
+            use_per_session_threads=True,
+            inter_op_parallelism_threads=2,
+            intra_op_parallelism_threads=2).SerializeToString(),
+
+}
+
+
+def _maybe_deserialize_tf_config(serialized_tf_config):
+  if serialized_tf_config is None:
+    return None
+
+  result = tf.ConfigProto()
+  result.ParseFromString(serialized_tf_config)
+  return result
