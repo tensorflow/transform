@@ -418,13 +418,16 @@ def _min_and_max(x, reduce_instance_dims=True, name=None):  # pylint: disable=re
     return 0 - minus_x_min, x_max
 
 
-def _sum_combine_fn_and_dtype(input_dtype):
+def _sum_combine_fn_and_dtype(input_dtype, include_nans=True):
   output_dtype = _SUM_OUTPUT_DTYPE_MAP.get(input_dtype)
   if output_dtype is None:
     raise TypeError('Tensor type %r is not supported' % input_dtype)
 
   def sum_fn_with_dtype(a, axis=None):
-    return np.sum(a, axis=axis, dtype=output_dtype.as_numpy_dtype)
+    if include_nans:
+      return np.sum(a, axis=axis, dtype=output_dtype.as_numpy_dtype)
+    else:
+      return np.nansum(a, axis=axis, dtype=output_dtype.as_numpy_dtype)
 
   return output_dtype, sum_fn_with_dtype
 
@@ -471,7 +474,7 @@ def size(x, reduce_instance_dims=True, name=None):
     return sum(tf.ones_like(x, dtype=tf.int64), reduce_instance_dims)
 
 
-def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
+def mean(x, reduce_instance_dims=True, include_nans=True, name=None, output_dtype=None):
   """Computes the mean of the values of a `Tensor` over the whole dataset.
 
   Args:
@@ -480,6 +483,7 @@ def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
+    include_nans: If False, the mean calculation will exclude any NaN values
     name: (Optional) A name for this operation.
     output_dtype: (Optional) If not None, casts the output tensor to this type.
 
@@ -494,7 +498,7 @@ def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
     output_dtype = _MEAN_OUTPUT_DTYPE_MAP.get(x.dtype)
     if output_dtype is None:
       raise TypeError('Tensor type %r is not supported' % x.dtype)
-  sum_dtype, sum_fn = _sum_combine_fn_and_dtype(x.dtype)
+  sum_dtype, sum_fn = _sum_combine_fn_and_dtype(x.dtype, include_nans)
   with tf.name_scope(name, 'mean'):
     if isinstance(x, tf.SparseTensor):
       if reduce_instance_dims:
@@ -510,8 +514,13 @@ def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
         x_values = tf.sparse_reduce_sum(x, axis=0, keep_dims=True)
     else:
       ones_values, x_values = tf.ones_like(x), x
+
+    if include_nans:
+      included = ones_values
+    else:
+      included = tf.where(tf.is_nan(x_values), tf.zeros_like(x_values), tf.ones_like(x_values))
     x_count, x_sum = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
-        [ones_values, x_values],
+        [included, x_values],
         sum_fn,
         reduce_instance_dims,
         output_dtypes=[sum_dtype, sum_dtype])
@@ -545,7 +554,7 @@ def var(x, reduce_instance_dims=True, name=None, output_dtype=None):
     return _mean_and_var(x, reduce_instance_dims, name, output_dtype)[1]
 
 
-def _mean_and_var(x, reduce_instance_dims=True, name=None, output_dtype=None):
+def _mean_and_var(x, reduce_instance_dims=True, include_nans=True, name=None, output_dtype=None):
   """More efficient combined `mean` and `var`.  See `var`."""
   if output_dtype is None:
     output_dtype = _MEAN_OUTPUT_DTYPE_MAP.get(x.dtype)
@@ -554,7 +563,7 @@ def _mean_and_var(x, reduce_instance_dims=True, name=None, output_dtype=None):
   with tf.name_scope(name, 'mean_and_var'):
     # Note: Calling `mean`, `sum`, and `size` as defined in this module, not the
     # builtins.
-    x_mean = mean(x, reduce_instance_dims, output_dtype=output_dtype)
+    x_mean = mean(x, reduce_instance_dims, include_nans, output_dtype=output_dtype)
     if isinstance(x, tf.SparseTensor):
       if reduce_instance_dims:
         squared_deviations = tf.square(tf.cast(x.values, x_mean.dtype) - x_mean)
@@ -571,7 +580,7 @@ def _mean_and_var(x, reduce_instance_dims=True, name=None, output_dtype=None):
     else:
       squared_deviations = tf.square(tf.cast(x, x_mean.dtype) - x_mean)
     x_var = mean(
-        squared_deviations, reduce_instance_dims, output_dtype=output_dtype)
+        squared_deviations, reduce_instance_dims, include_nans, output_dtype=output_dtype)
     return x_mean, x_var
 
 

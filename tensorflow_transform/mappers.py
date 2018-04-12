@@ -87,7 +87,7 @@ def scale_to_0_1(x, elementwise=False, name=None):
   return scale_by_min_max(x, 0, 1, elementwise=elementwise, name=name)
 
 
-def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
+def scale_to_z_score(x, elementwise=False, impute=False, name=None, output_dtype=None):
   """Returns a standardized column with mean 0 and variance 1.
 
   Scaling to z-score subtracts out the mean and divides by standard deviation.
@@ -98,6 +98,8 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
     x: A numeric `Tensor`.
     elementwise: If true, scales each element of the tensor independently;
         otherwise uses the mean and variance of the whole tensor.
+    impute: If true, exclude NaN values from the mean and variance and map the NaN
+        values to zero.
     name: (Optional) A name for this operation.
     output_dtype: (Optional) If not None, casts the output tensor to this type.
 
@@ -113,8 +115,11 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
   with tf.name_scope(name, 'scale_to_z_score'):
     # x_mean will be float16, float32, or float64, depending on type of x.
     x_mean, x_var = analyzers._mean_and_var(  # pylint: disable=protected-access
-        x, reduce_instance_dims=not elementwise, output_dtype=output_dtype)
-    return (tf.cast(x, x_mean.dtype) - x_mean) / tf.sqrt(x_var)
+        x, reduce_instance_dims=not elementwise, include_nans=not impute, output_dtype=output_dtype)
+    result = (tf.cast(x, x_mean.dtype) - x_mean) / tf.sqrt(x_var)
+    if impute:
+      return tf.where(tf.is_nan(result), tf.zeros_like(result), result)
+    return result
 
 
 def tfidf(x, vocab_size, smooth=True, name=None):
