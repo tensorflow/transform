@@ -2424,7 +2424,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def analyzer_fn(inputs):
       return {'q_b': tft.quantiles(inputs['x'], num_buckets=3, epsilon=0.00001)}
 
-    # Current batch size is 1000, force 3 batches.
+    # NOTE: We force 3 batches: data has 3000 elements and we request a batch
+    # size of 1000.
     input_data = [{'x': [x]} for  x in range(1, 3000)]
     input_metadata = dataset_metadata.DatasetMetadata({
         'x': sch.ColumnSchema(input_dtype, [1], sch.FixedColumnRepresentation())
@@ -2455,6 +2456,35 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testQuantileBuckets_double(self):
     self._test_quantile_buckets_helper(tf.double)
 
+
+  def testQuantileBucketsWithKey(self):
+    def analyzer_fn(inputs):
+      key_vocab, q_b = analyzers._quantiles_per_key(
+          inputs['x'], inputs['key'], num_buckets=3, epsilon=0.00001)
+      return {
+          'key_vocab': key_vocab,
+          'q_b': q_b
+      }
+
+    # NOTE: We force 10 batches: data has 100 elements and we request a batch
+    # size of 10.
+    input_data = [{'x': [x], 'key': 'a' if x < 50 else 'b'}
+                  for x in range(1, 100)]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation()),
+        'key': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    })
+    # The expected data has 2 boundaries that divides the data into 3 buckets.
+    expected_outputs = {
+        'key_vocab': np.array(['a', 'b'], np.object),
+        'q_b': np.array([[18, 34], [67, 84]], np.float32)
+    }
+    self.assertAnalyzerOutputs(
+        input_data,
+        input_metadata,
+        analyzer_fn,
+        expected_outputs,
+        desired_batch_size=10)
 
   def testUniquesWithFrequency(self):
     outfile = 'uniques_vocab_with_frequency'

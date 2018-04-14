@@ -33,7 +33,7 @@ create pipelines for transforming their data.  The following preprocessing
 function transforms each of three features in different ways, and combines two
 of the features.
 
-```
+```python
 import tensorflow as tf
 import tensorflow_transform as tft
 
@@ -111,7 +111,7 @@ The Beam implementation provides two `PTransform`s that are used to process data
 given a preprocessing function. We begin with the composite `PTransform`
 `AnalyzeAndTransformDataset`. Sample usage is shown below.
 
-```
+```python
 raw_data = [
     {'x': 1, 'y': 1, 's': 'hello'},
     {'x': 2, 'y': 2, 's': 'world'},
@@ -133,7 +133,7 @@ column `x_centered` we subtracted the mean, so the values of the column `x`,
 which were `[1.0, 2.0, 3.0]` became `[-1.0, 0.0, 1.0]`. Similarly the rest of
 the columns match their expected values.
 
-```
+```python
 [{u's_integerized': 0,
   u'x_centered': -1.0,
   u'x_centered_times_y_normalized': -0.0,
@@ -157,12 +157,12 @@ In fact, `AnalyzeAndTransformDataset` is the composition of the two fundamental
 transforms provided by the implementation, `AnalyzeDataset` and
 `TransformDataset`. That is, the two code snippets below are equivalent.
 
-```
+```python
 transformed_data, transform_fn = (
     my_data | AnalyzeAndTransformDataset(preprocessing_fn))
 ```
 
-```
+```python
 transform_fn = my_data | AnalyzeDataset(preprocessing_fn)
 transformed_data = (my_data, transform_fn) | TransformDataset()
 ```
@@ -194,7 +194,7 @@ self-describing and requires the schema in order to be interpreted as tensors.
 
 Below we show the definition of the schema for the example data.
 
-```
+```python
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
@@ -255,7 +255,7 @@ contains both categorical and numeric data.
 The raw data is in CSV format. Below, the first two lines from the data are
 shown.
 
-```
+```bash
 39, State-gov, 77516, Bachelors, 13, Never-married, Adm-clerical, Not-in-family, White, Male, 2174, 0, 40, United-States, <=50K
 50, Self-emp-not-inc, 83311, Bachelors, 13, Married-civ-spouse, Exec-managerial, Husband, White, Male, 0, 0, 13, United-States, <=50K
 ```
@@ -277,7 +277,7 @@ contain this information. We have excluded some extra beam transforms that we do
 between reading the lines of the CSV file, and applying the converter that
 converts each CSV row to an instance in the in-memory format.
 
-```
+```python
 converter = csv_coder.CsvCoder(ordered_columns, raw_data_schema)
 
 raw_data = (
@@ -293,7 +293,7 @@ specifying each column. The preprocessing function is shown below.
 `NUMERICAL_COLUMNS` and `CATEGORICAL_COLUMNS` are lists that contain the names
 of the numeric and categorical columns respectively.
 
-```
+```python
 def preprocessing_fn(inputs):
   """Preprocess input columns into transformed columns."""
   outputs = {}
@@ -348,7 +348,7 @@ format for use in training, as shown in the next section.
 `transformed_eval_data_base` provides the base filename for the individual
 shards that are written.
 
-```
+```python
 transformed_data | "WriteTrainData" >> tfrecordio.WriteToTFRecord(
     transformed_eval_data_base,
     coder=example_proto_coder.ExampleProtoCoder(transformed_metadata))
@@ -356,7 +356,7 @@ transformed_data | "WriteTrainData" >> tfrecordio.WriteToTFRecord(
 
 In addition to the training data, we also write out the metadata.
 
-```
+```python
 transformed_metadata | 'WriteMetadata' >> beam_metadata_io.WriteMetadata(
     transformed_metadata_file, pipeline=p)
 ```
@@ -370,7 +370,7 @@ not yet been executed. This final call executes the specified pipeline.
 
 The following shell commands can be used to download the census dataset.
 
-```
+```bash
 wget https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data
 wget https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.test
 ```
@@ -395,7 +395,7 @@ know these values already, but in general it would be good to have tf.Transform
 compute them. Future versions of tf.Transform will write this information out as
 part of the metadata which can then be used here.
 
-```
+```python
 real_valued_columns = [feature_column.real_valued_column(key)
                        for key in NUMERIC_COLUMNS]
 
@@ -413,7 +413,7 @@ tf.Learn, is that to parse the transformed data, we don't have to provide a
 feature spec.  Instead, we take the metadata for the transformed data and use
 it to generate a feature spec.
 
-```
+```python
 def _make_training_input_fn(working_dir, filebase, batch_size):
   ...
   transformed_metadata = metadata_io.read_metadata(

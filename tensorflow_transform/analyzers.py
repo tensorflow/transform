@@ -198,11 +198,32 @@ class CombinerSpec(object):
     """Return result of converting accumulator into the output value.
 
     Args:
-      accumulator: the final accumulator value.  Should be a list of ndarrays.
+      accumulator: the final accumulator value.
 
     Returns: A list of ndarrays representing the result of this combiner.
     """
     raise NotImplementedError
+
+
+class _CombinePerKeySpec(object):
+  """A wrapper for per-key combining.
+
+  For private use in tf.Transform implemenation only.
+
+  All outputs returned by extract_output must be the same shape across keys so
+  they can be stacked.
+
+  Args:
+    combiner_spec: A `CombinerSpec` that will be used to reduce values for each
+        key.
+  """
+
+  def __init__(self, combiner_spec):
+    self._combiner_spec = combiner_spec
+
+  @property
+  def combiner_spec(self):
+    return self._combiner_spec
 
 
 def combine_analyzer(inputs, output_dtypes, output_shapes, combiner_spec, name):
@@ -752,8 +773,7 @@ class _QuantilesCombinerSpec(CombinerSpec):
 
   def extract_output(self, summary):
     if summary is self._empty_summary:
-      # Return an empty (1, 0) ndarray using np.zeros.
-      return [np.zeros(shape=(1, 0), dtype=self._bucket_numpy_dtype)]
+      return [np.empty(shape=(0,), dtype=self._bucket_numpy_dtype)]
 
     # All relevant state about the input is captured by 'summary'
     # (see comment in add_input() and merge_accumulators()).
@@ -786,9 +806,6 @@ class _QuantilesCombinerSpec(CombinerSpec):
       # Do not trim min/max, these are part of requested boundaries.
       pass
 
-    # Convert to a (1, ?) shape array.
-    buckets = np.expand_dims(buckets, 0)
-
     return [buckets]
 
 
@@ -801,7 +818,7 @@ def quantiles(x, num_buckets, epsilon, name=None):
   See go/squawd for details, and how to control the error due to approximation.
 
   Args:
-    x: An input `Tensor` or `SparseTensor`.
+    x: An input `Tensor`.
     num_buckets: Values in the `x` are divided into approximately
       equal-sized buckets, where the number of buckets is num_buckets.
       This is a hint. The actual number of buckets computed can be
@@ -832,8 +849,43 @@ def quantiles(x, num_buckets, epsilon, name=None):
     bucket_dtype = tf.float32
     combiner_spec = _QuantilesCombinerSpec(num_buckets, epsilon,
                                            bucket_dtype.as_numpy_dtype)
-    return combine_analyzer([x], [bucket_dtype], [(1, None)], combiner_spec,
-                            'quantiles')[0]
+    quantile_boundaries = combine_analyzer(
+        [x], [bucket_dtype], [(None,)], combiner_spec, 'quantiles')[0]
+    return tf.expand_dims(quantile_boundaries, axis=0)
+
+
+def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
+  """Like quantiles but per-key.
+
+  For private use in tf.Transform implemenation only.
+
+  Args:
+    x: An input `Tensor`.
+    key: An input `Tensor` with rank 1 and size same as the fist dimension of
+      `x`.  All values of `x` will be aggregated according to the corresponding
+      value of `key`.
+    num_buckets: See `quantiles`.
+    epsilon: See `quantiles`.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    A pair (key_vocab, quantiles) where `key_vocab` is a sorted vocabulary of
+    all elements in the input `key` and `quantiles` is a rank 2 tensor
+    containing quantile boundaries for each key, where boundaries are for the
+    corresponding element of `key_vocab`.
+
+  Raises:
+    ValueError: If key has wrong dtype.
+  """
+  with tf.name_scope(name, 'quantiles_by_key'):
+    if key.dtype != tf.string:
+      raise ValueError('key must have type tf.string')
+    bucket_dtype = tf.float32
+    combiner_spec = _CombinePerKeySpec(
+        _QuantilesCombinerSpec(num_buckets, epsilon,
+                               bucket_dtype.as_numpy_dtype))
+    return combine_analyzer([key, x], [tf.string, bucket_dtype],
+                            [(None,), (None, None)], combiner_spec, 'quantiles')
 
 
 class _CovarianceCombinerSpec(CombinerSpec):

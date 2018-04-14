@@ -58,6 +58,8 @@ class _AnalyzerImpl(beam.PTransform):
       return pcoll | _UniquesAnalyzerImpl(self._spec, self._temp_assets_dir)
     elif isinstance(self._spec, analyzers.CombinerSpec):
       return pcoll | _CombinerAnalyzerImpl(self._spec)
+    elif isinstance(self._spec, analyzers._CombinePerKeySpec):
+      return pcoll | _CombinePerKeyAnalyzerImpl(self._spec)
     else:
       raise NotImplementedError(self._spec.__class__)
 
@@ -197,26 +199,125 @@ class _CombineFnWrapper(beam.CombineFn):
     return self._spec.extract_output(accumulator)
 
 
+def _split_inputs_by_key(batch_values):
+  """Takes inputs where first input is a key, and returns (key, value) pairs.
+
+  Takes inputs of the form (key, arg0, ..., arg{N-1}) where `key` is a vector
+  and arg0, ..., arg{N-1} have dimension >1 with size in the first dimension
+  matching `key`.
+
+  It yields pairs of the form
+
+  (key[i], [arg0[i], ..., arg{N-1}[i]])
+
+  for 0 < i < len(key).
+
+  Args:
+    batch_values: A list of ndarrays representing the input from a batch.
+
+  Yields:
+    (key, args) pairs where key is a string and args is a list of ndarrays.
+
+  Raises:
+    ValueError: if inputs do not have correct sizes.
+  """
+  keys = batch_values[0]
+  if keys.ndim != 1:
+    raise ValueError(
+        'keys for CombinePerKey should have rank 1, got shape {}'.format(
+            keys.shape))
+  for arg_index, arg_values in enumerate(batch_values[1:]):
+    if arg_values.ndim < 1:
+      raise ValueError(
+          'Argument {} for CombinePerKey should have rank >=1, '
+          'got shape {}'.format(arg_index, arg_values.shape))
+    if arg_values.shape[0] != keys.shape[0]:
+      raise ValueError(
+          'Argument {} had shape {} whose first dimension was not equal to the '
+          'size of the keys vector ({})'.format(
+              arg_index, arg_values.shape, keys.shape[0]))
+
+  for instance_index, key in enumerate(keys):
+    instance_args = [arg_values[instance_index]
+                     for arg_values in batch_values[1:]]
+    yield (key, instance_args)
+
+
+def _merge_outputs_by_key(keys_and_outputs):
+  """Merge outputs of analyzers per key into a single output.
+
+  Takes a list of elements of the form (key, [output0, ..., output{N-1}]) and
+  returns a list of ndarrays of the form [keys, outputs0, ..., outputs[{N-1}]]
+  where keys is formed by stacking the values of `key` from the list and
+  similarly outputs{k} is formed by stacking the individual elements of
+  output{k} from the list.
+
+  For each k, output{k} must be an ndarray whose size is the same for each
+  element of the list.
+
+  Args:
+    keys_and_outputs: a list of elements of the form
+      (key, [output0, ..., output{N-1}])
+
+  Returns:
+    A list of ndarrays of the form [keys, outputs0, ..., outputs[{N-1}]]
+  """
+  # Sort keys_and_outputs by keys.
+  keys_and_outputs.sort(key=lambda x: x[0])
+  # Convert from a list of pairs of the form (key, outputs_for_key) to a list of
+  # keys and a list of outputs (where the outer dimension is the number of
+  # outputs not the number of keys).
+  key, outputs = zip(*keys_and_outputs)
+  outputs = zip(*outputs)
+  # key is a list of scalars so we use np.stack to convert a single array.
+  return ([np.stack(key, axis=0)] +
+          [np.stack(output, axis=0) for output in outputs])
+
+
 @with_input_types(List[np.ndarray])
 @with_output_types(List[np.ndarray])
 class _CombinerAnalyzerImpl(beam.PTransform):
-  """Computes the quantile buckets in a PCollection of batches."""
+  """Implement an analyzer based on a CombinerSpec."""
 
   def __init__(self, spec):
     self._spec = spec
 
   def expand(self, pcoll):
     serialized_tf_config = None
+    # NOTE: Currently, all combiner specs except _QuantilesCombinerSpec
+    # require .with_defaults(False) to be set.
+    has_defaults = False
+
+    if isinstance(self._spec, analyzers._QuantilesCombinerSpec):  # pylint: disable=protected-access
+      serialized_tf_config = common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
+          pcoll.pipeline.runner)
+      has_defaults = True
+
+    return (
+        pcoll
+        | 'CombineGlobally' >> beam.CombineGlobally(_CombineFnWrapper(
+            self._spec, serialized_tf_config)).with_defaults(has_defaults))
+
+
+@with_input_types(List[np.ndarray])
+@with_output_types(List[np.ndarray])
+class _CombinePerKeyAnalyzerImpl(beam.PTransform):
+  """Implement an analyzer based on a _CombinePerKeySpec."""
+
+  def __init__(self, spec):
+    self._spec = spec.combiner_spec
+
+  def expand(self, pcoll):
+    serialized_tf_config = None
+
     if isinstance(self._spec, analyzers._QuantilesCombinerSpec):  # pylint: disable=protected-access
       serialized_tf_config = common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
           pcoll.pipeline.runner)
 
-    combine_ptransform = beam.CombineGlobally(
-        _CombineFnWrapper(self._spec, serialized_tf_config))
-    # NOTE: Currently, all combiner specs except _QuantilesCombinerSpec
-    # require .without_defaults() to be set.
-    if not isinstance(self._spec, analyzers._QuantilesCombinerSpec):  # pylint: disable=protected-access
-      combine_ptransform = combine_ptransform.without_defaults()
-
-    return pcoll | 'CombineGlobally' >> combine_ptransform
-
+    return (
+        pcoll
+        | 'SplitByKey' >> beam.FlatMap(_split_inputs_by_key)
+        | 'CombinePerKey' >> beam.CombinePerKey(_CombineFnWrapper(
+            self._spec, serialized_tf_config))
+        | 'ToList' >> beam.combiners.ToList()
+        | 'MergeByKey' >> beam.Map(_merge_outputs_by_key))

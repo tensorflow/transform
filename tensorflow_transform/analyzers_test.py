@@ -77,7 +77,7 @@ class AnalyzersTest(test_util.TensorFlowTestCase):
         combiner_spec=analyzers._QuantilesCombinerSpec(
             num_quantiles=3, epsilon=0.00001, bucket_numpy_dtype=np.float32),
         batches=[[np.linspace(1, 100, 100, nptype)]],
-        expected_outputs=[np.array([[35, 68]], dtype=np.float32)])
+        expected_outputs=[np.array([35, 68], dtype=np.float32)])
 
   def testComputeQuantilesSingleBatch(self):
     self._test_compute_quantiles_single_batch_helper(np.double)
@@ -95,7 +95,7 @@ class AnalyzersTest(test_util.TensorFlowTestCase):
             [np.linspace(101, 200, 100, dtype=nptype)],
             [np.linspace(201, 300, 100, dtype=nptype)]
         ],
-        expected_outputs=[np.array([[61, 121, 181, 241]], dtype=np.float32)])
+        expected_outputs=[np.array([61, 121, 181, 241], dtype=np.float32)])
 
   def testComputeQuantilesMultipleBatch(self):
     self._test_compute_quantiles_multipe_batch_helper(np.double)
