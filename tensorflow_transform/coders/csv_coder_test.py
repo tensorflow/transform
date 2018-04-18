@@ -1,3 +1,5 @@
+# coding=utf-8
+#
 # Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -202,7 +204,7 @@ class TestCSVCoder(unittest.TestCase):
     np.testing.assert_equal(decoded, expected_decoded)
 
     encoded = coder.encode(decoded)
-    np.testing.assert_equal(encoded, data)
+    np.testing.assert_equal(encoded, data.encode('utf-8'))
 
     decoded_again = coder.decode(encoded)
     np.testing.assert_equal(decoded_again, expected_decoded)
@@ -228,6 +230,33 @@ class TestCSVCoder(unittest.TestCase):
                         'boolean1': np.array([False]),
                         'text1': np.array(['this is a ,text']),
                         'y': (np.array(1), np.array([12.0]))}
+    self._assert_encode_decode(coder, data, expected_decoded)
+
+  def test_csv_coder_with_unicode(self):
+    data = u'12,"this is a ,text",שקרכלשהו,1,89.0,12.0,False'
+
+    coder = csv_coder.CsvCoder(self._COLUMNS, self._INPUT_SCHEMA)
+
+    # Python types.
+    expected_decoded = {
+        'category1': [u'שקרכלשהו'.encode('utf-8')],
+        'numeric1': 12,
+        'numeric2': [89.0],
+        'boolean1': [False],
+        'text1': 'this is a ,text',
+        'y': ([1], [12.0])
+    }
+    self._assert_encode_decode(coder, data, expected_decoded)
+
+    # Numpy types.
+    expected_decoded = {
+        'category1': np.array([u'שקרכלשהו'.encode('utf-8')]),
+        'numeric1': np.array(12),
+        'numeric2': np.array([89.0]),
+        'boolean1': np.array([False]),
+        'text1': np.array(['this is a ,text']),
+        'y': (np.array(1), np.array([12.0]))
+    }
     self._assert_encode_decode(coder, data, expected_decoded)
 
   def test_tsv_coder(self):
@@ -406,8 +435,9 @@ class TestCSVCoder(unittest.TestCase):
     coder = csv_coder.CsvCoder(column_names=['a', 'b'], schema=input_schema)
 
     # Test bad csv.
-    with self.assertRaisesRegexp(csv_coder.DecodeError,
-                                 'string or Unicode object, int found'):
+    with self.assertRaisesRegexp(
+        csv_coder.DecodeError,
+        '\'int\' object has no attribute \'encode\': 123'):
       coder.decode(123)
 
     # Test extra column.

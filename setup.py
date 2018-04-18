@@ -17,19 +17,19 @@ from setuptools import find_packages
 from setuptools import setup
 
 # Tensorflow transform version.
-__version__ = '0.5.0dev'
+__version__ = '0.7.0dev'
 
 
 def _make_required_install_packages():
   return [
-      'apache-beam[gcp]>=2.2,<3',
+      'apache-beam[gcp]>=2.4,<3',
+      'numpy>=1.10,<2',
 
-      # Protobuf libraries < 3.3 contain some map-related data corruption bugs
-      # (b/35874111).
-      'protobuf>=3.3,<4',
+      # Protobuf libraries < 3.5.2 do not have 'cpp' implementation of protobufs
+      # for Windows and Mac.
+      'protobuf>=3.5.2,<4',
 
-      # Six 1.11.0 incompatible with apitools.
-      'six>=1.9,<1.11',
+      'six>=1.9,<2',
 
   ]
 

@@ -17,8 +17,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import math
 import os
 import random
+import shutil
 
 
 import apache_beam as beam
@@ -29,7 +31,6 @@ import six
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import analyzers
-from tensorflow_transform.beam import analyzer_impls as beam_analyzer_impls
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
@@ -41,8 +42,9 @@ from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema as sch
 from tensorflow_transform.tf_metadata import metadata_io
 
+from google.protobuf import text_format
 import unittest
-# pylint: enable=g-import-not-at-top
+from tensorflow.core.example import example_pb2
 
 
 class BeamImplTest(tft_unit.TransformTestCase):
@@ -366,6 +368,91 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
+  def testRawFeedDictInput(self):
+    # Test the ability to feed raw data into AnalyzeDataset and TransformDataset
+    # by using subclasses of these transforms which create batches of size 1.
+    def preprocessing_fn(inputs):
+      sequence_example = inputs['sequence_example']
+
+      # Ordinarily this would have shape (batch_size,) since 'sequence_example'
+      # was defined as a FixedLenFeature with shape ().  But since we specified
+      # desired_batch_size, we can assume that the shape is (1,), and reshape
+      # to ().
+      sequence_example = tf.reshape(sequence_example, ())
+
+      # Parse the sequence example.
+      feature_spec = {
+          'x': tf.FixedLenSequenceFeature(shape=[], dtype=tf.string,
+                                          default_value=None)
+      }
+      _, sequences = tf.parse_single_sequence_example(
+          sequence_example, sequence_features=feature_spec)
+
+      # Create a batch based on the sequence "x".
+      return {'x': sequences['x']}
+
+    def text_sequence_example_to_binary(text_proto):
+      proto = text_format.Merge(text_proto, example_pb2.SequenceExample())
+      return proto.SerializeToString()
+
+    sequence_examples = [
+        """
+        feature_lists: {
+          feature_list: {
+            key: "x"
+            value: {
+              feature: {bytes_list: {value: 'ab'}}
+              feature: {bytes_list: {value: ''}}
+              feature: {bytes_list: {value: 'c'}}
+              feature: {bytes_list: {value: 'd'}}
+            }
+          }
+        }
+        """,
+        """
+        feature_lists: {
+          feature_list: {
+            key: "x"
+            value: {
+              feature: {bytes_list: {value: 'ef'}}
+              feature: {bytes_list: {value: 'g'}}
+            }
+          }
+        }
+        """
+    ]
+    input_data = [
+        {'sequence_example': text_sequence_example_to_binary(sequence_example)}
+        for sequence_example in sequence_examples]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'sequence_example': sch.ColumnSchema(tf.string, [],
+                                             sch.FixedColumnRepresentation())
+    })
+    expected_data = [
+        {'x': 'ab'},
+        {'x': ''},
+        {'x': 'c'},
+        {'x': 'd'},
+        {'x': 'ef'},
+        {'x': 'g'}
+    ]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    })
+
+    with beam_impl.Context(temp_dir=self.get_temp_dir(), desired_batch_size=1):
+      transform_fn = ((input_data, input_metadata)
+                      | beam_impl.AnalyzeDataset(preprocessing_fn))
+      transformed_data, transformed_metadata = (
+          ((input_data, input_metadata), transform_fn)
+          | beam_impl.TransformDataset())
+
+    self.assertDataCloseOrEqual(expected_data, transformed_data)
+    transformed_metadata = self._resolveDeferredMetadata(transformed_metadata)
+    self.assertEqual(expected_metadata.schema.column_schemas,
+                     transformed_metadata.schema.column_schemas)
+    self.assertEqual(expected_metadata, transformed_metadata)
+
   def testAnalyzerBeforeMap(self):
     def preprocessing_fn(inputs):
       return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
@@ -599,25 +686,75 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_metadata)
 
   def testScaleUnitInterval(self):
+    self._testScaleUnitInterval()
+
+  def testScaleUnitIntervalElementwise(self):
+    self._testScaleUnitInterval(elementwise=True)
+
+  def _testScaleUnitInterval(self, elementwise=False):
 
     def preprocessing_fn(inputs):
-      return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
+      outputs = {}
+      cols = ('x', 'y')
+      for col, scaled_t in zip(
+          cols,
+          tf.unstack(
+              tft.scale_to_0_1(
+                  tf.stack([inputs[col] for col in cols], axis=1),
+                  elementwise=elementwise),
+              axis=1)):
+        outputs[col + '_scaled'] = scaled_t
+      return outputs
 
-    input_data = [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
-    })
-    expected_data = [{
-        'x_scaled': 0.75
+    input_data = [{
+        'x': 4,
+        'y': 5
     }, {
-        'x_scaled': 0.0
+        'x': 1,
+        'y': 2
     }, {
-        'x_scaled': 1.0
+        'x': 5,
+        'y': 6
     }, {
-        'x_scaled': 0.25
+        'x': 2,
+        'y': 3
     }]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
+        'y': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    })
+    if elementwise:
+      expected_data = [{
+          'x_scaled': 0.75,
+          'y_scaled': 0.75
+      }, {
+          'x_scaled': 0.0,
+          'y_scaled': 0.0
+      }, {
+          'x_scaled': 1.0,
+          'y_scaled': 1.0
+      }, {
+          'x_scaled': 0.25,
+          'y_scaled': 0.25
+      }]
+    else:
+      expected_data = [{
+          'x_scaled': 0.6,
+          'y_scaled': 0.8
+      }, {
+          'x_scaled': 0.0,
+          'y_scaled': 0.2
+      }, {
+          'x_scaled': 0.8,
+          'y_scaled': 1.0
+      }, {
+          'x_scaled': 0.2,
+          'y_scaled': 0.4
+      }]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'x_scaled':
+            sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
+        'y_scaled':
             sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
@@ -625,25 +762,77 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           expected_metadata)
 
   def testScaleMinMax(self):
+    self._testScaleMinMax()
+
+  def testScaleMinMaxElementwise(self):
+    self._testScaleMinMax(elementwise=True)
+
+  def _testScaleMinMax(self, elementwise=False):
 
     def preprocessing_fn(inputs):
-      return {'x_scaled': tft.scale_by_min_max(inputs['x'], -1, 1)}
+      outputs = {}
+      cols = ('x', 'y')
+      for col, scaled_t in zip(
+          cols,
+          tf.unstack(
+              tft.scale_by_min_max(
+                  tf.stack([inputs[col] for col in cols], axis=1),
+                  output_min=-1,
+                  output_max=1,
+                  elementwise=elementwise),
+              axis=1)):
+        outputs[col + '_scaled'] = scaled_t
+      return outputs
 
-    input_data = [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
-    })
-    expected_data = [{
-        'x_scaled': 0.5
+    input_data = [{
+        'x': 4,
+        'y': 8
     }, {
-        'x_scaled': -1.0
+        'x': 1,
+        'y': 5
     }, {
-        'x_scaled': 1.0
+        'x': 5,
+        'y': 9
     }, {
-        'x_scaled': -0.5
+        'x': 2,
+        'y': 6
     }]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
+        'y': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    })
+    if elementwise:
+      expected_data = [{
+          'x_scaled': 0.5,
+          'y_scaled': 0.5
+      }, {
+          'x_scaled': -1.0,
+          'y_scaled': -1.0
+      }, {
+          'x_scaled': 1.0,
+          'y_scaled': 1.0
+      }, {
+          'x_scaled': -0.5,
+          'y_scaled': -0.5
+      }]
+    else:
+      expected_data = [{
+          'x_scaled': -0.25,
+          'y_scaled': 0.75
+      }, {
+          'x_scaled': -1.0,
+          'y_scaled': 0.0
+      }, {
+          'x_scaled': 0.0,
+          'y_scaled': 1.0
+      }, {
+          'x_scaled': -0.75,
+          'y_scaled': 0.25
+      }]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'x_scaled':
+            sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
+        'y_scaled':
             sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
@@ -676,6 +865,63 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
 
+  def testScaleMinMaxConstantElementwise(self):
+
+    def preprocessing_fn(inputs):
+      outputs = {}
+      cols = ('x', 'y')
+      for col, scaled_t in zip(
+          cols,
+          tf.unstack(
+              tft.scale_by_min_max(
+                  tf.stack([inputs[col] for col in cols], axis=1),
+                  output_min=0,
+                  output_max=10,
+                  elementwise=True),
+              axis=1)):
+        outputs[col + '_scaled'] = scaled_t
+      return outputs
+
+    input_data = [{
+        'x': 4,
+        'y': 1
+    }, {
+        'x': 4,
+        'y': 1
+    }, {
+        'x': 4,
+        'y': 2
+    }, {
+        'x': 4,
+        'y': 2
+    }]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
+        'y': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    })
+    expected_data = [{
+        'x_scaled': 5,
+        'y_scaled': 0
+    }, {
+        'x_scaled': 5,
+        'y_scaled': 0
+    }, {
+        'x_scaled': 5,
+        'y_scaled': 10
+    }, {
+        'x_scaled': 5,
+        'y_scaled': 10
+    }]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'x_scaled':
+            sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
+        'y_scaled':
+            sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    })
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
   def testScaleMinMaxError(self):
 
     def preprocessing_fn(inputs):
@@ -698,10 +944,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'output_min must be less than output_max' in context.exception)
 
   def testScaleToZScore_int64(self):
-    self._testScaleToZScore(input_dtype=tf.int64, output_dtype=tf.float64)
+    self._testScaleToZScore(input_dtype=tf.int64, output_dtype=tf.float32)
 
   def testScaleToZScore_int32(self):
-    self._testScaleToZScore(input_dtype=tf.int32, output_dtype=tf.float64)
+    self._testScaleToZScore(input_dtype=tf.int32, output_dtype=tf.float32)
 
   def testScaleToZScore_int16(self):
     self._testScaleToZScore(input_dtype=tf.int16, output_dtype=tf.float32)
@@ -712,29 +958,101 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testScaleToZScore_float32(self):
     self._testScaleToZScore(input_dtype=tf.float32, output_dtype=tf.float32)
 
-  def _testScaleToZScore(self, input_dtype, output_dtype):
+  def testScaleToZScoreElementwise_int64(self):
+    self._testScaleToZScore(
+        input_dtype=tf.int64, output_dtype=tf.float32, elementwise=True)
+
+  def testScaleToZScoreElementwise_int32(self):
+    self._testScaleToZScore(
+        input_dtype=tf.int32, output_dtype=tf.float32, elementwise=True)
+
+  def testScaleToZScoreElementwise_int16(self):
+    self._testScaleToZScore(
+        input_dtype=tf.int16, output_dtype=tf.float32, elementwise=True)
+
+  def testScaleToZScoreElementwise_float64(self):
+    self._testScaleToZScore(
+        input_dtype=tf.float64, output_dtype=tf.float64, elementwise=True)
+
+  def testScaleToZScoreElementwise_float32(self):
+    self._testScaleToZScore(
+        input_dtype=tf.float32, output_dtype=tf.float32, elementwise=True)
+
+  def _testScaleToZScore(self,
+                         input_dtype,
+                         output_dtype,
+                         elementwise=False):
 
     def preprocessing_fn(inputs):
-      return {'x_scaled': tft.scale_to_z_score(inputs['x'])}
+      outputs = {}
+      cols = ('x', 'y')
+      for col, scaled_t in zip(cols,
+                               tf.unstack(
+                                   tft.scale_to_z_score(
+                                       tf.stack(
+                                           [inputs[col] for col in cols],
+                                           axis=1),
+                                       elementwise=elementwise),
+                                   axis=1)):
+        outputs[col + '_scaled'] = scaled_t
+      return outputs
 
-    input_data = [{'x': -4}, {'x': 10}, {'x': 2}, {'x': 4}]
-    # Mean: 3
-    # Var: (7^2 + 7^2 + 1^2 + 1^2) / 4 = 25
-    # Std Dev: 5
+    if elementwise:
+      input_data = [{
+          'x': -4,
+          'y': 4
+      }, {
+          'x': 10,
+          'y': -10
+      }, {
+          'x': 2,
+          'y': -2
+      }, {
+          'x': 4,
+          'y': -4
+      }]
+      # Mean(x) = 3, Mean(y) = -3
+      # Var(x) = Var(y) = (7^2 + 7^2 + 1^2 + 1^2) / 4 = 25
+      # StdDev(x) = StdDev(y) = 5
+      expected_data = [{
+          'x_scaled': -1.4,  # (-4 - 3) / 5
+          'y_scaled': 1.4  # (4 + 3) / 5
+      }, {
+          'x_scaled': 1.4,  # (10 - 3) / 5
+          'y_scaled': -1.4  # (-10 + 3) / 5
+      }, {
+          'x_scaled': -0.2,  # (2 - 3) / 5
+          'y_scaled': 0.2  # (-2 + 3) / 5
+      }, {
+          'x_scaled': 0.2,  # (4 - 3) / 5
+          'y_scaled': -0.2  # (-4 + 3) / 5
+      }]
+    else:
+      input_data = [{
+          'x': -4,
+          'y': 10
+      }, {
+          'x': 2,
+          'y': 4
+      }]
+      # Mean = 3
+      # Var = (7^2 + 7^2 + 1^2 + 1^2) / 4 = 25
+      # Std Dev = 5
+      expected_data = [{
+          'x_scaled': -1.4,  # (-4 - 3) / 5
+          'y_scaled': 1.4  # (10 - 3) / 5
+      }, {
+          'x_scaled': -0.2,  # (2 - 3) / 5
+          'y_scaled': 0.2  # (4 - 3) / 5
+      }]
     input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(input_dtype, [], sch.FixedColumnRepresentation())
+        'x': sch.ColumnSchema(input_dtype, [], sch.FixedColumnRepresentation()),
+        'y': sch.ColumnSchema(input_dtype, [], sch.FixedColumnRepresentation())
     })
-    expected_data = [{
-        'x_scaled': -1.4  # (-4 - 3) / 5
-    }, {
-        'x_scaled': 1.4  # (10 - 3) / 5
-    }, {
-        'x_scaled': -0.2  # (2 - 3) / 5
-    }, {
-        'x_scaled': 0.2  # (4 - 3) / 5
-    }]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'x_scaled':
+            sch.ColumnSchema(output_dtype, [], sch.FixedColumnRepresentation()),
+        'y_scaled':
             sch.ColumnSchema(output_dtype, [], sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
@@ -749,8 +1067,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
             'max': tf.int64,
             'sum': tf.int64,
             'size': tf.int64,
-            'mean': tf.float64,
-            'var': tf.float64
+            'mean': tf.float32,
+            'var': tf.float32
         }
     )
 
@@ -760,10 +1078,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         output_dtypes={
             'min': tf.int32,
             'max': tf.int32,
-            'sum': tf.int32,
-            'size': tf.int32,
-            'mean': tf.float64,
-            'var': tf.float64
+            'sum': tf.int64,
+            'size': tf.int64,
+            'mean': tf.float32,
+            'var': tf.float32
         }
     )
 
@@ -773,8 +1091,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         output_dtypes={
             'min': tf.int16,
             'max': tf.int16,
-            'sum': tf.int16,
-            'size': tf.int16,
+            'sum': tf.int64,
+            'size': tf.int64,
             'mean': tf.float32,
             'var': tf.float32
         }
@@ -787,7 +1105,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
             'min': tf.float64,
             'max': tf.float64,
             'sum': tf.float64,
-            'size': tf.float64,
+            'size': tf.int64,
             'mean': tf.float64,
             'var': tf.float64
         }
@@ -800,9 +1118,22 @@ class BeamImplTest(tft_unit.TransformTestCase):
             'min': tf.float32,
             'max': tf.float32,
             'sum': tf.float32,
-            'size': tf.float32,
+            'size': tf.int64,
             'mean': tf.float32,
             'var': tf.float32
+        }
+    )
+
+  def testNumericAnalyzersWithScalarInputs_float16(self):
+    self._testNumericAnalyzersWithScalarInputs(
+        input_dtype=tf.float16,
+        output_dtypes={
+            'min': tf.float16,
+            'max': tf.float16,
+            'sum': tf.float32,
+            'size': tf.int64,
+            'mean': tf.float16,
+            'var': tf.float16
         }
     )
 
@@ -877,10 +1208,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'max_opt': np.array([8, 9, 10, 11], np.int64),
         'sum': np.array([9, 11, 13, 15], np.int64),
         'size': np.array([2, 2, 2, 2], np.int64),
-        'mean': np.array([4.5, 5.5, 6.5, 7.5], np.float64),
-        'var': np.array([12.25, 12.25, 12.25, 12.25], np.float64),
-        'mean_opt': np.array([4.5, 5.5, 6.5, 7.5], np.float64),
-        'var_opt': np.array([12.25, 12.25, 12.25, 12.25], np.float64)
+        'mean': np.array([4.5, 5.5, 6.5, 7.5], np.float32),
+        'var': np.array([12.25, 12.25, 12.25, 12.25], np.float32),
+        'mean_opt': np.array([4.5, 5.5, 6.5, 7.5], np.float32),
+        'var_opt': np.array([12.25, 12.25, 12.25, 12.25], np.float32)
     }
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
@@ -918,10 +1249,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'max_opt': np.array([[8, 9], [10, 11]], np.int64),
         'sum': np.array([[9, 11], [13, 15]], np.int64),
         'size': np.array([[2, 2], [2, 2]], np.int64),
-        'mean': np.array([[4.5, 5.5], [6.5, 7.5]], np.float64),
-        'var': np.array([[12.25, 12.25], [12.25, 12.25]], np.float64),
-        'mean_opt': np.array([[4.5, 5.5], [6.5, 7.5]], np.float64),
-        'var_opt': np.array([[12.25, 12.25], [12.25, 12.25]], np.float64)
+        'mean': np.array([[4.5, 5.5], [6.5, 7.5]], np.float32),
+        'var': np.array([[12.25, 12.25], [12.25, 12.25]], np.float32),
+        'mean_opt': np.array([[4.5, 5.5], [6.5, 7.5]], np.float32),
+        'var_opt': np.array([[12.25, 12.25], [12.25, 12.25]], np.float32)
     }
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
@@ -958,10 +1289,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'max_opt': np.array(7, np.int64),
         'sum': np.array(32, np.int64),
         'size': np.array(8, np.int64),
-        'mean': np.array(4.0, np.float64),
-        'var': np.array(3.5, np.float64),
-        'mean_opt': np.array(4.0, np.float64),
-        'var_opt': np.array(3.5, np.float64)
+        'mean': np.array(4.0, np.float32),
+        'var': np.array(3.5, np.float32),
+        'mean_opt': np.array(4.0, np.float32),
+        'var_opt': np.array(3.5, np.float32)
     }
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
@@ -2093,7 +2424,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def analyzer_fn(inputs):
       return {'q_b': tft.quantiles(inputs['x'], num_buckets=3, epsilon=0.00001)}
 
-    # Current batch size is 1000, force 3 batches.
+    # NOTE: We force 3 batches: data has 3000 elements and we request a batch
+    # size of 1000.
     input_data = [{'x': [x]} for  x in range(1, 3000)]
     input_metadata = dataset_metadata.DatasetMetadata({
         'x': sch.ColumnSchema(input_dtype, [1], sch.FixedColumnRepresentation())
@@ -2124,6 +2456,35 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testQuantileBuckets_double(self):
     self._test_quantile_buckets_helper(tf.double)
 
+
+  def testQuantileBucketsWithKey(self):
+    def analyzer_fn(inputs):
+      key_vocab, q_b = analyzers._quantiles_per_key(
+          inputs['x'], inputs['key'], num_buckets=3, epsilon=0.00001)
+      return {
+          'key_vocab': key_vocab,
+          'q_b': q_b
+      }
+
+    # NOTE: We force 10 batches: data has 100 elements and we request a batch
+    # size of 10.
+    input_data = [{'x': [x], 'key': 'a' if x < 50 else 'b'}
+                  for x in range(1, 100)]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation()),
+        'key': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    })
+    # The expected data has 2 boundaries that divides the data into 3 buckets.
+    expected_outputs = {
+        'key_vocab': np.array(['a', 'b'], np.object),
+        'q_b': np.array([[18, 34], [67, 84]], np.float32)
+    }
+    self.assertAnalyzerOutputs(
+        input_data,
+        input_metadata,
+        analyzer_fn,
+        expected_outputs,
+        desired_batch_size=10)
 
   def testUniquesWithFrequency(self):
     outfile = 'uniques_vocab_with_frequency'
@@ -2201,51 +2562,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
     check_asset_file_contents(assets_path, 'vocab_string_to_int_uniques',
                               'hello\nworld\n')
 
-  # Example to demonstrate QuantileCombiner which implements combiner methods
-  # such as add_input() and merge_accumulators() that achieve computation
-  # through TF Graph and execution using TF Sesssion, e.g. graphs that contain
-  # TF Quantile Ops.
-  #
-  # Note this wraps a beam_analyzer_impls._ComputeQuantiles which is a
-  # beam.CombineFn, as a _CombinerSpec, which then gets re-wrapped as a
-  # beam.CombineFn.  This is roundabout but necessary to maintain this test
-  # until we update the actual quantiles implementation.
-  class _QuantileCombinerSpec(tft.CombinerSpec):
-
-    def __init__(self):
-      self._impl = beam_analyzer_impls._ComputeQuantiles(
-          num_quantiles=2, epsilon=0.00001)
-
-    def create_accumulator(self):
-      return self._impl.create_accumulator()
-
-    def add_input(self, summary, next_input):
-      return self._impl.add_input(summary, next_input)
-
-    def merge_accumulators(self, accumulators):
-      return self._impl.merge_accumulators(accumulators)
-
-    def extract_output(self, accumulator):
-      return self._impl.extract_output(accumulator)
-
-  def testQuantileViaCombineAnalyzer(self):
-    def analyzer_fn(inputs):
-      buckets, = tft.combine_analyzer(
-          [inputs['x']], output_dtypes=[tf.int32],
-          output_shapes=[(1, None)],
-          combiner_spec=self._QuantileCombinerSpec(), name='quantiles')
-      return {
-          'buckets': buckets
-      }
-
-    input_data = [{'x': [x]} for x in range(1, 1000)]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.int32, [1], sch.FixedColumnRepresentation())
-    })
-    expected_outputs = {'buckets': np.array([[1, 501, 999]], np.int32)}
-    self.assertAnalyzerOutputs(
-        input_data, input_metadata, analyzer_fn, expected_outputs)
-
   def testCovarianceTwoDimensions(self):
     def analyzer_fn(inputs):
       return {'y': tft.covariance(inputs['x'], dtype=tf.float64)}
@@ -2288,6 +2604,108 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_outputs = {'y': np.array([[1, 0], [0, 1], [0, 0]], np.float64)}
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
+
+  def _asssert_quantile_boundaries(
+      self, test_inputs, expected_boundaries, input_dtype, num_buckets=None):
+
+    if not num_buckets:
+      num_buckets = len(expected_boundaries) + 1
+
+    def preprocessing_fn(inputs):
+      return {
+          'q_b': tft.quantiles(inputs['x'], num_buckets, epsilon=0.0001)
+      }
+
+    input_data = [{'x': [x]} for x in test_inputs]
+
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(
+            input_dtype, [1], sch.FixedColumnRepresentation())
+    })
+
+    # Expected data has the same size as input, one bucket per input value.
+    batch_size = 1000
+    expected_data = []
+    num_batches = int(math.ceil(len(test_inputs) / float(batch_size)))
+
+    for _ in range(num_batches):
+      expected_data += [{'q_b': expected_boundaries}]
+
+    expected_metadata = None
+
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata,
+        desired_batch_size=batch_size)
+
+  def testBucketizationForTightSequence(self):
+    # Divide a tight 1..N sequence into different number of buckets.
+    self._asssert_quantile_boundaries(
+        [1, 2, 3, 4], [3], tf.int32, num_buckets=2)
+    self._asssert_quantile_boundaries(
+        [1, 2, 3, 4], [3, 4], tf.int32, num_buckets=3)
+    self._asssert_quantile_boundaries(
+        [1, 2, 3, 4], [2, 3, 4], tf.int32, num_buckets=4)
+    self._asssert_quantile_boundaries(
+        [1, 2, 3, 4], [1, 2, 3, 4], tf.int32, num_buckets=5)
+    # Request more number of buckets than there are inputs.
+    self._asssert_quantile_boundaries(
+        [1, 2, 3, 4], [1, 2, 3, 4], tf.int32, num_buckets=6)
+    self._asssert_quantile_boundaries(
+        [1, 2, 3, 4], [1, 2, 3, 4], tf.int32, num_buckets=10)
+
+  def testBucketizationEqualDistributionInSequence(self):
+    # Input pattern is of the form [1, 1, 1, ..., 2, 2, 2, ..., 3, 3, 3, ...]
+    inputs = []
+    for i in range(1, 101):
+      inputs += [i] * 100
+    # Expect 100 equally spaced buckets.
+    expected_buckets = range(1, 101)
+    self._asssert_quantile_boundaries(
+        inputs, expected_buckets, tf.int32, num_buckets=101)
+
+  def testBucketizationEqualDistributionInterleaved(self):
+    # Input pattern is of the form [1, 2, 3, ..., 1, 2, 3, ..., 1, 2, 3, ...]
+    sequence = range(1, 101)
+    inputs = []
+    for _ in range(1, 101):
+      inputs += sequence
+    # Expect 100 equally spaced buckets.
+    expected_buckets = range(1, 101)
+    self._asssert_quantile_boundaries(
+        inputs, expected_buckets, tf.int32, num_buckets=101)
+
+  def testBucketizationSpecificDistribution(self):
+    # Distribution of input values.
+    # This distribution is taken from one of the user pipelines.
+    dist = (
+        # Format: ((<min-value-in-range>, <max-value-in-range>), num-values)
+        ((0.51, 0.67), 4013),
+        ((0.67, 0.84), 2321),
+        ((0.84, 1.01), 7145),
+        ((1.01, 1.17), 64524),
+        ((1.17, 1.34), 42886),
+        ((1.34, 1.51), 154809),
+        ((1.51, 1.67), 382678),
+        ((1.67, 1.84), 582744),
+        ((1.84, 2.01), 252221),
+        ((2.01, 2.17), 7299))
+
+    inputs = []
+    for (mn, mx), num in dist:
+      for _ in range(num//100):
+        inputs += [random.uniform(mn, mx)]
+    # NOTE: for this input data, the number of boundaries returned is more
+    # than that needed to form the number of buckets. Below, we request 5
+    # buckets, which translates to 4 boundaries. But, due to approximate
+    # quantiles, the number of boundaries returned is 5.
+    expected_boundaries = [1.520135, 1.646375, 1.738915, 1.827343, 2.166727]
+    self._asssert_quantile_boundaries(
+        inputs, expected_boundaries, tf.float32, num_buckets=5)
+
 
 
 if __name__ == '__main__':

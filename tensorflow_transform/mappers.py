@@ -28,13 +28,18 @@ from tensorflow.contrib import lookup
 from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
 
 
-def scale_by_min_max(x, output_min=0.0, output_max=1.0, name=None):
+def scale_by_min_max(x,
+                     output_min=0.0,
+                     output_max=1.0,
+                     elementwise=False,
+                     name=None):
   """Scale a numerical column into the range [output_min, output_max].
 
   Args:
     x: A numeric `Tensor`.
     output_min: The minimum of the range of output values.
     output_max: The maximum of the range of output values.
+    elementwise: If true, scale each element of the tensor independently.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -48,34 +53,42 @@ def scale_by_min_max(x, output_min=0.0, output_max=1.0, name=None):
       raise ValueError('output_min must be less than output_max')
 
     x = tf.to_float(x)
-    min_x_value, max_x_value = analyzers._min_and_max(x)  # pylint: disable=protected-access
+    min_x_value, max_x_value = analyzers._min_and_max(  # pylint: disable=protected-access
+        x, reduce_instance_dims=not elementwise)
 
     x_shape = tf.shape(x)
 
     # If min==max, the result will be the mean of the requested range.
     # Note that both the options of tf.where are computed, which means that this
     # will compute unused NaNs.
-    scaled_result = tf.where(
-        tf.fill(x_shape, min_x_value < max_x_value),
-        (x - min_x_value) / (max_x_value - min_x_value), tf.fill(x_shape, 0.5))
+    if elementwise:
+      where_cond = tf.tile(
+          tf.expand_dims(min_x_value < max_x_value, 0),
+          tf.concat([[x_shape[0]], tf.ones_like(x_shape[1:])], axis=0))
+    else:
+      where_cond = tf.fill(x_shape, min_x_value < max_x_value)
+    scaled_result = tf.where(where_cond,
+                             (x - min_x_value) / (max_x_value - min_x_value),
+                             tf.fill(x_shape, 0.5))
 
     return (scaled_result * (output_max - output_min)) + output_min
 
 
-def scale_to_0_1(x, name=None):
+def scale_to_0_1(x, elementwise=False, name=None):
   """Returns a column which is the input column scaled to have range [0,1].
 
   Args:
     x: A numeric `Tensor`.
+    elementwise: If true, scale each element of the tensor independently.
     name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor` containing the input column scaled to [0, 1].
   """
-  return scale_by_min_max(x, 0, 1, name)
+  return scale_by_min_max(x, 0, 1, elementwise=elementwise, name=name)
 
 
-def scale_to_z_score(x, name=None):
+def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
   """Returns a standardized column with mean 0 and variance 1.
 
   Scaling to z-score subtracts out the mean and divides by standard deviation.
@@ -84,23 +97,24 @@ def scale_to_z_score(x, name=None):
 
   Args:
     x: A numeric `Tensor`.
+    elementwise: If true, scales each element of the tensor independently;
+        otherwise uses the mean and variance of the whole tensor.
     name: (Optional) A name for this operation.
+    output_dtype: (Optional) If not None, casts the output tensor to this type.
 
   Returns:
     A `Tensor` containing the input column scaled to mean 0 and variance 1
     (standard deviation 1), given by: (x - mean(x)) / std_dev(x).
     If `x` is floating point, the mean will have the same type as `x`. If `x` is
-    integral, the output is cast to float32 for int8 and int16 and float64 for
-    int32 and int64 (similar to the behavior of tf.truediv).
+    integral, the output is cast to tf.float32.
 
     Note that TFLearn generally permits only tf.int64 and tf.float32, so casting
-    this scaler's output may be necessary. In particular, scaling an int64
-    tensor yields a float64 tensor, which would need a cast to float32 to be
-    used in TFLearn.
+    this scaler's output may be necessary.
   """
   with tf.name_scope(name, 'scale_to_z_score'):
-    # x_mean will be float32 or float64, depending on type of x.
-    x_mean, x_var = analyzers._mean_and_var(x)  # pylint: disable=protected-access
+    # x_mean will be float16, float32, or float64, depending on type of x.
+    x_mean, x_var = analyzers._mean_and_var(  # pylint: disable=protected-access
+        x, reduce_instance_dims=not elementwise, output_dtype=output_dtype)
     return (tf.cast(x, x_mean.dtype) - x_mean) / tf.sqrt(x_var)
 
 
@@ -313,6 +327,11 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
   will be discarded since we are currently writing the vocabularies as text
   files. This behavior will likely be fixed/improved in the future.
 
+  Note that this function will cause a vocabulary to be computed.  For large
+  datasets it is highly recommended to either set frequency_threshold or top_k
+  to control the size of the vocabulary, and also the run time of this
+  operation.
+
   Args:
     x: A `Tensor` or `SparseTensor` of type tf.string.
     default_value: The value to use for out-of-vocabulary values, unless
@@ -320,8 +339,10 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
     top_k: Limit the generated vocabulary to the first `top_k` elements. If set
       to None, the full vocabulary is generated.
     frequency_threshold: Limit the generated vocabulary only to elements whose
-      frequency is >= to the supplied threshold. If set to None, the full
-      vocabulary is generated.
+      absolute frequency is >= to the supplied threshold. If set to None, the
+      full vocabulary is generated.  Absolute frequency means the number of
+      occurences of the element in the dataset, as opposed to the proportion of
+      instances that contain that element.
     num_oov_buckets:  Any lookup of an out-of-vocabulary token will return a
       bucket ID based on its hash if `num_oov_buckets` is greater than zero.
       Otherwise it is assigned the `default_value`.
@@ -625,23 +646,27 @@ def bucketize(x, num_buckets, epsilon=None, name=None):
     x: A numeric input `Tensor` whose values should be mapped to buckets.
     num_buckets: Values in the input `x` are divided into approximately
       equal-sized buckets, where the number of buckets is num_buckets.
+      This is a hint. The actual number of buckets computed can be
+      less or more than the requested number. Use the generated metadata to
+      find the computed number of buckets.
     epsilon: (Optional) Error tolerance, typically a small fraction close to
       zero. If a value is not specified by the caller, a suitable value is
-      computed based on experimental results.  For `num_buckets` less than 100,
-      the value of 0.01 is chosen to handle a dataset of up to ~1 trillion input
-      data values.  If `num_buckets` is larger, then epsilon is set to
-      (1/`num_buckets`) to enforce a stricter error tolerance, because more
-      buckets will result in smaller range for each bucket, and so we want the
-      the boundaries to be less fuzzy.
+      computed based on experimental results.  For `num_buckets` less
+      than 100, the value of 0.01 is chosen to handle a dataset of up to
+      ~1 trillion input data values.  If `num_buckets` is larger,
+      then epsilon is set to (1/`num_buckets`) to enforce a stricter
+      error tolerance, because more buckets will result in smaller range for
+      each bucket, and so we want the boundaries to be less fuzzy.
       See analyzers.quantiles() for details.
     name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor` of the same shape as `x`, with each element in the
     returned tensor representing the bucketized value. Bucketized value is
-    in the range [0, num_buckets). Some times the actual number of buckets can
-    be smaller than num_buckets, for example in case the number of distinct
-    values is smaller than num_buckets.
+    in the range [0, actual_num_buckets). Sometimes the actual number of buckets
+    can be different than num_buckets hint, for example in case the number of
+    distinct values is smaller than num_buckets, or in cases where the
+    input values are not uniformly distributed.
 
   Raises:
     ValueError: If value of num_buckets is not > 1.
@@ -691,4 +716,3 @@ def apply_buckets(x, bucket_boundaries, name=None):
         is_categorical=True)
     api.set_column_schema(result, column_schema)
     return result
-

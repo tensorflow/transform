@@ -28,6 +28,7 @@ from tensorflow_transform.saved import saved_transform_io
 import unittest
 from tensorflow.contrib import lookup
 from tensorflow.python.framework import ops
+from tensorflow.python.framework import test_util
 from tensorflow.python.lib.io import file_io
 from tensorflow.python.platform import test
 from tensorflow.python.util import compat
@@ -48,7 +49,7 @@ def _create_test_saved_model():
   return export_path
 
 
-class SavedTransformIOTest(unittest.TestCase):
+class SavedTransformIOTest(test_util.TensorFlowTestCase):
 
   @classmethod
   def setUpClass(cls):
@@ -56,8 +57,8 @@ class SavedTransformIOTest(unittest.TestCase):
 
   def test_apply_saved_transform(self):
     with tf.Graph().as_default() as graph:
-      with tf.Session().as_default():
-        input_floats = tf.constant([1234.0])  # tf.float32
+      with tf.Session().as_default() as session:
+        input_floats = tf.constant([1237.0])  # tf.float32
         input_features = {'x': input_floats}
         transformed_features = saved_transform_io.apply_saved_transform(
             self._test_saved_model, input_features)
@@ -65,6 +66,7 @@ class SavedTransformIOTest(unittest.TestCase):
         result_tensor = transformed_features['x_scaled']
         self.assertTrue(isinstance(result_tensor, tf.Tensor))
 
+        self.assertAllEqual(session.run(result_tensor), [247.0])
         self.assertEqual(graph.get_tensor_by_name('Const:0'), input_floats)
         self.assertEqual(
             graph.get_tensor_by_name('transform/truediv:0'),
@@ -106,6 +108,30 @@ class SavedTransformIOTest(unittest.TestCase):
           input_features = {'x': input_floats}
           saved_transform_io.apply_saved_transform(
               self._test_saved_model, input_features)
+
+  def test_apply_saved_transform_to_tensor_inside_scope(self):
+    with tf.Graph().as_default():
+      with tf.name_scope('my_scope'):
+        with tf.Session().as_default() as session:
+          input_floats = tf.constant([1237.0])  # tf.float32
+          input_features = {'x': input_floats}
+          transformed_features = saved_transform_io.apply_saved_transform(
+              self._test_saved_model, input_features)
+          self.assertEqual(['x_scaled'], transformed_features.keys())
+          result_tensor = transformed_features['x_scaled']
+          self.assertAllEqual(session.run(result_tensor), [247.0])
+
+  def test_apply_saved_transform_to_tensor_outside_scope(self):
+    with tf.Graph().as_default():
+      input_floats = tf.constant([1237.0])  # tf.float32
+      with tf.name_scope('my_scope'):
+        with tf.Session().as_default() as session:
+          input_features = {'x': input_floats}
+          transformed_features = saved_transform_io.apply_saved_transform(
+              self._test_saved_model, input_features)
+          self.assertEqual(['x_scaled'], transformed_features.keys())
+          result_tensor = transformed_features['x_scaled']
+          self.assertAllEqual(session.run(result_tensor), [247.0])
 
   def test_dense_roundtrip(self):
     export_path = os.path.join(tempfile.mkdtemp(), 'export')

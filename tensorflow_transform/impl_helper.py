@@ -147,7 +147,7 @@ def make_feed_dict(input_tensors, schema, instances):
       feed_value = make_sparse_batch(indices, values, max_index)
 
     else:
-      raise ValueError('Invalid column %r.' % schema.column_schemas[key])
+      raise ValueError('Invalid column {}.'.format(schema.column_schemas[key]))
     result[input_tensor] = feed_value
 
   return result
@@ -209,8 +209,8 @@ def to_instance_dicts(schema, fetches):
           # We've reached the end of the current row.
           break
         else:
-          raise ValueError('Encountered out-of-order sparse index: %r.' %
-                           batch_indices[current_offset])
+          raise ValueError('Encountered out-of-order sparse index: {}.'.format(
+              batch_indices[current_offset]))
 
       if current_offset == start_offset:
         # If the current row is empty, leave the default value, _EMPTY_ARRAY.
@@ -237,7 +237,8 @@ def to_instance_dicts(schema, fetches):
 
     elif isinstance(representation, dataset_schema.ListColumnRepresentation):
       if not isinstance(value, tf.SparseTensorValue):
-        raise ValueError('Expected a SparseTensorValue, but got %r' % value)
+        raise ValueError(
+            'Expected a SparseTensorValue, but got {}'.format(value))
       instance_indices, instance_values = decompose_sparse_batch(value)
       for indices in instance_indices:
         if len(indices.shape) > 1 or np.any(indices != np.arange(len(indices))):
@@ -248,13 +249,15 @@ def to_instance_dicts(schema, fetches):
 
     elif isinstance(representation, dataset_schema.SparseColumnRepresentation):
       if not isinstance(value, tf.SparseTensorValue):
-        raise ValueError('Expected a SparseTensorValue, but got %r' % value)
+        raise ValueError(
+            'Expected a SparseTensorValue, but got {}'.format(value))
       instance_indices, instance_values = decompose_sparse_batch(value)
       batch_dict[key] = zip(instance_indices, instance_values)
       batch_sizes[key] = len(instance_values)
 
     else:
-      raise ValueError('Unhandled column representation: %r.' % representation)
+      raise ValueError(
+          'Unhandled column representation: {}.'.format(representation))
 
   # Check batch size is the same for each output.  Note this assumes that
   # fetches is not empty.
@@ -262,9 +265,9 @@ def to_instance_dicts(schema, fetches):
   for name, batch_size_for_name in six.iteritems(batch_sizes):
     if batch_size_for_name != batch_size:
       raise ValueError(
-          'Inconsistent batch sizes: "%s" had batch dimension %d, "%s" had'
-          ' batch dimension %d'
-          % (name, batch_size_for_name, batch_sizes.keys()[0], batch_size))
+          'Inconsistent batch sizes: "{}" had batch dimension {}, "{}" had'
+          ' batch dimension {}'.format(
+              name, batch_size_for_name, batch_sizes.keys()[0], batch_size))
 
   # The following is the simplest way to convert batch_dict from a dict of
   # iterables to a list of dicts.  It does this by first extracting the values
@@ -280,13 +283,14 @@ def check_valid_sparse_tensor(indices, values, size, name):
     i_min, i_max = min(indices), max(indices)
     if i_min < 0 or i_max >= size:
       i_bad = i_min if i_min < 0 else i_max
-      raise ValueError('Sparse column %r has index %d out of range [0, %d)'
-                       % (name, i_bad, size))
+      raise ValueError(
+          'Sparse column {} has index {} out of range [0, {})'.format(
+              name, i_bad, size))
 
   if len(indices) != len(values):
     raise ValueError(
-        'Sparse column %r has indices and values of different lengths: '
-        'values: %r, indices: %r' % (name, values, indices))
+        'Sparse column {} has indices and values of different lengths: '
+        'values: {}, indices: {}'.format(name, values, indices))
 
 
 Phase = collections.namedtuple(
@@ -372,9 +376,9 @@ def create_phases():
         # Append op to stack so cycle appears in error message.
         stack.append(op)
         raise ValueError(
-            'Cycle detected: %r.  Cycles may arise by failing to call '
+            'Cycle detected: {}.  Cycles may arise by failing to call '
             'apply_function when calling a function that internally uses '
-            'tables or control flow ops.' % (stack,))
+            'tables or control flow ops.'.format(stack))
       stack.append(op)
       inputs = list(op.inputs) + list(getattr(op, 'control_flow_inputs', []))
       memoized_levels[op] = max(
@@ -396,17 +400,17 @@ def create_phases():
       tf.get_collection(tf.GraphKeys.TABLE_INITIALIZERS))
   if expected_table_initializers - all_table_initializers:
     raise ValueError(
-        'Found table initializers (%r) that were not associated with any '
+        'Found table initializers ({}) that were not associated with any '
         'FunctionApplication.  Use tft.apply_function to wrap any code '
-        'that generates tables.'
-        % (expected_table_initializers - all_table_initializers))
+        'that generates tables.'.format(
+            expected_table_initializers - all_table_initializers))
   if all_table_initializers - expected_table_initializers:
     raise ValueError(
-        'The operations (%r) were registered as table initializers during '
+        'The operations ({}) were registered as table initializers during '
         'a call to apply_function, but were not in the TABLE_INITIALIZERS '
         'collection.  This may be a bug in tf.Transform, or you may have '
-        'cleared or altered this collection'
-        % (all_table_initializers - expected_table_initializers))
+        'cleared or altered this collection'.format(
+            all_table_initializers - expected_table_initializers))
 
   assert len(table_initializers_by_level) <= len(analyzers_by_level) + 1
   return [
@@ -414,60 +418,32 @@ def create_phases():
       for level in sorted(six.iterkeys(analyzers_by_level))]
 
 
-def run_preprocessing_fn(preprocessing_fn, schema):
-  """Runs the user-defined preprocessing function.
+def copy_tensors(tensors):
+  """Makes deep copies of a dict of tensors.
 
-  At this point we check that the preprocessing_fn has at least one output.
-  This is because if we allowed the output of preprocessing_fn to be empty, we
-  wouldn't be able to determine how many instances to "unbatch" the output into.
+  Makes deep copies (using tf.identity or its equivalent for `SparseTensor`s) of
+  the values of `tensors`.
 
   Args:
-    preprocessing_fn: A function that takes a dict of `Tensor` or
-        `SparseTensor`s as input and returns a dict of `Tensor` or
-        `SparseTensor`s as output.
-    schema: A `tf_metadata.Schema`.
+    tensors: A a dict whose keys are strings and values are `Tensors`s or
+        `SparseTensor`s.
 
   Returns:
-    A pair of dicts from logical names to `Tensor` or `SparseTensor`s, for
-        inputs and outputs respectively.
-
-  Raises:
-    ValueError: If `schema` contains unsupported feature types or the
-        preprocessing_fn has no outputs.
+    A copy of `tensors` with values replaced by tf.identity applied to the
+        value, or the equivalent for `SparseTensor`s.
   """
-  # Run the preprocessing function, which will construct a TF graph for the
-  # purpose of validation.  The graphs used for computation will be built from
-  # the DAG of columns in make_transform_fn_def.
-  inputs = {}
-  input_copies = {}
+  return {name: _copy_tensor_or_sparse_tensor(tensor)
+          for name, tensor in six.iteritems(tensors)}
 
-  with tf.name_scope('inputs'):
-    for key, column_schema in six.iteritems(schema.column_schemas):
-      with tf.name_scope(key):
-        tensor = column_schema.as_batched_placeholder()
-        # In order to avoid a bug where import_graph_def fails when the
-        # input_map and return_elements of an imported graph are the same
-        # (b/34288791), we avoid using the placeholder of an input column as
-        # an output of a graph. We do this by applying tf.identity to the
-        # placeholder and using the output of tf.identity as the tensor
-        # representing the output of this column, thus preventing the
-        # placeholder from being used as both an input and an output.
-        if isinstance(tensor, tf.SparseTensor):
-          copied_tensor = tf.SparseTensor(
-              indices=tf.identity(tensor.indices),
-              values=tf.identity(tensor.values),
-              dense_shape=tf.identity(tensor.dense_shape))
-        else:
-          copied_tensor = tf.identity(tensor)
 
-        inputs[key] = tensor
-        input_copies[key] = copied_tensor
+def _copy_tensor(tensor):
+  return tf.identity(tensor, name='{}_copy'.format(tensor.op.name))
 
-  # Construct the deferred preprocessing graph by calling preprocessing_fn on
-  # the inputs.
-  outputs = preprocessing_fn(input_copies)
 
-  if not outputs:
-    raise ValueError('The preprocessing function returned an empty dict')
-
-  return inputs, outputs
+def _copy_tensor_or_sparse_tensor(tensor):
+  if isinstance(tensor, tf.SparseTensor):
+    indices = _copy_tensor(tensor.indices)
+    values = _copy_tensor(tensor.values)
+    dense_shape = _copy_tensor(tensor.dense_shape)
+    return tf.SparseTensor(indices, values, dense_shape)
+  return _copy_tensor(tensor)

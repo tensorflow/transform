@@ -7,24 +7,76 @@
 *   CombinerSpec and combine_analyzer now accept multiple inputs/outputs.
 
 ## Bug Fixes and Other Changes
-*   Fixes a bug where TransformDataset would not return correct output if the
-    output DatasetMetadata contained deferred values (such as vocabularies).
-*   Added checks that the prepreprocessing function's outputs all have the same
-    size in the batch dimension.
-*   Added `tft.apply_buckets` which takes an input tensor and a list of bucket
-    boundaries, and returns bucketized data.
-*   `tft.bucketize` and `tft.apply_buckets` now set metadata for the output
-    tensor, which means the resulting tf.Metadata for the output of these
-    functions will contain min and max values based on the number of buckets,
-    and also be set to categorical.
-*   Testing helper function assertAnalyzeAndTransformResults can now also test
-    the content of vocabulary files and other assets.
-*   Reduces the number of beam stages needed for certain analyzers, which can be
-    a performance bottleneck when transforming many features.
+* Change `tft.sum`/`tft.mean`/`tft.var` to only support basic numeric types.
+* Widen the output type of `tft.sum` for some input types to avoid overflow
+  and/or to preserve precision.
+* For int32 and int64 input types, change the output type of `tft.mean`/
+  `tft.var`/`tft.scale_to_z_score` from float64 to float32 .
+* Change the output type of `tft.size` to be always int64.
 
 ## Breaking changes
-*   The interfaces of CombinerSpec and combine_analyzer have changed to allow
-    for multiple inputs/outputs.
+
+## Deprecations
+
+# Release 0.6.0
+
+## Major Features and Improvements
+
+## Bug Fixes and Other Changes
+* Depends on `apache-beam[gcp]>=2.4,<3`.
+* Trim min/max value in `tft.bucketize` where the computed number of bucket
+  boundaries is more than requested. Updated documentation to clearly indicate
+  that the number of buckets is computed using approximate algorithms, and that
+  computed number can be more or less than requested.
+* Change the namespace used for Beam metrics from `tensorflow_transform` to
+  `tfx.Transform`.
+* Update Beam metrics to also log vocabulary sizes.
+* `CsvCoder` updated to support unicode.
+
+## Breaking changes
+* Requires pre-installed TensorFlow >=1.6,<2.
+
+## Deprecations
+
+# Release 0.5.0
+
+## Major Features and Improvements
+* Batching of input instances is now done automatically and dynamically.
+* Added analyzers to compute covariance matrices (`tft.covariance`) and
+  principal components for PCA (`tft.pca`).
+* CombinerSpec and combine_analyzer now accept multiple inputs/outputs.
+
+## Bug Fixes and Other Changes
+* Depends on `apache-beam[gcp]>=2.3,<3`.
+* Fixes a bug where TransformDataset would not return correct output if the
+  output DatasetMetadata contained deferred values (such as vocabularies).
+* Added checks that the prepreprocessing function's outputs all have the same
+  size in the batch dimension.
+* Added `tft.apply_buckets` which takes an input tensor and a list of bucket
+  boundaries, and returns bucketized data.
+* `tft.bucketize` and `tft.apply_buckets` now set metadata for the output
+  tensor, which means the resulting tf.Metadata for the output of these
+  functions will contain min and max values based on the number of buckets,
+  and also be set to categorical.
+* Testing helper function assertAnalyzeAndTransformResults can now also test
+  the content of vocabulary files and other assets.
+* Reduces the number of beam stages needed for certain analyzers, which can be
+  a performance bottleneck when transforming many features.
+* Performance improvements in `tft.uniques`.
+* Fix a bug in `tft.bucketize` where the bucket boundary could be same as a
+  min/max value, and was getting dropped.
+* Allows scaling individual components of a tensor independently with
+  `tft.scale_by_min_max`, `tft.scale_to_0_1`, and `tft.scale_to_z_score`.
+* Fix a bug where `apply_saved_transform` could only be applied in the global
+  name scope.
+* Add warning when `frequency_threshold` that are <= 1.  This is a no-op and
+  generally reflects mistaking `frequency_threshold` for a relative frequency
+  where in fact it is an absolute frequency.
+
+## Breaking changes
+* The interfaces of CombinerSpec and combine_analyzer have changed to allow
+  for multiple inputs/outputs.
+* Requires pre-installed TensorFlow >=1.5,<2.
 
 ## Deprecations
 

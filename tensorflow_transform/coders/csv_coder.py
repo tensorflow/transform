@@ -26,6 +26,18 @@ from six import moves
 import tensorflow as tf
 
 
+# This is in agreement with Tensorflow conversions for Unicode values for both
+# Python 2 and 3 (and also works for non-Unicode objects). It is also in
+# agreement with the testWithUnicode of the Beam impl.
+def _utf8(s):
+  return s if isinstance(s, bytes) else s.encode('utf-8')
+
+
+def _to_string(x):
+  """Encodes x as a (list of) utf-8 string when applicable."""
+  return map(_utf8, x) if isinstance(x, (list, np.ndarray)) else _utf8(x)
+
+
 def _make_cast_fn(dtype):
   """Return a function to extract the typed value from the feature.
 
@@ -57,7 +69,7 @@ def _make_cast_fn(dtype):
   elif dtype.is_bool:
     return to_boolean
   else:
-    return lambda x: x
+    return _to_string
 
 
 def _decode_with_reader(value, reader):
@@ -330,7 +342,7 @@ class CsvCoder(object):
       self._reader = csv.reader(self._line_generator, delimiter=str(delimiter))
 
     def read_record(self, x):
-      self._line_generator.push_line(x)
+      self._line_generator.push_line(_to_string(x))
       return self._reader.next()
 
     def __getstate__(self):
@@ -359,7 +371,7 @@ class CsvCoder(object):
           delimiter=delimiter)
 
     def encode_record(self, record):
-      self._writer.writerow(record)
+      self._writer.writerow(_to_string(record))
       result = self._buffer.getvalue()
       # Reset the buffer.
       self._buffer.seek(0)

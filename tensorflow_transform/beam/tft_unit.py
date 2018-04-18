@@ -16,6 +16,7 @@
 import os
 
 
+import numpy as np
 import six
 import tensorflow as tf
 from tensorflow_transform.beam import impl as beam_impl
@@ -60,7 +61,8 @@ class TransformTestCase(test_util.TensorFlowTestCase):
     try:
       if (isinstance(a_value, str) or
           isinstance(a_value, list) and a_value and
-          isinstance(a_value[0], str)):
+          isinstance(a_value[0], str) or
+          isinstance(a_value, np.ndarray) and a_value.dtype == np.object):
         self.assertAllEqual(a_value, b_value)
       else:
         self.assertAllClose(a_value, b_value)
