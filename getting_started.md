@@ -215,7 +215,7 @@ of a tensor, and the `ColumnSchema` describes both the kind of tensor and how it
 is represented in-memory or on-disk.
 
 The first argument to `ColumnSchema` specifies the `Domain` which includes the
-data type and richer information such as ranges. In our case we only specify the
+data type and richer infomation such as ranges. In our case we only specify the
 data type and use a helper function to create the `Domain`. The second argument
 provides a list of `Axis` objects describing the shape of the tensor. In our
 example the shape has no axes because the values are scalars (rank 0 tensors).
