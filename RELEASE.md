@@ -1,6 +1,10 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
+*   Batching of input instances is now done automatically and dynamically.
+*   Added analyzers to compute covariance matrices (`tft.covariance`) and
+    principal components for PCA (`tft.pca`).
+*   CombinerSpec and combine_analyzer now accept multiple inputs/outputs.
 
 ## Bug Fixes and Other Changes
 * Change `tft.sum`/`tft.mean`/`tft.var` to only support basic numeric types.
