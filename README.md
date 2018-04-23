@@ -25,7 +25,9 @@ performed in both scenarios.
 The easiest and recommended way to install tf.Transform is with the PyPI
 package.
 
-`pip install tensorflow-transform`
+```bash
+pip install tensorflow-transform
+```
 
 Currently tf.Transform requires that TensorFlow be installed but does not have
 an explicit dependency on TensorFlow as a package. See [TensorFlow
@@ -37,21 +39,23 @@ runs in local mode by default, and can also run in distributed mode
 using [Google Cloud Dataflow](https://cloud.google.com/dataflow/).
 tf.Transform is designed to be extensible to other Apache Beam runners.
 
-### Compatible Versions
+## Getting Started
+
+For instructions on using tf.Transform see the [getting started
+guide](./getting_started.md).
+
+## Compatible Versions
 
 This is a table of versions known to be compatible with each other, based on
 our testing framework. Other combinations may also work, but are untested.
 
 |tensorflow-transform                                                            |tensorflow    |apache-beam[gcp]|
 |--------------------------------------------------------------------------------|--------------|----------------|
-|[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) |nightly (1.x) |2.3.0           |
+|[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) |nightly (1.x) |2.4.0           |
+|[0.6.0](https://github.com/tensorflow/transform/blob/v0.6.0/RELEASE.md)         |1.6           |2.4.0           |
 |[0.5.0](https://github.com/tensorflow/transform/blob/v0.5.0/RELEASE.md)         |1.5           |2.3.0           |
 |[0.4.0](https://github.com/tensorflow/transform/blob/v0.4.0/RELEASE.md)         |1.4           |2.2.0           |
 |[0.3.1](https://github.com/tensorflow/transform/blob/v0.3.1/RELEASE.md)         |1.3           |2.1.1           |
 |[0.3.0](https://github.com/tensorflow/transform/blob/v0.3.0/RELEASE.md)         |1.3           |2.1.1           |
 |[0.1.10](https://github.com/tensorflow/transform/blob/v0.1.10/RELEASE.md)       |1.0           |2.0.0           |
 
-## Getting Started
-
-For instructions on using tf.Transform see the [getting started
-guide](./getting_started.md).

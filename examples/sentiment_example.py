@@ -30,6 +30,10 @@ from apache_beam.io import textio
 from apache_beam.io import tfrecordio
 from tensorflow.contrib import learn
 from tensorflow.contrib.learn.python.learn.utils import input_fn_utils
+from tensorflow_transform.beam import impl as beam_impl
+from tensorflow_transform.beam.tft_beam_io import transform_fn_io
+from tensorflow_transform.coders import example_proto_coder
+from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 from tensorflow_transform.tf_metadata import metadata_io
@@ -137,14 +141,16 @@ def read_and_shuffle_data(
             (train_neg_filepattern, train_pos_filepattern))
         | 'WriteTrainData' >> tfrecordio.WriteToTFRecord(
             os.path.join(working_dir, SHUFFLED_TRAIN_DATA_FILEBASE),
-            coder=tft.ExampleProtoCoder(RAW_DATA_METADATA.schema)))
+            coder=example_proto_coder.ExampleProtoCoder(
+                RAW_DATA_METADATA.schema)))
     _ = (
         pipeline
         | 'ReadAndShuffleTest' >> ReadAndShuffleData(
             (test_neg_filepattern, test_pos_filepattern))
         | 'WriteTestData' >> tfrecordio.WriteToTFRecord(
             os.path.join(working_dir, SHUFFLED_TEST_DATA_FILEBASE),
-            coder=tft.ExampleProtoCoder(RAW_DATA_METADATA.schema)))
+            coder=example_proto_coder.ExampleProtoCoder(
+                RAW_DATA_METADATA.schema)))
     # pylint: enable=no-value-for-parameter
 
 
@@ -161,20 +167,22 @@ def transform_data(working_dir):
   """
 
   with beam.Pipeline() as pipeline:
-    with tft.Context(temp_dir=tempfile.mkdtemp()):
+    with beam_impl.Context(temp_dir=tempfile.mkdtemp()):
       train_data = (
           pipeline |
           'ReadTrain' >> tfrecordio.ReadFromTFRecord(
               os.path.join(working_dir,
                            SHUFFLED_TRAIN_DATA_FILEBASE + '*'),
-              coder=tft.ExampleProtoCoder(RAW_DATA_METADATA.schema)))
+              coder=example_proto_coder.ExampleProtoCoder(
+                  RAW_DATA_METADATA.schema)))
 
       test_data = (
           pipeline |
           'ReadTest' >> tfrecordio.ReadFromTFRecord(
               os.path.join(working_dir,
                            SHUFFLED_TEST_DATA_FILEBASE + '*'),
-              coder=tft.ExampleProtoCoder(RAW_DATA_METADATA.schema)))
+              coder=example_proto_coder.ExampleProtoCoder(
+                  RAW_DATA_METADATA.schema)))
 
       def preprocessing_fn(inputs):
         """Preprocess input columns into transformed columns."""
@@ -193,34 +201,36 @@ def transform_data(working_dir):
 
       (transformed_train_data, transformed_metadata), transform_fn = (
           (train_data, RAW_DATA_METADATA)
-          | 'AnalyzeAndTransform' >> tft.AnalyzeAndTransformDataset(
+          | 'AnalyzeAndTransform' >> beam_impl.AnalyzeAndTransformDataset(
               preprocessing_fn))
 
       transformed_test_data, _ = (
           ((test_data, RAW_DATA_METADATA), transform_fn)
-          | 'Transform' >> tft.TransformDataset())
+          | 'Transform' >> beam_impl.TransformDataset())
 
       _ = (
           transformed_train_data
           | 'WriteTrainData' >> tfrecordio.WriteToTFRecord(
               os.path.join(working_dir,
                            TRANSFORMED_TRAIN_DATA_FILEBASE),
-              coder=tft.ExampleProtoCoder(transformed_metadata.schema)))
+              coder=example_proto_coder.ExampleProtoCoder(
+                  transformed_metadata.schema)))
 
       _ = (
           transformed_test_data
           | 'WriteTestData' >> tfrecordio.WriteToTFRecord(
               os.path.join(working_dir,
                            TRANSFORMED_TEST_DATA_FILEBASE),
-              coder=tft.ExampleProtoCoder(transformed_metadata.schema)))
+              coder=example_proto_coder.ExampleProtoCoder(
+                  transformed_metadata.schema)))
 
       # Will write a SavedModel and metadata to two subdirectories of
-      # working_dir, given by tft.TRANSFORM_FN_DIR and
-      # tft.TRANSFORMED_METADATA_DIR respectively.
+      # working_dir, given by transform_fn_io.TRANSFORM_FN_DIR and
+      # transform_fn_io.TRANSFORMED_METADATA_DIR respectively.
       _ = (
           transform_fn
           | 'WriteTransformFn' >>
-          tft.WriteTransformFn(working_dir))
+          transform_fn_io.WriteTransformFn(working_dir))
 
 
 # Functions for training
@@ -239,7 +249,8 @@ def _make_training_input_fn(working_dir, filebase, batch_size):
     The input function for training or eval.
   """
   transformed_metadata = metadata_io.read_metadata(
-      os.path.join(working_dir, tft.TRANSFORMED_METADATA_DIR))
+      os.path.join(
+          working_dir, transform_fn_io.TRANSFORMED_METADATA_DIR))
   transformed_feature_spec = transformed_metadata.schema.as_feature_spec()
 
   def input_fn():
@@ -282,8 +293,9 @@ def _make_serving_input_fn(working_dir):
     # Apply the transform function that was used to generate the materialized
     # data.
     _, transformed_features = (
-        tft.partially_apply_saved_transform(
-            os.path.join(working_dir, tft.TRANSFORM_FN_DIR), raw_features))
+        saved_transform_io.partially_apply_saved_transform(
+            os.path.join(working_dir, transform_fn_io.TRANSFORM_FN_DIR),
+            raw_features))
 
     return input_fn_utils.InputFnOps(transformed_features, None, default_inputs)
 

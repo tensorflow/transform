@@ -23,7 +23,6 @@ import os
 
 import apache_beam as beam
 
-from apache_beam.typehints import Any
 from apache_beam.typehints import KV
 from apache_beam.typehints import List
 from apache_beam.typehints import with_input_types
@@ -31,49 +30,19 @@ from apache_beam.typehints import with_output_types
 
 import numpy as np
 import six
-import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform.beam import common
-from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
-from tensorflow.python.ops import resources
-
-_DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER = {
-    # We rely on Beam to manage concurrency, i.e. we expect it to run one
-    # session per CPU--so we don't want to proliferate TF threads.
-    # Nonetheless we provide 4 threads per session for TF ops, 2 inter-
-    # and 2 intra-thread.  In many cases only 2 of these will be runnable
-    # at any given time.  This approach oversubscribes a bit to make sure
-    # the CPUs are really saturated.
-    #
-    beam.runners.DataflowRunner:
-        tf.ConfigProto(
-            use_per_session_threads=True,
-            inter_op_parallelism_threads=2,
-            intra_op_parallelism_threads=2).SerializeToString(),
-
-}
-
-
-def _maybe_deserialize_tf_config(serialized_tf_config):
-  if serialized_tf_config is None:
-    return None
-
-  result = tf.ConfigProto()
-  result.ParseFromString(serialized_tf_config)
-  return result
 
 
 @with_input_types(List[np.ndarray])
-@with_output_types(List[Any])
+@with_output_types(List[np.ndarray])
 class _AnalyzerImpl(beam.PTransform):
   """PTransform that implements a given analyzer.
 
   _AnalyzerImpl accepts a PCollection where each element is a list of ndarrays.
   Each element in this list contains a batch of values for the corresponding
   input tensor of the analyzer. _AnalyzerImpl returns a PCollection containing a
-  single element which is a list of values.  Each element should be convertible
-  to an ndarray via np.asarray, and the converted value will be the
-  corresponding output tensor of the analyzer.
+  single element which is a list of `ndarray`s.
 
   _AnalyzerImpl dispatches to an implementation transform, with the same
   signature as _AnalyzerImpl.
@@ -87,11 +56,10 @@ class _AnalyzerImpl(beam.PTransform):
     # pylint: disable=protected-access
     if isinstance(self._spec, analyzers._UniquesSpec):
       return pcoll | _UniquesAnalyzerImpl(self._spec, self._temp_assets_dir)
-    elif isinstance(self._spec, analyzers._QuantilesSpec):
-      return pcoll | _QuantilesAnalyzerImpl(self._spec)
     elif isinstance(self._spec, analyzers.CombinerSpec):
-      return pcoll | beam.CombineGlobally(
-          _CombineFnWrapper(self._spec)).without_defaults()
+      return pcoll | _CombinerAnalyzerImpl(self._spec)
+    elif isinstance(self._spec, analyzers._CombinePerKeySpec):
+      return pcoll | _CombinePerKeyAnalyzerImpl(self._spec)
     else:
       raise NotImplementedError(self._spec.__class__)
 
@@ -106,7 +74,7 @@ def _flatten_value_to_list(batch_values):
 
 
 @with_input_types(List[np.ndarray])
-@with_output_types(List[Any])
+@with_output_types(List[np.ndarray])
 class _UniquesAnalyzerImpl(beam.PTransform):
   """Saves the unique elements in a PCollection of batches."""
 
@@ -167,6 +135,15 @@ class _UniquesAnalyzerImpl(beam.PTransform):
       if not counts:
         counts = [(1, '49d0cd50-04bb-48c0-bc6f-5b575dce351a')]
       counts.sort(reverse=True)  # Largest first.
+
+      # Log vocabulary size to metrics.  Note we can call
+      # beam.metrics.Metrics.distribution here because this function only gets
+      # called once, so there is no need to amortize the cost of calling the
+      # constructor by putting in a DoFn initializer.
+      vocab_size_distribution = beam.metrics.Metrics.distribution(
+          common.METRICS_NAMESPACE, 'vocabulary_size')
+      vocab_size_distribution.update(len(counts))
+
       if store_frequency:
         # Returns ['count1 element1', ... ]
         return ['{} {}'.format(count, element) for count, element in counts]
@@ -187,7 +164,7 @@ class _UniquesAnalyzerImpl(beam.PTransform):
     # Return the vocabulary path.
     wait_for_vocabulary_transform = (
         pcoll.pipeline
-        | 'CreatePath' >> beam.Create([[vocabulary_file]])
+        | 'CreatePath' >> beam.Create([[np.array(vocabulary_file)]])
         # Ensure that the analysis returns only after the file is written.
         | 'WaitForVocabularyFile' >> beam.Map(
             lambda x, y: x, y=beam.pvalue.AsIter(vocab_is_written)))
@@ -195,162 +172,19 @@ class _UniquesAnalyzerImpl(beam.PTransform):
 
 
 @with_input_types(List[np.ndarray])
-@with_output_types(List[Any])
-class _ComputeQuantiles(beam.CombineFn):
-  """Computes quantiles on the PCollection.
-
-  This implementation is based on go/squawd.
-  For additional details on the algorithm, such as streaming and summary,
-  see also http://web.cs.ucla.edu/~weiwang/paper/SSDBM07_2.pdf
-  """
-
-  def __init__(self, num_quantiles, epsilon, serialized_tf_config=None):
-    self._num_quantiles = num_quantiles
-    self._epsilon = epsilon
-    self._serialized_tf_config = serialized_tf_config
-
-    # _stamp_token is used to commit the state of the qaccumulator. In
-    # this case, the qaccumulator state is completely returned and stored
-    # as part of quantile_state/summary in the combiner fn (i.e the summary is
-    # extracted and stored outside the qaccumulator). So we don't use
-    # the timestamp mechanism to signify progress in the qaccumulator state.
-    self._stamp_token = 0
-    # Represents an empty summary. This could be changed to a tf.constant
-    # implemented by the quantile ops library.
-    self._empty_summary = None
-
-    # Create a new session with a new graph for quantile ops.
-    self._session = tf.Session(
-        graph=tf.Graph(),
-        config=_maybe_deserialize_tf_config(serialized_tf_config))
-    with self._session.graph.as_default():
-      with self._session.as_default():
-        self._qaccumulator = quantile_ops.QuantileAccumulator(
-            init_stamp_token=self._stamp_token,
-            num_quantiles=self._num_quantiles,
-            epsilon=self._epsilon,
-            name='qaccumulator')
-        resources.initialize_resources(resources.shared_resources()).run()
-
-  def __reduce__(self):
-    return _ComputeQuantiles, (self._num_quantiles,
-                               self._epsilon, self._serialized_tf_config)
-
-  def create_accumulator(self):
-    return self._empty_summary
-
-  def add_input(self, summary, next_input):
-    batch_value_as_list = _flatten_value_to_list(next_input)
-    with self._session.graph.as_default():
-      update = self._qaccumulator.add_summary(
-          stamp_token=self._stamp_token,
-          column=[batch_value_as_list],
-          # All weights are equal, and the weight vector is the
-          # same length as the input.
-          example_weights=([[1] * len(batch_value_as_list)]))
-
-      if summary is not self._empty_summary:
-        self._session.run(
-            self._qaccumulator.add_prebuilt_summary(
-                stamp_token=self._stamp_token,
-                summary=tf.constant(summary)))
-
-      self._session.run(update)
-
-      # After the flush_summary, qaccumulator will not contain any
-      # uncommitted information that represents the input. Instead all the
-      # digested information is returned as 'summary'. Many such summaries
-      # will be combined by merge_accumulators().
-      return self._session.run(
-          self._qaccumulator.flush_summary(
-              stamp_token=self._stamp_token,
-              next_stamp_token=self._stamp_token))
-
-  def merge_accumulators(self, summaries):
-    if summaries is self._empty_summary:
-      return self._empty_summary
-
-    with self._session.graph.as_default():
-      summary_placeholder = tf.placeholder(tf.string)
-      add_summary = self._qaccumulator.add_prebuilt_summary(
-          stamp_token=self._stamp_token,
-          summary=summary_placeholder)
-      for summary in summaries:
-        self._session.run(add_summary, {summary_placeholder: summary})
-
-      # Compute new summary.
-      # All relevant state about the input is captured by 'summary'
-      # (see comment at the end of add_input()).
-      return self._session.run(
-          self._qaccumulator.flush_summary(
-              stamp_token=self._stamp_token,
-              next_stamp_token=self._stamp_token))
-
-  def extract_output(self, summary):
-    if summary is self._empty_summary:
-      return [[[]]]
-
-    # All relevant state about the input is captured by 'summary'
-    # (see comment in add_input() and merge_accumulators()).
-    with self._session.graph.as_default():
-      self._session.run(
-          self._qaccumulator.add_prebuilt_summary(
-              stamp_token=self._stamp_token, summary=tf.constant(summary)))
-      self._session.run(
-          self._qaccumulator.flush(
-              stamp_token=self._stamp_token,
-              next_stamp_token=self._stamp_token))
-      are_ready_flush, buckets = (
-          self._qaccumulator.get_buckets(stamp_token=self._stamp_token))
-      buckets, _ = self._session.run([buckets, are_ready_flush])
-
-    # Quantile boundaries is a list of the form
-    #    [np.ndarrary(min, <internal-boundaries>, max)]
-    # The approximate quantile library can return less or more than requested
-    # number of buckets. The max value can be same as the last internal
-    # boundary, due to removal of duplicates.
-    # Below, the min and/or max quantile boundaries are trimmed depending
-    # on the actual boundaries returned by the library.
-    if buckets.size >= (self._num_quantiles + 1):
-      # Trim min/max.
-      buckets = buckets[1:-1]
-    elif buckets.size == self._num_quantiles:
-      # Trim min only.
-      buckets = buckets[1:]
-    else:
-      # Do not trim min/max, these are part of requested boundaries.
-      pass
-
-    return [[buckets]]
-
-
-@with_input_types(List[np.ndarray])
-@with_output_types(List[Any])
-class _QuantilesAnalyzerImpl(beam.PTransform):
-  """Computes the quantile buckets in a PCollection of batches."""
-
-  def __init__(self, spec):
-    assert isinstance(spec, analyzers._QuantilesSpec)  # pylint: disable=protected-access
-    self._spec = spec
-
-  def expand(self, pcoll):
-    serialized_tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(
-        pcoll.pipeline.runner)
-    return (pcoll
-            | 'ComputeQuantiles' >> beam.CombineGlobally(
-                _ComputeQuantiles(
-                    num_quantiles=self._spec.num_buckets,
-                    epsilon=self._spec.epsilon,
-                    serialized_tf_config=serialized_tf_config)))
-
-
-@with_input_types(List[np.ndarray])
-@with_output_types(List[Any])
+@with_output_types(List[np.ndarray])
 class _CombineFnWrapper(beam.CombineFn):
   """Class to wrap a analyzers._CombinerSpec as a beam.CombineFn."""
 
-  def __init__(self, spec):
+  def __init__(self, spec, serialized_tf_config):
+    if isinstance(spec, analyzers._QuantilesCombinerSpec):  # pylint: disable=protected-access
+      spec.initialize_local_state(
+          common._maybe_deserialize_tf_config(serialized_tf_config))  # pylint: disable=protected-access
     self._spec = spec
+    self._serialized_tf_config = serialized_tf_config
+
+  def __reduce__(self):
+    return _CombineFnWrapper, (self._spec, self._serialized_tf_config)
 
   def create_accumulator(self):
     return self._spec.create_accumulator()
@@ -363,3 +197,127 @@ class _CombineFnWrapper(beam.CombineFn):
 
   def extract_output(self, accumulator):
     return self._spec.extract_output(accumulator)
+
+
+def _split_inputs_by_key(batch_values):
+  """Takes inputs where first input is a key, and returns (key, value) pairs.
+
+  Takes inputs of the form (key, arg0, ..., arg{N-1}) where `key` is a vector
+  and arg0, ..., arg{N-1} have dimension >1 with size in the first dimension
+  matching `key`.
+
+  It yields pairs of the form
+
+  (key[i], [arg0[i], ..., arg{N-1}[i]])
+
+  for 0 < i < len(key).
+
+  Args:
+    batch_values: A list of ndarrays representing the input from a batch.
+
+  Yields:
+    (key, args) pairs where key is a string and args is a list of ndarrays.
+
+  Raises:
+    ValueError: if inputs do not have correct sizes.
+  """
+  keys = batch_values[0]
+  if keys.ndim != 1:
+    raise ValueError(
+        'keys for CombinePerKey should have rank 1, got shape {}'.format(
+            keys.shape))
+  for arg_index, arg_values in enumerate(batch_values[1:]):
+    if arg_values.ndim < 1:
+      raise ValueError(
+          'Argument {} for CombinePerKey should have rank >=1, '
+          'got shape {}'.format(arg_index, arg_values.shape))
+    if arg_values.shape[0] != keys.shape[0]:
+      raise ValueError(
+          'Argument {} had shape {} whose first dimension was not equal to the '
+          'size of the keys vector ({})'.format(
+              arg_index, arg_values.shape, keys.shape[0]))
+
+  for instance_index, key in enumerate(keys):
+    instance_args = [arg_values[instance_index]
+                     for arg_values in batch_values[1:]]
+    yield (key, instance_args)
+
+
+def _merge_outputs_by_key(keys_and_outputs):
+  """Merge outputs of analyzers per key into a single output.
+
+  Takes a list of elements of the form (key, [output0, ..., output{N-1}]) and
+  returns a list of ndarrays of the form [keys, outputs0, ..., outputs[{N-1}]]
+  where keys is formed by stacking the values of `key` from the list and
+  similarly outputs{k} is formed by stacking the individual elements of
+  output{k} from the list.
+
+  For each k, output{k} must be an ndarray whose size is the same for each
+  element of the list.
+
+  Args:
+    keys_and_outputs: a list of elements of the form
+      (key, [output0, ..., output{N-1}])
+
+  Returns:
+    A list of ndarrays of the form [keys, outputs0, ..., outputs[{N-1}]]
+  """
+  # Sort keys_and_outputs by keys.
+  keys_and_outputs.sort(key=lambda x: x[0])
+  # Convert from a list of pairs of the form (key, outputs_for_key) to a list of
+  # keys and a list of outputs (where the outer dimension is the number of
+  # outputs not the number of keys).
+  key, outputs = zip(*keys_and_outputs)
+  outputs = zip(*outputs)
+  # key is a list of scalars so we use np.stack to convert a single array.
+  return ([np.stack(key, axis=0)] +
+          [np.stack(output, axis=0) for output in outputs])
+
+
+@with_input_types(List[np.ndarray])
+@with_output_types(List[np.ndarray])
+class _CombinerAnalyzerImpl(beam.PTransform):
+  """Implement an analyzer based on a CombinerSpec."""
+
+  def __init__(self, spec):
+    self._spec = spec
+
+  def expand(self, pcoll):
+    serialized_tf_config = None
+    # NOTE: Currently, all combiner specs except _QuantilesCombinerSpec
+    # require .with_defaults(False) to be set.
+    has_defaults = False
+
+    if isinstance(self._spec, analyzers._QuantilesCombinerSpec):  # pylint: disable=protected-access
+      serialized_tf_config = common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
+          pcoll.pipeline.runner)
+      has_defaults = True
+
+    return (
+        pcoll
+        | 'CombineGlobally' >> beam.CombineGlobally(_CombineFnWrapper(
+            self._spec, serialized_tf_config)).with_defaults(has_defaults))
+
+
+@with_input_types(List[np.ndarray])
+@with_output_types(List[np.ndarray])
+class _CombinePerKeyAnalyzerImpl(beam.PTransform):
+  """Implement an analyzer based on a _CombinePerKeySpec."""
+
+  def __init__(self, spec):
+    self._spec = spec.combiner_spec
+
+  def expand(self, pcoll):
+    serialized_tf_config = None
+
+    if isinstance(self._spec, analyzers._QuantilesCombinerSpec):  # pylint: disable=protected-access
+      serialized_tf_config = common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
+          pcoll.pipeline.runner)
+
+    return (
+        pcoll
+        | 'SplitByKey' >> beam.FlatMap(_split_inputs_by_key)
+        | 'CombinePerKey' >> beam.CombinePerKey(_CombineFnWrapper(
+            self._spec, serialized_tf_config))
+        | 'ToList' >> beam.combiners.ToList()
+        | 'MergeByKey' >> beam.Map(_merge_outputs_by_key))

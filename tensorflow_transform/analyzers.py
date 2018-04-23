@@ -28,17 +28,66 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import re
 
 import numpy as np
 import tensorflow as tf
+
+from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
+from tensorflow.python.ops import resources
 
 
 ANALYZER_COLLECTION = 'tft_analyzers'
 VOCAB_FILENAME_PREFIX = 'vocab_'
 VOCAB_FREQUENCY_FILENAME_PREFIX = 'vocab_frequency_'
 
+# Named tuple with details for each output of an Analyzer.
+_AnalyzerOutputInfo = collections.namedtuple(
+    'AnalyzerOutputInfo', ['name', 'is_asset'])
 
+# For some input types, widen the output type of sum analyzer to avoid overflow.
+_SUM_OUTPUT_DTYPE_MAP = {
+    tf.float16: tf.float32,
+    tf.float32: tf.float32,
+    tf.float64: tf.float64,
+    tf.int8: tf.int64,
+    tf.int16: tf.int64,
+    tf.int32: tf.int64,
+    tf.int64: tf.int64,
+    tf.uint8: tf.uint64,
+    tf.uint16: tf.uint64,
+    tf.uint32: tf.uint64,
+    tf.uint64: tf.uint64,
+}
+
+_MEAN_OUTPUT_DTYPE_MAP = {
+    tf.float16: tf.float16,
+    tf.float32: tf.float32,
+    tf.float64: tf.float64,
+    tf.int8: tf.float32,
+    tf.int16: tf.float32,
+    tf.int32: tf.float32,
+    tf.int64: tf.float32,
+    tf.uint8: tf.float32,
+    tf.uint16: tf.float32,
+    tf.uint32: tf.float32,
+    tf.uint64: tf.float32,
+}
+
+
+# NOTE: this code is designed so that Analyzer is pickleable, and in particular
+# does not try to pickle a tf.Graph or tf.Tensor which may not be pickleable.
+# This is due to https://issues.apache.org/jira/browse/BEAM-3812.  Until that
+# issue is fixed, anything that is a member variable of a Beam PTransform may
+# end up getting pickled.  Instances of Analyzer do end up as member variables
+# of a PTransform in our implementation of tf.Transform on Beam currently, so
+# we must avoid directly putting `Tensor`s inside `Analyzer`, and instead use
+# tensor names.
+#
+# Due to these pickling issues and also logical separation of TensorFlow and
+# numpy code, the spec should also not contain TensorFlow dtypes but rather
+# their numpy equivalent.
 class Analyzer(object):
   """An operation-like class for full-pass analyses of data.
 
@@ -68,9 +117,8 @@ class Analyzer(object):
     for tensor in inputs:
       if not isinstance(tensor, tf.Tensor):
         raise ValueError('Analyzers can only accept `Tensor`s as inputs')
-    self._inputs = inputs
-    self._outputs = []
-    self._output_is_asset_map = {}
+    self._input_tensor_names = [tensor.name for tensor in inputs]
+    self._output_infos = []
     with tf.name_scope(name) as scope:
       self._name = scope
       for dtype, shape, is_asset in output_dtype_shape_and_is_asset:
@@ -78,18 +126,28 @@ class Analyzer(object):
         if is_asset and output_tensor.dtype != tf.string:
           raise ValueError(('Tensor {} cannot represent an asset, because it '
                             'is not a string.').format(output_tensor.name))
-        self._outputs.append(output_tensor)
-        self._output_is_asset_map[output_tensor] = is_asset
+        self._output_infos.append(_AnalyzerOutputInfo(
+            output_tensor.name, is_asset))
     self._spec = spec
     tf.add_to_collection(ANALYZER_COLLECTION, self)
 
   @property
+  def input_tensor_names(self):
+    return self._input_tensor_names
+
+  @property
+  def output_infos(self):
+    return self._output_infos
+
+  @property
   def inputs(self):
-    return self._inputs
+    return [tf.get_default_graph().get_tensor_by_name(name)
+            for name in self._input_tensor_names]
 
   @property
   def outputs(self):
-    return self._outputs
+    return [tf.get_default_graph().get_tensor_by_name(output_info.name)
+            for output_info in self._output_infos]
 
   @property
   def spec(self):
@@ -98,9 +156,6 @@ class Analyzer(object):
   @property
   def name(self):
     return self._name
-
-  def output_is_asset(self, output_tensor):
-    return self._output_is_asset_map[output_tensor]
 
 
 class CombinerSpec(object):
@@ -143,11 +198,32 @@ class CombinerSpec(object):
     """Return result of converting accumulator into the output value.
 
     Args:
-      accumulator: the final accumulator value.  Should be a list of ndarrays.
+      accumulator: the final accumulator value.
 
     Returns: A list of ndarrays representing the result of this combiner.
     """
     raise NotImplementedError
+
+
+class _CombinePerKeySpec(object):
+  """A wrapper for per-key combining.
+
+  For private use in tf.Transform implemenation only.
+
+  All outputs returned by extract_output must be the same shape across keys so
+  they can be stacked.
+
+  Args:
+    combiner_spec: A `CombinerSpec` that will be used to reduce values for each
+        key.
+  """
+
+  def __init__(self, combiner_spec):
+    self._combiner_spec = combiner_spec
+
+  @property
+  def combiner_spec(self):
+    return self._combiner_spec
 
 
 def combine_analyzer(inputs, output_dtypes, output_shapes, combiner_spec, name):
@@ -156,7 +232,7 @@ def combine_analyzer(inputs, output_dtypes, output_shapes, combiner_spec, name):
   Args:
     inputs: A list of input `Tensor`s or `SparseTensor`s.
     output_dtypes: The list of dtypes of the output of the analyzer.
-    output_shapes: The list of dtypes of the output of the analyzer.  Must have
+    output_shapes: The list of shapes of the output of the analyzer.  Must have
       the same length as output_dtypes.
     combiner_spec: A subclass of CombinerSpec.
     name: Similar to a TF op name.  Used to define a unique scope for this
@@ -182,11 +258,18 @@ def combine_analyzer(inputs, output_dtypes, output_shapes, combiner_spec, name):
 
 
 class _NumPyCombinerSpec(CombinerSpec):
-  """Combines the PCollection only on the 0th dimension using nparray."""
+  """Combines the PCollection only on the 0th dimension using nparray.
 
-  def __init__(self, fn, reduce_instance_dims):
+  Args:
+    fn: The numpy function representing the reduction to be done.
+    reduce_instance_dims: Whether to reduce across non-batch dimensions.
+    output_dtypes: The numpy dtype to cast each output to.
+  """
+
+  def __init__(self, fn, reduce_instance_dims, output_dtypes):
     self._fn = fn
     self._reduce_instance_dims = reduce_instance_dims
+    self._output_dtypes = output_dtypes
 
   def create_accumulator(self):
     return None
@@ -213,10 +296,20 @@ class _NumPyCombinerSpec(CombinerSpec):
         for sub_accumulators in zip(*accumulators)]
 
   def extract_output(self, accumulator):
-    return accumulator
+    if accumulator is None:
+      return None
+    # For each output, cast that output to the specified type.  Note there will
+    # be one output for each input tensor to the analyzer.
+    return [sub_accumulator.astype(output_dtype)
+            for sub_accumulator, output_dtype
+            in zip(accumulator, self._output_dtypes)]
 
 
-def _numeric_combine(inputs, fn, reduce_instance_dims=True, name=None):
+def _numeric_combine(inputs,
+                     fn,
+                     reduce_instance_dims=True,
+                     name=None,
+                     output_dtypes=None):
   """Apply a reduction, defined by a numpy function to multiple inputs.
 
   Args:
@@ -227,6 +320,8 @@ def _numeric_combine(inputs, fn, reduce_instance_dims=True, name=None):
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
     name: (Optional) A name for this operation.
+    output_dtypes: (Optional) A list of dtypes of the output tensors. If None,
+        the output tensor has the same type as the input one.
 
   Returns:
      A list of tensors with the same length as `inputs`, representing the
@@ -237,6 +332,8 @@ def _numeric_combine(inputs, fn, reduce_instance_dims=True, name=None):
     if not isinstance(x, tf.Tensor):
       raise TypeError('Expected a Tensor, but got %r' % x)
 
+  if output_dtypes is None:
+    output_dtypes = [x.dtype for x in inputs]
   if reduce_instance_dims:
     # If reducing over all dimensions, result is scalar.
     shapes = [() for _ in inputs]
@@ -247,12 +344,10 @@ def _numeric_combine(inputs, fn, reduce_instance_dims=True, name=None):
     # shape.
     shapes = [x.shape.as_list()[1:] if x.shape.dims is not None else None
               for x in inputs]
-  return combine_analyzer(
-      inputs,
-      [x.dtype for x in inputs],
-      shapes,
-      _NumPyCombinerSpec(fn, reduce_instance_dims),
-      name if name is not None else fn.__name__)
+  spec = _NumPyCombinerSpec(fn, reduce_instance_dims,
+                            [dtype.as_numpy_dtype for dtype in output_dtypes])
+  return combine_analyzer(inputs, output_dtypes, shapes, spec, name
+                          if name is not None else fn.__name__)
 
 
 def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
@@ -295,20 +390,39 @@ def _min_and_max(x, reduce_instance_dims=True, name=None):  # pylint: disable=re
     return 0 - minus_x_min, x_max
 
 
+def _sum_combine_fn_and_dtype(input_dtype):
+  output_dtype = _SUM_OUTPUT_DTYPE_MAP.get(input_dtype)
+  if output_dtype is None:
+    raise TypeError('Tensor type %r is not supported' % input_dtype)
+
+  def sum_fn_with_dtype(a, axis=None):
+    return np.sum(a, axis=axis, dtype=output_dtype.as_numpy_dtype)
+
+  return output_dtype, sum_fn_with_dtype
+
+
 def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
   """Computes the sum of the values of a `Tensor` over the whole dataset.
 
   Args:
-    x: A `Tensor`.
+    x: A `Tensor`. Its type must be floating point (float{16|32|64}), or
+        integral ([u]int{8|16|32|64}).
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor`. Has the same type as `x`.
+    A `Tensor` containing the sum. If `x` is float32 or float64, the sum will
+    have the same type as `x`. If `x` is float16, the output is cast to float32.
+    If `x` is integral, the output is cast to [u]int64.
+
+  Raises:
+    TypeError: If the type of `x` is not supported.
   """
-  return _numeric_combine([x], np.sum, reduce_instance_dims, name)[0]
+  output_dtype, sum_fn = _sum_combine_fn_and_dtype(x.dtype)
+  return _numeric_combine([x], sum_fn, reduce_instance_dims, name,
+                          [output_dtype])[0]
 
 
 def size(x, reduce_instance_dims=True, name=None):
@@ -322,74 +436,91 @@ def size(x, reduce_instance_dims=True, name=None):
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor`. Has the same type as `x`.
+    A `Tensor` of type int64.
   """
   with tf.name_scope(name, 'size'):
     # Note: Calling `sum` defined in this module, not the builtin.
-    return sum(tf.ones_like(x), reduce_instance_dims)
+    return sum(tf.ones_like(x, dtype=tf.int64), reduce_instance_dims)
 
 
-def mean(x, reduce_instance_dims=True, name=None):
+def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
   """Computes the mean of the values of a `Tensor` over the whole dataset.
 
   Args:
-    x: A `Tensor`.
+    x: A `Tensor`. Its type must be floating point (float{16|32|64}), or
+        integral ([u]int{8|16|32|64}).
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
     name: (Optional) A name for this operation.
+    output_dtype: (Optional) If not None, casts the output tensor to this type.
 
   Returns:
-    A `Tensor` containing the mean. If `x` is floating point, the mean will
-    have the same type as `x`. If `x` is integral, the output is cast to float32
-    for int8 and int16 and float64 for int32 and int64 (similar to the behavior
-    of tf.truediv).
+    A `Tensor` containing the mean. If `x` is floating point, the mean will have
+    the same type as `x`. If `x` is integral, the output is cast to float32.
+
+  Raises:
+    TypeError: If the type of `x` is not supported.
   """
+  if output_dtype is None:
+    output_dtype = _MEAN_OUTPUT_DTYPE_MAP.get(x.dtype)
+    if output_dtype is None:
+      raise TypeError('Tensor type %r is not supported' % x.dtype)
+  sum_dtype, sum_fn = _sum_combine_fn_and_dtype(x.dtype)
   with tf.name_scope(name, 'mean'):
     # For now _numeric_combine will return a tuple with as many elements as the
     # input tuple.
     x_count, x_sum = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
-        [tf.ones_like(x), x], np.sum, reduce_instance_dims)
-    return tf.divide(x_sum, x_count)
+        [tf.ones_like(x), x],
+        sum_fn,
+        reduce_instance_dims,
+        output_dtypes=[sum_dtype, sum_dtype])
+    return tf.cast(tf.divide(x_sum, x_count), output_dtype)
 
 
-def var(x, reduce_instance_dims=True, name=None):
+def var(x, reduce_instance_dims=True, name=None, output_dtype=None):
   """Computes the variance of the values of a `Tensor` over the whole dataset.
 
   Uses the biased variance (0 delta degrees of freedom), as given by
   (x - mean(x))**2 / length(x).
 
   Args:
-    x: A `Tensor`.
+    x: A `Tensor`. Its type must be floating point (float{16|32|64}), or
+        integral ([u]int{8|16|32|64}).
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
     name: (Optional) A name for this operation.
+    output_dtype: (Optional) If not None, casts the output tensor to this type.
 
   Returns:
     A `Tensor` containing the variance. If `x` is floating point, the variance
     will have the same type as `x`. If `x` is integral, the output is cast to
-    float32 for int8 and int16 and float64 for int32 and int64 (similar to the
-    behavior of tf.truediv).
+    float32.
+
+  Raises:
+    TypeError: If the type of `x` is not supported.
   """
   with tf.name_scope(name, 'var'):
     # Note: Calling `mean`, `sum`, and `size` as defined in this module, not the
     # builtins.
-    x_mean = mean(x, reduce_instance_dims)
-    # x_mean will be float32 or float64, depending on type of x.
+    x_mean = mean(x, reduce_instance_dims, output_dtype=output_dtype)
+    # x_mean will be float16, float32, or float64, depending on type of x.
     squared_deviations = tf.square(tf.cast(x, x_mean.dtype) - x_mean)
-    return mean(squared_deviations, reduce_instance_dims)
+    return mean(
+        squared_deviations, reduce_instance_dims, output_dtype=output_dtype)
 
 
-def _mean_and_var(x, reduce_instance_dims=True, name=None):
+def _mean_and_var(x, reduce_instance_dims=True, name=None, output_dtype=None):
   """More efficient combined `mean` and `var`.  See `var`."""
   with tf.name_scope(name, 'mean_and_var'):
     # Note: Calling `mean`, `sum`, and `size` as defined in this module, not the
     # builtins.
-    x_mean = mean(x, reduce_instance_dims)
-    # x_mean will be float32 or float64, depending on type of x.
+    x_mean = mean(x, reduce_instance_dims, output_dtype=output_dtype)
+    # x_mean will be float16, float32, or float64, depending on type of x.
     squared_deviations = tf.square(tf.cast(x, x_mean.dtype) - x_mean)
-    x_var = mean(squared_deviations, reduce_instance_dims)
+    x_var = mean(
+        squared_deviations, reduce_instance_dims, output_dtype=output_dtype)
     return x_mean, x_var
 
 
@@ -538,24 +669,144 @@ def uniques(x, top_k=None, frequency_threshold=None,
     return Analyzer([x], [(tf.string, [], True)], spec, 'uniques').outputs[0]
 
 
-class _QuantilesSpec(object):
-  """Operation to compute quantile boundaries."""
+class _QuantilesCombinerSpec(CombinerSpec):
+  """Computes quantiles on the PCollection.
 
-  def __init__(self, epsilon, num_buckets):
+  This implementation is based on go/squawd.
+  For additional details on the algorithm, such as streaming and summary,
+  see also http://web.cs.ucla.edu/~weiwang/paper/SSDBM07_2.pdf
+  """
+
+  def __init__(self, num_quantiles, epsilon, bucket_numpy_dtype):
+    self._num_quantiles = num_quantiles
     self._epsilon = epsilon
-    self._num_buckets = num_buckets
+    self._bucket_numpy_dtype = bucket_numpy_dtype
 
-  @property
-  def epsilon(self):
-    return self._epsilon
+  def initialize_local_state(self, tf_config=None):
+    """Called by the CombineFnWrapper's __init__ method.
 
-  @property
-  def num_buckets(self):
-    return self._num_buckets
+    This can be used to set non-pickleable local state.  It is used in
+    conjunction with overriding __reduce__ so this state is not pickled.  This
+    method must be called prior to any other method.
 
-  @property
-  def bucket_dtype(self):
-    return tf.float32
+    Args:
+      tf_config: (optional) A tf.ConfigProto
+    """
+    # _stamp_token is used to commit the state of the qaccumulator. In
+    # this case, the qaccumulator state is completely returned and stored
+    # as part of quantile_state/summary in the combiner fn (i.e the summary is
+    # extracted and stored outside the qaccumulator). So we don't use
+    # the timestamp mechanism to signify progress in the qaccumulator state.
+    self._stamp_token = 0
+    # Represents an empty summary. This could be changed to a tf.constant
+    # implemented by the quantile ops library.
+    self._empty_summary = None
+
+    # Create a new session with a new graph for quantile ops.
+    self._session = tf.Session(graph=tf.Graph(), config=tf_config)
+    with self._session.graph.as_default():
+      with self._session.as_default():
+        self._qaccumulator = quantile_ops.QuantileAccumulator(
+            init_stamp_token=self._stamp_token,
+            num_quantiles=self._num_quantiles,
+            epsilon=self._epsilon,
+            name='qaccumulator')
+        resources.initialize_resources(resources.shared_resources()).run()
+
+  def __reduce__(self):
+    return _QuantilesCombinerSpec, (self._num_quantiles, self._epsilon,
+                                    self._bucket_numpy_dtype)
+
+  def create_accumulator(self):
+    return self._empty_summary
+
+  def add_input(self, summary, next_input):
+    # next_input is a list of tensors each one representing a batch for its
+    # respective input.  In this case we have a single input, which we reshape
+    # to (1,?).
+    flattened_input = np.reshape(next_input[0], newshape=(1, -1))
+
+    with self._session.graph.as_default():
+      update = self._qaccumulator.add_summary(
+          stamp_token=self._stamp_token,
+          column=flattened_input,
+          # All weights are equal, and the weight vector is the
+          # same length as the input.
+          example_weights=np.ones_like(flattened_input))
+
+      if summary is not self._empty_summary:
+        self._session.run(
+            self._qaccumulator.add_prebuilt_summary(
+                stamp_token=self._stamp_token,
+                summary=tf.constant(summary)))
+
+      self._session.run(update)
+
+      # After the flush_summary, qaccumulator will not contain any
+      # uncommitted information that represents the input. Instead all the
+      # digested information is returned as 'summary'. Many such summaries
+      # will be combined by merge_accumulators().
+      return self._session.run(
+          self._qaccumulator.flush_summary(
+              stamp_token=self._stamp_token,
+              next_stamp_token=self._stamp_token))
+
+  def merge_accumulators(self, summaries):
+    if summaries is self._empty_summary:
+      return self._empty_summary
+
+    with self._session.graph.as_default():
+      summary_placeholder = tf.placeholder(tf.string)
+      add_summary = self._qaccumulator.add_prebuilt_summary(
+          stamp_token=self._stamp_token,
+          summary=summary_placeholder)
+      for summary in summaries:
+        self._session.run(add_summary, {summary_placeholder: summary})
+
+      # Compute new summary.
+      # All relevant state about the input is captured by 'summary'
+      # (see comment at the end of add_input()).
+      return self._session.run(
+          self._qaccumulator.flush_summary(
+              stamp_token=self._stamp_token,
+              next_stamp_token=self._stamp_token))
+
+  def extract_output(self, summary):
+    if summary is self._empty_summary:
+      return [np.empty(shape=(0,), dtype=self._bucket_numpy_dtype)]
+
+    # All relevant state about the input is captured by 'summary'
+    # (see comment in add_input() and merge_accumulators()).
+    with self._session.graph.as_default():
+      self._session.run(
+          self._qaccumulator.add_prebuilt_summary(
+              stamp_token=self._stamp_token, summary=tf.constant(summary)))
+      self._session.run(
+          self._qaccumulator.flush(
+              stamp_token=self._stamp_token,
+              next_stamp_token=self._stamp_token))
+      are_ready_flush, buckets = (
+          self._qaccumulator.get_buckets(stamp_token=self._stamp_token))
+      buckets, _ = self._session.run([buckets, are_ready_flush])
+
+    # Quantile boundaries is a list of the form
+    #    [np.ndarrary(min, <internal-boundaries>, max)]
+    # The approximate quantile library can return less or more than requested
+    # number of buckets. The max value can be same as the last internal
+    # boundary, due to removal of duplicates.
+    # Below, the min and/or max quantile boundaries are trimmed depending
+    # on the actual boundaries returned by the library.
+    if buckets.size >= (self._num_quantiles + 1):
+      # Trim min/max.
+      buckets = buckets[1:-1]
+    elif buckets.size == self._num_quantiles:
+      # Trim min only.
+      buckets = buckets[1:]
+    else:
+      # Do not trim min/max, these are part of requested boundaries.
+      pass
+
+    return [buckets]
 
 
 def quantiles(x, num_buckets, epsilon, name=None):
@@ -567,7 +818,7 @@ def quantiles(x, num_buckets, epsilon, name=None):
   See go/squawd for details, and how to control the error due to approximation.
 
   Args:
-    x: An input `Tensor` or `SparseTensor`.
+    x: An input `Tensor`.
     num_buckets: Values in the `x` are divided into approximately
       equal-sized buckets, where the number of buckets is num_buckets.
       This is a hint. The actual number of buckets computed can be
@@ -591,27 +842,58 @@ def quantiles(x, num_buckets, epsilon, name=None):
 
   Returns:
     The bucket boundaries represented as a list, with num_bucket-1 elements
-    See bucket_dtype() above for type of bucket boundaries.
+    See code below for discussion on the type of bucket boundaries.
   """
 
   with tf.name_scope(name, 'quantiles'):
-    spec = _QuantilesSpec(epsilon, num_buckets)
-    quantile_boundaries = Analyzer(
-        [x], [(spec.bucket_dtype, [1, None], False)], spec,
-        'quantiles').outputs[0]
+    bucket_dtype = tf.float32
+    combiner_spec = _QuantilesCombinerSpec(num_buckets, epsilon,
+                                           bucket_dtype.as_numpy_dtype)
+    quantile_boundaries = combine_analyzer(
+        [x], [bucket_dtype], [(None,)], combiner_spec, 'quantiles')[0]
+    return tf.expand_dims(quantile_boundaries, axis=0)
 
-    # The Analyzer returns a 2d matrix of 1*num_buckets.  Below, we remove
-    # the first dimension and return the boundaries as a simple 1d list.
-    return quantile_boundaries[0:1]
+
+def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
+  """Like quantiles but per-key.
+
+  For private use in tf.Transform implemenation only.
+
+  Args:
+    x: An input `Tensor`.
+    key: An input `Tensor` with rank 1 and size same as the fist dimension of
+      `x`.  All values of `x` will be aggregated according to the corresponding
+      value of `key`.
+    num_buckets: See `quantiles`.
+    epsilon: See `quantiles`.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    A pair (key_vocab, quantiles) where `key_vocab` is a sorted vocabulary of
+    all elements in the input `key` and `quantiles` is a rank 2 tensor
+    containing quantile boundaries for each key, where boundaries are for the
+    corresponding element of `key_vocab`.
+
+  Raises:
+    ValueError: If key has wrong dtype.
+  """
+  with tf.name_scope(name, 'quantiles_by_key'):
+    if key.dtype != tf.string:
+      raise ValueError('key must have type tf.string')
+    bucket_dtype = tf.float32
+    combiner_spec = _CombinePerKeySpec(
+        _QuantilesCombinerSpec(num_buckets, epsilon,
+                               bucket_dtype.as_numpy_dtype))
+    return combine_analyzer([key, x], [tf.string, bucket_dtype],
+                            [(None,), (None, None)], combiner_spec, 'quantiles')
 
 
 class _CovarianceCombinerSpec(CombinerSpec):
   """Combines the PCollection to compute the biased covariance matrix."""
 
-  def __init__(self, dtype=tf.float64):
+  def __init__(self, numpy_dtype=np.float64):
     """Store the dtype for np arrays/matrices for precision."""
-    self._output_dtype = dtype
-    self._np_dtype = dtype.as_numpy_dtype
+    self._numpy_dtype = numpy_dtype
 
   def create_accumulator(self):
     """Create an accumulator with all zero entries."""
@@ -644,9 +926,9 @@ class _CovarianceCombinerSpec(CombinerSpec):
     batch_cross_terms = np.matmul(
         np.transpose(batch_value),
         batch_value
-    ).astype(self._np_dtype)
+    ).astype(self._numpy_dtype)
 
-    batch_sum = np.array(np.sum(batch_value, axis=0), self._np_dtype)
+    batch_sum = np.array(np.sum(batch_value, axis=0), self._numpy_dtype)
     batch_count = np.shape(batch_value)[0]
 
     if accumulator is None:
@@ -659,10 +941,12 @@ class _CovarianceCombinerSpec(CombinerSpec):
 
   def merge_accumulators(self, accumulators):
     """Sums values in each accumulator entry."""
+    # Convert `accumulators` to list (it may be an arbitrary iterator) so it can
+    # be iterated over multiple times.
+    accumulators = list(accumulators)
     # Because each accumulator contains multiple arrays of different dimensions,
     # the np.sum operation must be explicitly used across the entries within
     # each accumulator. np.sum(list(accumulators)) does not work.
-
     sum_product = np.sum(
         [accumulator[0] for accumulator in accumulators], axis=0)
     sum_vectors = np.sum(
@@ -706,7 +990,7 @@ def covariance(x, dtype, name=None):
   Args:
     x: A rank-2 `Tensor`, 0th dim are rows, 1st dim are indices in each input
     vector.
-    dtype: numpy dtype of entries in the returned matrix.
+    dtype: Tensorflow dtype of entries in the returned matrix.
     name: (Optional) A name for this operation.
 
   Raises:
@@ -724,7 +1008,7 @@ def covariance(x, dtype, name=None):
   input_dim = x.shape.as_list()[1]
   shape = (input_dim, input_dim)
 
-  spec = _CovarianceCombinerSpec(dtype)
+  spec = _CovarianceCombinerSpec(dtype.as_numpy_dtype)
   return combine_analyzer(
       [x], [dtype], [shape], spec,
       name if name is not None else 'covariance')[0]
@@ -732,9 +1016,9 @@ def covariance(x, dtype, name=None):
 
 class _PCACombinerSpec(_CovarianceCombinerSpec):
 
-  def __init__(self, output_dim=None, dtype=tf.float64):
+  def __init__(self, output_dim=None, numpy_dtype=np.float64):
     """Store pca output dimension, and dtype for precision."""
-    super(_PCACombinerSpec, self).__init__(dtype=dtype)
+    super(_PCACombinerSpec, self).__init__(numpy_dtype=numpy_dtype)
     self._output_dim = output_dim
 
   def extract_output(self, accumulator):
@@ -825,7 +1109,7 @@ def pca(x, output_dim, dtype, name=None):
   Args:
     x: A rank-2 `Tensor`, 0th dim are rows, 1st dim are indices in row vectors.
     output_dim: The PCA output dimension (number of eigenvectors to return).
-    dtype: numpy dtype of entries in the returned matrix.
+    dtype: Tensorflow dtype of entries in the returned matrix.
     name: (Optional) A name for this operation.
 
   Raises:
@@ -843,7 +1127,7 @@ def pca(x, output_dim, dtype, name=None):
   input_dim = x.shape.as_list()[1]
   shape = (input_dim, output_dim)
 
-  spec = _PCACombinerSpec(output_dim, dtype)
+  spec = _PCACombinerSpec(output_dim, dtype.as_numpy_dtype)
   return combine_analyzer(
       [x], [dtype], [shape], spec,
       name if name is not None else 'pca')[0]

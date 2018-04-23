@@ -3,16 +3,34 @@
 ## Major Features and Improvements
 
 ## Bug Fixes and Other Changes
-* Trim min/max value in `tft.bucketize where the computed number of bucket
-  boundaries is more than requested.  Updated documentation to
-  clearly indicate that the number of buckets is computed using approximate
-  algorithms, and that computed number can be more or less than requested.
-* Change the namespace used for Beam metrics from `tensorflow_transform` to
-  `tfx.Transform`.
-* Export all required names from top level module, so only one import is needed
-  in user code.
+* Change `tft.sum`/`tft.mean`/`tft.var` to only support basic numeric types.
+* Widen the output type of `tft.sum` for some input types to avoid overflow
+  and/or to preserve precision.
+* For int32 and int64 input types, change the output type of `tft.mean`/
+  `tft.var`/`tft.scale_to_z_score` from float64 to float32 .
+* Change the output type of `tft.size` to be always int64.
 
 ## Breaking changes
+
+## Deprecations
+
+# Release 0.6.0
+
+## Major Features and Improvements
+
+## Bug Fixes and Other Changes
+* Depends on `apache-beam[gcp]>=2.4,<3`.
+* Trim min/max value in `tft.bucketize` where the computed number of bucket
+  boundaries is more than requested. Updated documentation to clearly indicate
+  that the number of buckets is computed using approximate algorithms, and that
+  computed number can be more or less than requested.
+* Change the namespace used for Beam metrics from `tensorflow_transform` to
+  `tfx.Transform`.
+* Update Beam metrics to also log vocabulary sizes.
+* `CsvCoder` updated to support unicode.
+
+## Breaking changes
+* Requires pre-installed TensorFlow >=1.6,<2.
 
 ## Deprecations
 

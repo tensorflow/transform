@@ -96,8 +96,6 @@ from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
-_METRICS_NAMESPACE = 'tfx.Transform'
-
 _DATASET_ELEMENT_TYPE = Dict[str, Union[common.PRIMITIVE_TYPE,
                                         # Arbitrarily-nested lists are allowed.
                                         List[Any], np.generic, np.ndarray]]
@@ -131,10 +129,6 @@ class Context(object):
   Note that the temp dir should be accessible to worker jobs, e.g. if running
   with the Cloud Dataflow runner, the temp dir should be on GCS and should have
   permissions that allow both launcher and workers to access it.
-
-  When running on Cloud Dataflow, the temp dir should also be in a regional
-  bucket, as only regional buckets provide the consistency guarantees required
-  by tf.Transform.  This requirement will be removed in later versions.
   """
 
   _State = collections.namedtuple(  # pylint: disable=invalid-name
@@ -282,11 +276,11 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
     # Metrics.
     self._graph_load_seconds_distribution = beam.metrics.Metrics.distribution(
-        _METRICS_NAMESPACE, 'graph_load_seconds')
+        common.METRICS_NAMESPACE, 'graph_load_seconds')
     self._batch_size_distribution = beam.metrics.Metrics.distribution(
-        _METRICS_NAMESPACE, 'batch_size')
-    self._num_instances = beam.metrics.Metrics.counter(_METRICS_NAMESPACE,
-                                                       'num_instances')
+        common.METRICS_NAMESPACE, 'batch_size')
+    self._num_instances = beam.metrics.Metrics.counter(
+        common.METRICS_NAMESPACE, 'num_instances')
 
   def _handle_batch(self, batch):
     self._batch_size_distribution.update(len(batch))
@@ -305,7 +299,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
   def _make_graph_state(self, saved_model_dir):
     start = datetime.datetime.now()
-    tf_config = analyzer_impls._maybe_deserialize_tf_config(  # pylint: disable=protected-access
+    tf_config = common._maybe_deserialize_tf_config(  # pylint: disable=protected-access
         self._serialized_tf_config)
     result = self._GraphState(saved_model_dir, self._input_schema,
                               self._exclude_outputs, tf_config)
@@ -344,9 +338,9 @@ class _RunMetaGraphDoFn(beam.DoFn):
 def _assert_tensorflow_version():
   # Fail with a clear error in case we are not using a compatible TF version.
   major, minor, _ = tf.__version__.split('.')
-  if int(major) != 1 or int(minor) < 5:
+  if int(major) != 1 or int(minor) < 6:
     raise RuntimeError(
-        'TensorFlow version >= 1.5, < 2 is required. Found (%s). Please '
+        'TensorFlow version >= 1.6, < 2 is required. Found (%s). Please '
         'install the latest 1.x version from '
         'https://github.com/tensorflow/tensorflow. ' % tf.__version__)
 
@@ -507,8 +501,8 @@ class _ComputeAnalyzerOutputs(beam.PTransform):
 
   def expand(self, analyzer_input_values):
 
-    def extract_and_wrap_as_tensor_value(outputs, index, numpy_dtype, is_asset):
-      return _TensorValue(np.asarray(outputs[index], numpy_dtype), is_asset)
+    def extract_and_wrap_as_tensor_value(outputs, index, is_asset):
+      return _TensorValue(outputs[index], is_asset)
 
     # For each analyzer output, look up its input values (by tensor name)
     # and run the analyzer on these values.
@@ -520,18 +514,16 @@ class _ComputeAnalyzerOutputs(beam.PTransform):
           analyzer_input_values
           | 'ExtractInputs[%s]' % analyzer.name >> beam.Map(
               lambda batch, keys: [batch[key] for key in keys],
-              keys=[tensor.name for tensor in analyzer.inputs])
+              keys=analyzer.input_tensor_names)
           | 'Analyze[%s]' % analyzer.name >> analyzer_impls._AnalyzerImpl(
               analyzer.spec, temp_assets_dir))
       # pylint: enable=protected-access
 
-      for index, tensor in enumerate(analyzer.outputs):
-        is_asset = analyzer.output_is_asset(tensor)
+      for index, (name, is_asset) in enumerate(analyzer.output_infos):
         wrapped_output = outputs_pcoll | (
-            'ExtractAndWrapAsTensorValue[%s][%d]' % (analyzer.name, index) >>
-            beam.Map(extract_and_wrap_as_tensor_value, index,
-                     tensor.dtype.as_numpy_dtype, is_asset))
-        result[tensor.name] = wrapped_output
+            'ExtractAndWrapAsTensorValue[%s][%d]' % (name, index) >>
+            beam.Map(extract_and_wrap_as_tensor_value, index, is_asset))
+        result[name] = wrapped_output
     return result
 
 
@@ -706,7 +698,7 @@ class AnalyzeDataset(beam.PTransform):
       del table_initializers[:]
 
       serialized_tf_config = (
-          analyzer_impls._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
+          common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
               input_values.pipeline.runner))
       for level, phase in enumerate(phases):
         # Create a SavedModel that describes the mapping from the input data
@@ -910,7 +902,7 @@ class TransformDataset(beam.PTransform):
       return impl_helper.to_instance_dicts(output_metadata.schema, batch_dict)
 
     serialized_tf_config = (
-        analyzer_impls._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
+        common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
             self.pipeline.runner))
     output_instances = (
         input_values

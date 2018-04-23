@@ -147,13 +147,14 @@ def _partially_apply_saved_transform_impl(
   current_assets = graph.get_collection(tf.GraphKeys.ASSET_FILEPATHS)
 
   # Warn user if meta_graph_def has saved variables
-  trainable_vars = meta_graph_def.collection_def[
-      tf.GraphKeys.TRAINABLE_VARIABLES].bytes_list.value
-  if trainable_vars:
-    raise ValueError(
-        'The SavedModel contained trainable variables {}.  Because this '
-        'function is typically called in the input_fn, trainable variables '
-        'are disallowed'.format(trainable_vars))
+  if tf.GraphKeys.TRAINABLE_VARIABLES in meta_graph_def.collection_def:
+    trainable_vars = meta_graph_def.collection_def[
+        tf.GraphKeys.TRAINABLE_VARIABLES].bytes_list.value
+    if trainable_vars:
+      raise ValueError(
+          'The SavedModel contained trainable variables {}.  Because this '
+          'function is typically called in the input_fn, trainable variables '
+          'are disallowed'.format(trainable_vars))
 
   # Load the transform graph, applying it to existing Tensors via input_map.
   # Throws ValueError if the input_map gives mismatched types or shapes.
