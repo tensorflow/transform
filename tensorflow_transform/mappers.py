@@ -117,8 +117,10 @@ def scale_to_z_score(x, elementwise=False, name=None):
     # x_mean will be float32 or float64, depending on type of x.
     x_mean, x_var = analyzers._mean_and_var(  # pylint: disable=protected-access
         x, reduce_instance_dims=not elementwise)
-    return tf.cond(x_var>0, lambda: (tf.cast(x, x_mean.dtype) - x_mean) / tf.sqrt(x_var), lambda: (tf.cast(x, x_mean.dtype) - x_mean))
-
+    numerator = tf.cast(x, x_mean.dtype) - x_mean
+    denominator = tf.sqrt(x_var)
+    return tf.where(denominator != 0, numerator / denominator, numerator)
+    
 
 def tfidf(x, vocab_size, smooth=True, name=None):
   """Maps the terms in x to their term frequency * inverse document frequency.
