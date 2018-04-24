@@ -165,8 +165,9 @@ def create_transform_fn(train_data_file, working_dir):
 
 
 def file_decode_csv(line):
-  columns_default_values = [[0.0], ["4"], [0.0], [0.0], [0.0], [0.0], ["70"],
-                            ["1"], ["<unkown>"]]
+  columns_default_values = [
+      [0.0] if key in NUMERIC_FEATURE_KEYS or key == LABEL_KEY else [''] for key
+      in ordered_columns]
 
   parsed_line = tf.decode_csv(line, columns_default_values)
   features = parsed_line
