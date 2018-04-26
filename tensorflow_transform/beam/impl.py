@@ -66,6 +66,7 @@ entrypoints into our code where this happens and creating a
 """
 
 import collections
+import copy
 import datetime
 import os
 import threading
@@ -125,6 +126,12 @@ class Context(object):
     temp_dir: (Optional) The temporary directory used within in this block.
     desired_batch_size: (Optional) A batch size to batch elements by. If not
         provided, a batch size will be computed automatically.
+    passthrough_keys: (Optional) A set of strings that are keys to
+        instances that should pass through the pipeline and be hidden from
+        the preprocessing_fn. This should only be used in cases where additional
+        information should be attached to instances in the pipeline which should
+        not be part of the transformation graph, instance keys is one such
+        example.
 
   Note that the temp dir should be accessible to worker jobs, e.g. if running
   with the Cloud Dataflow runner, the temp dir should be on GCS and should have
@@ -132,7 +139,11 @@ class Context(object):
   """
 
   _State = collections.namedtuple(  # pylint: disable=invalid-name
-      '_State', ['temp_dir', 'desired_batch_size'])
+      '_State', [
+          'temp_dir',
+          'desired_batch_size',
+          'passthrough_keys',
+      ])
 
   class _StateStack(object):
     """Stack of states for this context manager (found in thread-local storage).
@@ -145,14 +156,18 @@ class Context(object):
 
   _thread_local = threading.local()
 
-  def __init__(self, temp_dir=None, desired_batch_size=None):
+  def __init__(self,
+               temp_dir=None,
+               desired_batch_size=None,
+               passthrough_keys=None):
     state = getattr(self._thread_local, 'state', None)
     if not state:
       self._thread_local.state = self._StateStack()
-      self._thread_local.state.frames.append(self._State(None, None))
+      self._thread_local.state.frames.append(self._State(None, None, None))
 
     self._temp_dir = temp_dir
     self._desired_batch_size = desired_batch_size
+    self._passthrough_keys = passthrough_keys
 
   def __enter__(self):
     # Previous State's properties are inherited if not explicitly specified.
@@ -163,7 +178,10 @@ class Context(object):
             if self._temp_dir is not None else last_frame.temp_dir,
             desired_batch_size=self._desired_batch_size
             if self._desired_batch_size is not None else
-            last_frame.desired_batch_size))
+            last_frame.desired_batch_size,
+            passthrough_keys=self._passthrough_keys
+            if self._passthrough_keys is not None else
+            last_frame.passthrough_keys))
 
   def __exit__(self, *exn_info):
     self._thread_local.state.frames.pop()
@@ -197,6 +215,14 @@ class Context(object):
       return state.desired_batch_size
     return None
 
+  @classmethod
+  def get_passthrough_keys(cls):
+    """Retrieves a user set passthrough_keys, None if not set."""
+    state = cls._get_topmost_state_frame()
+    if state is not None and state.passthrough_keys is not None:
+      return state.passthrough_keys
+    return set()
+
 
 @beam.ptransform_fn
 @with_input_types(_DATASET_ELEMENT_TYPE)
@@ -226,6 +252,8 @@ class _RunMetaGraphDoFn(beam.DoFn):
     shared_graph_state_handle: an instance of shared.Shared() that allows us to
       load the graph once and share it across multiple threads in the current
       process.
+    passthrough_keys: A set of strings that are keys to instances that
+      should pass through the pipeline and be hidden from the preprocessing_fn.
     exclude_outputs: (Optional) A list of names of outputs to exclude.
   """
 
@@ -262,12 +290,19 @@ class _RunMetaGraphDoFn(beam.DoFn):
                input_schema,
                serialized_tf_config,
                shared_graph_state_handle,
+               passthrough_keys,
                exclude_outputs=None):
     super(_RunMetaGraphDoFn, self).__init__()
     self._input_schema = input_schema
     self._exclude_outputs = (
         exclude_outputs if exclude_outputs is not None else [])
     self._serialized_tf_config = serialized_tf_config
+    self._passthrough_keys = set(passthrough_keys)
+    schema_keys = set(input_schema.column_schemas.keys())
+    if self._passthrough_keys - schema_keys != self._passthrough_keys:
+      raise ValueError(
+          'passthrough_keys overlap with schema keys: {}, {}'.format(
+              self._passthrough_keys, schema_keys))
 
     # The shared graph state handle allows us to load the graph once and share
     # it across multiple threads in the current process.
@@ -286,16 +321,31 @@ class _RunMetaGraphDoFn(beam.DoFn):
     self._batch_size_distribution.update(len(batch))
     self._num_instances.inc(len(batch))
 
+    # Making a copy of batch because mutating PCollection elements is not
+    # allowed.
+    if self._passthrough_keys:
+      batch = [copy.copy(x) for x in batch]
+    # Extract passthrough data.
+    passthrough_data = {
+        key: [instance.pop(key) for instance in batch
+             ] for key in self._passthrough_keys
+    }
+
     feed_dict = impl_helper.make_feed_dict(self._graph_state.inputs,
                                            self._input_schema, batch)
 
     try:
-      return self._graph_state.session.run(
+      result = self._graph_state.session.run(
           self._graph_state.outputs, feed_dict=feed_dict)
     except Exception as e:
       tf.logging.error('%s while applying transform function for tensors %s' %
                        (e, self._graph_state.outputs))
       raise
+
+    for key, value in six.iteritems(passthrough_data):
+      result[key] = value
+
+    return result
 
   def _make_graph_state(self, saved_model_dir):
     start = datetime.datetime.now()
@@ -374,6 +424,34 @@ def _write_saved_transform(graph, inputs, outputs, saved_model_dir):
         session, inputs, outputs, saved_model_dir)
     for collection_name, collection in removed_collections:
       graph.get_collection_ref(collection_name).extend(collection)
+
+
+def _convert_and_unbatch_to_instance_dicts(batch_dict, schema,
+                                           passthrough_keys):
+  """Convert batches of ndarrays to unbatched instance dicts."""
+
+  # Making a copy of batch_dict because mutating PCollection elements is not
+  # allowed.
+  if passthrough_keys:
+    batch_dict = copy.copy(batch_dict)
+  passthrough_data = {key: batch_dict.pop(key) for key in passthrough_keys}
+
+  result = impl_helper.to_instance_dicts(schema, batch_dict)
+
+  for key, data in six.iteritems(passthrough_data):
+    data_set = set(data)
+    if len(data_set) == 1:
+      # Relaxing ValueError below to only trigger in case pass-through data
+      # has more than one value.
+      data = (data_set.pop(),) * len(result)
+    if len(data) != len(result):
+      raise ValueError(
+          'Cannot pass-through data when input and output batch sizes '
+          'are different ({} vs. {})'.format(len(data), len(result)))
+    for instance, instance_data in zip(result, data):
+      instance[key] = instance_data
+
+  return result
 
 
 # An object used to construct a constant tensor in the graph, that will replace
@@ -729,7 +807,8 @@ class AnalyzeDataset(beam.PTransform):
                 _RunMetaGraphDoFn(
                     input_schema,
                     serialized_tf_config,
-                    shared_graph_state_handle=shared.Shared()),
+                    shared_graph_state_handle=shared.Shared(),
+                    passthrough_keys=Context.get_passthrough_keys()),
                 saved_model_dir=beam.pvalue.AsSingleton(saved_model_dir)))
 
         # Compute the analyzers from their inputs.  `analyzer_outputs_dict` is a
@@ -898,12 +977,10 @@ class TransformDataset(beam.PTransform):
                 if key not in self._exclude_outputs
             }))
 
-    def convert_and_unbatch(batch_dict):
-      return impl_helper.to_instance_dicts(output_metadata.schema, batch_dict)
-
     serialized_tf_config = (
         common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
             self.pipeline.runner))
+
     output_instances = (
         input_values
         | 'Batch' >> _BatchElements()
@@ -912,9 +989,13 @@ class TransformDataset(beam.PTransform):
                 input_metadata.schema,
                 serialized_tf_config,
                 shared_graph_state_handle=shared.Shared(),
+                passthrough_keys=Context.get_passthrough_keys(),
                 exclude_outputs=self._exclude_outputs),
             saved_model_dir=beam.pvalue.AsSingleton(transform_fn))
-        | 'ConvertAndUnbatch' >> beam.FlatMap(convert_and_unbatch))
+        | 'ConvertAndUnbatch' >> beam.FlatMap(
+            _convert_and_unbatch_to_instance_dicts,
+            schema=output_metadata.schema,
+            passthrough_keys=Context.get_passthrough_keys()))
 
     _clear_shared_state_after_barrier(self.pipeline, output_instances)
 

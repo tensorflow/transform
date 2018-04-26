@@ -1676,13 +1676,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
             sch.IntDomain(tf.int64, 0, 5, True, 'my_vocab'),
             [], sch.FixedColumnRepresentation())
     })
-    expected_asset_file_contents = {
+    expected_vocab_file_contents = {
         'my_vocab': ['hello\n', 'world\n', 'goodbye\n', 'aaaaa\n', ' \n']
     }
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn_oov, expected_data,
         expected_metadata,
-        expected_asset_file_contents=expected_asset_file_contents)
+        expected_vocab_file_contents=expected_vocab_file_contents)
 
   def testCreateApplyVocab(self):
     input_data = [
@@ -2196,17 +2196,21 @@ class BeamImplTest(tft_unit.TransformTestCase):
             tf.float32, [10], sch.SparseColumnRepresentation(
                 'val_copy', [sch.SparseIndexField('idx_copy', False)])),
         'z': sch.ColumnSchema(
-            tf.float32, [None], sch.ListColumnRepresentation())
+            tf.float32, [None], sch.ListColumnRepresentation()),
     })
     data = [
-        {'x': 4, 'y': ([0, 1], [0., 1.]), 'z': [2., 4., 6.]},
-        {'x': 1, 'y': ([2, 3], [2., 3.]), 'z': [8.]},
-        {'x': 5, 'y': ([4, 5], [4., 5.]), 'z': [1., 2., 3.]}
+        {'x': 4, 'y': ([0, 1], [0., 1.]), 'z': [2., 4., 6.], 'P': 17},
+        {'x': 1, 'y': ([2, 3], [2., 3.]), 'z': [8.], 'P': 17},
+        {'x': 5, 'y': ([4, 5], [4., 5.]), 'z': [1., 2., 3.], 'P': 17},
     ]
-    with beam_impl.Context(temp_dir=self.get_temp_dir()):
-      _, transform_fn = (
+    with beam_impl.Context(temp_dir=self.get_temp_dir(),
+                           passthrough_keys={'P'}):
+      (transformed_dataset, _), transform_fn = (
           (data, metadata)
           | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
+
+    self.assertTrue(
+        all(instance['P'] == 17 for instance in transformed_dataset))
 
     export_dir = os.path.join(self.get_temp_dir(), 'export')
     _ = transform_fn | transform_fn_io.WriteTransformFn(export_dir)
@@ -2227,7 +2231,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           z: tf.SparseTensorValue(
               indices=[[0, 1], [0, 2], [4, 10]],
               values=[1., 2., 3.],
-              dense_shape=[4, 10])
+              dense_shape=[4, 10]),
       }
 
       sess = tf.Session()
@@ -2240,7 +2244,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'z_copy': tf.SparseTensorValue(
               indices=[[0, 1], [0, 2], [4, 10]],
               values=[1., 2., 3.],
-              dense_shape=[4, 10])
+              dense_shape=[4, 10]),
       }
       self.assertDataCloseOrEqual([expected_transformed_data], [result])
 

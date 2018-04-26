@@ -24,6 +24,7 @@ import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
 
 import tensorflow as tf
+import tensorflow_transform as tft
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform.tf_metadata import dataset_metadata
@@ -67,9 +68,10 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
     path = self.get_temp_dir()
     # NOTE: we don't need to create or write to the transform_fn directory since
     # ReadTransformFn never inspects this directory.
-    transform_fn_dir = os.path.join(path, transform_fn_io.TRANSFORM_FN_DIR)
+    transform_fn_dir = os.path.join(
+        path, tft.TFTransformOutput.TRANSFORM_FN_DIR)
     transformed_metadata_dir = os.path.join(
-        path, transform_fn_io.TRANSFORMED_METADATA_DIR)
+        path, tft.TFTransformOutput.TRANSFORMED_METADATA_DIR)
     metadata_io.write_metadata(_TEST_METADATA, transformed_metadata_dir)
 
     with beam.Pipeline() as pipeline:
@@ -82,7 +84,7 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
       self.assertEqual(metadata, _TEST_METADATA)
 
   def testWriteTransformFn(self):
-    path = os.path.join(self.get_temp_dir(), 'output')
+    transform_output_dir = os.path.join(self.get_temp_dir(), 'output')
 
     with beam.Pipeline() as pipeline:
       # Create an empty directory for the source saved model dir.
@@ -97,14 +99,14 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
           })
 
       _ = ((saved_model_dir_pcoll, metadata)
-           | transform_fn_io.WriteTransformFn(path))
+           | transform_fn_io.WriteTransformFn(transform_output_dir))
 
-    transformed_metadata_dir = os.path.join(
-        path, transform_fn_io.TRANSFORMED_METADATA_DIR)
-    metadata = metadata_io.read_metadata(transformed_metadata_dir)
+    # Test reading with TFTransformOutput
+    tf_transform_output = tft.TFTransformOutput(transform_output_dir)
+    metadata = tf_transform_output.transformed_metadata
     self.assertEqual(metadata, _TEST_METADATA)
 
-    transform_fn_dir = os.path.join(path, transform_fn_io.TRANSFORM_FN_DIR)
+    transform_fn_dir = tf_transform_output.transform_savedmodel_dir
     self.assertTrue(file_io.file_exists(transform_fn_dir))
     self.assertTrue(file_io.is_directory(transform_fn_dir))
 

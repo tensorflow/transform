@@ -1,6 +1,9 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
+* Add TFTransformOutput utility class that wraps the output of tf.Transform for
+  use in training.  This makes it easier to consume the output written by
+  tf.Transform (see update examples for usage).
 
 ## Bug Fixes and Other Changes
 * Change `tft.sum`/`tft.mean`/`tft.var` to only support basic numeric types.
@@ -9,10 +12,22 @@
 * For int32 and int64 input types, change the output type of `tft.mean`/
   `tft.var`/`tft.scale_to_z_score` from float64 to float32 .
 * Change the output type of `tft.size` to be always int64.
+* `Context` now accepts passthrough_keys which can be used when additional
+  information should be attached to dataset instances in the pipeline which
+  should not be part of the transformation graph, for example: instance keys.
+* In addition to using TFTransformOutput, the examples demonstrate new workflows
+  where a vocabulary is computed, but not applied, in the `preprocessing_fn`.
 
 ## Breaking changes
 
 ## Deprecations
+* The `expected_asset_file_contents` of
+  `TransformTestCase.assertAnalyzeAndTransformResults` has been deprecated, use
+  `expected_vocab_file_contents` instead.
+* `transform_fn_io.TRANSFORMED_METADATA_DIR` and
+  `transform_fn_io.TRANSFORM_FN_DIR` should not be used, they are now aliases
+  for `TFTransformOutput.TRANSFORMED_METADATA_DIR` and
+  `TFTransformOutput.TRANSFORM_FN_DIR` respectively.
 
 # Release 0.6.0
 
@@ -28,6 +43,8 @@
   `tfx.Transform`.
 * Update Beam metrics to also log vocabulary sizes.
 * `CsvCoder` updated to support unicode.
+* Update examples to not use the `coder` argument for IO, and instead use a
+  separate `beam.Map` to encode/decode data.
 
 ## Breaking changes
 * Requires pre-installed TensorFlow >=1.6,<2.

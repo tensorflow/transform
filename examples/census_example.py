@@ -36,10 +36,8 @@ from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform.coders import csv_coder
 from tensorflow_transform.coders import example_proto_coder
-from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
-from tensorflow_transform.tf_metadata import metadata_io
 
 import apache_beam as beam
 
@@ -52,6 +50,31 @@ NUMERIC_FEATURE_KEYS = [
     'hours-per-week'
 ]
 LABEL_KEY = 'label'
+
+
+class MapAndFilterErrors(beam.PTransform):
+  """Like beam.Map but filters out erros in the map_fn."""
+
+  class _MapAndFilterErrorsDoFn(beam.DoFn):
+
+    def __init__(self, fn):
+      self._fn = fn
+      # Create a counter to measure number of bad elements.
+      self._bad_elements_counter = beam.metrics.Metrics.counter(
+          'census_example', 'bad_elements')
+
+    def process(self, element):
+      try:
+        yield self._fn(element)
+      except Exception:  # pylint: disable=broad-except
+        # Catch any exception the above call.
+        self._bad_elements_counter.inc(1)
+
+  def __init__(self, fn):
+    self._fn = fn
+
+  def expand(self, pcoll):
+    return pcoll | beam.ParDo(self._MapAndFilterErrorsDoFn(self._fn))
 
 
 def _create_raw_metadata():
@@ -84,7 +107,6 @@ TRAIN_BATCH_SIZE = 128
 TRAIN_NUM_EPOCHS = 200
 NUM_TRAIN_INSTANCES = 32561
 NUM_TEST_INSTANCES = 16281
-BUCKET_SIZES = [9, 17, 8, 15, 17, 6, 3, 43]
 
 # Names of temp files
 TRANSFORMED_TRAIN_DATA_FILEBASE = 'train_transformed'
@@ -110,23 +132,26 @@ def transform_data(train_data_file, test_data_file, working_dir):
 
   def preprocessing_fn(inputs):
     """Preprocess input columns into transformed columns."""
-    outputs = {}
+    # Since we are modifying some features and leaving others unchanged, we
+    # start by setting `outputs` to a copy of `inputs.
+    outputs = inputs.copy()
 
     # Scale numeric columns to have range [0, 1].
     for key in NUMERIC_FEATURE_KEYS:
-      outputs[key] = tft.scale_to_0_1(inputs[key])
+      outputs[key] = tft.scale_to_0_1(outputs[key])
 
-    # For all categorical columns except the label column, we use
-    # tft.string_to_int which computes the set of unique values and uses this
-    # to convert the strings to indices.
+    # For all categorical columns except the label column, we generate a
+    # vocabulary but do not modify the feature.  This vocabulary is instead
+    # used in the trainer, by means of a feature column, to convert the feature
+    # from a string to an integer id.
     for key in CATEGORICAL_FEATURE_KEYS:
-      outputs[key] = tft.string_to_int(inputs[key])
+      tft.uniques(inputs[key], vocab_filename=key)
 
     # For the label column we provide the mapping from string to index.
     def convert_label(label):
       table = lookup.index_table_from_tensor(['>50K', '<=50K'])
       return table.lookup(label)
-    outputs[LABEL_KEY] = tft.apply_function(convert_label, inputs[LABEL_KEY])
+    outputs[LABEL_KEY] = tft.apply_function(convert_label, outputs[LABEL_KEY])
 
     return outputs
 
@@ -150,14 +175,16 @@ def transform_data(train_data_file, test_data_file, working_dir):
       # graph since we don't do the from within tf.Transform's methods
       # (AnalyzeDataset, TransformDataset etc.).  These transformations are just
       # to get data into a format that the CSV converter can read, in particular
-      # removing empty lines and removing spaces after commas.
+      # removing spaces after commas.
+      #
+      # We use MapAndFilterErrors instead of Map to filter out decode errors in
+      # convert.decode which should only occur for the trailing blank line.
       raw_data = (
           pipeline
           | 'ReadTrainData' >> textio.ReadFromText(train_data_file)
-          | 'FilterTrainData' >> beam.Filter(lambda line: line)
           | 'FixCommasTrainData' >> beam.Map(
               lambda line: line.replace(', ', ','))
-          | 'DecodeTrainData' >> beam.Map(converter.decode))
+          | 'DecodeTrainData' >> MapAndFilterErrors(converter.decode))
 
       # Combine data and schema into a dataset tuple.  Note that we already used
       # the schema to read the CSV data, but we also need it to interpret
@@ -166,20 +193,22 @@ def transform_data(train_data_file, test_data_file, working_dir):
       transformed_dataset, transform_fn = (
           raw_dataset | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
       transformed_data, transformed_metadata = transformed_dataset
+      transformed_data_coder = example_proto_coder.ExampleProtoCoder(
+          transformed_metadata.schema)
 
-      _ = transformed_data | 'WriteTrainData' >> tfrecordio.WriteToTFRecord(
-          os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE),
-          coder=example_proto_coder.ExampleProtoCoder(
-              transformed_metadata.schema))
+      _ = (
+          transformed_data
+          | 'EncodeTrainData' >> beam.Map(transformed_data_coder.encode)
+          | 'WriteTrainData' >> tfrecordio.WriteToTFRecord(
+              os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE)))
 
-      # Now apply transform function to test data.  In this case we also remove
-      # the header line from the CSV file and the trailing period at the end of
-      # each line.
+      # Now apply transform function to test data.  In this case we remove the
+      # trailing period at the end of each line, and also ignore the header line
+      # that is present in the test data file.
       raw_test_data = (
           pipeline
-          | 'ReadTestData' >> textio.ReadFromText(test_data_file)
-          | 'FilterTestData' >> beam.Filter(
-              lambda line: line and line != '|1x3 Cross validator')
+          | 'ReadTestData' >> textio.ReadFromText(test_data_file,
+                                                  skip_header_lines=1)
           | 'FixCommasTestData' >> beam.Map(
               lambda line: line.replace(', ', ','))
           | 'RemoveTrailingPeriodsTestData' >> beam.Map(lambda line: line[:-1])
@@ -192,10 +221,11 @@ def transform_data(train_data_file, test_data_file, working_dir):
       # Don't need transformed data schema, it's the same as before.
       transformed_test_data, _ = transformed_test_dataset
 
-      _ = transformed_test_data | 'WriteTestData' >> tfrecordio.WriteToTFRecord(
-          os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE),
-          coder=example_proto_coder.ExampleProtoCoder(
-              transformed_metadata.schema))
+      _ = (
+          transformed_test_data
+          | 'EncodeTestData' >> beam.Map(transformed_data_coder.encode)
+          | 'WriteTestData' >> tfrecordio.WriteToTFRecord(
+              os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE)))
 
       # Will write a SavedModel and metadata to two subdirectories of
       # working_dir, given by transform_fn_io.TRANSFORM_FN_DIR and
@@ -208,28 +238,24 @@ def transform_data(train_data_file, test_data_file, working_dir):
 # Functions for training
 
 
-def _make_training_input_fn(working_dir, filebase, batch_size):
+def _make_training_input_fn(tf_transform_output, transformed_examples,
+                            batch_size):
   """Creates an input function reading from transformed data.
 
   Args:
-    working_dir: Directory to read transformed data and metadata from and to
-        write exported model to.
-    filebase: Base filename (relative to `working_dir`) of examples.
+    tf_transform_output: Wrapper around output of tf.Transform.
+    transformed_examples: Base filename of examples.
     batch_size: Batch size.
 
   Returns:
     The input function for training or eval.
   """
-  transformed_metadata = metadata_io.read_metadata(
-      os.path.join(
-          working_dir, transform_fn_io.TRANSFORMED_METADATA_DIR))
-  transformed_feature_spec = transformed_metadata.schema.as_feature_spec()
-
   def input_fn():
     """Input function for training and eval."""
     transformed_features = tf.contrib.learn.io.read_batch_features(
-        os.path.join(working_dir, filebase + '*'),
-        batch_size, transformed_feature_spec, tf.TFRecordReader)
+        transformed_examples,
+        batch_size, tf_transform_output.transformed_feature_spec(),
+        tf.TFRecordReader)
 
     # Extract features and label from the transformed tensors.
     transformed_labels = transformed_features.pop(LABEL_KEY)
@@ -239,11 +265,11 @@ def _make_training_input_fn(working_dir, filebase, batch_size):
   return input_fn
 
 
-def _make_serving_input_fn(working_dir):
+def _make_serving_input_fn(tf_transform_output):
   """Creates an input function reading from raw data.
 
   Args:
-    working_dir: Directory to read transformed metadata from.
+    tf_transform_output: Wrapper around output of tf.Transform.
 
   Returns:
     The serving input function.
@@ -264,10 +290,8 @@ def _make_serving_input_fn(working_dir):
 
     # Apply the transform function that was used to generate the materialized
     # data.
-    _, transformed_features = (
-        saved_transform_io.partially_apply_saved_transform(
-            os.path.join(working_dir, transform_fn_io.TRANSFORM_FN_DIR),
-            raw_features))
+    transformed_features = tf_transform_output.transform_raw_features(
+        raw_features)
 
     return input_fn_utils.InputFnOps(transformed_features, None, default_inputs)
 
@@ -287,23 +311,26 @@ def train_and_evaluate(working_dir, num_train_instances=NUM_TRAIN_INSTANCES,
   Returns:
     The results from the estimator's 'evaluate' method
   """
+  tf_transform_output = tft.TFTransformOutput(working_dir)
 
   # Wrap scalars as real valued columns.
   real_valued_columns = [tf.feature_column.numeric_column(key, shape=())
                          for key in NUMERIC_FEATURE_KEYS]
 
-  # Wrap categorical columns.  Note the combiner is irrelevant since the input
-  # only has one value set per feature per instance.
+  # Wrap categorical columns.
   one_hot_columns = [
-      tf.feature_column.categorical_column_with_identity(
-          key, num_buckets=num_buckets)
-      for key, num_buckets in zip(CATEGORICAL_FEATURE_KEYS, BUCKET_SIZES)]
+      tf.feature_column.categorical_column_with_vocabulary_file(
+          key=key,
+          vocabulary_file=tf_transform_output.vocabulary_file_by_name(
+              vocab_filename=key))
+      for key in CATEGORICAL_FEATURE_KEYS]
 
   estimator = learn.LinearClassifier(real_valued_columns + one_hot_columns)
 
   # Fit the model using the default optimizer.
   train_input_fn = _make_training_input_fn(
-      working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE,
+      tf_transform_output,
+      os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE + '*'),
       batch_size=TRAIN_BATCH_SIZE)
   estimator.fit(
       input_fn=train_input_fn,
@@ -311,11 +338,12 @@ def train_and_evaluate(working_dir, num_train_instances=NUM_TRAIN_INSTANCES,
 
   # Evaluate model on test dataset.
   eval_input_fn = _make_training_input_fn(
-      working_dir, TRANSFORMED_TEST_DATA_FILEBASE,
+      tf_transform_output,
+      os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE + '*'),
       batch_size=1)
 
   # Export the model.
-  serving_input_fn = _make_serving_input_fn(working_dir)
+  serving_input_fn = _make_serving_input_fn(tf_transform_output)
   exported_model_dir = os.path.join(working_dir, EXPORTED_MODEL_DIR)
   estimator.export_savedmodel(exported_model_dir, serving_input_fn)
 

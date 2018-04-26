@@ -13,12 +13,11 @@
 # limitations under the License.
 """Library for testing Tensorflow Transform."""
 
-import os
-
 
 import numpy as np
 import six
 import tensorflow as tf
+import tensorflow_transform as tft
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
@@ -95,6 +94,7 @@ class TransformTestCase(test_util.TensorFlowTestCase):
                                        expected_data=None,
                                        expected_metadata=None,
                                        only_check_core_metadata=False,
+                                       expected_vocab_file_contents=None,
                                        expected_asset_file_contents=None,
                                        test_data=None,
                                        desired_batch_size=None):
@@ -118,10 +118,11 @@ class TransformTestCase(test_util.TensorFlowTestCase):
           the transformed metadata is asserted to be equal to expected metadata.
           If True, only transformed feature names, dtypes and representations
           are asserted.
-      expected_asset_file_contents: (optional) A dictionary from asset filenames
+      expected_vocab_file_contents: (optional) A dictionary from vocab filenames
           to their expected content as a list of text lines.  Values should be
           the expected result of calling f.readlines() on the given asset files.
-          Asset filenames are relative to the saved model's asset directory.
+      expected_asset_file_contents: deprecated.  Use
+          expected_vocab_file_contents.
       test_data: (optional) If this is provided then instead of calling
           AnalyzeAndTransformDataset with input_data, this function will call
           AnalyzeDataset with input_data and TransformDataset with test_data.
@@ -133,9 +134,21 @@ class TransformTestCase(test_util.TensorFlowTestCase):
       AssertionError: if the expected data does not match the results of
           transforming input_data according to preprocessing_fn, or
           (if provided) if the expected metadata does not match.
+      ValueError: if expected_vocab_file_contents and
+          expected_asset_file_contents are both set.
     """
-    if expected_asset_file_contents is None:
-      expected_asset_file_contents = {}
+    if (expected_vocab_file_contents is not None and
+        expected_asset_file_contents is not None):
+      raise ValueError('only one of expected_asset_file_contents and '
+                       'expected_asset_file_contents should be set')
+    elif expected_asset_file_contents is not None:
+      tf.logging.warn('expected_asset_file_contents is deprecated, use '
+                      'expected_vocab_file_contents')
+
+    expected_vocab_file_contents = (
+        expected_vocab_file_contents or expected_asset_file_contents or {})
+    del expected_asset_file_contents
+
     # Note: we don't separately test AnalyzeDataset and TransformDataset as
     # AnalyzeAndTransformDataset currently simply composes these two
     # transforms.  If in future versions of the code, the implementation
@@ -155,7 +168,7 @@ class TransformTestCase(test_util.TensorFlowTestCase):
             | beam_impl.TransformDataset())
 
       # Write transform_fn so we can test its assets
-      if expected_asset_file_contents:
+      if expected_vocab_file_contents:
         _ = transform_fn | transform_fn_io.WriteTransformFn(temp_dir)
 
     if expected_data is not None:
@@ -185,8 +198,8 @@ class TransformTestCase(test_util.TensorFlowTestCase):
                          transformed_metadata.schema.column_schemas)
         self.assertEqual(expected_metadata, transformed_metadata)
 
-    for filename, file_contents in six.iteritems(expected_asset_file_contents):
-      full_filename = os.path.join(
-          temp_dir, transform_fn_io.TRANSFORM_FN_DIR, 'assets', filename)
+    tf_transform_output = tft.TFTransformOutput(temp_dir)
+    for filename, file_contents in six.iteritems(expected_vocab_file_contents):
+      full_filename = tf_transform_output.vocabulary_file_by_name(filename)
       with tf.gfile.Open(full_filename) as f:
         self.assertEqual(f.readlines(), file_contents)

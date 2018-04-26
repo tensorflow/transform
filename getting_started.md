@@ -354,9 +354,14 @@ transformed_data | "WriteTrainData" >> tfrecordio.WriteToTFRecord(
     coder=example_proto_coder.ExampleProtoCoder(transformed_metadata))
 ```
 
-In addition to the training data, we also write out the metadata.
+In addition to the training data, we also write out `transform_fn`.  Note that
+the metadata.
 
 ```python
+_ = (
+    transform_fn
+    | 'WriteTransformFn' >>
+    transform_fn_io.WriteTransformFn(working_dir))
 transformed_metadata | 'WriteMetadata' >> beam_metadata_io.WriteMetadata(
     transformed_metadata_file, pipeline=p)
 ```

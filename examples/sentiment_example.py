@@ -33,10 +33,8 @@ from tensorflow.contrib.learn.python.learn.utils import input_fn_utils
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform.coders import example_proto_coder
-from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
-from tensorflow_transform.tf_metadata import metadata_io
 
 import apache_beam as beam
 
@@ -134,23 +132,24 @@ def read_and_shuffle_data(
     working_dir: Directory to write shuffled data to
   """
   with beam.Pipeline() as pipeline:
+    coder = example_proto_coder.ExampleProtoCoder(RAW_DATA_METADATA.schema)
+
     # pylint: disable=no-value-for-parameter
     _ = (
         pipeline
         | 'ReadAndShuffleTrain' >> ReadAndShuffleData(
             (train_neg_filepattern, train_pos_filepattern))
+        | 'EncodeTrainData' >> beam.Map(coder.encode)
         | 'WriteTrainData' >> tfrecordio.WriteToTFRecord(
-            os.path.join(working_dir, SHUFFLED_TRAIN_DATA_FILEBASE),
-            coder=example_proto_coder.ExampleProtoCoder(
-                RAW_DATA_METADATA.schema)))
+            os.path.join(working_dir, SHUFFLED_TRAIN_DATA_FILEBASE)))
+
     _ = (
         pipeline
         | 'ReadAndShuffleTest' >> ReadAndShuffleData(
             (test_neg_filepattern, test_pos_filepattern))
+        | 'EncodeTestData' >> beam.Map(coder.encode)
         | 'WriteTestData' >> tfrecordio.WriteToTFRecord(
-            os.path.join(working_dir, SHUFFLED_TEST_DATA_FILEBASE),
-            coder=example_proto_coder.ExampleProtoCoder(
-                RAW_DATA_METADATA.schema)))
+            os.path.join(working_dir, SHUFFLED_TEST_DATA_FILEBASE)))
     # pylint: enable=no-value-for-parameter
 
 
@@ -168,21 +167,19 @@ def transform_data(working_dir):
 
   with beam.Pipeline() as pipeline:
     with beam_impl.Context(temp_dir=tempfile.mkdtemp()):
+      coder = example_proto_coder.ExampleProtoCoder(
+          RAW_DATA_METADATA.schema)
       train_data = (
-          pipeline |
-          'ReadTrain' >> tfrecordio.ReadFromTFRecord(
-              os.path.join(working_dir,
-                           SHUFFLED_TRAIN_DATA_FILEBASE + '*'),
-              coder=example_proto_coder.ExampleProtoCoder(
-                  RAW_DATA_METADATA.schema)))
+          pipeline
+          | 'ReadTrain' >> tfrecordio.ReadFromTFRecord(
+              os.path.join(working_dir, SHUFFLED_TRAIN_DATA_FILEBASE + '*'))
+          | 'DecodeTrain' >> beam.Map(coder.decode))
 
       test_data = (
-          pipeline |
-          'ReadTest' >> tfrecordio.ReadFromTFRecord(
-              os.path.join(working_dir,
-                           SHUFFLED_TEST_DATA_FILEBASE + '*'),
-              coder=example_proto_coder.ExampleProtoCoder(
-                  RAW_DATA_METADATA.schema)))
+          pipeline
+          | 'ReadTest' >> tfrecordio.ReadFromTFRecord(
+              os.path.join(working_dir, SHUFFLED_TEST_DATA_FILEBASE + '*'))
+          | 'DecodeTest' >> beam.Map(coder.decode))
 
       def preprocessing_fn(inputs):
         """Preprocess input columns into transformed columns."""
@@ -203,6 +200,8 @@ def transform_data(working_dir):
           (train_data, RAW_DATA_METADATA)
           | 'AnalyzeAndTransform' >> beam_impl.AnalyzeAndTransformDataset(
               preprocessing_fn))
+      transformed_data_coder = example_proto_coder.ExampleProtoCoder(
+          transformed_metadata.schema)
 
       transformed_test_data, _ = (
           ((test_data, RAW_DATA_METADATA), transform_fn)
@@ -210,19 +209,15 @@ def transform_data(working_dir):
 
       _ = (
           transformed_train_data
+          | 'EncodeTrainData' >> beam.Map(transformed_data_coder.encode)
           | 'WriteTrainData' >> tfrecordio.WriteToTFRecord(
-              os.path.join(working_dir,
-                           TRANSFORMED_TRAIN_DATA_FILEBASE),
-              coder=example_proto_coder.ExampleProtoCoder(
-                  transformed_metadata.schema)))
+              os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE)))
 
       _ = (
           transformed_test_data
+          | 'EncodeTestData' >> beam.Map(transformed_data_coder.encode)
           | 'WriteTestData' >> tfrecordio.WriteToTFRecord(
-              os.path.join(working_dir,
-                           TRANSFORMED_TEST_DATA_FILEBASE),
-              coder=example_proto_coder.ExampleProtoCoder(
-                  transformed_metadata.schema)))
+              os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE)))
 
       # Will write a SavedModel and metadata to two subdirectories of
       # working_dir, given by transform_fn_io.TRANSFORM_FN_DIR and
@@ -236,28 +231,24 @@ def transform_data(working_dir):
 # Functions for training
 
 
-def _make_training_input_fn(working_dir, filebase, batch_size):
+def _make_training_input_fn(tf_transform_output, transformed_examples,
+                            batch_size):
   """Creates an input function reading from transformed data.
 
   Args:
-    working_dir: Directory to read transformed data and metadata from and to
-        write exported model to.
-    filebase: Base filename (relative to `working_dir`) of examples.
+    tf_transform_output: Wrapper around output of tf.Transform.
+    transformed_examples: Base filename of examples.
     batch_size: Batch size.
 
   Returns:
     The input function for training or eval.
   """
-  transformed_metadata = metadata_io.read_metadata(
-      os.path.join(
-          working_dir, transform_fn_io.TRANSFORMED_METADATA_DIR))
-  transformed_feature_spec = transformed_metadata.schema.as_feature_spec()
-
   def input_fn():
     """Input function for training and eval."""
     transformed_features = tf.contrib.learn.io.read_batch_features(
-        os.path.join(working_dir, filebase + '*'),
-        batch_size, transformed_feature_spec, tf.TFRecordReader)
+        transformed_examples,
+        batch_size, tf_transform_output.transformed_feature_spec(),
+        tf.TFRecordReader)
 
     # Extract features and label from the transformed tensors.
     transformed_labels = transformed_features.pop(LABEL_KEY)
@@ -267,11 +258,11 @@ def _make_training_input_fn(working_dir, filebase, batch_size):
   return input_fn
 
 
-def _make_serving_input_fn(working_dir):
+def _make_serving_input_fn(tf_transform_output):
   """Creates an input function reading from raw data.
 
   Args:
-    working_dir: Directory to read transformed metadata from.
+    tf_transform_output: Wrapper around output of tf.Transform.
 
   Returns:
     The serving input function.
@@ -292,10 +283,8 @@ def _make_serving_input_fn(working_dir):
 
     # Apply the transform function that was used to generate the materialized
     # data.
-    _, transformed_features = (
-        saved_transform_io.partially_apply_saved_transform(
-            os.path.join(working_dir, transform_fn_io.TRANSFORM_FN_DIR),
-            raw_features))
+    transformed_features = tf_transform_output.transform_raw_features(
+        raw_features)
 
     return input_fn_utils.InputFnOps(transformed_features, None, default_inputs)
 
@@ -315,6 +304,8 @@ def train_and_evaluate(working_dir,
   Returns:
     The results from the estimator's 'evaluate' method
   """
+  tf_transform_output = tft.TFTransformOutput(working_dir)
+
   # Unrecognized tokens are represented by -1, but
   # categorical_column_with_identity uses the mod operator to map integers
   # to the range [0, bucket_size).  By choosing bucket_size=VOCAB_SIZE + 1, we
@@ -328,7 +319,8 @@ def train_and_evaluate(working_dir,
 
   # Fit the model using the default optimizer.
   train_input_fn = _make_training_input_fn(
-      working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE,
+      tf_transform_output,
+      os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE + '*'),
       batch_size=TRAIN_BATCH_SIZE)
   estimator.fit(
       input_fn=train_input_fn,
@@ -336,12 +328,13 @@ def train_and_evaluate(working_dir,
 
   # Evaluate model on eval dataset.
   eval_input_fn = _make_training_input_fn(
-      working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE,
+      tf_transform_output,
+      os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE + '*'),
       batch_size=1)
   result = estimator.evaluate(input_fn=eval_input_fn, steps=num_test_instances)
 
   # Export the model.
-  serving_input_fn = _make_serving_input_fn(working_dir)
+  serving_input_fn = _make_serving_input_fn(tf_transform_output)
   exported_model_dir = os.path.join(working_dir, EXPORTED_MODEL_DIR)
   estimator.export_savedmodel(exported_model_dir, serving_input_fn)
 

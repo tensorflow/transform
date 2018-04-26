@@ -20,11 +20,14 @@ from __future__ import print_function
 import os
 
 import apache_beam as beam
+import tensorflow_transform as tft
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.tf_metadata import metadata_io
 
-TRANSFORMED_METADATA_DIR = 'transformed_metadata'
-TRANSFORM_FN_DIR = 'transform_fn'
+# Users should avoid these aliases, they are provided for backwards
+# compatibility only.
+TRANSFORMED_METADATA_DIR = tft.TFTransformOutput.TRANSFORMED_METADATA_DIR
+TRANSFORM_FN_DIR = tft.TFTransformOutput.TRANSFORM_FN_DIR
 
 
 def _copy_tree(source, destination):
@@ -61,14 +64,16 @@ class WriteTransformFn(beam.PTransform):
   def expand(self, transform_fn):
     saved_model_dir, metadata = transform_fn
 
-    metadata_path = os.path.join(self._path, TRANSFORMED_METADATA_DIR)
+    metadata_path = os.path.join(self._path,
+                                 tft.TFTransformOutput.TRANSFORMED_METADATA_DIR)
     pipeline = saved_model_dir.pipeline
     write_metadata_done = (
         metadata
         | 'WriteMetadata'
         >> beam_metadata_io.WriteMetadata(metadata_path, pipeline))
 
-    transform_fn_path = os.path.join(self._path, TRANSFORM_FN_DIR)
+    transform_fn_path = os.path.join(self._path,
+                                     tft.TFTransformOutput.TRANSFORM_FN_DIR)
     write_transform_fn_done = (
         saved_model_dir
         | 'WriteTransformFn' >> beam.Map(_copy_tree, transform_fn_path))
@@ -88,12 +93,14 @@ class ReadTransformFn(beam.PTransform):
     self._path = path
 
   def expand(self, pvalue):
-    transform_fn_path = os.path.join(self._path, TRANSFORM_FN_DIR)
+    transform_fn_path = os.path.join(self._path,
+                                     tft.TFTransformOutput.TRANSFORM_FN_DIR)
     saved_model_dir_pcoll = (
         pvalue.pipeline
         | 'CreateTransformFnPath' >> beam.Create([transform_fn_path]))
 
     metadata = metadata_io.read_metadata(
-        os.path.join(self._path, TRANSFORMED_METADATA_DIR))
+        os.path.join(self._path,
+                     tft.TFTransformOutput.TRANSFORMED_METADATA_DIR))
 
     return saved_model_dir_pcoll, metadata
