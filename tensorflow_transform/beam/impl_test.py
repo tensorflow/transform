@@ -17,16 +17,20 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import contextlib
 import math
 import os
 import random
 import shutil
 
 
+from absl.testing import parameterized
+
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
 import numpy as np
 import six
+from six.moves import range
 
 import tensorflow as tf
 import tensorflow_transform as tft
@@ -45,6 +49,55 @@ from tensorflow_transform.tf_metadata import metadata_io
 from google.protobuf import text_format
 import unittest
 from tensorflow.core.example import example_pb2
+
+
+def _construct_test_bucketization_parameters():
+  args_without_dtype = (
+      (range(1, 10), [4, 7], False, None, False, False),
+      (range(1, 100), [26, 51, 76], False, None, False, False),
+
+      # The following is similar to range(1, 100) test above, except that
+      # only odd numbers are in the input; so boundaries differ (26 -> 27 and
+      # 76 -> 77).
+      (range(1, 100, 2), [27, 51, 77], False, None, False, False),
+
+      # Test some inversely sorted inputs, and with different strides, and
+      # boundaries/buckets.
+      (range(9, 0, -1), [4, 7], False, None, False, False),
+      (range(19, 0, -1), [11], False, None, False, False),
+      (range(99, 0, -1), [51], False, None, False, False),
+      (range(99, 0, -1), [34, 67], False, None, False, False),
+      (range(99, 0, -2), [34, 68], False, None, False, False),
+      (range(99, 0, -1), range(11, 100, 10), False, None, False, False),
+
+      # These tests do a random shuffle of the inputs, which must not affect the
+      # boundaries (or the computed buckets).
+      (range(99, 0, -1), range(11, 100, 10), True, None, False, False),
+      (range(1, 100), range(11, 100, 10), True, None, False, False),
+
+      # The following test is with multiple batches (3 batches with default
+      # batch of 1000).
+      (range(1, 3000), [1503], False, None, False, False),
+      (range(1, 3000), [1001, 2001], False, None, False, False),
+
+      # Test with specific error for bucket boundaries. This is same as the test
+      # above with 3 batches and a single boundary, but with a stricter error
+      # tolerance (0.001) than the default error (0.01). The result is that the
+      # computed boundary in the test below is closer to the middle (1501) than
+      # that computed by the boundary of 1503 above.
+      (range(1, 3000), [1501], False, 0.001, False, False),
+
+      # Test with specific error for bucket boundaries, with more relaxed error
+      # tolerance (0.1) than the default (0.01). Now the boundary diverges
+      # further to 1519 (compared to boundary of 1501 with error 0.001, and
+      # boundary of 1503 with error 0.01).
+      (range(1, 3000), [1519], False, 0.1, False, False),
+
+      # Tests for tft.apply_buckets.
+      (range(1, 100), [26, 51, 76], False, 0.00001, True, False),
+  )
+  dtypes = (tf.int32, tf.int64, tf.float16, tf.float32, tf.float64, tf.double)
+  return (x + (dtype,) for x in args_without_dtype for dtype in dtypes)
 
 
 class BeamImplTest(tft_unit.TransformTestCase):
@@ -685,13 +738,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
-  def testScaleUnitInterval(self):
-    self._testScaleUnitInterval()
-
-  def testScaleUnitIntervalElementwise(self):
-    self._testScaleUnitInterval(elementwise=True)
-
-  def _testScaleUnitInterval(self, elementwise=False):
+  @tft_unit.parameters((True,), (False,))
+  def testScaleUnitInterval(self, elementwise):
 
     def preprocessing_fn(inputs):
       outputs = {}
@@ -761,13 +809,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
 
-  def testScaleMinMax(self):
-    self._testScaleMinMax()
-
-  def testScaleMinMaxElementwise(self):
-    self._testScaleMinMax(elementwise=True)
-
-  def _testScaleMinMax(self, elementwise=False):
+  @tft_unit.parameters((True,), (False,))
+  def testScaleMinMax(self, elementwise):
 
     def preprocessing_fn(inputs):
       outputs = {}
@@ -943,45 +986,19 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertTrue(
         'output_min must be less than output_max' in context.exception)
 
-  def testScaleToZScore_int64(self):
-    self._testScaleToZScore(input_dtype=tf.int64, output_dtype=tf.float32)
-
-  def testScaleToZScore_int32(self):
-    self._testScaleToZScore(input_dtype=tf.int32, output_dtype=tf.float32)
-
-  def testScaleToZScore_int16(self):
-    self._testScaleToZScore(input_dtype=tf.int16, output_dtype=tf.float32)
-
-  def testScaleToZScore_float64(self):
-    self._testScaleToZScore(input_dtype=tf.float64, output_dtype=tf.float64)
-
-  def testScaleToZScore_float32(self):
-    self._testScaleToZScore(input_dtype=tf.float32, output_dtype=tf.float32)
-
-  def testScaleToZScoreElementwise_int64(self):
-    self._testScaleToZScore(
-        input_dtype=tf.int64, output_dtype=tf.float32, elementwise=True)
-
-  def testScaleToZScoreElementwise_int32(self):
-    self._testScaleToZScore(
-        input_dtype=tf.int32, output_dtype=tf.float32, elementwise=True)
-
-  def testScaleToZScoreElementwise_int16(self):
-    self._testScaleToZScore(
-        input_dtype=tf.int16, output_dtype=tf.float32, elementwise=True)
-
-  def testScaleToZScoreElementwise_float64(self):
-    self._testScaleToZScore(
-        input_dtype=tf.float64, output_dtype=tf.float64, elementwise=True)
-
-  def testScaleToZScoreElementwise_float32(self):
-    self._testScaleToZScore(
-        input_dtype=tf.float32, output_dtype=tf.float32, elementwise=True)
-
-  def _testScaleToZScore(self,
-                         input_dtype,
-                         output_dtype,
-                         elementwise=False):
+  @tft_unit.parameters(
+      (tf.int16, tf.float32, True),
+      (tf.int32, tf.float32, True),
+      (tf.int64, tf.float32, True),
+      (tf.float32, tf.float32, True),
+      (tf.float64, tf.float64, True),
+      (tf.int16, tf.float32, False),
+      (tf.int32, tf.float32, False),
+      (tf.int64, tf.float32, False),
+      (tf.float32, tf.float32, False),
+      (tf.float64, tf.float64, False),
+  )
+  def testScaleToZScore(self, input_dtype, output_dtype, elementwise):
 
     def preprocessing_fn(inputs):
       outputs = {}
@@ -1059,85 +1076,51 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
 
-  def testNumericAnalyzersWithScalarInputs_int64(self):
-    self._testNumericAnalyzersWithScalarInputs(
-        input_dtype=tf.int64,
-        output_dtypes={
-            'min': tf.int64,
-            'max': tf.int64,
-            'sum': tf.int64,
-            'size': tf.int64,
-            'mean': tf.float32,
-            'var': tf.float32
-        }
-    )
+  @parameterized.named_parameters(('Int64In', tf.int64, {
+      'min': tf.int64,
+      'max': tf.int64,
+      'sum': tf.int64,
+      'size': tf.int64,
+      'mean': tf.float32,
+      'var': tf.float32
+  }), ('Int32In', tf.int32, {
+      'min': tf.int32,
+      'max': tf.int32,
+      'sum': tf.int64,
+      'size': tf.int64,
+      'mean': tf.float32,
+      'var': tf.float32
+  }), ('Int16In', tf.int16, {
+      'min': tf.int16,
+      'max': tf.int16,
+      'sum': tf.int64,
+      'size': tf.int64,
+      'mean': tf.float32,
+      'var': tf.float32
+  }), ('Float64In', tf.float64, {
+      'min': tf.float64,
+      'max': tf.float64,
+      'sum': tf.float64,
+      'size': tf.int64,
+      'mean': tf.float64,
+      'var': tf.float64
+  }), ('Float32In', tf.float32, {
+      'min': tf.float32,
+      'max': tf.float32,
+      'sum': tf.float32,
+      'size': tf.int64,
+      'mean': tf.float32,
+      'var': tf.float32
+  }), ('Float16In', tf.float16, {
+      'min': tf.float16,
+      'max': tf.float16,
+      'sum': tf.float32,
+      'size': tf.int64,
+      'mean': tf.float16,
+      'var': tf.float16
+  }))
+  def testNumericAnalyzersWithScalarInputs(self, input_dtype, output_dtypes):
 
-  def testNumericAnalyzersWithScalarInputs_int32(self):
-    self._testNumericAnalyzersWithScalarInputs(
-        input_dtype=tf.int32,
-        output_dtypes={
-            'min': tf.int32,
-            'max': tf.int32,
-            'sum': tf.int64,
-            'size': tf.int64,
-            'mean': tf.float32,
-            'var': tf.float32
-        }
-    )
-
-  def testNumericAnalyzersWithScalarInputs_int16(self):
-    self._testNumericAnalyzersWithScalarInputs(
-        input_dtype=tf.int16,
-        output_dtypes={
-            'min': tf.int16,
-            'max': tf.int16,
-            'sum': tf.int64,
-            'size': tf.int64,
-            'mean': tf.float32,
-            'var': tf.float32
-        }
-    )
-
-  def testNumericAnalyzersWithScalarInputs_float64(self):
-    self._testNumericAnalyzersWithScalarInputs(
-        input_dtype=tf.float64,
-        output_dtypes={
-            'min': tf.float64,
-            'max': tf.float64,
-            'sum': tf.float64,
-            'size': tf.int64,
-            'mean': tf.float64,
-            'var': tf.float64
-        }
-    )
-
-  def testNumericAnalyzersWithScalarInputs_float32(self):
-    self._testNumericAnalyzersWithScalarInputs(
-        input_dtype=tf.float32,
-        output_dtypes={
-            'min': tf.float32,
-            'max': tf.float32,
-            'sum': tf.float32,
-            'size': tf.int64,
-            'mean': tf.float32,
-            'var': tf.float32
-        }
-    )
-
-  def testNumericAnalyzersWithScalarInputs_float16(self):
-    self._testNumericAnalyzersWithScalarInputs(
-        input_dtype=tf.float16,
-        output_dtypes={
-            'min': tf.float16,
-            'max': tf.float16,
-            'sum': tf.float32,
-            'size': tf.int64,
-            'mean': tf.float16,
-            'var': tf.float16
-        }
-    )
-
-  def _testNumericAnalyzersWithScalarInputs(self, input_dtype, output_dtypes):
     def analyzer_fn(inputs):
       # Also test private analyzers that fuse min/max and mean/var analyzers.
       min_opt, max_opt = analyzers._min_and_max(inputs['a'])
@@ -2276,22 +2259,34 @@ class BeamImplTest(tft_unit.TransformTestCase):
     with self.assertRaises(ValueError):
       beam_impl.Context.create_base_temp_dir()
 
-  def _test_bucketization_helper(
-      self, test_inputs, expected_boundaries, input_dtype, do_shuffle=False,
-      epsilon=None, preprocessing_fn=None):
+  @tft_unit.parameters(
+      # Test for all integral types, each type is in a separate testcase to
+      # increase parallelism of test shards (and reduce test time from ~250
+      # seconds to ~80 seconds)
+      *_construct_test_bucketization_parameters())
+  def testBucketization(self, test_inputs, expected_boundaries, do_shuffle,
+                        epsilon, should_apply, is_manual_boundaries,
+                        input_dtype):
+    test_inputs = list(test_inputs)
+
     # Shuffle the input to add randomness to input generated with
     # simple range().
     if do_shuffle:
       random.shuffle(test_inputs)
 
-    def default_preprocessing_fn(inputs):
-      return {
-          'q_b': tft.bucketize(inputs['x'],
-                               num_buckets=len(expected_boundaries)+1,
-                               epsilon=epsilon)
-      }
+    def preprocessing_fn(inputs):
 
-    preprocessing_fn = preprocessing_fn or default_preprocessing_fn
+      x = inputs['x']
+      num_buckets = len(expected_boundaries) + 1
+      if should_apply:
+        if is_manual_boundaries:
+          bucket_boundaries = expected_boundaries
+        else:
+          bucket_boundaries = tft.quantiles(inputs['x'], num_buckets, epsilon)
+        result = tft.apply_buckets(x, bucket_boundaries)
+      else:
+        result = tft.bucketize(x, num_buckets=num_buckets, epsilon=epsilon)
+      return {'q_b': result}
 
     input_data = [{'x': [x]} for x in test_inputs]
 
@@ -2321,110 +2316,36 @@ class BeamImplTest(tft_unit.TransformTestCase):
             [1], sch.FixedColumnRepresentation())
     })
 
-    self.assertAnalyzeAndTransformResults(
-        input_data,
-        input_metadata,
-        preprocessing_fn,
-        expected_data,
-        expected_metadata,
-        desired_batch_size=1000)
+    @contextlib.contextmanager
+    def no_assert():
+      yield None
 
-  def _test_bucketization_for_type(self, input_dtype):
-    self._test_bucketization_helper(range(1, 10), [4, 7], input_dtype)
+    assertion = no_assert()
+    if input_dtype == tf.float16:
+      assertion = self.assertRaisesRegexp(
+          TypeError, '.*DataType float16 not in list of allowed values.*')
 
-    self._test_bucketization_helper(range(1, 100), [26, 51, 76], input_dtype)
+    with assertion:
+      self.assertAnalyzeAndTransformResults(
+          input_data,
+          input_metadata,
+          preprocessing_fn,
+          expected_data,
+          expected_metadata,
+          desired_batch_size=1000)
 
-    # The following is similar to range(1, 100) test above, except that
-    # only odd numbers are in the input; so boundaries differ (26 -> 27 and
-    # 76 -> 77).
-    self._test_bucketization_helper(range(1, 100, 2), [27, 51, 77], input_dtype)
+  @tft_unit.parameters(
+      # Test for all integral types, each type is in a separate testcase to
+      # increase parallelism of test shards and reduce test time.
+      (
+          tf.int32,),
+      (tf.int64,),
+      (tf.float32,),
+      (tf.float64,),
+      (tf.double,),
+  )
+  def testQuantileBuckets(self, input_dtype):
 
-    # Test some inversely sorted inputs, and with different strides, and
-    # boundaries/buckets.
-    self._test_bucketization_helper(range(9, 0, -1), [4, 7], input_dtype)
-    self._test_bucketization_helper(range(19, 0, -1), [11], input_dtype)
-    self._test_bucketization_helper(range(99, 0, -1), [51], input_dtype)
-    self._test_bucketization_helper(range(99, 0, -1), [34, 67], input_dtype)
-    self._test_bucketization_helper(range(99, 0, -2), [34, 68], input_dtype)
-    self._test_bucketization_helper(
-        range(99, 0, -1), [11, 21, 31, 41, 51, 61, 71, 81, 91], input_dtype)
-
-    # These tests do a random shuffle of the inputs, which must not affect the
-    # boundaries (or the computed buckets)
-    self._test_bucketization_helper(
-        range(99, 0, -1), [11, 21, 31, 41, 51, 61, 71, 81, 91], input_dtype,
-        do_shuffle=True)
-    self._test_bucketization_helper(
-        range(1, 100), [11, 21, 31, 41, 51, 61, 71, 81, 91], input_dtype,
-        do_shuffle=True)
-
-    # The following test is with multiple batches (3 batches with default
-    # batch of 1000).
-    self._test_bucketization_helper(range(1, 3000), [1503], input_dtype)
-    self._test_bucketization_helper(range(1, 3000), [1001, 2001], input_dtype)
-
-    # Test with specific error for bucket boundaries. This is same as
-    # the test above with 3 batches and a single boundary, but with a stricter
-    # error tolerance (0.001) than the default error (0.01). The result is that
-    # the computed boundary in the test below is closer to the middle (1501)
-    # than that computed by the boundary of 1503 above.
-    self._test_bucketization_helper(range(1, 3000),
-                                    [1501],
-                                    input_dtype,
-                                    epsilon=0.001)
-    # Test with specific error for bucket boundaries, with more relaxed error
-    # tolerance (0.1) than the default (0.01). Now the boundary diverges further
-    # to 1519 (compared to boundary of 1501 with error 0.001, and boundary of
-    # 1503 with error 0.01).
-    self._test_bucketization_helper(range(1, 3000),
-                                    [1519],
-                                    input_dtype,
-                                    epsilon=0.1)
-
-  # Test for all integral types, each type is in a separate testcase to
-  # increase parallelism of test shards (and reduce test time from ~250 seconds
-  # to ~80 seconds)
-  def testBucketizationInt32(self):
-    self._test_bucketization_for_type(tf.int32)
-
-  def testBucketizationInt64(self):
-    self._test_bucketization_for_type(tf.int64)
-
-  def testBucketizationFloat32(self):
-    self._test_bucketization_for_type(tf.float32)
-
-  def testBucketizationFloat64(self):
-    self._test_bucketization_for_type(tf.float64)
-
-  def testBucketizationDouble(self):
-    self._test_bucketization_for_type(tf.double)
-
-  def testBucketizationFloat16Failure(self):
-    with self.assertRaisesRegexp(
-        TypeError,
-        '.*DataType float16 not in list of allowed values.*'):
-      self._test_bucketization_for_type(tf.float16)
-
-  def testApplyBuckets(self):
-    expected_boundaries = [26, 51, 76]
-    def preprocessing_fn(inputs):
-      bucket_boundaries = tft.quantiles(inputs['x'], len(expected_boundaries)+1)
-      return {
-          'q_b': tft.apply_buckets(inputs['x'], bucket_boundaries)
-      }
-    self._test_bucketization_helper(range(1, 100), expected_boundaries,
-                                    tf.int32, preprocessing_fn)
-
-  def testApplyBucketsManualBoundaries(self):
-    expected_boundaries = [26, 51, 76]
-    def preprocessing_fn(inputs):
-      return {
-          'q_b': tft.apply_buckets(inputs['x'], expected_boundaries)
-      }
-    self._test_bucketization_helper(range(1, 100), expected_boundaries,
-                                    tf.int32, preprocessing_fn)
-
-  def _test_quantile_buckets_helper(self, input_dtype):
     def analyzer_fn(inputs):
       return {'q_b': tft.quantiles(inputs['x'], num_buckets=3, epsilon=0.00001)}
 
@@ -2442,24 +2363,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         analyzer_fn,
         expected_outputs,
         desired_batch_size=1000)
-
-  # Test for all integral types, each type is in a separate testcase to
-  # increase parallelism of test shards and reduce test time.
-  def testQuantileBuckets_int32(self):
-    self._test_quantile_buckets_helper(tf.int32)
-
-  def testQuantileBuckets_int64(self):
-    self._test_quantile_buckets_helper(tf.int64)
-
-  def testQuantileBuckets_float32(self):
-    self._test_quantile_buckets_helper(tf.float32)
-
-  def testQuantileBuckets_float64(self):
-    self._test_quantile_buckets_helper(tf.float64)
-
-  def testQuantileBuckets_double(self):
-    self._test_quantile_buckets_helper(tf.double)
-
 
   def testQuantileBucketsWithKey(self):
     def analyzer_fn(inputs):

@@ -22,6 +22,7 @@ __version__ = '0.7.0dev'
 
 def _make_required_install_packages():
   return [
+      'absl-py>=0.1.6',
       'apache-beam[gcp]>=2.4,<3',
       'numpy>=1.10,<2',
 

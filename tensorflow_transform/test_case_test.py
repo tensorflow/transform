@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for tensorflow_transform.beam.tft_unit."""
+"""Tests for tensorflow_transform.test_case."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -19,12 +19,12 @@ from __future__ import print_function
 
 import re
 
-from tensorflow_transform.beam import tft_unit
+from tensorflow_transform import test_case
 
 import unittest
 
 
-class TftUnitTest(tft_unit.TransformTestCase):
+class TftUnitTest(test_case.TransformTestCase):
 
   def testAssertDataCloseOrEqual(self):
     self.assertDataCloseOrEqual([{'a': 'first',
@@ -49,6 +49,11 @@ class TftUnitTest(tft_unit.TransformTestCase):
         AssertionError,
         re.compile('Not equal to tolerance.*: Row 0, key a', re.DOTALL)):
       self.assertDataCloseOrEqual([{'a': 1}], [{'a': 2}])
+
+  @test_case.parameters((1, 'a'), (2, 'b'))
+  def testSampleParametrizedTestMethod(self, my_arg, my_other_arg):
+    self.assertIn((my_arg, my_other_arg), {(1, 'a'), (2, 'b')})
+
 
 if __name__ == '__main__':
   unittest.main()

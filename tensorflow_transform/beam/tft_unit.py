@@ -14,61 +14,19 @@
 """Library for testing Tensorflow Transform."""
 
 
-import numpy as np
 import six
 import tensorflow as tf
 import tensorflow_transform as tft
+from tensorflow_transform import test_case
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
-from tensorflow.python.framework import test_util
+
+parameters = test_case.parameters
 
 
-class TransformTestCase(test_util.TensorFlowTestCase):
+class TransformTestCase(test_case.TransformTestCase):
   """Base test class for testing tf-transform preprocessing functions."""
-
-  # Display context for failing rows in data assertions.
-  longMessage = True  # pylint: disable=invalid-name
-
-  def assertDataCloseOrEqual(self, a_data, b_data):
-    """Assert two datasets contain nearly equal values.
-
-    Args:
-      a_data: a sequence of dicts whose values are
-              either strings, lists of strings, numeric types or a pair of
-              those.
-      b_data: same types as a_data
-
-    Raises:
-      AssertionError: if the two datasets are not the same.
-    """
-    self.assertEqual(len(a_data), len(b_data),
-                     'len(%r) != len(%r)' % (a_data, b_data))
-    for i, (a_row, b_row) in enumerate(zip(a_data, b_data)):
-      self.assertItemsEqual(a_row.keys(), b_row.keys(), msg='Row %d' % i)
-      for key in a_row.keys():
-        a_value = a_row[key]
-        b_value = b_row[key]
-        msg = 'Row %d, key %s' % (i, key)
-        if isinstance(a_value, tuple):
-          self._assertValuesCloseOrEqual(a_value[0], b_value[0], msg=msg)
-          self._assertValuesCloseOrEqual(a_value[1], b_value[1], msg=msg)
-        else:
-          self._assertValuesCloseOrEqual(a_value, b_value, msg=msg)
-
-  def _assertValuesCloseOrEqual(self, a_value, b_value, msg=None):
-    try:
-      if (isinstance(a_value, str) or
-          isinstance(a_value, list) and a_value and
-          isinstance(a_value[0], str) or
-          isinstance(a_value, np.ndarray) and a_value.dtype == np.object):
-        self.assertAllEqual(a_value, b_value)
-      else:
-        self.assertAllClose(a_value, b_value)
-    except (AssertionError, TypeError) as e:
-      if msg:
-        e.args = ((e.args[0] + ' : ' + msg,) + e.args[1:])
-      raise
 
   def _resolveDeferredMetadata(self, transformed_metadata):
     """Asserts that there is no unresolved metadata."""

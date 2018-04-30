@@ -17,6 +17,9 @@
   should not be part of the transformation graph, for example: instance keys.
 * In addition to using TFTransformOutput, the examples demonstrate new workflows
   where a vocabulary is computed, but not applied, in the `preprocessing_fn`.
+* Added dependency on the [absl-py package](https://pypi.org/project/absl-py/).
+* `TransformTestCase` test cases can now be parameterized.
+* Add support for partitioned variables when loading a model.
 
 ## Breaking changes
 

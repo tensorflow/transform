@@ -60,6 +60,9 @@ def _load_transform_saved_model(transform_savedmodel_dir):
   return meta_graph_def, input_signature, output_signature, asset_path_dict
 
 
+_PARTITIONED_VARIABLE_NAME_RE = re.compile(r'^(.*)/part_(\d*)$')
+
+
 def _partially_apply_saved_transform_impl(
     saved_model_dir, logical_input_map, tensor_replacement_map=None,
     fetch_tensor_names=None):
@@ -186,8 +189,28 @@ def _partially_apply_saved_transform_impl(
     # explicitly by iterating over the variables.
     var_map = {}
     for var in tf.global_variables():
-      if var.op.name.startswith(scope):
-        var_map[var.op.name[len(scope)+1:]] = var
+      var_name = var.op.name
+      if not var_name.startswith(scope):
+        continue
+
+      # Generate original name before importing into scope.
+      original_var_name = var_name[len(scope)+1:]
+
+      match = _PARTITIONED_VARIABLE_NAME_RE.match(original_var_name)
+      if match:
+        # If the variable is partitioned, extract the base variable name and
+        # the index in the partition, then update var_map[base_name] to have
+        # var_map[base_name][partition_index] = var.
+        base_name = match.group(1)
+        partition_index = int(match.group(2))
+        if base_name not in var_map:
+          var_map[base_name] = []
+        while not partition_index < len(var_map[base_name]):
+          var_map[base_name].append(None)
+        assert var_map[base_name][partition_index] is None
+        var_map[base_name][partition_index] = var
+      else:
+        var_map[original_var_name] = var
 
     if var_map:
       tf.train.init_from_checkpoint(checkpoint_path, var_map)
