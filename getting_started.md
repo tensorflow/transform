@@ -443,5 +443,5 @@ for more details.
 
 The example code also contains code to export the model in the SavedModel
 format.  The exported model can be used by
-[Tensorflow Serving](https://www.tensorflow.org/serving/serving_basic) or
+[TensorFlow Serving](https://www.tensorflow.org/serving/serving_basic) or
 [Cloud ML Engine](https://cloud.google.com/ml-engine/docs/prediction-overview).
