@@ -60,8 +60,9 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
       with tf.Session().as_default() as session:
         input_floats = tf.constant([1237.0])  # tf.float32
         input_features = {'x': input_floats}
-        transformed_features = saved_transform_io.apply_saved_transform(
-            self._test_saved_model, input_features)
+        _, transformed_features = (
+            saved_transform_io.partially_apply_saved_transform_internal(
+                self._test_saved_model, input_features))
         self.assertEqual(['x_scaled'], transformed_features.keys())
         result_tensor = transformed_features['x_scaled']
         self.assertTrue(isinstance(result_tensor, tf.Tensor))
@@ -80,15 +81,7 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
           input_features = {'x': input_floats,
                             'extra_1': tf.constant('1'),
                             'extra_2': tf.constant('2')}
-          _ = saved_transform_io.apply_saved_transform(
-              self._test_saved_model, input_features)
-
-  def test_apply_transform_missing_features(self):
-    with self.assertRaises(ValueError):
-      with tf.Graph().as_default():
-        with tf.Session().as_default():
-          input_features = {}
-          saved_transform_io.apply_saved_transform(
+          saved_transform_io.partially_apply_saved_transform_internal(
               self._test_saved_model, input_features)
 
   def test_apply_transform_type_mismatch(self):
@@ -97,7 +90,7 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
         with tf.Session().as_default():
           input_strings = tf.constant(['bogus'])  # tf.string
           input_features = {'x': input_strings}
-          saved_transform_io.apply_saved_transform(
+          saved_transform_io.partially_apply_saved_transform_internal(
               self._test_saved_model, input_features)
 
   def test_apply_transform_shape_mismatch(self):
@@ -106,7 +99,7 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
         with tf.Session().as_default():
           input_floats = tf.constant(1234.0)  # tf.float32
           input_features = {'x': input_floats}
-          saved_transform_io.apply_saved_transform(
+          saved_transform_io.partially_apply_saved_transform_internal(
               self._test_saved_model, input_features)
 
   def test_apply_saved_transform_to_tensor_inside_scope(self):
@@ -115,8 +108,9 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
         with tf.Session().as_default() as session:
           input_floats = tf.constant([1237.0])  # tf.float32
           input_features = {'x': input_floats}
-          transformed_features = saved_transform_io.apply_saved_transform(
-              self._test_saved_model, input_features)
+          _, transformed_features = (
+              saved_transform_io.partially_apply_saved_transform_internal(
+                  self._test_saved_model, input_features))
           self.assertEqual(['x_scaled'], transformed_features.keys())
           result_tensor = transformed_features['x_scaled']
           self.assertAllEqual(session.run(result_tensor), [247.0])
@@ -127,8 +121,9 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
       with tf.name_scope('my_scope'):
         with tf.Session().as_default() as session:
           input_features = {'x': input_floats}
-          transformed_features = saved_transform_io.apply_saved_transform(
-              self._test_saved_model, input_features)
+          _, transformed_features = (
+              saved_transform_io.partially_apply_saved_transform_internal(
+                  self._test_saved_model, input_features))
           self.assertEqual(['x_scaled'], transformed_features.keys())
           result_tensor = transformed_features['x_scaled']
           self.assertAllEqual(session.run(result_tensor), [247.0])
@@ -152,7 +147,9 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
         # Using a computed input gives confidence that the graphs are fused.
         input_float = tf.constant(25.0) * 2
         inputs = {'input': input_float}
-        outputs = saved_transform_io.apply_saved_transform(export_path, inputs)
+        _, outputs = (
+            saved_transform_io.partially_apply_saved_transform_internal(
+                export_path, inputs))
         result = session.run(outputs['output'])
         # (25 * 2) / 5 = 10
         self.assertEqual(10.0, result)
@@ -177,7 +174,9 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
         # Using a computed input gives confidence that the graphs are fused.
         input_string = tf.constant('dog')
         inputs = {'input': input_string}
-        outputs = saved_transform_io.apply_saved_transform(export_path, inputs)
+        _, outputs = (
+            saved_transform_io.partially_apply_saved_transform_internal(
+                export_path, inputs))
         session.run(tf.tables_initializer())
         result = session.run(outputs['output'])
         self.assertEqual(1, result)
@@ -204,7 +203,9 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
 
         # Using a computed input gives confidence that the graphs are fused
         inputs = {'input': input_sparse * 10}
-        outputs = saved_transform_io.apply_saved_transform(export_path, inputs)
+        _, outputs = (
+            saved_transform_io.partially_apply_saved_transform_internal(
+                export_path, inputs))
         output_sparse = outputs['output']
         self.assertTrue(isinstance(output_sparse, tf.SparseTensor))
         result = session.run(output_sparse)
@@ -241,8 +242,9 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
         with tf.Session().as_default() as session:
           input_string = tf.constant('dog')
           inputs = {'input': input_string}
-          outputs = saved_transform_io.apply_saved_transform(export_path,
-                                                             inputs)
+          _, outputs = (
+              saved_transform_io.partially_apply_saved_transform_internal(
+                  export_path, inputs))
 
           self.assertEqual(
               1, len(g.get_collection(ops.GraphKeys.ASSET_FILEPATHS)))

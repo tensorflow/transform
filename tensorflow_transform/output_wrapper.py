@@ -110,7 +110,7 @@ class TFTransformOutput(object):
           `SparseTensor`s representing transformed features.
     """
     _, transformed_features = (
-        saved_transform_io.partially_apply_saved_transform(
+        saved_transform_io.partially_apply_saved_transform_internal(
             self.transform_savedmodel_dir, raw_features))
     return transformed_features
 

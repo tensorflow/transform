@@ -147,7 +147,7 @@ def tfidf(x, vocab_size, smooth=True, name=None):
         1 + log((corpus size + 1) / (document frequency of term + 1)).
         Otherwise, the idf is
         1 +log((corpus size) / (document frequency of term)), which could
-        result in a divizion by zero error.
+        result in a division by zero error.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -387,7 +387,7 @@ def apply_vocab(x, deferred_vocab_filename_tensor, default_value=-1,
   Args:
     x: A `Tensor` or `SparseTensor` of type tf.string to which the vocabulary
       transformation should be applied.
-      The colum names are those intended for the transformed tensors.
+      The column names are those intended for the transformed tensors.
     deferred_vocab_filename_tensor: The deferred vocab filename tensor as
       returned by `tft.uniques`.
     default_value: The value to use for out-of-vocabulary values, unless
@@ -526,7 +526,7 @@ def ngrams(tokens, ngram_range, separator, name=None):
   # dense_shape=[3, 4]
   #
   # First we then create shifts of the values and first column of indices,
-  # buffering to avoid overruning the end of the array, so the shifted values
+  # buffering to avoid overrunning the end of the array, so the shifted values
   # (if we are ngrams up to size 3) are
   #
   # shifted_batch_indices[0]=[0, 0, 0, 0, 1, 2, 2, 2]

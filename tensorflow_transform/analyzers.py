@@ -168,7 +168,7 @@ class CombinerSpec(object):
   def create_accumulator(self):
     """Return a fresh, empty accumulator.
 
-    Returns: An empty accumulator.  This can be an Python value.
+    Returns: An empty accumulator.  This can be any Python value.
     """
     raise NotImplementedError
 
@@ -313,7 +313,7 @@ def _numeric_combine(inputs,
   """Apply a reduction, defined by a numpy function to multiple inputs.
 
   Args:
-    inputs: A list of tensors, which will be indpendently reduced.
+    inputs: A list of tensors, which will be independently reduced.
     fn: A function to reduce tensors across instances/batches, to get a single
         output.
     reduce_instance_dims: By default collapses the batch and instance dimensions

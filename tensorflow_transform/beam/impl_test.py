@@ -2202,8 +2202,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     g = tf.Graph()
     with g.as_default():
       with tf.Session():
-        inputs, outputs = saved_transform_io.partially_apply_saved_transform(
-            os.path.join(export_dir, 'transform_fn'), {})
+        inputs, outputs = (
+            saved_transform_io.partially_apply_saved_transform_internal(
+                os.path.join(export_dir, 'transform_fn'), {}))
       x, y, z = inputs['x'], inputs['y'], inputs['z']
       feed = {
           x: [6., 3., 0., 1.],
@@ -2337,8 +2338,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
   @tft_unit.parameters(
       # Test for all integral types, each type is in a separate testcase to
       # increase parallelism of test shards and reduce test time.
-      (
-          tf.int32,),
+      (tf.int32,),
       (tf.int64,),
       (tf.float32,),
       (tf.float64,),

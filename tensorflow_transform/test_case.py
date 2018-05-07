@@ -21,6 +21,8 @@ from absl.testing import parameterized
 import numpy as np
 from tensorflow.python.framework import test_util
 
+named_parameters = parameterized.named_parameters
+
 
 def parameters(*testcases):
   """like parameterized.parameters but tests show arg names.

@@ -260,7 +260,20 @@ def fetch_tensor_values(saved_model_dir, tensor_replacement_map,
 
 def partially_apply_saved_transform(saved_model_dir, logical_input_map,
                                     tensor_replacement_map=None):
+  """Deprecated alias for partially_apply_saved_transform_internal."""
+  tf.logging.warn(
+      'partially_apply_saved_transform is deprecated.  Use the '
+      'transform_raw_features method of the TFTrandformOutput class instead.')
+  return partially_apply_saved_transform_internal(
+      saved_model_dir, logical_input_map, tensor_replacement_map)
+
+
+def partially_apply_saved_transform_internal(saved_model_dir, logical_input_map,
+                                             tensor_replacement_map=None):
   """Apply a transform graph, represented as a SavedModel, to existing Tensors.
+
+  For internal use only.  Users should use the transform_raw_features method
+  of the TFTrandformOutput class.
 
   This adds nodes to a graph that already contains Tensors representing the
   inputs.  These input Tensors may be placeholders that will be fed when the
@@ -298,45 +311,6 @@ def partially_apply_saved_transform(saved_model_dir, logical_input_map,
   unbound_inputs, outputs, _ = _partially_apply_saved_transform_impl(
       saved_model_dir, logical_input_map, tensor_replacement_map)
   return unbound_inputs, outputs
-
-
-def apply_saved_transform(saved_model_dir, input_tensors):
-  """Apply a transform graph, represented as a SavedModel, to existing Tensors.
-
-  This adds nodes to a graph that already contains Tensors representing the
-  inputs.  These input Tensors may be placeholders that will be fed when the
-  graph is executed, or may be the outputs of some Ops.  Most typically, the
-  input Tensors are reading and/or parsing Ops, but they could be anything--
-  including the outputs of a prior application of this function using another
-  transform graph.
-
-  This function operates on the default Graph in the default Session, and so
-  must be called within a context where these are provided.
-
-  Args:
-    saved_model_dir: A SavedModel directory providing a transform
-      graph.  The MetaGraphDef and signature are selected from the SavedModel
-      using keys defined in `../constants.py` ('transform' and
-      'transform_signature', respectively).
-    input_tensors: a dict of logical name to Tensor.  The logical names must
-      match those in the input signature of the transform graph, and the
-      corresponding Tensors must have the expected types and shapes.
-
-  Returns:
-    A dict of logical name to Tensor, as provided by the output signature
-    of the transform graph.
-
-  Raises:
-    ValueError: if the provided input_tensors dict does not provide exactly the
-      required inputs, or any of the provided inputs have the wrong type or
-      shape.
-  """
-  unbound_inputs, outputs = partially_apply_saved_transform(
-      saved_model_dir, input_tensors)
-  if unbound_inputs:
-    raise ValueError('Missing required inputs '
-                     'to transform: {}'.format(unbound_inputs.keys()))
-  return outputs
 
 
 def write_saved_transform_from_session(

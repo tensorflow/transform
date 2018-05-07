@@ -267,8 +267,9 @@ class _RunMetaGraphDoFn(beam.DoFn):
       self.session = tf.Session(graph=graph, config=tf_config)
       with graph.as_default():
         with self.session.as_default():
-          inputs, outputs = saved_transform_io.partially_apply_saved_transform(
-              saved_model_dir, {})
+          inputs, outputs = (
+              saved_transform_io.partially_apply_saved_transform_internal(
+                  saved_model_dir, {}))
         self.session.run(tf.global_variables_initializer())
         self.session.run(tf.tables_initializer())
 
@@ -552,7 +553,7 @@ class _ReplaceTensorsWithConstants(beam.PTransform):
         with tf.Session(graph=graph) as session:
           temp_dir = _make_unique_temp_dir(self._base_temp_dir)
           input_tensors, output_tensors = (
-              saved_transform_io.partially_apply_saved_transform(
+              saved_transform_io.partially_apply_saved_transform_internal(
                   saved_model_dir, {}, tensor_replacement_map))
           session.run(tf.global_variables_initializer())
           saved_transform_io.write_saved_transform_from_session(

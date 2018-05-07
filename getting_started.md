@@ -215,7 +215,7 @@ of a tensor, and the `ColumnSchema` describes both the kind of tensor and how it
 is represented in-memory or on-disk.
 
 The first argument to `ColumnSchema` specifies the `Domain` which includes the
-data type and richer infomation such as ranges. In our case we only specify the
+data type and richer information such as ranges. In our case we only specify the
 data type and use a helper function to create the `Domain`. The second argument
 provides a list of `Axis` objects describing the shape of the tensor. In our
 example the shape has no axes because the values are scalars (rank 0 tensors).
@@ -278,7 +278,7 @@ between reading the lines of the CSV file, and applying the converter that
 converts each CSV row to an instance in the in-memory format.
 
 ```python
-converter = csv_coder.CsvCoder(ordered_columns, raw_data_schema)
+converter = tft.coders.CsvCoder(ordered_columns, raw_data_schema)
 
 raw_data = (
     p
@@ -351,7 +351,7 @@ shards that are written.
 ```python
 transformed_data | "WriteTrainData" >> tfrecordio.WriteToTFRecord(
     transformed_eval_data_base,
-    coder=example_proto_coder.ExampleProtoCoder(transformed_metadata))
+    coder=tft.coders.ExampleProtoCoder(transformed_metadata))
 ```
 
 In addition to the training data, we also write out `transform_fn`.  Note that

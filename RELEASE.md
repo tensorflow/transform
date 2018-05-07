@@ -20,8 +20,12 @@
 * Added dependency on the [absl-py package](https://pypi.org/project/absl-py/).
 * `TransformTestCase` test cases can now be parameterized.
 * Add support for partitioned variables when loading a model.
+* Export the `coders` subpackage so that users can access it as `tft.coders`,
+  e.g. `tft.coders.ExampleProtoCoder`.
 
 ## Breaking changes
+* `apply_saved_transform` is removed.  See note on
+  `partially_apply_saved_transform` in the `Deprecations` section.
 
 ## Deprecations
 * The `expected_asset_file_contents` of
@@ -31,6 +35,12 @@
   `transform_fn_io.TRANSFORM_FN_DIR` should not be used, they are now aliases
   for `TFTransformOutput.TRANSFORMED_METADATA_DIR` and
   `TFTransformOutput.TRANSFORM_FN_DIR` respectively.
+* `partially_apply_saved_transform` is deprecated, users should use the
+  `transform_raw_features` method of `TFTransformOuptut` instead.  These differ
+   in that `partially_apply_saved_transform` can also be used to return both the
+   input placeholders and the outputs.  But users do not need this functionality
+   because they will typically create the input placeholders themselves based
+   on the feature spec.
 
 # Release 0.6.0
 

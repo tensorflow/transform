@@ -198,7 +198,7 @@ def build_csv_transforming_serving_input_receiver_fn(
     raw_serving_features = {k: v for k, v in zip(raw_keys, parsed_tensors)}
 
     _, transformed_features = (
-        saved_transform_io.partially_apply_saved_transform(
+        saved_transform_io.partially_apply_saved_transform_internal(
             transform_savedmodel_dir, raw_serving_features))
 
     if convert_scalars_to_vectors:
@@ -302,7 +302,7 @@ def build_json_example_transforming_serving_input_receiver_fn(
     inputs = {"json_example": json_example_placeholder}
 
     _, transformed_features = (
-        saved_transform_io.partially_apply_saved_transform(
+        saved_transform_io.partially_apply_saved_transform_internal(
             transform_savedmodel_dir, raw_features))
 
     if convert_scalars_to_vectors:
@@ -388,7 +388,7 @@ def build_parsing_transforming_serving_input_receiver_fn(
         raw_serving_feature_spec, default_batch_size=None)
     raw_features, _, inputs = raw_input_fn()
     _, transformed_features = (
-        saved_transform_io.partially_apply_saved_transform(
+        saved_transform_io.partially_apply_saved_transform_internal(
             transform_savedmodel_dir, raw_features))
 
     if convert_scalars_to_vectors:
@@ -492,7 +492,7 @@ def build_default_transforming_serving_input_receiver_fn(
                        "supported.")
 
     _, transformed_features = (
-        saved_transform_io.partially_apply_saved_transform(
+        saved_transform_io.partially_apply_saved_transform_internal(
             transform_savedmodel_dir, raw_serving_features))
 
     if convert_scalars_to_vectors:
@@ -642,8 +642,9 @@ def build_transforming_training_input_fn(raw_metadata,
           raw_data_file_pattern, training_batch_size, raw_feature_spec,
           reader, **read_batch_features_args)
 
-    _, transformed_data = saved_transform_io.partially_apply_saved_transform(
-        transform_savedmodel_dir, raw_data)
+    _, transformed_data = (
+        saved_transform_io.partially_apply_saved_transform_internal(
+            transform_savedmodel_dir, raw_data))
 
     transformed_features = {
         k: v for k, v in six.iteritems(transformed_data)

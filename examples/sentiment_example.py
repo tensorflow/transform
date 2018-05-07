@@ -32,7 +32,6 @@ from tensorflow.contrib import learn
 from tensorflow.contrib.learn.python.learn.utils import input_fn_utils
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
-from tensorflow_transform.coders import example_proto_coder
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
@@ -132,7 +131,7 @@ def read_and_shuffle_data(
     working_dir: Directory to write shuffled data to
   """
   with beam.Pipeline() as pipeline:
-    coder = example_proto_coder.ExampleProtoCoder(RAW_DATA_METADATA.schema)
+    coder = tft.coders.ExampleProtoCoder(RAW_DATA_METADATA.schema)
 
     # pylint: disable=no-value-for-parameter
     _ = (
@@ -167,8 +166,7 @@ def transform_data(working_dir):
 
   with beam.Pipeline() as pipeline:
     with beam_impl.Context(temp_dir=tempfile.mkdtemp()):
-      coder = example_proto_coder.ExampleProtoCoder(
-          RAW_DATA_METADATA.schema)
+      coder = tft.coders.ExampleProtoCoder(RAW_DATA_METADATA.schema)
       train_data = (
           pipeline
           | 'ReadTrain' >> tfrecordio.ReadFromTFRecord(
@@ -200,7 +198,7 @@ def transform_data(working_dir):
           (train_data, RAW_DATA_METADATA)
           | 'AnalyzeAndTransform' >> beam_impl.AnalyzeAndTransformDataset(
               preprocessing_fn))
-      transformed_data_coder = example_proto_coder.ExampleProtoCoder(
+      transformed_data_coder = tft.coders.ExampleProtoCoder(
           transformed_metadata.schema)
 
       transformed_test_data, _ = (

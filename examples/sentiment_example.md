@@ -6,7 +6,7 @@ We provide some more examples which show more advanced kinds of preprocessing.
 
 The example `sentiment_example.py` uses the [Large Movie Review
 Dataset](http://ai.stanford.edu/~amaas/data/sentiment/) which contains 50000
-movie reivews equally split into train and test sets. To run this example, the
+movie reviews equally split into train and test sets. To run this example, the
 data should be downloaded and unzipped to a directory. As with
 `census_example.py`, when running `sentiment_example.py`, the directory
 containing the data should be passed as the first argument. The script will

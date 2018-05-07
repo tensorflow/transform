@@ -34,8 +34,6 @@ from tensorflow.contrib.learn.python.learn.utils import input_fn_utils
 
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
-from tensorflow_transform.coders import csv_coder
-from tensorflow_transform.coders import example_proto_coder
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
@@ -168,7 +166,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
           'capital-gain', 'capital-loss', 'hours-per-week', 'native-country',
           'label'
       ]
-      converter = csv_coder.CsvCoder(ordered_columns, RAW_DATA_METADATA.schema)
+      converter = tft.coders.CsvCoder(ordered_columns, RAW_DATA_METADATA.schema)
 
       # Read in raw data and convert using CSV converter.  Note that we apply
       # some Beam transformations here, which will not be encoded in the TF
@@ -193,7 +191,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
       transformed_dataset, transform_fn = (
           raw_dataset | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
       transformed_data, transformed_metadata = transformed_dataset
-      transformed_data_coder = example_proto_coder.ExampleProtoCoder(
+      transformed_data_coder = tft.coders.ExampleProtoCoder(
           transformed_metadata.schema)
 
       _ = (
