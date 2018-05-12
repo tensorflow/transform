@@ -22,13 +22,12 @@ import collections
 import six
 
 import tensorflow as tf
-from tensorflow_transform.tf_metadata import futures
 
 
 _TF_EXAMPLE_ALLOWED_TYPES = [tf.string, tf.int64, tf.float32, tf.bool]
 
 
-class Schema(futures.FutureContent):
+class Schema(object):
   """The schema of a dataset.
 
   This is an in-memory representation that may be serialized and deserialized to
@@ -95,7 +94,7 @@ class Schema(futures.FutureContent):
             for key, column_schema in six.iteritems(self.column_schemas)}
 
 
-class ColumnSchema(futures.FutureContent):
+class ColumnSchema(object):
   """The schema for a single column in a dataset.
 
   The schema contains two parts: the logical description of the column, which
@@ -192,7 +191,7 @@ class ColumnSchema(futures.FutureContent):
     raise NotImplementedError('Merge not implemented yet.')
 
 
-class Domain(futures.FutureContent):
+class Domain(object):
   """A description of the valid values that a column can take."""
 
   __metaclass__ = abc.ABCMeta
@@ -320,7 +319,7 @@ def _dtype_to_domain(dtype):
   raise ValueError('Schema cannot accommodate dtype: {}'.format(dtype))
 
 
-class Axis(futures.FutureContent):
+class Axis(object):
   """An axis representing one dimension of the shape of a column.
 
   Elements are:
@@ -346,7 +345,7 @@ class Axis(futures.FutureContent):
     return '{}({})'.format(self.__class__.__name__, repr(self.__dict__))
 
 
-class ColumnRepresentation(futures.FutureContent):
+class ColumnRepresentation(object):
   """A description of the representation of a column in memory or on disk."""
 
   __metaclass__ = abc.ABCMeta

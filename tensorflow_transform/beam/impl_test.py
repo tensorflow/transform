@@ -501,7 +501,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
           | beam_impl.TransformDataset())
 
     self.assertDataCloseOrEqual(expected_data, transformed_data)
-    transformed_metadata = self._resolveDeferredMetadata(transformed_metadata)
+    # Now that the pipeline has run, transformed_metadata.deferred_metadata
+    # should be a list containing a single DatasetMetadata with the full
+    # metadata.
+    assert len(transformed_metadata.deferred_metadata) == 1
+    transformed_metadata = transformed_metadata.deferred_metadata[0]
     self.assertEqual(expected_metadata.schema.column_schemas,
                      transformed_metadata.schema.column_schemas)
     self.assertEqual(expected_metadata, transformed_metadata)
@@ -684,8 +688,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_metadata = dataset_metadata.DatasetMetadata({
         'ab': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
         'i': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, num_instances - 1, True,
-                          'vocab_string_to_int_uniques'),
+            sch.IntDomain(tf.int64, -1, num_instances - 1, True),
             [], sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -1602,8 +1605,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 4, True,
-                          'vocab_string_to_int_uniques'),
+            sch.IntDomain(tf.int64, -1, 4, True),
             [], sch.FixedColumnRepresentation())
     })
 
@@ -1656,7 +1658,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, 0, 5, True, 'my_vocab'),
+            sch.IntDomain(tf.int64, 0, 5, True),
             [], sch.FixedColumnRepresentation())
     })
     expected_vocab_file_contents = {
@@ -1682,10 +1684,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
     vocab_filename = 'test_string_to_int'
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index_a': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, True, vocab_filename),
+            sch.IntDomain(tf.int64, -1, 6, True),
             [], sch.FixedColumnRepresentation()),
         'index_b': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, True, vocab_filename),
+            sch.IntDomain(tf.int64, -1, 6, True),
             [], sch.FixedColumnRepresentation())
     })
 
@@ -1729,16 +1731,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
     vocab_filename = 'test_vocab_with_frequency'
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index_a': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, True, vocab_filename),
+            sch.IntDomain(tf.int64, -1, 6, True),
             [], sch.FixedColumnRepresentation()),
         'frequency_a': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, True, vocab_filename),
+            sch.IntDomain(tf.int64, -1, 6, True),
             [], sch.FixedColumnRepresentation()),
         'index_b': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, True, vocab_filename),
+            sch.IntDomain(tf.int64, -1, 6, True),
             [], sch.FixedColumnRepresentation()),
         'frequency_b': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, True, vocab_filename),
+            sch.IntDomain(tf.int64, -1, 6, True),
             [], sch.FixedColumnRepresentation())
     })
 
@@ -1835,11 +1837,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # expected.
     expected_output_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 1, True,
-                          'vocab_string_to_int_uniques'), [],
+            sch.IntDomain(tf.int64, -1, 1, True), [],
             sch.FixedColumnRepresentation()),
         'index_2': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 1, True, 'index_2_file'), [],
+            sch.IntDomain(tf.int64, -1, 1, True), [],
             sch.FixedColumnRepresentation())
     })
     with beam.Pipeline() as pipeline:
@@ -1888,8 +1889,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 8, True,
-                          'vocab_string_to_int_uniques'),
+            sch.IntDomain(tf.int64, -1, 8, True),
             [2, 2], sch.FixedColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -1909,8 +1909,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_data = [{'index': [0, 0, 1]}, {'index': [0, 2, 1]}]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 2, True,
-                          'vocab_string_to_int_uniques'),
+            sch.IntDomain(tf.int64, -1, 2, True),
             [None], sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -1947,12 +1946,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -99, 1, True,
-                          'vocab_string_to_int_uniques'),
+            sch.IntDomain(tf.int64, -99, 1, True),
             [None], sch.ListColumnRepresentation()),
         'index2': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -9, 1, True,
-                          'vocab_string_to_int_1_uniques'),
+            sch.IntDomain(tf.int64, -9, 1, True),
             [None], sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -1990,12 +1987,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -99, 2, True,
-                          'vocab_string_to_int_uniques'),
+            sch.IntDomain(tf.int64, -99, 2, True),
             [None], sch.ListColumnRepresentation()),
         'index2': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -9, 2, True,
-                          'vocab_string_to_int_1_uniques'),
+            sch.IntDomain(tf.int64, -9, 2, True),
             [None], sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -2040,12 +2035,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # Note the vocabs are empty but the tables have size 1 so max_value is 1.
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -99, 0, True,
-                          'vocab_string_to_int_uniques'),
+            sch.IntDomain(tf.int64, -99, 0, True),
             [None], sch.ListColumnRepresentation()),
         'index2': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -9, 0, True,
-                          'vocab_string_to_int_1_uniques'),
+            sch.IntDomain(tf.int64, -9, 0, True),
             [None], sch.ListColumnRepresentation())
     })
     self.assertAnalyzeAndTransformResults(
@@ -2083,8 +2076,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, 0, 3, True,
-                          'vocab_string_to_int_uniques'), [None],
+            sch.IntDomain(tf.int64, 0, 3, True), [None],
             sch.ListColumnRepresentation()),
     })
     self.assertAnalyzeAndTransformResults(

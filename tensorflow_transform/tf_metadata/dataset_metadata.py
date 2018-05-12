@@ -22,10 +22,9 @@ from tensorflow_transform.tf_metadata import dataset_problem_statements
 from tensorflow_transform.tf_metadata import dataset_provenance
 from tensorflow_transform.tf_metadata import dataset_schema
 from tensorflow_transform.tf_metadata import dataset_statistics
-from tensorflow_transform.tf_metadata import futures
 
 
-class DatasetMetadata(futures.FutureContent):
+class DatasetMetadata(object):
   """A collection of metadata about a dataset.
 
   This is an in-memory representation that may be serialized and deserialized to

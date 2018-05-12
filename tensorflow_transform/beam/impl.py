@@ -409,7 +409,7 @@ def _write_saved_transform(graph, inputs, outputs, saved_model_dir):
     # pylint: disable=protected-access
     collections_blacklist = [
         tft_api._TF_METADATA_TENSORS_COLLECTION,
-        tft_api._TF_METADATA_COLUMN_SCHEMAS_COLLECTION,
+        tft_api._TF_METADATA_SCHEMA_OVERRIDES_COLLECTION,
         tft_api.FUNCTION_APPLICATION_COLLECTION,
         tft_analyzers.ANALYZER_COLLECTION
     ]
@@ -606,7 +606,7 @@ class _ComputeAnalyzerOutputs(beam.PTransform):
     return result
 
 
-class _ComputeTensorValues(beam.PTransform):
+class _ComputeDeferredMetadata(beam.PTransform):
   """Extracts values of tensors from a transform function.
 
   This transform takes the path to a SavedModel in its constructor, and in its
@@ -619,13 +619,16 @@ class _ComputeTensorValues(beam.PTransform):
   mapping (but not on the inputs to the graph).
 
   Args:
-    tensor_names: The names of the tensors to extract.
+    metadata: A `DatasetMetadata`
+    column_schema_overrides: A dict from column names to `api._SchemaOverride`s
     saved_model_dir: The model to extract the constants from.
     pipeline: The beam Pipeline.
   """
 
-  def __init__(self, tensor_names, saved_model_dir, pipeline):
-    self._tensor_names = tensor_names
+  def __init__(self, metadata, column_schema_overrides, saved_model_dir,
+               pipeline):
+    self._metadata = metadata
+    self._column_schema_overrides = column_schema_overrides
     self._saved_model_dir = saved_model_dir
     # Generally the pipeline is inferred from its inputs, however we need
     # to know the pipeline for beam.Create.
@@ -641,13 +644,6 @@ class _ComputeTensorValues(beam.PTransform):
     Returns:
       A dict from tensor names to singleton `PCollection`s.
     """
-    # Create a singleton PCollection containing self._tensor_names.  Note that
-    # the PCollection is a singeton containing a single list, that is the size
-    # of the PCollection is not equal to the length of self._tensor_names.
-    tensor_names_pcoll = (
-        self.pipeline
-        | 'CreateTensorNames' >> beam.Create([self._tensor_names]))
-
     # Convert tensor_value_mapping into a DictPCollectionView so it can be
     # passed as a side input to the beam Map below.
     tensor_value_pairs = []
@@ -659,9 +655,14 @@ class _ComputeTensorValues(beam.PTransform):
         tensor_value_pairs
         | 'MergeTensorValuePairs' >> beam.Flatten(pipeline=self.pipeline))
 
-    def extract_scalar_constants(tensor_names, saved_model_dir,
-                                 tensor_value_mapping):
+    def compute_deferred_metadata(metadata, column_schema_overrides,
+                                  saved_model_dir, tensor_value_mapping):
       """Extracts constant values from graph."""
+      tensor_names = {
+          tensor_name
+          for override in six.itervalues(column_schema_overrides)
+          for tensor_name in [override.min_value, override.max_value]}
+
       graph = tf.Graph()
       with graph.as_default():
         tensor_replacement_map = {}
@@ -675,25 +676,42 @@ class _ComputeTensorValues(beam.PTransform):
           tensor_replacement_map[orig_tensor_name] = new_tensor
 
         with tf.Session(graph=graph) as session:
-          tensor_output_map = (
+          tensors_by_name = (
               saved_transform_io.fetch_tensor_values(
                   saved_model_dir, tensor_replacement_map, tensor_names))
           session.run(tf.global_variables_initializer())
           session.run(tf.tables_initializer())
-          return session.run(tensor_output_map)
+          tensor_values_by_name = session.run(tensors_by_name)
 
-    tensor_values_by_name_pcoll = (
-        tensor_names_pcoll | 'ExtractScalarConstants' >> beam.Map(
-            extract_scalar_constants,
+      new_column_schemas = {}
+      for key, column_schema in six.iteritems(metadata.schema.column_schemas):
+        if key in column_schema_overrides:
+          override = column_schema_overrides[key]
+          min_value = tensor_values_by_name[override.min_value]
+          max_value = tensor_values_by_name[override.max_value]
+          assert column_schema.domain.dtype == tf.int64
+          assert isinstance(column_schema.domain, dataset_schema.IntDomain)
+          # Create a new column schema.  An override always results in a
+          # categorical column.
+          new_column_schemas[key] = dataset_schema.ColumnSchema(
+              dataset_schema.IntDomain(tf.int64, min_value, max_value,
+                                       is_categorical=True),
+              column_schema.axes,
+              column_schema.representation)
+        else:
+          new_column_schemas[key] = column_schema
+
+      return dataset_metadata.DatasetMetadata(dataset_schema.Schema(
+          new_column_schemas))
+
+    return (
+        self.pipeline
+        | 'CreateMetadata' >> beam.Create([self._metadata])
+        | 'ExtractScalarConstants' >> beam.Map(
+            compute_deferred_metadata,
+            column_schema_overrides=self._column_schema_overrides,
             saved_model_dir=self._saved_model_dir,
             tensor_value_mapping=tensor_value_mapping))
-    result = {}
-    for name in self._tensor_names:
-      result[name] = (
-          tensor_values_by_name_pcoll
-          | 'Extract[%s]' % name >> beam.Map(lambda d, name=name: d[name]))
-
-    return result
 
 
 class AnalyzeDataset(beam.PTransform):
@@ -716,7 +734,9 @@ class AnalyzeDataset(beam.PTransform):
 
   def _extract_input_pvalues(self, dataset):
     data, metadata = dataset
-    pvalues = [data] + getattr(metadata, 'pcollections', {}).values()
+    pvalues = [data]
+    if isinstance(metadata, beam_metadata_io.BeamDatasetMetadata):
+      pvalues.append(metadata.deferred_metadata)
     return dataset, pvalues
 
   def expand(self, dataset):
@@ -831,30 +851,30 @@ class AnalyzeDataset(beam.PTransform):
           | 'ReplaceTensorsWithConstants' >> _ReplaceTensorsWithConstants(
               saved_model_dir, base_temp_dir, input_values.pipeline))
 
-      # Infer metadata.  The metadata may contain Futures that refer to the
-      # values of tensors in the graph.  In that case, the tensors must be
-      # "constant" in that they don't depend on input data.  The tensors can
+      # Infer metadata.  We take the inferred metadata and apply overrides that
+      # refer to values of tensors in the graph.  The override tensors must
+      # be "constant" in that they don't depend on input data.  The tensors can
       # depend on analyzer outputs though.  This allows us to set metadata that
-      # depends on analyzer outputs.
-      #
-      # We first extract the names of the tensors that are referenced by the
-      # Futures, and then compute them by calling _ComputeScalarConstants with
-      # the tensor-PCollection mapping representing the analyzer outputs.
+      # depends on analyzer outputs. _ComputeDeferredMetadata will use
+      # tensor_pcoll_mapping to compute the metadata in a deferred manner, once
+      # the analyzer outputs are known.
       metadata = dataset_metadata.DatasetMetadata(
           schema=impl_helper.infer_feature_schema(outputs))
 
-      deferred_metadata_tensor_names = {
-          future.name
-          for column_schema in metadata.schema.column_schemas.values()
-          for future in column_schema.substitute_futures({})
-      }
-      name_pcoll_dict = (
+      tensor_schema_overrides = tft_api.get_tensor_schema_overrides()
+      column_schema_overrides = {
+          key: tensor_schema_overrides[tensor]
+          for key, tensor in six.iteritems(outputs)
+          if tensor in tensor_schema_overrides}
+
+      deferred_metadata = (
           tensor_pcoll_mapping
-          | 'ComputeTensorValues' >>
-          _ComputeTensorValues(deferred_metadata_tensor_names, saved_model_dir,
-                               input_values.pipeline))
+          | 'ComputeDeferredMetadata' >>
+          _ComputeDeferredMetadata(metadata, column_schema_overrides,
+                                   saved_model_dir, input_values.pipeline))
+
       full_metadata = beam_metadata_io.BeamDatasetMetadata(
-          metadata, name_pcoll_dict)
+          metadata, deferred_metadata)
 
       _clear_shared_state_after_barrier(input_values.pipeline, transform_fn)
 
@@ -885,7 +905,9 @@ class AnalyzeAndTransformDataset(beam.PTransform):
 
   def _extract_input_pvalues(self, dataset):
     data, metadata = dataset
-    pvalues = [data] + getattr(metadata, 'pcollections', {}).values()
+    pvalues = [data]
+    if isinstance(metadata, beam_metadata_io.BeamDatasetMetadata):
+      pvalues.append(metadata.deferred_metadata)
     return dataset, pvalues
 
   def expand(self, dataset):
@@ -908,6 +930,17 @@ class AnalyzeAndTransformDataset(beam.PTransform):
     return transformed_dataset, transform_fn
 
 
+def _remove_columns_from_metadata(metadata, excluded_columns):
+  """Remove columns from metadata without mutating original metadata."""
+  schema = metadata.schema
+  new_schema = dataset_schema.Schema({
+      key: column_schema
+      for key, column_schema in six.iteritems(schema.column_schemas)
+      if key not in excluded_columns
+  })
+  return dataset_metadata.DatasetMetadata(new_schema)
+
+
 class TransformDataset(beam.PTransform):
   """Applies the transformation computed by transforming a Dataset.
 
@@ -926,9 +959,11 @@ class TransformDataset(beam.PTransform):
   def _extract_input_pvalues(self, dataset_and_transform_fn):
     (data, input_metadata), (transform_fn, output_metadata) = (
         dataset_and_transform_fn)
-    pvalues = ([data, transform_fn] +
-               getattr(input_metadata, 'pcollections', {}).values() +
-               getattr(output_metadata, 'pcollections', {}).values())
+    pvalues = [data, transform_fn]
+    if isinstance(input_metadata, beam_metadata_io.BeamDatasetMetadata):
+      pvalues.append(input_metadata.deferred_metadata)
+    if isinstance(output_metadata, beam_metadata_io.BeamDatasetMetadata):
+      pvalues.append(output_metadata.deferred_metadata)
     return dataset_and_transform_fn, pvalues
 
   def expand(self, dataset_and_transform_fn):
@@ -947,36 +982,17 @@ class TransformDataset(beam.PTransform):
     # If exclude_outputs is set, update the output metadata.
     if self._exclude_outputs is not None:
       if isinstance(output_metadata, beam_metadata_io.BeamDatasetMetadata):
-        # Unwrap BeamDatasetMetadata into DatasetMetadata and pcollections dict.
-        output_metadata, pcollections = output_metadata
-        schema = output_metadata.schema
-        # Update DatasetMetadata to remove excluded outputs
-        output_metadata = dataset_metadata.DatasetMetadata(
-            schema=dataset_schema.Schema({
-                key: column_schema
-                for key, column_schema in six.iteritems(schema.column_schemas)
-                if key not in self._exclude_outputs
-            }))
-        # Update pcollections to keep only pcollections that resolve futures in
-        # the updated metadata.
-        unresolved_future_names = set(
-            future.name for future in output_metadata.substitute_futures({}))
-        pcollections = {
-            name: pcollection
-            for name, pcollection in six.iteritems(pcollections)
-            if name in unresolved_future_names
-        }
-        # Wrap DatasetMetadata and pcollections as BeamDatasetMetadata
+        new_metadata = _remove_columns_from_metadata(
+            output_metadata.dataset_metadata, self._exclude_outputs)
+        new_deferred_metadata = (
+            output_metadata.deferred_metadata
+            | 'RemoveColumms' >> beam.Map(_remove_columns_from_metadata,
+                                          self._exclude_outputs))
         output_metadata = beam_metadata_io.BeamDatasetMetadata(
-            output_metadata, pcollections)
+            new_metadata, new_deferred_metadata)
       else:
-        schema = output_metadata.schema
-        output_metadata = dataset_metadata.DatasetMetadata(
-            schema=dataset_schema.Schema({
-                key: column_schema
-                for key, column_schema in six.iteritems(schema.column_schemas)
-                if key not in self._exclude_outputs
-            }))
+        output_metadata = _remove_columns_from_metadata(
+            output_metadata, self._exclude_outputs)
 
     serialized_tf_config = (
         common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access

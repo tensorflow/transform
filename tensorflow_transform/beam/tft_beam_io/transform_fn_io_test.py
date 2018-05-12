@@ -29,14 +29,13 @@ from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
-from tensorflow_transform.tf_metadata import futures
 from tensorflow_transform.tf_metadata import metadata_io
 
 import unittest
 from tensorflow.python.framework import test_util
 from tensorflow.python.lib.io import file_io
 
-_TEST_METADATA = dataset_metadata.DatasetMetadata({
+_TEST_METADATA_COMPLETE = dataset_metadata.DatasetMetadata({
     'fixed_column': dataset_schema.ColumnSchema(
         tf.string, (1, 3, 2), dataset_schema.FixedColumnRepresentation()),
     'fixed_column_with_default': dataset_schema.ColumnSchema(
@@ -45,14 +44,15 @@ _TEST_METADATA = dataset_metadata.DatasetMetadata({
         tf.float32, (None,), dataset_schema.ListColumnRepresentation())
 })
 
-_TEST_METADATA_WITH_FUTURES = dataset_metadata.DatasetMetadata({
+_TEST_METADATA = dataset_metadata.DatasetMetadata({
     'fixed_column': dataset_schema.ColumnSchema(
         tf.string, (1, 3, 2), dataset_schema.FixedColumnRepresentation()),
     'fixed_column_with_default': dataset_schema.ColumnSchema(
-        tf.float32, (1, futures.Future('a'), 2),
-        dataset_schema.FixedColumnRepresentation(123.4)),
+        tf.float32, (1, 3, 2), dataset_schema.FixedColumnRepresentation(123.4)),
+    # zeros will be overriddden
     'list_columm': dataset_schema.ColumnSchema(
-        tf.float32, (None,), dataset_schema.ListColumnRepresentation())
+        dataset_schema.IntDomain(tf.int64, min_value=0, max_value=0),
+        (None,), dataset_schema.ListColumnRepresentation())
 })
 
 
@@ -72,7 +72,8 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
         path, tft.TFTransformOutput.TRANSFORM_FN_DIR)
     transformed_metadata_dir = os.path.join(
         path, tft.TFTransformOutput.TRANSFORMED_METADATA_DIR)
-    metadata_io.write_metadata(_TEST_METADATA, transformed_metadata_dir)
+    metadata_io.write_metadata(_TEST_METADATA_COMPLETE,
+                               transformed_metadata_dir)
 
     with beam.Pipeline() as pipeline:
       saved_model_dir_pcoll, metadata = (
@@ -81,7 +82,7 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
           saved_model_dir_pcoll, beam_test_util.equal_to([transform_fn_dir]),
           label='AssertSavedModelDir')
       # NOTE: metadata is currently read in a non-deferred manner.
-      self.assertEqual(metadata, _TEST_METADATA)
+      self.assertEqual(metadata, _TEST_METADATA_COMPLETE)
 
   def testWriteTransformFn(self):
     transform_output_dir = os.path.join(self.get_temp_dir(), 'output')
@@ -92,11 +93,11 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
       file_io.recursive_create_dir(saved_model_dir)
       saved_model_dir_pcoll = (
           pipeline | 'CreateSavedModelDir' >> beam.Create([saved_model_dir]))
+      # Combine test metadata with a dict of PCollections resolving futures.
+      deferred_metadata = pipeline | 'CreateDeferredMetadata' >> beam.Create(
+          [_TEST_METADATA_COMPLETE])
       metadata = beam_metadata_io.BeamDatasetMetadata(
-          _TEST_METADATA_WITH_FUTURES,
-          {
-              'a': pipeline | 'CreateA' >> beam.Create([3]),
-          })
+          _TEST_METADATA, deferred_metadata)
 
       _ = ((saved_model_dir_pcoll, metadata)
            | transform_fn_io.WriteTransformFn(transform_output_dir))
@@ -104,7 +105,7 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
     # Test reading with TFTransformOutput
     tf_transform_output = tft.TFTransformOutput(transform_output_dir)
     metadata = tf_transform_output.transformed_metadata
-    self.assertEqual(metadata, _TEST_METADATA)
+    self.assertEqual(metadata, _TEST_METADATA_COMPLETE)
 
     transform_fn_dir = tf_transform_output.transform_savedmodel_dir
     self.assertTrue(file_io.file_exists(transform_fn_dir))

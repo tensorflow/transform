@@ -39,9 +39,7 @@ def infer_feature_schema(tensors):
   """Given a dict of tensors, creates a `Schema`.
 
   Infers a schema, in the format of a tf.Transform `Schema`, for the given
-  dictionary of tensors.  If a tensor has a ColumnSchema set using
-  api.set_column_schema then this schema will be used instead of inferring a
-  schema.
+  dictionary of tensors.
 
   Args:
     tensors: A dict mapping column names to tensors. The tensors should have a
@@ -50,13 +48,8 @@ def infer_feature_schema(tensors):
   Returns:
     A `Schema` object.
   """
-  schema_overrides = api.get_column_schemas()
-
-  # If the tensor already has a schema attached, use that. Otherwise infer the
-  # schema from the underlying tensor.
   return dataset_schema.Schema({
-      name: schema_overrides.get(
-          tensor, dataset_schema.infer_column_schema_from_tensor(tensor))
+      name: dataset_schema.infer_column_schema_from_tensor(tensor)
       for name, tensor in six.iteritems(tensors)
   })
 

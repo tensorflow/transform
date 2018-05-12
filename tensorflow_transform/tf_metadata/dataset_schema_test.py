@@ -23,7 +23,6 @@ import pickle
 import tensorflow as tf
 
 from tensorflow_transform.tf_metadata import dataset_schema as sch
-from tensorflow_transform.tf_metadata import futures
 from tensorflow_transform.tf_metadata import test_common
 import unittest
 
@@ -199,50 +198,6 @@ class DatasetSchemaTest(unittest.TestCase):
 
     self.assertEqual(f1, f2)
     self.assertNotEqual(f2, f3)
-
-  def test_schema_with_futures(self):
-    schema = sch.Schema()
-
-    schema.column_schemas['fixed_bool_without_default'] = (
-        sch.ColumnSchema(
-            tf.bool,
-            [5, futures.Future('foo_dim_1'), 7, futures.Future('foo_dim_3')],
-            sch.FixedColumnRepresentation()))
-
-    schema.column_schemas['fixed_int_with_default'] = (
-        sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation(
-            default_value=futures.Future('bar_int_default'))))
-
-    schema.column_schemas['fixed_categorical_int_with_range'] = (
-        sch.ColumnSchema(sch.IntDomain(tf.int64,
-                                       futures.Future('baz_int_min'),
-                                       futures.Future('baz_int_max'),
-                                       is_categorical=True),
-                         [1],
-                         sch.FixedColumnRepresentation(default_value=0)))
-
-    self.assertFalse(schema.all_futures_resolved())
-    schema.substitute_futures({'foo_dim_1': 6, 'foo_dim_3': 8,
-                               'bar_int_default': 12,
-                               'baz_int_min': 3, 'baz_int_max': 4})
-    self.assertTrue(schema.all_futures_resolved())
-
-    expected_schema = sch.Schema()
-
-    expected_schema.column_schemas['fixed_bool_without_default'] = (
-        sch.ColumnSchema(tf.bool, [5, 6, 7, 8],
-                         sch.FixedColumnRepresentation()))
-
-    expected_schema.column_schemas['fixed_int_with_default'] = (
-        sch.ColumnSchema(tf.int64, [1],
-                         sch.FixedColumnRepresentation(default_value=12)))
-
-    expected_schema.column_schemas['fixed_categorical_int_with_range'] = (
-        sch.ColumnSchema(
-            sch.IntDomain(tf.int64, 3, 4, is_categorical=True), [1],
-            sch.FixedColumnRepresentation(default_value=0)))
-
-    self.assertEqual(expected_schema, schema)
 
 
 if __name__ == '__main__':

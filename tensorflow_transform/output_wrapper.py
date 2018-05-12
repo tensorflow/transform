@@ -46,6 +46,7 @@ class TFTransformOutput(object):
 
   @property
   def transformed_metadata(self):
+    """A DatasetMetadata."""
     if self._transformed_metadata is None:
       self._transformed_metadata = metadata_io.read_metadata(
           os.path.join(self._transform_output_dir,
@@ -54,13 +55,19 @@ class TFTransformOutput(object):
 
   @property
   def transform_savedmodel_dir(self):
+    """A python str."""
     return os.path.join(self._transform_output_dir, self.TRANSFORM_FN_DIR)
 
   def transformed_feature_spec(self):
+    """Returns a feature_spec for the transformed features.
+
+    Returns:
+      A dict from feature names to FixedLenFeature/SparseFeature/VarLenFeature.
+    """
     return self.transformed_metadata.schema.as_feature_spec()
 
   def vocabulary_file_by_name(self, vocab_filename):
-    """Returns the vocabulary file created in the preprocessing function.
+    """Returns the vocabulary file path created in the preprocessing function.
 
     `vocab_filename` must be the name used as the vocab_filename argument to
     tft.string_to_int or tft.uniques. By convention, this should be the name of

@@ -692,26 +692,65 @@ class _QuantilesCombinerSpec(CombinerSpec):
     Args:
       tf_config: (optional) A tf.ConfigProto
     """
-    # _stamp_token is used to commit the state of the qaccumulator. In
+    # stamp_token is used to commit the state of the qaccumulator. In
     # this case, the qaccumulator state is completely returned and stored
     # as part of quantile_state/summary in the combiner fn (i.e the summary is
     # extracted and stored outside the qaccumulator). So we don't use
     # the timestamp mechanism to signify progress in the qaccumulator state.
-    self._stamp_token = 0
-    # Represents an empty summary. This could be changed to a tf.constant
-    # implemented by the quantile ops library.
-    self._empty_summary = None
+    stamp_token = 0
 
     # Create a new session with a new graph for quantile ops.
     self._session = tf.Session(graph=tf.Graph(), config=tf_config)
     with self._session.graph.as_default():
       with self._session.as_default():
         self._qaccumulator = quantile_ops.QuantileAccumulator(
-            init_stamp_token=self._stamp_token,
+            init_stamp_token=stamp_token,
             num_quantiles=self._num_quantiles,
             epsilon=self._epsilon,
             name='qaccumulator')
         resources.initialize_resources(resources.shared_resources()).run()
+
+        # Create placeholder that will be used to provide input the
+        # QuantileAccumulator.  Has shape (1, None) as this is what the
+        # QuantileAccumulator accepts.
+        self._add_summary_input = tf.placeholder(
+            dtype=self._bucket_numpy_dtype, shape=[1, None])
+
+        # Create op to update the accumulator with new input fed from
+        # self._qaccumulator_input.
+        self._add_summary_op = self._qaccumulator.add_summary(
+            stamp_token=stamp_token,
+            column=self._add_summary_input,
+            # All weights are equal, and the weight vector is the
+            # same length as the input.
+            example_weights=tf.ones_like(self._add_summary_input))
+
+        # Create op to add a prebuilt summary to the accumulator, and a
+        # placeholder tensor to provide the input for this op.
+        self._prebuilt_summary_input = tf.placeholder(
+            dtype=tf.string, shape=[])
+        self._add_prebuilt_summary_op = self._qaccumulator.add_prebuilt_summary(
+            stamp_token=stamp_token,
+            summary=self._prebuilt_summary_input)
+
+        # Create op to flush summaries and return a summary representing the
+        # summaries that were added the accumulator so far.
+        self._flush_summary_op = self._qaccumulator.flush_summary(
+            stamp_token=stamp_token,
+            next_stamp_token=stamp_token)
+
+        # Create ops to flush the accumulator and return approximate boundaries.
+        self._flush_op = self._qaccumulator.flush(
+            stamp_token=stamp_token,
+            next_stamp_token=stamp_token)
+        _, self._buckets_op = self._qaccumulator.get_buckets(
+            stamp_token=stamp_token)
+
+    # We generate an empty summary by calling self._flush_summary_op.
+    # We cache this as some implementations may call create_accumulator for
+    # every input, and it can be cached since it will always be the same and
+    # immutable.
+    self._empty_summary = self._session.run(self._flush_summary_op)
 
   def __reduce__(self):
     return _QuantilesCombinerSpec, (self._num_quantiles, self._epsilon,
@@ -726,68 +765,39 @@ class _QuantilesCombinerSpec(CombinerSpec):
     # to (1,?).
     flattened_input = np.reshape(next_input[0], newshape=(1, -1))
 
-    with self._session.graph.as_default():
-      update = self._qaccumulator.add_summary(
-          stamp_token=self._stamp_token,
-          column=flattened_input,
-          # All weights are equal, and the weight vector is the
-          # same length as the input.
-          example_weights=np.ones_like(flattened_input))
+    self._session.run(
+        self._add_prebuilt_summary_op,
+        feed_dict={self._prebuilt_summary_input: summary})
 
-      if summary is not self._empty_summary:
-        self._session.run(
-            self._qaccumulator.add_prebuilt_summary(
-                stamp_token=self._stamp_token,
-                summary=tf.constant(summary)))
+    self._session.run(
+        self._add_summary_op,
+        feed_dict={self._add_summary_input: flattened_input})
 
-      self._session.run(update)
-
-      # After the flush_summary, qaccumulator will not contain any
-      # uncommitted information that represents the input. Instead all the
-      # digested information is returned as 'summary'. Many such summaries
-      # will be combined by merge_accumulators().
-      return self._session.run(
-          self._qaccumulator.flush_summary(
-              stamp_token=self._stamp_token,
-              next_stamp_token=self._stamp_token))
+    # After the flush_summary, qaccumulator will not contain any
+    # uncommitted information that represents the input. Instead all the
+    # digested information is returned as 'summary'. Many such summaries
+    # will be combined by merge_accumulators().
+    return self._session.run(self._flush_summary_op)
 
   def merge_accumulators(self, summaries):
-    if summaries is self._empty_summary:
-      return self._empty_summary
+    for summary in summaries:
+      self._session.run(
+          self._add_prebuilt_summary_op,
+          feed_dict={self._prebuilt_summary_input: summary})
 
-    with self._session.graph.as_default():
-      summary_placeholder = tf.placeholder(tf.string)
-      add_summary = self._qaccumulator.add_prebuilt_summary(
-          stamp_token=self._stamp_token,
-          summary=summary_placeholder)
-      for summary in summaries:
-        self._session.run(add_summary, {summary_placeholder: summary})
-
-      # Compute new summary.
-      # All relevant state about the input is captured by 'summary'
-      # (see comment at the end of add_input()).
-      return self._session.run(
-          self._qaccumulator.flush_summary(
-              stamp_token=self._stamp_token,
-              next_stamp_token=self._stamp_token))
+    # Compute new summary.
+    # All relevant state about the input is captured by 'summary'
+    # (see comment at the end of add_input()).
+    return self._session.run(self._flush_summary_op)
 
   def extract_output(self, summary):
-    if summary is self._empty_summary:
-      return [np.empty(shape=(0,), dtype=self._bucket_numpy_dtype)]
-
     # All relevant state about the input is captured by 'summary'
     # (see comment in add_input() and merge_accumulators()).
-    with self._session.graph.as_default():
-      self._session.run(
-          self._qaccumulator.add_prebuilt_summary(
-              stamp_token=self._stamp_token, summary=tf.constant(summary)))
-      self._session.run(
-          self._qaccumulator.flush(
-              stamp_token=self._stamp_token,
-              next_stamp_token=self._stamp_token))
-      are_ready_flush, buckets = (
-          self._qaccumulator.get_buckets(stamp_token=self._stamp_token))
-      buckets, _ = self._session.run([buckets, are_ready_flush])
+    self._session.run(
+        self._add_prebuilt_summary_op,
+        feed_dict={self._prebuilt_summary_input: summary})
+    self._session.run(self._flush_op)
+    buckets = self._session.run(self._buckets_op)
 
     # Quantile boundaries is a list of the form
     #    [np.ndarrary(min, <internal-boundaries>, max)]

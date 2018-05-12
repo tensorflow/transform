@@ -19,7 +19,6 @@ import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import test_case
 from tensorflow_transform.beam import impl as beam_impl
-from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 
 parameters = test_case.parameters
@@ -27,23 +26,6 @@ parameters = test_case.parameters
 
 class TransformTestCase(test_case.TransformTestCase):
   """Base test class for testing tf-transform preprocessing functions."""
-
-  def _resolveDeferredMetadata(self, transformed_metadata):
-    """Asserts that there is no unresolved metadata."""
-    # We should be able to call ResolveBeamFutures in all cases, but because
-    # we are using Beam's automaterialization, we don't have access to an
-    # explicit pipeline.  Therefore we only call ResolveBeamFutures when we
-    # are sure that transformed_metadata contains at least one element.
-    if transformed_metadata.pcollections:
-      transformed_metadata = (
-          (transformed_metadata | beam_metadata_io.ResolveBeamFutures(None))[0])
-    else:
-      transformed_metadata = transformed_metadata.dataset_metadata
-
-    # No more unresolved metadata should remain.
-    unresolved_futures = transformed_metadata.substitute_futures({})
-    self.assertEqual(unresolved_futures, [])
-    return transformed_metadata
 
   def assertAnalyzeAndTransformResults(self,
                                        input_data,
@@ -133,7 +115,11 @@ class TransformTestCase(test_case.TransformTestCase):
       self.assertDataCloseOrEqual(expected_data, transformed_data)
 
     if expected_metadata:
-      transformed_metadata = self._resolveDeferredMetadata(transformed_metadata)
+      # Now that the pipeline has run, transformed_metadata.deferred_metadata
+      # should be a list containing a single DatasetMetadata with the full
+      # metadata.
+      assert len(transformed_metadata.deferred_metadata) == 1
+      transformed_metadata = transformed_metadata.deferred_metadata[0]
 
       if only_check_core_metadata:
         # preprocessing_fn may add metadata to column schema only relevant to

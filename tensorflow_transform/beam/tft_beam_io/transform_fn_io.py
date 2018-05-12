@@ -58,7 +58,9 @@ class WriteTransformFn(beam.PTransform):
 
   def _extract_input_pvalues(self, transform_fn):
     saved_model_dir, metadata = transform_fn
-    pvalues = [saved_model_dir] + getattr(metadata, 'pcollections', {}).values()
+    pvalues = [saved_model_dir]
+    if isinstance(metadata, beam_metadata_io.BeamDatasetMetadata):
+      pvalues.append(metadata.deferred_metadata)
     return transform_fn, pvalues
 
   def expand(self, transform_fn):

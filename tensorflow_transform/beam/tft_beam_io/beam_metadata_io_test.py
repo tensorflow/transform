@@ -24,13 +24,12 @@ import tensorflow as tf
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
-from tensorflow_transform.tf_metadata import futures
 from tensorflow_transform.tf_metadata import metadata_io
 
 import unittest
 from tensorflow.python.framework import test_util
 
-_TEST_METADATA = dataset_metadata.DatasetMetadata({
+_TEST_METADATA_COMPLETE = dataset_metadata.DatasetMetadata({
     'fixed_column': dataset_schema.ColumnSchema(
         tf.string, (1, 3, 2), dataset_schema.FixedColumnRepresentation()),
     'fixed_column_with_default': dataset_schema.ColumnSchema(
@@ -40,15 +39,14 @@ _TEST_METADATA = dataset_metadata.DatasetMetadata({
         (None,), dataset_schema.ListColumnRepresentation())
 })
 
-_TEST_METADATA_WITH_FUTURES = dataset_metadata.DatasetMetadata({
+_TEST_METADATA = dataset_metadata.DatasetMetadata({
     'fixed_column': dataset_schema.ColumnSchema(
         tf.string, (1, 3, 2), dataset_schema.FixedColumnRepresentation()),
     'fixed_column_with_default': dataset_schema.ColumnSchema(
-        tf.float32, (1, futures.Future('a'), 2),
-        dataset_schema.FixedColumnRepresentation(123.4)),
+        tf.float32, (1, 3, 2), dataset_schema.FixedColumnRepresentation(123.4)),
+    # zeros will be overriddden
     'list_columm': dataset_schema.ColumnSchema(
-        dataset_schema.IntDomain(
-            tf.int64, min_value=-1, max_value=futures.Future('b')),
+        dataset_schema.IntDomain(tf.int64, min_value=0, max_value=0),
         (None,), dataset_schema.ListColumnRepresentation())
 })
 
@@ -65,29 +63,27 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
     # Write properties as metadata to disk.
     with beam.Pipeline() as pipeline:
       path = self.get_temp_dir()
-      _ = (_TEST_METADATA
+      _ = (_TEST_METADATA_COMPLETE
            | beam_metadata_io.WriteMetadata(path, pipeline))
     # Load from disk and check that it is as expected.
     metadata = metadata_io.read_metadata(path)
-    self.assertMetadataEqual(metadata, _TEST_METADATA)
+    self.assertMetadataEqual(metadata, _TEST_METADATA_COMPLETE)
 
   def testWriteMetadataDeferredProperties(self):
     # Write deferred properties as metadata to disk.
     with beam.Pipeline() as pipeline:
       path = self.get_temp_dir()
 
-      # Combine test metadata with a dict of PCollections resolving futures.
+      # Combine _TEST_METADATA with the complete (deferred) metadata.
+      deferred_metadata = pipeline | 'CreateDeferredMetadata' >> beam.Create(
+          [_TEST_METADATA_COMPLETE])
       metadata = beam_metadata_io.BeamDatasetMetadata(
-          _TEST_METADATA_WITH_FUTURES,
-          {
-              'a': pipeline | 'CreateA' >> beam.Create([3]),
-              'b': pipeline | 'CreateB' >> beam.Create([5])
-          })
+          _TEST_METADATA, deferred_metadata)
 
       _ = metadata | beam_metadata_io.WriteMetadata(path, pipeline)
     # Load from disk and check that it is as expected.
     metadata = metadata_io.read_metadata(path)
-    self.assertMetadataEqual(metadata, _TEST_METADATA)
+    self.assertMetadataEqual(metadata, _TEST_METADATA_COMPLETE)
 
 
 if __name__ == '__main__':

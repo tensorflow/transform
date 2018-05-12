@@ -21,8 +21,6 @@ from __future__ import print_function
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import api
-from tensorflow_transform.tf_metadata import dataset_schema
-from tensorflow_transform.tf_metadata import futures
 
 from tensorflow.contrib import lookup
 from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
@@ -421,28 +419,18 @@ def apply_vocab(x, deferred_vocab_filename_tensor, default_value=-1,
     result, table_size = api.apply_function(
         lookup_fn, x, deferred_vocab_filename_tensor)
 
-    # Set the min and max values of the domain, where the max value is a
-    # `Future` wrapping the max_value tensor.  Note that min_value is a regular
-    # Python value while max_value is a tensor.  This tensor's value cannot be
-    # known until the vocab has been computed.
+    # Specify schema overrides which will override the values in the schema
+    # with the min and max values, which are deferred as they are only known
+    # once the analyzer has run.
     #
     # `table_size` includes the num oov buckets.  The default value is only used
     # if num_oov_buckets > 0.
-    min_value = 0
+    min_value = tf.constant(0, tf.int64)
     max_value = table_size - 1
     if num_oov_buckets <= 0:
-      min_value = min(min_value, default_value)
+      min_value = tf.minimum(min_value, default_value)
       max_value = tf.maximum(max_value, default_value)
-    column_schema = dataset_schema.infer_column_schema_from_tensor(result)
-    # Extract the relative vocab filename from the absolute pathname.
-    file_name_tensor = tf.string_split(
-        [deferred_vocab_filename_tensor], '/').values[-1]
-    column_schema.domain = dataset_schema.IntDomain(
-        result.dtype, min_value=min_value,
-        max_value=futures.Future(max_value.name),
-        is_categorical=True,
-        vocabulary_file=futures.Future(file_name_tensor.name))
-    api.set_column_schema(result, column_schema)
+    api.set_tensor_schema_overrides(result, min_value, max_value)
 
     return result
 
@@ -709,10 +697,8 @@ def apply_buckets(x, bucket_boundaries, name=None):
 
     # Attach the relevant metadata to result, so that the corresponding
     # output feature will have this metadata set.
+    min_value = tf.constant(0, tf.int64)
     max_value = tf.shape(bucket_boundaries)[1]
-    column_schema = dataset_schema.infer_column_schema_from_tensor(result)
-    column_schema.domain = dataset_schema.IntDomain(
-        result.dtype, min_value=0, max_value=futures.Future(max_value.name),
-        is_categorical=True)
-    api.set_column_schema(result, column_schema)
+    api.set_tensor_schema_overrides(result, min_value, max_value)
+
     return result

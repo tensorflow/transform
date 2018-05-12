@@ -48,6 +48,8 @@ Apache Beam as the underlying framework.  See beam/impl.py for how to use the
 Beam implementation.
 """
 
+import collections
+
 import tensorflow as tf
 from tensorflow_transform import analyzers
 
@@ -161,18 +163,37 @@ def apply_function(fn, *args):
   return FunctionApplication(fn, args).user_output
 
 
+# min_value and max_value are tensor names.
+_SchemaOverride = collections.namedtuple(
+    'SchemaOverride', ['min_value', 'max_value'])
+
+
 _TF_METADATA_TENSORS_COLLECTION = 'tft_metadata_tensors'
-_TF_METADATA_COLUMN_SCHEMAS_COLLECTION = 'tft_metadata_schemas'
+_TF_METADATA_SCHEMA_OVERRIDES_COLLECTION = 'tft_metadata_schema_overrides'
 
 
-def set_column_schema(tensor, column_schema):
-  """Sets the schema of a `Tensor` or `SparseTensor`."""
+def set_tensor_schema_overrides(tensor, min_value, max_value):
+  """Override parts of the schema of a `Tensor` or `SparseTensor`."""
+  if not (isinstance(tensor, tf.Tensor) or isinstance(tensor, tf.SparseTensor)):
+    raise ValueError(
+        'tensor {} was not a Tensor or SparseTensor'.format(tensor))
+  if not isinstance(min_value, tf.Tensor):
+    raise ValueError('min_vaue {} was not a Tensor'.format(min_value))
+  if not isinstance(max_value, tf.Tensor):
+    raise ValueError('max_vaue {} was not a Tensor'.format(min_value))
+
   tf.add_to_collection(_TF_METADATA_TENSORS_COLLECTION, tensor)
-  tf.add_to_collection(_TF_METADATA_COLUMN_SCHEMAS_COLLECTION, column_schema)
+
+  # Construct a _SchemaOverride using the tensor names of min_value and
+  # max_value.
+  tf.add_to_collection(_TF_METADATA_SCHEMA_OVERRIDES_COLLECTION,
+                       _SchemaOverride(min_value.name, max_value.name))
 
 
-def get_column_schemas():
-  """Gets a dict from `Tensor` or `SparseTensor`s to `ColumnSchema`s."""
-  return dict(zip(
-      tf.get_collection(_TF_METADATA_TENSORS_COLLECTION),
-      tf.get_collection(_TF_METADATA_COLUMN_SCHEMAS_COLLECTION)))
+def get_tensor_schema_overrides():
+  """Gets a dict from `Tensor` or `SparseTensor`s to `_SchemaOverride`s."""
+  tensors = tf.get_collection(_TF_METADATA_TENSORS_COLLECTION)
+  schema_overrides = tf.get_collection(_TF_METADATA_SCHEMA_OVERRIDES_COLLECTION)
+  assert len(tensors) == len(schema_overrides), '{} != {}'.format(
+      tensors, schema_overrides)
+  return dict(zip(tensors, schema_overrides))

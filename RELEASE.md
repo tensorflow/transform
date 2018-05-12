@@ -4,6 +4,7 @@
 * Add TFTransformOutput utility class that wraps the output of tf.Transform for
   use in training.  This makes it easier to consume the output written by
   tf.Transform (see update examples for usage).
+* Increase efficiency of `quantiles` (and therefore `bucketize`).
 
 ## Bug Fixes and Other Changes
 * Change `tft.sum`/`tft.mean`/`tft.var` to only support basic numeric types.
@@ -26,6 +27,8 @@
 ## Breaking changes
 * `apply_saved_transform` is removed.  See note on
   `partially_apply_saved_transform` in the `Deprecations` section.
+* No longer set `vocabulary_file` in `IntDomain` when using `string_to_int` or
+  `apply_vocab`.
 
 ## Deprecations
 * The `expected_asset_file_contents` of
