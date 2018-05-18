@@ -247,8 +247,8 @@ def combine_analyzer(inputs, output_dtypes, output_shapes, combiner_spec, name):
     ValueError: If output_dtypes and output_shapes have different lengths.
   """
   if len(output_dtypes) != len(output_shapes):
-    raise ValueError('output_dtypes (%r) and output_shapes (%r) had different'
-                     ' lengths' % output_dtypes, output_shapes)
+    raise ValueError('output_dtypes ({}) and output_shapes ({}) had different'
+                     ' lengths'.format(output_dtypes, output_shapes))
   return Analyzer(
       inputs,
       [(output_dtype, output_shape, False)
@@ -1141,3 +1141,5 @@ def pca(x, output_dim, dtype, name=None):
   return combine_analyzer(
       [x], [dtype], [shape], spec,
       name if name is not None else 'pca')[0]
+
+

@@ -105,7 +105,7 @@ class _FixedLenFeatureHandler(object):
     self._index = index
     self._reader = reader
     self._encoder = encoder
-    self._dtype = feature_spec.dtype
+    self._np_dtype = feature_spec.dtype.as_numpy_dtype
     self._shape = feature_spec.shape
     self._rank = len(feature_spec.shape)
     self._size = 1
@@ -149,9 +149,9 @@ class _FixedLenFeatureHandler(object):
       return values[0]
     elif self._rank == 1:
       # Short-circuit the reshaping logic needed for rank > 1.
-      return np.asarray(values)
+      return np.asarray(values, dtype=self._np_dtype)
     else:
-      return np.asarray(values).reshape(self._shape)
+      return np.asarray(values, dtype=self._np_dtype).reshape(self._shape)
 
   def encode_value(self, string_list, values):
     """Encode the value of this feature into the CSV line."""
@@ -162,7 +162,7 @@ class _FixedLenFeatureHandler(object):
       # Short-circuit the reshaping logic needed for rank > 1.
       flattened_values = values
     else:
-      flattened_values = np.asarray(values).reshape(-1)
+      flattened_values = np.asarray(values, dtype=self._np_dtype).reshape(-1)
 
     if len(flattened_values) != self._size:
       raise ValueError('FixedLenFeature %r got wrong number of values. Expected'
@@ -187,6 +187,7 @@ class _VarLenFeatureHandler(object):
   def __init__(self, name, feature_spec, index, reader=None, encoder=None):
     self._name = name
     self._cast_fn = _make_cast_fn(feature_spec.dtype)
+    self._np_dtype = feature_spec.dtype.as_numpy_dtype
     self._index = index
     self._reader = reader
     self._encoder = encoder
@@ -204,7 +205,7 @@ class _VarLenFeatureHandler(object):
       values = [self._cast_fn(value_str)]
     else:
       values = []
-    return np.asarray(values)
+    return np.asarray(values, dtype=self._np_dtype)
 
   def encode_value(self, string_list, values):
     """Encode the value of this feature into the CSV line."""
@@ -225,6 +226,7 @@ class _SparseFeatureHandler(object):
                reader=None, encoder=None):
     self._name = name
     self._cast_fn = _make_cast_fn(feature_spec.dtype)
+    self._np_dtype = feature_spec.dtype.as_numpy_dtype
     self._value_index = value_index
     self._value_name = feature_spec.value_key
     self._index_index = index_index
@@ -271,7 +273,8 @@ class _SparseFeatureHandler(object):
           'SparseFeature %r has indices and values of different lengths: '
           'values: %r, indices: %r' % (self._name, values, indices))
 
-    return (np.asarray(indices), np.asarray(values))
+    return (np.asarray(indices, dtype=np.int64),
+            np.asarray(values, dtype=self._np_dtype))
 
   def encode_value(self, string_list, sparse_value):
     """Encode the value of this feature into the CSV line."""

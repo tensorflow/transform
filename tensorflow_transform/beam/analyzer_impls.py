@@ -321,3 +321,5 @@ class _CombinePerKeyAnalyzerImpl(beam.PTransform):
             self._spec, serialized_tf_config))
         | 'ToList' >> beam.combiners.ToList()
         | 'MergeByKey' >> beam.Map(_merge_outputs_by_key))
+
+

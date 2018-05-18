@@ -23,6 +23,8 @@
 * Add support for partitioned variables when loading a model.
 * Export the `coders` subpackage so that users can access it as `tft.coders`,
   e.g. `tft.coders.ExampleProtoCoder`.
+* Setting dtypes for numpy arrays in `tft.coders.ExampleProtoCoder` and
+  `tft.coders.CsvCoder`.
 
 ## Breaking changes
 * `apply_saved_transform` is removed.  See note on

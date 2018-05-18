@@ -131,11 +131,16 @@ class _FixedLenFeatureHandler(object):
       self._size *= dim
     default_value = feature_spec.default_value
     if default_value is not None:
-      np_default_value = np.asarray(default_value)
+      try:
+        np_default_value = np.asarray(default_value, dtype=self._np_dtype)
+      except ValueError:
+        raise ValueError(
+            'FixedLenFeature %r got default value with incompatible dtype %s' %
+            (self._name, feature_spec.dtype))
       if list(np_default_value.shape) != self._shape:
         raise ValueError(
             'FixedLenFeature %r got default value with incorrect shape' %
-            (self._name,))
+            self._name)
       default_value = np_default_value.reshape(-1).tolist()
     self._default_value = default_value
 
@@ -168,9 +173,9 @@ class _FixedLenFeatureHandler(object):
       return values[0]
     elif self._rank == 1:
       # Short-circuit the reshaping logic needed for rank > 1.
-      return np.asarray(values)
+      return np.asarray(values, dtype=self._np_dtype)
     else:
-      return np.asarray(values).reshape(self._shape)
+      return np.asarray(values, dtype=self._np_dtype).reshape(self._shape)
 
   def encode_value(self, values):
     """Encodes a feature into its Example proto representation."""
@@ -178,8 +183,9 @@ class _FixedLenFeatureHandler(object):
     if self._rank == 0:
       self._value.append(self._cast_fn(values))
     else:
-      flattened_values = (values if self._rank == 1 else
-                          np.asarray(values).reshape(-1))
+      flattened_values = (
+          values if self._rank == 1 else np.asarray(
+              values, dtype=self._np_dtype).reshape(-1))
       if len(flattened_values) != self._size:
         raise ValueError('FixedLenFeature %r got wrong number of values. '
                          'Expected %d but got %d' %
@@ -210,7 +216,7 @@ class _VarLenFeatureHandler(object):
 
   def parse_value(self, feature_map):
     feature = feature_map[self._name]
-    return np.asarray(self._value_fn(feature))
+    return np.asarray(self._value_fn(feature), dtype=self._np_dtype)
 
   def encode_value(self, values):
     del self._value[:]
@@ -249,8 +255,8 @@ class _SparseFeatureHandler(object):
   def parse_value(self, feature_map):
     value_feature = feature_map[self._value_key]
     index_feature = feature_map[self._index_key]
-    values = np.asarray(self._value_fn(value_feature))
-    indices = np.asarray(self._index_fn(index_feature))
+    values = np.asarray(self._value_fn(value_feature), dtype=self._np_dtype)
+    indices = np.asarray(self._index_fn(index_feature), dtype=np.int64)
     return (indices, values)
 
   def encode_value(self, sparse_value):

@@ -224,10 +224,20 @@ class ExampleProtoCoderTest(unittest.TestCase):
             tf.FixedLenFeature(
                 shape=[2, 3],
                 dtype=tf.float32,
-                default_value=[[1.0, 1.0], [1.0]]),
+                default_value=[[1.0, 1.0], [1.0, 1.0]]),
     })
     with self.assertRaisesRegexp(ValueError,
                                  'got default value with incorrect shape'):
+      example_proto_coder.ExampleProtoCoder(input_schema)
+
+    input_schema = dataset_schema.from_feature_spec({
+        '2d_vector_feature':
+            tf.FixedLenFeature(
+                shape=[2, 3],
+                dtype=tf.float32,
+                default_value=[[1.0, 1.0], [1.0]]),
+    })
+    with self.assertRaisesRegexp(ValueError, '.*incompatible dtype.*'):
       example_proto_coder.ExampleProtoCoder(input_schema)
 
   def test_example_proto_coder_picklable(self):
