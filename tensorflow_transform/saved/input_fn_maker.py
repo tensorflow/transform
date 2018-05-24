@@ -27,6 +27,9 @@ from tensorflow_transform.tf_metadata import dataset_schema
 from tensorflow.contrib.learn.python.learn.utils import input_fn_utils
 
 
+# Contrib feature columns expect shape (batch_size, 1), not just (batch_size).
+# Note this function is only needed when using contrib feature columns.  Core
+# feature columns allow any shape tensors.
 def _convert_scalars_to_vectors(features):
   """Vectorize scalar columns to meet FeatureColumns input requirements."""
   def maybe_expand_dims(tensor):

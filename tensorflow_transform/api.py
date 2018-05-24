@@ -121,6 +121,11 @@ class FunctionApplication(object):
   def inputs(self):
     return self._inputs
 
+  # Provided so that FunctionApplication as an `Operation`-like interface.
+  @property
+  def control_inputs(self):
+    return []
+
   @property
   def outputs(self):
     return self._outputs

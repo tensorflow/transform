@@ -1,19 +1,21 @@
-# Examples for TensorFlow Transform
+<!-- See: www.tensorflow.org/tfx/transform/ -->
 
-## Simple Example
-See [getting started guide] (../getting_started.md).
+# TensorFlow Transform Examples
 
-## Census Example
-The "Census Income" dataset is provided by the [UCI Machine Learning
-Repository](https://archive.ics.uci.edu/ml/datasets/Census+Income). This dataset
-contains both categorical and numeric data. See the [getting started guide]
-(../getting_started.md) for more details.  For information on running the
-example, see the [Downloading the Census dataset]
-(../getting_started_guide.md#Downloading the Census dataset) section.
+## Simple example
 
-## Sentiment Analysis Example
+There's a minimal TFX example available in the [GitHub repo](./simple_example.py).
 
-This example is similar to the `census_example.py` example but there are some
-differences. More extensive Beam processing is required before tf.Transform is
-invoked. See the [sentiment example guide]
-(sentiment_example.md#Downloading the Census dataset) for more information.
+## Census income example
+
+The *Census income* dataset is provided by the
+[UCI Machine Learning Repository](https://archive.ics.uci.edu/ml/datasets/Census+Income).
+This dataset contains both categorical and numeric data. See
+[Get started with TensorFlow Transform](../get_started.md)
+for details.
+
+## Sentiment analysis example
+
+Similar to the *Census income* example, but requires more extensive Apache Beam
+processing before `tf.Transform` is invoked. See the
+[sentiment analysis](./sentiment.md) for more information.

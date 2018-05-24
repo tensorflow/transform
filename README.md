@@ -1,53 +1,51 @@
 # TensorFlow Transform [![PyPI](https://img.shields.io/pypi/pyversions/tensorflow-transform.svg?style=plastic)](https://github.com/tensorflow/transform)
 
-**TensorFlow Transform** (**tf.Transform**) is a library for preprocessing
-data with [TensorFlow](https://www.tensorflow.org). tf.Transform is useful
-for preprocessing that requires a full pass the data, such as:
+*TensorFlow Transform* is a library for preprocessing data with TensorFlow.
+`tf.Transform` is useful for data that requires a full-pass, such as:
 
-* normalizing an input value by mean and stdev
-* integerizing a vocabulary by looking at all input examples for values
-* bucketizing inputs based on the observed data distribution
+* Normalize an input value by mean and standard deviation.
+* Convert strings to integers by generating a vocabulary over all input values.
+* Convert floats to integers by assigning them to buckets based on the observed
+  data distribution.
 
-TensorFlow already supports arbitrary manipulations on a single example or
-batch of examples. tf.Transform extends the capabilities to support full
-passes over the example data.
+TensorFlow has built-in support for manipulations on a single example or a batch
+of examples. `tf.Transform` extends these capabilities to support full-passes
+over the example data.
 
-The output of tf.Transform is exported as a TensorFlow graph for incorporation
-into training and serving. Using the same graph for both training and
-serving can prevent training/serving skew, because the same transforms are
-performed in both scenarios.
+The output of `tf.Transform` is exported as a
+[TensorFlow graph](http://tensorflow.org/programmers_guide/graphs) to use for training and serving.
+Using the same graph for both training and serving can prevent skew since the
+same transformations are applied in both stages.
 
-**tf.Transform may introduce backwards incompatible changes before version
-1.0**.
+Caution: `tf.Transform` may be backwards incompatible before version 1.0.
 
-## Installation and Dependencies
+## Installation
 
-The easiest and recommended way to install tf.Transform is with the PyPI
-package.
+The `tensorflow-transform`
+[PyPI package](https://pypi.org/project/tensorflow-transform/) is the
+recommended way to install `tf.Transform`:
 
 ```bash
 pip install tensorflow-transform
 ```
 
-Currently tf.Transform requires that TensorFlow be installed but does not have
-an explicit dependency on TensorFlow as a package. See [TensorFlow
-documentation](https://www.tensorflow.org/install/) for more information on
-installing TensorFlow.
+### Dependencies
 
-tf.Transform requires Apache Beam to run distributed analysis. Apache Beam
-runs in local mode by default, and can also run in distributed mode
+`tf.Transform` requires TensorFlow but does not depend on the `tensorflow`
+[PyPI package](https://pypi.org/project/tensorflow/). See the
+[TensorFlow install guides](https://www.tensorflow.org/install/) for
+instructions.
+
+[Apache Beam](https://beam.apache.org/) is required to run distributed analysis.
+By default, Apache Beam runs in local mode but can also run in distributed mode
 using [Google Cloud Dataflow](https://cloud.google.com/dataflow/).
-tf.Transform is designed to be extensible to other Apache Beam runners.
+`tf.Transform` is designed to be extensible for other Apache Beam runners.
 
-## Getting Started
+## Compatible versions
 
-For instructions on using tf.Transform see the [getting started
-guide](./getting_started.md).
-
-## Compatible Versions
-
-This is a table of versions known to be compatible with each other, based on
-our testing framework. Other combinations may also work, but are untested.
+The following table is the `tf.Transform` package versions that are
+compatible with each other. This is determined by our testing framework, but
+other *untested* combinations may also work.
 
 |tensorflow-transform                                                            |tensorflow    |apache-beam[gcp]|
 |--------------------------------------------------------------------------------|--------------|----------------|
@@ -58,4 +56,3 @@ our testing framework. Other combinations may also work, but are untested.
 |[0.3.1](https://github.com/tensorflow/transform/blob/v0.3.1/RELEASE.md)         |1.3           |2.1.1           |
 |[0.3.0](https://github.com/tensorflow/transform/blob/v0.3.0/RELEASE.md)         |1.3           |2.1.1           |
 |[0.1.10](https://github.com/tensorflow/transform/blob/v0.1.10/RELEASE.md)       |1.0           |2.0.0           |
-

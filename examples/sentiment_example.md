@@ -1,13 +1,15 @@
+<!-- See: www.tensorflow.org/tfx/transform/ -->
+
 # More Examples with tf.Transform
 
 We provide some more examples which show more advanced kinds of preprocessing.
 
 ## Sentiment Analysis
 
-The example `sentiment_example.py` uses the [Large Movie Review
-Dataset](http://ai.stanford.edu/~amaas/data/sentiment/) which contains 50000
-movie reviews equally split into train and test sets. To run this example, the
-data should be downloaded and unzipped to a directory. As with
+The example `sentiment_example.py` uses the
+[Large Movie Review Dataset](http://ai.stanford.edu/~amaas/data/sentiment/)
+which contains 50000 movie reviews equally split into train and test sets. To run
+this example, the data should be downloaded and unzipped to a directory. As with
 `census_example.py`, when running `sentiment_example.py`, the directory
 containing the data should be passed as the first argument. The script will
 create a temp subdirectory of the data directory to put preprocessed data in.
@@ -50,6 +52,6 @@ exact agreement.
 # References
 
 Andrew L. Maas, Raymond E. Daly, Peter T. Pham, Dan Huang, Andrew Y. Ng, and
-Christopher Potts. (2011). [Learning Word Vectors for Sentiment
-Analysis.](http://ai.stanford.edu/~amaas/papers/wvSent_acl2011.pdf) *The 49th
+Christopher Potts. (2011).
+[Learning Word Vectors for Sentiment Analysis.](http://ai.stanford.edu/~amaas/papers/wvSent_acl2011.pdf) *The 49th
 Annual Meeting of the Association for Computational Linguistics (ACL 2011).*

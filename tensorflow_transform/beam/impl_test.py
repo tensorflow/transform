@@ -147,10 +147,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
       # Get batch size from any input tensor.
       an_input = inputs.values()[0]
-      if isinstance(an_input, tf.SparseTensor):
-        batch_size = an_input.dense_shape[0]
-      else:
-        batch_size = tf.shape(an_input)[0]
+      batch_size = tf.shape(an_input)[0]
       result = {}
 
       # Add a batch dimension and broadcast the analyzer outputs.
@@ -1283,6 +1280,19 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
+  def testNumericMeanWithSparseTensor(self):
+
+    def analyzer_fn(inputs):
+      return {'mean': tft.mean(inputs['a'])}
+
+    input_data = [{'a': [1, 5, 6]}, {'a': [1, 2]}]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'a': sch.ColumnSchema(tf.int64, [None], sch.ListColumnRepresentation())
+    })
+    expected_outputs = {'mean': np.array(3., np.float32)}
+    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
+                               expected_outputs)
+
   def testNumericAnalyzersWithSparseInputs(self):
     def repeat(in_tensor, value):
       batch_size = tf.shape(in_tensor)[0]
@@ -1317,7 +1327,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
       with self.assertRaises(TypeError):
         def mean_fn(inputs):
-          return {'mean': repeat(inputs['a'], tft.mean(inputs['a']))}
+          return {
+              'mean':
+                  repeat(inputs['a'],
+                         tft.mean(inputs['a'], reduce_instance_dims=False))
+          }
         _ = input_dataset | beam_impl.AnalyzeDataset(mean_fn)
 
       with self.assertRaises(TypeError):

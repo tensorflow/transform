@@ -347,8 +347,8 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
 
     phases = impl_helper.create_phases()
     self.assertEqual(len(phases), 2)
-    self.assertEqual(len(phases[0].analyzers), 1)
-    self.assertEqual(len(phases[1].analyzers), 1)
+    self.assertEqual(len(phases[0].analyzer_infos), 1)
+    self.assertEqual(len(phases[1].analyzer_infos), 1)
 
   def testCreatePhasesWithTable(self):
     # Create a graph with table that can only be run after the first analyzer
@@ -361,8 +361,8 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
 
     phases = impl_helper.create_phases()
     self.assertEqual(len(phases), 2)
-    self.assertEqual(len(phases[0].analyzers), 1)
-    self.assertEqual(len(phases[1].analyzers), 1)
+    self.assertEqual(len(phases[0].analyzer_infos), 1)
+    self.assertEqual(len(phases[1].analyzer_infos), 1)
     self.assertEqual(len(phases[0].table_initializers), 0)
     self.assertEqual(len(phases[1].table_initializers), 1)
 
@@ -386,7 +386,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     phases = impl_helper.create_phases()
     self.assertEqual(len(phases), 1)
     #  tft.scale_to_0_1 uses a single analyzer: analyzers._min_and_max.
-    self.assertEqual(len(phases[0].analyzers), 1)
+    self.assertEqual(len(phases[0].analyzer_infos), 1)
 
   def testCreatePhasesWithControlFlowOpsNotWrappedInApplyFunction(self):
     int_placeholder = tf.placeholder(tf.int64, shape=(None,))

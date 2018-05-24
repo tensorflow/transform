@@ -28,7 +28,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
 import re
 
 import numpy as np
@@ -41,10 +40,6 @@ from tensorflow.python.ops import resources
 ANALYZER_COLLECTION = 'tft_analyzers'
 VOCAB_FILENAME_PREFIX = 'vocab_'
 VOCAB_FREQUENCY_FILENAME_PREFIX = 'vocab_frequency_'
-
-# Named tuple with details for each output of an Analyzer.
-_AnalyzerOutputInfo = collections.namedtuple(
-    'AnalyzerOutputInfo', ['name', 'is_asset'])
 
 # For some input types, widen the output type of sum analyzer to avoid overflow.
 _SUM_OUTPUT_DTYPE_MAP = {
@@ -89,7 +84,7 @@ _MEAN_OUTPUT_DTYPE_MAP = {
 # numpy code, the spec should also not contain TensorFlow dtypes but rather
 # their numpy equivalent.
 class Analyzer(object):
-  """An operation-like class for full-pass analyses of data.
+  """A class representing computation that will be done by Beam.
 
   An Analyzer is like a tf.Operation except that it requires computation over
   the full dataset.  E.g. sum(my_tensor) will compute the sum of the value of
@@ -97,57 +92,41 @@ class Analyzer(object):
   inputs to this computation, and placeholders which will later be converted to
   constants during a call to AnalyzeDataset.
 
-  Args:
-    inputs: The inputs to the analyzer.
-    output_dtype_shape_and_is_asset: List of tuples of `(DType, Shape, bool)`
-      for each output.  A tf.placeholder with the given DType and Shape will be
-      constructed to represent the output of the analyzer, and this placeholder
-      will eventually be replaced by the actual value of the analyzer.  The
-      boolean value states whether this Tensor represents an asset filename or
-      not.
-    spec: A description of the computation to be done.
-    name: Similar to a TF op name.  Used to define a unique scope for this
-      analyzer, which can be used for debugging info.
+  Analyzer implementations write some files to disk in a temporary location and
+  return tensors that contain the filename.  These outputs must be added to the
+  tf.GraphKeys.ASSET_FILEPATHS collection.  Doing so will ensure a few things
+  happen:
+  * the tensor will be removed from the collection prior to writing the
+    SavedModel (since the tensor will be replaced)
+  * when the tensor is replaced, the replacement will be added to the
+    tf.GraphKeys.ASSET_FILEPATHS colleciton
+  * This in turn causes the underlying file to be added to the SavedModel's
+    `assets` directory when the model is saved
 
-  Raises:
-    ValueError: If the inputs are not all `Tensor`s.
+  Args:
+    inputs: The `Tensor`s that are used to create inputs to this analyzer,
+    outputs: The `Tensor`s whose values will be replaced by the result of the
+        analyzer.
+    spec: An object that will be used to determine how the analyzer is
+        implemented by Beam.
+    name: The name of this analyzer, typically a TensorFlow scope.
   """
 
-  def __init__(self, inputs, output_dtype_shape_and_is_asset, spec, name):
-    for tensor in inputs:
+  def __init__(self, inputs, outputs, spec, name):
+    for index, tensor in enumerate(inputs):
       if not isinstance(tensor, tf.Tensor):
-        raise ValueError('Analyzers can only accept `Tensor`s as inputs')
-    self._input_tensor_names = [tensor.name for tensor in inputs]
-    self._output_infos = []
-    with tf.name_scope(name) as scope:
-      self._name = scope
-      for dtype, shape, is_asset in output_dtype_shape_and_is_asset:
-        output_tensor = tf.placeholder(dtype, shape)
-        if is_asset and output_tensor.dtype != tf.string:
-          raise ValueError(('Tensor {} cannot represent an asset, because it '
-                            'is not a string.').format(output_tensor.name))
-        self._output_infos.append(_AnalyzerOutputInfo(
-            output_tensor.name, is_asset))
+        raise ValueError(
+            'In analyzer {}, the {}th input ({}) was not a Tensor'.format(
+                name, index, tensor))
+    for index, tensor in enumerate(outputs):
+      if not isinstance(tensor, tf.Tensor):
+        raise ValueError(
+            'In analyzer {}, the {}th output ({}) was not a Tensor'.format(
+                name, index, tensor))
+    self._inputs = inputs
+    self._outputs = outputs
     self._spec = spec
-    tf.add_to_collection(ANALYZER_COLLECTION, self)
-
-  @property
-  def input_tensor_names(self):
-    return self._input_tensor_names
-
-  @property
-  def output_infos(self):
-    return self._output_infos
-
-  @property
-  def inputs(self):
-    return [tf.get_default_graph().get_tensor_by_name(name)
-            for name in self._input_tensor_names]
-
-  @property
-  def outputs(self):
-    return [tf.get_default_graph().get_tensor_by_name(output_info.name)
-            for output_info in self._output_infos]
+    self._name = name
 
   @property
   def spec(self):
@@ -156,6 +135,18 @@ class Analyzer(object):
   @property
   def name(self):
     return self._name
+
+  @property
+  def inputs(self):
+    return self._inputs
+
+  @property
+  def outputs(self):
+    return self._outputs
+
+  @property
+  def control_inputs(self):
+    return []
 
 
 class CombinerSpec(object):
@@ -249,12 +240,12 @@ def combine_analyzer(inputs, output_dtypes, output_shapes, combiner_spec, name):
   if len(output_dtypes) != len(output_shapes):
     raise ValueError('output_dtypes ({}) and output_shapes ({}) had different'
                      ' lengths'.format(output_dtypes, output_shapes))
-  return Analyzer(
-      inputs,
-      [(output_dtype, output_shape, False)
-       for output_dtype, output_shape in zip(output_dtypes, output_shapes)],
-      combiner_spec,
-      name).outputs
+  with tf.name_scope(name) as scope:
+    outputs = [tf.placeholder(dtype, shape)
+               for dtype, shape in zip(output_dtypes, output_shapes)]
+    tf.add_to_collection(
+        ANALYZER_COLLECTION, Analyzer(inputs, outputs, combiner_spec, scope))
+    return outputs
 
 
 class _NumPyCombinerSpec(CombinerSpec):
@@ -467,6 +458,11 @@ def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
     if output_dtype is None:
       raise TypeError('Tensor type %r is not supported' % x.dtype)
   sum_dtype, sum_fn = _sum_combine_fn_and_dtype(x.dtype)
+  if isinstance(x, tf.SparseTensor):
+    if not reduce_instance_dims:
+      raise TypeError(
+          'SparseTensor is only supported when reduce_instance_dims=True')
+    x = x.values
   with tf.name_scope(name, 'mean'):
     # For now _numeric_combine will return a tuple with as many elements as the
     # input tuple.
@@ -653,7 +649,7 @@ def uniques(x, top_k=None, frequency_threshold=None,
   if x.dtype != tf.string:
     raise ValueError('expected tf.string but got %r' % x.dtype)
 
-  with tf.name_scope(name, 'uniques'):
+  with tf.name_scope(name, 'uniques') as scope:
     if vocab_filename is not None:
       prefix = None
     elif store_frequency:
@@ -666,7 +662,12 @@ def uniques(x, top_k=None, frequency_threshold=None,
 
     spec = _UniquesSpec(top_k, frequency_threshold, vocab_filename,
                         store_frequency)
-    return Analyzer([x], [(tf.string, [], True)], spec, 'uniques').outputs[0]
+
+    result = tf.placeholder(tf.string, [])
+    tf.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, result)
+    tf.add_to_collection(
+        ANALYZER_COLLECTION, Analyzer([x], [result], spec, scope))
+    return result
 
 
 class _QuantilesCombinerSpec(CombinerSpec):

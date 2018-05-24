@@ -565,20 +565,38 @@ class _ReplaceTensorsWithConstants(beam.PTransform):
         tensor_value_mapping=tensor_value_mapping))
 
 
-class _ComputeAnalyzerOutputs(beam.PTransform):
-  """Runs analyzers and return a map from tensor names to values.
+class _RunPhase(beam.PTransform):
+  """Run analyzers for a phase and return an update to tensor_pcoll_mapping."""
 
-  This transform takes a PCollection of instances where each instance contains
-  the inputs to the analyzers (by tensor name).  It extracts the inputs of
-  each analyzer and then runs the analyzers.  The return value is a dictionary
-  from the output tensor names to `_TensorValue`s.
-  """
-
-  def __init__(self, analyzers, base_temp_dir):
-    self._analyzers = analyzers
+  def __init__(self, analyzer_infos, unbound_saved_model_dir, base_temp_dir,
+               input_schema, serialized_tf_config):
+    self._analyzer_infos = analyzer_infos
+    self._unbound_saved_model_dir = unbound_saved_model_dir
     self._base_temp_dir = base_temp_dir
+    self._input_schema = input_schema
+    self._serialized_tf_config = serialized_tf_config
 
-  def expand(self, analyzer_input_values):
+  def expand(self, inputs):
+    input_values, tensor_pcoll_mapping = inputs
+
+    saved_model_dir = (
+        tensor_pcoll_mapping
+        | 'CreateSavedModelForAnalyzerInputs' >> _ReplaceTensorsWithConstants(
+            self._unbound_saved_model_dir, self._base_temp_dir,
+            input_values.pipeline))
+
+    # Run this saved model on the input dataset to obtain the inputs to the
+    # analyzers.
+    analyzer_input_values = (
+        input_values
+        | 'BatchAnalyzerInputs' >> _BatchElements()
+        | 'ComputeAnalyzerInputs' >> beam.ParDo(
+            _RunMetaGraphDoFn(
+                self._input_schema,
+                self._serialized_tf_config,
+                shared_graph_state_handle=shared.Shared(),
+                passthrough_keys=Context.get_passthrough_keys()),
+            saved_model_dir=beam.pvalue.AsSingleton(saved_model_dir)))
 
     def extract_and_wrap_as_tensor_value(outputs, index, is_asset):
       return _TensorValue(outputs[index], is_asset)
@@ -586,19 +604,19 @@ class _ComputeAnalyzerOutputs(beam.PTransform):
     # For each analyzer output, look up its input values (by tensor name)
     # and run the analyzer on these values.
     result = {}
-    for analyzer in self._analyzers:
+    for analyzer_info in self._analyzer_infos:
       temp_assets_dir = _make_unique_temp_dir(self._base_temp_dir)
       tf.gfile.MkDir(temp_assets_dir)
       outputs_pcoll = (
           analyzer_input_values
-          | 'ExtractInputs[%s]' % analyzer.name >> beam.Map(
+          | 'ExtractInputs[%s]' % analyzer_info.name >> beam.Map(
               lambda batch, keys: [batch[key] for key in keys],
-              keys=analyzer.input_tensor_names)
-          | 'Analyze[%s]' % analyzer.name >> analyzer_impls._AnalyzerImpl(
-              analyzer.spec, temp_assets_dir))
+              keys=analyzer_info.input_tensor_names)
+          | 'Analyze[%s]' % analyzer_info.name >> analyzer_impls._AnalyzerImpl(
+              analyzer_info.spec, temp_assets_dir))
       # pylint: enable=protected-access
 
-      for index, (name, is_asset) in enumerate(analyzer.output_infos):
+      for index, (name, is_asset) in enumerate(analyzer_info.output_infos):
         wrapped_output = outputs_pcoll | (
             'ExtractAndWrapAsTensorValue[%s][%d]' % (name, index) >>
             beam.Map(extract_and_wrap_as_tensor_value, index, is_asset))
@@ -806,41 +824,23 @@ class AnalyzeDataset(beam.PTransform):
         # This graph has the anaylzer outputs computed so far replaced with
         # constants.
         analyzer_inputs = {}
-        for analyzer in phase.analyzers:
-          for input_tensor in analyzer.inputs:
-            analyzer_inputs[input_tensor.name] = input_tensor
+        for analyzer in phase.analyzer_infos:
+          for input_tensor_name in analyzer.input_tensor_names:
+            analyzer_inputs[input_tensor_name] = graph.get_tensor_by_name(
+                input_tensor_name)
         table_initializers.extend(phase.table_initializers)
         unbound_saved_model_dir = _make_unique_temp_dir(base_temp_dir)
         _write_saved_transform(graph, inputs, analyzer_inputs,
                                unbound_saved_model_dir)
-        saved_model_dir = (
-            tensor_pcoll_mapping
-            | 'CreateSavedModelForAnalyzerInputs[%d]' % level >>
-            _ReplaceTensorsWithConstants(unbound_saved_model_dir, base_temp_dir,
-                                         input_values.pipeline))
 
-        # Run this saved model on the input dataset to obtain the inputs to the
-        # analyzers.
-        analyzer_input_values = (
-            input_values
-            | 'BatchAnalyzerInputs[%d]' % level >> _BatchElements()
-            | 'ComputeAnalyzerInputs[%d]' % level >> beam.ParDo(
-                _RunMetaGraphDoFn(
-                    input_schema,
-                    serialized_tf_config,
-                    shared_graph_state_handle=shared.Shared(),
-                    passthrough_keys=Context.get_passthrough_keys()),
-                saved_model_dir=beam.pvalue.AsSingleton(saved_model_dir)))
-
-        # Compute the analyzers from their inputs.  `analyzer_outputs_dict` is a
-        # map from tensor names to singleton PCollections of `_TensorValue`s.
-        analyzer_outputs_dict = (
-            analyzer_input_values
-            | 'ComputeAnalyzerOutputs[%d]' % level >> _ComputeAnalyzerOutputs(
-                phase.analyzers, base_temp_dir))
+        tensor_pcoll_mapping_update = (
+            (input_values, tensor_pcoll_mapping)
+            | 'RunPhase[{}]'.format(level) >> _RunPhase(
+                phase.analyzer_infos, unbound_saved_model_dir, base_temp_dir,
+                input_schema, serialized_tf_config))
 
         # Update the mapping for all analyzers.
-        tensor_pcoll_mapping.update(analyzer_outputs_dict)
+        tensor_pcoll_mapping.update(tensor_pcoll_mapping_update)
 
       del table_initializers[:]
       table_initializers.extend(original_table_initializers)
