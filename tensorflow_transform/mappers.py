@@ -424,7 +424,7 @@ def apply_vocab(x, deferred_vocab_filename_tensor, default_value=-1,
     # once the analyzer has run.
     #
     # `table_size` includes the num oov buckets.  The default value is only used
-    # if num_oov_buckets > 0.
+    # if num_oov_buckets <= 0.
     min_value = tf.constant(0, tf.int64)
     max_value = table_size - 1
     if num_oov_buckets <= 0:
