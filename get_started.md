@@ -416,18 +416,15 @@ feature spec is not required to parse the transformed data. Instead, use the
 metadata for the transformed data to generate a feature spec.
 
 ```python
-def _make_training_input_fn(working_dir, filebase, batch_size):
+def _make_training_input_fn(tf_transform_output, transformed_examples,
+                            batch_size):
   ...
-  transformed_metadata = metadata_io.read_metadata(
-      os.path.join(
-          working_dir, transform_fn_io.TRANSFORMED_METADATA_DIR))
-  transformed_feature_spec = transformed_metadata.schema.as_feature_spec()
-
   def input_fn():
     """Input function for training and eval."""
-    transformed_features = tf.contrib.learn.io.read_batch_features(
-        ..., transformed_feature_spec, ...)
+    dataset = tf.contrib.data.make_batched_features_dataset(
+        ..., tf_transform_output.transformed_feature_spec(), ...)
 
+    transformed_features = dataset.make_one_shot_iterator().get_next()
     ...
 
   return input_fn

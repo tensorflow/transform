@@ -26,7 +26,6 @@ import apache_beam as beam
 from apache_beam.typehints import KV
 from apache_beam.typehints import List
 from apache_beam.typehints import with_input_types
-from apache_beam.typehints import with_output_types
 
 import numpy as np
 import six
@@ -35,14 +34,13 @@ from tensorflow_transform.beam import common
 
 
 @with_input_types(List[np.ndarray])
-@with_output_types(List[np.ndarray])
 class _AnalyzerImpl(beam.PTransform):
   """PTransform that implements a given analyzer.
 
-  _AnalyzerImpl accepts a PCollection where each element is a list of ndarrays.
-  Each element in this list contains a batch of values for the corresponding
-  input tensor of the analyzer. _AnalyzerImpl returns a PCollection containing a
-  single element which is a list of `ndarray`s.
+  _AnalyzerImpl accepts a PCollection where each element is a list of
+  `ndarray`s. Each element in this list contains a batch of values for the
+  corresponding input tensor of the analyzer. _AnalyzerImpl returns a tuple of
+  `PCollection`s each containing a single element which is an `ndarray`.
 
   _AnalyzerImpl dispatches to an implementation transform, with the same
   signature as _AnalyzerImpl.
@@ -74,7 +72,6 @@ def _flatten_value_to_list(batch_values):
 
 
 @with_input_types(List[np.ndarray])
-@with_output_types(List[np.ndarray])
 class _UniquesAnalyzerImpl(beam.PTransform):
   """Saves the unique elements in a PCollection of batches."""
 
@@ -164,15 +161,14 @@ class _UniquesAnalyzerImpl(beam.PTransform):
     # Return the vocabulary path.
     wait_for_vocabulary_transform = (
         pcoll.pipeline
-        | 'CreatePath' >> beam.Create([[np.array(vocabulary_file)]])
+        | 'CreatePath' >> beam.Create([np.array(vocabulary_file)])
         # Ensure that the analysis returns only after the file is written.
         | 'WaitForVocabularyFile' >> beam.Map(
             lambda x, y: x, y=beam.pvalue.AsIter(vocab_is_written)))
-    return wait_for_vocabulary_transform
+    return (wait_for_vocabulary_transform,)
 
 
 @with_input_types(List[np.ndarray])
-@with_output_types(List[np.ndarray])
 class _CombineFnWrapper(beam.CombineFn):
   """Class to wrap a analyzers._CombinerSpec as a beam.CombineFn."""
 
@@ -243,7 +239,7 @@ def _split_inputs_by_key(batch_values):
     yield (key, instance_args)
 
 
-def _merge_outputs_by_key(keys_and_outputs):
+def _merge_outputs_by_key(keys_and_outputs, num_outputs):
   """Merge outputs of analyzers per key into a single output.
 
   Takes a list of elements of the form (key, [output0, ..., output{N-1}]) and
@@ -258,9 +254,13 @@ def _merge_outputs_by_key(keys_and_outputs):
   Args:
     keys_and_outputs: a list of elements of the form
       (key, [output0, ..., output{N-1}])
+    num_outputs: The number of expected outputs.
 
-  Returns:
-    A list of ndarrays of the form [keys, outputs0, ..., outputs[{N-1}]]
+  Yields:
+    The `TaggedOutput`s: keys, outputs0, ..., outputs[{N-1}]
+
+  Raises:
+    ValueError: If the number is outputs doesn't match num_outputs.
   """
   # Sort keys_and_outputs by keys.
   keys_and_outputs.sort(key=lambda x: x[0])
@@ -270,12 +270,16 @@ def _merge_outputs_by_key(keys_and_outputs):
   key, outputs = zip(*keys_and_outputs)
   outputs = zip(*outputs)
   # key is a list of scalars so we use np.stack to convert a single array.
-  return ([np.stack(key, axis=0)] +
-          [np.stack(output, axis=0) for output in outputs])
+  yield beam.pvalue.TaggedOutput('key', np.stack(key, axis=0))
+  if len(outputs) != num_outputs:
+    raise ValueError(
+        'Analyzer has {} outputs but its implementation produced {} '
+        'values'.format(num_outputs, len(outputs)))
+  for i, output in enumerate(outputs):
+    yield beam.pvalue.TaggedOutput(str(i), np.stack(output, axis=0))
 
 
 @with_input_types(List[np.ndarray])
-@with_output_types(List[np.ndarray])
 class _CombinerAnalyzerImpl(beam.PTransform):
   """Implement an analyzer based on a CombinerSpec."""
 
@@ -293,14 +297,26 @@ class _CombinerAnalyzerImpl(beam.PTransform):
           pcoll.pipeline.runner)
       has_defaults = True
 
-    return (
+    def extract_outputs(outputs, num_outputs):
+      if len(outputs) != num_outputs:
+        raise ValueError(
+            'Analyzer has {} outputs but its implementation produced {} '
+            'values'.format(num_outputs, len(outputs)))
+      for i, output in enumerate(outputs):
+        yield beam.pvalue.TaggedOutput(str(i), output)
+
+    output_keys = [str(i) for i in range(self._spec.num_outputs())]
+    outputs_tuple = (
         pcoll
         | 'CombineGlobally' >> beam.CombineGlobally(_CombineFnWrapper(
-            self._spec, serialized_tf_config)).with_defaults(has_defaults))
+            self._spec, serialized_tf_config)).with_defaults(has_defaults)
+        | 'ExtractOutputs'
+        >> beam.FlatMap(extract_outputs, self._spec.num_outputs()).with_outputs(
+            *output_keys))
+    return tuple(outputs_tuple[key] for key in output_keys)
 
 
 @with_input_types(List[np.ndarray])
-@with_output_types(List[np.ndarray])
 class _CombinePerKeyAnalyzerImpl(beam.PTransform):
   """Implement an analyzer based on a _CombinePerKeySpec."""
 
@@ -314,12 +330,16 @@ class _CombinePerKeyAnalyzerImpl(beam.PTransform):
       serialized_tf_config = common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
           pcoll.pipeline.runner)
 
-    return (
+    output_keys = ['key'] + [str(i) for i in range(self._spec.num_outputs())]
+    outputs_tuple = (
         pcoll
         | 'SplitByKey' >> beam.FlatMap(_split_inputs_by_key)
         | 'CombinePerKey' >> beam.CombinePerKey(_CombineFnWrapper(
             self._spec, serialized_tf_config))
         | 'ToList' >> beam.combiners.ToList()
-        | 'MergeByKey' >> beam.Map(_merge_outputs_by_key))
+        | 'MergeByKey' >> beam.FlatMap(
+            _merge_outputs_by_key,
+            self._spec.num_outputs()).with_outputs(*output_keys))
+    return tuple(outputs_tuple[key] for key in output_keys)
 
 

@@ -598,16 +598,13 @@ class _RunPhase(beam.PTransform):
                 passthrough_keys=Context.get_passthrough_keys()),
             saved_model_dir=beam.pvalue.AsSingleton(saved_model_dir)))
 
-    def extract_and_wrap_as_tensor_value(outputs, index, is_asset):
-      return _TensorValue(outputs[index], is_asset)
-
     # For each analyzer output, look up its input values (by tensor name)
     # and run the analyzer on these values.
     result = {}
     for analyzer_info in self._analyzer_infos:
       temp_assets_dir = _make_unique_temp_dir(self._base_temp_dir)
       tf.gfile.MkDir(temp_assets_dir)
-      outputs_pcoll = (
+      output_pcolls = (
           analyzer_input_values
           | 'ExtractInputs[%s]' % analyzer_info.name >> beam.Map(
               lambda batch, keys: [batch[key] for key in keys],
@@ -616,11 +613,19 @@ class _RunPhase(beam.PTransform):
               analyzer_info.spec, temp_assets_dir))
       # pylint: enable=protected-access
 
-      for index, (name, is_asset) in enumerate(analyzer_info.output_infos):
-        wrapped_output = outputs_pcoll | (
-            'ExtractAndWrapAsTensorValue[%s][%d]' % (name, index) >>
-            beam.Map(extract_and_wrap_as_tensor_value, index, is_asset))
-        result[name] = wrapped_output
+      if len(output_pcolls) != len(analyzer_info.output_infos):
+        raise ValueError(
+            'Analyzer {} has {} outputs but its implementation produced {} '
+            'pcollections'.format(
+                analyzer_info.name, len(analyzer_info.output_infos),
+                len(output_pcolls)))
+
+      for index, (output_pcoll, (name, is_asset)) in enumerate(zip(
+          output_pcolls, analyzer_info.output_infos)):
+        result[name] = (
+            output_pcoll
+            | 'WrapAsTensorValue[%s][%d]' % (analyzer_info.name, index)
+            >> beam.Map(_TensorValue, is_asset))
     return result
 
 

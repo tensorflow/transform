@@ -195,6 +195,13 @@ class CombinerSpec(object):
     """
     raise NotImplementedError
 
+  def num_outputs(self):
+    """Return the number of outputs that are produced by extract_output.
+
+    Returns: The number of outputs extract_output will produce.
+    """
+    raise NotImplementedError
+
 
 class _CombinePerKeySpec(object):
   """A wrapper for per-key combining.
@@ -294,6 +301,9 @@ class _NumPyCombinerSpec(CombinerSpec):
     return [sub_accumulator.astype(output_dtype)
             for sub_accumulator, output_dtype
             in zip(accumulator, self._output_dtypes)]
+
+  def num_outputs(self):
+    return len(self._output_dtypes)
 
 
 def _numeric_combine(inputs,
@@ -819,6 +829,9 @@ class _QuantilesCombinerSpec(CombinerSpec):
 
     return [buckets]
 
+  def num_outputs(self):
+    return 1
+
 
 def quantiles(x, num_buckets, epsilon, name=None):
   """Computes the quantile boundaries of a `Tensor` over the whole dataset.
@@ -988,6 +1001,9 @@ class _CovarianceCombinerSpec(CombinerSpec):
 
     return [expected_cross_terms - np.outer(expected_terms, expected_terms)]
 
+  def num_outputs(self):
+    return 1
+
 
 def covariance(x, dtype, name=None):
   """Computes the covariance matrix over the whole dataset.
@@ -1057,6 +1073,9 @@ class _PCACombinerSpec(_CovarianceCombinerSpec):
       return [sorted_vecs]
     else:
       return [sorted_vecs[:, :self._output_dim]]
+
+  def num_outputs(self):
+    return 1
 
 
 def pca(x, output_dim, dtype, name=None):

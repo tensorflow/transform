@@ -28,8 +28,6 @@ import tensorflow as tf
 import tensorflow_transform as tft
 from apache_beam.io import textio
 from apache_beam.io import tfrecordio
-from tensorflow.contrib import learn
-from tensorflow.contrib.learn.python.learn.utils import input_fn_utils
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform.tf_metadata import dataset_metadata
@@ -243,10 +241,14 @@ def _make_training_input_fn(tf_transform_output, transformed_examples,
   """
   def input_fn():
     """Input function for training and eval."""
-    transformed_features = tf.contrib.learn.io.read_batch_features(
-        transformed_examples,
-        batch_size, tf_transform_output.transformed_feature_spec(),
-        tf.TFRecordReader)
+    dataset = tf.contrib.data.make_batched_features_dataset(
+        file_pattern=transformed_examples,
+        batch_size=batch_size,
+        features=tf_transform_output.transformed_feature_spec(),
+        reader=tf.data.TFRecordDataset,
+        shuffle=True)
+
+    transformed_features = dataset.make_one_shot_iterator().get_next()
 
     # Extract features and label from the transformed tensors.
     transformed_labels = transformed_features.pop(LABEL_KEY)
@@ -274,17 +276,19 @@ def _make_serving_input_fn(tf_transform_output):
     # Get raw features by generating the basic serving input_fn and calling it.
     # Here we generate an input_fn that expects a parsed Example proto to be fed
     # to the model at serving time.  See also
-    # input_fn_utils.build_default_serving_input_fn.
-    raw_input_fn = input_fn_utils.build_parsing_serving_input_fn(
-        raw_feature_spec)
-    raw_features, _, default_inputs = raw_input_fn()
+    # tf.estimator.export.build_raw_serving_input_receiver_fn.
+    raw_input_fn = tf.estimator.export.build_parsing_serving_input_receiver_fn(
+        raw_feature_spec, default_batch_size=None)
+    serving_input_receiver = raw_input_fn()
 
     # Apply the transform function that was used to generate the materialized
     # data.
+    raw_features = serving_input_receiver.features
     transformed_features = tf_transform_output.transform_raw_features(
         raw_features)
 
-    return input_fn_utils.InputFnOps(transformed_features, None, default_inputs)
+    return tf.estimator.export.ServingInputReceiver(
+        transformed_features, serving_input_receiver.receiver_tensors)
 
   return serving_input_fn
 
@@ -313,14 +317,18 @@ def train_and_evaluate(working_dir,
   weighted_reviews = tf.feature_column.weighted_categorical_column(
       review_column, REVIEW_WEIGHT_KEY)
 
-  estimator = learn.LinearClassifier([weighted_reviews])
+  run_config = tf.estimator.RunConfig()
+
+  estimator = tf.estimator.LinearClassifier(
+      feature_columns=[weighted_reviews],
+      config=run_config)
 
   # Fit the model using the default optimizer.
   train_input_fn = _make_training_input_fn(
       tf_transform_output,
       os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE + '*'),
       batch_size=TRAIN_BATCH_SIZE)
-  estimator.fit(
+  estimator.train(
       input_fn=train_input_fn,
       max_steps=TRAIN_NUM_EPOCHS * num_train_instances / TRAIN_BATCH_SIZE)
 
