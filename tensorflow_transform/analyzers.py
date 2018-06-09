@@ -525,8 +525,7 @@ def _mean_and_var(x, reduce_instance_dims=True, name=None, output_dtype=None):
     x_mean = mean(x, reduce_instance_dims, output_dtype=output_dtype)
     # x_mean will be float16, float32, or float64, depending on type of x.
     squared_deviations = tf.square(tf.cast(x, x_mean.dtype) - x_mean)
-    x_var = mean(
-        squared_deviations, reduce_instance_dims, output_dtype=output_dtype)
+    x_var = mean(squared_deviations, reduce_instance_dims, output_dtype=output_dtype)
     return x_mean, x_var
 
 

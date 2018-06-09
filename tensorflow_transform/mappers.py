@@ -115,9 +115,12 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
         x, reduce_instance_dims=not elementwise, output_dtype=output_dtype)
     numerator = tf.cast(x, x_mean.dtype) - x_mean
     denominator = tf.sqrt(x_var)
-    return tf.where(denominator != 0, numerator / denominator, numerator)
-    
-    
+    cond = tf.not_equal(denominator, 0)
+    if elementwise:
+        cond = tf.tile(tf.expand_dims(cond, 0), [tf.shape(numerator)[0], 1])
+    return tf.where(cond, numerator / denominator, numerator)
+
+
 def tfidf(x, vocab_size, smooth=True, name=None):
   """Maps the terms in x to their term frequency * inverse document frequency.
 
