@@ -17,6 +17,10 @@ The output of `tf.Transform` is exported as a
 Using the same graph for both training and serving can prevent skew since the
 same transformations are applied in both stages.
 
+For an introduction to `tf.Transform`, see the `tf.Transform` section of the
+TFX Dev Summit talk on TFX
+([link](https://www.youtube.com/watch?v=vdG7uKQ2eKk&feature=youtu.be&t=199)).
+
 Caution: `tf.Transform` may be backwards incompatible before version 1.0.
 
 ## Installation

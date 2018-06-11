@@ -355,7 +355,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     # has run.  Note converting an integerized string into a float doesn't make
     # much sense, but is a legal tensorflow computation.
     string_placeholder = tf.placeholder(tf.string, shape=(None,))
-    integerized = mappers.string_to_int(string_placeholder)
+    integerized = mappers.compute_and_apply_vocabulary(string_placeholder)
     integerized = tf.to_float(integerized)
     integerized / analyzers.max(integerized)  # pylint: disable=expression-not-assigned
 

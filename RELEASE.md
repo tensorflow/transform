@@ -33,8 +33,8 @@
 ## Breaking changes
 * `apply_saved_transform` is removed.  See note on
   `partially_apply_saved_transform` in the `Deprecations` section.
-* No longer set `vocabulary_file` in `IntDomain` when using `string_to_int` or
-  `apply_vocab`.
+* No longer set `vocabulary_file` in `IntDomain` when using
+  `tft.compute_and_apply_vocabulary` or `tft.apply_vocabulary`.
 
 ## Deprecations
 * The `expected_asset_file_contents` of
@@ -50,6 +50,10 @@
    input placeholders and the outputs.  But users do not need this functionality
    because they will typically create the input placeholders themselves based
    on the feature spec.
+* Renamed `tft.uniques` to `tft.vocabulary`, `tft.string_to_int` to
+  `tft.compute_and_apply_vocabulary` and `tft.apply_vocab` to
+  `tft.apply_vocabulary`.  The existing methods will remain for a few more minor
+  releases but are now deprecated and should get migrated away from.
 
 # Release 0.6.0
 

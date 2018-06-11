@@ -51,6 +51,7 @@ class MapAndFilterErrors(beam.PTransform):
   """Like beam.Map but filters out erros in the map_fn."""
 
   class _MapAndFilterErrorsDoFn(beam.DoFn):
+    """Count the bad examples using a beam metric."""
 
     def __init__(self, fn):
       self._fn = fn
@@ -140,7 +141,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
     # used in the trainer, by means of a feature column, to convert the feature
     # from a string to an integer id.
     for key in CATEGORICAL_FEATURE_KEYS:
-      tft.uniques(inputs[key], vocab_filename=key)
+      tft.vocabulary(inputs[key], vocab_filename=key)
 
     # For the label column we provide the mapping from string to index.
     def convert_label(label):

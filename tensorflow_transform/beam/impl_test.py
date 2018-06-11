@@ -663,8 +663,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testWithMoreThanDesiredBatchSize(self):
     def preprocessing_fn(inputs):
-      return {'ab': tf.multiply(inputs['a'], inputs['b']),
-              'i': tft.string_to_int(inputs['c'])}
+      return {
+          'ab': tf.multiply(inputs['a'], inputs['b']),
+          'i': tft.compute_and_apply_vocabulary(inputs['c'])
+      }
 
     batch_size = 100
     num_instances = batch_size + 1
@@ -1341,7 +1343,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testStringToTFIDF(self):
     def preprocessing_fn(inputs):
-      inputs_as_ints = tft.string_to_int(tf.string_split(inputs['a']))
+      inputs_as_ints = tft.compute_and_apply_vocabulary(
+          tf.string_split(inputs['a']))
       out_index, out_values = tft.tfidf(inputs_as_ints, 6)
       return {
           'tf_idf': out_values,
@@ -1385,7 +1388,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testTFIDFNoData(self):
     def preprocessing_fn(inputs):
-      inputs_as_ints = tft.string_to_int(tf.string_split(inputs['a']))
+      inputs_as_ints = tft.compute_and_apply_vocabulary(
+          tf.string_split(inputs['a']))
       out_index, out_values = tft.tfidf(inputs_as_ints, 6)
       return {
           'tf_idf': out_values,
@@ -1408,7 +1412,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testStringToTFIDFEmptyDoc(self):
     def preprocessing_fn(inputs):
-      inputs_as_ints = tft.string_to_int(tf.string_split(inputs['a']))
+      inputs_as_ints = tft.compute_and_apply_vocabulary(
+          tf.string_split(inputs['a']))
       out_index, out_values = tft.tfidf(inputs_as_ints, 6)
       return {
           'tf_idf': out_values,
@@ -1516,8 +1521,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testTFIDFWithOOV(self):
     test_vocab_size = 3
     def preprocessing_fn(inputs):
-      inputs_as_ints = tft.string_to_int(tf.string_split(inputs['a']),
-                                         top_k=test_vocab_size)
+      inputs_as_ints = tft.compute_and_apply_vocabulary(
+          tf.string_split(inputs['a']), top_k=test_vocab_size)
       out_index, out_values = tft.tfidf(inputs_as_ints,
                                         test_vocab_size+1)
       return {
@@ -1596,7 +1601,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_schema, preprocessing_fn, expected_transformed_data,
         expected_transformed_schema)
 
-  def testUniquesAnalyzer(self):
+  def testVocabularyAnalyzer(self):
     input_data = [
         {'a': 'hello'},
         {'a': 'world'},
@@ -1625,24 +1630,49 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     # Assert empty string with default_value=-1
     def preprocessing_fn(inputs):
-      return {
-          'index': tft.string_to_int(inputs['a'])
-      }
+      return {'index': tft.compute_and_apply_vocabulary(inputs['a'])}
+
     expected_data = [
-        {'index': 0},
-        {'index': 1},
-        {'index': 0},
-        {'index': 0},
-        {'index': 2},
-        {'index': 1},
-        {'index': 3},
-        {'index': 4},
-        # The empty string maps to string_to_int(default_value=-1).
-        {'index': -1},
-        # The tokens that contain \n map to string_to_int(default_value=-1).
-        {'index': -1},
-        {'index': -1},
-        {'index': -1}
+        {
+            'index': 0
+        },
+        {
+            'index': 1
+        },
+        {
+            'index': 0
+        },
+        {
+            'index': 0
+        },
+        {
+            'index': 2
+        },
+        {
+            'index': 1
+        },
+        {
+            'index': 3
+        },
+        {
+            'index': 4
+        },
+        # The empty string maps to compute_and_apply_vocabulary(
+        #     default_value=-1).
+        {
+            'index': -1
+        },
+        # The tokens that contain \n map to
+        # compute_and_apply_vocabulary(default_value=-1).
+        {
+            'index': -1
+        },
+        {
+            'index': -1
+        },
+        {
+            'index': -1
+        }
     ]
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -1651,8 +1681,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # Assert empty string with num_oov_buckets=1
     def preprocessing_fn_oov(inputs):
       return {
-          'index': tft.string_to_int(inputs['a'], num_oov_buckets=1,
-                                     vocab_filename='my_vocab')
+          'index':
+              tft.compute_and_apply_vocabulary(
+                  inputs['a'], num_oov_buckets=1, vocab_filename='my_vocab')
       }
     expected_data = [
         {'index': 0},
@@ -1695,7 +1726,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'b': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation()),
         'c': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
     })
-    vocab_filename = 'test_string_to_int'
+    vocab_filename = 'test_compute_and_apply_vocabulary'
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index_a': sch.ColumnSchema(
             sch.IntDomain(tf.int64, -1, 6, True),
@@ -1706,14 +1737,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
 
     def preprocessing_fn(inputs):
-      deferred_vocab_and_filename = tft.uniques(
-          tf.concat([inputs['a'],
-                     inputs['b'],
-                     inputs['c']], 0),
+      deferred_vocab_and_filename = tft.vocabulary(
+          tf.concat([inputs['a'], inputs['b'], inputs['c']], 0),
           vocab_filename=vocab_filename)
       return {
-          'index_a': tft.apply_vocab(inputs['a'], deferred_vocab_and_filename),
-          'index_b': tft.apply_vocab(inputs['b'], deferred_vocab_and_filename)
+          'index_a':
+              tft.apply_vocabulary(inputs['a'], deferred_vocab_and_filename),
+          'index_b':
+              tft.apply_vocabulary(inputs['b'], deferred_vocab_and_filename)
       }
 
     expected_data = [
@@ -1759,10 +1790,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
 
     def preprocessing_fn(inputs):
-      deferred_vocab_and_filename = tft.uniques(
-          tf.concat([inputs['a'],
-                     inputs['b'],
-                     inputs['c']], 0),
+      deferred_vocab_and_filename = tft.vocabulary(
+          tf.concat([inputs['a'], inputs['b'], inputs['c']], 0),
           vocab_filename=vocab_filename,
           store_frequency=True)
 
@@ -1789,18 +1818,26 @@ class BeamImplTest(tft_unit.TransformTestCase):
         return table.lookup(y), table_size
 
       return {
-          'index_a': tft.apply_vocab(inputs['a'],
-                                     deferred_vocab_and_filename,
-                                     lookup_fn=_apply_vocab),
-          'frequency_a': tft.apply_vocab(inputs['a'],
-                                         deferred_vocab_and_filename,
-                                         lookup_fn=_apply_frequency),
-          'index_b': tft.apply_vocab(inputs['b'],
-                                     deferred_vocab_and_filename,
-                                     lookup_fn=_apply_vocab),
-          'frequency_b': tft.apply_vocab(inputs['b'],
-                                         deferred_vocab_and_filename,
-                                         lookup_fn=_apply_frequency),
+          'index_a':
+              tft.apply_vocabulary(
+                  inputs['a'],
+                  deferred_vocab_and_filename,
+                  lookup_fn=_apply_vocab),
+          'frequency_a':
+              tft.apply_vocabulary(
+                  inputs['a'],
+                  deferred_vocab_and_filename,
+                  lookup_fn=_apply_frequency),
+          'index_b':
+              tft.apply_vocabulary(
+                  inputs['b'],
+                  deferred_vocab_and_filename,
+                  lookup_fn=_apply_vocab),
+          'frequency_b':
+              tft.apply_vocabulary(
+                  inputs['b'],
+                  deferred_vocab_and_filename,
+                  lookup_fn=_apply_frequency),
       }
 
     expected_data = [
@@ -1818,9 +1855,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testAssets(self):
     def preprocessing_fn(inputs):
       return {
-          'index': tft.string_to_int(inputs['a']),
-          'index_2': tft.string_to_int(
-              inputs['b'], vocab_filename='index_2_file')
+          'index':
+              tft.compute_and_apply_vocabulary(inputs['a']),
+          'index_2':
+              tft.compute_and_apply_vocabulary(
+                  inputs['b'], vocab_filename='index_2_file')
       }
 
     input_metadata = dataset_metadata.DatasetMetadata({
@@ -1874,18 +1913,17 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # Assert that the assets directory contains the expected asset files
     assets_path = os.path.join(saved_model_path, 'assets')
     self.assertTrue(os.path.isdir(assets_path))
-    self.assertEqual(['index_2_file', 'vocab_string_to_int_uniques'],
-                     sorted(os.listdir(assets_path)))
+    self.assertEqual(
+        ['index_2_file', 'vocab_compute_and_apply_vocabulary_vocabulary'],
+        sorted(os.listdir(assets_path)))
 
     # Verify that the paths are actually there.
     for asset_tensor in asset_tensors.values():
       self.assertTrue(os.path.isfile(asset_tensor))
 
-  def testUniquesAnalyzerWithNDInputs(self):
+  def testVocabularyAnalyzerWithNDInputs(self):
     def preprocessing_fn(inputs):
-      return {
-          'index': tft.string_to_int(inputs['a'])
-      }
+      return {'index': tft.compute_and_apply_vocabulary(inputs['a'])}
 
     input_data = [
         {'a': [['some', 'say'], ['the', 'world']]},
@@ -1910,10 +1948,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
-  def testUniquesAnalyzerWithTokenization(self):
+  def testVocabularyAnalyzerWithTokenization(self):
     def preprocessing_fn(inputs):
       return {
-          'index': tft.string_to_int(tf.string_split(inputs['a']))
+          'index':
+              tft.compute_and_apply_vocabulary(tf.string_split(inputs['a']))
       }
 
     input_data = [{'a': 'hello hello world'}, {'a': 'hello goodbye world'}]
@@ -1930,16 +1969,18 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
-  def testUniquesAnalyzerWithTopK(self):
+  def testVocabularyAnalyzerWithTopK(self):
     def preprocessing_fn(inputs):
       return {
-          'index1': tft.string_to_int(tf.string_split(inputs['a']),
-                                      default_value=-99, top_k=2),
+          'index1':
+              tft.compute_and_apply_vocabulary(
+                  tf.string_split(inputs['a']), default_value=-99, top_k=2),
 
           # As above but using a string for top_k (and changing the
           # default_value to showcase things).
-          'index2': tft.string_to_int(tf.string_split(inputs['a']),
-                                      default_value=-9, top_k='2')
+          'index2':
+              tft.compute_and_apply_vocabulary(
+                  tf.string_split(inputs['a']), default_value=-9, top_k='2')
       }
 
     input_data = [
@@ -1970,16 +2011,22 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
-  def testUniquesAnalyzerWithFrequencyThreshold(self):
+  def testVocabularyAnalyzerWithFrequencyThreshold(self):
     def preprocessing_fn(inputs):
       return {
-          'index1': tft.string_to_int(tf.string_split(inputs['a']),
-                                      default_value=-99, frequency_threshold=2),
+          'index1':
+              tft.compute_and_apply_vocabulary(
+                  tf.string_split(inputs['a']),
+                  default_value=-99,
+                  frequency_threshold=2),
 
           # As above but using a string for frequency_threshold (and changing
           # the default_value to showcase things).
-          'index2': tft.string_to_int(tf.string_split(inputs['a']),
-                                      default_value=-9, frequency_threshold='2')
+          'index2':
+              tft.compute_and_apply_vocabulary(
+                  tf.string_split(inputs['a']),
+                  default_value=-9,
+                  frequency_threshold='2')
       }
 
     input_data = [
@@ -2011,12 +2058,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
-  def testUniquesAnalyzerWithFrequencyThresholdTooHigh(self):
+  def testVocabularyAnalyzerWithFrequencyThresholdTooHigh(self):
     # Expected to return an empty dict due to too high threshold.
     def preprocessing_fn(inputs):
       return {
           'index1':
-              tft.string_to_int(
+              tft.compute_and_apply_vocabulary(
                   tf.string_split(inputs['a']),
                   default_value=-99,
                   frequency_threshold=77),
@@ -2024,7 +2071,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           # As above but using a string for frequency_threshold (and changing
           # the default_value to showcase things).
           'index2':
-              tft.string_to_int(
+              tft.compute_and_apply_vocabulary(
                   tf.string_split(inputs['a']),
                   default_value=-9,
                   frequency_threshold='77')
@@ -2059,11 +2106,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
-  def testUniquesAnalyzerWithHighFrequencyThresholdAndOOVBuckets(self):
+  def testVocabularyAnalyzerWithHighFrequencyThresholdAndOOVBuckets(self):
     def preprocessing_fn(inputs):
       return {
           'index1':
-              tft.string_to_int(
+              tft.compute_and_apply_vocabulary(
                   tf.string_split(inputs['a']),
                   default_value=-99,
                   top_k=1,
@@ -2399,22 +2446,20 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_outputs,
         desired_batch_size=10)
 
-  def testUniquesWithFrequency(self):
-    outfile = 'uniques_vocab_with_frequency'
+  def testVocabularyWithFrequency(self):
+    outfile = 'vocabulary_with_frequency'
     def preprocessing_fn(inputs):
 
       # Force the analyzer to be executed, and store the frequency file as a
       # side-effect.
-      _ = tft.uniques(
+      _ = tft.vocabulary(
           inputs['a'], vocab_filename=outfile, store_frequency=True)
-      _ = tft.uniques(
-          inputs['a'], store_frequency=True)
-      _ = tft.uniques(
-          inputs['b'], store_frequency=True)
+      _ = tft.vocabulary(inputs['a'], store_frequency=True)
+      _ = tft.vocabulary(inputs['b'], store_frequency=True)
 
       # The following must not produce frequency output, just the vocab words.
-      _ = tft.uniques(inputs['b'])
-      a_int = tft.string_to_int(inputs['a'])
+      _ = tft.vocabulary(inputs['b'])
+      a_int = tft.compute_and_apply_vocabulary(inputs['a'])
 
       # Return input unchanged, this preprocessing_fn is a no-op except for
       # computing uniques.
@@ -2452,27 +2497,25 @@ class BeamImplTest(tft_unit.TransformTestCase):
     saved_model_path = os.path.join(transform_fn_dir, 'transform_fn')
     assets_path = os.path.join(saved_model_path, 'assets')
     self.assertTrue(os.path.isdir(assets_path))
-    six.assertCountEqual(self,
-                         [outfile,
-                          'vocab_frequency_uniques_1',
-                          'vocab_frequency_uniques_2',
-                          'vocab_string_to_int_uniques',
-                          'vocab_uniques_3'],
-                         os.listdir(assets_path))
+    six.assertCountEqual(self, [
+        outfile, 'vocab_frequency_vocabulary_1', 'vocab_frequency_vocabulary_2',
+        'vocab_compute_and_apply_vocabulary_vocabulary', 'vocab_vocabulary_3'
+    ], os.listdir(assets_path))
 
     check_asset_file_contents(assets_path, outfile,
                               '2 hello\n1 world\n')
 
-    check_asset_file_contents(assets_path, 'vocab_frequency_uniques_1',
+    check_asset_file_contents(assets_path, 'vocab_frequency_vocabulary_1',
                               '2 hello\n1 world\n')
 
-    check_asset_file_contents(assets_path, 'vocab_frequency_uniques_2',
+    check_asset_file_contents(assets_path, 'vocab_frequency_vocabulary_2',
                               '2 ho ho\n1 hi\n')
 
-    check_asset_file_contents(assets_path, 'vocab_uniques_3',
+    check_asset_file_contents(assets_path, 'vocab_vocabulary_3',
                               'ho ho\nhi\n')
 
-    check_asset_file_contents(assets_path, 'vocab_string_to_int_uniques',
+    check_asset_file_contents(assets_path,
+                              'vocab_compute_and_apply_vocabulary_vocabulary',
                               'hello\nworld\n')
 
   def testCovarianceTwoDimensions(self):

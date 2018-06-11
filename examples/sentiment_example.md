@@ -34,7 +34,7 @@ the full text of a movie review. This is split into sentences using the
 `tf.string_split` function. The `tf.string_split` function takes a rank 1 tensor
 and converts it to a rank 2 `SparseTensor` containing the individual tokens.
 This `SparseTensor` is then converted to a `SparseTensor` of `int64`s with the
-same shape, using `tft.string_to_int`.
+same shape, using `tft.compute_and_apply_vocabulary`.
 
 During the training and evaluation phase, the `SparseTensor` representing the
 tokenized, integerized review text, is used as the input to a bag-of-words

@@ -34,7 +34,9 @@ import numpy as np
 import tensorflow as tf
 
 from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
+
 from tensorflow.python.ops import resources
+from tensorflow.python.util import deprecation
 
 
 ANALYZER_COLLECTION = 'tft_analyzers'
@@ -530,7 +532,7 @@ def _mean_and_var(x, reduce_instance_dims=True, name=None, output_dtype=None):
     return x_mean, x_var
 
 
-class _UniquesSpec(object):
+class _VocabularySpec(object):
   """Operation to compute unique values."""
 
   def __init__(self, top_k, frequency_threshold,
@@ -592,8 +594,12 @@ def sanitized_vocab_filename(filename=None, prefix=None):
   return re.sub(r'[-\s]+', '-', filename)
 
 
-def uniques(x, top_k=None, frequency_threshold=None,
-            vocab_filename=None, store_frequency=False, name=None):
+def vocabulary(x,
+               top_k=None,
+               frequency_threshold=None,
+               vocab_filename=None,
+               store_frequency=False,
+               name=None):
   r"""Computes the unique values of a `Tensor` over the whole dataset.
 
   Computes The unique values taken by `x`, which can be a `Tensor` or
@@ -659,7 +665,7 @@ def uniques(x, top_k=None, frequency_threshold=None,
   if x.dtype != tf.string:
     raise ValueError('expected tf.string but got %r' % x.dtype)
 
-  with tf.name_scope(name, 'uniques') as scope:
+  with tf.name_scope(name, 'vocabulary') as scope:
     if vocab_filename is not None:
       prefix = None
     elif store_frequency:
@@ -670,14 +676,30 @@ def uniques(x, top_k=None, frequency_threshold=None,
     # Make the file name path safe.
     vocab_filename = sanitized_vocab_filename(vocab_filename, prefix=prefix)
 
-    spec = _UniquesSpec(top_k, frequency_threshold, vocab_filename,
-                        store_frequency)
+    spec = _VocabularySpec(top_k, frequency_threshold, vocab_filename,
+                           store_frequency)
 
     result = tf.placeholder(tf.string, [])
     tf.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, result)
     tf.add_to_collection(
         ANALYZER_COLLECTION, Analyzer([x], [result], spec, scope))
     return result
+
+
+@deprecation.deprecated(None, 'Use `tft.vocabulary()` instead.')
+def uniques(x,
+            top_k=None,
+            frequency_threshold=None,
+            vocab_filename=None,
+            store_frequency=False,
+            name=None):
+  r"""See `tft.vocabulary`."""
+  return vocabulary(x=x,
+                    top_k=top_k,
+                    frequency_threshold=frequency_threshold,
+                    vocab_filename=vocab_filename,
+                    store_frequency=store_frequency,
+                    name=name)
 
 
 class _QuantilesCombinerSpec(CombinerSpec):
@@ -688,10 +710,12 @@ class _QuantilesCombinerSpec(CombinerSpec):
   see also http://web.cs.ucla.edu/~weiwang/paper/SSDBM07_2.pdf
   """
 
-  def __init__(self, num_quantiles, epsilon, bucket_numpy_dtype):
+  def __init__(self, num_quantiles, epsilon, bucket_numpy_dtype,
+               always_return_num_quantiles=False):
     self._num_quantiles = num_quantiles
     self._epsilon = epsilon
     self._bucket_numpy_dtype = bucket_numpy_dtype
+    self._always_return_num_quantiles = always_return_num_quantiles
 
   def initialize_local_state(self, tf_config=None):
     """Called by the CombineFnWrapper's __init__ method.
@@ -718,7 +742,8 @@ class _QuantilesCombinerSpec(CombinerSpec):
             init_stamp_token=stamp_token,
             num_quantiles=self._num_quantiles,
             epsilon=self._epsilon,
-            name='qaccumulator')
+            name='qaccumulator',
+            generate_quantiles=self._always_return_num_quantiles)
         resources.initialize_resources(resources.shared_resources()).run()
 
         # Create placeholder that will be used to provide input the
@@ -765,7 +790,8 @@ class _QuantilesCombinerSpec(CombinerSpec):
 
   def __reduce__(self):
     return _QuantilesCombinerSpec, (self._num_quantiles, self._epsilon,
-                                    self._bucket_numpy_dtype)
+                                    self._bucket_numpy_dtype,
+                                    self._always_return_num_quantiles)
 
   def create_accumulator(self):
     return self._empty_summary
@@ -812,11 +838,17 @@ class _QuantilesCombinerSpec(CombinerSpec):
 
     # Quantile boundaries is a list of the form
     #    [np.ndarrary(min, <internal-boundaries>, max)]
-    # The approximate quantile library can return less or more than requested
-    # number of buckets. The max value can be same as the last internal
-    # boundary, due to removal of duplicates.
-    # Below, the min and/or max quantile boundaries are trimmed depending
-    # on the actual boundaries returned by the library.
+    # If always_return_num_quantiles is set to True, the number of elements in
+    # buckets is always equal to num_quantiles + 1. Hence we trim the min and
+    # max quantile boundaries to return the internal boundaries.
+    if self._always_return_num_quantiles:
+      return [buckets[1:-1]]
+
+    # If always_return_num_quantiles is set to False, the approximate quantile
+    # library can return less or more than requested number of quantiles.
+    # The max value can be same as the last internal boundary, due to removal
+    # of duplicates. Below, the min and/or max quantile boundaries are trimmed
+    # depending on the actual boundaries returned by the library.
     if buckets.size >= (self._num_quantiles + 1):
       # Trim min/max.
       buckets = buckets[1:-1]
@@ -1042,6 +1074,7 @@ def covariance(x, dtype, name=None):
 
 
 class _PCACombinerSpec(_CovarianceCombinerSpec):
+  """Compute PCA of accumulated data using the biased covariance matrix."""
 
   def __init__(self, output_dim=None, numpy_dtype=np.float64):
     """Store pca output dimension, and dtype for precision."""
@@ -1049,7 +1082,7 @@ class _PCACombinerSpec(_CovarianceCombinerSpec):
     self._output_dim = output_dim
 
   def extract_output(self, accumulator):
-    """Compute PCA the accumulated data using the biased covariance matrix.
+    """Compute PCA of the accumulated data using the biased covariance matrix.
 
     Following the covariance computation in _CovarianceCombinerSpec,
     this method runs eigenvalue decomposition on the covariance matrix,

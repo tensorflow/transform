@@ -17,18 +17,15 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
 import os
 
 
 import apache_beam as beam
 
-from apache_beam.typehints import KV
 from apache_beam.typehints import List
 from apache_beam.typehints import with_input_types
 
 import numpy as np
-import six
 from tensorflow_transform import analyzers
 from tensorflow_transform.beam import common
 
@@ -52,8 +49,8 @@ class _AnalyzerImpl(beam.PTransform):
 
   def expand(self, pcoll):
     # pylint: disable=protected-access
-    if isinstance(self._spec, analyzers._UniquesSpec):
-      return pcoll | _UniquesAnalyzerImpl(self._spec, self._temp_assets_dir)
+    if isinstance(self._spec, analyzers._VocabularySpec):
+      return pcoll | _VocabularyAnalyzerImpl(self._spec, self._temp_assets_dir)
     elif isinstance(self._spec, analyzers.CombinerSpec):
       return pcoll | _CombinerAnalyzerImpl(self._spec)
     elif isinstance(self._spec, analyzers._CombinePerKeySpec):
@@ -72,11 +69,11 @@ def _flatten_value_to_list(batch_values):
 
 
 @with_input_types(List[np.ndarray])
-class _UniquesAnalyzerImpl(beam.PTransform):
+class _VocabularyAnalyzerImpl(beam.PTransform):
   """Saves the unique elements in a PCollection of batches."""
 
   def __init__(self, spec, temp_assets_dir):
-    assert isinstance(spec, analyzers._UniquesSpec)  # pylint: disable=protected-access
+    assert isinstance(spec, analyzers._VocabularySpec)  # pylint: disable=protected-access
     self._spec = spec
     self._temp_assets_dir = temp_assets_dir
 
@@ -86,24 +83,21 @@ class _UniquesAnalyzerImpl(beam.PTransform):
     assert top_k is None or top_k >= 0
     assert frequency_threshold is None or frequency_threshold >= 0
 
-    # Creates a PCollection of (count, element) pairs, then iterates over
+    # Create a PCollection of (count, element) pairs, then iterates over
     # this to create a single element PCollection containing this list of
     # pairs in sorted order by decreasing counts (and by values for equal
     # counts).
-    counts = (
-        pcoll
-        | 'FlattenValueToList' >> beam.Map(_flatten_value_to_list)
-        | 'CountWithinList' >>
-        # Specification of with_output_types allows for combiner optimizations.
-        (beam.FlatMap(lambda lst: six.iteritems(collections.Counter(lst))).
-         with_output_types(KV[common.PRIMITIVE_TYPE, int]))
-        | 'CountGlobally' >> beam.CombinePerKey(sum))
+
+    def is_problematic_string(kv):
+      string, _ = kv  # Ignore counts.
+      return string and '\n' not in string and '\r' not in string
 
     counts = (
-        counts
-        | 'FilterProblematicStrings' >> beam.Filter(
-            lambda kv: kv[0] and '\n' not in kv[0] and '\r' not in kv[0])
-        | 'SwapElementsAndCounts' >> beam.KvSwap())
+        pcoll
+        | 'FlattenStrings' >> beam.FlatMap(_flatten_value_to_list)
+        | 'CountPerString' >> beam.combiners.Count.PerElement()
+        | 'FilterProblematicStrings' >> beam.Filter(is_problematic_string)
+        | 'SwapStringsAndCounts' >> beam.KvSwap())
 
     # Filter is cheaper than TopK computation and the two commute, so
     # filter first.
@@ -123,10 +117,10 @@ class _UniquesAnalyzerImpl(beam.PTransform):
     # and larger files.
     counts |= 'Reshard' >> beam.transforms.Reshuffle()  # pylint: disable=no-value-for-parameter
 
-    # Using AsIter instead of AsList below in order to reduce max memory
-    # usage (due to AsList caching).
-    def order_by_decreasing_counts(ignored, counts_iter, store_frequency):
-      """Sort the vocabulary by frequency count."""
+    # Using AsIter instead of AsList at the callsite below in order to reduce
+    # max memory usage (due to AsList caching).
+    def order_elements(ignored, counts_iter, store_frequency):
+      """Sort the vocabulary by descending frequency count."""
       del ignored
       counts = list(counts_iter)
       if not counts:
@@ -152,8 +146,8 @@ class _UniquesAnalyzerImpl(beam.PTransform):
     vocab_is_written = (
         pcoll.pipeline
         | 'Prepare' >> beam.Create([None])
-        | 'OrderByDecreasingCounts' >> beam.FlatMap(
-            order_by_decreasing_counts,
+        | 'OrderElements' >> beam.FlatMap(
+            order_elements,
             counts_iter=beam.pvalue.AsIter(counts),
             store_frequency=self._spec.store_frequency)
         | 'WriteToFile' >> beam.io.WriteToText(vocabulary_file,

@@ -182,8 +182,9 @@ def transform_data(working_dir):
         review = inputs[REVIEW_KEY]
 
         review_tokens = tf.string_split(review, DELIMITERS)
-        review_indices = tft.string_to_int(review_tokens, top_k=VOCAB_SIZE)
-        # Add one for the oov bucket created by string_to_int.
+        review_indices = tft.compute_and_apply_vocabulary(
+            review_tokens, top_k=VOCAB_SIZE)
+        # Add one for the oov bucket created by compute_and_apply_vocabulary.
         review_bow_indices, review_weight = tft.tfidf(review_indices,
                                                       VOCAB_SIZE + 1)
         return {
