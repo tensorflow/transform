@@ -408,8 +408,6 @@ def _write_saved_transform(graph, inputs, outputs, saved_model_dir):
     # warnings.
     # pylint: disable=protected-access
     collections_blacklist = [
-        tft_api._TF_METADATA_TENSORS_COLLECTION,
-        tft_api._TF_METADATA_SCHEMA_OVERRIDES_COLLECTION,
         tft_api.FUNCTION_APPLICATION_COLLECTION,
         tft_analyzers.ANALYZER_COLLECTION
     ]
@@ -629,112 +627,60 @@ class _RunPhase(beam.PTransform):
     return result
 
 
-class _ComputeDeferredMetadata(beam.PTransform):
-  """Extracts values of tensors from a transform function.
+def _augment_metadata(saved_model_dir, metadata):
+  """Augments the metadata with min/max values stored in the SavedModel.
 
-  This transform takes the path to a SavedModel in its constructor, and in its
-  expand() method accepts a mapping from tensors to PCollections.  When run, it
-  replaces the tensors corresponding to the keys of this mapping, with the
-  values wrapped in the PCollections.  It then extracts the values of some
-  tensors in the new graph.  This allows us to compute values that depend on
-  values in the tensor-PCollection mapping in arbitrary ways, where the values
-  are represented by tensors in the graph that depend on the tensor-PCollection
-  mapping (but not on the inputs to the graph).
+  Takes the min/max values of tensors stored in the SavedModel, and uses these
+  to augment the metadata.  For each feature in the metadata, the min/max of
+  the corresponding `Tensor` are used to augment the schema.  For a feature
+  represented by a `SparseTensor` we use the min/max for the `values` field of
+  the `SparseTensor`.
 
   Args:
+    saved_model_dir: Location of a SavedModel
     metadata: A `DatasetMetadata`
-    column_schema_overrides: A dict from column names to `api._SchemaOverride`s
-    saved_model_dir: The model to extract the constants from.
-    pipeline: The beam Pipeline.
+
+  Returns:
+    An augmented DatasetMetadata.  The original DatasetMetadata is unchanged.
   """
+  with tf.Graph().as_default() as graph:
+    with tf.Session(graph=graph) as session:
+      _, output_tensor_by_name = (
+          saved_transform_io.partially_apply_saved_transform_internal(
+              saved_model_dir, {}))
 
-  def __init__(self, metadata, column_schema_overrides, saved_model_dir,
-               pipeline):
-    self._metadata = metadata
-    self._column_schema_overrides = column_schema_overrides
-    self._saved_model_dir = saved_model_dir
-    # Generally the pipeline is inferred from its inputs, however we need
-    # to know the pipeline for beam.Create.
-    self.pipeline = pipeline
+      # Get overrides for the min/max of tensors from the graph, and use these
+      # determine overrides for the min/max of the outputs of the graph.
+      tensor_schema_overrides = tft_api.get_tensor_schema_overrides()
+      column_schema_overrides = {}
+      for name, tensor in six.iteritems(output_tensor_by_name):
+        if isinstance(tensor, tf.SparseTensor):
+          tensor = tensor.values
+        if tensor in tensor_schema_overrides:
+          column_schema_overrides[name] = tensor_schema_overrides[tensor]
 
-  def expand(self, tensor_pcoll_mapping):
-    """Converts a dict of statistics to a transform function.
+      session.run(tf.global_variables_initializer())
+      session.run(tf.tables_initializer())
+      column_schema_override_values = session.run(column_schema_overrides)
 
-    Args:
-      tensor_pcoll_mapping: A dictionary mapping `Tensor`s to a singleton
-          PCollection containing a _TensorValue.
+  new_column_schemas = {}
+  for key, column_schema in six.iteritems(metadata.schema.column_schemas):
+    if key in column_schema_override_values:
+      min_value, max_value = column_schema_override_values[key]
+      assert column_schema.domain.dtype == tf.int64
+      assert isinstance(column_schema.domain, dataset_schema.IntDomain)
+      # Create a new column schema.  An override always results in a
+      # categorical column.
+      new_column_schemas[key] = dataset_schema.ColumnSchema(
+          dataset_schema.IntDomain(tf.int64, min_value, max_value,
+                                   is_categorical=True),
+          column_schema.axes,
+          column_schema.representation)
+    else:
+      new_column_schemas[key] = column_schema
 
-    Returns:
-      A dict from tensor names to singleton `PCollection`s.
-    """
-    # Convert tensor_value_mapping into a DictPCollectionView so it can be
-    # passed as a side input to the beam Map below.
-    tensor_value_pairs = []
-    for name, pcoll in six.iteritems(tensor_pcoll_mapping):
-      tensor_value_pairs.append(
-          pcoll
-          | 'AddName[%s]' % name >> beam.Map(lambda x, name=name: (name, x)))
-    tensor_value_mapping = beam.pvalue.AsDict(
-        tensor_value_pairs
-        | 'MergeTensorValuePairs' >> beam.Flatten(pipeline=self.pipeline))
-
-    def compute_deferred_metadata(metadata, column_schema_overrides,
-                                  saved_model_dir, tensor_value_mapping):
-      """Extracts constant values from graph."""
-      tensor_names = {
-          tensor_name
-          for override in six.itervalues(column_schema_overrides)
-          for tensor_name in [override.min_value, override.max_value]}
-
-      graph = tf.Graph()
-      with graph.as_default():
-        tensor_replacement_map = {}
-        for orig_tensor_name, (value,
-                               is_asset) in six.iteritems(tensor_value_mapping):
-          new_tensor = tf.constant(value)
-          if is_asset:
-            # Any newly frozen constant tensors containing filenames must be
-            # added to the ASSET_FILENAMES collection.
-            graph.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, new_tensor)
-          tensor_replacement_map[orig_tensor_name] = new_tensor
-
-        with tf.Session(graph=graph) as session:
-          tensors_by_name = (
-              saved_transform_io.fetch_tensor_values(
-                  saved_model_dir, tensor_replacement_map, tensor_names))
-          session.run(tf.global_variables_initializer())
-          session.run(tf.tables_initializer())
-          tensor_values_by_name = session.run(tensors_by_name)
-
-      new_column_schemas = {}
-      for key, column_schema in six.iteritems(metadata.schema.column_schemas):
-        if key in column_schema_overrides:
-          override = column_schema_overrides[key]
-          min_value = tensor_values_by_name[override.min_value]
-          max_value = tensor_values_by_name[override.max_value]
-          assert column_schema.domain.dtype == tf.int64
-          assert isinstance(column_schema.domain, dataset_schema.IntDomain)
-          # Create a new column schema.  An override always results in a
-          # categorical column.
-          new_column_schemas[key] = dataset_schema.ColumnSchema(
-              dataset_schema.IntDomain(tf.int64, min_value, max_value,
-                                       is_categorical=True),
-              column_schema.axes,
-              column_schema.representation)
-        else:
-          new_column_schemas[key] = column_schema
-
-      return dataset_metadata.DatasetMetadata(dataset_schema.Schema(
-          new_column_schemas))
-
-    return (
-        self.pipeline
-        | 'CreateMetadata' >> beam.Create([self._metadata])
-        | 'ExtractScalarConstants' >> beam.Map(
-            compute_deferred_metadata,
-            column_schema_overrides=self._column_schema_overrides,
-            saved_model_dir=self._saved_model_dir,
-            tensor_value_mapping=tensor_value_mapping))
+  return dataset_metadata.DatasetMetadata(dataset_schema.Schema(
+      new_column_schemas))
 
 
 class AnalyzeDataset(beam.PTransform):
@@ -860,23 +806,15 @@ class AnalyzeDataset(beam.PTransform):
       # refer to values of tensors in the graph.  The override tensors must
       # be "constant" in that they don't depend on input data.  The tensors can
       # depend on analyzer outputs though.  This allows us to set metadata that
-      # depends on analyzer outputs. _ComputeDeferredMetadata will use
-      # tensor_pcoll_mapping to compute the metadata in a deferred manner, once
-      # the analyzer outputs are known.
+      # depends on analyzer outputs. _augment_metadata will use the analyzer
+      # outputs stored in `transform_fn` to compute the metadata in a
+      # deferred manner, once the analyzer outputs are known.
       metadata = dataset_metadata.DatasetMetadata(
           schema=impl_helper.infer_feature_schema(outputs))
 
-      tensor_schema_overrides = tft_api.get_tensor_schema_overrides()
-      column_schema_overrides = {
-          key: tensor_schema_overrides[tensor]
-          for key, tensor in six.iteritems(outputs)
-          if tensor in tensor_schema_overrides}
-
       deferred_metadata = (
-          tensor_pcoll_mapping
-          | 'ComputeDeferredMetadata' >>
-          _ComputeDeferredMetadata(metadata, column_schema_overrides,
-                                   saved_model_dir, input_values.pipeline))
+          transform_fn
+          | 'ComputeDeferredMetadata' >> beam.Map(_augment_metadata, metadata))
 
       full_metadata = beam_metadata_io.BeamDatasetMetadata(
           metadata, deferred_metadata)

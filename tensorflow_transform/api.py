@@ -48,8 +48,6 @@ Apache Beam as the underlying framework.  See beam/impl.py for how to use the
 Beam implementation.
 """
 
-import collections
-
 import tensorflow as tf
 from tensorflow_transform import analyzers
 
@@ -168,37 +166,32 @@ def apply_function(fn, *args):
   return FunctionApplication(fn, args).user_output
 
 
-# min_value and max_value are tensor names.
-_SchemaOverride = collections.namedtuple(
-    'SchemaOverride', ['min_value', 'max_value'])
-
-
-_TF_METADATA_TENSORS_COLLECTION = 'tft_metadata_tensors'
-_TF_METADATA_SCHEMA_OVERRIDES_COLLECTION = 'tft_metadata_schema_overrides'
+# Names of collections, which should all be the same length and contain tensors.
+# Each tensor in the first collection should have its min/max described by the
+# tensors in the other two collections.
+_TF_METADATA_TENSOR_COLLECTION = 'tft_schema_override_tensor'
+_TF_METADATA_TENSOR_MIN_COLLECTION = 'tft_schema_override_min'
+_TF_METADATA_TENSOR_MAX_COLLECTION = 'tft_schema_override_max'
 
 
 def set_tensor_schema_overrides(tensor, min_value, max_value):
-  """Override parts of the schema of a `Tensor` or `SparseTensor`."""
-  if not (isinstance(tensor, tf.Tensor) or isinstance(tensor, tf.SparseTensor)):
-    raise ValueError(
-        'tensor {} was not a Tensor or SparseTensor'.format(tensor))
+  """Override parts of the schema of a `Tensor`."""
+  if not isinstance(tensor, tf.Tensor):
+    raise ValueError('tensor {} was not a Tensor'.format(tensor))
   if not isinstance(min_value, tf.Tensor):
     raise ValueError('min_vaue {} was not a Tensor'.format(min_value))
   if not isinstance(max_value, tf.Tensor):
     raise ValueError('max_vaue {} was not a Tensor'.format(min_value))
-
-  tf.add_to_collection(_TF_METADATA_TENSORS_COLLECTION, tensor)
-
-  # Construct a _SchemaOverride using the tensor names of min_value and
-  # max_value.
-  tf.add_to_collection(_TF_METADATA_SCHEMA_OVERRIDES_COLLECTION,
-                       _SchemaOverride(min_value.name, max_value.name))
+  tf.add_to_collection(_TF_METADATA_TENSOR_COLLECTION, tensor)
+  tf.add_to_collection(_TF_METADATA_TENSOR_MIN_COLLECTION, min_value)
+  tf.add_to_collection(_TF_METADATA_TENSOR_MAX_COLLECTION, max_value)
 
 
 def get_tensor_schema_overrides():
-  """Gets a dict from `Tensor` or `SparseTensor`s to `_SchemaOverride`s."""
-  tensors = tf.get_collection(_TF_METADATA_TENSORS_COLLECTION)
-  schema_overrides = tf.get_collection(_TF_METADATA_SCHEMA_OVERRIDES_COLLECTION)
-  assert len(tensors) == len(schema_overrides), '{} != {}'.format(
-      tensors, schema_overrides)
-  return dict(zip(tensors, schema_overrides))
+  """Gets a dict from `Tensor`s to pairs of `Tensor`s containing min/max."""
+  tensors = tf.get_collection(_TF_METADATA_TENSOR_COLLECTION)
+  min_values = tf.get_collection(_TF_METADATA_TENSOR_MIN_COLLECTION)
+  max_values = tf.get_collection(_TF_METADATA_TENSOR_MAX_COLLECTION)
+  assert len(tensors) == len(min_values), '{} != {}'.format(tensors, min_values)
+  assert len(tensors) == len(max_values), '{} != {}'.format(tensors, max_values)
+  return dict(zip(tensors, zip(min_values, max_values)))

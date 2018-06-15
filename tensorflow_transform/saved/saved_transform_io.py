@@ -258,13 +258,6 @@ def _partially_apply_saved_transform_impl(
   return unbound_inputs, outputs, fetched_tensors
 
 
-def fetch_tensor_values(saved_model_dir, tensor_replacement_map,
-                        fetch_tensor_names):
-  _, _, fetched_tensors = _partially_apply_saved_transform_impl(
-      saved_model_dir, {}, tensor_replacement_map, fetch_tensor_names)
-  return fetched_tensors
-
-
 def partially_apply_saved_transform(saved_model_dir, logical_input_map,
                                     tensor_replacement_map=None):
   """Deprecated alias for partially_apply_saved_transform_internal."""

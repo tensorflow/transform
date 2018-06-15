@@ -470,16 +470,23 @@ def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
     if output_dtype is None:
       raise TypeError('Tensor type %r is not supported' % x.dtype)
   sum_dtype, sum_fn = _sum_combine_fn_and_dtype(x.dtype)
-  if isinstance(x, tf.SparseTensor):
-    if not reduce_instance_dims:
-      raise TypeError(
-          'SparseTensor is only supported when reduce_instance_dims=True')
-    x = x.values
   with tf.name_scope(name, 'mean'):
-    # For now _numeric_combine will return a tuple with as many elements as the
-    # input tuple.
+    if isinstance(x, tf.SparseTensor):
+      if reduce_instance_dims:
+        ones_values, x_values = tf.ones_like(x.values), x.values
+      else:
+        sparse_ones = tf.SparseTensor(
+            indices=x.indices,
+            values=tf.ones_like(x.values),
+            dense_shape=x.dense_shape)
+        ones_values = tf.sparse_reduce_sum(sparse_ones, axis=0, keep_dims=True)
+        x = tf.cast(x, output_dtype)
+        ones_values = tf.cast(ones_values, output_dtype)
+        x_values = tf.sparse_reduce_sum(x, axis=0, keep_dims=True)
+    else:
+      ones_values, x_values = tf.ones_like(x), x
     x_count, x_sum = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
-        [tf.ones_like(x), x],
+        [ones_values, x_values],
         sum_fn,
         reduce_instance_dims,
         output_dtypes=[sum_dtype, sum_dtype])

@@ -455,13 +455,15 @@ def apply_vocabulary(x,
     # once the analyzer has run.
     #
     # `table_size` includes the num oov buckets.  The default value is only used
-    # if num_oov_buckets > 0.
+    # if num_oov_buckets <= 0.
     min_value = tf.constant(0, tf.int64)
     max_value = table_size - 1
     if num_oov_buckets <= 0:
       min_value = tf.minimum(min_value, default_value)
       max_value = tf.maximum(max_value, default_value)
-    api.set_tensor_schema_overrides(result, min_value, max_value)
+    api.set_tensor_schema_overrides(
+        result.values if isinstance(result, tf.SparseTensor) else result,
+        min_value, max_value)
 
     return result
 

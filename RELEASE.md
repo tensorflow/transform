@@ -28,6 +28,9 @@
 * tft.mean now supports SparseTensor when reduce_instance_dimensions=True.
   In this case it returns a scalar mean computed over the non-missing values of
   the SparseTensor.
+* tft.mean now supports SparseTensor when reduce_instance_dimensions=False.
+  In this case it returns a vector mean computed over the non-missing values of
+  the SparseTensor.
 * Update examples to use "core" TensorFlow estimator API (`tf.estimator`).
 
 ## Breaking changes

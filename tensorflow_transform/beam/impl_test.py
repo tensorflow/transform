@@ -1282,7 +1282,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
-  def testNumericMeanWithSparseTensor(self):
+  def testNumericMeanWithSparseTensorReduceTrue(self):
 
     def analyzer_fn(inputs):
       return {'mean': tft.mean(inputs['a'])}
@@ -1292,6 +1292,52 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'a': sch.ColumnSchema(tf.int64, [None], sch.ListColumnRepresentation())
     })
     expected_outputs = {'mean': np.array(3., np.float32)}
+    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
+                               expected_outputs)
+
+  def testNumericMeanWithSparseTensorReduceFalse(self):
+
+    def analyzer_fn(inputs):
+      return {'mean': tft.mean(inputs['sparse'], False)}
+
+    input_data = [{
+        'sparse': ([0, 1], [0., 1.])
+    }, {
+        'sparse': ([1, 3], [2., 3.])
+    }]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'sparse':
+            sch.ColumnSchema(
+                tf.float32, [4],
+                sch.SparseColumnRepresentation(
+                    'val', [sch.SparseIndexField('idx', False)]))
+    })
+    expected_outputs = {
+        'mean': np.array([0., 1.5, float('nan'), 3.], np.float32)
+    }
+    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
+                               expected_outputs)
+
+  def testNumericMeanWithSparseTensorReduceFalseOverflow(self):
+
+    def analyzer_fn(inputs):
+      return {'mean': tft.mean(inputs['sparse'], False)}
+
+    input_data = [{
+        'sparse': ([0, 1], [1, 1])
+    }, {
+        'sparse': ([1, 3], [2147483647, 3])
+    }]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'sparse':
+            sch.ColumnSchema(
+                tf.int32, [4],
+                sch.SparseColumnRepresentation(
+                    'val', [sch.SparseIndexField('idx', False)]))
+    })
+    expected_outputs = {
+        'mean': np.array([1., 1073741824., float('nan'), 3.], np.float32)
+    }
     self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
                                expected_outputs)
 
@@ -1326,15 +1372,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         def size_fn(inputs):
           return {'size': repeat(inputs['a'], tft.size(inputs['a']))}
         _ = input_dataset | beam_impl.AnalyzeDataset(size_fn)
-
-      with self.assertRaises(TypeError):
-        def mean_fn(inputs):
-          return {
-              'mean':
-                  repeat(inputs['a'],
-                         tft.mean(inputs['a'], reduce_instance_dims=False))
-          }
-        _ = input_dataset | beam_impl.AnalyzeDataset(mean_fn)
 
       with self.assertRaises(TypeError):
         def var_fn(inputs):
