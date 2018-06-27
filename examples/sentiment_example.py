@@ -294,6 +294,28 @@ def _make_serving_input_fn(tf_transform_output):
   return serving_input_fn
 
 
+def get_feature_columns(tf_transform_output):
+  """Returns the FeatureColumns for the model.
+
+  Args:
+    tf_transform_output: A `TFTransformOutput` object.
+
+  Returns:
+    A list of FeatureColumns.
+  """
+  del tf_transform_output  # unused
+  # Unrecognized tokens are represented by -1, but
+  # categorical_column_with_identity uses the mod operator to map integers
+  # to the range [0, bucket_size).  By choosing bucket_size=VOCAB_SIZE + 1, we
+  # represent unrecognized tokens as VOCAB_SIZE.
+  review_column = tf.feature_column.categorical_column_with_identity(
+      REVIEW_KEY, num_buckets=VOCAB_SIZE + 1)
+  weighted_reviews = tf.feature_column.weighted_categorical_column(
+      review_column, REVIEW_WEIGHT_KEY)
+
+  return [weighted_reviews]
+
+
 def train_and_evaluate(working_dir,
                        num_train_instances=NUM_TRAIN_INSTANCES,
                        num_test_instances=NUM_TEST_INSTANCES):
@@ -309,19 +331,10 @@ def train_and_evaluate(working_dir,
   """
   tf_transform_output = tft.TFTransformOutput(working_dir)
 
-  # Unrecognized tokens are represented by -1, but
-  # categorical_column_with_identity uses the mod operator to map integers
-  # to the range [0, bucket_size).  By choosing bucket_size=VOCAB_SIZE + 1, we
-  # represent unrecognized tokens as VOCAB_SIZE.
-  review_column = tf.feature_column.categorical_column_with_identity(
-      REVIEW_KEY, num_buckets=VOCAB_SIZE + 1)
-  weighted_reviews = tf.feature_column.weighted_categorical_column(
-      review_column, REVIEW_WEIGHT_KEY)
-
   run_config = tf.estimator.RunConfig()
 
   estimator = tf.estimator.LinearClassifier(
-      feature_columns=[weighted_reviews],
+      feature_columns=get_feature_columns(tf_transform_output),
       config=run_config)
 
   # Fit the model using the default optimizer.

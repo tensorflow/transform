@@ -32,12 +32,14 @@
   In this case it returns a vector mean computed over the non-missing values of
   the SparseTensor.
 * Update examples to use "core" TensorFlow estimator API (`tf.estimator`).
+* Depends on `protobuf>=3.6.0<4`.
 
 ## Breaking changes
 * `apply_saved_transform` is removed.  See note on
   `partially_apply_saved_transform` in the `Deprecations` section.
 * No longer set `vocabulary_file` in `IntDomain` when using
   `tft.compute_and_apply_vocabulary` or `tft.apply_vocabulary`.
+* Requires pre-installed TensorFlow >=1.8,<2.
 
 ## Deprecations
 * The `expected_asset_file_contents` of

@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Utility functions to build input_fns for use with tf.Learn."""
+"""Legacy version of saved_transform_io for backwards compatibility."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -36,9 +36,7 @@ def _load_transform_saved_model(transform_savedmodel_dir):
     transform_savedmodel_dir: a SavedModel directory.
 
   Returns:
-    A tuple with a `MetaGraphDef` proto, the input and outputs of a
-    `SignatureDef` proto, and a dict from tensor names to absolute paths for
-    asset filepaths.
+    A `SavedModel` protocol buffer.
   """
   saved_model = saved_model_loader.parse_saved_model(
       transform_savedmodel_dir)
@@ -48,8 +46,12 @@ def _load_transform_saved_model(transform_savedmodel_dir):
   signature = meta_graph_def.signature_def[constants.TRANSFORM_SIGNATURE]
 
   # maps name to TensorInfo
-  input_signature = signature.inputs
-  output_signature = signature.outputs
+  input_signature = {logical_name: tensor_info.name
+                     for logical_name, tensor_info
+                     in six.iteritems(signature.inputs)}
+  output_signature = {logical_name: tensor_info.name
+                      for logical_name, tensor_info
+                      in six.iteritems(signature.outputs)}
 
   # asset_path_dict is {string: string}, mapping tensor names to absolute paths.
   asset_path_dict = saved_model_loader.get_asset_tensors(
@@ -106,18 +108,15 @@ def _partially_apply_saved_transform_impl(
   if graph is None:
     raise RuntimeError('apply_saved_transform() requires a default graph.')
 
+  decomposed_input_tensors = _decompose_sparse_tensors(logical_input_map)
+
   meta_graph_def, input_signature, output_signature, asset_path_dict = (
       _load_transform_saved_model(saved_model_dir))
-  if any(name.endswith('$dense_tensor') or name.endswith('$values')
-         for name in input_signature.keys()):
-    return legacy_saved_transform_io._partially_apply_saved_transform_impl(  # pylint: disable=protected-access
-        saved_model_dir, logical_input_map, tensor_replacement_map,
-        fetch_tensor_names)
   asset_tensor_dict = {k: ops.convert_to_tensor(v)
                        for k, v in asset_path_dict.items()}
 
   # Check for inputs that were not part of the input signature.
-  unexpected_inputs = (set(six.iterkeys(logical_input_map)) -
+  unexpected_inputs = (set(six.iterkeys(decomposed_input_tensors)) -
                        set(six.iterkeys(input_signature)))
   if unexpected_inputs:
     raise ValueError('Unexpected inputs '
@@ -125,18 +124,10 @@ def _partially_apply_saved_transform_impl(
 
   # Create a map from tensor names in the graph to be imported, to the tensors
   # specified in `input_tensors`.
-  input_map = {}
-  for logical_name, replacement in six.iteritems(logical_input_map):
-    tensor_info = input_signature[logical_name]
-    if tensor_info.WhichOneof('encoding') == 'coo_sparse':
-      input_map[tensor_info.coo_sparse.indices_tensor_name] = (
-          replacement.indices)
-      input_map[tensor_info.coo_sparse.values_tensor_name] = replacement.values
-      input_map[tensor_info.coo_sparse.dense_shape_tensor_name] = (
-          replacement.dense_shape)
-    else:
-      input_map[tensor_info.name] = replacement
-
+  input_map = {
+      input_signature[decomposed_logical_name]:
+      decomposed_input_tensors[decomposed_logical_name]
+      for decomposed_logical_name in decomposed_input_tensors}
   input_map.update(asset_tensor_dict)
   if tensor_replacement_map:
     input_map.update(tensor_replacement_map)
@@ -237,30 +228,34 @@ def _partially_apply_saved_transform_impl(
     else:
       return graph.get_tensor_by_name(
           ops.prepend_name_scope(tensor_name, scope))
-  def lookup_tensor_or_sparse_tensor(tensor_info):
-    if tensor_info.WhichOneof('encoding') == 'coo_sparse':
-      return tf.SparseTensor(
-          lookup_remapped_tensor(tensor_info.coo_sparse.indices_tensor_name),
-          lookup_remapped_tensor(tensor_info.coo_sparse.values_tensor_name),
-          lookup_remapped_tensor(
-              tensor_info.coo_sparse.dense_shape_tensor_name))
-    else:
-      return lookup_remapped_tensor(tensor_info.name)
-  outputs = {
-      logical_name: lookup_tensor_or_sparse_tensor(tensor_info)
-      for logical_name, tensor_info in six.iteritems(output_signature)}
-  # Do the same for input tensors, although such tensors should never be in the
+  decomposed_output_tensors = {
+      decomposed_logical_name: lookup_remapped_tensor(tensor_name)
+      for decomposed_logical_name, tensor_name
+      in six.iteritems(output_signature)
+  }
+  # Do the same for input tensors, where we assume such tensors are not in the
   # input_map since identical tensors in an input_map would be an error.
-  unbound_inputs = {
-      logical_name: lookup_tensor_or_sparse_tensor(tensor_info)
-      for logical_name, tensor_info in six.iteritems(input_signature)
-      if logical_name not in logical_input_map}
+  decomposed_unbound_input_tensors = {
+      decomposed_logical_name: graph.get_tensor_by_name(
+          ops.prepend_name_scope(tensor_name, scope))
+      for decomposed_logical_name, tensor_name in six.iteritems(input_signature)
+      if decomposed_logical_name not in decomposed_input_tensors
+  }
   if fetch_tensor_names is None:
     fetch_tensor_names = []
   fetched_tensors = {
       name: lookup_remapped_tensor(name) for name in fetch_tensor_names}
 
+  outputs = _recompose_sparse_tensors(decomposed_output_tensors)
+  unbound_inputs = _recompose_sparse_tensors(decomposed_unbound_input_tensors)
   return unbound_inputs, outputs, fetched_tensors
+
+
+def fetch_tensor_values(saved_model_dir, tensor_replacement_map,
+                        fetch_tensor_names):
+  _, _, fetched_tensors = _partially_apply_saved_transform_impl(
+      saved_model_dir, {}, tensor_replacement_map, fetch_tensor_names)
+  return fetched_tensors
 
 
 def partially_apply_saved_transform(saved_model_dir, logical_input_map,
@@ -321,8 +316,9 @@ def partially_apply_saved_transform_internal(saved_model_dir, logical_input_map,
 def write_saved_transform_from_session(
     session, inputs, outputs, export_path, as_text=False):
   """Write the current session as a SavedModel."""
-  predict_signature_def = (
-      tf.saved_model.signature_def_utils.predict_signature_def(inputs, outputs))
+  predict_signature_def = _predict_signature_def(
+      _decompose_sparse_tensors(inputs),
+      _decompose_sparse_tensors(outputs))
 
   builder = tf.saved_model.builder.SavedModelBuilder(export_path)
   builder.add_meta_graph_and_variables(
@@ -332,3 +328,98 @@ def write_saved_transform_from_session(
           tf.GraphKeys.ASSET_FILEPATHS))
   builder.save(as_text)
 
+
+_SPARSE_TENSOR_NAME_RE = re.compile(r'(.*)\$(indices|values|dense_shape)$')
+
+_DENSE_TENSOR_NAME_RE = re.compile(r'(.*)\$dense_tensor$')
+
+
+def _decompose_sparse_tensors(tensor_map):
+  """Separates out `SparseTensor`s into their constituent parts.
+
+  Takes a map from column names to `Tensor`s or `SparseTensor`s, and
+  decomposes each `SparseTensor` into its parts, assigning each part a new
+  column name in the returned map.
+
+  Note that there is never any possibility of name collision, as every column
+  name gets some suffix such as "$values" added to it.  Therefore every expanded
+  name can be uniquely mapped back to the original column name.
+
+  Args:
+    tensor_map: A map from strings to `Tensor`s,
+
+  Returns:
+    A map from strings to `Tensor`s.
+  """
+  result = {}
+
+  for key, tensor in six.iteritems(tensor_map):
+    if isinstance(tensor, tf.SparseTensor):
+      result[key + '$indices'] = tensor.indices
+      result[key + '$values'] = tensor.values
+      result[key + '$dense_shape'] = tensor.dense_shape
+    else:
+      result[key + '$dense_tensor'] = tensor
+
+  return result
+
+
+def _recompose_sparse_tensors(tensor_map):
+  """Undoes the function _decompose_sparse_tensors."""
+  result = {}
+
+  sparse_keys = set()
+  dense_keys = set()
+  for key in six.iterkeys(tensor_map):
+    match = _SPARSE_TENSOR_NAME_RE.match(key)
+    if match:
+      sparse_keys.add(match.group(1))
+      continue
+    match = _DENSE_TENSOR_NAME_RE.match(key)
+    if match:
+      dense_keys.add(match.group(1))
+      continue
+    raise ValueError('Unexpected key: {}'.format(key))
+
+  for key in sparse_keys:
+    result[key] = tf.SparseTensor(tensor_map[key + '$indices'],
+                                  tensor_map[key + '$values'],
+                                  tensor_map[key + '$dense_shape'])
+  for key in dense_keys:
+    result[key] = tensor_map[key + '$dense_tensor']
+
+  return result
+
+
+# forked from saved_model/signature_def_utils_impl.py to avoid renaming with
+# standardized keys, which breaks our decomposed naming standard.
+def _predict_signature_def(inputs, outputs):
+  """Creates prediction signature from given inputs and outputs.
+
+  Args:
+    inputs: dict of string to `Tensor`.
+    outputs: dict of string to `Tensor`.
+
+  Returns:
+    A prediction-flavored signature_def.
+
+  Raises:
+    ValueError: If inputs or outputs is `None`.
+  """
+  if inputs is None or not inputs:
+    raise ValueError('inputs cannot be None or empty for prediction.')
+  if outputs is None:
+    raise ValueError('outputs cannot be None or empty for prediction.')
+
+  signature_inputs = {
+      key: tf.saved_model.utils.build_tensor_info(tensor)
+      for key, tensor in six.iteritems(inputs)
+  }
+  signature_outputs = {
+      key: tf.saved_model.utils.build_tensor_info(tensor)
+      for key, tensor in six.iteritems(outputs)
+  }
+
+  return tf.saved_model.signature_def_utils.build_signature_def(
+      signature_inputs, signature_outputs,
+      tf.saved_model.signature_constants.PREDICT_METHOD_NAME)
