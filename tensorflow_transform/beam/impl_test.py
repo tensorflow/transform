@@ -1282,6 +1282,66 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
+  def testMaxWithSparseTensorReduceTrue(self):
+
+    def analyzer_fn(inputs):
+      return {'max': tft.max(inputs['sparse'])}
+
+    input_data = [{
+        'sparse': ([0, 1], [0., 1.])
+    }, {
+        'sparse': ([1, 3], [2., 3.])
+    }]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'sparse':
+            sch.ColumnSchema(
+                tf.float32, [4],
+                sch.SparseColumnRepresentation(
+                    'val', [sch.SparseIndexField('idx', False)]))
+    })
+    expected_outputs = {'max': np.array(3., np.float32)}
+    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
+                               expected_outputs)
+
+  @tft_unit.parameters(
+      (tf.int32,),
+      (tf.int64,),
+      (tf.float32,),
+      (tf.float64,),
+  )
+  def testMaxWithSparseTensorReduceFalse(self, input_dtype):
+
+    def analyzer_fn(inputs):
+      return {'max': tft.max(inputs['sparse'], False)}
+
+    input_data = [{
+        'sparse': ([0, 1], [-1., 1.])
+    }, {
+        'sparse': ([1, 3], [2., 3.])
+    }]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'sparse':
+            sch.ColumnSchema(
+                input_dtype, [4],
+                sch.SparseColumnRepresentation(
+                    'val', [sch.SparseIndexField('idx', False)]))
+    })
+    if input_dtype == tf.float32 or input_dtype == tf.float64:
+      expected_outputs = {
+          'max':
+              np.array([-1., 2., float('nan'), 3.], input_dtype.as_numpy_dtype)
+      }
+    else:
+      expected_outputs = {
+          'max':
+              np.array(
+                  [-1, 2, np.iinfo(input_dtype.as_numpy_dtype).min, 3],
+                  input_dtype.as_numpy_dtype)
+      }
+
+    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
+                               expected_outputs)
+
   def testNumericMeanWithSparseTensorReduceTrue(self):
 
     def analyzer_fn(inputs):
@@ -1341,6 +1401,70 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
                                expected_outputs)
 
+  @tft_unit.parameters(
+      (tf.int32,),
+      (tf.int64,),
+      (tf.float32,),
+      (tf.float64,),
+  )
+  def testVarWithSparseTensorReduceInstanceDimsTrue(self, input_dtype):
+
+    def analyzer_fn(inputs):
+      return {'var': tft.var(inputs['sparse'])}
+
+    input_data = [{
+        'sparse': ([0, 1], [0., 1.])
+    }, {
+        'sparse': ([1, 3], [2., 3.])
+    }]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'sparse':
+            sch.ColumnSchema(
+                input_dtype, [4],
+                sch.SparseColumnRepresentation(
+                    'val', [sch.SparseIndexField('idx', False)]))
+    })
+    if input_dtype == tf.float64:
+      expected_outputs = {'var': np.array(1.25, np.float64)}
+    else:
+      expected_outputs = {'var': np.array(1.25, np.float32)}
+    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
+                               expected_outputs)
+
+  @tft_unit.parameters(
+      (tf.int32,),
+      (tf.int64,),
+      (tf.float32,),
+      (tf.float64,),
+  )
+  def testVarWithSparseTensorReduceInstanceDimsFalse(self, input_dtype):
+
+    def analyzer_fn(inputs):
+      return {'var': tft.var(inputs['sparse'], reduce_instance_dims=False)}
+
+    input_data = [{
+        'sparse': ([0, 1], [0., 1.])
+    }, {
+        'sparse': ([1, 3], [2., 3.])
+    }]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'sparse':
+            sch.ColumnSchema(
+                input_dtype, [4],
+                sch.SparseColumnRepresentation(
+                    'val', [sch.SparseIndexField('idx', False)]))
+    })
+    if input_dtype == tf.float64:
+      expected_outputs = {
+          'var': np.array([0., .25, float('nan'), 0.], np.float64)
+      }
+    else:
+      expected_outputs = {
+          'var': np.array([0., .25, float('nan'), 0.], np.float32)
+      }
+    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
+                               expected_outputs)
+
   def testNumericAnalyzersWithSparseInputs(self):
     def repeat(in_tensor, value):
       batch_size = tf.shape(in_tensor)[0]
@@ -1359,11 +1483,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         _ = input_dataset | beam_impl.AnalyzeDataset(min_fn)
 
       with self.assertRaises(TypeError):
-        def max_fn(inputs):
-          return {'max': repeat(inputs['a'], tft.max(inputs['a']))}
-        _ = input_dataset | beam_impl.AnalyzeDataset(max_fn)
-
-      with self.assertRaises(TypeError):
         def sum_fn(inputs):
           return {'sum': repeat(inputs['a'], tft.sum(inputs['a']))}
         _ = input_dataset | beam_impl.AnalyzeDataset(sum_fn)
@@ -1372,11 +1491,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         def size_fn(inputs):
           return {'size': repeat(inputs['a'], tft.size(inputs['a']))}
         _ = input_dataset | beam_impl.AnalyzeDataset(size_fn)
-
-      with self.assertRaises(TypeError):
-        def var_fn(inputs):
-          return {'var': repeat(inputs['a'], tft.var(inputs['a']))}
-        _ = input_dataset | beam_impl.AnalyzeDataset(var_fn)
 
   def testStringToTFIDF(self):
     def preprocessing_fn(inputs):

@@ -208,7 +208,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
           | 'FixCommasTestData' >> beam.Map(
               lambda line: line.replace(', ', ','))
           | 'RemoveTrailingPeriodsTestData' >> beam.Map(lambda line: line[:-1])
-          | 'DecodeTestData' >> beam.Map(converter.decode))
+          | 'DecodeTestData' >> MapAndFilterErrors(converter.decode))
 
       raw_test_dataset = (raw_test_data, RAW_DATA_METADATA)
 

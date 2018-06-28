@@ -11,25 +11,25 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Package Setup script for the tf.Transform binary.
+"""Package Setup script for tf.Transform.
 """
 from setuptools import find_packages
 from setuptools import setup
 
 # Tensorflow transform version.
-__version__ = '0.8.0dev'
+__version__ = '0.8.0'
 
 
 def _make_required_install_packages():
   return [
       'absl-py>=0.1.6',
-      'apache-beam[gcp]>=2.4,<3',
-      'numpy>=1.10,<2',
+      'apache-beam[gcp]>=2.5,<3',
+      'numpy>=1.13.3,<2',
 
       # TF now requires protobuf>=3.6.0.
       'protobuf>=3.6.0,<4',
 
-      'six>=1.9,<2',
+      'six>=1.10,<2',
 
   ]
 

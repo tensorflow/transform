@@ -1,4 +1,4 @@
-# Current version (not yet released; still in development)
+# Release 0.8.0
 
 ## Major Features and Improvements
 * Add TFTransformOutput utility class that wraps the output of tf.Transform for
@@ -25,12 +25,7 @@
   e.g. `tft.coders.ExampleProtoCoder`.
 * Setting dtypes for numpy arrays in `tft.coders.ExampleProtoCoder` and
   `tft.coders.CsvCoder`.
-* tft.mean now supports SparseTensor when reduce_instance_dimensions=True.
-  In this case it returns a scalar mean computed over the non-missing values of
-  the SparseTensor.
-* tft.mean now supports SparseTensor when reduce_instance_dimensions=False.
-  In this case it returns a vector mean computed over the non-missing values of
-  the SparseTensor.
+* `tft.mean`, `tft.max` and `tft.var` now support `tf.SparseTensor`.
 * Update examples to use "core" TensorFlow estimator API (`tf.estimator`).
 * Depends on `protobuf>=3.6.0<4`.
 

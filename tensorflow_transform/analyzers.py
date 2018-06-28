@@ -382,7 +382,32 @@ def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Returns:
     A `Tensor`. Has the same type as `x`.
   """
-  return _numeric_combine([x], np.max, reduce_instance_dims, name)[0]
+  combine_fn = np.max
+  if isinstance(x, tf.SparseTensor):
+    if reduce_instance_dims:
+      x = x.values
+    else:
+      sparse_ones = tf.SparseTensor(
+          indices=x.indices,
+          values=tf.ones_like(x.values),
+          dense_shape=x.dense_shape)
+      ones_values = tf.sparse_reduce_sum(sparse_ones, axis=0, keep_dims=True)
+      # sparse_reduce_max returns 0 when all
+      # elements are missing along axis 0.
+      # Replace the 0 with nan when float
+      # and dtype.min when int.
+      batch_has_no_values = tf.equal(ones_values, tf.cast(0, x.dtype))
+      x = tf.sparse_reduce_max(x, axis=0, keep_dims=True)
+      if x.dtype == tf.float32:
+        missing_value = np.nan
+        combine_fn = np.nanmax
+      elif x.dtype == tf.float64:
+        missing_value = np.float64(np.nan)
+        combine_fn = np.nanmax
+      else:
+        missing_value = x.dtype.min
+      x = tf.where(batch_has_no_values, tf.fill(tf.shape(x), missing_value), x)
+  return _numeric_combine([x], combine_fn, reduce_instance_dims, name)[0]
 
 
 def _min_and_max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
@@ -500,8 +525,8 @@ def var(x, reduce_instance_dims=True, name=None, output_dtype=None):
   (x - mean(x))**2 / length(x).
 
   Args:
-    x: A `Tensor`. Its type must be floating point (float{16|32|64}), or
-        integral ([u]int{8|16|32|64}).
+    x: `Tensor` or `SparseTensor`. Its type must be floating point
+        (float{16|32|64}), or integral ([u]int{8|16|32|64}).
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
@@ -517,23 +542,34 @@ def var(x, reduce_instance_dims=True, name=None, output_dtype=None):
     TypeError: If the type of `x` is not supported.
   """
   with tf.name_scope(name, 'var'):
-    # Note: Calling `mean`, `sum`, and `size` as defined in this module, not the
-    # builtins.
-    x_mean = mean(x, reduce_instance_dims, output_dtype=output_dtype)
-    # x_mean will be float16, float32, or float64, depending on type of x.
-    squared_deviations = tf.square(tf.cast(x, x_mean.dtype) - x_mean)
-    return mean(
-        squared_deviations, reduce_instance_dims, output_dtype=output_dtype)
+    return _mean_and_var(x, reduce_instance_dims, name, output_dtype)[1]
 
 
 def _mean_and_var(x, reduce_instance_dims=True, name=None, output_dtype=None):
   """More efficient combined `mean` and `var`.  See `var`."""
+  if output_dtype is None:
+    output_dtype = _MEAN_OUTPUT_DTYPE_MAP.get(x.dtype)
+    if output_dtype is None:
+      raise TypeError('Tensor type %r is not supported' % x.dtype)
   with tf.name_scope(name, 'mean_and_var'):
     # Note: Calling `mean`, `sum`, and `size` as defined in this module, not the
     # builtins.
     x_mean = mean(x, reduce_instance_dims, output_dtype=output_dtype)
-    # x_mean will be float16, float32, or float64, depending on type of x.
-    squared_deviations = tf.square(tf.cast(x, x_mean.dtype) - x_mean)
+    if isinstance(x, tf.SparseTensor):
+      if reduce_instance_dims:
+        squared_deviations = tf.square(tf.cast(x.values, x_mean.dtype) - x_mean)
+      else:
+        # Only supports sparsetensors with rank 2.
+        x.get_shape().assert_has_rank(2)
+        mean_values = tf.gather(x_mean, x.indices[:, 1])
+        squared_deviation_values = tf.square(
+            tf.cast(x.values, x_mean.dtype) - mean_values)
+        squared_deviations = tf.SparseTensor(
+            indices=x.indices,
+            values=squared_deviation_values,
+            dense_shape=x.dense_shape)
+    else:
+      squared_deviations = tf.square(tf.cast(x, x_mean.dtype) - x_mean)
     x_var = mean(
         squared_deviations, reduce_instance_dims, output_dtype=output_dtype)
     return x_mean, x_var
