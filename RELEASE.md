@@ -1,3 +1,19 @@
+# Current version (not yet released; still in development)
+
+## Major Features and Improvements
+* Performance improvements for vocabulary generation when using top_k.
+* Utility to deep-copy Beam `PCollection`s was added to avoid unnecessary
+  materialization.
+
+## Bug Fixes and Other Changes
+* Memory reduction during vocabulary generation.
+* Clarify documentation on return values from `tft.compute_and_apply_vocabulary`
+  and `tft.string_to_int`.
+
+## Breaking changes
+
+## Deprecations
+
 # Release 0.8.0
 
 ## Major Features and Improvements

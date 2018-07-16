@@ -289,20 +289,28 @@ class _NumPyCombinerSpec(CombinerSpec):
           in zip(accumulator, reduced_values)]
 
   def merge_accumulators(self, accumulators):
-    # numpy's sum, min, max, etc functions operate on array-like objects, but
-    # not arbitrary iterables. Convert the provided accumulators into a list
-    return [
-        self._fn(list(sub_accumulators), axis=0)
-        for sub_accumulators in zip(*accumulators)]
+    non_empty_accumulators = [
+        accumulator for accumulator in accumulators if accumulator is not None
+    ]
+    if non_empty_accumulators:
+      return [
+          # numpy's sum, min, max, etc functions operate on array-like objects,
+          # but not arbitrary iterables. Convert the provided sub_accumulators
+          # into a list.
+          self._fn(list(sub_accumulators), axis=0)
+          for sub_accumulators in zip(*non_empty_accumulators)]
+    else:
+      return None
 
   def extract_output(self, accumulator):
     if accumulator is None:
       return None
-    # For each output, cast that output to the specified type.  Note there will
-    # be one output for each input tensor to the analyzer.
-    return [sub_accumulator.astype(output_dtype)
-            for sub_accumulator, output_dtype
-            in zip(accumulator, self._output_dtypes)]
+    else:
+      # For each output, cast that output to the specified type.  Note there
+      # will be one output for each input tensor to the analyzer.
+      return [sub_accumulator.astype(output_dtype)
+              for sub_accumulator, output_dtype
+              in zip(accumulator, self._output_dtypes)]
 
   def num_outputs(self):
     return len(self._output_dtypes)
@@ -1040,18 +1048,22 @@ class _CovarianceCombinerSpec(CombinerSpec):
 
   def merge_accumulators(self, accumulators):
     """Sums values in each accumulator entry."""
-    # Convert `accumulators` to list (it may be an arbitrary iterator) so it can
-    # be iterated over multiple times.
-    accumulators = list(accumulators)
-    # Because each accumulator contains multiple arrays of different dimensions,
-    # the np.sum operation must be explicitly used across the entries within
-    # each accumulator. np.sum(list(accumulators)) does not work.
-    sum_product = np.sum(
-        [accumulator[0] for accumulator in accumulators], axis=0)
-    sum_vectors = np.sum(
-        [accumulator[1] for accumulator in accumulators], axis=0)
-    count = np.sum([accumulator[2] for accumulator in accumulators], axis=0)
-    return [sum_product, sum_vectors, count]
+    accumulators = [
+        accumulator for accumulator in accumulators if accumulator is not None
+    ]
+    if accumulators:
+      # Because each accumulator contains multiple arrays of different
+      # dimensions, the np.sum operation must be explicitly used across the
+      # entries within each accumulator. np.sum(list(accumulators)) does not
+      # work.
+      sum_product = np.sum(
+          [accumulator[0] for accumulator in accumulators], axis=0)
+      sum_vectors = np.sum(
+          [accumulator[1] for accumulator in accumulators], axis=0)
+      count = np.sum([accumulator[2] for accumulator in accumulators], axis=0)
+      return [sum_product, sum_vectors, count]
+    else:
+      return None
 
   def extract_output(self, accumulator):
     """Run covariance logic on sum_product, sum of input vectors, and count.

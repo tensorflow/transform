@@ -361,8 +361,9 @@ def compute_and_apply_vocabulary(x,
 
   Returns:
     A `Tensor` or `SparseTensor` where each string value is mapped to an
-    integer; each unique string value is mapped to a different integer and
-    integers are consecutive and start from default_value.
+    integer. Each unique string value that appears in the vocabulary
+    is mapped to a different integer and integers are consecutive starting from
+    zero. String value not in the vocabulary is assigned default_value.
 
   Raises:
     ValueError: If `top_k` or `frequency_threshold` is negative.
@@ -432,8 +433,10 @@ def apply_vocabulary(x,
 
   Returns:
     A `Tensor` or `SparseTensor` where each string value is mapped to an
-    integer; each unique string value is mapped to a different integer and
-    integers are consecutive and start from default_value.
+    integer. Each unique string value that appears in the vocabulary
+    is mapped to a different integer and integers are consecutive
+    starting from zero, and string value not in the vocabulary is
+    assigned default_value.
   """
 
   def _apply_vocabulary(y, deferred_vocab_filename_tensor):

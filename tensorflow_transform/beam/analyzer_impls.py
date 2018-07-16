@@ -59,13 +59,30 @@ class _AnalyzerImpl(beam.PTransform):
       raise NotImplementedError(self._spec.__class__)
 
 
-def _flatten_value_to_list(batch_values):
-  """Converts an N-D dense or sparse batch to a 1-D list."""
-  # Ravel for flattening and tolist so that we go to native Python types
-  # for more efficient followup processing.
-  #
-  batch_value, = batch_values
-  return batch_value.ravel().tolist()
+class _OrderElementsFn(beam.DoFn):
+  """Sort the vocabulary by descending frequency count."""
+
+  def __init__(self, store_frequency):
+    self._store_frequency = store_frequency
+
+    # Metrics.
+    self._vocab_size_distribution = beam.metrics.Metrics.distribution(
+        common.METRICS_NAMESPACE, 'vocabulary_size')
+
+  def process(self, element, counts_iter):
+    del element
+    counts = list(counts_iter)
+    self._vocab_size_distribution.update(len(counts))
+
+    if not counts:
+      counts = [(1, '49d0cd50-04bb-48c0-bc6f-5b575dce351a')]
+
+    counts.sort(reverse=True)  # Largest first.
+    for count, entry in counts:
+      if self._store_frequency:
+        yield '{} {}'.format(count, entry)
+      else:
+        yield entry
 
 
 @with_input_types(List[np.ndarray])
@@ -88,13 +105,21 @@ class _VocabularyAnalyzerImpl(beam.PTransform):
     # pairs in sorted order by decreasing counts (and by values for equal
     # counts).
 
+    def flatten_value_to_list(batch_values):
+      """Converts an N-D dense or sparse batch to a 1-D list."""
+      # Ravel for flattening and tolist so that we go to native Python types
+      # for more efficient followup processing.
+      #
+      batch_value, = batch_values
+      return batch_value.ravel().tolist()
+
     def is_problematic_string(kv):
       string, _ = kv  # Ignore counts.
       return string and '\n' not in string and '\r' not in string
 
     counts = (
         pcoll
-        | 'FlattenStrings' >> beam.FlatMap(_flatten_value_to_list)
+        | 'FlattenStrings' >> beam.FlatMap(flatten_value_to_list)
         | 'CountPerString' >> beam.combiners.Count.PerElement()
         | 'FilterProblematicStrings' >> beam.Filter(is_problematic_string)
         | 'SwapStringsAndCounts' >> beam.KvSwap())
@@ -105,51 +130,38 @@ class _VocabularyAnalyzerImpl(beam.PTransform):
       counts |= ('FilterByFrequencyThreshold(%s)' % frequency_threshold >>
                  beam.Filter(lambda kv: kv[0] >= frequency_threshold))
 
-    if top_k is not None:
+    if top_k is None:
+      # Performance optimization to obviate reading from finely sharded files
+      # via AsIter in order_elements below. By breaking fusion, we allow sharded
+      # files' sizes to be automatically computed (when possible), so we end up
+      # reading from fewer and larger files. This is not needed when top_k is
+      # provided since that already induces a single-sharded output (due to the
+      # CombineGlobaly).
+      counts |= 'Reshard' >> beam.transforms.Reshuffle()  # pylint: disable=no-value-for-parameter
+    else:
       counts = (counts
                 | 'Top(%s)' % top_k
-                >> beam.transforms.combiners.Top.Largest(top_k)
+                # Using without_defaults() below since it obviates unnecessary
+                # materializations. This is worth doing because:
+                # a) Some vocabs could be really large and allthough they do
+                #    fit in memory they might go over per-record
+                #    materialization limits (TopCombineFn is producing
+                #    single-record with the entire vocabulary as a list).
+                # b) More fusion leads to increased performance in general.
+                >> beam.CombineGlobally(
+                    beam.combiners.TopCombineFn(top_k)).without_defaults()
                 | 'FlattenList' >> beam.FlatMap(lambda lst: lst))
-
-    # Performance optimization to obviate reading from finely sharded files
-    # via AsIter. By breaking fusion, we allow sharded files' sizes to be
-    # automatically computed (when possible), so we end up reading from fewer
-    # and larger files.
-    counts |= 'Reshard' >> beam.transforms.Reshuffle()  # pylint: disable=no-value-for-parameter
-
-    # Using AsIter instead of AsList at the callsite below in order to reduce
-    # max memory usage (due to AsList caching).
-    def order_elements(ignored, counts_iter, store_frequency):
-      """Sort the vocabulary by descending frequency count."""
-      del ignored
-      counts = list(counts_iter)
-      if not counts:
-        counts = [(1, '49d0cd50-04bb-48c0-bc6f-5b575dce351a')]
-      counts.sort(reverse=True)  # Largest first.
-
-      # Log vocabulary size to metrics.  Note we can call
-      # beam.metrics.Metrics.distribution here because this function only gets
-      # called once, so there is no need to amortize the cost of calling the
-      # constructor by putting in a DoFn initializer.
-      vocab_size_distribution = beam.metrics.Metrics.distribution(
-          common.METRICS_NAMESPACE, 'vocabulary_size')
-      vocab_size_distribution.update(len(counts))
-
-      if store_frequency:
-        # Returns ['count1 element1', ... ]
-        return ['{} {}'.format(count, element) for count, element in counts]
-      else:
-        return [element for _, element in counts]
 
     vocabulary_file = os.path.join(self._temp_assets_dir,
                                    self._spec.vocab_filename)
     vocab_is_written = (
         pcoll.pipeline
         | 'Prepare' >> beam.Create([None])
-        | 'OrderElements' >> beam.FlatMap(
-            order_elements,
-            counts_iter=beam.pvalue.AsIter(counts),
-            store_frequency=self._spec.store_frequency)
+        | 'OrderElements' >> beam.ParDo(
+            _OrderElementsFn(self._spec.store_frequency),
+            # Using AsIter instead of AsList at the callsite below in order to
+            # reduce max memory usage.
+            counts_iter=beam.pvalue.AsIter(counts))
         | 'WriteToFile' >> beam.io.WriteToText(vocabulary_file,
                                                shard_name_template=''))
     # Return the vocabulary path.
