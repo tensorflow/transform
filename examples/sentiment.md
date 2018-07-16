@@ -5,7 +5,7 @@
 [`sentiment_example.py`](./sentiment_example.py)
 uses the [Large Movie Review Dataset](http://ai.stanford.edu/~amaas/data/sentiment/)
 and contains 50,000 movie reviews equally split into train and test sets. To run
-this example, download and unzip the data should to a directory. Pass this
+this example, download and unzip the data set to a directory. Pass this
 directory as an argument to `sentiment_example.py`. The script creates a
 temporary sub-directory to add the preprocessed data.
 
