@@ -1,0 +1,16 @@
+*.egg-info
+.eggs/
+*.egg/
+dist/
+build/
+.idea/
+*.pyc
+.tox/
+py27/
+target/
+*coverage*
+*.swp
+AUTHORS
+ChangeLog
+.DS_Store
+.mypy_cache
