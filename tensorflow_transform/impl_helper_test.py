@@ -41,30 +41,6 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
   def toSchema(self, feature_spec):
     return sch.from_feature_spec(feature_spec)
 
-  def testInferFeatureSchema(self):
-    tensors = {
-        'a': tf.placeholder(tf.float32, (None,)),
-        'b': tf.placeholder(tf.string, (1, 2, 3)),
-        'c': tf.placeholder(tf.int64, None)
-    }
-    schema = impl_helper.infer_feature_schema(tensors)
-    expected_schema = sch.Schema(column_schemas={
-        'a': sch.ColumnSchema(tf.float32, [],
-                              sch.FixedColumnRepresentation()),
-        'b': sch.ColumnSchema(tf.string, [2, 3],
-                              sch.FixedColumnRepresentation()),
-        'c': sch.ColumnSchema(tf.int64, None,
-                              sch.FixedColumnRepresentation())
-    })
-    self.assertEqual(schema, expected_schema)
-
-  def testInferFeatureSchemaBadRank(self):
-    tensors = {
-        'a': tf.placeholder(tf.float32, ()),
-    }
-    with self.assertRaises(ValueError):
-      impl_helper.infer_feature_schema(tensors)
-
   def testMakeFeedDict(self):
     tensors = {
         'a': tf.placeholder(tf.int64),

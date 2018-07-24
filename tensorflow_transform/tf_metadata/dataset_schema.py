@@ -19,12 +19,25 @@ from __future__ import print_function
 
 import abc
 import collections
+import contextlib
 import six
 
 import tensorflow as tf
 
 
 _TF_EXAMPLE_ALLOWED_TYPES = [tf.string, tf.int64, tf.float32, tf.bool]
+
+
+@contextlib.contextmanager
+def _enter_column_context(name):
+  try:
+    yield
+  except Exception as err:
+    # Compatible with py3.
+    err.args = (
+        'Encountered an error while handling column "{}": '.format(name),) + (
+            err.args or ('',))
+    raise
 
 
 class Schema(object):
@@ -81,8 +94,11 @@ class Schema(object):
     Returns:
       A representation of this Schema as a feature spec.
     """
-    return {key: column_schema.as_feature_spec()
-            for key, column_schema in six.iteritems(self.column_schemas)}
+    result = {}
+    for key, column_schema in six.iteritems(self.column_schemas):
+      with _enter_column_context(key):
+        result[key] = column_schema.as_feature_spec()
+    return result
 
   def as_batched_placeholders(self):
     """Returns a representation of this Schema as placeholder Tensors.
@@ -90,8 +106,11 @@ class Schema(object):
     Returns:
       A representation of this Schema as placeholder Tensors.
     """
-    return {key: column_schema.as_batched_placeholder(name=key)
-            for key, column_schema in six.iteritems(self.column_schemas)}
+    result = {}
+    for key, column_schema in six.iteritems(self.column_schemas):
+      with _enter_column_context(key):
+        result[key] = column_schema.as_batched_placeholder(name=key)
+    return result
 
 
 class ColumnSchema(object):

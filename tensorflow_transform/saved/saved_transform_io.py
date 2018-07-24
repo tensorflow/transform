@@ -28,6 +28,50 @@ from tensorflow_transform.saved import saved_model_loader
 from tensorflow.python.framework import ops
 from tensorflow.python.training import saver as tf_saver
 
+_MANGLED_TENSOR_NAME_RE = re.compile(
+    r'(.*)\$(indices|values|dense_shape|dense_tensor)$')
+
+
+def _update_legacy_signature(signature):
+  """Update a legacy name-mangled signature in-place.
+
+  Note this code will not work if there are clashes between the old and new
+  names, e.g. if x$dense_tensor$dense_tensor and x$dense_tensor are both
+  features, but this is an edge case that we do not expect to ever happen.
+
+  Args:
+    signature: A SignatureDef.
+  """
+  for tensor_info_map in [signature.inputs, signature.outputs]:
+    for original_name, original_tensor_info in tensor_info_map.items():
+      match = _MANGLED_TENSOR_NAME_RE.match(original_name)
+      if not match:
+        continue
+      tf.logging.warn(
+          'Converting feature %s from legacy signature.  New models will '
+          'be written without name-mangling in the signature', original_name)
+      name = match.group(1)
+      if name == 'dense_shape':
+        assert name not in tensor_info_map
+      else:
+        assert (name not in tensor_info_map or
+                tensor_info_map[name].WhichOneof('encoding') == 'coo_sparse')
+      new_tensor_info = tensor_info_map[name]
+      original_tensor_type = match.group(2)
+      if original_tensor_type == 'indices':
+        new_tensor_info.coo_sparse.indices_tensor_name = (
+            original_tensor_info.name)
+      elif original_tensor_type == 'values':
+        new_tensor_info.dtype = original_tensor_info.dtype
+        new_tensor_info.coo_sparse.values_tensor_name = (
+            original_tensor_info.name)
+      elif original_tensor_type == 'dense_shape':
+        new_tensor_info.coo_sparse.dense_shape_tensor_name = (
+            original_tensor_info.name)
+      else:
+        new_tensor_info.CopyFrom(tensor_info_map[original_name])
+      del tensor_info_map[original_name]
+
 
 def _load_transform_saved_model(transform_savedmodel_dir):
   """Load a SavedModel representing a transform function from disk.
@@ -46,6 +90,10 @@ def _load_transform_saved_model(transform_savedmodel_dir):
       saved_model, [constants.TRANSFORM_TAG])
 
   signature = meta_graph_def.signature_def[constants.TRANSFORM_SIGNATURE]
+  # The following code handles models produced prior to CL/200123875.  These
+  # models used a non-standard naming convention for features in order to
+  # support SparseTensor.
+  _update_legacy_signature(signature)
 
   # maps name to TensorInfo
   input_signature = signature.inputs
@@ -108,11 +156,6 @@ def _partially_apply_saved_transform_impl(
 
   meta_graph_def, input_signature, output_signature, asset_path_dict = (
       _load_transform_saved_model(saved_model_dir))
-  if any(name.endswith('$dense_tensor') or name.endswith('$values')
-         for name in input_signature.keys()):
-    return legacy_saved_transform_io._partially_apply_saved_transform_impl(  # pylint: disable=protected-access
-        saved_model_dir, logical_input_map, tensor_replacement_map,
-        fetch_tensor_names)
   asset_tensor_dict = {k: ops.convert_to_tensor(v)
                        for k, v in asset_path_dict.items()}
 

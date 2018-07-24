@@ -89,6 +89,7 @@ import tensorflow as tf
 from tensorflow_transform import analyzers as tft_analyzers
 from tensorflow_transform import api as tft_api
 from tensorflow_transform import impl_helper
+from tensorflow_transform import schema_inference
 from tensorflow_transform.beam import analyzer_impls
 from tensorflow_transform.beam import common
 from tensorflow_transform.beam import shared
@@ -627,60 +628,18 @@ class _RunPhase(beam.PTransform):
     return result
 
 
-def _augment_metadata(saved_model_dir, metadata):
-  """Augments the metadata with min/max values stored in the SavedModel.
-
-  Takes the min/max values of tensors stored in the SavedModel, and uses these
-  to augment the metadata.  For each feature in the metadata, the min/max of
-  the corresponding `Tensor` are used to augment the schema.  For a feature
-  represented by a `SparseTensor` we use the min/max for the `values` field of
-  the `SparseTensor`.
-
-  Args:
-    saved_model_dir: Location of a SavedModel
-    metadata: A `DatasetMetadata`
-
-  Returns:
-    An augmented DatasetMetadata.  The original DatasetMetadata is unchanged.
-  """
+def _infer_metadata_from_saved_model(saved_model_dir):
+  """Infers a DatasetMetadata for outputs of a SavedModel."""
   with tf.Graph().as_default() as graph:
     with tf.Session(graph=graph) as session:
-      _, output_tensor_by_name = (
+      _, outputs = (
           saved_transform_io.partially_apply_saved_transform_internal(
               saved_model_dir, {}))
 
-      # Get overrides for the min/max of tensors from the graph, and use these
-      # determine overrides for the min/max of the outputs of the graph.
-      tensor_schema_overrides = tft_api.get_tensor_schema_overrides()
-      column_schema_overrides = {}
-      for name, tensor in six.iteritems(output_tensor_by_name):
-        if isinstance(tensor, tf.SparseTensor):
-          tensor = tensor.values
-        if tensor in tensor_schema_overrides:
-          column_schema_overrides[name] = tensor_schema_overrides[tensor]
-
       session.run(tf.global_variables_initializer())
       session.run(tf.tables_initializer())
-      column_schema_override_values = session.run(column_schema_overrides)
-
-  new_column_schemas = {}
-  for key, column_schema in six.iteritems(metadata.schema.column_schemas):
-    if key in column_schema_override_values:
-      min_value, max_value = column_schema_override_values[key]
-      assert column_schema.domain.dtype == tf.int64
-      assert isinstance(column_schema.domain, dataset_schema.IntDomain)
-      # Create a new column schema.  An override always results in a
-      # categorical column.
-      new_column_schemas[key] = dataset_schema.ColumnSchema(
-          dataset_schema.IntDomain(tf.int64, min_value, max_value,
-                                   is_categorical=True),
-          column_schema.axes,
-          column_schema.representation)
-    else:
-      new_column_schemas[key] = column_schema
-
-  return dataset_metadata.DatasetMetadata(dataset_schema.Schema(
-      new_column_schemas))
+      return dataset_metadata.DatasetMetadata(
+          schema=schema_inference.infer_feature_schema(outputs, graph, session))
 
 
 class AnalyzeDataset(beam.PTransform):
@@ -725,8 +684,7 @@ class AnalyzeDataset(beam.PTransform):
 
     base_temp_dir = Context.create_base_temp_dir()
 
-    graph = tf.Graph()
-    with graph.as_default():
+    with tf.Graph().as_default() as graph:
 
       with tf.name_scope('inputs'):
         inputs = input_schema.as_batched_placeholders()
@@ -810,11 +768,12 @@ class AnalyzeDataset(beam.PTransform):
       # outputs stored in `transform_fn` to compute the metadata in a
       # deferred manner, once the analyzer outputs are known.
       metadata = dataset_metadata.DatasetMetadata(
-          schema=impl_helper.infer_feature_schema(outputs))
+          schema=schema_inference.infer_feature_schema(outputs, graph))
 
       deferred_metadata = (
           transform_fn
-          | 'ComputeDeferredMetadata' >> beam.Map(_augment_metadata, metadata))
+          | 'ComputeDeferredMetadata' >> beam.Map(
+              _infer_metadata_from_saved_model))
 
       full_metadata = beam_metadata_io.BeamDatasetMetadata(
           metadata, deferred_metadata)

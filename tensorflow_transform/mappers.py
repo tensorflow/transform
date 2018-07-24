@@ -21,6 +21,7 @@ from __future__ import print_function
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import api
+from tensorflow_transform import schema_inference
 
 from tensorflow.contrib import lookup
 from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
@@ -95,15 +96,15 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
   (0 delta degrees of freedom), as computed by analyzers.var.
 
   Args:
-    x: A numeric `Tensor`.
+    x: A numeric `Tensor` or `SparseTensor`.
     elementwise: If true, scales each element of the tensor independently;
         otherwise uses the mean and variance of the whole tensor.
     name: (Optional) A name for this operation.
     output_dtype: (Optional) If not None, casts the output tensor to this type.
 
   Returns:
-    A `Tensor` containing the input column scaled to mean 0 and variance 1
-    (standard deviation 1), given by: (x - mean(x)) / std_dev(x).
+    A `Tensor` or `SparseTensor` containing the input column scaled to mean 0
+    and variance 1 (standard deviation 1), given by: (x - mean(x)) / std_dev(x).
     If `x` is floating point, the mean will have the same type as `x`. If `x` is
     integral, the output is cast to tf.float32.
 
@@ -114,7 +115,24 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
     # x_mean will be float16, float32, or float64, depending on type of x.
     x_mean, x_var = analyzers._mean_and_var(  # pylint: disable=protected-access
         x, reduce_instance_dims=not elementwise, output_dtype=output_dtype)
-    return (tf.cast(x, x_mean.dtype) - x_mean) / tf.sqrt(x_var)
+    compose_result_fn = lambda values: values
+    x_values = x
+
+    if isinstance(x, tf.SparseTensor):
+
+      x_values = x.values
+      compose_result_fn = (lambda values: tf.SparseTensor(  # pylint: disable=g-long-lambda
+          indices=x.indices, values=values, dense_shape=x.dense_shape))
+      if elementwise:
+        # Only supports SparseTensors with rank 2.
+        x.get_shape().assert_has_rank(2)
+
+        x_mean = tf.gather(x_mean, x.indices[:, 1])
+        x_var = tf.gather(x_var, x.indices[:, 1])
+
+    deviation_values = (
+        (tf.cast(x_values, x_mean.dtype) - x_mean) / tf.sqrt(x_var))
+    return compose_result_fn(deviation_values)
 
 
 def tfidf(x, vocab_size, smooth=True, name=None):
@@ -464,7 +482,7 @@ def apply_vocabulary(x,
     if num_oov_buckets <= 0:
       min_value = tf.minimum(min_value, default_value)
       max_value = tf.maximum(max_value, default_value)
-    api.set_tensor_schema_overrides(
+    schema_inference.set_tensor_schema_override(
         result.values if isinstance(result, tf.SparseTensor) else result,
         min_value, max_value)
 
@@ -752,6 +770,6 @@ def apply_buckets(x, bucket_boundaries, name=None):
     # output feature will have this metadata set.
     min_value = tf.constant(0, tf.int64)
     max_value = tf.shape(bucket_boundaries)[1]
-    api.set_tensor_schema_overrides(result, min_value, max_value)
+    schema_inference.set_tensor_schema_override(result, min_value, max_value)
 
     return result

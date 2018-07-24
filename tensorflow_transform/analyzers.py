@@ -364,57 +364,94 @@ def _numeric_combine(inputs,
 def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
   """Computes the minimum of the values of a `Tensor` over the whole dataset.
 
+  In the case of a `SparseTensor` missing values will be used in return value:
+  for float, NaN is used and for other dtypes the max is used.
+
   Args:
-    x: A `Tensor`.
+    x: A `Tensor` or `SparseTensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a `Tensor` of the same shape as the input.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor`. Has the same type as `x`.
+    A `Tensor` with the same type as `x` unless it is an uint16 will be cast to
+    int32.
+
+  Raises:
+    TypeError: If the type of `x` is not supported.
   """
-  return _numeric_combine([x], np.min, reduce_instance_dims, name)[0]
+  output_dtype = x.dtype
+  if x.dtype == tf.uint16:
+    output_dtype = tf.int32
+
+  if x.dtype == tf.uint8 or x.dtype == tf.uint16:
+    x = tf.cast(x, tf.int32)
+
+  elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
+    raise TypeError('Tensor type %r is not supported' % x.dtype)
+
+  if isinstance(x, tf.SparseTensor):
+    x = tf.SparseTensor(
+        indices=x.indices, values=0 - x.values, dense_shape=x.dense_shape)
+  else:
+    x = 0 - x
+
+  return tf.cast(0 - max(x, reduce_instance_dims, name), output_dtype)
 
 
 def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
   """Computes the maximum of the values of a `Tensor` over the whole dataset.
 
+  In the case of a `SparseTensor` missing values will be used in return value:
+  for float, NaN is used and for other dtypes the min is used.
+
   Args:
-    x: A `Tensor`.
+    x: A `Tensor` or `SparseTensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor`. Has the same type as `x`.
+    A `Tensor`. Has the same type as `x` unless it is an uint16 will be cast to
+    int32.
+
+  Raises:
+    TypeError: If the type of `x` is not supported.
   """
+  if x.dtype == tf.uint8 or x.dtype == tf.uint16:
+    x = tf.cast(x, tf.int32)
+
+  elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
+    raise TypeError('Tensor type %r is not supported' % x.dtype)
+
   combine_fn = np.max
-  if isinstance(x, tf.SparseTensor):
-    if reduce_instance_dims:
-      x = x.values
+
+  if isinstance(x, tf.SparseTensor) and reduce_instance_dims:
+    x = x.values
+
+  elif isinstance(x, tf.SparseTensor):
+    sparse_ones = tf.SparseTensor(
+        indices=x.indices,
+        values=tf.ones_like(x.values),
+        dense_shape=x.dense_shape)
+    ones_values = tf.sparse_reduce_sum(sparse_ones, axis=0, keep_dims=True)
+
+    # sparse_reduce_max returns 0 when all elements are missing along axis 0.
+    # We replace the 0 with nan when float and dtype.min when int.
+    batch_has_no_values = tf.equal(ones_values, tf.cast(0, x.dtype))
+
+    x = tf.sparse_reduce_max(x, axis=0, keep_dims=True)
+
+    if x.dtype == tf.float32 or x.dtype == tf.float64:
+      missing_value = tf.constant(np.nan, x.dtype)
+      combine_fn = np.nanmax
     else:
-      sparse_ones = tf.SparseTensor(
-          indices=x.indices,
-          values=tf.ones_like(x.values),
-          dense_shape=x.dense_shape)
-      ones_values = tf.sparse_reduce_sum(sparse_ones, axis=0, keep_dims=True)
-      # sparse_reduce_max returns 0 when all
-      # elements are missing along axis 0.
-      # Replace the 0 with nan when float
-      # and dtype.min when int.
-      batch_has_no_values = tf.equal(ones_values, tf.cast(0, x.dtype))
-      x = tf.sparse_reduce_max(x, axis=0, keep_dims=True)
-      if x.dtype == tf.float32:
-        missing_value = np.nan
-        combine_fn = np.nanmax
-      elif x.dtype == tf.float64:
-        missing_value = np.float64(np.nan)
-        combine_fn = np.nanmax
-      else:
-        missing_value = x.dtype.min
-      x = tf.where(batch_has_no_values, tf.fill(tf.shape(x), missing_value), x)
+      missing_value = tf.constant(x.dtype.min + 1, x.dtype)
+
+    x = tf.where(batch_has_no_values, tf.fill(tf.shape(x), missing_value), x)
+
   return _numeric_combine([x], combine_fn, reduce_instance_dims, name)[0]
 
 
@@ -465,7 +502,7 @@ def size(x, reduce_instance_dims=True, name=None):
   """Computes the total size of instances in a `Tensor` over the whole dataset.
 
   Args:
-    x: A `Tensor`.
+    x: A `Tensor` or `SparseTensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
@@ -476,7 +513,20 @@ def size(x, reduce_instance_dims=True, name=None):
   """
   with tf.name_scope(name, 'size'):
     # Note: Calling `sum` defined in this module, not the builtin.
-    return sum(tf.ones_like(x, dtype=tf.int64), reduce_instance_dims)
+    if isinstance(x, tf.SparseTensor):
+      sparse_ones = tf.SparseTensor(
+          indices=x.indices,
+          values=tf.ones_like(x.values, tf.int64),
+          dense_shape=x.dense_shape)
+      if reduce_instance_dims:
+        ones_like_x = tf.sparse_reduce_sum(sparse_ones)
+        ones_like_x = tf.expand_dims(
+            ones_like_x, axis=0)  # Put back batch dimension.
+      else:
+        ones_like_x = tf.sparse_reduce_sum(sparse_ones, axis=0, keep_dims=True)
+    else:
+      ones_like_x = tf.ones_like(x, dtype=tf.int64)
+    return sum(ones_like_x, reduce_instance_dims)
 
 
 def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):

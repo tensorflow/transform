@@ -49,6 +49,7 @@ Beam implementation.
 """
 
 import tensorflow as tf
+
 from tensorflow_transform import analyzers
 
 FUNCTION_APPLICATION_COLLECTION = 'tft_function_applications'
@@ -164,34 +165,3 @@ def apply_function(fn, *args):
     The results of applying fn.
   """
   return FunctionApplication(fn, args).user_output
-
-
-# Names of collections, which should all be the same length and contain tensors.
-# Each tensor in the first collection should have its min/max described by the
-# tensors in the other two collections.
-_TF_METADATA_TENSOR_COLLECTION = 'tft_schema_override_tensor'
-_TF_METADATA_TENSOR_MIN_COLLECTION = 'tft_schema_override_min'
-_TF_METADATA_TENSOR_MAX_COLLECTION = 'tft_schema_override_max'
-
-
-def set_tensor_schema_overrides(tensor, min_value, max_value):
-  """Override parts of the schema of a `Tensor`."""
-  if not isinstance(tensor, tf.Tensor):
-    raise ValueError('tensor {} was not a Tensor'.format(tensor))
-  if not isinstance(min_value, tf.Tensor):
-    raise ValueError('min_vaue {} was not a Tensor'.format(min_value))
-  if not isinstance(max_value, tf.Tensor):
-    raise ValueError('max_vaue {} was not a Tensor'.format(min_value))
-  tf.add_to_collection(_TF_METADATA_TENSOR_COLLECTION, tensor)
-  tf.add_to_collection(_TF_METADATA_TENSOR_MIN_COLLECTION, min_value)
-  tf.add_to_collection(_TF_METADATA_TENSOR_MAX_COLLECTION, max_value)
-
-
-def get_tensor_schema_overrides():
-  """Gets a dict from `Tensor`s to pairs of `Tensor`s containing min/max."""
-  tensors = tf.get_collection(_TF_METADATA_TENSOR_COLLECTION)
-  min_values = tf.get_collection(_TF_METADATA_TENSOR_MIN_COLLECTION)
-  max_values = tf.get_collection(_TF_METADATA_TENSOR_MAX_COLLECTION)
-  assert len(tensors) == len(min_values), '{} != {}'.format(tensors, min_values)
-  assert len(tensors) == len(max_values), '{} != {}'.format(tensors, max_values)
-  return dict(zip(tensors, zip(min_values, max_values)))

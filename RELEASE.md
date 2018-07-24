@@ -9,6 +9,9 @@
 * Memory reduction during vocabulary generation.
 * Clarify documentation on return values from `tft.compute_and_apply_vocabulary`
   and `tft.string_to_int`.
+* tft.unit now explicitly creates Beam PCollections and validates the
+  transformed dataset by writing and then reading it from disk.
+* `tft.min`, `tft.size`, and `tft.scale_to_z_score` now support `tf.SparseTensor`.
 
 ## Breaking changes
 
