@@ -73,6 +73,7 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
             graph.get_tensor_by_name('transform/truediv:0'),
             result_tensor)
 
+
   def test_apply_transform_extra_features_no_passthrough(self):
     with self.assertRaises(ValueError):
       with tf.Graph().as_default():

@@ -5,7 +5,7 @@
 [`sentiment_example.py`](./sentiment_example.py)
 uses the [Large Movie Review Dataset](http://ai.stanford.edu/~amaas/data/sentiment/)
 and contains 50,000 movie reviews equally split into train and test sets. To run
-this example, download and unzip the data should to a directory. Pass this
+this example, download and unzip the data set to a directory. Pass this
 directory as an argument to `sentiment_example.py`. The script creates a
 temporary sub-directory to add the preprocessed data.
 
@@ -30,7 +30,7 @@ example, the data in this example uses a single feature for the full text of a
 movie review. This is split into sentences using the `tf.string_split`
 function. The `tf.string_split` function takes a rank 1 tensor and converts it
 to a rank 2 `SparseTensor` that contains the individual tokens. Then, using
-`tft.string_to_int`, this `SparseTensor` is converted to a
+`tft.compute_and_apply_vocabulary`, this `SparseTensor` is converted to a
 `SparseTensor` of `int64`s with the same shape.
 
 During the training and evaluation phase, the `SparseTensor` that represents

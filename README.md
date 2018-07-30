@@ -13,9 +13,13 @@ of examples. `tf.Transform` extends these capabilities to support full-passes
 over the example data.
 
 The output of `tf.Transform` is exported as a
-[TensorFlow graph](http://tensorflow.org/programmers_guide/graphs) to use for training and serving.
+[TensorFlow graph](http://tensorflow.org/guide/graphs) to use for training and serving.
 Using the same graph for both training and serving can prevent skew since the
 same transformations are applied in both stages.
+
+For an introduction to `tf.Transform`, see the `tf.Transform` section of the
+TFX Dev Summit talk on TFX
+([link](https://www.youtube.com/watch?v=vdG7uKQ2eKk&feature=youtu.be&t=199)).
 
 Caution: `tf.Transform` may be backwards incompatible before version 1.0.
 
@@ -49,7 +53,8 @@ other *untested* combinations may also work.
 
 |tensorflow-transform                                                            |tensorflow    |apache-beam[gcp]|
 |--------------------------------------------------------------------------------|--------------|----------------|
-|[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) |nightly (1.x) |2.4.0           |
+|[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) |nightly (1.x) |2.5.0           |
+|[0.8.0](https://github.com/tensorflow/transform/blob/v0.8.0/RELEASE.md)         |1.8           |2.5.0           |
 |[0.6.0](https://github.com/tensorflow/transform/blob/v0.6.0/RELEASE.md)         |1.6           |2.4.0           |
 |[0.5.0](https://github.com/tensorflow/transform/blob/v0.5.0/RELEASE.md)         |1.5           |2.3.0           |
 |[0.4.0](https://github.com/tensorflow/transform/blob/v0.4.0/RELEASE.md)         |1.4           |2.2.0           |

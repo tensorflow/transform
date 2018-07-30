@@ -41,30 +41,6 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
   def toSchema(self, feature_spec):
     return sch.from_feature_spec(feature_spec)
 
-  def testInferFeatureSchema(self):
-    tensors = {
-        'a': tf.placeholder(tf.float32, (None,)),
-        'b': tf.placeholder(tf.string, (1, 2, 3)),
-        'c': tf.placeholder(tf.int64, None)
-    }
-    schema = impl_helper.infer_feature_schema(tensors)
-    expected_schema = sch.Schema(column_schemas={
-        'a': sch.ColumnSchema(tf.float32, [],
-                              sch.FixedColumnRepresentation()),
-        'b': sch.ColumnSchema(tf.string, [2, 3],
-                              sch.FixedColumnRepresentation()),
-        'c': sch.ColumnSchema(tf.int64, None,
-                              sch.FixedColumnRepresentation())
-    })
-    self.assertEqual(schema, expected_schema)
-
-  def testInferFeatureSchemaBadRank(self):
-    tensors = {
-        'a': tf.placeholder(tf.float32, ()),
-    }
-    with self.assertRaises(ValueError):
-      impl_helper.infer_feature_schema(tensors)
-
   def testMakeFeedDict(self):
     tensors = {
         'a': tf.placeholder(tf.int64),
@@ -355,7 +331,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     # has run.  Note converting an integerized string into a float doesn't make
     # much sense, but is a legal tensorflow computation.
     string_placeholder = tf.placeholder(tf.string, shape=(None,))
-    integerized = mappers.string_to_int(string_placeholder)
+    integerized = mappers.compute_and_apply_vocabulary(string_placeholder)
     integerized = tf.to_float(integerized)
     integerized / analyzers.max(integerized)  # pylint: disable=expression-not-assigned
 

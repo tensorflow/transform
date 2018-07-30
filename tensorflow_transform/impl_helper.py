@@ -35,25 +35,6 @@ _EMPTY_ARRAY = np.array([])
 _EMPTY_ARRAY.setflags(write=False)
 
 
-def infer_feature_schema(tensors):
-  """Given a dict of tensors, creates a `Schema`.
-
-  Infers a schema, in the format of a tf.Transform `Schema`, for the given
-  dictionary of tensors.
-
-  Args:
-    tensors: A dict mapping column names to tensors. The tensors should have a
-      0'th dimension interpreted as the batch dimension.
-
-  Returns:
-    A `Schema` object.
-  """
-  return dataset_schema.Schema({
-      name: dataset_schema.infer_column_schema_from_tensor(tensor)
-      for name, tensor in six.iteritems(tensors)
-  })
-
-
 def make_feed_dict(input_tensors, schema, instances):
   """Creates a feed dict for passing data to the graph.
 

@@ -78,6 +78,7 @@ class TransformTestCase(parameterized.TestCase, test_util.TensorFlowTestCase):
     Raises:
       AssertionError: if the two datasets are not the same.
     """
+    a_data, b_data = _sorted_data(a_data), _sorted_data(b_data)
     self.assertEqual(
         len(a_data), len(b_data), 'len(%r) != len(%r)' % (a_data, b_data))
     for i, (a_row, b_row) in enumerate(zip(a_data, b_data)):
@@ -104,3 +105,15 @@ class TransformTestCase(parameterized.TestCase, test_util.TensorFlowTestCase):
       if msg:
         e.args = ((e.args[0] + ' : ' + msg,) + e.args[1:])
       raise
+
+
+def _numpy_arrays_to_lists(maybe_arrays):
+  return [x.tolist() if isinstance(x, np.ndarray) else x for x in maybe_arrays]
+
+
+def _sorted_data(list_of_dicts_of_arrays):
+  list_of_values = [
+      _numpy_arrays_to_lists(d.values()) for d in list_of_dicts_of_arrays
+  ]
+  list_of_keys = [d.keys() for d in list_of_dicts_of_arrays]
+  return sorted([dict(zip(a, b)) for a, b in zip(list_of_keys, list_of_values)])

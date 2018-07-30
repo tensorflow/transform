@@ -70,8 +70,9 @@ class TFTransformOutput(object):
     """Returns the vocabulary file path created in the preprocessing function.
 
     `vocab_filename` must be the name used as the vocab_filename argument to
-    tft.string_to_int or tft.uniques. By convention, this should be the name of
-    the feature that the vocab was computed for, where possible.
+    tft.compute_and_apply_vocabulary or tft.vocabulary. By convention, this
+    should be the name of the feature that the vocab was computed for, where
+    possible.
 
     Args:
       vocab_filename: The relative filename to lookup.

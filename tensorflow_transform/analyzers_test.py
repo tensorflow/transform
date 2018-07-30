@@ -99,7 +99,8 @@ _QUANTILES_SINGLE_BATCH_TESTS = [
     dict(
         testcase_name='ComputeQuantilesSingleBatch-{}'.format(np_type),
         combiner_spec=analyzers._QuantilesCombinerSpec(
-            num_quantiles=5, epsilon=0.00001, bucket_numpy_dtype=np.float32),
+            num_quantiles=5, epsilon=0.00001, bucket_numpy_dtype=np.float32,
+            always_return_num_quantiles=False),
         batches=[
             [np.linspace(1, 100, 100, dtype=np_type)],
             [np.linspace(101, 200, 100, dtype=np_type)],
@@ -113,11 +114,25 @@ _QUANTILES_MULTIPLE_BATCH_TESTS = [
     dict(
         testcase_name='ComputeQuantilesMultipleBatch-{}'.format(np_type),
         combiner_spec=analyzers._QuantilesCombinerSpec(
-            num_quantiles=3, epsilon=0.00001, bucket_numpy_dtype=np.float32),
+            num_quantiles=3, epsilon=0.00001, bucket_numpy_dtype=np.float32,
+            always_return_num_quantiles=False),
         batches=[
             [np.linspace(1, 100, 100, np_type)],
         ],
         expected_outputs=[np.array([35, 68], dtype=np.float32)],
+    ) for np_type in _NP_TYPES
+]
+
+_EXACT_NUM_QUANTILES_TESTS = [
+    dict(
+        testcase_name='ComputeExactNumQuantiles-{}'.format(np_type),
+        combiner_spec=analyzers._QuantilesCombinerSpec(
+            num_quantiles=4, epsilon=0.00001, bucket_numpy_dtype=np.float32,
+            always_return_num_quantiles=True),
+        batches=[
+            [np.array([1, 1])],
+        ],
+        expected_outputs=[np.array([1, 1, 1], dtype=np.float32)],
     ) for np_type in _NP_TYPES
 ]
 
@@ -130,8 +145,9 @@ class AnalyzersTest(test_case.TransformTestCase):
       _COVARIANCE_SIZE_ZERO_TENSORS_TEST,
       _COVARIANCE_WITH_DEGENERATE_COVARIANCE_MATRIX_TEST,
       _COVARIANCE_WITH_LARGE_NUMBERS_TEST,
-      _PCA_WITH_DEGENERATE_COVARIANCE_MATRIX_TEST,
-  ] + _QUANTILES_SINGLE_BATCH_TESTS + _QUANTILES_MULTIPLE_BATCH_TESTS)
+      _PCA_WITH_DEGENERATE_COVARIANCE_MATRIX_TEST
+  ] + _QUANTILES_SINGLE_BATCH_TESTS + _QUANTILES_MULTIPLE_BATCH_TESTS +
+                              _EXACT_NUM_QUANTILES_TESTS)
   def testCombinerSpec(self, combiner_spec, batches, expected_outputs):
     """Tests the provided combiner.
 
@@ -157,7 +173,6 @@ class AnalyzersTest(test_case.TransformTestCase):
 
     final_accumulator = combiner_spec.merge_accumulators(accumulators)
     outputs = combiner_spec.extract_output(final_accumulator)
-
     self.assertEqual(len(outputs), len(expected_outputs))
     for output, expected_output in zip(outputs, expected_outputs):
       self.assertEqual(output.dtype, expected_output.dtype)

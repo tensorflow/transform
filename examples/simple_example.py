@@ -36,7 +36,7 @@ def main():
     s = inputs['s']
     x_centered = x - tft.mean(x)
     y_normalized = tft.scale_to_0_1(y)
-    s_integerized = tft.string_to_int(s)
+    s_integerized = tft.compute_and_apply_vocabulary(s)
     x_centered_times_y_normalized = (x_centered * y_normalized)
     return {
         'x_centered': x_centered,

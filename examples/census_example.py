@@ -51,6 +51,7 @@ class MapAndFilterErrors(beam.PTransform):
   """Like beam.Map but filters out erros in the map_fn."""
 
   class _MapAndFilterErrorsDoFn(beam.DoFn):
+    """Count the bad examples using a beam metric."""
 
     def __init__(self, fn):
       self._fn = fn
@@ -140,7 +141,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
     # used in the trainer, by means of a feature column, to convert the feature
     # from a string to an integer id.
     for key in CATEGORICAL_FEATURE_KEYS:
-      tft.uniques(inputs[key], vocab_filename=key)
+      tft.vocabulary(inputs[key], vocab_filename=key)
 
     # For the label column we provide the mapping from string to index.
     def convert_label(label):
@@ -207,7 +208,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
           | 'FixCommasTestData' >> beam.Map(
               lambda line: line.replace(', ', ','))
           | 'RemoveTrailingPeriodsTestData' >> beam.Map(lambda line: line[:-1])
-          | 'DecodeTestData' >> beam.Map(converter.decode))
+          | 'DecodeTestData' >> MapAndFilterErrors(converter.decode))
 
       raw_test_dataset = (raw_test_data, RAW_DATA_METADATA)
 
@@ -299,6 +300,30 @@ def _make_serving_input_fn(tf_transform_output):
   return serving_input_fn
 
 
+def get_feature_columns(tf_transform_output):
+  """Returns the FeatureColumns for the model.
+
+  Args:
+    tf_transform_output: A `TFTransformOutput` object.
+
+  Returns:
+    A list of FeatureColumns.
+  """
+  # Wrap scalars as real valued columns.
+  real_valued_columns = [tf.feature_column.numeric_column(key, shape=())
+                         for key in NUMERIC_FEATURE_KEYS]
+
+  # Wrap categorical columns.
+  one_hot_columns = [
+      tf.feature_column.categorical_column_with_vocabulary_file(
+          key=key,
+          vocabulary_file=tf_transform_output.vocabulary_file_by_name(
+              vocab_filename=key))
+      for key in CATEGORICAL_FEATURE_KEYS]
+
+  return real_valued_columns + one_hot_columns
+
+
 def train_and_evaluate(working_dir, num_train_instances=NUM_TRAIN_INSTANCES,
                        num_test_instances=NUM_TEST_INSTANCES):
   """Train the model on training data and evaluate on test data.
@@ -314,22 +339,10 @@ def train_and_evaluate(working_dir, num_train_instances=NUM_TRAIN_INSTANCES,
   """
   tf_transform_output = tft.TFTransformOutput(working_dir)
 
-  # Wrap scalars as real valued columns.
-  real_valued_columns = [tf.feature_column.numeric_column(key, shape=())
-                         for key in NUMERIC_FEATURE_KEYS]
-
-  # Wrap categorical columns.
-  one_hot_columns = [
-      tf.feature_column.categorical_column_with_vocabulary_file(
-          key=key,
-          vocabulary_file=tf_transform_output.vocabulary_file_by_name(
-              vocab_filename=key))
-      for key in CATEGORICAL_FEATURE_KEYS]
-
   run_config = tf.estimator.RunConfig()
 
   estimator = tf.estimator.LinearClassifier(
-      feature_columns=real_valued_columns + one_hot_columns,
+      feature_columns=get_feature_columns(tf_transform_output),
       config=run_config)
 
   # Fit the model using the default optimizer.

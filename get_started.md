@@ -48,7 +48,7 @@ def preprocessing_fn(inputs):
   s = inputs['s']
   x_centered = x - tft.mean(x)
   y_normalized = tft.scale_to_0_1(y)
-  s_integerized = tft.string_to_int(s)
+  s_integerized = tft.compute_and_apply_vocabulary(s)
   x_centered_times_y_normalized = x_centered * y_normalized
   return {
       'x_centered': x_centered,
@@ -71,9 +71,9 @@ these to scale `y`.
 
 The tensor `s_integerized` shows an example of string manipulation. In this
 case, we take a string and map it to an integer. This uses the convenience
-function `tft.string_to_int`. This function uses an analyzer to compute the
-unique values taken by the input strings, and then uses TensorFlow operations to
-convert the input strings to indices in the table of unique values.
+function `tft.compute_and_apply_vocabulary`. This function uses an analyzer to
+compute the unique values taken by the input strings, and then uses TensorFlow
+operations to convert the input strings to indices in the table of unique values.
 
 The final column shows that it is possible to use TensorFlow operations to create
 new features by combining tensors.
@@ -301,10 +301,10 @@ def preprocessing_fn(inputs):
     outputs[key] = tft.scale_to_0_1(inputs[key])
 
   # For all categorical columns except the label column, we use
-  # tft.string_to_int which computes the set of unique values and uses this
-  # to convert the strings to indices.
+  # tft.compute_and_apply_vocabulary which computes the set of unique values and
+  # uses this to convert the strings to indices.
   for key in CATEGORICAL_COLUMNS:
-    outputs[key] = tft.string_to_int(inputs[key])
+    outputs[key] = tft.compute_and_apply_vocabulary(inputs[key])
 
   # For the label column we provide the mapping from string to index.
   def convert_label(label):

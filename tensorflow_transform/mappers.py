@@ -21,9 +21,11 @@ from __future__ import print_function
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import api
+from tensorflow_transform import schema_inference
 
 from tensorflow.contrib import lookup
 from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
+from tensorflow.python.util import deprecation
 
 
 def scale_by_min_max(x,
@@ -94,15 +96,15 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
   (0 delta degrees of freedom), as computed by analyzers.var.
 
   Args:
-    x: A numeric `Tensor`.
+    x: A numeric `Tensor` or `SparseTensor`.
     elementwise: If true, scales each element of the tensor independently;
         otherwise uses the mean and variance of the whole tensor.
     name: (Optional) A name for this operation.
     output_dtype: (Optional) If not None, casts the output tensor to this type.
 
   Returns:
-    A `Tensor` containing the input column scaled to mean 0 and variance 1
-    (standard deviation 1), given by: (x - mean(x)) / std_dev(x).
+    A `Tensor` or `SparseTensor` containing the input column scaled to mean 0
+    and variance 1 (standard deviation 1), given by: (x - mean(x)) / std_dev(x).
     If `x` is floating point, the mean will have the same type as `x`. If `x` is
     integral, the output is cast to tf.float32.
 
@@ -113,12 +115,30 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
     # x_mean will be float16, float32, or float64, depending on type of x.
     x_mean, x_var = analyzers._mean_and_var(  # pylint: disable=protected-access
         x, reduce_instance_dims=not elementwise, output_dtype=output_dtype)
-    numerator = tf.cast(x, x_mean.dtype) - x_mean
+    compose_result_fn = lambda values: values
+    x_values = x
+
+    if isinstance(x, tf.SparseTensor):
+
+      x_values = x.values
+      compose_result_fn = (lambda values: tf.SparseTensor(  # pylint: disable=g-long-lambda
+          indices=x.indices, values=values, dense_shape=x.dense_shape))
+      if elementwise:
+        # Only supports SparseTensors with rank 2.
+        x.get_shape().assert_has_rank(2)
+
+        x_mean = tf.gather(x_mean, x.indices[:, 1])
+        x_var = tf.gather(x_var, x.indices[:, 1])
+
+    numerator = tf.cast(x_values, x_mean.dtype) - x_mean
     denominator = tf.sqrt(x_var)
     cond = tf.not_equal(denominator, 0)
-    if elementwise:
-        cond = tf.tile(tf.expand_dims(cond, 0), [tf.shape(numerator)[0], 1])
-    return tf.where(cond, numerator / denominator, numerator)
+    if elementwise and isinstance(x, tf.Tensor):
+      cond = tf.tile(tf.expand_dims(cond, 0), [tf.shape(numerator)[0], 1])
+
+    deviation_values = tf.where(cond, tf.divide(numerator, denominator),
+                                numerator)
+    return compose_result_fn(deviation_values)
 
 
 def tfidf(x, vocab_size, smooth=True, name=None):
@@ -322,8 +342,13 @@ def _count_docs_with_term(term_frequency):
   return tf.expand_dims(out, 0)
 
 
-def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
-                  num_oov_buckets=0, vocab_filename=None, name=None):
+def compute_and_apply_vocabulary(x,
+                                 default_value=-1,
+                                 top_k=None,
+                                 frequency_threshold=None,
+                                 num_oov_buckets=0,
+                                 vocab_filename=None,
+                                 name=None):
   r"""Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
   In case one of the tokens contains the '\n' or '\r' characters or is empty it
@@ -349,34 +374,60 @@ def string_to_int(x, default_value=-1, top_k=None, frequency_threshold=None,
     num_oov_buckets:  Any lookup of an out-of-vocabulary token will return a
       bucket ID based on its hash if `num_oov_buckets` is greater than zero.
       Otherwise it is assigned the `default_value`.
-    vocab_filename: The file name for the vocabulary file. If none, the
-      "uniques" scope name in the context of this graph will be used as the file
-      name. If not None, should be unique within a given preprocessing function.
-      NOTE To make your pipelines resilient to implementation details please
-      set `vocab_filename` when you are using the vocab_filename on a downstream
-      component.
+    vocab_filename: The file name for the vocabulary file. If None, a name based
+      on the scope name in the context of this graph will be used as the
+      file name. If not None, should be unique within a given preprocessing
+      function.
+      NOTE in order to make your pipelines resilient to implementation details
+      please set `vocab_filename` when you are using the vocab_filename on a
+      downstream component.
     name: (Optional) A name for this operation.
 
   Returns:
     A `Tensor` or `SparseTensor` where each string value is mapped to an
-    integer; each unique string value is mapped to a different integer and
-    integers are consecutive and start from default_value.
+    integer. Each unique string value that appears in the vocabulary
+    is mapped to a different integer and integers are consecutive starting from
+    zero. String value not in the vocabulary is assigned default_value.
 
   Raises:
     ValueError: If `top_k` or `frequency_threshold` is negative.
   """
-  with tf.name_scope(name, 'string_to_int'):
-    deferred_vocab_and_filename = analyzers.uniques(
-        x,
+  with tf.name_scope(name, 'compute_and_apply_vocabulary'):
+    deferred_vocab_and_filename = analyzers.vocabulary(
+        x=x,
         top_k=top_k,
         frequency_threshold=frequency_threshold,
         vocab_filename=vocab_filename)
-    return apply_vocab(
+    return apply_vocabulary(
         x, deferred_vocab_and_filename, default_value, num_oov_buckets)
 
 
-def apply_vocab(x, deferred_vocab_filename_tensor, default_value=-1,
-                num_oov_buckets=0, lookup_fn=None, name=None):
+@deprecation.deprecated(None,
+                        'Use `tft.compute_and_apply_vocabulary()` instead.')
+def string_to_int(x,
+                  default_value=-1,
+                  top_k=None,
+                  frequency_threshold=None,
+                  num_oov_buckets=0,
+                  vocab_filename=None,
+                  name=None):
+  r"""See `tft.compute_and_apply_vocabulary`."""
+  return compute_and_apply_vocabulary(
+      x=x,
+      default_value=default_value,
+      top_k=top_k,
+      frequency_threshold=frequency_threshold,
+      num_oov_buckets=num_oov_buckets,
+      vocab_filename=vocab_filename,
+      name=name)
+
+
+def apply_vocabulary(x,
+                     deferred_vocab_filename_tensor,
+                     default_value=-1,
+                     num_oov_buckets=0,
+                     lookup_fn=None,
+                     name=None):
   r"""Maps `x` to a vocabulary specified by the deferred tensor.
 
   This function also writes domain statistics about the vocabulary min and max
@@ -392,7 +443,7 @@ def apply_vocab(x, deferred_vocab_filename_tensor, default_value=-1,
       transformation should be applied.
       The column names are those intended for the transformed tensors.
     deferred_vocab_filename_tensor: The deferred vocab filename tensor as
-      returned by `tft.uniques`.
+      returned by `tft.vocabulary`.
     default_value: The value to use for out-of-vocabulary values, unless
       'num_oov_buckets' is greater than zero.
     num_oov_buckets:  Any lookup of an out-of-vocabulary token will return a
@@ -406,11 +457,13 @@ def apply_vocab(x, deferred_vocab_filename_tensor, default_value=-1,
 
   Returns:
     A `Tensor` or `SparseTensor` where each string value is mapped to an
-    integer; each unique string value is mapped to a different integer and
-    integers are consecutive and start from default_value.
+    integer. Each unique string value that appears in the vocabulary
+    is mapped to a different integer and integers are consecutive
+    starting from zero, and string value not in the vocabulary is
+    assigned default_value.
   """
 
-  def _apply_vocab(y, deferred_vocab_filename_tensor):
+  def _apply_vocabulary(y, deferred_vocab_filename_tensor):
     table = lookup.index_table_from_file(
         deferred_vocab_filename_tensor,
         num_oov_buckets=num_oov_buckets,
@@ -419,7 +472,7 @@ def apply_vocab(x, deferred_vocab_filename_tensor, default_value=-1,
     return table.lookup(y), table_size
 
   with tf.name_scope(name, 'apply_vocab'):
-    lookup_fn = lookup_fn or _apply_vocab
+    lookup_fn = lookup_fn or _apply_vocabulary
 
     result, table_size = api.apply_function(
         lookup_fn, x, deferred_vocab_filename_tensor)
@@ -429,15 +482,34 @@ def apply_vocab(x, deferred_vocab_filename_tensor, default_value=-1,
     # once the analyzer has run.
     #
     # `table_size` includes the num oov buckets.  The default value is only used
-    # if num_oov_buckets > 0.
+    # if num_oov_buckets <= 0.
     min_value = tf.constant(0, tf.int64)
     max_value = table_size - 1
     if num_oov_buckets <= 0:
       min_value = tf.minimum(min_value, default_value)
       max_value = tf.maximum(max_value, default_value)
-    api.set_tensor_schema_overrides(result, min_value, max_value)
+    schema_inference.set_tensor_schema_override(
+        result.values if isinstance(result, tf.SparseTensor) else result,
+        min_value, max_value)
 
     return result
+
+
+@deprecation.deprecated(None, 'Use `tft.apply_vocabulary()` instead.')
+def apply_vocab(x,
+                deferred_vocab_filename_tensor,
+                default_value=-1,
+                num_oov_buckets=0,
+                lookup_fn=None,
+                name=None):
+  r"""See `tft.apply_vocabulary`."""
+  return apply_vocabulary(
+      x=x,
+      deferred_vocab_filename_tensor=deferred_vocab_filename_tensor,
+      default_value=default_value,
+      num_oov_buckets=num_oov_buckets,
+      lookup_fn=lookup_fn,
+      name=name)
 
 
 def segment_indices(segment_ids, name=None):
@@ -666,10 +738,10 @@ def bucketize(x, num_buckets, epsilon=None, name=None):
   """
   with tf.name_scope(name, 'bucketize'):
     if not isinstance(num_buckets, int):
-      raise TypeError('num_buckets must be an int, got %s', type(num_buckets))
+      raise TypeError('num_buckets must be an int, got %s' % type(num_buckets))
 
     if num_buckets < 1:
-      raise ValueError('Invalid num_buckets %d', num_buckets)
+      raise ValueError('Invalid num_buckets %d' % num_buckets)
 
     if epsilon is None:
       # See explanation in args documentation for epsilon.
@@ -704,6 +776,6 @@ def apply_buckets(x, bucket_boundaries, name=None):
     # output feature will have this metadata set.
     min_value = tf.constant(0, tf.int64)
     max_value = tf.shape(bucket_boundaries)[1]
-    api.set_tensor_schema_overrides(result, min_value, max_value)
+    schema_inference.set_tensor_schema_override(result, min_value, max_value)
 
     return result

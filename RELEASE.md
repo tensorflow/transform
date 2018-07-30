@@ -1,6 +1,25 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
+* Performance improvements for vocabulary generation when using top_k.
+* Utility to deep-copy Beam `PCollection`s was added to avoid unnecessary
+  materialization.
+
+## Bug Fixes and Other Changes
+* Memory reduction during vocabulary generation.
+* Clarify documentation on return values from `tft.compute_and_apply_vocabulary`
+  and `tft.string_to_int`.
+* tft.unit now explicitly creates Beam PCollections and validates the
+  transformed dataset by writing and then reading it from disk.
+* `tft.min`, `tft.size`, and `tft.scale_to_z_score` now support `tf.SparseTensor`.
+
+## Breaking changes
+
+## Deprecations
+
+# Release 0.8.0
+
+## Major Features and Improvements
 * Add TFTransformOutput utility class that wraps the output of tf.Transform for
   use in training.  This makes it easier to consume the output written by
   tf.Transform (see update examples for usage).
@@ -25,16 +44,16 @@
   e.g. `tft.coders.ExampleProtoCoder`.
 * Setting dtypes for numpy arrays in `tft.coders.ExampleProtoCoder` and
   `tft.coders.CsvCoder`.
-* tft.mean now supports SparseTensor when reduce_instance_dimensions=True.
-  In this case it returns a scalar mean computed over the non-missing values of
-  the SparseTensor.
+* `tft.mean`, `tft.max` and `tft.var` now support `tf.SparseTensor`.
 * Update examples to use "core" TensorFlow estimator API (`tf.estimator`).
+* Depends on `protobuf>=3.6.0<4`.
 
 ## Breaking changes
 * `apply_saved_transform` is removed.  See note on
   `partially_apply_saved_transform` in the `Deprecations` section.
-* No longer set `vocabulary_file` in `IntDomain` when using `string_to_int` or
-  `apply_vocab`.
+* No longer set `vocabulary_file` in `IntDomain` when using
+  `tft.compute_and_apply_vocabulary` or `tft.apply_vocabulary`.
+* Requires pre-installed TensorFlow >=1.8,<2.
 
 ## Deprecations
 * The `expected_asset_file_contents` of
@@ -50,6 +69,10 @@
    input placeholders and the outputs.  But users do not need this functionality
    because they will typically create the input placeholders themselves based
    on the feature spec.
+* Renamed `tft.uniques` to `tft.vocabulary`, `tft.string_to_int` to
+  `tft.compute_and_apply_vocabulary` and `tft.apply_vocab` to
+  `tft.apply_vocabulary`.  The existing methods will remain for a few more minor
+  releases but are now deprecated and should get migrated away from.
 
 # Release 0.6.0
 
