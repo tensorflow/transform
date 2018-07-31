@@ -130,8 +130,14 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
         x_mean = tf.gather(x_mean, x.indices[:, 1])
         x_var = tf.gather(x_var, x.indices[:, 1])
 
-    deviation_values = (
-        (tf.cast(x_values, x_mean.dtype) - x_mean) / tf.sqrt(x_var))
+    numerator = tf.cast(x_values, x_mean.dtype) - x_mean
+    denominator = tf.sqrt(x_var)
+    cond = tf.not_equal(denominator, 0)
+    if elementwise and isinstance(x, tf.Tensor):
+      cond = tf.tile(tf.expand_dims(cond, 0), [tf.shape(numerator)[0], 1])
+
+    deviation_values = tf.where(cond, tf.divide(numerator, denominator),
+                                numerator)
     return compose_result_fn(deviation_values)
 
 

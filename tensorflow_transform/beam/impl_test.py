@@ -1154,6 +1154,44 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
+  @tft_unit.parameters(
+      (tf.int16, tf.float32, True),
+      (tf.int32, tf.float32, True),
+      (tf.int64, tf.float32, True),
+      (tf.float32, tf.float32, True),
+      (tf.float64, tf.float64, True),
+  )
+  def testScaleToZScoreVectorized(self, input_dtype, output_dtype, elementwise):
+
+    def preprocessing_fn(inputs):
+      outputs = dict()
+      outputs['features_scaled'] = tft.scale_to_z_score(inputs['features'], elementwise)
+      return outputs
+
+    input_data = [{'features': [-4, 4]},
+                  {'features': [10, -10]},
+                  {'features': [2, -2]},
+                  {'features': [4, -4]}]
+    # Mean(x) = 3, Mean(y) = -3
+    # Var(x) = Var(y) = (7^2 + 7^2 + 1^2 + 1^2) / 4 = 25
+    # StdDev(x) = StdDev(y) = 5
+    # For reference see next example
+    expected_data = [{'features_scaled': [-1.4, 1.4]},
+                     {'features_scaled': [1.4, -1.4]},
+                     {'features_scaled': [-0.2, 0.2]},
+                     {'features_scaled': [0.2, -0.2]}]
+
+    input_metadata = dataset_metadata.DatasetMetadata(
+      {'features': sch.ColumnSchema(input_dtype, [2], sch.FixedColumnRepresentation())}
+    )
+
+    expected_metadata = dataset_metadata.DatasetMetadata(
+      {'features_scaled': sch.ColumnSchema(output_dtype, [2], sch.FixedColumnRepresentation())}
+    )
+
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
 
   @parameterized.named_parameters(('Int64In', tf.int64, {
       'min': tf.int64,
