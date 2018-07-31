@@ -101,6 +101,39 @@ def _construct_test_bucketization_parameters():
   return (x + (dtype,) for x in args_without_dtype for dtype in dtypes)
 
 
+def _canonical_dtype(dtype):
+  """Returns int64 for int dtypes and float32 for float dtypes."""
+  if dtype.is_floating:
+    return tf.float32
+  elif dtype.is_integer:
+    return tf.int64
+  else:
+    raise ValueError('Bad dtype {}'.format(dtype))
+
+
+def sum_output_dtype(input_dtype):
+  """Returns the output dtype for tft.sum."""
+  return input_dtype if input_dtype.is_floating else tf.int64
+
+
+def _mean_output_dtype(input_dtype):
+  """Returns the output dtype for tft.mean (and similar functions)."""
+  return tf.float64 if input_dtype == tf.float64 else tf.float32
+
+
+def _metadata_from_feature_spec(feature_spec):
+  """Construct a DatasetMetadata from a feature spec.
+
+  Args:
+    feature_spec: A feature spec
+
+  Returns:
+    A `tft.tf_metadata.dataset_metadata.DatasetMetadata` object.
+  """
+  schema = sch.from_feature_spec(feature_spec)
+  return dataset_metadata.DatasetMetadata(schema)
+
+
 class BeamImplTest(tft_unit.TransformTestCase):
 
   def setUp(self):
@@ -171,9 +204,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     num_test_instances = 3
     test_data = [input_data[0]] * num_test_instances
     expected_data = [expected_outputs] * num_test_instances
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        key: sch.ColumnSchema(tf.as_dtype(value.dtype), value.shape,
-                              sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        key: tf.FixedLenFeature(value.shape, tf.as_dtype(value.dtype))
         for key, value in six.iteritems(expected_outputs)})
 
     self.assertAnalyzeAndTransformResults(
@@ -219,15 +251,15 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [
         {'x': [1, 2, 3]},
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.int64, [3], sch.FixedColumnRepresentation()),
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([3], tf.int64),
     })
     # [1, 2, 3] + [1, 2, 3] = [2, 4, 6]
     expected_data = [
         {'out': [2, 4, 6]}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'out': sch.ColumnSchema(tf.int64, [3], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'out': tf.FixedLenFeature([3], tf.int64)
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -272,14 +304,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [
         {'x': ['test_key']}
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.string, [1], sch.FixedColumnRepresentation()),
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([1], tf.string),
     })
     expected_data = [
         {'out': 'test_value'}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'out': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'out': tf.FixedLenFeature([], tf.string)
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -330,17 +362,17 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [
         {'x': [1, 2, 3], 'y': [2, 3, 4], 'z': [1, 1, 1]},
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.int64, [3], sch.FixedColumnRepresentation()),
-        'y': sch.ColumnSchema(tf.int64, [3], sch.FixedColumnRepresentation()),
-        'z': sch.ColumnSchema(tf.int64, [3], sch.FixedColumnRepresentation()),
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([3], tf.int64),
+        'y': tf.FixedLenFeature([3], tf.int64),
+        'z': tf.FixedLenFeature([3], tf.int64),
     })
     # [1, 2, 3] + [1, 2, 3] - [2, 3, 4] + [1, 1, 1] = [1, 2, 3]
     expected_data = [
         {'sum': [1, 2, 3]}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'sum': sch.ColumnSchema(tf.int64, [3], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'sum': tf.FixedLenFeature([3], tf.int64)
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -380,16 +412,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [
         {'x': [2, 2, 2], 'y': [-1, -3, 1]},
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.int64, [3], sch.FixedColumnRepresentation()),
-        'y': sch.ColumnSchema(tf.int64, [3], sch.FixedColumnRepresentation()),
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([3], tf.int64),
+        'y': tf.FixedLenFeature([3], tf.int64),
     })
     # [1, 2, 3] + [1, 2, 3] - [2, 2, 2] - [-1, -3, 1] = [1, 5, 3]
     expected_data = [
         {'out': [1, 5, 3]}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'out': sch.ColumnSchema(tf.int64, [3], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'out': tf.FixedLenFeature([3], tf.int64)
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -404,8 +436,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'x_scaled': scaled_to_0_1}
 
     input_data = [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([], tf.float32)
     })
     expected_data = [
         {'x_scaled': 0.75},
@@ -413,9 +445,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x_scaled': 1.0},
         {'x_scaled': 0.25}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'x_scaled': sch.ColumnSchema(tf.float32, [],
-                                     sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'x_scaled': tf.FixedLenFeature([], tf.float32)
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -477,9 +508,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [
         {'sequence_example': text_sequence_example_to_binary(sequence_example)}
         for sequence_example in sequence_examples]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'sequence_example': sch.ColumnSchema(tf.string, [],
-                                             sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'sequence_example': tf.FixedLenFeature([], tf.string)
     })
     expected_data = [
         {'x': 'ab'},
@@ -489,8 +519,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x': 'ef'},
         {'x': 'g'}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([], tf.string)
     })
 
     with beam_impl.Context(temp_dir=self.get_temp_dir(), desired_batch_size=1):
@@ -515,8 +545,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
 
     input_data = [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([], tf.float32)
     })
     expected_data = [
         {'x_scaled': 0.75},
@@ -524,9 +554,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x_scaled': 1.0},
         {'x_scaled': 0.25}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'x_scaled': sch.ColumnSchema(tf.float32, [],
-                                     sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'x_scaled': tf.FixedLenFeature([], tf.float32)
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -542,9 +571,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # Run AnalyzeAndTransform on some input data and compare with expected
     # output.
     input_data = [{'x': 5, 'y': 1}, {'x': 1, 'y': 2}]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'y': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([], tf.float32),
+        'y': tf.FixedLenFeature([], tf.float32)
     })
     with beam_impl.Context(temp_dir=self.get_temp_dir()):
       transform_fn = (
@@ -554,17 +583,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # Take the transform function and use TransformDataset to apply it to
     # some eval data, with missing 'y' column.
     eval_data = [{'x': 6}]
-    eval_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    eval_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([], tf.float32)
     })
     transformed_eval_data, transformed_eval_metadata = (
         ((eval_data, eval_metadata), transform_fn)
         | beam_impl.TransformDataset(exclude_outputs=['y_scaled']))
 
     expected_transformed_eval_data = [{'x_scaled': 1.25}]
-    expected_transformed_eval_metadata = dataset_metadata.DatasetMetadata({
-        'x_scaled': sch.ColumnSchema(tf.float32, [],
-                                     sch.FixedColumnRepresentation())
+    expected_transformed_eval_metadata = _metadata_from_feature_spec({
+        'x_scaled': tf.FixedLenFeature([], tf.float32)
     })
     self.assertDataCloseOrEqual(transformed_eval_data,
                                 expected_transformed_eval_data)
@@ -587,23 +615,18 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'sparse': ([2, 3], [2., 3.]), 'varlen': [3., 4., 5.]},
         {'sparse': ([4, 5], [4., 5.]), 'varlen': [6., 7.]}
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'sparse': sch.ColumnSchema(
-            tf.float32, [10], sch.SparseColumnRepresentation(
-                'val', [sch.SparseIndexField('idx', False)])),
-        'varlen': sch.ColumnSchema(
-            tf.float32, [None], sch.ListColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'sparse': tf.SparseFeature('idx', 'val', tf.float32, 10),
+        'varlen': tf.VarLenFeature(tf.float32)
     })
     expected_data = [
         {'fixed': 1.0, 'varlen': [0., 1.]},
         {'fixed': 5.0, 'varlen': [3., 4., 5.]},
         {'fixed': 9.0, 'varlen': [6., 7.]}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'fixed': sch.ColumnSchema(
-            tf.float32, [], sch.FixedColumnRepresentation()),
-        'varlen': sch.ColumnSchema(
-            tf.float32, [None], sch.ListColumnRepresentation()),
+    expected_metadata = _metadata_from_feature_spec({
+        'fixed': tf.FixedLenFeature([], tf.float32),
+        'varlen': tf.VarLenFeature(tf.float32)
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -619,9 +642,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': 5, 'b': 6},
         {'a': 2, 'b': 3}
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'b': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.float32),
+        'b': tf.FixedLenFeature([], tf.float32)
     })
     expected_data = [
         {'ab': 12},
@@ -629,8 +652,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'ab': 30},
         {'ab': 6}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'ab': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'ab': tf.FixedLenFeature([], tf.float32)
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -647,9 +670,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': 5, 'b': 6},
         {'a': 2, 'b': 3}
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'b': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.float32),
+        'b': tf.FixedLenFeature([], tf.float32)
     })
     expected_data = [
         {'a': 4},
@@ -657,8 +680,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': 5},
         {'a': 2}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.float32)
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -679,10 +702,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'b': i,
         'c': '%.10i' % i,  # Front-padded to facilitate lexicographic sorting.
     } for i in range(num_instances)]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'b': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'c': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.float32),
+        'b': tf.FixedLenFeature([], tf.float32),
+        'c': tf.FixedLenFeature([], tf.string)
     })
     expected_data = [{
         'ab': 2*i,
@@ -707,16 +730,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'a b': tf.string_join([inputs['a'], inputs['b']], separator=' ')}
 
     input_data = [{'a': 'Hello', 'b': 'world'}, {'a': 'Hello', 'b': u'κόσμε'}]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation()),
-        'b': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation()),
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string),
+        'b': tf.FixedLenFeature([], tf.string),
     })
     expected_data = [
         {'a b': 'Hello world'},
         {'a b': u'Hello κόσμε'.encode('utf-8')}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'a b': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'a b': tf.FixedLenFeature([], tf.string)
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -730,15 +753,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
       }
 
     input_data = [{'a': 4, 'b': 3, 'c': 3}, {'a': 1, 'b': 2, 'c': 1}]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'b': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'c': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.float32),
+        'b': tf.FixedLenFeature([], tf.float32),
+        'c': tf.FixedLenFeature([], tf.float32)
     })
     expected_data = [{'a(b+c)': 24}, {'a(b+c)': 3}]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'a(b+c)': sch.ColumnSchema(
-            tf.float32, [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'a(b+c)': tf.FixedLenFeature([], tf.float32)
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -773,9 +795,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x': 2,
         'y': 3
     }]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'y': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([], tf.float32),
+        'y': tf.FixedLenFeature([], tf.float32)
     })
     if elementwise:
       expected_data = [{
@@ -805,11 +827,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'x_scaled': 0.2,
           'y_scaled': 0.4
       }]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'x_scaled':
-            sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'y_scaled':
-            sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'x_scaled': tf.FixedLenFeature([], tf.float32),
+        'y_scaled': tf.FixedLenFeature([], tf.float32)
     })
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
@@ -846,9 +866,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x': 2,
         'y': 6
     }]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'y': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([], tf.float32),
+        'y': tf.FixedLenFeature([], tf.float32)
     })
     if elementwise:
       expected_data = [{
@@ -878,11 +898,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'x_scaled': -0.75,
           'y_scaled': 0.25
       }]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'x_scaled':
-            sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'y_scaled':
-            sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'x_scaled': tf.FixedLenFeature([], tf.float32),
+        'y_scaled': tf.FixedLenFeature([], tf.float32)
     })
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
@@ -894,8 +912,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'x_scaled': tft.scale_by_min_max(inputs['x'], 0, 10)}
 
     input_data = [{'x': 4}, {'x': 4}, {'x': 4}, {'x': 4}]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([], tf.float32)
     })
     expected_data = [{
         'x_scaled': 5
@@ -906,9 +924,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     }, {
         'x_scaled': 5
     }]
-    expected_metadata = dataset_metadata.DatasetMetadata({
+    expected_metadata = _metadata_from_feature_spec({
         'x_scaled':
-            sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+            tf.FixedLenFeature([], tf.float32)
     })
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
@@ -944,9 +962,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x': 4,
         'y': 2
     }]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'y': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([], tf.float32),
+        'y': tf.FixedLenFeature([], tf.float32)
     })
     expected_data = [{
         'x_scaled': 5,
@@ -961,11 +979,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x_scaled': 5,
         'y_scaled': 10
     }]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'x_scaled':
-            sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'y_scaled':
-            sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'x_scaled': tf.FixedLenFeature([], tf.float32),
+        'y_scaled': tf.FixedLenFeature([], tf.float32)
     })
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
@@ -977,13 +993,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'x_scaled': tft.scale_by_min_max(inputs['x'], 2, 1)}
 
     input_data = [{'x': 1}]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([], tf.float32)
     })
     expected_data = [{'x_scaled': float('nan')}]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'x_scaled':
-            sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'x_scaled': tf.FixedLenFeature([], tf.float32)
     })
     with self.assertRaises(ValueError) as context:
       self.assertAnalyzeAndTransformResults(input_data, input_metadata,
@@ -992,92 +1007,90 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertTrue(
         'output_min must be less than output_max' in context.exception)
 
-  @tft_unit.parameters(
-      (tf.int16, tf.float32, True),
-      (tf.int32, tf.float32, True),
-      (tf.int64, tf.float32, True),
-      (tf.float32, tf.float32, True),
-      (tf.float64, tf.float64, True),
-      (tf.int16, tf.float32, False),
-      (tf.int32, tf.float32, False),
-      (tf.int64, tf.float32, False),
-      (tf.float32, tf.float32, False),
-      (tf.float64, tf.float64, False),
-  )
-  def testScaleToZScore(self, input_dtype, output_dtype, elementwise):
-
+  @tft_unit.parameters(*itertools.product([
+      tf.int16,
+      tf.int32,
+      tf.int64,
+      tf.float32,
+      tf.float64,
+  ], (True, False)))
+  def testScaleToZScore(self, input_dtype, elementwise):
     def preprocessing_fn(inputs):
-      outputs = {}
-      cols = ('x', 'y')
-      for col, scaled_t in zip(cols,
-                               tf.unstack(
-                                   tft.scale_to_z_score(
-                                       tf.stack(
-                                           [inputs[col] for col in cols],
-                                           axis=1),
-                                       elementwise=elementwise),
-                                   axis=1)):
-        self.assertEqual(scaled_t.dtype, output_dtype)
-        outputs[col + '_scaled'] = tf.cast(scaled_t, tf.float32)
-      return outputs
+
+      def scale_to_z_score(tensor):
+        z_score = tft.scale_to_z_score(
+            tf.cast(tensor, input_dtype), elementwise=elementwise)
+        self.assertEqual(z_score.dtype, _mean_output_dtype(input_dtype))
+        return tf.cast(z_score, tf.float32)
+
+      return {
+          'x_scaled': scale_to_z_score(inputs['x']),
+          'y_scaled': scale_to_z_score(inputs['y']),
+      }
 
     if elementwise:
       input_data = [{
-          'x': -4,
-          'y': 4
+          'x': [-4., 4],
+          'y': [0., 0],
       }, {
-          'x': 10,
-          'y': -10
+          'x': [10., -10.],
+          'y': [0., 0],
       }, {
-          'x': 2,
-          'y': -2
+          'x': [2., -2.],
+          'y': [0., 0],
       }, {
-          'x': 4,
-          'y': -4
+          'x': [4., -4.],
+          'y': [0., 0],
       }]
-      # Mean(x) = 3, Mean(y) = -3
-      # Var(x) = Var(y) = (7^2 + 7^2 + 1^2 + 1^2) / 4 = 25
-      # StdDev(x) = StdDev(y) = 5
-      expected_data = [{
-          'x_scaled': -1.4,  # (-4 - 3) / 5
-          'y_scaled': 1.4  # (4 + 3) / 5
-      }, {
-          'x_scaled': 1.4,  # (10 - 3) / 5
-          'y_scaled': -1.4  # (-10 + 3) / 5
-      }, {
-          'x_scaled': -0.2,  # (2 - 3) / 5
-          'y_scaled': 0.2  # (-2 + 3) / 5
-      }, {
-          'x_scaled': 0.2,  # (4 - 3) / 5
-          'y_scaled': -0.2  # (-4 + 3) / 5
-      }]
+      # Mean(x) = [3, -3], Mean(y) = [0, 0]
+      # Var(x) = (+-7^2 + 7^2 + +-1^2 + 1^2) / 4 = 25, Var(y) = 0
+      # StdDev(x) = 5, StdDev(y) = 0
+      expected_data = [
+          {
+              'x_scaled': [-1.4, 1.4],  # [(-4 - 3) / 5, (10 - 3) / 5]
+              'y_scaled': [0., 0.],
+          },
+          {
+              'x_scaled': [-.2, .2],  # [(2 - 3) / 5, (4 - 3) / 5]
+              'y_scaled': [0., 0.],
+          },
+          {
+              'x_scaled': [1.4, -1.4],  # [(4 + 3) / 5, (-10 + 3) / 5]
+              'y_scaled': [0., 0.],
+          },
+          {
+              'x_scaled': [.2, -.2],  # [(-2 + 3) / 5, (-4 + 3) / 5]
+              'y_scaled': [0., 0.],
+          }
+      ]
     else:
       input_data = [{
-          'x': -4,
-          'y': 10
+          'x': [-4., 2.],
+          'y': [0., 0],
       }, {
-          'x': 2,
-          'y': 4
+          'x': [10., 4.],
+          'y': [0., 0],
       }]
-      # Mean = 3
-      # Var = (7^2 + 7^2 + 1^2 + 1^2) / 4 = 25
-      # Std Dev = 5
-      expected_data = [{
-          'x_scaled': -1.4,  # (-4 - 3) / 5
-          'y_scaled': 1.4  # (10 - 3) / 5
-      }, {
-          'x_scaled': -0.2,  # (2 - 3) / 5
-          'y_scaled': 0.2  # (4 - 3) / 5
-      }]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(input_dtype, [], sch.FixedColumnRepresentation()),
-        'y': sch.ColumnSchema(input_dtype, [], sch.FixedColumnRepresentation())
+      # Mean(x) = 3, Mean(y) = 0
+      # Var(x) = (-7^2 + -1^2 + 7^2 + 1^2) / 4 = 25, Var(y) = 0
+      # StdDev(x) = 5, StdDev(y) = 0
+      expected_data = [
+          {
+              'x_scaled': [-1.4, -.2],  # [(-4 - 3) / 5, (2 - 3) / 5]
+              'y_scaled': [0., 0.],
+          },
+          {
+              'x_scaled': [1.4, .2],  # [(10 - 3) / 5, (4 - 3) / 5]
+              'y_scaled': [0., 0.],
+          }
+      ]
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([2], _canonical_dtype(input_dtype)),
+        'y': tf.FixedLenFeature([2], _canonical_dtype(input_dtype)),
     })
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'x_scaled':
-            sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'y_scaled':
-            sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'x_scaled': tf.FixedLenFeature([2], tf.float32),
+        'y_scaled': tf.FixedLenFeature([2], tf.float32),
     })
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
@@ -1092,30 +1105,20 @@ class BeamImplTest(tft_unit.TransformTestCase):
   ], (True, False)))
   def testScaleToZScoreSparse(self, input_dtype, elementwise):
 
-    def validate_and_get_actual_dtype(dtype):
-      if input_dtype.is_floating:
-        self.assertEqual(dtype, input_dtype)
-      elif input_dtype.is_integer:
-        self.assertEqual(dtype, tf.float32)
-      return tf.float32
-
     def preprocessing_fn(inputs):
       z_score = tf.sparse_tensor_to_dense(
-          tft.scale_to_z_score(inputs['x'], elementwise=elementwise),
+          tft.scale_to_z_score(tf.cast(inputs['x'], input_dtype),
+                               elementwise=elementwise),
           default_value=np.nan)
       z_score.set_shape([None, 4])
+      self.assertEqual(z_score.dtype, _mean_output_dtype(input_dtype))
       return {
-          'x_scaled':
-              tf.cast(z_score, validate_and_get_actual_dtype(z_score.dtype))
+          'x_scaled': tf.cast(z_score, tf.float32)
       }
 
     input_data = [{'x': ([0, 1], [-4, 10])}, {'x': ([0, 1], [2, 4])}]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x':
-            sch.ColumnSchema(
-                input_dtype, [4],
-                sch.SparseColumnRepresentation(
-                    'val', [sch.SparseIndexField('idx', False)]))
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.SparseFeature('idx', 'val', _canonical_dtype(input_dtype), 4)
     })
     if elementwise:
       # Mean(x) = [-1, 7]
@@ -1147,48 +1150,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
                            float('nan')]  # [(2 - 3) / 5, (4 - 3) / 5]
           }
       ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'x_scaled':
-            sch.ColumnSchema(tf.float32, [4], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'x_scaled': tf.FixedLenFeature([4], tf.float32)
     })
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data,
-                                          expected_metadata)
-  @tft_unit.parameters(
-      (tf.int16, tf.float32, True),
-      (tf.int32, tf.float32, True),
-      (tf.int64, tf.float32, True),
-      (tf.float32, tf.float32, True),
-      (tf.float64, tf.float64, True),
-  )
-  def testScaleToZScoreVectorized(self, input_dtype, output_dtype, elementwise):
-
-    def preprocessing_fn(inputs):
-      outputs = dict()
-      outputs['features_scaled'] = tft.scale_to_z_score(inputs['features'], elementwise)
-      return outputs
-
-    input_data = [{'features': [-4, 4]},
-                  {'features': [10, -10]},
-                  {'features': [2, -2]},
-                  {'features': [4, -4]}]
-    # Mean(x) = 3, Mean(y) = -3
-    # Var(x) = Var(y) = (7^2 + 7^2 + 1^2 + 1^2) / 4 = 25
-    # StdDev(x) = StdDev(y) = 5
-    # For reference see next example
-    expected_data = [{'features_scaled': [-1.4, 1.4]},
-                     {'features_scaled': [1.4, -1.4]},
-                     {'features_scaled': [-0.2, 0.2]},
-                     {'features_scaled': [0.2, -0.2]}]
-
-    input_metadata = dataset_metadata.DatasetMetadata(
-      {'features': sch.ColumnSchema(input_dtype, [2], sch.FixedColumnRepresentation())}
-    )
-
-    expected_metadata = dataset_metadata.DatasetMetadata(
-      {'features_scaled': sch.ColumnSchema(output_dtype, [2], sch.FixedColumnRepresentation())}
-    )
-
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
@@ -1238,38 +1202,32 @@ class BeamImplTest(tft_unit.TransformTestCase):
   }))
   def testNumericAnalyzersWithScalarInputs(self, input_dtype, output_dtypes):
 
-    def actual_dtype(dtype):
-      if dtype.is_floating:
-        return tf.float32
-      elif dtype.is_integer:
-        return tf.int64
-      return dtype
-
     def analyzer_fn(inputs):
       # Also test private analyzers that fuse min/max and mean/var analyzers.
-      min_opt, max_opt = analyzers._min_and_max(inputs['a'])
-      mean_opt, var_opt = analyzers._mean_and_var(inputs['a'])
+      a = tf.cast(inputs['a'], input_dtype)
+      min_opt, max_opt = analyzers._min_and_max(a)
+      mean_opt, var_opt = analyzers._mean_and_var(a)
 
       def assert_and_cast_dtype(tensor, out_dtype):
         self.assertEqual(tensor.dtype, out_dtype)
-        return tf.cast(tensor, actual_dtype(out_dtype))
+        return tf.cast(tensor, _canonical_dtype(out_dtype))
 
       return {
-          'min': assert_and_cast_dtype(tft.min(inputs['a']),
+          'min': assert_and_cast_dtype(tft.min(a),
                                        output_dtypes['min']),
-          'max': assert_and_cast_dtype(tft.max(inputs['a']),
+          'max': assert_and_cast_dtype(tft.max(a),
                                        output_dtypes['max']),
           'min_opt': assert_and_cast_dtype(min_opt,
                                            output_dtypes['min']),
           'max_opt': assert_and_cast_dtype(max_opt,
                                            output_dtypes['max']),
-          'sum': assert_and_cast_dtype(tft.sum(inputs['a']),
+          'sum': assert_and_cast_dtype(tft.sum(a),
                                        output_dtypes['sum']),
-          'size': assert_and_cast_dtype(tft.size(inputs['a']),
+          'size': assert_and_cast_dtype(tft.size(a),
                                         output_dtypes['size']),
-          'mean': assert_and_cast_dtype(tft.mean(inputs['a']),
+          'mean': assert_and_cast_dtype(tft.mean(a),
                                         output_dtypes['mean']),
-          'var': assert_and_cast_dtype(tft.var(inputs['a']),
+          'var': assert_and_cast_dtype(tft.var(a),
                                        output_dtypes['var']),
           'mean_opt': assert_and_cast_dtype(mean_opt,
                                             output_dtypes['mean']),
@@ -1278,30 +1236,30 @@ class BeamImplTest(tft_unit.TransformTestCase):
       }
 
     input_data = [{'a': 4}, {'a': 1}]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(input_dtype, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], _canonical_dtype(input_dtype))
     })
     expected_outputs = {
-        'min': np.array(1,
-                        actual_dtype(output_dtypes['min']).as_numpy_dtype),
-        'max': np.array(4,
-                        actual_dtype(output_dtypes['max']).as_numpy_dtype),
-        'min_opt': np.array(1,
-                            actual_dtype(output_dtypes['min']).as_numpy_dtype),
-        'max_opt': np.array(4,
-                            actual_dtype(output_dtypes['max']).as_numpy_dtype),
-        'sum': np.array(5,
-                        actual_dtype(output_dtypes['sum']).as_numpy_dtype),
-        'size': np.array(2,
-                         actual_dtype(output_dtypes['size']).as_numpy_dtype),
-        'mean': np.array(2.5,
-                         actual_dtype(output_dtypes['mean']).as_numpy_dtype),
-        'var': np.array(2.25,
-                        actual_dtype(output_dtypes['var']).as_numpy_dtype),
+        'min': np.array(
+            1, _canonical_dtype(output_dtypes['min']).as_numpy_dtype),
+        'max': np.array(
+            4, _canonical_dtype(output_dtypes['max']).as_numpy_dtype),
+        'min_opt': np.array(
+            1, _canonical_dtype(output_dtypes['min']).as_numpy_dtype),
+        'max_opt': np.array(
+            4, _canonical_dtype(output_dtypes['max']).as_numpy_dtype),
+        'sum': np.array(
+            5, _canonical_dtype(output_dtypes['sum']).as_numpy_dtype),
+        'size': np.array(
+            2, _canonical_dtype(output_dtypes['size']).as_numpy_dtype),
+        'mean': np.array(
+            2.5, _canonical_dtype(output_dtypes['mean']).as_numpy_dtype),
+        'var': np.array(
+            2.25, _canonical_dtype(output_dtypes['var']).as_numpy_dtype),
         'mean_opt': np.array(
-            2.5, actual_dtype(output_dtypes['mean']).as_numpy_dtype),
-        'var_opt': np.array(2.25,
-                            actual_dtype(output_dtypes['var']).as_numpy_dtype),
+            2.5, _canonical_dtype(output_dtypes['mean']).as_numpy_dtype),
+        'var_opt': np.array(
+            2.25, _canonical_dtype(output_dtypes['var']).as_numpy_dtype),
     }
 
     self.assertAnalyzerOutputs(
@@ -1331,8 +1289,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': [8, 9, 3, 4]},
         {'a': [1, 2, 10, 11]}
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.int64, [4], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([4], tf.int64)
     })
     expected_outputs = {
         'min': np.array([1, 2, 3, 4], np.int64),
@@ -1372,8 +1330,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [
         {'a': [[8, 9], [3, 4]]},
         {'a': [[1, 2], [10, 11]]}]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.int64, [2, 2], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([2, 2], tf.int64)
     })
     expected_outputs = {
         'min': np.array([[1, 2], [3, 4]], np.int64),
@@ -1412,8 +1370,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': [[4, 5], [6, 7]]},
         {'a': [[1, 2], [3, 4]]}
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.int64, [2, 2], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([2, 2], tf.int64)
     })
     expected_outputs = {
         'min': np.array(1, np.int64),
@@ -1440,12 +1398,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     }, {
         'sparse': ([1, 3], [2., 3.])
     }]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'sparse':
-            sch.ColumnSchema(
-                tf.float32, [4],
-                sch.SparseColumnRepresentation(
-                    'val', [sch.SparseIndexField('idx', False)]))
+    input_metadata = _metadata_from_feature_spec({
+        'sparse': tf.SparseFeature('idx', 'val', tf.float32, 4)
     })
     expected_outputs = {'max': np.array(3., np.float32)}
     self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
@@ -1458,36 +1412,29 @@ class BeamImplTest(tft_unit.TransformTestCase):
       (tf.float64,),
   )
   def testMaxWithSparseTensorReduceFalse(self, input_dtype):
-    def validate_and_get_actual_dtype(dtype):
-      self.assertEqual(dtype, input_dtype)
-      if dtype.is_floating:
-        return tf.float32
-      elif dtype.is_integer:
-        return tf.int64
 
     def analyzer_fn(inputs):
-      sparse_max = tft.max(inputs['sparse'], False)
-      return {'max': tf.cast(sparse_max,
-                             validate_and_get_actual_dtype(sparse_max.dtype))}
+      sparse_max = tft.max(tf.cast(inputs['sparse'], input_dtype), False)
+      self.assertEqual(sparse_max.dtype, input_dtype)
+      return {
+          'max': tf.cast(sparse_max, _canonical_dtype(sparse_max.dtype))
+      }
 
     input_data = [{
         'sparse': ([0, 1], [-1., 1.])
     }, {
         'sparse': ([1, 3], [2., 3.])
     }]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'sparse':
-            sch.ColumnSchema(
-                input_dtype, [4],
-                sch.SparseColumnRepresentation(
-                    'val', [sch.SparseIndexField('idx', False)]))
+    input_metadata = _metadata_from_feature_spec({
+        'sparse': tf.SparseFeature('idx', 'val', _canonical_dtype(input_dtype),
+                                   4)
     })
     if input_dtype == tf.float32 or input_dtype == tf.float64:
       expected_outputs = {
           'max':
               np.array(
                   [-1., 2., float('nan'), 3.],
-                  validate_and_get_actual_dtype(input_dtype).as_numpy_dtype
+                  _canonical_dtype(input_dtype).as_numpy_dtype
               )
       }
     else:
@@ -1495,7 +1442,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'max':
               np.array(
                   [-1, 2, np.iinfo(input_dtype.as_numpy_dtype).min, 3],
-                  validate_and_get_actual_dtype(input_dtype).as_numpy_dtype)
+                  _canonical_dtype(input_dtype).as_numpy_dtype)
       }
 
     self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
@@ -1507,8 +1454,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'mean': tft.mean(inputs['a'])}
 
     input_data = [{'a': [1, 5, 6]}, {'a': [1, 2]}]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.int64, [None], sch.ListColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.VarLenFeature(tf.int64)
     })
     expected_outputs = {'mean': np.array(3., np.float32)}
     self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
@@ -1524,12 +1471,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     }, {
         'sparse': ([1, 3], [2., 3.])
     }]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'sparse':
-            sch.ColumnSchema(
-                tf.float32, [4],
-                sch.SparseColumnRepresentation(
-                    'val', [sch.SparseIndexField('idx', False)]))
+    input_metadata = _metadata_from_feature_spec({
+        'sparse': tf.SparseFeature('idx', 'val', tf.float32, 4)
     })
     expected_outputs = {
         'mean': np.array([0., 1.5, float('nan'), 3.], np.float32)
@@ -1540,19 +1483,15 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testNumericMeanWithSparseTensorReduceFalseOverflow(self):
 
     def analyzer_fn(inputs):
-      return {'mean': tft.mean(inputs['sparse'], False)}
+      return {'mean': tft.mean(tf.cast(inputs['sparse'], tf.int32), False)}
 
     input_data = [{
         'sparse': ([0, 1], [1, 1])
     }, {
         'sparse': ([1, 3], [2147483647, 3])
     }]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'sparse':
-            sch.ColumnSchema(
-                tf.int32, [4],
-                sch.SparseColumnRepresentation(
-                    'val', [sch.SparseIndexField('idx', False)]))
+    input_metadata = _metadata_from_feature_spec({
+        'sparse': tf.SparseFeature('idx', 'val', tf.int64, 4)
     })
     expected_outputs = {
         'mean': np.array([1., 1073741824., float('nan'), 3.], np.float32)
@@ -1567,28 +1506,19 @@ class BeamImplTest(tft_unit.TransformTestCase):
       (tf.float64,),
   )
   def testVarWithSparseTensorReduceInstanceDimsTrue(self, input_dtype):
-    def validate_and_get_actual_dtype(dtype):
-      if dtype is tf.float64:
-        self.assertEqual(dtype, tf.float64)
-      else:
-        self.assertEqual(dtype, tf.float32)
-      return tf.float32
-
     def analyzer_fn(inputs):
-      var = tft.var(inputs['sparse'])
-      return {'var': tf.cast(var, validate_and_get_actual_dtype(var.dtype))}
+      var = tft.var(tf.cast(inputs['sparse'], input_dtype))
+      self.assertEqual(var.dtype, _mean_output_dtype(input_dtype))
+      return {'var': tf.cast(var, _canonical_dtype(var.dtype))}
 
     input_data = [{
         'sparse': ([0, 1], [0., 1.])
     }, {
         'sparse': ([1, 3], [2., 3.])
     }]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'sparse':
-            sch.ColumnSchema(
-                input_dtype, [4],
-                sch.SparseColumnRepresentation(
-                    'val', [sch.SparseIndexField('idx', False)]))
+    input_metadata = _metadata_from_feature_spec({
+        'sparse': tf.SparseFeature('idx', 'val', _canonical_dtype(input_dtype),
+                                   4)
     })
     expected_outputs = {'var': np.array(1.25, np.float32)}
     self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
@@ -1601,28 +1531,20 @@ class BeamImplTest(tft_unit.TransformTestCase):
       (tf.float64,),
   )
   def testVarWithSparseTensorReduceInstanceDimsFalse(self, input_dtype):
-    def validate_and_get_actual_dtype(dtype):
-      if dtype is tf.float64:
-        self.assertEqual(dtype, tf.float64)
-      else:
-        self.assertEqual(dtype, tf.float32)
-      return tf.float32
-
     def analyzer_fn(inputs):
-      var = tft.var(inputs['sparse'], reduce_instance_dims=False)
-      return {'var': tf.cast(var, validate_and_get_actual_dtype(var.dtype))}
+      var = tft.var(tf.cast(inputs['sparse'], input_dtype),
+                    reduce_instance_dims=False)
+      self.assertEqual(var.dtype, _mean_output_dtype(input_dtype))
+      return {'var': tf.cast(var, _canonical_dtype(var.dtype))}
 
     input_data = [{
         'sparse': ([0, 1], [0., 1.])
     }, {
         'sparse': ([1, 3], [2., 3.])
     }]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'sparse':
-            sch.ColumnSchema(
-                input_dtype, [4],
-                sch.SparseColumnRepresentation(
-                    'val', [sch.SparseIndexField('idx', False)]))
+    input_metadata = _metadata_from_feature_spec({
+        'sparse': tf.SparseFeature('idx', 'val', _canonical_dtype(input_dtype),
+                                   4)
     })
     expected_outputs = {
         'var': np.array([0., .25, float('nan'), 0.], np.float32)
@@ -1641,20 +1563,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
   ], (True, False)))
   def testMinWithSparseTensor(self, input_dtype, reduce_instance_dims):
 
-    def validate_and_get_actual_dtype(dtype):
-      if input_dtype is not tf.uint16:
-        self.assertEqual(dtype, input_dtype)
-      if dtype.is_floating:
-        return tf.float32
-      elif dtype.is_integer:
-        return tf.int64
-
     def analyzer_fn(inputs):
-      sparse_min = tft.min(inputs['sparse'], reduce_instance_dims)
+      sparse_min = tft.min(
+          tf.cast(inputs['sparse'], input_dtype),
+          reduce_instance_dims)
+      self.assertEqual(sparse_min.dtype, input_dtype)
       return {
-          'min':
-              tf.cast(sparse_min,
-                      validate_and_get_actual_dtype(sparse_min.dtype))
+          'min': tf.cast(sparse_min, _canonical_dtype(input_dtype))
       }
 
     input_data = [{
@@ -1662,35 +1577,28 @@ class BeamImplTest(tft_unit.TransformTestCase):
     }, {
         'sparse': ([1, 3], [2., 3.])
     }]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'sparse':
-            sch.ColumnSchema(
-                input_dtype, [4],
-                sch.SparseColumnRepresentation(
-                    'val', [sch.SparseIndexField('idx', False)]))
+    input_metadata = _metadata_from_feature_spec({
+        'sparse': tf.SparseFeature('idx', 'val', _canonical_dtype(input_dtype),
+                                   4)
     })
-
-    expected_dtype = input_dtype
-    if input_dtype == tf.uint16:
-      expected_dtype = tf.int32
 
     if reduce_instance_dims:
       expected_outputs = {
           'min':
               np.array(
                   0.,
-                  validate_and_get_actual_dtype(expected_dtype).as_numpy_dtype)
+                  _canonical_dtype(input_dtype).as_numpy_dtype)
       }
     else:
       if input_dtype == tf.float32 or input_dtype == tf.float64:
         missing_value = float('nan')
       else:
-        missing_value = np.iinfo(expected_dtype.as_numpy_dtype).max
+        missing_value = np.iinfo(input_dtype.as_numpy_dtype).max
       expected_outputs = {
           'min':
               np.array(
                   [0., 1., missing_value, 3.],
-                  validate_and_get_actual_dtype(expected_dtype).as_numpy_dtype)
+                  _canonical_dtype(input_dtype).as_numpy_dtype)
       }
     self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
                                expected_outputs)
@@ -1705,19 +1613,19 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testSizeWithSparseTensor(self, input_dtype, reduce_instance_dims):
 
     def analyzer_fn(inputs):
-      return {'size': tft.size(inputs['sparse'], reduce_instance_dims)}
+      return {
+          'size': tft.size(tf.cast(inputs['sparse'], input_dtype),
+                           reduce_instance_dims)
+      }
 
     input_data = [{
         'sparse': ([0, 1], [0., 1.])
     }, {
         'sparse': ([1, 3], [2., 3.])
     }]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'sparse':
-            sch.ColumnSchema(
-                input_dtype, [4],
-                sch.SparseColumnRepresentation(
-                    'val', [sch.SparseIndexField('idx', False)]))
+    input_metadata = _metadata_from_feature_spec({
+        'sparse': tf.SparseFeature('idx', 'val', _canonical_dtype(input_dtype),
+                                   4)
     })
     if reduce_instance_dims:
       expected_outputs = {'size': np.array(4, np.int64)}
@@ -1726,22 +1634,43 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
                                expected_outputs)
 
-  def testNumericAnalyzersWithSparseInputs(self):
-    def repeat(in_tensor, value):
-      batch_size = tf.shape(in_tensor)[0]
-      return tf.ones([batch_size], value.dtype) * value
+  @tft_unit.parameters(*itertools.product([
+      tf.int16,
+      tf.int32,
+      tf.int64,
+      tf.float32,
+      tf.float64,
+  ], (True, False)))
+  def testSumWithSparseTensor(self, input_dtype, reduce_instance_dims):
+    def analyzer_fn(inputs):
+      sparse_sum = tft.sum(tf.cast(inputs['sparse'], input_dtype),
+                           reduce_instance_dims)
+      self.assertEqual(sparse_sum.dtype, sum_output_dtype(input_dtype))
+      return {'sum': tf.cast(sparse_sum, _canonical_dtype(sparse_sum.dtype))}
 
-    input_data = [{'a': [4, 5, 6]}, {'a': [1, 2]}]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.int64, [None], sch.ListColumnRepresentation())
+    input_data = [{
+        'sparse': ([0, 1], [0., 1.])
+    }, {
+        'sparse': ([1, 3], [2., 3.])
+    }]
+    input_metadata = _metadata_from_feature_spec({
+        'sparse': tf.SparseFeature('idx', 'val', _canonical_dtype(input_dtype),
+                                   4)
     })
-    input_dataset = (input_data, input_metadata)
-
-    with beam_impl.Context(temp_dir=self.get_temp_dir()):
-      with self.assertRaises(TypeError):
-        def sum_fn(inputs):
-          return {'sum': repeat(inputs['a'], tft.sum(inputs['a']))}
-        _ = input_dataset | beam_impl.AnalyzeDataset(sum_fn)
+    if reduce_instance_dims:
+      expected_outputs = {
+          'sum': np.array(
+              6.,
+              _canonical_dtype(sum_output_dtype(input_dtype)).as_numpy_dtype)
+      }
+    else:
+      expected_outputs = {
+          'sum': np.array(
+              [0., 3., 0., 3.],
+              _canonical_dtype(sum_output_dtype(input_dtype)).as_numpy_dtype)
+      }
+    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
+                               expected_outputs)
 
   def testStringToTFIDF(self):
     def preprocessing_fn(inputs):
@@ -1755,8 +1684,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [{'a': 'hello hello world'},
                   {'a': 'hello goodbye hello world'},
                   {'a': 'I like pie pie pie'}]
-    input_schema = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string)
     })
 
     # IDFs
@@ -1778,15 +1707,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'tf_idf': [(3/5)*log_4_over_2, (1/5)*log_4_over_2, (1/5)*log_4_over_2],
         'index': [1, 3, 5]
     }]
-    expected_transformed_schema = dataset_metadata.DatasetMetadata({
-        'tf_idf': sch.ColumnSchema(tf.float32, [None],
-                                   sch.ListColumnRepresentation()),
-        'index': sch.ColumnSchema(tf.int64, [None],
-                                  sch.ListColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'tf_idf': tf.VarLenFeature(tf.float32),
+        'index': tf.VarLenFeature(tf.int64)
     })
     self.assertAnalyzeAndTransformResults(
-        input_data, input_schema, preprocessing_fn, expected_transformed_data,
-        expected_transformed_schema)
+        input_data, input_metadata, preprocessing_fn, expected_transformed_data,
+        expected_metadata)
 
   def testTFIDFNoData(self):
     def preprocessing_fn(inputs):
@@ -1798,19 +1725,17 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'index': out_index
       }
     input_data = [{'a': ''}]
-    input_schema = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string)
     })
     expected_transformed_data = [{'tf_idf': [], 'index': []}]
-    expected_transformed_schema = dataset_metadata.DatasetMetadata({
-        'tf_idf': sch.ColumnSchema(tf.float32, [None],
-                                   sch.ListColumnRepresentation()),
-        'index': sch.ColumnSchema(tf.int64, [None],
-                                  sch.ListColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'tf_idf': tf.VarLenFeature(tf.float32),
+        'index': tf.VarLenFeature(tf.int64)
     })
     self.assertAnalyzeAndTransformResults(
-        input_data, input_schema, preprocessing_fn, expected_transformed_data,
-        expected_transformed_schema)
+        input_data, input_metadata, preprocessing_fn, expected_transformed_data,
+        expected_metadata)
 
   def testStringToTFIDFEmptyDoc(self):
     def preprocessing_fn(inputs):
@@ -1825,8 +1750,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
                   {'a': ''},
                   {'a': 'hello goodbye hello world'},
                   {'a': 'I like pie pie pie'}]
-    input_schema = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string)
     })
 
     log_5_over_2 = 1.91629073187
@@ -1844,15 +1769,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'tf_idf': [(3/5)*log_5_over_2, (1/5)*log_5_over_2, (1/5)*log_5_over_2],
         'index': [1, 3, 5]
     }]
-    expected_transformed_schema = dataset_metadata.DatasetMetadata({
-        'tf_idf': sch.ColumnSchema(tf.float32, [None],
-                                   sch.ListColumnRepresentation()),
-        'index': sch.ColumnSchema(tf.int64, [None],
-                                  sch.ListColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'tf_idf': tf.VarLenFeature(tf.float32),
+        'index': tf.VarLenFeature(tf.int64)
     })
     self.assertAnalyzeAndTransformResults(
-        input_data, input_schema, preprocessing_fn, expected_transformed_data,
-        expected_transformed_schema)
+        input_data, input_metadata, preprocessing_fn, expected_transformed_data,
+        expected_metadata)
 
   def testIntToTFIDF(self):
     def preprocessing_fn(inputs):
@@ -1862,9 +1785,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
                   {'a': [2, 6, 2, 0]},
                   {'a': [8, 10, 12, 12, 12]},
                  ]
-    input_schema = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.int64, [None],
-                              sch.ListColumnRepresentation())})
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.VarLenFeature(tf.int64)
+    })
     log_4_over_2 = 1.69314718056
     log_4_over_3 = 1.28768207245
     expected_data = [{
@@ -1877,14 +1800,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'tf_idf': [(1/5)*log_4_over_2, (1/5)*log_4_over_2, (3/5)*log_4_over_2],
         'index': [8, 10, 12]
     }]
-    expected_schema = dataset_metadata.DatasetMetadata({
-        'tf_idf': sch.ColumnSchema(tf.float32, [None],
-                                   sch.ListColumnRepresentation()),
-        'index': sch.ColumnSchema(tf.int64, [None],
-                                  sch.ListColumnRepresentation())
+    expected_schema = _metadata_from_feature_spec({
+        'tf_idf': tf.VarLenFeature(tf.float32),
+        'index': tf.VarLenFeature(tf.int64)
     })
     self.assertAnalyzeAndTransformResults(
-        input_data, input_schema, preprocessing_fn, expected_data,
+        input_data, input_metadata, preprocessing_fn, expected_data,
         expected_schema)
 
   def testIntToTFIDFWithoutSmoothing(self):
@@ -1895,9 +1816,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
                   {'a': [2, 6, 2, 0]},
                   {'a': [8, 10, 12, 12, 12]},
                  ]
-    input_schema = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.int64, [None],
-                              sch.ListColumnRepresentation())})
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.VarLenFeature(tf.int64)
+    })
     log_3_over_2 = 1.4054651081
     log_3 = 2.0986122886
     expected_data = [{
@@ -1910,14 +1831,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'tf_idf': [(1/5)*log_3, (1/5)*log_3, (3/5)*log_3],
         'index': [8, 10, 12]
     }]
-    expected_schema = dataset_metadata.DatasetMetadata({
-        'tf_idf': sch.ColumnSchema(tf.float32, [None],
-                                   sch.ListColumnRepresentation()),
-        'index': sch.ColumnSchema(tf.int64, [None],
-                                  sch.ListColumnRepresentation())
+    expected_schema = _metadata_from_feature_spec({
+        'tf_idf': tf.VarLenFeature(tf.float32),
+        'index': tf.VarLenFeature(tf.int64)
     })
     self.assertAnalyzeAndTransformResults(
-        input_data, input_schema, preprocessing_fn, expected_data,
+        input_data, input_metadata, preprocessing_fn, expected_data,
         expected_schema)
 
   def testTFIDFWithOOV(self):
@@ -1934,8 +1853,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [{'a': 'hello hello world'},
                   {'a': 'hello goodbye hello world'},
                   {'a': 'I like pie pie pie'}]
-    input_schema = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string)
     })
 
     # IDFs
@@ -1955,15 +1874,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'tf_idf': [(3/5)*log_4_over_2, (2/5)*log_4_over_3],
         'index': [1, 3]
     }]
-    expected_transformed_schema = dataset_metadata.DatasetMetadata({
-        'tf_idf': sch.ColumnSchema(tf.float32, [None],
-                                   sch.ListColumnRepresentation()),
-        'index': sch.ColumnSchema(tf.int64, [None],
-                                  sch.ListColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'tf_idf': tf.VarLenFeature(tf.float32),
+        'index': tf.VarLenFeature(tf.int64)
     })
     self.assertAnalyzeAndTransformResults(
-        input_data, input_schema, preprocessing_fn, expected_transformed_data,
-        expected_transformed_schema)
+        input_data, input_metadata, preprocessing_fn, expected_transformed_data,
+        expected_metadata)
 
   def testTFIDFWithNegatives(self):
     def preprocessing_fn(inputs):
@@ -1976,9 +1893,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
                   {'a': [2, 6, 2, -1]},
                   {'a': [8, 10, 12, 12, 12]},
                  ]
-    input_schema = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.int64, [None],
-                              sch.ListColumnRepresentation())})
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.VarLenFeature(tf.int64)
+    })
 
     log_4_over_2 = 1.69314718056
     log_4_over_3 = 1.28768207245
@@ -1993,15 +1910,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'tf_idf': [(1/5)*log_4_over_2, (1/5)*log_4_over_3, (3/5)*log_4_over_2],
         'index': [8, 10, 12]
     }]
-    expected_transformed_schema = dataset_metadata.DatasetMetadata({
-        'tf_idf': sch.ColumnSchema(tf.float32, [None],
-                                   sch.ListColumnRepresentation()),
-        'index': sch.ColumnSchema(tf.int64, [None],
-                                  sch.ListColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'tf_idf': tf.VarLenFeature(tf.float32),
+        'index': tf.VarLenFeature(tf.int64)
     })
     self.assertAnalyzeAndTransformResults(
-        input_data, input_schema, preprocessing_fn, expected_transformed_data,
-        expected_transformed_schema)
+        input_data, input_metadata, preprocessing_fn, expected_transformed_data,
+        expected_metadata)
 
   def testVocabularyAnalyzer(self):
     input_data = [
@@ -2021,8 +1936,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': 'hi \n ho \n'},
         {'a': ' \r'},
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string)
     })
     expected_metadata = dataset_metadata.DatasetMetadata({
         'index': sch.ColumnSchema(
@@ -2098,8 +2013,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': 'hi \n ho \n'},
         {'a': ' \r'},
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string)
     })
 
     # Assert empty string with num_oov_buckets=1
@@ -2145,10 +2060,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': 'goodbye', 'b': 'hello', 'c': '\n'},
         {'a': ' ', 'b': 'aaaaa', 'c': 'bbbbb'}
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation()),
-        'b': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation()),
-        'c': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string),
+        'b': tf.FixedLenFeature([], tf.string),
+        'c': tf.FixedLenFeature([], tf.string)
     })
     vocab_filename = 'test_compute_and_apply_vocabulary'
     expected_metadata = dataset_metadata.DatasetMetadata({
@@ -2192,10 +2107,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': 'goodbye', 'b': 'hello', 'c': '\n'},
         {'a': '_', 'b': 'aaaaa', 'c': 'bbbbb'}
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation()),
-        'b': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation()),
-        'c': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string),
+        'b': tf.FixedLenFeature([], tf.string),
+        'c': tf.FixedLenFeature([], tf.string)
     })
     vocab_filename = 'test_vocab_with_frequency'
     expected_metadata = dataset_metadata.DatasetMetadata({
@@ -2286,9 +2201,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
                   inputs['b'], vocab_filename='index_2_file')
       }
 
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation()),
-        'b': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string),
+        'b': tf.FixedLenFeature([], tf.string)
     })
 
     transform_fn_dir = os.path.join(self.get_temp_dir(), 'export_transform_fn')
@@ -2354,9 +2269,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': [['will', 'end'], ['in', 'fire']]},
         {'a': [['some', 'say'], ['in', 'ice']]},
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [2, 2],
-                              sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([2, 2], tf.string)
     })
     expected_data = [
         {'index': [[0, 1], [5, 3]]},
@@ -2380,8 +2294,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
       }
 
     input_data = [{'a': 'hello hello world'}, {'a': 'hello goodbye world'}]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string)
     })
     expected_data = [{'index': [0, 0, 1]}, {'index': [0, 2, 1]}]
     expected_metadata = dataset_metadata.DatasetMetadata({
@@ -2412,8 +2326,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': 'hello goodbye world'},
         {'a': 'hello goodbye foo'}
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string)
     })
     # Generated vocab (ordered by frequency, then value) should be:
     # ["hello", "world", "goodbye", "foo"]. After applying top_k=2, this becomes
@@ -2458,8 +2372,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': 'hello goodbye world'},
         {'a': 'hello goodbye foo'}
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string)
     })
     # Generated vocab (ordered by frequency, then value) should be:
     # ["hello", "world", "goodbye", "foo"]. After applying frequency_threshold=2
@@ -2506,8 +2420,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': 'hello goodbye world'},
         {'a': 'hello goodbye foo'}
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string)
     })
     # Generated vocab (ordered by frequency, then value) should be:
     # ["hello", "world", "goodbye", "foo"]. After applying frequency_threshold=2
@@ -2546,8 +2460,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': 'hello tarkus toccata'},
         {'a': 'hello goodbye foo'}
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string)
     })
     # Generated vocab (ordered by frequency, then value) should be:
     # ["hello", "world", "goodbye", "foo", "tarkus", "toccata"]. After applying
@@ -2583,8 +2497,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     with beam.Pipeline(runner=self._makeRunner()) as pipeline:
       input_data = pipeline | 'CreateTrainingData' >> beam.Create(
           [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}])
-      metadata = dataset_metadata.DatasetMetadata({
-          'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+      metadata = _metadata_from_feature_spec({
+          'x': tf.FixedLenFeature([], tf.float32)
       })
       with beam_impl.Context(temp_dir=self.get_temp_dir()):
         transform_fn = (
@@ -2609,8 +2523,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
       def preprocessing_fn(inputs):
         return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
 
-      metadata = dataset_metadata.DatasetMetadata({
-          'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation())
+      metadata = _metadata_from_feature_spec({
+          'x': tf.FixedLenFeature([], tf.float32)
       })
       data = pipeline | 'CreateTrainingData' >> beam.Create(
           [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}])
@@ -2649,14 +2563,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
           inputs['z'].indices, inputs['z'].values, inputs['z'].dense_shape)
       return {'x_scaled': x_scaled, 'y_sum': y_sum, 'z_copy': z_copy}
 
-    metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(
-            tf.float32, [], sch.FixedColumnRepresentation()),
-        'y': sch.ColumnSchema(
-            tf.float32, [10], sch.SparseColumnRepresentation(
-                'val_copy', [sch.SparseIndexField('idx_copy', False)])),
-        'z': sch.ColumnSchema(
-            tf.float32, [None], sch.ListColumnRepresentation()),
+    metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([], tf.float32),
+        'y': tf.SparseFeature('idx_copy', 'val_copy', tf.float32, 10),
+        'z': tf.VarLenFeature(tf.float32),
     })
     data = [
         {'x': 4, 'y': ([0, 1], [0., 1.]), 'z': [2., 4., 6.], 'P': 17},
@@ -2753,8 +2663,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       random.shuffle(test_inputs)
 
     def preprocessing_fn(inputs):
-
-      x = inputs['x']
+      x = tf.cast(inputs['x'], input_dtype)
       num_buckets = len(expected_boundaries) + 1
       if should_apply:
         if is_manual_boundaries:
@@ -2768,9 +2677,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     input_data = [{'x': [x]} for x in test_inputs]
 
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(
-            input_dtype, [1], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([1], _canonical_dtype(input_dtype))
     })
 
     # Sort the input based on value, index is used to create expected_data.
@@ -2825,13 +2733,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testQuantileBuckets(self, input_dtype):
 
     def analyzer_fn(inputs):
-      return {'q_b': tft.quantiles(inputs['x'], num_buckets=3, epsilon=0.00001)}
+      return {
+          'q_b': tft.quantiles(tf.cast(inputs['x'], input_dtype),
+                               num_buckets=3, epsilon=0.00001)
+      }
 
     # NOTE: We force 3 batches: data has 3000 elements and we request a batch
     # size of 1000.
     input_data = [{'x': [x]} for  x in range(1, 3000)]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(input_dtype, [1], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([1], _canonical_dtype(input_dtype))
     })
     # The expected data has 2 boundaries that divides the data into 3 buckets.
     expected_outputs = {'q_b': np.array([[1001, 2001]], np.float32)}
@@ -2842,7 +2753,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_outputs,
         desired_batch_size=1000)
 
-  def testQuantileBucketsWithKey(self):
+  def testQuantilesPerKey(self):
     def analyzer_fn(inputs):
       key_vocab, q_b = analyzers._quantiles_per_key(
           inputs['x'], inputs['key'], num_buckets=3, epsilon=0.00001)
@@ -2855,20 +2766,186 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # size of 10.
     input_data = [{'x': [x], 'key': 'a' if x < 50 else 'b'}
                   for x in range(1, 100)]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.int64, [1], sch.FixedColumnRepresentation()),
-        'key': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([1], tf.int64),
+        'key': tf.FixedLenFeature([], tf.string)
     })
     # The expected data has 2 boundaries that divides the data into 3 buckets.
     expected_outputs = {
         'key_vocab': np.array(['a', 'b'], np.object),
-        'q_b': np.array([[18, 34], [67, 84]], np.float32)
+        'q_b': np.array([[17, 33], [66, 83]], np.float32)
     }
     self.assertAnalyzerOutputs(
         input_data,
         input_metadata,
         analyzer_fn,
         expected_outputs,
+        desired_batch_size=10)
+
+  def testBucketizePerKey(self):
+    def preprocessing_fn(inputs):
+      x_bucketized = tft.bucketize_per_key(
+          inputs['x'], inputs['key'], num_buckets=3, epsilon=0.00001)
+      return {
+          'x_bucketized': x_bucketized
+      }
+
+    # NOTE: We force 10 batches: data has 100 elements and we request a batch
+    # size of 10.
+    input_data = [{'x': x, 'key': 'a' if x < 50 else 'b'}
+                  for x in range(1, 100)]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
+        'key': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    })
+
+    def compute_quantile(instance):
+      if instance['key'] == 'a':
+        if instance['x'] < 17:
+          return 0
+        elif instance['x'] < 33:
+          return 1
+        else:
+          return 2
+      else:
+        if instance['x'] < 66:
+          return 0
+        elif instance['x'] < 83:
+          return 1
+        else:
+          return 2
+
+    expected_data = [{'x_bucketized': compute_quantile(instance)}
+                     for instance in input_data]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'x_bucketized': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, 0, 2, True),
+            [], sch.FixedColumnRepresentation())
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata,
+        desired_batch_size=10)
+
+  def testBucketizePerKeyWithInfrequentKeys(self):
+    def preprocessing_fn(inputs):
+      x_bucketized = tft.bucketize_per_key(
+          inputs['x'], inputs['key'], num_buckets=4, epsilon=0.00001)
+      return {
+          'x_bucketized': x_bucketized
+      }
+
+    input_data = [
+        {'x': [], 'key': []},
+        {'x': [5, 6], 'key': ['a', 'a']},
+        {'x': [7], 'key': ['a']},
+        {'x': [12], 'key': ['b']},
+        {'x': [13], 'key': ['b']},
+        {'x': [15], 'key': ['c']},
+        {'x': [2], 'key': ['d']},
+        {'x': [4], 'key': ['d']},
+        {'x': [6], 'key': ['d']},
+        {'x': [8], 'key': ['d']},
+        {'x': [2], 'key': ['e']},
+        {'x': [4], 'key': ['e']},
+        {'x': [6], 'key': ['e']},
+        {'x': [8], 'key': ['e']},
+        {'x': [10], 'key': ['e']},
+        {'x': [11], 'key': ['e']},
+        {'x': [12], 'key': ['e']},
+        {'x': [13], 'key': ['e']}
+    ]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(tf.float32, [None],
+                              sch.ListColumnRepresentation()),
+        'key': sch.ColumnSchema(tf.string, [None],
+                                sch.ListColumnRepresentation())
+    })
+
+    expected_data = [
+        {'x_bucketized': []},
+        {'x_bucketized': [1, 2]},
+        {'x_bucketized': [3]},
+        {'x_bucketized': [1]},
+        {'x_bucketized': [3]},
+        {'x_bucketized': [3]},
+        {'x_bucketized': [0]},
+        {'x_bucketized': [1]},
+        {'x_bucketized': [2]},
+        {'x_bucketized': [3]},
+        {'x_bucketized': [0]},
+        {'x_bucketized': [0]},
+        {'x_bucketized': [1]},
+        {'x_bucketized': [1]},
+        {'x_bucketized': [2]},
+        {'x_bucketized': [2]},
+        {'x_bucketized': [3]},
+        {'x_bucketized': [3]}
+    ]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'x_bucketized': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, 0, 3, True),
+            [None], sch.ListColumnRepresentation())
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata,
+        desired_batch_size=10)
+
+  def testBucketizePerKeySparse(self):
+    def preprocessing_fn(inputs):
+      x_bucketized = tft.bucketize_per_key(
+          inputs['x'], inputs['key'], num_buckets=3, epsilon=0.00001)
+      return {
+          'x_bucketized': x_bucketized
+      }
+
+    # NOTE: We force 10 batches: data has 100 elements and we request a batch
+    # size of 10.
+    input_data = [{'x': [x], 'key': ['a'] if x < 50 else ['b']}
+                  for x in range(1, 100)]
+    input_metadata = dataset_metadata.DatasetMetadata({
+        'x': sch.ColumnSchema(
+            tf.float32, [None], sch.ListColumnRepresentation()),
+        'key': sch.ColumnSchema(
+            tf.string, [None], sch.ListColumnRepresentation())
+    })
+
+    def compute_quantile(instance):
+      if instance['key'][0] == 'a':
+        if instance['x'][0] < 17:
+          return 0
+        elif instance['x'][0] < 33:
+          return 1
+        else:
+          return 2
+      else:
+        if instance['x'][0] < 66:
+          return 0
+        elif instance['x'][0] < 83:
+          return 1
+        else:
+          return 2
+
+    expected_data = [{'x_bucketized': [compute_quantile(instance)]}
+                     for instance in input_data]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'x_bucketized': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, 0, 2, True),
+            [None], sch.ListColumnRepresentation())
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata,
         desired_batch_size=10)
 
   def testVocabularyWithFrequency(self):
@@ -2897,9 +2974,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
       self.assertMultiLineEqual(expected, contents)
 
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'a': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation()),
-        'b': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string),
+        'b': tf.FixedLenFeature([], tf.string)
     })
 
     tft_tmp_dir = os.path.join(self.get_temp_dir(), 'temp_dir')
@@ -2945,15 +3022,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testCovarianceTwoDimensions(self):
     def analyzer_fn(inputs):
-      covariance = tft.covariance(inputs['x'], dtype=tf.float64)
-      self.assertEqual(covariance.dtype, tf.float64)
-      return {'y': tf.cast(covariance, tf.float32)}
+      return {'y': tft.covariance(inputs['x'], dtype=tf.float32)}
 
     input_data = [{'x': x} for x in [[0, 0], [4, 0], [2, -2], [2, 2]]]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.float64,
-                              [2],
-                              sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([2], tf.float32)
     })
     expected_outputs = {'y': np.array([[2, 0], [0, 2]], np.float32)}
     self.assertAnalyzerOutputs(
@@ -2961,15 +3034,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testCovarianceOneDimension(self):
     def analyzer_fn(inputs):
-      covariance = tft.covariance(inputs['x'], dtype=tf.float64)
-      self.assertEqual(covariance.dtype, tf.float64)
-      return {'y': tf.cast(covariance, tf.float32)}
+      return {'y': tft.covariance(inputs['x'], dtype=tf.float32)}
 
     input_data = [{'x': x} for x in [[0], [2], [4], [6]]]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.float64,
-                              [1],
-                              sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([1], tf.float32)
     })
     expected_outputs = {'y': np.array([[5]], np.float32)}
     self.assertAnalyzerOutputs(
@@ -2977,16 +3046,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testPCAThreeToTwoDimensions(self):
     def analyzer_fn(inputs):
-      pca = tft.pca(inputs['x'], 2, dtype=tf.float64)
-      self.assertEqual(pca.dtype, tf.float64)
-      return {'y': tf.cast(pca, tf.float32)}
+      return {'y': tft.pca(inputs['x'], 2, dtype=tf.float32)}
 
     input_data = [{'x': x}
                   for x in  [[0, 0, 1], [4, 0, 1], [2, -1, 1], [2, 1, 1]]]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.float64,
-                              [3],
-                              sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([3], tf.float32)
     })
     expected_outputs = {'y': np.array([[1, 0], [0, 1], [0, 0]], np.float32)}
     self.assertAnalyzerOutputs(
@@ -3002,7 +3067,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       num_expected_buckets = num_buckets
 
     def preprocessing_fn(inputs):
-      x = inputs['x']
+      x = tf.cast(inputs['x'], input_dtype)
       quantiles = tft.quantiles(x, num_buckets, epsilon=0.0001)
       quantiles.set_shape([1, num_expected_buckets - 1])
       return {
@@ -3011,9 +3076,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     input_data = [{'x': [x]} for x in test_inputs]
 
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(
-            input_dtype, [1], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([1], _canonical_dtype(input_dtype))
     })
 
     # Expected data has the same size as input, one bucket per input value.

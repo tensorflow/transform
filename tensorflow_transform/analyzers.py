@@ -375,20 +375,17 @@ def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` with the same type as `x` unless it is an uint16 will be cast to
-    int32.
+    A `Tensor` with the same type as `x`.
 
   Raises:
     TypeError: If the type of `x` is not supported.
   """
-  output_dtype = x.dtype
-  if x.dtype == tf.uint16:
-    output_dtype = tf.int32
+  input_dtype = x.dtype
 
-  if x.dtype == tf.uint8 or x.dtype == tf.uint16:
+  if input_dtype == tf.uint8 or input_dtype == tf.uint16:
     x = tf.cast(x, tf.int32)
 
-  elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
+  elif input_dtype == tf.uint32 or input_dtype == tf.uint64:
     raise TypeError('Tensor type %r is not supported' % x.dtype)
 
   if isinstance(x, tf.SparseTensor):
@@ -396,8 +393,7 @@ def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
         indices=x.indices, values=0 - x.values, dense_shape=x.dense_shape)
   else:
     x = 0 - x
-
-  return tf.cast(0 - max(x, reduce_instance_dims, name), output_dtype)
+  return tf.cast(0 - max(x, reduce_instance_dims, name), input_dtype)
 
 
 def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
@@ -414,22 +410,28 @@ def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor`. Has the same type as `x` unless it is an uint16 will be cast to
-    int32.
-
+    A `Tensor`. Has the same type as `x`.
   Raises:
     TypeError: If the type of `x` is not supported.
   """
-  if x.dtype == tf.uint8 or x.dtype == tf.uint16:
+  input_dtype = x.dtype
+
+  if input_dtype == tf.uint8 or input_dtype == tf.uint16:
     x = tf.cast(x, tf.int32)
 
-  elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
+  elif input_dtype == tf.uint32 or input_dtype == tf.uint64:
     raise TypeError('Tensor type %r is not supported' % x.dtype)
 
   combine_fn = np.max
 
-  if isinstance(x, tf.SparseTensor) and reduce_instance_dims:
-    x = x.values
+  if reduce_instance_dims:
+    if isinstance(x, tf.SparseTensor):
+      x = x.values
+
+    x_batch_max = tf.reduce_max(x)
+
+    # Put back batch dimension.
+    x_batch_max = tf.expand_dims(x_batch_max, axis=0)
 
   elif isinstance(x, tf.SparseTensor):
     sparse_ones = tf.SparseTensor(
@@ -450,9 +452,15 @@ def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
     else:
       missing_value = tf.constant(x.dtype.min + 1, x.dtype)
 
-    x = tf.where(batch_has_no_values, tf.fill(tf.shape(x), missing_value), x)
+    x_batch_max = tf.where(batch_has_no_values,
+                           tf.fill(tf.shape(x), missing_value), x)
 
-  return _numeric_combine([x], combine_fn, reduce_instance_dims, name)[0]
+  else:
+    x_batch_max = tf.reduce_max(x, axis=0, keep_dims=True)
+
+  x_batch_max = tf.cast(x_batch_max, input_dtype)
+  return _numeric_combine([x_batch_max], combine_fn, reduce_instance_dims,
+                          name)[0]
 
 
 def _min_and_max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
@@ -478,8 +486,9 @@ def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   """Computes the sum of the values of a `Tensor` over the whole dataset.
 
   Args:
-    x: A `Tensor`. Its type must be floating point (float{16|32|64}), or
-        integral ([u]int{8|16|32|64}).
+    x: A `Tensor` or `SparseTensor`. Its type must be floating point
+        (float{16|32|64}),integral (int{8|16|32|64}), or
+        unsigned integral (uint{8|16})
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
@@ -488,11 +497,27 @@ def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Returns:
     A `Tensor` containing the sum. If `x` is float32 or float64, the sum will
     have the same type as `x`. If `x` is float16, the output is cast to float32.
-    If `x` is integral, the output is cast to [u]int64.
+    If `x` is integral, the output is cast to [u]int64. If `x` is sparse and
+    reduce_inst_dims is False will return 0 in place where column has no values
+    across batches.
 
   Raises:
     TypeError: If the type of `x` is not supported.
   """
+  if reduce_instance_dims:
+    if isinstance(x, tf.SparseTensor):
+      x = x.values
+    x = tf.reduce_sum(x)
+    # Put back batch dimension.
+    x = tf.expand_dims(x, axis=0)
+  elif isinstance(x, tf.SparseTensor):
+    if x.dtype == tf.uint8 or x.dtype == tf.uint16:
+      x = tf.cast(x, tf.int64)
+    elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
+      TypeError('Data type %r is not supported' % x.dtype)
+    x = tf.sparse_reduce_sum(x, axis=0, keep_dims=True)
+  else:
+    x = tf.reduce_sum(x, axis=0, keep_dims=True)
   output_dtype, sum_fn = _sum_combine_fn_and_dtype(x.dtype)
   return _numeric_combine([x], sum_fn, reduce_instance_dims, name,
                           [output_dtype])[0]
@@ -533,8 +558,8 @@ def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
   """Computes the mean of the values of a `Tensor` over the whole dataset.
 
   Args:
-    x: A `Tensor`. Its type must be floating point (float{16|32|64}), or
-        integral ([u]int{8|16|32|64}).
+    x: A `Tensor` or `SparseTensor`. Its type must be floating point
+        (float{16|32|64}), or integral ([u]int{8|16|32|64}).
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
@@ -554,22 +579,25 @@ def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
       raise TypeError('Tensor type %r is not supported' % x.dtype)
   sum_dtype, sum_fn = _sum_combine_fn_and_dtype(x.dtype)
   with tf.name_scope(name, 'mean'):
-    if isinstance(x, tf.SparseTensor):
-      if reduce_instance_dims:
-        ones_values, x_values = tf.ones_like(x.values), x.values
-      else:
-        sparse_ones = tf.SparseTensor(
-            indices=x.indices,
-            values=tf.ones_like(x.values),
-            dense_shape=x.dense_shape)
-        ones_values = tf.sparse_reduce_sum(sparse_ones, axis=0, keep_dims=True)
-        x = tf.cast(x, output_dtype)
-        ones_values = tf.cast(ones_values, output_dtype)
-        x_values = tf.sparse_reduce_sum(x, axis=0, keep_dims=True)
+    if reduce_instance_dims:
+      if isinstance(x, tf.SparseTensor):
+        x = x.values
+      x_size, x_sum = tf.reduce_sum(tf.ones_like(x)), tf.reduce_sum(x)
+      # Put back batch dimension.
+      x_size = tf.expand_dims(x_size, axis=0)
+      x_sum = tf.expand_dims(x_sum, axis=0)
+    elif isinstance(x, tf.SparseTensor):
+      sparse_ones = tf.SparseTensor(
+          indices=x.indices,
+          values=tf.ones_like(x.values),
+          dense_shape=x.dense_shape)
+      x_size = tf.sparse_reduce_sum(sparse_ones, axis=0, keep_dims=True)
+      x_sum = tf.sparse_reduce_sum(x, axis=0, keep_dims=True)
     else:
-      ones_values, x_values = tf.ones_like(x), x
+      x_size = tf.reduce_sum(tf.ones_like(x), axis=0, keep_dims=True)
+      x_sum = tf.reduce_sum(x, axis=0, keep_dims=True)
     x_count, x_sum = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
-        [ones_values, x_values],
+        [x_size, x_sum],
         sum_fn,
         reduce_instance_dims,
         output_dtypes=[sum_dtype, sum_dtype])
@@ -1005,7 +1033,8 @@ def quantiles(x, num_buckets, epsilon, name=None):
   with tf.name_scope(name, 'quantiles'):
     bucket_dtype = tf.float32
     combiner_spec = _QuantilesCombinerSpec(num_buckets, epsilon,
-                                           bucket_dtype.as_numpy_dtype)
+                                           bucket_dtype.as_numpy_dtype,
+                                           always_return_num_quantiles=False)
     quantile_boundaries = combine_analyzer(
         [x], [bucket_dtype], [(None,)], combiner_spec, 'quantiles')[0]
     return tf.expand_dims(quantile_boundaries, axis=0)
@@ -1040,7 +1069,8 @@ def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
     bucket_dtype = tf.float32
     combiner_spec = _CombinePerKeySpec(
         _QuantilesCombinerSpec(num_buckets, epsilon,
-                               bucket_dtype.as_numpy_dtype))
+                               bucket_dtype.as_numpy_dtype,
+                               always_return_num_quantiles=True))
     return combine_analyzer([key, x], [tf.string, bucket_dtype],
                             [(None,), (None, None)], combiner_spec, 'quantiles')
 

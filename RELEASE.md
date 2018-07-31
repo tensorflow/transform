@@ -4,6 +4,8 @@
 * Performance improvements for vocabulary generation when using top_k.
 * Utility to deep-copy Beam `PCollection`s was added to avoid unnecessary
   materialization.
+* Add bucketize_per_key which computes separate quantiles for each key and then
+  bucketizes each value according to the quantiles computed for its key.
 
 ## Bug Fixes and Other Changes
 * Memory reduction during vocabulary generation.
@@ -11,7 +13,10 @@
   and `tft.string_to_int`.
 * tft.unit now explicitly creates Beam PCollections and validates the
   transformed dataset by writing and then reading it from disk.
-* `tft.min`, `tft.size`, and `tft.scale_to_z_score` now support `tf.SparseTensor`.
+* `tft.min`, `tft.size`, `tft.sum`, `tft.scale_to_z_score` and `tft.bucketize`
+  now support `tf.SparseTensor`.
+* Fix to `tft.scale_to_z_score` so it no longer attempts to divide by 0 when the
+  variance is 0.
 
 ## Breaking changes
 

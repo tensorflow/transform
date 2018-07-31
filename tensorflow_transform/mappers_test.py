@@ -301,6 +301,41 @@ class MappersTest(test_util.TensorFlowTestCase):
         actual_sparse_tensor=hashed_strings,
         close_values=False)
 
+  def testLookupKey(self):
+    keys = tf.constant(['a', 'a', 'a', 'b', 'b', 'b', 'b'])
+    key_vocab = tf.constant(['a', 'b'])
+    key_indices = mappers._lookup_key(keys, key_vocab)
+    with self.test_session() as sess:
+      sess.run(tf.tables_initializer())
+      output = sess.run(key_indices)
+      self.assertAllEqual([0, 0, 0, 1, 1, 1, 1], output)
+
+  def testStackBucketBoundaries(self):
+    bucket_boundaries = tf.constant([[0, .1, .2], [.1, .2, .3]],
+                                    dtype=tf.float32)
+    combined_boundaries, offsets = mappers._combine_bucket_boundaries(
+        bucket_boundaries, epsilon=0.03)
+    with self.test_session() as sess:
+      self.assertAllClose([0, 0.1, 0.2, 0.23, 0.33, 0.43],
+                          sess.run(combined_boundaries))
+      self.assertAllClose([0, 0.13], sess.run(offsets))
+
+  def testApplyBucketsWithKeys(self):
+    values = tf.constant(
+        [-100, -0.05, 0.05, 0.25, 0.15, 100, -100, 4.3, 4.5, 4.4, 4.6, 100],
+        dtype=tf.float32)
+    keys = tf.constant(
+        ['a', 'a', 'a', 'a', 'a', 'a', 'b', 'b', 'b', 'b', 'b', 'b'])
+    key_vocab = tf.constant(['a', 'b'])
+    bucket_boundaries = tf.constant([[0, .1, .2], [4.33, 4.43, 4.53]],
+                                    dtype=tf.float32)
+    buckets = mappers._apply_buckets_with_keys(values, keys, key_vocab,
+                                               bucket_boundaries)
+    with self.test_session() as sess:
+      sess.run(tf.tables_initializer())
+      output = sess.run(buckets)
+      self.assertAllEqual([0, 0, 1, 3, 2, 3, 0, 0, 2, 1, 3, 3], output)
+
 
 if __name__ == '__main__':
   unittest.main()

@@ -708,7 +708,10 @@ def bucketize(x, num_buckets, epsilon=None, name=None):
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Args:
-    x: A numeric input `Tensor` whose values should be mapped to buckets.
+    x: A numeric input `Tensor` or `SparseTensor` whose values should be mapped
+      to buckets.  For a `SparseTensor` only non-missing values will be included
+      in the quantiles computation, and the result of `bucketize` will be a
+      `SparseTensor` with non-missing values mapped to buckets.
     num_buckets: Values in the input `x` are divided into approximately
       equal-sized buckets, where the number of buckets is num_buckets.
       This is a hint. The actual number of buckets computed can be
@@ -747,16 +750,156 @@ def bucketize(x, num_buckets, epsilon=None, name=None):
       # See explanation in args documentation for epsilon.
       epsilon = min(1.0 / num_buckets, 0.01)
 
-    bucket_boundaries = analyzers.quantiles(x, num_buckets, epsilon)
+    x_values = x.values if isinstance(x, tf.SparseTensor) else x
+    bucket_boundaries = analyzers.quantiles(x_values, num_buckets, epsilon)
     return apply_buckets(x, bucket_boundaries)
+
+
+def bucketize_per_key(x, key, num_buckets, epsilon=None, name=None):
+  """Returns a bucketized column, with a bucket index assigned to each input.
+
+  Args:
+    x: A numeric input `Tensor` or `SparseTensor` with rank 1, whose values
+      should be mapped to buckets.  `SparseTensor`s will have their non-missing
+      values mapped and missing values left as missing.
+    key: A Tensor with the same shape as `x` and dtype tf.string.  If `x` is
+      a `SparseTensor`, `key` must exactly match `x` in everything except
+      values, i.e. indices and dense_shape must be identical.
+    num_buckets: Values in the input `x` are divided into approximately
+      equal-sized buckets, where the number of buckets is num_buckets.
+    epsilon: (Optional) see `bucketize`
+    name: (Optional) A name for this operation.
+
+  Returns:
+    A `Tensor` of the same shape as `x`, with each element in the
+    returned tensor representing the bucketized value. Bucketized value is
+    in the range [0, actual_num_buckets).
+
+  Raises:
+    ValueError: If value of num_buckets is not > 1.
+  """
+  with tf.name_scope(name, 'bucketize_per_key'):
+    if not isinstance(num_buckets, int):
+      raise TypeError(
+          'num_buckets must be an int, got {}'.format(type(num_buckets)))
+
+    if num_buckets < 1:
+      raise ValueError('Invalid num_buckets {}'.format(num_buckets))
+
+    if epsilon is None:
+      # See explanation in args documentation for epsilon.
+      epsilon = min(1.0 / num_buckets, 0.01)
+
+    key_vocab, bucket_boundaries = analyzers._quantiles_per_key(  # pylint: disable=protected-access
+        x.values if isinstance(x, tf.SparseTensor) else x,
+        key.values if isinstance(key, tf.SparseTensor) else key,
+        num_buckets, epsilon)
+    return _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries)
+
+
+def _lookup_key(key, key_vocab):
+  table = lookup.index_table_from_tensor(key_vocab, default_value=-1)
+  key_indices = table.lookup(key)
+  with tf.control_dependencies([tf.assert_non_negative(key_indices)]):
+    return tf.identity(key_indices)
+
+
+def _combine_bucket_boundaries(bucket_boundaries, epsilon=0.1):
+  """Combine all boundaries into a single vector with offsets.
+
+  We offset boundaries so that this vector is increasing, and store the offsets.
+  In order to make the vector strictly increasing, we use an arbitrary epsilon
+  value.  E.g. if
+
+  bucket_boundaries = [[0, 5, 7], [2, 3, 4]]
+
+  then the second row will be offset to move the first bucket boundary from
+  2 to 7 + epsilon = 7.1.  Thus we will have:
+
+  combined_boundaries = [0, 5, 7, 7.1, 8.1, 9.1]
+  offsets = [0, 5.1]
+
+  Args:
+    bucket_boundaries: A Tensor with shape (num_keys, num_buckets) where each
+        row is increasing.
+    epsilon: The distance between values to use when stacking rows of
+        `bucket_boundaries` into a single vector.
+
+  Returns:
+    A pair (combined_boundaries, offsets) where combined_boundaries has shape
+        (num_keys * num_buckets,) and offsets has shape (num_keys,)
+  """
+  # For each row of bucket_boundaries, compute where that row should start in
+  # combined_boundaries.  This is given by taking the cumulative sum of the
+  # size of the segment in the number-line taken up by each row (including the
+  # extra padding of epsilon).
+  row_starts = tf.cumsum(
+      epsilon + bucket_boundaries[:, -1] - bucket_boundaries[:, 0],
+      exclusive=True)
+  offsets = row_starts - bucket_boundaries[:, 0]
+  combined_boundaries = tf.reshape(
+      bucket_boundaries + tf.expand_dims(offsets, axis=1), [-1])
+  return combined_boundaries, offsets
+
+
+def _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries, name=None):
+  """Bucketize a Tensor or SparseTensor where boundaries depend on the index.
+
+  Args:
+    x: A 1-d Tensor or SparseTensor.
+    key: A 1-d Tensor or SparseTensor with the same size as x.
+    key_vocab: A vocab containing all keys.  Must be exhaustive, an
+        out-of-vocab entry in `key` will cause a crash.
+    bucket_boundaries: A rank-2 Tensor of shape (key_size, num_buckets)
+    name: (Optional) A name for this operation.
+
+  Returns:
+    A tensor with the same shape as `x` and dtype tf.int64
+  """
+  with tf.name_scope(name, 'apply_buckets_with_keys'):
+    x_values = x.values if isinstance(x, tf.SparseTensor) else x
+    key_values = key.values if isinstance(key, tf.SparseTensor) else key
+
+    x_values = tf.to_float(x_values)
+    # Convert `key_values` to indices in key_vocab.  We must use apply_function
+    # since this uses a Table.
+    key_indices = api.apply_function(_lookup_key, key_values, key_vocab)
+
+    combined_boundaries, offsets = _combine_bucket_boundaries(bucket_boundaries)
+
+    # Apply the per-key offsets to x, which produces offset buckets (where the
+    # bucket offset is an integer offset).  Then remove this offset to get the
+    # actual per-key buckets for x.
+    offset_x = x_values + tf.gather(offsets, key_indices)
+    offset_buckets = tf.to_int64(quantile_ops.bucketize_with_input_boundaries(
+        offset_x, combined_boundaries))
+    num_buckets = tf.to_int64(tf.shape(bucket_boundaries)[1])
+    bucketized_values = tf.clip_by_value(
+        offset_buckets - key_indices * num_buckets, 0, num_buckets)
+
+    # Attach the relevant metadata to result, so that the corresponding
+    # output feature will have this metadata set.
+    min_value = tf.constant(0, tf.int64)
+    max_value = num_buckets
+    schema_inference.set_tensor_schema_override(
+        bucketized_values, min_value, max_value)
+
+    if isinstance(x, tf.SparseTensor):
+      result = tf.SparseTensor(x.indices, bucketized_values, x.dense_shape)
+    else:
+      result = bucketized_values
+
+    return result
 
 
 def apply_buckets(x, bucket_boundaries, name=None):
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Args:
-    x: A numeric input `Tensor` whose values should be mapped to buckets.
-    bucket_boundaries: The bucket boundaries represented as a list.
+    x: A numeric input `Tensor` or `SparseTensor` whose values should be mapped
+        to buckets.  For `SparseTensor`s, the non-missing values will be mapped
+        to buckets and missing value left missing.
+    bucket_boundaries: The bucket boundaries represented as a rank 1 `Tensor`.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -765,17 +908,24 @@ def apply_buckets(x, bucket_boundaries, name=None):
     in the range [0, len(bucket_boundaries)].
   """
   with tf.name_scope(name, 'apply_buckets'):
+    x_values = x.values if isinstance(x, tf.SparseTensor) else x
     buckets = quantile_ops.bucketize_with_input_boundaries(
-        x, boundaries=bucket_boundaries, name='assign_buckets')
+        x_values, boundaries=bucket_boundaries, name='assign_buckets')
     # Convert to int64 because int32 is not compatible with tf.Example parser.
     # See _TF_EXAMPLE_ALLOWED_TYPES in FixedColumnRepresentation()
     # in tf_metadata/dataset_schema.py
-    result = tf.to_int64(buckets)
+    bucketized_values = tf.to_int64(buckets)
 
     # Attach the relevant metadata to result, so that the corresponding
     # output feature will have this metadata set.
     min_value = tf.constant(0, tf.int64)
     max_value = tf.shape(bucket_boundaries)[1]
-    schema_inference.set_tensor_schema_override(result, min_value, max_value)
+    schema_inference.set_tensor_schema_override(
+        bucketized_values, min_value, max_value)
+
+    if isinstance(x, tf.SparseTensor):
+      result = tf.SparseTensor(x.indices, bucketized_values, x.dense_shape)
+    else:
+      result = bucketized_values
 
     return result
