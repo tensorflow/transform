@@ -28,6 +28,7 @@ from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 
 
 parameters = test_case.parameters
+named_parameters = test_case.named_parameters
 
 
 class TransformTestCase(test_case.TransformTestCase):

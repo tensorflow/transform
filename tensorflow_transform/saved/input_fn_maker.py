@@ -470,6 +470,8 @@ def build_default_transforming_serving_input_receiver_fn(
   Raises:
     ValueError: if raw_label_keys is not provided.
   """
+  from tensorflow_transform import impl_helper  # pylint: disable=g-import-not-at-top
+
   if exclude_raw_keys is None:
     raise ValueError("exclude_raw_keys must be specified.")
   exclude_raw_keys = set(exclude_raw_keys)
@@ -483,9 +485,12 @@ def build_default_transforming_serving_input_receiver_fn(
   def default_transforming_serving_input_receiver_fn():
     """Serving Input Receiver that applies transforms to raw data in Tensors."""
 
+    feature_spec = raw_metadata.schema.as_feature_spec()
+    batched_placeholders = impl_helper.feature_spec_as_batched_placeholders(
+        feature_spec)
     raw_serving_features = {
         k: v
-        for k, v in six.iteritems(raw_metadata.schema.as_batched_placeholders())
+        for k, v in six.iteritems(batched_placeholders)
         if k in include_raw_keys}
 
     sparse_serving_features = [t for t in raw_serving_features

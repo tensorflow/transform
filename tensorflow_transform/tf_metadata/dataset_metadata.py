@@ -17,11 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensorflow_transform.tf_metadata import dataset_anomalies
-from tensorflow_transform.tf_metadata import dataset_problem_statements
-from tensorflow_transform.tf_metadata import dataset_provenance
 from tensorflow_transform.tf_metadata import dataset_schema
-from tensorflow_transform.tf_metadata import dataset_statistics
 
 
 class DatasetMetadata(object):
@@ -33,19 +29,8 @@ class DatasetMetadata(object):
   may vary in the file formats they write within those directories.
   """
 
-  def __init__(
-      self,
-      schema=None,
-      provenance=None,
-      statistics=None,
-      anomalies=None,
-      problem_statements=None):
+  def __init__(self, schema=None):
     self.schema = schema or dataset_schema.Schema()
-    self._provenance = provenance or dataset_provenance.Provenance()
-    self._statistics = statistics or dataset_statistics.Statistics()
-    self._anomalies = anomalies or dataset_anomalies.Anomalies()
-    self._problem_statements = (
-        problem_statements or dataset_problem_statements.ProblemStatements())
 
   @property
   def schema(self):
@@ -56,22 +41,6 @@ class DatasetMetadata(object):
     if isinstance(value, dict):
       value = dataset_schema.Schema(value)
     self._schema = value
-
-  @property
-  def provenance(self):
-    return self._provenance
-
-  @property
-  def statistics(self):
-    return self._statistics
-
-  @property
-  def anomalies(self):
-    return self._anomalies
-
-  @property
-  def problem_statements(self):
-    return self._problem_statements
 
   def __eq__(self, other):
     if isinstance(other, self.__class__):
@@ -86,7 +55,3 @@ class DatasetMetadata(object):
 
   def merge(self, other):
     self.schema.merge(other.schema)
-    self.provenance.merge(other.provenance)
-    self.statistics.merge(other.statistics)
-    self.anomalies.merge(other.anomalies)
-    self.problem_statements.merge(other.problem_statements)

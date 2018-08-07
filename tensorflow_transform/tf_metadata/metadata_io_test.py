@@ -29,8 +29,7 @@ import unittest
 
 
 _VTEST = version_api.MetadataVersion('vTest', None,
-                                     schema_io_vtest.SchemaIOvTest(),
-                                     None, None, None, None)
+                                     schema_io_vtest.SchemaIOvTest())
 _test_versions = {'test': _VTEST}.items()  # make immutable
 
 

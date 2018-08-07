@@ -26,8 +26,7 @@ from tensorflow_transform.tf_metadata.v1_json import schema_io_v1_json
 # about.  Typically all known versions will be written, and the most recent
 # known version available in a given directory will be parsed.
 _V1_JSON = version_api.MetadataVersion('v1', 'json',
-                                       schema_io_v1_json.SchemaIOv1JSON(),
-                                       None, None, None, None)
+                                       schema_io_v1_json.SchemaIOv1JSON())
 _all_versions = {'1_JSON': _V1_JSON}.items()  # make immutable
 
 

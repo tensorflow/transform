@@ -25,10 +25,11 @@ from tensorflow_transform import analyzers
 from tensorflow_transform import api
 from tensorflow_transform import impl_helper
 from tensorflow_transform import mappers
-from tensorflow_transform.tf_metadata import dataset_schema as sch
+from tensorflow_transform.tf_metadata import dataset_schema
 import unittest
 from tensorflow.contrib import lookup
 from tensorflow.python.framework import test_util
+from tensorflow.python.ops import control_flow_ops
 
 
 class ImplHelperTest(test_util.TensorFlowTestCase):
@@ -38,8 +39,26 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     self.assertAllEqual(a.values, b.values)
     self.assertAllEqual(a.dense_shape, b.dense_shape)
 
-  def toSchema(self, feature_spec):
-    return sch.from_feature_spec(feature_spec)
+  def testFeatureSpecAsBatchedPlaceholders(self):
+    feature_spec = {
+        'fixed_len_float': tf.FixedLenFeature([2, 3], tf.float32),
+        'fixed_len_string': tf.FixedLenFeature([], tf.string),
+        'var_len_int': tf.VarLenFeature(tf.int64)
+    }
+    with tf.Graph().as_default():
+      features = impl_helper.feature_spec_as_batched_placeholders(feature_spec)
+    self.assertItemsEqual(
+        features.keys(),
+        ['fixed_len_float', 'fixed_len_string', 'var_len_int'])
+    self.assertEqual(type(features['fixed_len_float']), tf.Tensor)
+    self.assertEqual(features['fixed_len_float'].get_shape().as_list(),
+                     [None, 2, 3])
+    self.assertEqual(type(features['fixed_len_string']), tf.Tensor)
+    self.assertEqual(features['fixed_len_string'].get_shape().as_list(),
+                     [None])
+    self.assertEqual(type(features['var_len_int']), tf.SparseTensor)
+    self.assertEqual(features['var_len_int'].get_shape().as_list(),
+                     [None, None])
 
   def testMakeFeedDict(self):
     tensors = {
@@ -50,8 +69,8 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         'e': tf.sparse_placeholder(tf.string),
         'f': tf.sparse_placeholder(tf.float32)
     }
-    schema = self.toSchema({
-        'a': tf.FixedLenFeature(None, tf.int64),
+    schema = dataset_schema.from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.int64),
         'b': tf.FixedLenFeature([], tf.float32),
         'c': tf.FixedLenFeature([1], tf.float32),
         'd': tf.FixedLenFeature([2, 2], tf.float32),
@@ -146,7 +165,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         'a': tf.placeholder(tf.int64),
         'b': tf.placeholder(tf.int64)
     }
-    schema = self.toSchema({
+    schema = dataset_schema.from_feature_spec({
         'a': tf.FixedLenFeature([1], tf.int64),
         'b': tf.FixedLenFeature([1], tf.int64)
     })
@@ -160,7 +179,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     }
 
     # Invalid indices.
-    schema = self.toSchema({
+    schema = dataset_schema.from_feature_spec({
         'a': tf.SparseFeature('idx', 'val', tf.float32, 10)
     })
     instances = [{'a': ([-1, 2], [1.0, 2.0])}]
@@ -174,7 +193,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
       impl_helper.make_feed_dict(tensors, schema, instances)
 
     # Indices and values of different lengths.
-    schema = self.toSchema({
+    schema = dataset_schema.from_feature_spec({
         'a': tf.SparseFeature('idx', 'val', tf.float32, 10)
     })
     instances = [{'a': ([1, 2], [1])}]
@@ -189,8 +208,8 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
       impl_helper.make_feed_dict(tensors, schema, instances)
 
   def testMakeOutputDict(self):
-    schema = self.toSchema({
-        'a': tf.FixedLenFeature(None, tf.int64),
+    schema = dataset_schema.from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.int64),
         'b': tf.FixedLenFeature([], tf.float32),
         'c': tf.FixedLenFeature([1], tf.float32),
         'd': tf.FixedLenFeature([2, 2], tf.float32),
@@ -236,7 +255,9 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     self.assertAllEqual(instance_dicts[1]['f'][1], [40.0, 50.0])
 
   def testMakeOutputDictErrorSparse(self):
-    schema = self.toSchema({'a': tf.VarLenFeature(tf.string)})
+    schema = dataset_schema.from_feature_spec({
+        'a': tf.VarLenFeature(tf.string)
+    })
 
     # SparseTensor that cannot be represented as VarLenFeature.
     fetches = {
@@ -270,7 +291,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
       impl_helper.to_instance_dicts(schema, fetches)
 
     # SparseTensors with different batch dimension sizes.
-    schema = self.toSchema({
+    schema = dataset_schema.from_feature_spec({
         'a': tf.VarLenFeature(tf.string),
         'b': tf.VarLenFeature(tf.string)
     })
@@ -289,7 +310,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
       impl_helper.to_instance_dicts(schema, fetches)
 
   def testMakeOutputDictErrorDense(self):
-    schema = self.toSchema({
+    schema = dataset_schema.from_feature_spec({
         'a': tf.FixedLenFeature((), tf.string),
         'b': tf.FixedLenFeature((), tf.string)
     })
@@ -350,6 +371,21 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
 
     with self.assertRaisesRegexp(ValueError, 'Found table initializers'):
       impl_helper.create_phases()
+
+  def testCreatePhasesWithAssertEqual(self):
+    # Create a graph with a assert_equal, which tests the case when an op has
+    # control flow inputs that are ops (not tensors).
+    x = tf.placeholder(tf.float32, shape=(None,))
+    y = tf.placeholder(tf.float32, shape=(None,))
+    x = control_flow_ops.with_dependencies([tf.assert_equal(x, y)], x)
+    # We need to call an analyzer after the loop because only the transitive
+    # parents of analyzers are inspected by create_phases
+    mappers.scale_to_0_1(x)
+
+    phases = impl_helper.create_phases()
+    self.assertEqual(len(phases), 1)
+    #  tft.scale_to_0_1 uses a single analyzer: analyzers._min_and_max.
+    self.assertEqual(len(phases[0].analyzer_infos), 1)
 
   def testCreatePhasesWithControlFlowOpsWrappedInApplyFunction(self):
     int_placeholder = tf.placeholder(tf.int64, shape=(None,))

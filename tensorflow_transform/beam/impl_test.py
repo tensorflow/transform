@@ -25,8 +25,6 @@ import random
 import shutil
 
 
-from absl.testing import parameterized
-
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
 import numpy as np
@@ -38,14 +36,10 @@ import tensorflow_transform as tft
 from tensorflow_transform import analyzers
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam import tft_unit
-from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
-from tensorflow_transform.saved import constants
-from tensorflow_transform.saved import saved_model_loader
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema as sch
-from tensorflow_transform.tf_metadata import metadata_io
 
 from google.protobuf import text_format
 import unittest
@@ -138,6 +132,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def setUp(self):
     tf.logging.info('Starting test case: %s', self._testMethodName)
+
+    self._context = beam_impl.Context(use_deep_copy_optimization=True)
+    self._context.__enter__()
+
+  def tearDown(self):
+    self._context.__exit__()
 
   def assertMetadataEqual(self, a, b):
     # Use extra assertEqual for schemas, since full metadata assertEqual error
@@ -523,22 +523,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x': tf.FixedLenFeature([], tf.string)
     })
 
-    with beam_impl.Context(temp_dir=self.get_temp_dir(), desired_batch_size=1):
-      transform_fn = ((input_data, input_metadata)
-                      | beam_impl.AnalyzeDataset(preprocessing_fn))
-      transformed_data, transformed_metadata = (
-          ((input_data, input_metadata), transform_fn)
-          | beam_impl.TransformDataset())
-
-    self.assertDataCloseOrEqual(expected_data, transformed_data)
-    # Now that the pipeline has run, transformed_metadata.deferred_metadata
-    # should be a list containing a single DatasetMetadata with the full
-    # metadata.
-    assert len(transformed_metadata.deferred_metadata) == 1
-    transformed_metadata = transformed_metadata.deferred_metadata[0]
-    self.assertEqual(expected_metadata.schema.column_schemas,
-                     transformed_metadata.schema.column_schemas)
-    self.assertEqual(expected_metadata, transformed_metadata)
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata, preprocessing_fn, expected_data,
+        expected_metadata, desired_batch_size=1)
 
   def testAnalyzerBeforeMap(self):
     def preprocessing_fn(inputs):
@@ -1026,71 +1013,86 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {
           'x_scaled': scale_to_z_score(inputs['x']),
           'y_scaled': scale_to_z_score(inputs['y']),
+          's_scaled': scale_to_z_score(inputs['s']),
       }
 
     if elementwise:
       input_data = [{
           'x': [-4., 4],
           'y': [0., 0],
+          's': 3.,
       }, {
           'x': [10., -10.],
           'y': [0., 0],
+          's': 4.,
       }, {
           'x': [2., -2.],
           'y': [0., 0],
+          's': 4.,
       }, {
           'x': [4., -4.],
           'y': [0., 0],
+          's': 5.,
       }]
-      # Mean(x) = [3, -3], Mean(y) = [0, 0]
-      # Var(x) = (+-7^2 + 7^2 + +-1^2 + 1^2) / 4 = 25, Var(y) = 0
-      # StdDev(x) = 5, StdDev(y) = 0
+      # Mean(x) = [3, -3], Mean(y) = [0, 0], Mean(s) = 4
+      # Var(x) = (+-7^2 + 7^2 + +-1^2 + 1^2) / 4 = 25, Var(y) = 0, Var(s) = 0.5
+      # StdDev(x) = 5, StdDev(y) = 0, StdDev(s) = sqrt(0.5)
       expected_data = [
           {
               'x_scaled': [-1.4, 1.4],  # [(-4 - 3) / 5, (10 - 3) / 5]
               'y_scaled': [0., 0.],
+              's_scaled': -1. / 0.5**(0.5),  # (3 - 4) / sqrt(0.5)
           },
           {
               'x_scaled': [-.2, .2],  # [(2 - 3) / 5, (4 - 3) / 5]
               'y_scaled': [0., 0.],
+              's_scaled': 0.,
           },
           {
               'x_scaled': [1.4, -1.4],  # [(4 + 3) / 5, (-10 + 3) / 5]
               'y_scaled': [0., 0.],
+              's_scaled': 0.,
           },
           {
               'x_scaled': [.2, -.2],  # [(-2 + 3) / 5, (-4 + 3) / 5]
               'y_scaled': [0., 0.],
+              's_scaled': 1. / 0.5**(0.5),  # (5 - 4) / sqrt(0.5)
           }
       ]
     else:
       input_data = [{
           'x': [-4., 2.],
           'y': [0., 0],
+          's': 3.,
       }, {
           'x': [10., 4.],
           'y': [0., 0],
+          's': 5.,
       }]
-      # Mean(x) = 3, Mean(y) = 0
-      # Var(x) = (-7^2 + -1^2 + 7^2 + 1^2) / 4 = 25, Var(y) = 0
-      # StdDev(x) = 5, StdDev(y) = 0
+      # Mean(x) = 3, Mean(y) = 0, Mean(s) = 4
+      # Var(x) = (-7^2 + -1^2 + 7^2 + 1^2) / 4 = 25, Var(y) = 0, Var(s) = 1
+      # StdDev(x) = 5, StdDev(y) = 0, StdDev(s) = 1
       expected_data = [
           {
               'x_scaled': [-1.4, -.2],  # [(-4 - 3) / 5, (2 - 3) / 5]
               'y_scaled': [0., 0.],
+              's_scaled': -1.,
           },
           {
               'x_scaled': [1.4, .2],  # [(10 - 3) / 5, (4 - 3) / 5]
               'y_scaled': [0., 0.],
+              's_scaled': 1.,
           }
       ]
     input_metadata = _metadata_from_feature_spec({
         'x': tf.FixedLenFeature([2], _canonical_dtype(input_dtype)),
         'y': tf.FixedLenFeature([2], _canonical_dtype(input_dtype)),
+        's': tf.FixedLenFeature([], _canonical_dtype(input_dtype)),
     })
     expected_metadata = _metadata_from_feature_spec({
         'x_scaled': tf.FixedLenFeature([2], tf.float32),
         'y_scaled': tf.FixedLenFeature([2], tf.float32),
+        's_scaled': tf.FixedLenFeature([], tf.float32),
     })
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
@@ -1157,7 +1159,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
 
-  @parameterized.named_parameters(('Int64In', tf.int64, {
+  @tft_unit.named_parameters(('Int64In', tf.int64, {
       'min': tf.int64,
       'max': tf.int64,
       'sum': tf.int64,
@@ -2235,30 +2237,28 @@ class BeamImplTest(tft_unit.TransformTestCase):
             sch.IntDomain(tf.int64, -1, 1, True), [],
             sch.FixedColumnRepresentation())
     })
-    with beam.Pipeline(runner=self._makeRunner()) as pipeline:
-      _, metadata = (
-          pipeline | transform_fn_io.ReadTransformFn(transform_fn_dir))
-      self.assertMetadataEqual(metadata, expected_output_metadata)
 
-    # Finally assert that the output model contains the expected assets and
-    # the model can be loaded.
-    saved_model_path = os.path.join(transform_fn_dir, 'transform_fn')
-    saved_model = saved_model_loader.parse_saved_model(saved_model_path)
-    meta_graph_def = saved_model_loader.choose_meta_graph_def(
-        saved_model, [constants.TRANSFORM_TAG])
-    asset_tensors = saved_model_loader.get_asset_tensors(
-        saved_model_path, meta_graph_def)
+    tftransform_output = tft.TFTransformOutput(transform_fn_dir)
+    self.assertMetadataEqual(tftransform_output.transformed_metadata,
+                             expected_output_metadata)
 
-    # Assert that the assets directory contains the expected asset files
-    assets_path = os.path.join(saved_model_path, 'assets')
-    self.assertTrue(os.path.isdir(assets_path))
+    # Assert that the output model contains the expected assets.
+    assets_dir = os.path.join(transform_fn_dir, 'transform_fn/assets')
     self.assertEqual(
-        ['index_2_file', 'vocab_compute_and_apply_vocabulary_vocabulary'],
-        sorted(os.listdir(assets_path)))
+        tftransform_output.vocabulary_file_by_name('index_2_file'),
+        os.path.join(assets_dir, 'index_2_file'))
+    self.assertEqual(
+        tftransform_output.vocabulary_file_by_name(
+            'vocab_compute_and_apply_vocabulary_vocabulary'),
+        os.path.join(
+            assets_dir, 'vocab_compute_and_apply_vocabulary_vocabulary'))
 
     # Verify that the paths are actually there.
-    for asset_tensor in asset_tensors.values():
-      self.assertTrue(os.path.isfile(asset_tensor))
+    self.assertTrue(os.path.isfile(
+        tftransform_output.vocabulary_file_by_name('index_2_file')))
+    self.assertTrue(os.path.isfile(
+        tftransform_output.vocabulary_file_by_name(
+            'vocab_compute_and_apply_vocabulary_vocabulary')))
 
   def testVocabularyAnalyzerWithNDInputs(self):
     def preprocessing_fn(inputs):
@@ -2483,8 +2483,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_metadata)
 
   def testPipelineWithoutAutomaterialization(self):
-    # The tests in BaseTFTransformImplTest, when run with the beam
-    # implementation, pass lists instead of PCollections and thus invoke
+    # Other tests pass lists instead of PCollections and thus invoke
     # automaterialization where each call to a beam PTransform will implicitly
     # run its own pipeline.
     #
@@ -2515,42 +2514,43 @@ class BeamImplTest(tft_unit.TransformTestCase):
       beam_test_util.assert_that(
           transformed_eval_data, beam_test_util.equal_to(expected_data))
 
-  def testTransformFnExportAndImportRoundtrip(self):
+  @tft_unit.named_parameters(('NoDeepCopy', False), ('WithDeepCopy', True))
+  def testTransformFnExportAndImportRoundtrip(self, with_deep_copy):
     transform_fn_dir = os.path.join(self.get_temp_dir(), 'export_transform_fn')
-    metadata_dir = os.path.join(self.get_temp_dir(), 'export_metadata')
+    metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([], tf.float32)
+    })
 
     with beam.Pipeline(runner=self._makeRunner()) as pipeline:
       def preprocessing_fn(inputs):
-        return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
+        x_scaled = tft.scale_to_0_1(inputs['x'])
+        return {
+            'x_scaled': x_scaled,
+            'composed_x_scaled': inputs['x'] + tft.max(x_scaled),
+        }
 
-      metadata = _metadata_from_feature_spec({
-          'x': tf.FixedLenFeature([], tf.float32)
-      })
       data = pipeline | 'CreateTrainingData' >> beam.Create(
           [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}])
-      with beam_impl.Context(temp_dir=self.get_temp_dir()):
+      with beam_impl.Context(temp_dir=self.get_temp_dir(),
+                             use_deep_copy_optimization=with_deep_copy):
         _, transform_fn = (
             (data, metadata)
             | 'AnalyzeAndTransform'
             >> beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
 
       _ = transform_fn | transform_fn_io.WriteTransformFn(transform_fn_dir)
-      _ = metadata | beam_metadata_io.WriteMetadata(metadata_dir,
-                                                    pipeline=pipeline)
 
     with beam.Pipeline(runner=self._makeRunner()) as pipeline:
       transform_fn = pipeline | transform_fn_io.ReadTransformFn(
           transform_fn_dir)
-      # We have to load metadata in non-deferred manner to use it as an input to
-      # TransformDataset.
-      metadata = metadata_io.read_metadata(metadata_dir)
       # Run transform_columns on some eval dataset.
       eval_data = pipeline | 'CreateEvalData' >> beam.Create(
           [{'x': 6}, {'x': 3}])
       transformed_eval_data, _ = (
           ((eval_data, metadata), transform_fn)
           | 'Transform' >> beam_impl.TransformDataset())
-      expected_data = [{'x_scaled': 1.25}, {'x_scaled': 0.5}]
+      expected_data = [{'x_scaled': 0.5, 'composed_x_scaled': 4.},
+                       {'x_scaled': 1.25, 'composed_x_scaled': 7.}]
       beam_test_util.assert_that(
           transformed_eval_data, beam_test_util.equal_to(expected_data))
 
@@ -2559,6 +2559,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def preprocessing_fn(inputs):
       x_scaled = tft.scale_to_0_1(inputs['x'])
       y_sum = tf.sparse_reduce_sum(inputs['y'], axis=1)
+      y_sum.set_shape([None])
       z_copy = tf.SparseTensor(
           inputs['z'].indices, inputs['z'].values, inputs['z'].dense_shape)
       return {'x_scaled': x_scaled, 'y_sum': y_sum, 'z_copy': z_copy}
@@ -2794,9 +2795,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # size of 10.
     input_data = [{'x': x, 'key': 'a' if x < 50 else 'b'}
                   for x in range(1, 100)]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'key': sch.ColumnSchema(tf.string, [], sch.FixedColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([], tf.float32),
+        'key': tf.FixedLenFeature([], tf.string)
     })
 
     def compute_quantile(instance):
@@ -2858,11 +2859,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x': [12], 'key': ['e']},
         {'x': [13], 'key': ['e']}
     ]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(tf.float32, [None],
-                              sch.ListColumnRepresentation()),
-        'key': sch.ColumnSchema(tf.string, [None],
-                                sch.ListColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.VarLenFeature(tf.float32),
+        'key': tf.VarLenFeature(tf.string)
     })
 
     expected_data = [
@@ -2910,11 +2909,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # size of 10.
     input_data = [{'x': [x], 'key': ['a'] if x < 50 else ['b']}
                   for x in range(1, 100)]
-    input_metadata = dataset_metadata.DatasetMetadata({
-        'x': sch.ColumnSchema(
-            tf.float32, [None], sch.ListColumnRepresentation()),
-        'key': sch.ColumnSchema(
-            tf.string, [None], sch.ListColumnRepresentation())
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.VarLenFeature(tf.float32),
+        'key': tf.VarLenFeature(tf.string)
     })
 
     def compute_quantile(instance):

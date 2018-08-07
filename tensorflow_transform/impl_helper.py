@@ -29,10 +29,41 @@ from six.moves import zip  # pylint: disable=redefined-builtin
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import api
-from tensorflow_transform.tf_metadata import dataset_schema
 
 _EMPTY_ARRAY = np.array([])
 _EMPTY_ARRAY.setflags(write=False)
+
+
+def feature_spec_as_batched_placeholders(feature_spec):
+  """Returns placeholders for the given feature spec.
+
+  Returns a dictionary of placeholders with the same type and shape as calling
+  tf.parse_example with the given feature spec.
+
+  Args:
+    feature_spec: A TensorFlow feature spec.
+
+  Returns:
+    A dictionary from strings to `Tensor` or `SparseTensor`s.
+
+  Raises:
+    ValueError: If the feature spec contains feature types not supported.
+  """
+  result = {}
+  for name, spec in six.iteritems(feature_spec):
+    if spec.dtype not in (tf.int64, tf.float32, tf.string):
+      raise ValueError('{} had invalid dtype'.format(spec))
+    if isinstance(spec, tf.FixedLenFeature):
+      result[name] = tf.placeholder(spec.dtype, [None] + spec.shape, name=name)
+    elif isinstance(spec, tf.VarLenFeature):
+      result[name] = tf.sparse_placeholder(spec.dtype, [None, None], name=name)
+    elif isinstance(spec, tf.SparseFeature):
+      result[name] = tf.sparse_placeholder(spec.dtype, [None, spec.size],
+                                           name=name)
+    else:
+      raise TypeError('Feature spec {} of type {} is not supported'.format(
+          spec, type(spec)))
+  return result
 
 
 def make_feed_dict(input_tensors, schema, instances):
@@ -98,30 +129,31 @@ def make_feed_dict(input_tensors, schema, instances):
     return tf.SparseTensorValue(batch_indices, batch_values, batch_shape)
 
   result = {}
-  for key, input_tensor in six.iteritems(input_tensors):
-    representation = schema.column_schemas[key].representation
-    if isinstance(representation, dataset_schema.FixedColumnRepresentation):
-      feed_value = [instance[key] for instance in instances]
+  feature_spec = schema.as_feature_spec()
+  for name, input_tensor in six.iteritems(input_tensors):
+    spec = feature_spec[name]
+    if isinstance(spec, tf.FixedLenFeature):
+      feed_value = [instance[name] for instance in instances]
 
-    elif isinstance(representation, dataset_schema.ListColumnRepresentation):
-      values = [instance[key] for instance in instances]
-      indices = [range(len(instance[key])) for instance in instances]
-      max_index = max([len(instance[key]) for instance in instances])
+    elif isinstance(spec, tf.VarLenFeature):
+      values = [instance[name] for instance in instances]
+      indices = [range(len(instance[name])) for instance in instances]
+      max_index = max([len(instance[name]) for instance in instances])
       feed_value = make_sparse_batch(indices, values, max_index)
 
-    elif isinstance(representation, dataset_schema.SparseColumnRepresentation):
-      max_index = schema.column_schemas[key].axes[0].size
+    elif isinstance(spec, tf.SparseFeature):
+      max_index = spec.size
       indices, values = [], []
       for instance in instances:
-        instance_indices, instance_values = instance[key]
+        instance_indices, instance_values = instance[name]
         check_valid_sparse_tensor(
-            instance_indices, instance_values, max_index, key)
+            instance_indices, instance_values, max_index, name)
         indices.append(instance_indices)
         values.append(instance_values)
       feed_value = make_sparse_batch(indices, values, max_index)
 
     else:
-      raise ValueError('Invalid column {}.'.format(schema.column_schemas[key]))
+      raise ValueError('Invalid feature spec {}.'.format(spec))
     result[input_tensor] = feed_value
 
   return result
@@ -203,13 +235,14 @@ def to_instance_dicts(schema, fetches):
 
   batch_dict = {}
   batch_sizes = {}
-  for key, value in six.iteritems(fetches):
-    representation = schema.column_schemas[key].representation
-    if isinstance(representation, dataset_schema.FixedColumnRepresentation):
-      batch_dict[key] = [value[i] for i in range(value.shape[0])]
-      batch_sizes[key] = value.shape[0]
+  feature_spec = schema.as_feature_spec()
+  for name, value in six.iteritems(fetches):
+    spec = feature_spec[name]
+    if isinstance(spec, tf.FixedLenFeature):
+      batch_dict[name] = [value[i] for i in range(value.shape[0])]
+      batch_sizes[name] = value.shape[0]
 
-    elif isinstance(representation, dataset_schema.ListColumnRepresentation):
+    elif isinstance(spec, tf.VarLenFeature):
       if not isinstance(value, tf.SparseTensorValue):
         raise ValueError(
             'Expected a SparseTensorValue, but got {}'.format(value))
@@ -218,20 +251,19 @@ def to_instance_dicts(schema, fetches):
         if len(indices.shape) > 1 or np.any(indices != np.arange(len(indices))):
           raise ValueError('Encountered a SparseTensorValue that cannot be '
                            'decoded by ListColumnRepresentation.')
-      batch_dict[key] = instance_values
-      batch_sizes[key] = len(instance_values)
+      batch_dict[name] = instance_values
+      batch_sizes[name] = len(instance_values)
 
-    elif isinstance(representation, dataset_schema.SparseColumnRepresentation):
+    elif isinstance(spec, tf.SparseFeature):
       if not isinstance(value, tf.SparseTensorValue):
         raise ValueError(
             'Expected a SparseTensorValue, but got {}'.format(value))
       instance_indices, instance_values = decompose_sparse_batch(value)
-      batch_dict[key] = zip(instance_indices, instance_values)
-      batch_sizes[key] = len(instance_values)
+      batch_dict[name] = zip(instance_indices, instance_values)
+      batch_sizes[name] = len(instance_values)
 
     else:
-      raise ValueError(
-          'Unhandled column representation: {}.'.format(representation))
+      raise ValueError('Invalid feature spec {}.'.format(spec))
 
   # Check batch size is the same for each output.  Note this assumes that
   # fetches is not empty.
@@ -359,9 +391,15 @@ def create_phases():
             'apply_function when calling a function that internally uses '
             'tables or control flow ops.'.format(stack))
       stack.append(op)
-      inputs = list(op.inputs) + list(op.control_inputs)
-      memoized_levels[op] = max(
-          [_tensor_level(input_tensor) for input_tensor in inputs] + [0])
+      level = 0
+      for tensor_or_op in itertools.chain(op.inputs, op.control_inputs):
+        if isinstance(tensor_or_op, tf.Operation):
+          level = max(level, _generalized_op_level(tensor_or_op))
+        elif isinstance(tensor_or_op, tf.Tensor):
+          level = max(level, _tensor_level(tensor_or_op))
+        else:
+          assert False, 'Bad input {}'.format(tensor_or_op)
+      memoized_levels[op] = level
       assert op == stack.pop()
     return memoized_levels[op]
 

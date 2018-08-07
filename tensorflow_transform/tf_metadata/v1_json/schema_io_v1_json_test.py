@@ -32,8 +32,7 @@ from tensorflow.python.lib.io import file_io
 
 
 _V1_JSON = version_api.MetadataVersion('v1', 'json',
-                                       schema_io_v1_json.SchemaIOv1JSON(),
-                                       None, None, None, None)
+                                       schema_io_v1_json.SchemaIOv1JSON())
 _test_versions = {'1_JSON': _V1_JSON}.items()  # make immutable
 
 

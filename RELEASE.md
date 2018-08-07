@@ -4,6 +4,9 @@
 * Performance improvements for vocabulary generation when using top_k.
 * Utility to deep-copy Beam `PCollection`s was added to avoid unnecessary
   materialization.
+* Utilize deep_copy to avoid unnecessary materialization of pcollections when
+  the input data is immutable. This feature is currently off by default and can
+  be enabled by setting `tft.Context.use_deep_copy_optimization=True`.
 * Add bucketize_per_key which computes separate quantiles for each key and then
   bucketizes each value according to the quantiles computed for its key.
 
@@ -17,8 +20,13 @@
   now support `tf.SparseTensor`.
 * Fix to `tft.scale_to_z_score` so it no longer attempts to divide by 0 when the
   variance is 0.
+* Fix bug where internal graph analysis didn't handle the case where an
+  operation has control inputs that are operations (as opposed to tensors).
 
 ## Breaking changes
+* Removed Schema.as_batched_placeholders() method.
+* Removed all components of DatasetMetadata except the schema, and removed all
+  related classes and code.
 
 ## Deprecations
 

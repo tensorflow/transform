@@ -92,6 +92,7 @@ from tensorflow_transform import impl_helper
 from tensorflow_transform import schema_inference
 from tensorflow_transform.beam import analyzer_impls
 from tensorflow_transform.beam import common
+from tensorflow_transform.beam import deep_copy
 from tensorflow_transform.beam import shared
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.saved import saved_transform_io
@@ -139,12 +140,14 @@ class Context(object):
   permissions that allow both launcher and workers to access it.
   """
 
-  _State = collections.namedtuple(  # pylint: disable=invalid-name
-      '_State', [
+  class _State(
+      collections.namedtuple('_State', [
           'temp_dir',
           'desired_batch_size',
           'passthrough_keys',
-      ])
+          'use_deep_copy_optimization',
+      ])):
+    pass
 
   class _StateStack(object):
     """Stack of states for this context manager (found in thread-local storage).
@@ -160,15 +163,18 @@ class Context(object):
   def __init__(self,
                temp_dir=None,
                desired_batch_size=None,
-               passthrough_keys=None):
+               passthrough_keys=None,
+               use_deep_copy_optimization=None):
     state = getattr(self._thread_local, 'state', None)
     if not state:
       self._thread_local.state = self._StateStack()
-      self._thread_local.state.frames.append(self._State(None, None, None))
+      self._thread_local.state.frames.append(
+          self._State(*(None,) * len(self._State._fields)))
 
     self._temp_dir = temp_dir
     self._desired_batch_size = desired_batch_size
     self._passthrough_keys = passthrough_keys
+    self._use_deep_copy_optimization = use_deep_copy_optimization
 
   def __enter__(self):
     # Previous State's properties are inherited if not explicitly specified.
@@ -180,9 +186,12 @@ class Context(object):
             desired_batch_size=self._desired_batch_size
             if self._desired_batch_size is not None else
             last_frame.desired_batch_size,
-            passthrough_keys=self._passthrough_keys
-            if self._passthrough_keys is not None else
-            last_frame.passthrough_keys))
+            passthrough_keys=self._passthrough_keys if
+            self._passthrough_keys is not None else last_frame.passthrough_keys,
+            use_deep_copy_optimization=self._use_deep_copy_optimization
+            if self._use_deep_copy_optimization is not None else
+            last_frame.use_deep_copy_optimization,
+        ))
 
   def __exit__(self, *exn_info):
     self._thread_local.state.frames.pop()
@@ -212,7 +221,7 @@ class Context(object):
     """Retrieves a user set fixed batch size, None if not set."""
     state = cls._get_topmost_state_frame()
     if state is not None and state.desired_batch_size is not None:
-      tf.logging.info('Using fixed batch size: %d' % state.desired_batch_size)
+      tf.logging.info('Using fixed batch size: %d', state.desired_batch_size)
       return state.desired_batch_size
     return None
 
@@ -223,6 +232,14 @@ class Context(object):
     if state is not None and state.passthrough_keys is not None:
       return state.passthrough_keys
     return set()
+
+  @classmethod
+  def get_use_deep_copy_optimization(cls):
+    """Retrieves a user set use_deep_copy_optimization, None if not set."""
+    state = cls._get_topmost_state_frame()
+    if state is not None and state.use_deep_copy_optimization is not None:
+      return state.use_deep_copy_optimization
+    return False
 
 
 @beam.ptransform_fn
@@ -340,7 +357,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
       result = self._graph_state.session.run(
           self._graph_state.outputs, feed_dict=feed_dict)
     except Exception as e:
-      tf.logging.error('%s while applying transform function for tensors %s' %
+      tf.logging.error('%s while applying transform function for tensors %s',
                        (e, self._graph_state.outputs))
       raise
 
@@ -568,15 +585,32 @@ class _RunPhase(beam.PTransform):
   """Run analyzers for a phase and return an update to tensor_pcoll_mapping."""
 
   def __init__(self, analyzer_infos, unbound_saved_model_dir, base_temp_dir,
-               input_schema, serialized_tf_config):
+               input_schema, serialized_tf_config, phase_index):
     self._analyzer_infos = analyzer_infos
     self._unbound_saved_model_dir = unbound_saved_model_dir
     self._base_temp_dir = base_temp_dir
     self._input_schema = input_schema
     self._serialized_tf_config = serialized_tf_config
+    self._phase_index = phase_index
+
+  def _maybe_deep_copy_pcollection_inputs(self, inputs):
+    input_values, tensor_pcoll_mapping = inputs
+
+    # We don't deep_copy pcollections used for the first phase, or when
+    # the user defined `Context` disables it.
+    if self._phase_index > 0 and Context.get_use_deep_copy_optimization():
+
+      # obviates unnecessary data materialization when the input data source is
+      # safe to read more than once.
+      tf.logging.info('Deep copying inputs for: %s',
+                      [a.name for a in self._analyzer_infos])
+      input_values = deep_copy.deep_copy(input_values)
+
+    return input_values, tensor_pcoll_mapping
 
   def expand(self, inputs):
-    input_values, tensor_pcoll_mapping = inputs
+    input_values, tensor_pcoll_mapping = (
+        self._maybe_deep_copy_pcollection_inputs(inputs))
 
     saved_model_dir = (
         tensor_pcoll_mapping
@@ -687,7 +721,8 @@ class AnalyzeDataset(beam.PTransform):
     with tf.Graph().as_default() as graph:
 
       with tf.name_scope('inputs'):
-        inputs = input_schema.as_batched_placeholders()
+        feature_spec = input_schema.as_feature_spec()
+        inputs = impl_helper.feature_spec_as_batched_placeholders(feature_spec)
       # In order to avoid a bug where import_graph_def fails when the input_map
       # and return_elements of an imported graph are the same (b/34288791), we
       # avoid using the placeholder of an input column as an output of a graph.
@@ -746,7 +781,7 @@ class AnalyzeDataset(beam.PTransform):
             (input_values, tensor_pcoll_mapping)
             | 'RunPhase[{}]'.format(level) >> _RunPhase(
                 phase.analyzer_infos, unbound_saved_model_dir, base_temp_dir,
-                input_schema, serialized_tf_config))
+                input_schema, serialized_tf_config, level))
 
         # Update the mapping for all analyzers.
         tensor_pcoll_mapping.update(tensor_pcoll_mapping_update)
@@ -827,6 +862,15 @@ class AnalyzeAndTransformDataset(beam.PTransform):
     # e.g. caching the values of expensive computations done in AnalyzeDataset.
     transform_fn = (
         dataset | 'AnalyzeDataset' >> AnalyzeDataset(self._preprocessing_fn))
+
+    if Context.get_use_deep_copy_optimization():
+      data, metadata = dataset
+
+      # obviates unnecessary data materialization when the input data source is
+      # safe to read more than once.
+      tf.logging.info('Deep copying the dataset before applying transformation')
+      dataset = (deep_copy.deep_copy(data), metadata)
+
     transformed_dataset = ((dataset, transform_fn)
                            | 'TransformDataset' >> TransformDataset())
     return transformed_dataset, transform_fn
