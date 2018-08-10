@@ -22,12 +22,10 @@ import numpy as np
 import six
 import tensorflow as tf
 from tensorflow_transform import analyzers
-from tensorflow_transform import api
 from tensorflow_transform import impl_helper
 from tensorflow_transform import mappers
 from tensorflow_transform.tf_metadata import dataset_schema
 import unittest
-from tensorflow.contrib import lookup
 from tensorflow.python.framework import test_util
 from tensorflow.python.ops import control_flow_ops
 
@@ -325,16 +323,6 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
         r' dimension \d'):
       impl_helper.to_instance_dicts(schema, fetches)
 
-  def testCreatePhasesWithApplyFunctionWithOverlappingInputsAndOutputs(self):
-    string_placeholder = tf.placeholder(tf.string, shape=(None,))
-    def degenerate_function(x):
-      """A function whose input tensors and output tensors overlap."""
-      return x
-    api.apply_function(degenerate_function, string_placeholder)
-
-    phases = impl_helper.create_phases()
-    self.assertEqual(len(phases), 0)
-
   def testCreatePhasesWithMultipleLevelsOfAnalyzers(self):
     # Create graph similar to calling scale_to_0_1 except involving multiple
     # interleavings of analyzers and transforms.
@@ -342,10 +330,18 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     scaled_to_0 = float_placeholder - analyzers.min(float_placeholder)
     scaled_to_0 / analyzers.max(scaled_to_0)  # pylint: disable=expression-not-assigned
 
-    phases = impl_helper.create_phases()
+    phases = impl_helper.create_phases({'x': float_placeholder})
     self.assertEqual(len(phases), 2)
     self.assertEqual(len(phases[0].analyzer_infos), 1)
     self.assertEqual(len(phases[1].analyzer_infos), 1)
+
+  def testScaleToZScoreIsSinglePhase(self):
+    float_placeholder = tf.placeholder(tf.float32, shape=(None, 1))
+    mappers.scale_to_z_score(float_placeholder)  # pylint: disable=expression-not-assigned
+
+    phases = impl_helper.create_phases({'x': float_placeholder})
+    self.assertEqual(len(phases), 1)
+    self.assertEqual(len(phases[0].analyzer_infos), 1)
 
   def testCreatePhasesWithTable(self):
     # Create a graph with table that can only be run after the first analyzer
@@ -356,21 +352,12 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     integerized = tf.to_float(integerized)
     integerized / analyzers.max(integerized)  # pylint: disable=expression-not-assigned
 
-    phases = impl_helper.create_phases()
+    phases = impl_helper.create_phases({'x': string_placeholder})
     self.assertEqual(len(phases), 2)
     self.assertEqual(len(phases[0].analyzer_infos), 1)
     self.assertEqual(len(phases[1].analyzer_infos), 1)
     self.assertEqual(len(phases[0].table_initializers), 0)
     self.assertEqual(len(phases[1].table_initializers), 1)
-
-  def testCreatePhasesWithUnwrappedTable(self):
-    # Create a graph with a table that is not wrapped in `apply_function`.
-    string_placeholder = tf.placeholder(tf.string, shape=(None,))
-    table = lookup.index_table_from_tensor(['a', 'b'])
-    table.lookup(string_placeholder)
-
-    with self.assertRaisesRegexp(ValueError, 'Found table initializers'):
-      impl_helper.create_phases()
 
   def testCreatePhasesWithAssertEqual(self):
     # Create a graph with a assert_equal, which tests the case when an op has
@@ -382,33 +369,41 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     # parents of analyzers are inspected by create_phases
     mappers.scale_to_0_1(x)
 
-    phases = impl_helper.create_phases()
+    phases = impl_helper.create_phases({'x': x, 'y': y})
     self.assertEqual(len(phases), 1)
     #  tft.scale_to_0_1 uses a single analyzer: analyzers._min_and_max.
     self.assertEqual(len(phases[0].analyzer_infos), 1)
 
-  def testCreatePhasesWithControlFlowOpsWrappedInApplyFunction(self):
+  def testCreatePhasesWithTfCond(self):
     int_placeholder = tf.placeholder(tf.int64, shape=(None,))
-    int_placeholder_minus_10 = api.apply_function(_subtract_ten,
-                                                  int_placeholder)
-    # We need to call an analyzer after the loop because only the transitive
-    # parents of analyzers are inspected by create_phases
-    mappers.scale_to_0_1(int_placeholder_minus_10)
+    abs_int_placeholder = tf.cond(
+        tf.reduce_sum(int_placeholder) > 0,
+        lambda: int_placeholder,
+        lambda: -int_placeholder)
 
-    phases = impl_helper.create_phases()
+    # We need to call an analyzer after the tf.cond because only the transitive
+    # parents of analyzers are inspected by create_phases.
+    mappers.scale_to_0_1(abs_int_placeholder)
+
+    phases = impl_helper.create_phases({'x': int_placeholder})
     self.assertEqual(len(phases), 1)
-    #  tft.scale_to_0_1 uses a single analyzer: analyzers._min_and_max.
+
+    # tft.scale_to_0_1 uses a single analyzer: analyzers._min_and_max.
     self.assertEqual(len(phases[0].analyzer_infos), 1)
 
-  def testCreatePhasesWithControlFlowOpsNotWrappedInApplyFunction(self):
+  def testCreatePhasesWithTfWhile(self):
     int_placeholder = tf.placeholder(tf.int64, shape=(None,))
-    int_placeholder_minus_10 = _subtract_ten(int_placeholder)
+    int_placeholder_minus_10 = _subtract_ten_with_tf_while(int_placeholder)
+
     # We need to call an analyzer after the loop because only the transitive
-    # parents of analyzers are inspected by create_phases
+    # parents of analyzers are inspected by create_phases.
     mappers.scale_to_0_1(int_placeholder_minus_10)
 
-    with self.assertRaisesRegexp(ValueError, 'Cycle detected'):
-      impl_helper.create_phases()
+    phases = impl_helper.create_phases({'x': int_placeholder})
+    self.assertEqual(len(phases), 1)
+
+    # tft.scale_to_0_1 uses a single analyzer: analyzers._min_and_max.
+    self.assertEqual(len(phases[0].analyzer_infos), 1)
 
   def testCopyTensorsCopiesProducesDifferentTensors(self):
     tensors = {
@@ -452,7 +447,7 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
                           sparse_value.dense_shape)
 
 
-def _subtract_ten(x):
+def _subtract_ten_with_tf_while(x):
   """Subtracts 10 from x using control flow ops.
 
   This function is equivalent to "x - 10" but uses a tf.while_loop, in order

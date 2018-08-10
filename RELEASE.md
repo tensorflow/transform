@@ -14,7 +14,7 @@
 * Memory reduction during vocabulary generation.
 * Clarify documentation on return values from `tft.compute_and_apply_vocabulary`
   and `tft.string_to_int`.
-* tft.unit now explicitly creates Beam PCollections and validates the
+* `tft.unit` now explicitly creates Beam PCollections and validates the
   transformed dataset by writing and then reading it from disk.
 * `tft.min`, `tft.size`, `tft.sum`, `tft.scale_to_z_score` and `tft.bucketize`
   now support `tf.SparseTensor`.
@@ -22,13 +22,25 @@
   variance is 0.
 * Fix bug where internal graph analysis didn't handle the case where an
   operation has control inputs that are operations (as opposed to tensors).
+* `tft.scale_to_z_score` is now implemented with a single phase for the dense
+  tensor case.
+* `tft.sparse_tensor_to_dense_with_shape` added which allows densifying a
+  `SparseTensor` while specifying the resulting `Tensor`'s shape.
 
 ## Breaking changes
 * Removed Schema.as_batched_placeholders() method.
 * Removed all components of DatasetMetadata except the schema, and removed all
   related classes and code.
+* Removed the merge method for DatasetMetadata and related classes.
+* read_metadata can now only read from a single metadata directory and
+  read_metadata and write_metadata no longer accept the `versions`  parameter.
+  They now only read/write the JSON format.
 
 ## Deprecations
+* `apply_function` is no longer needed and is deprecated.
+  `apply_function(fn, *args)` is now equivalent to `fn(*args)`.  tf.Transform
+  is able to handle while loops and tables without the user wrapping the
+  function call in `apply_function`.
 
 # Release 0.8.0
 
@@ -78,10 +90,10 @@
   `TFTransformOutput.TRANSFORM_FN_DIR` respectively.
 * `partially_apply_saved_transform` is deprecated, users should use the
   `transform_raw_features` method of `TFTransformOuptut` instead.  These differ
-   in that `partially_apply_saved_transform` can also be used to return both the
-   input placeholders and the outputs.  But users do not need this functionality
-   because they will typically create the input placeholders themselves based
-   on the feature spec.
+  in that `partially_apply_saved_transform` can also be used to return both the
+  input placeholders and the outputs.  But users do not need this functionality
+  because they will typically create the input placeholders themselves based
+  on the feature spec.
 * Renamed `tft.uniques` to `tft.vocabulary`, `tft.string_to_int` to
   `tft.compute_and_apply_vocabulary` and `tft.apply_vocab` to
   `tft.apply_vocabulary`.  The existing methods will remain for a few more minor

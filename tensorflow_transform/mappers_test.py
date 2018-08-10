@@ -336,6 +336,12 @@ class MappersTest(test_util.TensorFlowTestCase):
       output = sess.run(buckets)
       self.assertAllEqual([0, 0, 1, 3, 2, 3, 0, 0, 2, 1, 3, 3], output)
 
+  def testSparseTensorToDenseWithShape(self):
+    with tf.Graph().as_default():
+      sparse = tf.sparse_placeholder(tf.int64, shape=[None, None])
+      dense = mappers.sparse_tensor_to_dense_with_shape(sparse, [None, 5])
+      self.assertAllEqual(dense.get_shape().as_list(), [None, 5])
+
 
 if __name__ == '__main__':
   unittest.main()

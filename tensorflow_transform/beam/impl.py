@@ -87,7 +87,6 @@ import numpy as np
 import six
 import tensorflow as tf
 from tensorflow_transform import analyzers as tft_analyzers
-from tensorflow_transform import api as tft_api
 from tensorflow_transform import impl_helper
 from tensorflow_transform import schema_inference
 from tensorflow_transform.beam import analyzer_impls
@@ -426,7 +425,6 @@ def _write_saved_transform(graph, inputs, outputs, saved_model_dir):
     # warnings.
     # pylint: disable=protected-access
     collections_blacklist = [
-        tft_api.FUNCTION_APPLICATION_COLLECTION,
         tft_analyzers.ANALYZER_COLLECTION
     ]
     # pylint: enable=protected-access
@@ -746,7 +744,7 @@ class AnalyzeDataset(beam.PTransform):
       # NOTE: it's important that create_phases is called directly after
       # preprocessing_fn, because we later mutate the graph's TABLE_INITIALIZERS
       # collection which would break the logic in create_phases.
-      phases = impl_helper.create_phases()
+      phases = impl_helper.create_phases(inputs)
 
       # Iterate through levels.  tensor_pcoll_mapping is a mapping from tensor
       # names to singleton PCollections containing a _TensorValue.  We compute

@@ -52,6 +52,3 @@ class DatasetMetadata(object):
 
   def __repr__(self):
     return self.__dict__.__repr__()
-
-  def merge(self, other):
-    self.schema.merge(other.schema)

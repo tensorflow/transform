@@ -307,11 +307,8 @@ def preprocessing_fn(inputs):
     outputs[key] = tft.compute_and_apply_vocabulary(inputs[key])
 
   # For the label column we provide the mapping from string to index.
-  def convert_label(label):
-    table = lookup.string_to_index_table_from_tensor(['>50K', '<=50K'])
-    return table.lookup(label)
-  outputs[LABEL_COLUMN] = tft.apply_function(
-      convert_label, inputs[LABEL_COLUMN])
+  table = lookup.string_to_index_table_from_tensor(['>50K', '<=50K'])
+  outputs[LABEL_COLUMN] = table.lookup(inputs[LABEL_COLUMN])
 
   return outputs
 ```
@@ -319,11 +316,7 @@ def preprocessing_fn(inputs):
 One difference from the previous example is the label column manually specifies
 the mapping from the string to an index. So `'>50'` is mapped to `0` and
 `'<=50K'` is mapped to `1` because it's useful to know which index in the
-trained model corresponds to which label. The `convert_label` function is not
-applied directly to its arguments because `tf.Transform` needs to know about
-the `Table` defined in `convert_label`. That is, `convert_label` is not a
-pure function but does table initialization. For these functions, use
-`tft.apply_function` to wrap the function application.
+trained model corresponds to which label.
 
 The `raw_data` variable represents a `PCollection` that contains data in the
 same format as the list `raw_data` (from the previous example), using the same

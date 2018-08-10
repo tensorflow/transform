@@ -26,7 +26,6 @@ from __future__ import print_function
 
 import tensorflow as tf
 
-from tensorflow_transform import api
 from tensorflow.contrib.session_bundle import bundle_shim
 
 
@@ -128,35 +127,23 @@ def apply_saved_model(model_dir, inputs, tags, signature_name=None,
       loaded_graph.as_graph_def(),
       output_op_names + loaded_initializer_op_names)
 
-  def import_graph_and_return_output_tensors():
-    """Imports the model's constant-converted GraphDef into the default graph.
+  returned_elements = tf.import_graph_def(
+      constant_graph_def,
+      input_map=input_name_to_tensor_map,
+      return_elements=output_tensor_names + loaded_initializer_op_names)
+  returned_output_tensors = returned_elements[:len(output_tensor_names)]
+  returned_initializer_ops = returned_elements[len(output_tensor_names):]
 
-    We must also copy the table initializers from the model's graph into the
-    composed graph. As a result, this function must be wrapped in
-    api.apply_function().
+  for initializer_op in returned_initializer_ops:
+    tf.add_to_collection(
+        tf.GraphKeys.TABLE_INITIALIZERS,
+        initializer_op)
 
-    Returns:
-      The model's output tensor(s).
-    """
-    returned_elements = tf.import_graph_def(
-        constant_graph_def,
-        input_map=input_name_to_tensor_map,
-        return_elements=output_tensor_names + loaded_initializer_op_names)
-    returned_output_tensors = returned_elements[:len(output_tensor_names)]
-    returned_initializer_ops = returned_elements[len(output_tensor_names):]
-
-    for initializer_op in returned_initializer_ops:
-      tf.add_to_collection(
-          tf.GraphKeys.TABLE_INITIALIZERS,
-          initializer_op)
-
-    if output_single_tensor:
-      assert len(output_tensor_names) == 1
-      return returned_output_tensors[0]
-    else:
-      return returned_output_tensors
-
-  return api.apply_function(import_graph_and_return_output_tensors)
+  if output_single_tensor:
+    assert len(output_tensor_names) == 1
+    return returned_output_tensors[0]
+  else:
+    return returned_output_tensors
 
 
 def apply_function_with_checkpoint(fn, inputs, checkpoint, include=None,

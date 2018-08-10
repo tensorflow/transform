@@ -28,7 +28,7 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 import tensorflow as tf
 from tensorflow_transform import analyzers
-from tensorflow_transform import api
+from tensorflow_transform import graph_tools
 
 _EMPTY_ARRAY = np.array([])
 _EMPTY_ARRAY.setflags(write=False)
@@ -313,7 +313,7 @@ Phase = collections.namedtuple(
     'Phase', ['analyzer_infos', 'table_initializers'])
 
 
-def create_phases():
+def create_phases(inputs):
   """Returns a list of `Phase`s describing how to execute the pipeline.
 
   The default graph is assumed to contain some `Analyzer`s which must be
@@ -354,116 +354,68 @@ def create_phases():
   are also needed to collect table initializers to determine which phase a table
   initializer is ready to run in.
 
+  Args:
+    inputs: A dict whose keys are strings and values are `Tensor` or
+        `SparseTensor`s.
+
   Returns:
     A list of `Phase`s.
 
   Raises:
     ValueError: if the graph cannot be analyzed.
   """
-  # Construct map from tensor to generalized parent op.  We start with the map
-  # from each tensor to the `Operation` producing it, then override any `Tensor`
-  # that is the output of a `Analyzer` or `FunctionApplication` to point to that
-  # `Analyzer` or `FunctionApplication`.
-  parent_op_map = {}
-  for op in (tf.get_default_graph().get_operations() +
-             tf.get_collection(api.FUNCTION_APPLICATION_COLLECTION) +
-             tf.get_collection(analyzers.ANALYZER_COLLECTION)):
-    for tensor in op.outputs:
-      parent_op_map[tensor] = op
+  feed_tensors = inputs.values()
 
-  def _tensor_level(tensor):
-    parent_op = parent_op_map[tensor]
-    if isinstance(parent_op, analyzers.Analyzer):
-      return _generalized_op_level(parent_op) + 1
-    else:
-      return _generalized_op_level(parent_op)
-
-  memoized_levels = {}
-  stack = []
-  def _generalized_op_level(op):
-    """Get the level of a tf.Operation, FunctionApplication or Analyzer."""
-    if op not in memoized_levels:
-      if op in stack:
-        # Append op to stack so cycle appears in error message.
-        stack.append(op)
-        raise ValueError(
-            'Cycle detected: {}.  Cycles may arise by failing to call '
-            'apply_function when calling a function that internally uses '
-            'tables or control flow ops.'.format(stack))
-      stack.append(op)
-      level = 0
-      for tensor_or_op in itertools.chain(op.inputs, op.control_inputs):
-        if isinstance(tensor_or_op, tf.Operation):
-          level = max(level, _generalized_op_level(tensor_or_op))
-        elif isinstance(tensor_or_op, tf.Tensor):
-          level = max(level, _tensor_level(tensor_or_op))
-        else:
-          assert False, 'Bad input {}'.format(tensor_or_op)
-      memoized_levels[op] = level
-      assert op == stack.pop()
-    return memoized_levels[op]
-
-  analyzers_by_level = collections.defaultdict(list)
-  for analyzer in tf.get_collection(analyzers.ANALYZER_COLLECTION):
-    analyzers_by_level[_generalized_op_level(analyzer)].append(analyzer)
-
-  table_initializers_by_level = collections.defaultdict(list)
-  all_table_initializers = set()
-  for m in tf.get_collection(api.FUNCTION_APPLICATION_COLLECTION):
-    table_initializers_by_level[_generalized_op_level(m)].extend(
-        m.table_initializers)
-    all_table_initializers.update(m.table_initializers)
-  expected_table_initializers = set(
-      tf.get_collection(tf.GraphKeys.TABLE_INITIALIZERS))
-  if expected_table_initializers - all_table_initializers:
-    raise ValueError(
-        'Found table initializers ({}) that were not associated with any '
-        'FunctionApplication.  Use tft.apply_function to wrap any code '
-        'that generates tables.'.format(
-            expected_table_initializers - all_table_initializers))
-  if all_table_initializers - expected_table_initializers:
-    raise ValueError(
-        'The operations ({}) were registered as table initializers during '
-        'a call to apply_function, but were not in the TABLE_INITIALIZERS '
-        'collection.  This may be a bug in tf.Transform, or you may have '
-        'cleared or altered this collection'.format(
-            all_table_initializers - expected_table_initializers))
+  remaining_analyzers = tf.get_collection(analyzers.ANALYZER_COLLECTION)
+  analyzer_output_ready = {}
+  for analyzer in remaining_analyzers:
+    for tensor in analyzer.outputs:
+      analyzer_output_ready[tensor] = False
 
   # Construct `AnalyzerInfo`s, removing any tensors that are analyzer outputs
   # from the ASSET_FILEPATHS collection.  These tensors will be replaced and
   # the replacements will be added to the ASSET_FILEPATHS.  Setting
   # AnalyzerOutputInfo.is_asset instructs the implementation to do this.
-  num_levels = len(analyzers_by_level)
-  assert len(table_initializers_by_level) <= num_levels + 1
   asset_filepaths_collection = tf.get_collection_ref(
       tf.GraphKeys.ASSET_FILEPATHS)
-  asset_filepaths_set = set(asset_filepaths_collection)
-  result = []
-  for level in range(num_levels):
-    # For each level, collect the analyzers in this level into a `Phase`.  Note
-    # that by construction each level should have at least one analyzer, hence
-    # the assertion below.
-    assert level in analyzers_by_level
+  asset_filepaths = collections.OrderedDict(
+      (tensor, True)
+      for tensor in tf.get_collection(tf.GraphKeys.ASSET_FILEPATHS))
+
+  phases = []
+  while remaining_analyzers:
+    analyzer_inputs = []
+    for analyzer in remaining_analyzers:
+      analyzer_inputs.extend(analyzer.inputs)
+    ready_init_ops, ready_analyzer_inputs = (
+        graph_tools.determine_ready_tensors_and_table_initializers(
+            analyzer_inputs, feed_tensors, analyzer_output_ready))
+    ready_analyzer_inputs = set(ready_analyzer_inputs)
+
+    new_remaining_analyzers = []
     analyzer_infos = []
-    for analyzer in analyzers_by_level[level]:
-      # For each analyzer in the level, construct an `AnalyzerInfo` representing
-      # the information needed to run the analyzer and insert its output back
-      # into the graph. We remove outputs from ASSET_FILEPATHS collection since
-      # outputs of an analyzer are placeholders.  If the placeholder is in the
-      # ASSET_FILEPATHS collection then we set is_asset to True which will
-      # result in the replacement being added to the ASSET_FILEPATHS collection.
-      input_tensor_names = [tensor.name for tensor in analyzer.inputs]
-      output_infos = [
-          AnalyzerOutputInfo(tensor.name, tensor in asset_filepaths_set)
-          for tensor in analyzer.outputs]
-      asset_filepaths_set.difference_update(analyzer.outputs)
-      analyzer_infos.append(AnalyzerInfo(
-          analyzer.name, input_tensor_names, analyzer.spec, output_infos))
-    result.append(Phase(analyzer_infos, table_initializers_by_level[level]))
+    for analyzer in remaining_analyzers:
+      if all(tensor in ready_analyzer_inputs for tensor in analyzer.inputs):
+        input_tensor_names = [tensor.name for tensor in analyzer.inputs]
+        output_infos = [
+            AnalyzerOutputInfo(tensor.name, asset_filepaths.pop(tensor, False))
+            for tensor in analyzer.outputs]
+        analyzer_infos.append(AnalyzerInfo(
+            analyzer.name, input_tensor_names, analyzer.spec, output_infos))
+
+        for tensor in analyzer.outputs:
+          analyzer_output_ready[tensor] = True
+      else:
+        new_remaining_analyzers.append(analyzer)
+    phases.append(Phase(analyzer_infos, ready_init_ops))
+
+    assert len(new_remaining_analyzers) < len(remaining_analyzers)
+    remaining_analyzers = new_remaining_analyzers
 
   del asset_filepaths_collection[:]
-  asset_filepaths_collection.extend(asset_filepaths_set)
-  return result
+  asset_filepaths_collection.extend(six.iterkeys(asset_filepaths))
+
+  return phases
 
 
 def copy_tensors(tensors):

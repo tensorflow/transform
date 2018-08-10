@@ -11,7 +11,45 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Helper functions built on top of TF.Transform."""
+"""The core public API of TFTransform.  Provide functions to transform tensors.
+
+The core tf.Transform API requires a user to construct a
+"preprocessing function" that accepts and returns `Tensor`s.  This function is
+built by composing regular functions built from TensorFlow ops, as well as
+special functions we refer to as `Analyzer`s.  `Analyzer`s behave similarly to
+TensorFlow ops but require a full pass over the whole dataset to compute their
+output value.  The analyzers are defined in analyzers.py, while this module
+provides helper functions that call analyzers and then use the results of the
+anaylzers to transform the original data.
+
+The user-defined preprocessing function should accept and return `Tensor`s that
+are batches from the dataset, whose batch size may vary.  For example the
+following preprocessing function centers the input 'x' while returning 'y'
+unchanged.
+
+import tensorflow_transform as tft
+
+def preprocessing_fn(inputs):
+  x = inputs['x']
+  y = inputs['y']
+
+  # Apply the `mean` analyzer to obtain the mean x.
+  x_mean = tft.mean(x)
+
+  # Subtract the mean.
+  x_centered = x - mean
+
+  # Return a new dictionary containing x_centered, and y unchanged
+  return {
+    'x_centered': x_centered,
+    'y': y
+  }
+
+This user-defined function then must be run using an implementation based on
+some distributed computation framework.  The canonical implementation uses
+Apache Beam as the underlying framework.  See beam/impl.py for how to use the
+Beam implementation.
+"""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -20,12 +58,35 @@ from __future__ import print_function
 
 import tensorflow as tf
 from tensorflow_transform import analyzers
-from tensorflow_transform import api
 from tensorflow_transform import schema_inference
 
 from tensorflow.contrib import lookup
 from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
 from tensorflow.python.util import deprecation
+
+
+def sparse_tensor_to_dense_with_shape(x, shape):
+  """Converts a `SparseTensor` into a dense tensor and sets its shape.
+
+  Args:
+    x: A `SparseTensor`.
+    shape: The desired shape of the densified `Tensor`.
+
+  Returns:
+    A `Tensor` with the desired shape.
+
+  Raises:
+    ValueError: If input is not a `SparseTensor`.
+  """
+  if not isinstance(x, tf.SparseTensor):
+    raise ValueError('input must be a SparseTensor')
+  new_dense_shape = [
+      x.dense_shape[i] if size is None else size
+      for i, size in enumerate(shape)
+  ]
+  dense = tf.sparse_to_dense(x.indices, new_dense_shape, x.values)
+  dense.set_shape(shape)
+  return dense
 
 
 def scale_by_min_max(x,
@@ -467,20 +528,15 @@ def apply_vocabulary(x,
     starting from zero, and string value not in the vocabulary is
     assigned default_value.
   """
-
-  def _apply_vocabulary(y, deferred_vocab_filename_tensor):
-    table = lookup.index_table_from_file(
-        deferred_vocab_filename_tensor,
-        num_oov_buckets=num_oov_buckets,
-        default_value=default_value)
-    table_size = table.size()
-    return table.lookup(y), table_size
-
   with tf.name_scope(name, 'apply_vocab'):
-    lookup_fn = lookup_fn or _apply_vocabulary
-
-    result, table_size = api.apply_function(
-        lookup_fn, x, deferred_vocab_filename_tensor)
+    if lookup_fn:
+      result, table_size = lookup_fn(x, deferred_vocab_filename_tensor)
+    else:
+      table = lookup.index_table_from_file(deferred_vocab_filename_tensor,
+                                           num_oov_buckets=num_oov_buckets,
+                                           default_value=default_value)
+      table_size = table.size()
+      result = table.lookup(x)
 
     # Specify schema overrides which will override the values in the schema
     # with the min and max values, which are deferred as they are only known
@@ -868,7 +924,7 @@ def _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries, name=None):
     x_values = tf.to_float(x_values)
     # Convert `key_values` to indices in key_vocab.  We must use apply_function
     # since this uses a Table.
-    key_indices = api.apply_function(_lookup_key, key_values, key_vocab)
+    key_indices = _lookup_key(key_values, key_vocab)
 
     combined_boundaries, offsets = _combine_bucket_boundaries(bucket_boundaries)
 

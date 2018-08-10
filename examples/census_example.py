@@ -144,10 +144,8 @@ def transform_data(train_data_file, test_data_file, working_dir):
       tft.vocabulary(inputs[key], vocab_filename=key)
 
     # For the label column we provide the mapping from string to index.
-    def convert_label(label):
-      table = tf.contrib.lookup.index_table_from_tensor(['>50K', '<=50K'])
-      return table.lookup(label)
-    outputs[LABEL_KEY] = tft.apply_function(convert_label, outputs[LABEL_KEY])
+    table = tf.contrib.lookup.index_table_from_tensor(['>50K', '<=50K'])
+    outputs[LABEL_KEY] = table.lookup(outputs[LABEL_KEY])
 
     return outputs
 

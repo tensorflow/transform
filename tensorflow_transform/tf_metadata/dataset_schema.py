@@ -76,14 +76,6 @@ class Schema(object):
   def __getitem__(self, index):
     return self.column_schemas[index]
 
-  def merge(self, other):
-    # possible argument: resolution strategy (error or pick first and warn?)
-    for key, value in six.iteritems(other.column_schemas):
-      if key in self.column_schemas:
-        self.column_schemas[key].merge(value)
-      else:
-        self.column_schemas[key] = value
-
 
   def as_feature_spec(self):
     """Returns a representation of this Schema as a feature spec.
@@ -182,9 +174,6 @@ class ColumnSchema(object):
       if axis.size is None:
         return False
     return True
-
-  def merge(self, other):
-    raise NotImplementedError('Merge not implemented yet.')
 
 
 class Domain(object):

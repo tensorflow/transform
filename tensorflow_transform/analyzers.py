@@ -28,6 +28,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import re
 
 import numpy as np
@@ -266,20 +267,15 @@ class _NumPyCombinerSpec(CombinerSpec):
     output_dtypes: The numpy dtype to cast each output to.
   """
 
-  def __init__(self, fn, reduce_instance_dims, output_dtypes):
+  def __init__(self, fn, output_dtypes):
     self._fn = fn
-    self._reduce_instance_dims = reduce_instance_dims
     self._output_dtypes = output_dtypes
 
   def create_accumulator(self):
     return None
 
   def add_input(self, accumulator, batch_values):
-    if self._reduce_instance_dims:
-      reduced_values = [self._fn(batch_value) for batch_value in batch_values]
-    else:
-      reduced_values = [self._fn(batch_value, axis=0)
-                        for batch_value in batch_values]
+    reduced_values = batch_values
     if accumulator is None:
       return reduced_values
     else:
@@ -316,6 +312,13 @@ class _NumPyCombinerSpec(CombinerSpec):
     return len(self._output_dtypes)
 
 
+def _get_output_shape_from_input(input_x):
+  # When reducing over batch dimensions, with known shape, the result will be
+  # the same shape as the input, but without the batch.  If reducing over batch
+  # dimensions, with unknown shape, the result will also have unknown shape.
+  return input_x.shape.as_list()[1:] if input_x.shape.dims is not None else None
+
+
 def _numeric_combine(inputs,
                      fn,
                      reduce_instance_dims=True,
@@ -349,13 +352,9 @@ def _numeric_combine(inputs,
     # If reducing over all dimensions, result is scalar.
     shapes = [() for _ in inputs]
   else:
-    # If reducing over batch dimensions, with known shape, the result will be
-    # the same shape as the input, but without the batch.  If reducing over
-    # batch dimensions, with unknown shape, the result will also have unknown
-    # shape.
-    shapes = [x.shape.as_list()[1:] if x.shape.dims is not None else None
-              for x in inputs]
-  spec = _NumPyCombinerSpec(fn, reduce_instance_dims,
+    # Reducing over batch dimensions.
+    shapes = [x.get_shape() for x in inputs]
+  spec = _NumPyCombinerSpec(fn,
                             [dtype.as_numpy_dtype for dtype in output_dtypes])
   return combine_analyzer(inputs, output_dtypes, shapes, spec, name
                           if name is not None else fn.__name__)
@@ -380,20 +379,7 @@ def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Raises:
     TypeError: If the type of `x` is not supported.
   """
-  input_dtype = x.dtype
-
-  if input_dtype == tf.uint8 or input_dtype == tf.uint16:
-    x = tf.cast(x, tf.int32)
-
-  elif input_dtype == tf.uint32 or input_dtype == tf.uint64:
-    raise TypeError('Tensor type %r is not supported' % x.dtype)
-
-  if isinstance(x, tf.SparseTensor):
-    x = tf.SparseTensor(
-        indices=x.indices, values=0 - x.values, dense_shape=x.dense_shape)
-  else:
-    x = 0 - x
-  return tf.cast(0 - max(x, reduce_instance_dims, name), input_dtype)
+  return _min_and_max(x, reduce_instance_dims, name)[0]
 
 
 def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
@@ -414,61 +400,109 @@ def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Raises:
     TypeError: If the type of `x` is not supported.
   """
-  input_dtype = x.dtype
+  return _min_and_max(x, reduce_instance_dims, name)[1]
 
-  if input_dtype == tf.uint8 or input_dtype == tf.uint16:
-    x = tf.cast(x, tf.int32)
 
-  elif input_dtype == tf.uint32 or input_dtype == tf.uint64:
-    raise TypeError('Tensor type %r is not supported' % x.dtype)
+def _sparse_minus_reduce_min_and_reduce_max(x):
+  """Computes the -min and max of a tensor x.
 
-  combine_fn = np.max
+  It differs from sparse_reduce_max in that sparse_reduce_max returns 0 when all
+  elements are missing along axis 0.
+  We replace the 0 with NaN when x's dtype is float and dtype.min+1 when it's
+  int.
 
-  if reduce_instance_dims:
-    if isinstance(x, tf.SparseTensor):
-      x = x.values
+  Args:
+    x: A `SparseTensor`.
 
-    x_batch_max = tf.reduce_max(x)
+  Returns:
+    Two `Tensors' which are the -min and max.
 
-    # Put back batch dimension.
-    x_batch_max = tf.expand_dims(x_batch_max, axis=0)
+  Raises:
+    TypeError: If the type of `x` is not supported.
+  """
+  if not isinstance(x, tf.SparseTensor):
+    raise TypeError('Expected a SparseTensor, but got %r' % x)
+  minus_x = tf.SparseTensor(
+      indices=x.indices, values=0 - x.values, dense_shape=x.dense_shape)
+  sparse_ones = tf.SparseTensor(
+      indices=x.indices,
+      values=tf.ones_like(x.values),
+      dense_shape=x.dense_shape)
+  ones_values = tf.sparse_reduce_sum(sparse_ones, axis=0)
 
-  elif isinstance(x, tf.SparseTensor):
-    sparse_ones = tf.SparseTensor(
-        indices=x.indices,
-        values=tf.ones_like(x.values),
-        dense_shape=x.dense_shape)
-    ones_values = tf.sparse_reduce_sum(sparse_ones, axis=0, keep_dims=True)
+  batch_has_no_values = tf.equal(ones_values, tf.cast(0, x.dtype))
+  x_batch_max = tf.sparse_reduce_max(x, axis=0)
+  x_batch_minus_min = tf.sparse_reduce_max(minus_x, axis=0)
 
-    # sparse_reduce_max returns 0 when all elements are missing along axis 0.
-    # We replace the 0 with nan when float and dtype.min when int.
-    batch_has_no_values = tf.equal(ones_values, tf.cast(0, x.dtype))
-
-    x = tf.sparse_reduce_max(x, axis=0, keep_dims=True)
-
-    if x.dtype == tf.float32 or x.dtype == tf.float64:
-      missing_value = tf.constant(np.nan, x.dtype)
-      combine_fn = np.nanmax
-    else:
-      missing_value = tf.constant(x.dtype.min + 1, x.dtype)
-
-    x_batch_max = tf.where(batch_has_no_values,
-                           tf.fill(tf.shape(x), missing_value), x)
-
+  if x.dtype.is_floating:
+    missing_value = tf.constant(np.nan, x.dtype)
   else:
-    x_batch_max = tf.reduce_max(x, axis=0, keep_dims=True)
+    missing_value = tf.constant(x.dtype.min + 1, x.dtype)
 
-  x_batch_max = tf.cast(x_batch_max, input_dtype)
-  return _numeric_combine([x_batch_max], combine_fn, reduce_instance_dims,
-                          name)[0]
+  x_batch_max = tf.where(batch_has_no_values,
+                         tf.fill(tf.shape(x_batch_max), missing_value),
+                         x_batch_max)
+  x_batch_minus_min = tf.where(batch_has_no_values,
+                               tf.fill(tf.shape(x_batch_minus_min),
+                                       missing_value),
+                               x_batch_minus_min)
+  return x_batch_minus_min, x_batch_max
 
 
-def _min_and_max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
+def _min_and_max(x, reduce_instance_dims=True, name=None):
+  """Computes the min and max of the values of a `Tensor` or `SparseTensor`.
+
+  In the case of a `SparseTensor` missing values will be used in return value:
+  for float, NaN is used and for other dtypes the min is used.
+
+  Args:
+    x: A `Tensor` or `SparseTensor`.
+    reduce_instance_dims: By default collapses the batch and instance dimensions
+        to arrive at a single scalar output. If False, only collapses the batch
+        dimension and outputs a vector of the same shape as the input.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    Two `Tensor`s. Both have the same type as `x`.
+
+  Raises:
+    TypeError: If the type of `x` is not supported.
+  """
   with tf.name_scope(name, 'min_and_max'):
-    # Unary minus op doesn't support tf.int64, so use 0 - x instead of -x.
+    combine_fn = np.max
+    output_dtype = x.dtype
+
+    if x.dtype == tf.uint8 or x.dtype == tf.uint16:
+      x = tf.cast(x, tf.int32)
+
+    elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
+      raise TypeError('Tensor type %r is not supported' % x.dtype)
+
+    if reduce_instance_dims:
+      if isinstance(x, tf.SparseTensor):
+        x = x.values
+
+      x_batch_max = tf.reduce_max(x)
+      x_batch_minus_min = tf.reduce_max(0 - x)
+    elif isinstance(x, tf.SparseTensor):
+      x_batch_minus_min, x_batch_max = (
+          _sparse_minus_reduce_min_and_reduce_max(x))
+      if x.dtype.is_floating:
+        combine_fn = np.nanmax
+    else:
+      x_batch_max = tf.reduce_max(x, axis=0)
+      x_batch_minus_min = tf.reduce_max(0 - x, axis=0)
+
+    def inf_to_nan(tensor):
+      if tensor.dtype.is_floating:
+        nan = tf.constant(np.nan, output_dtype)
+        return tf.where(tf.is_inf(tensor), tensor + nan, tensor)
+      return tensor
+
     minus_x_min, x_max = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
-        [0 - x, x], np.max, reduce_instance_dims)
-    return 0 - minus_x_min, x_max
+        [inf_to_nan(x_batch_minus_min),
+         inf_to_nan(x_batch_max)], combine_fn, reduce_instance_dims)
+    return tf.cast(0 - minus_x_min, output_dtype), tf.cast(x_max, output_dtype)
 
 
 def _sum_combine_fn_and_dtype(input_dtype):
@@ -508,16 +542,14 @@ def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
     if isinstance(x, tf.SparseTensor):
       x = x.values
     x = tf.reduce_sum(x)
-    # Put back batch dimension.
-    x = tf.expand_dims(x, axis=0)
   elif isinstance(x, tf.SparseTensor):
     if x.dtype == tf.uint8 or x.dtype == tf.uint16:
       x = tf.cast(x, tf.int64)
     elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
       TypeError('Data type %r is not supported' % x.dtype)
-    x = tf.sparse_reduce_sum(x, axis=0, keep_dims=True)
+    x = tf.sparse_reduce_sum(x, axis=0)
   else:
-    x = tf.reduce_sum(x, axis=0, keep_dims=True)
+    x = tf.reduce_sum(x, axis=0)
   output_dtype, sum_fn = _sum_combine_fn_and_dtype(x.dtype)
   return _numeric_combine([x], sum_fn, reduce_instance_dims, name,
                           [output_dtype])[0]
@@ -539,16 +571,10 @@ def size(x, reduce_instance_dims=True, name=None):
   with tf.name_scope(name, 'size'):
     # Note: Calling `sum` defined in this module, not the builtin.
     if isinstance(x, tf.SparseTensor):
-      sparse_ones = tf.SparseTensor(
+      ones_like_x = tf.SparseTensor(
           indices=x.indices,
           values=tf.ones_like(x.values, tf.int64),
           dense_shape=x.dense_shape)
-      if reduce_instance_dims:
-        ones_like_x = tf.sparse_reduce_sum(sparse_ones)
-        ones_like_x = tf.expand_dims(
-            ones_like_x, axis=0)  # Put back batch dimension.
-      else:
-        ones_like_x = tf.sparse_reduce_sum(sparse_ones, axis=0, keep_dims=True)
     else:
       ones_like_x = tf.ones_like(x, dtype=tf.int64)
     return sum(ones_like_x, reduce_instance_dims)
@@ -573,6 +599,7 @@ def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
   Raises:
     TypeError: If the type of `x` is not supported.
   """
+
   if output_dtype is None:
     output_dtype = _MEAN_OUTPUT_DTYPE_MAP.get(x.dtype)
     if output_dtype is None:
@@ -583,19 +610,16 @@ def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
       if isinstance(x, tf.SparseTensor):
         x = x.values
       x_size, x_sum = tf.reduce_sum(tf.ones_like(x)), tf.reduce_sum(x)
-      # Put back batch dimension.
-      x_size = tf.expand_dims(x_size, axis=0)
-      x_sum = tf.expand_dims(x_sum, axis=0)
     elif isinstance(x, tf.SparseTensor):
       sparse_ones = tf.SparseTensor(
           indices=x.indices,
           values=tf.ones_like(x.values),
           dense_shape=x.dense_shape)
-      x_size = tf.sparse_reduce_sum(sparse_ones, axis=0, keep_dims=True)
-      x_sum = tf.sparse_reduce_sum(x, axis=0, keep_dims=True)
+      x_size = tf.sparse_reduce_sum(sparse_ones, axis=0)
+      x_sum = tf.sparse_reduce_sum(x, axis=0)
     else:
-      x_size = tf.reduce_sum(tf.ones_like(x), axis=0, keep_dims=True)
-      x_sum = tf.reduce_sum(x, axis=0, keep_dims=True)
+      x_size = tf.reduce_sum(tf.ones_like(x), axis=0)
+      x_sum = tf.reduce_sum(x, axis=0)
     x_count, x_sum = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
         [x_size, x_sum],
         sum_fn,
@@ -631,34 +655,185 @@ def var(x, reduce_instance_dims=True, name=None, output_dtype=None):
     return _mean_and_var(x, reduce_instance_dims, name, output_dtype)[1]
 
 
-def _mean_and_var(x, reduce_instance_dims=True, name=None, output_dtype=None):
+def _mean_and_var_sparse(x,
+                         reduce_instance_dims=True,
+                         name=None,
+                         output_dtype=None):
   """More efficient combined `mean` and `var`.  See `var`."""
+  assert isinstance(x, tf.SparseTensor)
+
   if output_dtype is None:
     output_dtype = _MEAN_OUTPUT_DTYPE_MAP.get(x.dtype)
     if output_dtype is None:
       raise TypeError('Tensor type %r is not supported' % x.dtype)
-  with tf.name_scope(name, 'mean_and_var'):
+  with tf.name_scope(name, 'mean_and_var_sparse'):
     # Note: Calling `mean`, `sum`, and `size` as defined in this module, not the
     # builtins.
     x_mean = mean(x, reduce_instance_dims, output_dtype=output_dtype)
-    if isinstance(x, tf.SparseTensor):
-      if reduce_instance_dims:
-        squared_deviations = tf.square(tf.cast(x.values, x_mean.dtype) - x_mean)
-      else:
-        # Only supports sparsetensors with rank 2.
-        x.get_shape().assert_has_rank(2)
-        mean_values = tf.gather(x_mean, x.indices[:, 1])
-        squared_deviation_values = tf.square(
-            tf.cast(x.values, x_mean.dtype) - mean_values)
-        squared_deviations = tf.SparseTensor(
-            indices=x.indices,
-            values=squared_deviation_values,
-            dense_shape=x.dense_shape)
+    if reduce_instance_dims:
+      squared_deviations = tf.square(tf.cast(x.values, x_mean.dtype) - x_mean)
     else:
-      squared_deviations = tf.square(tf.cast(x, x_mean.dtype) - x_mean)
+      # Only supports SparseTensors with rank 2.
+      x.get_shape().assert_has_rank(2)
+      mean_values = tf.gather(x_mean, x.indices[:, 1])
+      squared_deviation_values = tf.square(
+          tf.cast(x.values, x_mean.dtype) - mean_values)
+      squared_deviations = tf.SparseTensor(
+          indices=x.indices,
+          values=squared_deviation_values,
+          dense_shape=x.dense_shape)
     x_var = mean(
         squared_deviations, reduce_instance_dims, output_dtype=output_dtype)
     return x_mean, x_var
+
+
+def _mean_and_var(x, reduce_instance_dims=True, name=None, output_dtype=None):
+  """More efficient combined `mean` and `var`.  See `var`."""
+
+  if isinstance(x, tf.SparseTensor) and not reduce_instance_dims:
+    return _mean_and_var_sparse(x, reduce_instance_dims, name, output_dtype)
+  elif isinstance(x, tf.SparseTensor):
+    x = x.values
+
+  if output_dtype is None:
+    output_dtype = _MEAN_OUTPUT_DTYPE_MAP.get(x.dtype)
+    if output_dtype is None:
+      raise TypeError('Tensor type %r is not supported' % x.dtype)
+
+  with tf.name_scope(name, 'mean_and_var_dense'):
+
+    x = tf.cast(x, output_dtype)
+
+    output_shape = ()
+    axis = None
+    x_n = tf.size(x)
+    if not reduce_instance_dims:
+      output_shape = _get_output_shape_from_input(x)
+      axis = 0
+
+      # Use batch_size as N.
+      x_n = tf.shape(x)[0]
+
+    x_n = tf.cast(x_n, output_dtype)
+
+    x_mean = tf.reduce_sum(x, axis=axis) / x_n
+    x_variance = tf.reduce_sum(tf.square(x - x_mean), axis=axis) / x_n
+
+    combine_inputs = _MeanAndVarAccumulator(
+        count=x_n, mean=x_mean, variance=x_variance)
+
+    x_mean, x_var = combine_analyzer(
+        inputs=combine_inputs,
+        output_dtypes=[output_dtype] * 2,
+        output_shapes=[output_shape] * 2,
+        combiner_spec=_MeanAndVarCombinerSpec(output_dtype.as_numpy_dtype),
+        name=name if name is not None else 'mean_and_var')
+
+  return x_mean, x_var
+
+
+class _MeanAndVarAccumulator(
+    collections.namedtuple('MeanAndVarAccumulator',
+                           ['count', 'mean', 'variance'])):
+  """Container for _MeanAndVarCombinerSpec intermediate values."""
+
+  def __reduce__(self):
+    return self.__class__, tuple(self)
+
+
+class _MeanAndVarCombinerSpec(CombinerSpec):
+  """Combines a PCollection of accumulators to compute mean and variance."""
+
+  def __init__(self, output_numpy_dtype):
+    self._output_numpy_dtype = output_numpy_dtype
+
+  def create_accumulator(self):
+    """Create an accumulator with all zero entries."""
+    return _MeanAndVarAccumulator(0, 0., 0.)
+
+  def add_input(self, accumulator, batch_values):
+    """Composes an accumulator from batch_values and calls merge_accumulators.
+
+    Args:
+      accumulator: The `_MeanAndVarAccumulator` computed so far.
+      batch_values: A `_MeanAndVarAccumulator` for the current batch.
+
+    Returns:
+      A `_MeanAndVarAccumulator` which is accumulator and batch_values combined.
+    """
+    new_accumulator = _MeanAndVarAccumulator(*batch_values)
+    return self._combine_mean_and_var_accumulators(accumulator, new_accumulator)
+
+  def merge_accumulators(self, accumulators):
+    """Merges several `_MeanAndVarAccumulator`s to a single accumulator.
+
+    Args:
+      accumulators: A list of `_MeanAndVarAccumulator`s and/or Nones.
+
+    Returns:
+      The sole merged `_MeanAndVarAccumulator`.
+    """
+    non_empty_accumulators = [
+        accumulator for accumulator in accumulators if accumulator is not None
+    ]
+    if not non_empty_accumulators:
+      return self.create_accumulator()
+
+    result = non_empty_accumulators[0]
+
+    for accumulator in non_empty_accumulators[1:]:
+      result = self._combine_mean_and_var_accumulators(result, accumulator)
+
+    return result
+
+  def extract_output(self, accumulator):
+    """Converts an accumulator into the output (mean, var) tuple.
+
+    Args:
+      accumulator: the final `_MeanAndVarAccumulator` value.
+
+    Returns:
+      A 2-tuple composed of (mean, var) or None if accumulator is None.
+    """
+    if accumulator is None:
+      return None
+    else:
+      return (self._output_numpy_dtype(accumulator.mean),
+              self._output_numpy_dtype(accumulator.variance))
+
+  def num_outputs(self):
+    # The output is (mean, var).
+    return 2
+
+  def _combine_mean_and_var_accumulators(self, a, b):
+    """Combines two mean and var accumulators.
+
+    Args:
+      a: A _MeanAndVarAccumulator.
+      b: A _MeanAndVarAccumulator.
+
+    Returns:
+      A _MeanAndVarAccumulator computed as the combination of a and b.
+    """
+    # a.count >= b.count following this logic.
+    if a.count < b.count:
+      a, b = b, a
+
+    if a.count == 0:
+      return b
+
+    combined_total = a.count + b.count
+
+    # Mean and variance update formulas which are more numerically stable when
+    # a and b vary in magnitude.
+    combined_mean = a.mean + (b.count / combined_total) * (b.mean - a.mean)
+
+    combined_variance = (
+        a.variance + (b.count / combined_total) * (b.variance + (
+            (b.mean - combined_mean) * (b.mean - a.mean)) - a.variance))
+
+    return _MeanAndVarAccumulator(combined_total, combined_mean,
+                                  combined_variance)
 
 
 class _VocabularySpec(object):
