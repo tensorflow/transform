@@ -122,3 +122,13 @@ class TFTransformOutput(object):
             self.transform_savedmodel_dir, raw_features))
     return transformed_features
 
+  def load_transform_graph(self):
+    """Load the transform graph without replacing any placeholders.
+
+    This is necessary to ensure that variables in the transform graph are
+    included in the training checkpoint when using tf.Estimator.  This should
+    be called in the training input_fn.
+    """
+    saved_transform_io.partially_apply_saved_transform_internal(
+        self.transform_savedmodel_dir, {})
+

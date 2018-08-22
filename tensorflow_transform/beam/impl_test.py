@@ -37,7 +37,6 @@ from tensorflow_transform import analyzers
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
-from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema as sch
 
@@ -427,7 +426,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
-  def testMultipleLevelsOfAnalyzers(self):
+  @tft_unit.named_parameters(('NoDeepCopy', False), ('WithDeepCopy', True))
+  def testMultipleLevelsOfAnalyzers(self, with_deep_copy):
     # Test a preprocessing function similar to scale_to_0_1 except that it
     # involves multiple interleavings of analyzers and transforms.
     def preprocessing_fn(inputs):
@@ -448,9 +448,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_metadata = _metadata_from_feature_spec({
         'x_scaled': tf.FixedLenFeature([], tf.float32)
     })
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
+    with beam_impl.Context(use_deep_copy_optimization=with_deep_copy):
+      # NOTE: In order to correctly test deep_copy here, we can't pass test_data
+      # to assertAnalyzeAndTransformResults.
+      # Not passing test_data to assertAnalyzeAndTransformResults means that
+      # tft.AnalyzeAndTransform is called, exercising the right code path.
+      self.assertAnalyzeAndTransformResults(
+          input_data, input_metadata, preprocessing_fn, expected_data,
+          expected_metadata)
 
   def testRawFeedDictInput(self):
     # Test the ability to feed raw data into AnalyzeDataset and TransformDataset
@@ -1205,10 +1210,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testNumericAnalyzersWithScalarInputs(self, input_dtype, output_dtypes):
 
     def analyzer_fn(inputs):
-      # Also test private analyzers that fuse min/max and mean/var analyzers.
       a = tf.cast(inputs['a'], input_dtype)
-      min_opt, max_opt = analyzers._min_and_max(a)
-      mean_opt, var_opt = analyzers._mean_and_var(a)
 
       def assert_and_cast_dtype(tensor, out_dtype):
         self.assertEqual(tensor.dtype, out_dtype)
@@ -1219,10 +1221,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                        output_dtypes['min']),
           'max': assert_and_cast_dtype(tft.max(a),
                                        output_dtypes['max']),
-          'min_opt': assert_and_cast_dtype(min_opt,
-                                           output_dtypes['min']),
-          'max_opt': assert_and_cast_dtype(max_opt,
-                                           output_dtypes['max']),
           'sum': assert_and_cast_dtype(tft.sum(a),
                                        output_dtypes['sum']),
           'size': assert_and_cast_dtype(tft.size(a),
@@ -1231,10 +1229,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                         output_dtypes['mean']),
           'var': assert_and_cast_dtype(tft.var(a),
                                        output_dtypes['var']),
-          'mean_opt': assert_and_cast_dtype(mean_opt,
-                                            output_dtypes['mean']),
-          'var_opt': assert_and_cast_dtype(var_opt,
-                                           output_dtypes['var']),
       }
 
     input_data = [{'a': 4}, {'a': 1}]
@@ -1246,10 +1240,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
             1, _canonical_dtype(output_dtypes['min']).as_numpy_dtype),
         'max': np.array(
             4, _canonical_dtype(output_dtypes['max']).as_numpy_dtype),
-        'min_opt': np.array(
-            1, _canonical_dtype(output_dtypes['min']).as_numpy_dtype),
-        'max_opt': np.array(
-            4, _canonical_dtype(output_dtypes['max']).as_numpy_dtype),
         'sum': np.array(
             5, _canonical_dtype(output_dtypes['sum']).as_numpy_dtype),
         'size': np.array(
@@ -1258,33 +1248,80 @@ class BeamImplTest(tft_unit.TransformTestCase):
             2.5, _canonical_dtype(output_dtypes['mean']).as_numpy_dtype),
         'var': np.array(
             2.25, _canonical_dtype(output_dtypes['var']).as_numpy_dtype),
-        'mean_opt': np.array(
-            2.5, _canonical_dtype(output_dtypes['mean']).as_numpy_dtype),
-        'var_opt': np.array(
-            2.25, _canonical_dtype(output_dtypes['var']).as_numpy_dtype),
     }
 
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
+  @tft_unit.parameters(*itertools.product([
+      tf.int16,
+      tf.int32,
+      tf.int64,
+      tf.float32,
+      tf.float64,
+      tf.uint8,
+      tf.uint16,
+  ], (True, False)))
+  def testNumericAnalyzersWithSparseInputs(self, input_dtype,
+                                           reduce_instance_dims):
+
+    def analyzer_fn(inputs):
+      return {
+          'min':
+              tft.min(inputs['a'], reduce_instance_dims=reduce_instance_dims),
+          'max':
+              tft.max(inputs['a'], reduce_instance_dims=reduce_instance_dims),
+          'sum':
+              tft.sum(inputs['a'], reduce_instance_dims=reduce_instance_dims),
+          'size':
+              tft.size(inputs['a'], reduce_instance_dims=reduce_instance_dims),
+          'mean':
+              tft.mean(inputs['a'], reduce_instance_dims=reduce_instance_dims),
+          'var':
+              tft.var(inputs['a'], reduce_instance_dims=reduce_instance_dims),
+      }
+
+    output_dtype = _canonical_dtype(input_dtype).as_numpy_dtype
+    input_data = [{'a': ([0, 1], [0., 1.])}, {'a': ([1, 3], [2., 3.])}]
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.SparseFeature('idx', 'val', _canonical_dtype(input_dtype), 4)
+    })
+    if reduce_instance_dims:
+      expected_outputs = {
+          'min': np.array(0., output_dtype),
+          'max': np.array(3., output_dtype),
+          'sum': np.array(6., output_dtype),
+          'size': np.array(4, np.int64),
+          'mean': np.array(1.5, np.float32),
+          'var': np.array(1.25, np.float32),
+      }
+    else:
+      if input_dtype.is_floating:
+        missing_value_max = float('nan')
+        missing_value_min = float('nan')
+      else:
+        missing_value_max = np.iinfo(output_dtype).min
+        missing_value_min = np.iinfo(output_dtype).max
+      expected_outputs = {
+          'min': np.array([0., 1., missing_value_min, 3.], output_dtype),
+          'max': np.array([0., 2., missing_value_max, 3.], output_dtype),
+          'sum': np.array([0., 3., 0., 3.], output_dtype),
+          'size': np.array([1, 2, 0, 1], np.int64),
+          'mean': np.array([0., 1.5, float('nan'), 3.], np.float32),
+          'var': np.array([0., 0.25, float('nan'), 0.], np.float32),
+      }
+    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
+                               expected_outputs)
+
   def testNumericAnalyzersWithInputsAndAxis(self):
     def analyzer_fn(inputs):
-      # Also test private analyzers that fuse min/max and mean/var analyzers.
-      min_opt, max_opt = analyzers._min_and_max(
-          inputs['a'], reduce_instance_dims=False)
-      mean_opt, var_opt = analyzers._mean_and_var(
-          inputs['a'], reduce_instance_dims=False)
       return {
           'min': tft.min(inputs['a'], reduce_instance_dims=False),
           'max': tft.max(inputs['a'], reduce_instance_dims=False),
-          'min_opt': min_opt,
-          'max_opt': max_opt,
           'sum': tft.sum(inputs['a'], reduce_instance_dims=False),
           'size': tft.size(inputs['a'], reduce_instance_dims=False),
           'mean': tft.mean(inputs['a'], reduce_instance_dims=False),
           'var': tft.var(inputs['a'], reduce_instance_dims=False),
-          'mean_opt': mean_opt,
-          'var_opt': var_opt
       }
 
     input_data = [
@@ -1297,36 +1334,23 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_outputs = {
         'min': np.array([1, 2, 3, 4], np.int64),
         'max': np.array([8, 9, 10, 11], np.int64),
-        'min_opt': np.array([1, 2, 3, 4], np.int64),
-        'max_opt': np.array([8, 9, 10, 11], np.int64),
         'sum': np.array([9, 11, 13, 15], np.int64),
         'size': np.array([2, 2, 2, 2], np.int64),
         'mean': np.array([4.5, 5.5, 6.5, 7.5], np.float32),
         'var': np.array([12.25, 12.25, 12.25, 12.25], np.float32),
-        'mean_opt': np.array([4.5, 5.5, 6.5, 7.5], np.float32),
-        'var_opt': np.array([12.25, 12.25, 12.25, 12.25], np.float32)
     }
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
   def testNumericAnalyzersWithNDInputsAndAxis(self):
     def analyzer_fn(inputs):
-      # Also test private analyzers that fuse min/max and mean/var analyzers.
-      min_opt, max_opt = analyzers._min_and_max(
-          inputs['a'], reduce_instance_dims=False)
-      mean_opt, var_opt = analyzers._mean_and_var(
-          inputs['a'], reduce_instance_dims=False)
       return {
           'min': tft.min(inputs['a'], reduce_instance_dims=False),
           'max': tft.max(inputs['a'], reduce_instance_dims=False),
-          'min_opt': min_opt,
-          'max_opt': max_opt,
           'sum': tft.sum(inputs['a'], reduce_instance_dims=False),
           'size': tft.size(inputs['a'], reduce_instance_dims=False),
           'mean': tft.mean(inputs['a'], reduce_instance_dims=False),
           'var': tft.var(inputs['a'], reduce_instance_dims=False),
-          'mean_opt': mean_opt,
-          'var_opt': var_opt
       }
 
     input_data = [
@@ -1338,34 +1362,23 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_outputs = {
         'min': np.array([[1, 2], [3, 4]], np.int64),
         'max': np.array([[8, 9], [10, 11]], np.int64),
-        'min_opt': np.array([[1, 2], [3, 4]], np.int64),
-        'max_opt': np.array([[8, 9], [10, 11]], np.int64),
         'sum': np.array([[9, 11], [13, 15]], np.int64),
         'size': np.array([[2, 2], [2, 2]], np.int64),
         'mean': np.array([[4.5, 5.5], [6.5, 7.5]], np.float32),
         'var': np.array([[12.25, 12.25], [12.25, 12.25]], np.float32),
-        'mean_opt': np.array([[4.5, 5.5], [6.5, 7.5]], np.float32),
-        'var_opt': np.array([[12.25, 12.25], [12.25, 12.25]], np.float32)
     }
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
   def testNumericAnalyzersWithNDInputs(self):
     def analyzer_fn(inputs):
-      # Also test private analyzers that fuse min/max and mean/var analyzers.
-      min_opt, max_opt = analyzers._min_and_max(inputs['a'])
-      mean_opt, var_opt = analyzers._mean_and_var(inputs['a'])
       return {
           'min': tft.min(inputs['a']),
           'max': tft.max(inputs['a']),
-          'min_opt': min_opt,
-          'max_opt': max_opt,
           'sum': tft.sum(inputs['a']),
           'size': tft.size(inputs['a']),
           'mean': tft.mean(inputs['a']),
           'var': tft.var(inputs['a']),
-          'mean_opt': mean_opt,
-          'var_opt': var_opt
       }
 
     input_data = [
@@ -1378,109 +1391,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_outputs = {
         'min': np.array(1, np.int64),
         'max': np.array(7, np.int64),
-        'min_opt': np.array(1, np.int64),
-        'max_opt': np.array(7, np.int64),
         'sum': np.array(32, np.int64),
         'size': np.array(8, np.int64),
         'mean': np.array(4.0, np.float32),
         'var': np.array(3.5, np.float32),
-        'mean_opt': np.array(4.0, np.float32),
-        'var_opt': np.array(3.5, np.float32)
     }
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
-
-  def testMaxWithSparseTensorReduceTrue(self):
-
-    def analyzer_fn(inputs):
-      return {'max': tft.max(inputs['sparse'])}
-
-    input_data = [{
-        'sparse': ([0, 1], [0., 1.])
-    }, {
-        'sparse': ([1, 3], [2., 3.])
-    }]
-    input_metadata = _metadata_from_feature_spec({
-        'sparse': tf.SparseFeature('idx', 'val', tf.float32, 4)
-    })
-    expected_outputs = {'max': np.array(3., np.float32)}
-    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
-                               expected_outputs)
-
-  @tft_unit.parameters(
-      (tf.int32,),
-      (tf.int64,),
-      (tf.float32,),
-      (tf.float64,),
-  )
-  def testMaxWithSparseTensorReduceFalse(self, input_dtype):
-
-    def analyzer_fn(inputs):
-      sparse_max = tft.max(tf.cast(inputs['sparse'], input_dtype), False)
-      self.assertEqual(sparse_max.dtype, input_dtype)
-      return {
-          'max': tf.cast(sparse_max, _canonical_dtype(sparse_max.dtype))
-      }
-
-    input_data = [{
-        'sparse': ([0, 1], [-1., 1.])
-    }, {
-        'sparse': ([1, 3], [2., 3.])
-    }]
-    input_metadata = _metadata_from_feature_spec({
-        'sparse': tf.SparseFeature('idx', 'val', _canonical_dtype(input_dtype),
-                                   4)
-    })
-    if input_dtype == tf.float32 or input_dtype == tf.float64:
-      expected_outputs = {
-          'max':
-              np.array(
-                  [-1., 2., float('nan'), 3.],
-                  _canonical_dtype(input_dtype).as_numpy_dtype
-              )
-      }
-    else:
-      expected_outputs = {
-          'max':
-              np.array(
-                  [-1, 2, np.iinfo(input_dtype.as_numpy_dtype).min, 3],
-                  _canonical_dtype(input_dtype).as_numpy_dtype)
-      }
-
-    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
-                               expected_outputs)
-
-  def testNumericMeanWithSparseTensorReduceTrue(self):
-
-    def analyzer_fn(inputs):
-      return {'mean': tft.mean(inputs['a'])}
-
-    input_data = [{'a': [1, 5, 6]}, {'a': [1, 2]}]
-    input_metadata = _metadata_from_feature_spec({
-        'a': tf.VarLenFeature(tf.int64)
-    })
-    expected_outputs = {'mean': np.array(3., np.float32)}
-    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
-                               expected_outputs)
-
-  def testNumericMeanWithSparseTensorReduceFalse(self):
-
-    def analyzer_fn(inputs):
-      return {'mean': tft.mean(inputs['sparse'], False)}
-
-    input_data = [{
-        'sparse': ([0, 1], [0., 1.])
-    }, {
-        'sparse': ([1, 3], [2., 3.])
-    }]
-    input_metadata = _metadata_from_feature_spec({
-        'sparse': tf.SparseFeature('idx', 'val', tf.float32, 4)
-    })
-    expected_outputs = {
-        'mean': np.array([0., 1.5, float('nan'), 3.], np.float32)
-    }
-    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
-                               expected_outputs)
 
   def testNumericMeanWithSparseTensorReduceFalseOverflow(self):
 
@@ -1498,179 +1415,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_outputs = {
         'mean': np.array([1., 1073741824., float('nan'), 3.], np.float32)
     }
-    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
-                               expected_outputs)
-
-  @tft_unit.parameters(
-      (tf.int32,),
-      (tf.int64,),
-      (tf.float32,),
-      (tf.float64,),
-  )
-  def testVarWithSparseTensorReduceInstanceDimsTrue(self, input_dtype):
-    def analyzer_fn(inputs):
-      var = tft.var(tf.cast(inputs['sparse'], input_dtype))
-      self.assertEqual(var.dtype, _mean_output_dtype(input_dtype))
-      return {'var': tf.cast(var, _canonical_dtype(var.dtype))}
-
-    input_data = [{
-        'sparse': ([0, 1], [0., 1.])
-    }, {
-        'sparse': ([1, 3], [2., 3.])
-    }]
-    input_metadata = _metadata_from_feature_spec({
-        'sparse': tf.SparseFeature('idx', 'val', _canonical_dtype(input_dtype),
-                                   4)
-    })
-    expected_outputs = {'var': np.array(1.25, np.float32)}
-    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
-                               expected_outputs)
-
-  @tft_unit.parameters(
-      (tf.int32,),
-      (tf.int64,),
-      (tf.float32,),
-      (tf.float64,),
-  )
-  def testVarWithSparseTensorReduceInstanceDimsFalse(self, input_dtype):
-    def analyzer_fn(inputs):
-      var = tft.var(tf.cast(inputs['sparse'], input_dtype),
-                    reduce_instance_dims=False)
-      self.assertEqual(var.dtype, _mean_output_dtype(input_dtype))
-      return {'var': tf.cast(var, _canonical_dtype(var.dtype))}
-
-    input_data = [{
-        'sparse': ([0, 1], [0., 1.])
-    }, {
-        'sparse': ([1, 3], [2., 3.])
-    }]
-    input_metadata = _metadata_from_feature_spec({
-        'sparse': tf.SparseFeature('idx', 'val', _canonical_dtype(input_dtype),
-                                   4)
-    })
-    expected_outputs = {
-        'var': np.array([0., .25, float('nan'), 0.], np.float32)
-    }
-    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
-                               expected_outputs)
-
-  @tft_unit.parameters(*itertools.product([
-      tf.int16,
-      tf.int32,
-      tf.int64,
-      tf.float32,
-      tf.float64,
-      tf.uint8,
-      tf.uint16,
-  ], (True, False)))
-  def testMinWithSparseTensor(self, input_dtype, reduce_instance_dims):
-
-    def analyzer_fn(inputs):
-      sparse_min = tft.min(
-          tf.cast(inputs['sparse'], input_dtype),
-          reduce_instance_dims)
-      self.assertEqual(sparse_min.dtype, input_dtype)
-      return {
-          'min': tf.cast(sparse_min, _canonical_dtype(input_dtype))
-      }
-
-    input_data = [{
-        'sparse': ([0, 1], [0., 1.])
-    }, {
-        'sparse': ([1, 3], [2., 3.])
-    }]
-    input_metadata = _metadata_from_feature_spec({
-        'sparse': tf.SparseFeature('idx', 'val', _canonical_dtype(input_dtype),
-                                   4)
-    })
-
-    if reduce_instance_dims:
-      expected_outputs = {
-          'min':
-              np.array(
-                  0.,
-                  _canonical_dtype(input_dtype).as_numpy_dtype)
-      }
-    else:
-      if input_dtype == tf.float32 or input_dtype == tf.float64:
-        missing_value = float('nan')
-      else:
-        missing_value = np.iinfo(input_dtype.as_numpy_dtype).max
-      expected_outputs = {
-          'min':
-              np.array(
-                  [0., 1., missing_value, 3.],
-                  _canonical_dtype(input_dtype).as_numpy_dtype)
-      }
-    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
-                               expected_outputs)
-
-  @tft_unit.parameters(*itertools.product([
-      tf.int16,
-      tf.int32,
-      tf.int64,
-      tf.float32,
-      tf.float64,
-  ], (True, False)))
-  def testSizeWithSparseTensor(self, input_dtype, reduce_instance_dims):
-
-    def analyzer_fn(inputs):
-      return {
-          'size': tft.size(tf.cast(inputs['sparse'], input_dtype),
-                           reduce_instance_dims)
-      }
-
-    input_data = [{
-        'sparse': ([0, 1], [0., 1.])
-    }, {
-        'sparse': ([1, 3], [2., 3.])
-    }]
-    input_metadata = _metadata_from_feature_spec({
-        'sparse': tf.SparseFeature('idx', 'val', _canonical_dtype(input_dtype),
-                                   4)
-    })
-    if reduce_instance_dims:
-      expected_outputs = {'size': np.array(4, np.int64)}
-    else:
-      expected_outputs = {'size': np.array([1, 2, 0, 1], np.int64)}
-    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
-                               expected_outputs)
-
-  @tft_unit.parameters(*itertools.product([
-      tf.int16,
-      tf.int32,
-      tf.int64,
-      tf.float32,
-      tf.float64,
-  ], (True, False)))
-  def testSumWithSparseTensor(self, input_dtype, reduce_instance_dims):
-    def analyzer_fn(inputs):
-      sparse_sum = tft.sum(tf.cast(inputs['sparse'], input_dtype),
-                           reduce_instance_dims)
-      self.assertEqual(sparse_sum.dtype, sum_output_dtype(input_dtype))
-      return {'sum': tf.cast(sparse_sum, _canonical_dtype(sparse_sum.dtype))}
-
-    input_data = [{
-        'sparse': ([0, 1], [0., 1.])
-    }, {
-        'sparse': ([1, 3], [2., 3.])
-    }]
-    input_metadata = _metadata_from_feature_spec({
-        'sparse': tf.SparseFeature('idx', 'val', _canonical_dtype(input_dtype),
-                                   4)
-    })
-    if reduce_instance_dims:
-      expected_outputs = {
-          'sum': np.array(
-              6.,
-              _canonical_dtype(sum_output_dtype(input_dtype)).as_numpy_dtype)
-      }
-    else:
-      expected_outputs = {
-          'sum': np.array(
-              [0., 3., 0., 3.],
-              _canonical_dtype(sum_output_dtype(input_dtype)).as_numpy_dtype)
-      }
     self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
                                expected_outputs)
 
@@ -1919,6 +1663,45 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_transformed_data,
         expected_metadata)
+
+  def testVocabularyAnalyzerWithWeights(self):
+    input_data = [
+        {'a': 'hello', 'weights': 1.},
+        {'a': 'world', 'weights': .5},
+        {'a': 'goodbye', 'weights': 1},
+        {'a': 'aaaaa', 'weights': .26},
+        {'a': 'aaaaa', 'weights': .25},
+        {'a': 'goodbye', 'weights': 1.5},
+    ]
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string),
+        'weights': tf.FixedLenFeature([], tf.float32)
+    })
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'index':
+            sch.ColumnSchema(
+                sch.IntDomain(tf.int64, -1, 3, True), [],
+                sch.FixedColumnRepresentation())
+    })
+
+    def preprocessing_fn(inputs):
+      return {
+          'index':
+              tft.compute_and_apply_vocabulary(
+                  inputs['a'], weights=inputs['weights'])
+      }
+
+    expected_data = [
+        {'index': 1},
+        {'index': 3},
+        {'index': 0},
+        {'index': 2},
+        {'index': 2},
+        {'index': 0},
+    ]
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
 
   def testVocabularyAnalyzer(self):
     input_data = [
@@ -2193,73 +1976,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
-  def testAssets(self):
-    def preprocessing_fn(inputs):
-      return {
-          'index':
-              tft.compute_and_apply_vocabulary(inputs['a']),
-          'index_2':
-              tft.compute_and_apply_vocabulary(
-                  inputs['b'], vocab_filename='index_2_file')
-      }
-
-    input_metadata = _metadata_from_feature_spec({
-        'a': tf.FixedLenFeature([], tf.string),
-        'b': tf.FixedLenFeature([], tf.string)
-    })
-
-    transform_fn_dir = os.path.join(self.get_temp_dir(), 'export_transform_fn')
-    tft_tmp_dir = os.path.join(self.get_temp_dir(), 'temp_dir')
-    with beam_impl.Context(temp_dir=tft_tmp_dir):
-      with beam.Pipeline(runner=self._makeRunner()) as pipeline:
-        input_data = pipeline | beam.Create([
-            {'a': 'hello', 'b': 'hi'},
-            {'a': 'world', 'b': 'ho'}
-        ])
-        transform_fn = (
-            (input_data, input_metadata)
-            | beam_impl.AnalyzeDataset(preprocessing_fn))
-        _ = transform_fn | transform_fn_io.WriteTransformFn(transform_fn_dir)
-
-    # Remove the temporary directories, including temporary save models and
-    # assets created by tf.Transform as part of the analysis pipeline execution.
-    self.assertTrue(os.path.isdir(tft_tmp_dir))
-    tf.gfile.DeleteRecursively(tft_tmp_dir)
-    self.assertFalse(os.path.isdir(tft_tmp_dir))
-
-    # Assert that the transform function can be read and metadata is as
-    # expected.
-    expected_output_metadata = dataset_metadata.DatasetMetadata({
-        'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 1, True), [],
-            sch.FixedColumnRepresentation()),
-        'index_2': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 1, True), [],
-            sch.FixedColumnRepresentation())
-    })
-
-    tftransform_output = tft.TFTransformOutput(transform_fn_dir)
-    self.assertMetadataEqual(tftransform_output.transformed_metadata,
-                             expected_output_metadata)
-
-    # Assert that the output model contains the expected assets.
-    assets_dir = os.path.join(transform_fn_dir, 'transform_fn/assets')
-    self.assertEqual(
-        tftransform_output.vocabulary_file_by_name('index_2_file'),
-        os.path.join(assets_dir, 'index_2_file'))
-    self.assertEqual(
-        tftransform_output.vocabulary_file_by_name(
-            'vocab_compute_and_apply_vocabulary_vocabulary'),
-        os.path.join(
-            assets_dir, 'vocab_compute_and_apply_vocabulary_vocabulary'))
-
-    # Verify that the paths are actually there.
-    self.assertTrue(os.path.isfile(
-        tftransform_output.vocabulary_file_by_name('index_2_file')))
-    self.assertTrue(os.path.isfile(
-        tftransform_output.vocabulary_file_by_name(
-            'vocab_compute_and_apply_vocabulary_vocabulary')))
-
   def testVocabularyAnalyzerWithNDInputs(self):
     def preprocessing_fn(inputs):
       return {'index': tft.compute_and_apply_vocabulary(inputs['a'])}
@@ -2513,123 +2229,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
       expected_data = [{'x_scaled': 1.25}, {'x_scaled': 0.5}]
       beam_test_util.assert_that(
           transformed_eval_data, beam_test_util.equal_to(expected_data))
-
-  @tft_unit.named_parameters(('NoDeepCopy', False), ('WithDeepCopy', True))
-  def testTransformFnExportAndImportRoundtrip(self, with_deep_copy):
-    transform_fn_dir = os.path.join(self.get_temp_dir(), 'export_transform_fn')
-    metadata = _metadata_from_feature_spec({
-        'x': tf.FixedLenFeature([], tf.float32)
-    })
-
-    with beam.Pipeline(runner=self._makeRunner()) as pipeline:
-      def preprocessing_fn(inputs):
-        x_scaled = tft.scale_to_0_1(inputs['x'])
-        return {
-            'x_scaled': x_scaled,
-            'composed_x_scaled': inputs['x'] + tft.max(x_scaled),
-        }
-
-      data = pipeline | 'CreateTrainingData' >> beam.Create(
-          [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}])
-      with beam_impl.Context(temp_dir=self.get_temp_dir(),
-                             use_deep_copy_optimization=with_deep_copy):
-        _, transform_fn = (
-            (data, metadata)
-            | 'AnalyzeAndTransform'
-            >> beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
-
-      _ = transform_fn | transform_fn_io.WriteTransformFn(transform_fn_dir)
-
-    with beam.Pipeline(runner=self._makeRunner()) as pipeline:
-      transform_fn = pipeline | transform_fn_io.ReadTransformFn(
-          transform_fn_dir)
-      # Run transform_columns on some eval dataset.
-      eval_data = pipeline | 'CreateEvalData' >> beam.Create(
-          [{'x': 6}, {'x': 3}])
-      transformed_eval_data, _ = (
-          ((eval_data, metadata), transform_fn)
-          | 'Transform' >> beam_impl.TransformDataset())
-      expected_data = [{'x_scaled': 0.5, 'composed_x_scaled': 4.},
-                       {'x_scaled': 1.25, 'composed_x_scaled': 7.}]
-      beam_test_util.assert_that(
-          transformed_eval_data, beam_test_util.equal_to(expected_data))
-
-  def testRunExportedGraph(self):
-    # Run analyze_and_transform_columns on some dataset.
-    def preprocessing_fn(inputs):
-      x_scaled = tft.scale_to_0_1(inputs['x'])
-      y_sum = tf.sparse_reduce_sum(inputs['y'], axis=1)
-      y_sum.set_shape([None])
-      z_copy = tf.SparseTensor(
-          inputs['z'].indices, inputs['z'].values, inputs['z'].dense_shape)
-      return {'x_scaled': x_scaled, 'y_sum': y_sum, 'z_copy': z_copy}
-
-    metadata = _metadata_from_feature_spec({
-        'x': tf.FixedLenFeature([], tf.float32),
-        'y': tf.SparseFeature('idx_copy', 'val_copy', tf.float32, 10),
-        'z': tf.VarLenFeature(tf.float32),
-    })
-    data = [
-        {'x': 4, 'y': ([0, 1], [0., 1.]), 'z': [2., 4., 6.], 'P': 17},
-        {'x': 1, 'y': ([2, 3], [2., 3.]), 'z': [8.], 'P': 17},
-        {'x': 5, 'y': ([4, 5], [4., 5.]), 'z': [1., 2., 3.], 'P': 17},
-    ]
-    with beam_impl.Context(temp_dir=self.get_temp_dir(),
-                           passthrough_keys={'P'}):
-      (transformed_dataset, _), transform_fn = (
-          (data, metadata)
-          | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
-
-    self.assertTrue(
-        all(instance['P'] == 17 for instance in transformed_dataset))
-
-    export_dir = os.path.join(self.get_temp_dir(), 'export')
-    _ = transform_fn | transform_fn_io.WriteTransformFn(export_dir)
-
-    # Load the exported graph, and apply it to a batch of data.
-    g = tf.Graph()
-    with g.as_default():
-      with tf.Session():
-        inputs, outputs = (
-            saved_transform_io.partially_apply_saved_transform_internal(
-                os.path.join(export_dir, 'transform_fn'), {}))
-      x, y, z = inputs['x'], inputs['y'], inputs['z']
-      feed = {
-          x: [6., 3., 0., 1.],
-          y: tf.SparseTensorValue(
-              indices=[[0, 6], [0, 7], [1, 8]],
-              values=[6., 7., 8.],
-              dense_shape=[2, 10]),
-          z: tf.SparseTensorValue(
-              indices=[[0, 1], [0, 2], [4, 10]],
-              values=[1., 2., 3.],
-              dense_shape=[4, 10]),
-      }
-
-      sess = tf.Session()
-      with sess.as_default():
-        result = sess.run(outputs, feed_dict=feed)
-
-      expected_transformed_data = {
-          'x_scaled': [1.25, 0.5, -0.25, 0.0],
-          'y_sum': [13.0, 8.0],
-          'z_copy': tf.SparseTensorValue(
-              indices=[[0, 1], [0, 2], [4, 10]],
-              values=[1., 2., 3.],
-              dense_shape=[4, 10]),
-      }
-      self.assertDataCloseOrEqual([expected_transformed_data], [result])
-
-      # Verify that it breaks predictably if we feed unbatched data.
-      with self.assertRaises(ValueError):
-        feed = {
-            x: 6.,
-            y: tf.SparseTensorValue(indices=[[6], [7]], values=[6., 7.],
-                                    dense_shape=[10])
-        }
-        sess = tf.Session()
-        with sess.as_default():
-          _ = sess.run(outputs, feed_dict=feed)
 
   def testNestedContextCreateBaseTempDir(self):
     level_1_dir = self.get_temp_dir()

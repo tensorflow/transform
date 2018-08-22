@@ -9,6 +9,7 @@
   be enabled by setting `tft.Context.use_deep_copy_optimization=True`.
 * Add bucketize_per_key which computes separate quantiles for each key and then
   bucketizes each value according to the quantiles computed for its key.
+* `tft.scale_to_z_score` is now implemented with a single pass over the data.
 
 ## Bug Fixes and Other Changes
 * Memory reduction during vocabulary generation.
@@ -22,10 +23,15 @@
   variance is 0.
 * Fix bug where internal graph analysis didn't handle the case where an
   operation has control inputs that are operations (as opposed to tensors).
-* `tft.scale_to_z_score` is now implemented with a single phase for the dense
-  tensor case.
 * `tft.sparse_tensor_to_dense_with_shape` added which allows densifying a
   `SparseTensor` while specifying the resulting `Tensor`'s shape.
+* Add `load_transform_graph` method to `TFTransformOutput` to load the transform
+  graph without applying it.  This has the effect of adding variables to the
+  checkpoint when calling it from the training `input_fn` when using
+  `tf.Estimator`.
+* 'tft.vocabulary' and 'tft.compute_and_apply_vocabulary' now accept an
+  optoinal `weights` argument. When `weights` is provided, weighted frequencies
+  are used instead of frequencies based on counts.
 
 ## Breaking changes
 * Removed Schema.as_batched_placeholders() method.

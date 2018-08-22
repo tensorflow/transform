@@ -25,8 +25,6 @@ import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import test_case
 
-import unittest
-
 _NP_TYPES = (np.float32, np.float64, np.int32, np.int64)
 
 _SUM_TEST = dict(
@@ -111,7 +109,7 @@ _PCA_WITH_DEGENERATE_COVARIANCE_MATRIX_TEST = dict(
 
 def _make_mean_and_var_accumulator_from_instance(instance, axis=None):
   return analyzers._MeanAndVarAccumulator(
-      count=np.size(instance, axis=axis),
+      count=np.sum(np.ones_like(instance), axis=axis),
       mean=np.mean(instance, axis=axis),
       variance=np.var(instance, axis=axis))
 
@@ -120,11 +118,11 @@ _MEAN_AND_VAR_TEST = dict(
     testcase_name='MeanAndVar',
     combiner_spec=analyzers._MeanAndVarCombinerSpec(np.float32),
     batches=[
-        _make_mean_and_var_accumulator_from_instance([1, 2, 3, 4, 5, 6, 7]),
+        _make_mean_and_var_accumulator_from_instance([[1, 2, 3, 4, 5, 6, 7]]),
         # Count is 5*0xFFFF=327675 for this accumulator.
         _make_mean_and_var_accumulator_from_instance(
-            [8, 9, 10, 11, 12] * 0xFFFF),
-        _make_mean_and_var_accumulator_from_instance([100, 200, 3000]),
+            [[8, 9, 10, 11, 12]] * 0xFFFF),
+        _make_mean_and_var_accumulator_from_instance([[100, 200, 3000]]),
     ],
     expected_outputs=[
         np.float32(10.00985092390558),
@@ -136,9 +134,9 @@ _MEAN_AND_VAR_BIG_TEST = dict(
     testcase_name='MeanAndVarBig',
     combiner_spec=analyzers._MeanAndVarCombinerSpec(np.float32),
     batches=[
-        _make_mean_and_var_accumulator_from_instance([1, 2, 3, 4, 5, 6, 7]),
-        _make_mean_and_var_accumulator_from_instance([1e15, 2e15, 3000]),
-        _make_mean_and_var_accumulator_from_instance([100, 200]),
+        _make_mean_and_var_accumulator_from_instance([[1, 2, 3, 4, 5, 6, 7]]),
+        _make_mean_and_var_accumulator_from_instance([[1e15, 2e15, 3000]]),
+        _make_mean_and_var_accumulator_from_instance([[100, 200]]),
     ],
     expected_outputs=[
         np.float32(2.50e+14),
@@ -163,6 +161,32 @@ _MEAN_AND_VAR_VECTORS_TEST = dict(
         np.float32(
             [2054., 8456., 1992014., 28.22222222, 86.22222222, 436.22222222]),
     ],
+)
+
+_QUANTILES_NO_ELEMENTS_TEST = dict(
+    testcase_name='ComputeQuantilesNoElements',
+    combiner_spec=analyzers._QuantilesCombinerSpec(
+        num_quantiles=5,
+        epsilon=0.00001,
+        bucket_numpy_dtype=np.float32,
+        always_return_num_quantiles=False),
+    batches=[
+        (np.empty((0, 1), dtype=np.float32),),
+    ],
+    expected_outputs=[np.zeros((0,), dtype=np.float32)],
+)
+
+_QUANTILES_EXACT_NO_ELEMENTS_TEST = dict(
+    testcase_name='ComputeExactQuantilesNoElements',
+    combiner_spec=analyzers._QuantilesCombinerSpec(
+        num_quantiles=5,
+        epsilon=0.00001,
+        bucket_numpy_dtype=np.float32,
+        always_return_num_quantiles=True),
+    batches=[
+        (np.empty((0, 1), dtype=np.float32),),
+    ],
+    expected_outputs=[np.zeros((4,), dtype=np.float32)],
 )
 
 _QUANTILES_SINGLE_BATCH_TESTS = [
@@ -254,6 +278,8 @@ class AnalyzersTest(test_case.TransformTestCase):
       _MEAN_AND_VAR_TEST,
       _MEAN_AND_VAR_BIG_TEST,
       _MEAN_AND_VAR_VECTORS_TEST,
+      _QUANTILES_NO_ELEMENTS_TEST,
+      _QUANTILES_EXACT_NO_ELEMENTS_TEST,
   ] + _QUANTILES_SINGLE_BATCH_TESTS + _QUANTILES_MULTIPLE_BATCH_TESTS +
                               _EXACT_NUM_QUANTILES_TESTS)
   def testCombinerSpec(self, combiner_spec, batches, expected_outputs):
@@ -287,4 +313,4 @@ class AnalyzersTest(test_case.TransformTestCase):
 
 
 if __name__ == '__main__':
-  unittest.main()
+  test_case.main()

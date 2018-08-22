@@ -414,6 +414,7 @@ def compute_and_apply_vocabulary(x,
                                  frequency_threshold=None,
                                  num_oov_buckets=0,
                                  vocab_filename=None,
+                                 weights=None,
                                  name=None):
   r"""Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
@@ -447,6 +448,8 @@ def compute_and_apply_vocabulary(x,
       NOTE in order to make your pipelines resilient to implementation details
       please set `vocab_filename` when you are using the vocab_filename on a
       downstream component.
+    weights: (Optional) Weights tensor for the vocabulary. Tensor must have the
+      same shape as x.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -463,7 +466,8 @@ def compute_and_apply_vocabulary(x,
         x=x,
         top_k=top_k,
         frequency_threshold=frequency_threshold,
-        vocab_filename=vocab_filename)
+        vocab_filename=vocab_filename,
+        weights=weights)
     return apply_vocabulary(
         x, deferred_vocab_and_filename, default_value, num_oov_buckets)
 
@@ -476,6 +480,7 @@ def string_to_int(x,
                   frequency_threshold=None,
                   num_oov_buckets=0,
                   vocab_filename=None,
+                  weights=None,
                   name=None):
   r"""See `tft.compute_and_apply_vocabulary`."""
   return compute_and_apply_vocabulary(
@@ -485,7 +490,8 @@ def string_to_int(x,
       frequency_threshold=frequency_threshold,
       num_oov_buckets=num_oov_buckets,
       vocab_filename=vocab_filename,
-      name=name)
+      name=name,
+      weights=weights)
 
 
 def apply_vocabulary(x,

@@ -19,7 +19,10 @@ import inspect
 from absl.testing import parameterized
 
 import numpy as np
+import tensorflow as tf
 from tensorflow.python.framework import test_util
+
+main = tf.test.main
 
 named_parameters = parameterized.named_parameters
 

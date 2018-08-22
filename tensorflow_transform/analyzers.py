@@ -34,6 +34,7 @@ import re
 import numpy as np
 import tensorflow as tf
 
+from tensorflow_transform import tf_utils
 from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
 
 from tensorflow.python.ops import resources
@@ -102,7 +103,7 @@ class Analyzer(object):
   * the tensor will be removed from the collection prior to writing the
     SavedModel (since the tensor will be replaced)
   * when the tensor is replaced, the replacement will be added to the
-    tf.GraphKeys.ASSET_FILEPATHS colleciton
+    tf.GraphKeys.ASSET_FILEPATHS collection
   * This in turn causes the underlying file to be added to the SavedModel's
     `assets` directory when the model is saved
 
@@ -312,11 +313,14 @@ class _NumPyCombinerSpec(CombinerSpec):
     return len(self._output_dtypes)
 
 
-def _get_output_shape_from_input(input_x):
+def _get_output_shape_from_input(x):
+  if isinstance(x, tf.SparseTensor):
+    return x.get_shape()[1:]
+
   # When reducing over batch dimensions, with known shape, the result will be
   # the same shape as the input, but without the batch.  If reducing over batch
   # dimensions, with unknown shape, the result will also have unknown shape.
-  return input_x.shape.as_list()[1:] if input_x.shape.dims is not None else None
+  return x.shape.as_list()[1:] if x.shape.dims is not None else None
 
 
 def _numeric_combine(inputs,
@@ -424,13 +428,8 @@ def _sparse_minus_reduce_min_and_reduce_max(x):
     raise TypeError('Expected a SparseTensor, but got %r' % x)
   minus_x = tf.SparseTensor(
       indices=x.indices, values=0 - x.values, dense_shape=x.dense_shape)
-  sparse_ones = tf.SparseTensor(
-      indices=x.indices,
-      values=tf.ones_like(x.values),
-      dense_shape=x.dense_shape)
-  ones_values = tf.sparse_reduce_sum(sparse_ones, axis=0)
-
-  batch_has_no_values = tf.equal(ones_values, tf.cast(0, x.dtype))
+  x_count = tf_utils.reduce_batch_count(x, reduce_instance_dims=False)
+  batch_has_no_values = tf.equal(x_count, tf.constant(0, dtype=tf.int64))
   x_batch_max = tf.sparse_reduce_max(x, axis=0)
   x_batch_minus_min = tf.sparse_reduce_max(minus_x, axis=0)
 
@@ -599,33 +598,8 @@ def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
   Raises:
     TypeError: If the type of `x` is not supported.
   """
-
-  if output_dtype is None:
-    output_dtype = _MEAN_OUTPUT_DTYPE_MAP.get(x.dtype)
-    if output_dtype is None:
-      raise TypeError('Tensor type %r is not supported' % x.dtype)
-  sum_dtype, sum_fn = _sum_combine_fn_and_dtype(x.dtype)
   with tf.name_scope(name, 'mean'):
-    if reduce_instance_dims:
-      if isinstance(x, tf.SparseTensor):
-        x = x.values
-      x_size, x_sum = tf.reduce_sum(tf.ones_like(x)), tf.reduce_sum(x)
-    elif isinstance(x, tf.SparseTensor):
-      sparse_ones = tf.SparseTensor(
-          indices=x.indices,
-          values=tf.ones_like(x.values),
-          dense_shape=x.dense_shape)
-      x_size = tf.sparse_reduce_sum(sparse_ones, axis=0)
-      x_sum = tf.sparse_reduce_sum(x, axis=0)
-    else:
-      x_size = tf.reduce_sum(tf.ones_like(x), axis=0)
-      x_sum = tf.reduce_sum(x, axis=0)
-    x_count, x_sum = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
-        [x_size, x_sum],
-        sum_fn,
-        reduce_instance_dims,
-        output_dtypes=[sum_dtype, sum_dtype])
-    return tf.cast(tf.divide(x_sum, x_count), output_dtype)
+    return _mean_and_var(x, reduce_instance_dims, name, output_dtype)[0]
 
 
 def var(x, reduce_instance_dims=True, name=None, output_dtype=None):
@@ -655,72 +629,28 @@ def var(x, reduce_instance_dims=True, name=None, output_dtype=None):
     return _mean_and_var(x, reduce_instance_dims, name, output_dtype)[1]
 
 
-def _mean_and_var_sparse(x,
-                         reduce_instance_dims=True,
-                         name=None,
-                         output_dtype=None):
-  """More efficient combined `mean` and `var`.  See `var`."""
-  assert isinstance(x, tf.SparseTensor)
-
-  if output_dtype is None:
-    output_dtype = _MEAN_OUTPUT_DTYPE_MAP.get(x.dtype)
-    if output_dtype is None:
-      raise TypeError('Tensor type %r is not supported' % x.dtype)
-  with tf.name_scope(name, 'mean_and_var_sparse'):
-    # Note: Calling `mean`, `sum`, and `size` as defined in this module, not the
-    # builtins.
-    x_mean = mean(x, reduce_instance_dims, output_dtype=output_dtype)
-    if reduce_instance_dims:
-      squared_deviations = tf.square(tf.cast(x.values, x_mean.dtype) - x_mean)
-    else:
-      # Only supports SparseTensors with rank 2.
-      x.get_shape().assert_has_rank(2)
-      mean_values = tf.gather(x_mean, x.indices[:, 1])
-      squared_deviation_values = tf.square(
-          tf.cast(x.values, x_mean.dtype) - mean_values)
-      squared_deviations = tf.SparseTensor(
-          indices=x.indices,
-          values=squared_deviation_values,
-          dense_shape=x.dense_shape)
-    x_var = mean(
-        squared_deviations, reduce_instance_dims, output_dtype=output_dtype)
-    return x_mean, x_var
-
-
 def _mean_and_var(x, reduce_instance_dims=True, name=None, output_dtype=None):
   """More efficient combined `mean` and `var`.  See `var`."""
-
-  if isinstance(x, tf.SparseTensor) and not reduce_instance_dims:
-    return _mean_and_var_sparse(x, reduce_instance_dims, name, output_dtype)
-  elif isinstance(x, tf.SparseTensor):
-    x = x.values
-
   if output_dtype is None:
     output_dtype = _MEAN_OUTPUT_DTYPE_MAP.get(x.dtype)
     if output_dtype is None:
       raise TypeError('Tensor type %r is not supported' % x.dtype)
 
-  with tf.name_scope(name, 'mean_and_var_dense'):
+  with tf.name_scope(name, 'mean_and_var'):
 
     x = tf.cast(x, output_dtype)
 
-    output_shape = ()
-    axis = None
-    x_n = tf.size(x)
-    if not reduce_instance_dims:
-      output_shape = _get_output_shape_from_input(x)
-      axis = 0
-
-      # Use batch_size as N.
-      x_n = tf.shape(x)[0]
-
-    x_n = tf.cast(x_n, output_dtype)
-
-    x_mean = tf.reduce_sum(x, axis=axis) / x_n
-    x_variance = tf.reduce_sum(tf.square(x - x_mean), axis=axis) / x_n
+    x_count, x_mean, x_variance = (
+        tf_utils.reduce_batch_count_mean_and_var(x, reduce_instance_dims))
 
     combine_inputs = _MeanAndVarAccumulator(
-        count=x_n, mean=x_mean, variance=x_variance)
+        count=x_count, mean=x_mean, variance=x_variance)
+
+    output_shape = ()
+    if not reduce_instance_dims:
+      # We need to use tf.expand_dims to artificially add a batch dimension.
+      output_shape = _get_output_shape_from_input(
+          tf.expand_dims(x_count, axis=0))
 
     x_mean, x_var = combine_analyzer(
         inputs=combine_inputs,
@@ -736,6 +666,10 @@ class _MeanAndVarAccumulator(
     collections.namedtuple('MeanAndVarAccumulator',
                            ['count', 'mean', 'variance'])):
   """Container for _MeanAndVarCombinerSpec intermediate values."""
+
+  @classmethod
+  def make_nan_to_num(cls, counts, means, variances):
+    return cls(counts, np.nan_to_num(means), np.nan_to_num(variances))
 
   def __reduce__(self):
     return self.__class__, tuple(self)
@@ -815,11 +749,15 @@ class _MeanAndVarCombinerSpec(CombinerSpec):
     Returns:
       A _MeanAndVarAccumulator computed as the combination of a and b.
     """
+    # NaNs get preserved through division by a.count + b.count.
+    a = _MeanAndVarAccumulator.make_nan_to_num(*a)
+    b = _MeanAndVarAccumulator.make_nan_to_num(*b)
+
     # a.count >= b.count following this logic.
-    if a.count < b.count:
+    if np.sum(a.count) < np.sum(b.count):
       a, b = b, a
 
-    if a.count == 0:
+    if np.sum(a.count) == 0:
       return b
 
     combined_total = a.count + b.count
@@ -903,6 +841,7 @@ def vocabulary(x,
                frequency_threshold=None,
                vocab_filename=None,
                store_frequency=False,
+               weights=None,
                name=None):
   r"""Computes the unique values of a `Tensor` over the whole dataset.
 
@@ -939,7 +878,9 @@ def vocabulary(x,
     store_frequency: If True, frequency of the words is stored in the
       vocabulary file. Each line in the file will be of the form
       'frequency word\n'.
-    name: (Optional) A name for this operation.
+    weights: (Optional) Weights tensor for the vocabulary. Tensor must have the
+      same shape as x.
+      name: (Optional) A name for this operation.
 
   Returns:
     The path name for the vocabulary file containing the unique values of `x`.
@@ -983,10 +924,13 @@ def vocabulary(x,
     spec = _VocabularySpec(top_k, frequency_threshold, vocab_filename,
                            store_frequency)
 
+    if weights is None:
+      weights = tf.ones_like(x, dtype=tf.int64)
+
     result = tf.placeholder(tf.string, [])
     tf.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, result)
-    tf.add_to_collection(
-        ANALYZER_COLLECTION, Analyzer([x], [result], spec, scope))
+    tf.add_to_collection(ANALYZER_COLLECTION,
+                         Analyzer([x, weights], [result], spec, scope))
     return result
 
 
@@ -996,14 +940,17 @@ def uniques(x,
             frequency_threshold=None,
             vocab_filename=None,
             store_frequency=False,
+            weights=None,
             name=None):
   r"""See `tft.vocabulary`."""
-  return vocabulary(x=x,
-                    top_k=top_k,
-                    frequency_threshold=frequency_threshold,
-                    vocab_filename=vocab_filename,
-                    store_frequency=store_frequency,
-                    name=name)
+  return vocabulary(
+      x=x,
+      top_k=top_k,
+      frequency_threshold=frequency_threshold,
+      vocab_filename=vocab_filename,
+      store_frequency=store_frequency,
+      name=name,
+      weights=weights)
 
 
 class _QuantilesCombinerSpec(CombinerSpec):
@@ -1098,7 +1045,7 @@ class _QuantilesCombinerSpec(CombinerSpec):
                                     self._always_return_num_quantiles)
 
   def create_accumulator(self):
-    return self._empty_summary
+    return None
 
   def add_input(self, summary, next_input):
     # next_input is a list of tensors each one representing a batch for its
@@ -1106,9 +1053,14 @@ class _QuantilesCombinerSpec(CombinerSpec):
     # to (1,?).
     flattened_input = np.reshape(next_input[0], newshape=(1, -1))
 
+    if summary is None and flattened_input.size == 0:
+      return None
+
     self._session.run(
         self._add_prebuilt_summary_op,
-        feed_dict={self._prebuilt_summary_input: summary})
+        feed_dict={
+            self._prebuilt_summary_input: summary or self._empty_summary
+        })
 
     self._session.run(
         self._add_summary_op,
@@ -1121,6 +1073,10 @@ class _QuantilesCombinerSpec(CombinerSpec):
     return self._session.run(self._flush_summary_op)
 
   def merge_accumulators(self, summaries):
+    summaries = [summary for summary in summaries if summary is not None]
+    if not summaries:
+      return None
+
     for summary in summaries:
       self._session.run(
           self._add_prebuilt_summary_op,
@@ -1132,6 +1088,11 @@ class _QuantilesCombinerSpec(CombinerSpec):
     return self._session.run(self._flush_summary_op)
 
   def extract_output(self, summary):
+    if summary is None:
+      num_buckets = (
+          self._num_quantiles - 1 if self._always_return_num_quantiles else 0)
+      return [np.zeros((num_buckets,), np.float32)]
+
     # All relevant state about the input is captured by 'summary'
     # (see comment in add_input() and merge_accumulators()).
     self._session.run(

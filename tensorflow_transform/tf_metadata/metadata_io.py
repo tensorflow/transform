@@ -63,7 +63,6 @@ def _schema_from_json(schema_json):
 
 def _column_schema_from_json(feature_dict):
   """Translate a JSON feature dict into a `ColumnSchema`."""
-  print ('feature_dict', feature_dict)
   domain = _domain_from_json(feature_dict['domain'])
 
   axes = []

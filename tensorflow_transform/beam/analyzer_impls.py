@@ -105,13 +105,19 @@ class _VocabularyAnalyzerImpl(beam.PTransform):
     # pairs in sorted order by decreasing counts (and by values for equal
     # counts).
 
-    def flatten_value_to_list(batch_values):
-      """Converts an N-D dense or sparse batch to a 1-D list."""
+    def flatten_value_and_weights_to_list_of_tuples(batch_values):
+      """Converts a batch of vocabulary and weights to a list of KV tuples."""
       # Ravel for flattening and tolist so that we go to native Python types
       # for more efficient followup processing.
       #
-      batch_value, = batch_values
-      return batch_value.ravel().tolist()
+      batch_value, weights = batch_values
+      batch_value = batch_value.ravel().tolist()
+      weights = weights.ravel().tolist()
+      if len(batch_value) != len(weights):
+        raise ValueError(
+            'Values and weights contained different number of values ({} vs {})'
+            .format(len(batch_value), len(weights)))
+      return zip(batch_value, weights)
 
     def is_problematic_string(kv):
       string, _ = kv  # Ignore counts.
@@ -119,8 +125,9 @@ class _VocabularyAnalyzerImpl(beam.PTransform):
 
     counts = (
         pcoll
-        | 'FlattenStrings' >> beam.FlatMap(flatten_value_to_list)
-        | 'CountPerString' >> beam.combiners.Count.PerElement()
+        | 'FlattenStringsAndWeights' >>
+        beam.FlatMap(flatten_value_and_weights_to_list_of_tuples)
+        | 'CountPerString' >> beam.CombinePerKey(sum)
         | 'FilterProblematicStrings' >> beam.Filter(is_problematic_string)
         | 'SwapStringsAndCounts' >> beam.KvSwap())
 
