@@ -21,6 +21,23 @@ from __future__ import print_function
 import tensorflow as tf
 
 
+def assert_same_shape(x, y):
+  """Asserts two tensors have the same dynamic and static shape.
+
+  Args:
+    x: A `Tensor`.
+    y: A `Tensor`
+
+  Returns:
+    The element `x`, the result must be used in order to ensure that the dynamic
+    check is executed.
+  """
+  x.shape.assert_is_compatible_with(y.shape)
+  assert_eq = tf.assert_equal(tf.shape(x), tf.shape(y))
+  with tf.control_dependencies([assert_eq]):
+    return tf.identity(x)
+
+
 def reduce_batch_count(x, reduce_instance_dims):
   """Counts elements in the given tensor.
 

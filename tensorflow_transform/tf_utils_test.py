@@ -26,6 +26,32 @@ from tensorflow_transform import tf_utils
 
 class AnalyzersTest(test_case.TransformTestCase):
 
+  @test_case.parameters(
+      ([[1], [2]], [[1], [2], [3]], None, None, tf.errors.InvalidArgumentError,
+       'Condition x == y did not hold element-wise:'),
+      ([[1], [2], [3]], [[1], [2], [3]], [None, None], [None], ValueError,
+       r'Shapes \(\?, \?\) and \(\?,\) are incompatible'),
+  )
+  def test_same_shape_exceptions(self, x_input, y_input, x_shape, y_shape,
+                                 exception_cls, error_string):
+    x = tf.placeholder(tf.int32, shape=x_shape)
+    y = tf.placeholder(tf.int32, shape=y_shape)
+    with tf.Session() as sess:
+      with self.assertRaisesRegexp(exception_cls, error_string):
+        sess.run(tf_utils.assert_same_shape(x, y), {x: x_input, y: y_input})
+
+  def test_same_shape(self):
+    with tf.Session() as sess:
+      input_list = [[1], [2], [3]]
+      x = tf.placeholder(tf.int32, shape=None)
+      y = tf.placeholder(tf.int32, shape=None)
+      x_return = sess.run(
+          tf_utils.assert_same_shape(x, y), {
+              x: input_list,
+              y: input_list
+          })
+      self.assertAllEqual(x_return, input_list)
+
   def test_reduce_batch_count(self):
     x = tf.constant([[[1], [2]], [[1], [2]]])
     with tf.Session():

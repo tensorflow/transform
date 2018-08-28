@@ -31,6 +31,8 @@ def _make_required_install_packages():
 
       'six>=1.10,<2',
 
+      'tensorflow-metadata>=0.6,<1',
+
   ]
 
 

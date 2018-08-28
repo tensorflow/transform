@@ -777,12 +777,13 @@ class _MeanAndVarCombinerSpec(CombinerSpec):
 class _VocabularySpec(object):
   """Operation to compute unique values."""
 
-  def __init__(self, top_k, frequency_threshold,
-               vocab_filename, store_frequency):
+  def __init__(self, top_k, frequency_threshold, vocab_filename,
+               store_frequency, has_weights):
     self._top_k = top_k
     self._frequency_threshold = frequency_threshold
     self._vocab_filename = vocab_filename
     self._store_frequency = store_frequency
+    self._has_weights = has_weights
 
   @property
   def top_k(self):
@@ -799,6 +800,10 @@ class _VocabularySpec(object):
   @property
   def store_frequency(self):
     return self._store_frequency
+
+  @property
+  def has_weights(self):
+    return self._has_weights
 
 
 def sanitized_vocab_filename(filename=None, prefix=None):
@@ -922,15 +927,26 @@ def vocabulary(x,
     vocab_filename = sanitized_vocab_filename(vocab_filename, prefix=prefix)
 
     spec = _VocabularySpec(top_k, frequency_threshold, vocab_filename,
-                           store_frequency)
+                           store_frequency, weights is not None)
+
+    x = tf.reshape(x, [-1])
 
     if weights is None:
-      weights = tf.ones_like(x, dtype=tf.int64)
+      analyzer_inputs = [x]
+    else:
+      # Reducing in TF first.
+      x = tf_utils.assert_same_shape(x, weights)
+      unique = tf.unique(x, out_idx=tf.int64)
+
+      weights = tf.reshape(weights, [-1])
+      summed_weights = tf.unsorted_segment_sum(weights, unique.idx,
+                                               tf.size(unique.y))
+      analyzer_inputs = [unique.y, summed_weights]
 
     result = tf.placeholder(tf.string, [])
     tf.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, result)
     tf.add_to_collection(ANALYZER_COLLECTION,
-                         Analyzer([x, weights], [result], spec, scope))
+                         Analyzer(analyzer_inputs, [result], spec, scope))
     return result
 
 
@@ -961,12 +977,17 @@ class _QuantilesCombinerSpec(CombinerSpec):
   see also http://web.cs.ucla.edu/~weiwang/paper/SSDBM07_2.pdf
   """
 
-  def __init__(self, num_quantiles, epsilon, bucket_numpy_dtype,
-               always_return_num_quantiles=False):
+  def __init__(self,
+               num_quantiles,
+               epsilon,
+               bucket_numpy_dtype,
+               always_return_num_quantiles=False,
+               has_weights=False):
     self._num_quantiles = num_quantiles
     self._epsilon = epsilon
     self._bucket_numpy_dtype = bucket_numpy_dtype
     self._always_return_num_quantiles = always_return_num_quantiles
+    self._has_weights = has_weights
 
   def initialize_local_state(self, tf_config=None):
     """Called by the CombineFnWrapper's __init__ method.
@@ -997,20 +1018,24 @@ class _QuantilesCombinerSpec(CombinerSpec):
             generate_quantiles=self._always_return_num_quantiles)
         resources.initialize_resources(resources.shared_resources()).run()
 
-        # Create placeholder that will be used to provide input the
-        # QuantileAccumulator.  Has shape (1, None) as this is what the
+        # Create placeholders that will be used to provide input and weights to
+        # the QuantileAccumulator.
+        # They need to have shapes (1, None) as this is what the
         # QuantileAccumulator accepts.
         self._add_summary_input = tf.placeholder(
             dtype=self._bucket_numpy_dtype, shape=[1, None])
+        if self._has_weights:
+          self._add_summary_weights = tf.placeholder(
+              dtype=tf.float32, shape=[1, None])
+        else:
+          self._add_summary_weights = tf.ones_like(self._add_summary_input)
 
         # Create op to update the accumulator with new input fed from
-        # self._qaccumulator_input.
+        # self._add_summary_input.
         self._add_summary_op = self._qaccumulator.add_summary(
             stamp_token=stamp_token,
             column=self._add_summary_input,
-            # All weights are equal, and the weight vector is the
-            # same length as the input.
-            example_weights=tf.ones_like(self._add_summary_input))
+            example_weights=self._add_summary_weights)
 
         # Create op to add a prebuilt summary to the accumulator, and a
         # placeholder tensor to provide the input for this op.
@@ -1042,7 +1067,8 @@ class _QuantilesCombinerSpec(CombinerSpec):
   def __reduce__(self):
     return _QuantilesCombinerSpec, (self._num_quantiles, self._epsilon,
                                     self._bucket_numpy_dtype,
-                                    self._always_return_num_quantiles)
+                                    self._always_return_num_quantiles,
+                                    self._has_weights)
 
   def create_accumulator(self):
     return None
@@ -1056,15 +1082,26 @@ class _QuantilesCombinerSpec(CombinerSpec):
     if summary is None and flattened_input.size == 0:
       return None
 
+    if self._has_weights:
+      flattened_weights = np.reshape(next_input[1], newshape=(1, -1))
+      if len(flattened_input) != len(flattened_weights):
+        raise ValueError(
+            'Values and weights contained different number of values ({} vs {})'
+            .format(len(flattened_input), len(flattened_weights)))
+      add_summary_op_feed_dict = {
+          self._add_summary_input: flattened_input,
+          self._add_summary_weights: flattened_weights
+      }
+    else:
+      add_summary_op_feed_dict = {self._add_summary_input: flattened_input}
+
     self._session.run(
         self._add_prebuilt_summary_op,
         feed_dict={
             self._prebuilt_summary_input: summary or self._empty_summary
         })
 
-    self._session.run(
-        self._add_summary_op,
-        feed_dict={self._add_summary_input: flattened_input})
+    self._session.run(self._add_summary_op, add_summary_op_feed_dict)
 
     # After the flush_summary, qaccumulator will not contain any
     # uncommitted information that represents the input. Instead all the
@@ -1130,7 +1167,7 @@ class _QuantilesCombinerSpec(CombinerSpec):
     return 1
 
 
-def quantiles(x, num_buckets, epsilon, name=None):
+def quantiles(x, num_buckets, epsilon, weights=None, name=None):
   """Computes the quantile boundaries of a `Tensor` over the whole dataset.
 
   quantile boundaries are computed using approximate quantiles,
@@ -1159,6 +1196,8 @@ def quantiles(x, num_buckets, epsilon, name=None):
       in the different stages of the beam pipeline, in general, larger epsilon
       results in fewer and smaller stages, and less time. For more performance
       trade-offs see also http://web.cs.ucla.edu/~weiwang/paper/SSDBM07_2.pdf
+    weights: (Optional) Weights tensor for the quantiles. Tensor must have the
+      same shape as x.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1168,11 +1207,24 @@ def quantiles(x, num_buckets, epsilon, name=None):
 
   with tf.name_scope(name, 'quantiles'):
     bucket_dtype = tf.float32
-    combiner_spec = _QuantilesCombinerSpec(num_buckets, epsilon,
-                                           bucket_dtype.as_numpy_dtype,
-                                           always_return_num_quantiles=False)
-    quantile_boundaries = combine_analyzer(
-        [x], [bucket_dtype], [(None,)], combiner_spec, 'quantiles')[0]
+    if weights is None:
+      analyzer_inputs = [x]
+      has_weights = False
+      always_return_num_quantiles = False
+    else:
+      x = tf_utils.assert_same_shape(x, weights)
+      analyzer_inputs = [x, weights]
+      has_weights = True
+      always_return_num_quantiles = True
+    combiner_spec = _QuantilesCombinerSpec(
+        num_buckets,
+        epsilon,
+        bucket_dtype.as_numpy_dtype,
+        always_return_num_quantiles=always_return_num_quantiles,
+        has_weights=has_weights)
+    quantile_boundaries = combine_analyzer(analyzer_inputs, [bucket_dtype],
+                                           [(None,)], combiner_spec,
+                                           'quantiles')[0]
     return tf.expand_dims(quantile_boundaries, axis=0)
 
 

@@ -2322,6 +2322,41 @@ class BeamImplTest(tft_unit.TransformTestCase):
           beam_pipeline=beam.Pipeline())
 
   @tft_unit.parameters(
+      # Test for all numerical types, each type is in a separate testcase to
+      # increase parallelism of test shards and reduce test time.
+      (tf.int32,),
+      (tf.int64,),
+      (tf.float32,),
+      (tf.float64,),
+      (tf.double,),
+  )
+  def testQuantileBucketsWithWeights(self, input_dtype):
+
+    def analyzer_fn(inputs):
+      return {
+          'q_b':
+              tft.quantiles(
+                  tf.cast(inputs['x'], input_dtype),
+                  num_buckets=3,
+                  epsilon=0.00001,
+                  weights=inputs['weights'])
+      }
+
+    input_data = [{'x': [x], 'weights': [x / 100.]} for x in range(1, 3000)]
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([1], _canonical_dtype(input_dtype)),
+        'weights': tf.FixedLenFeature([1], tf.float32)
+    })
+    # The expected data has 2 boundaries that divides the data into 3 buckets.
+    expected_outputs = {'q_b': np.array([[1732, 2449]], np.float32)}
+    self.assertAnalyzerOutputs(
+        input_data,
+        input_metadata,
+        analyzer_fn,
+        expected_outputs,
+        desired_batch_size=1000)
+
+  @tft_unit.parameters(
       # Test for all integral types, each type is in a separate testcase to
       # increase parallelism of test shards and reduce test time.
       (tf.int32,),

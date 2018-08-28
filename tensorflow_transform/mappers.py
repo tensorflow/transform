@@ -467,7 +467,8 @@ def compute_and_apply_vocabulary(x,
         top_k=top_k,
         frequency_threshold=frequency_threshold,
         vocab_filename=vocab_filename,
-        weights=weights)
+        weights=weights,
+        name=name)
     return apply_vocabulary(
         x, deferred_vocab_and_filename, default_value, num_oov_buckets)
 
@@ -490,8 +491,8 @@ def string_to_int(x,
       frequency_threshold=frequency_threshold,
       num_oov_buckets=num_oov_buckets,
       vocab_filename=vocab_filename,
-      name=name,
-      weights=weights)
+      weights=weights,
+      name=name)
 
 
 def apply_vocabulary(x,
@@ -771,7 +772,7 @@ def hash_strings(strings, hash_buckets, key=None, name=None):
   return tf.string_to_hash_bucket_strong(strings, hash_buckets, key, name=name)
 
 
-def bucketize(x, num_buckets, epsilon=None, name=None):
+def bucketize(x, num_buckets, epsilon=None, weights=None, name=None):
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Args:
@@ -793,6 +794,8 @@ def bucketize(x, num_buckets, epsilon=None, name=None):
       error tolerance, because more buckets will result in smaller range for
       each bucket, and so we want the boundaries to be less fuzzy.
       See analyzers.quantiles() for details.
+    weights: (Optional) Weights tensor for the quantiles. Tensor must have the
+      same shape as x.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -818,7 +821,8 @@ def bucketize(x, num_buckets, epsilon=None, name=None):
       epsilon = min(1.0 / num_buckets, 0.01)
 
     x_values = x.values if isinstance(x, tf.SparseTensor) else x
-    bucket_boundaries = analyzers.quantiles(x_values, num_buckets, epsilon)
+    bucket_boundaries = analyzers.quantiles(x_values, num_buckets, epsilon,
+                                            weights)
     return apply_buckets(x, bucket_boundaries)
 
 

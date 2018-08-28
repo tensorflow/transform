@@ -119,15 +119,29 @@ class _VocabularyAnalyzerImpl(beam.PTransform):
             .format(len(batch_value), len(weights)))
       return zip(batch_value, weights)
 
+    def flatten_value_to_list(batch_values):
+      """Converts an N-D dense or sparse batch to a 1-D list."""
+      # Ravel for flattening and tolist so that we go to native Python types
+      # for more efficient followup processing.
+      #
+      batch_value, = batch_values
+      return batch_value.ravel().tolist()
+
+    if self._spec.has_weights:
+      flatten_map_fn = flatten_value_and_weights_to_list_of_tuples
+      combine_transform = beam.CombinePerKey(sum)
+    else:
+      flatten_map_fn = flatten_value_to_list
+      combine_transform = beam.combiners.Count.PerElement()
+
     def is_problematic_string(kv):
       string, _ = kv  # Ignore counts.
       return string and '\n' not in string and '\r' not in string
 
     counts = (
         pcoll
-        | 'FlattenStringsAndWeights' >>
-        beam.FlatMap(flatten_value_and_weights_to_list_of_tuples)
-        | 'CountPerString' >> beam.CombinePerKey(sum)
+        | 'FlattenStringsAndMaybeWeights' >> beam.FlatMap(flatten_map_fn)
+        | 'CountPerString' >> combine_transform
         | 'FilterProblematicStrings' >> beam.Filter(is_problematic_string)
         | 'SwapStringsAndCounts' >> beam.KvSwap())
 

@@ -176,8 +176,8 @@ class _GraphAnalyzer(object):
         for component in _decompose_tensor_or_sparse_tensor(tensor_or_op))
 
 
-def determine_ready_tensors_and_table_initializers(
-    fetches, feeds, replaced_tensors_ready):
+def determine_ready_tensors_and_table_initializers(graph, fetches, feeds,
+                                                   replaced_tensors_ready):
   """Determines which tensors will be ready when running the graph.
 
   Determines which tensors from `fetches` are ready to run, using following
@@ -193,6 +193,7 @@ def determine_ready_tensors_and_table_initializers(
      `replaced_tensors_ready`.
 
   Args:
+    graph: a `Graph`.
     fetches: a list of `Tensor` or `SparseTensor`s
     feeds: a list of `Tensor` or `SparseTensor`s
     replaced_tensors_ready: a dict from `Tensor` to bool indicating whether a
@@ -216,7 +217,7 @@ def determine_ready_tensors_and_table_initializers(
   ready_table_initializers = []
   ready_in_feed = {}
 
-  for table_init_op in tf.get_collection(tf.GraphKeys.TABLE_INITIALIZERS):
+  for table_init_op in graph.get_collection(tf.GraphKeys.TABLE_INITIALIZERS):
     if table_init_op.type not in _TABLE_INIT_OP_TYPES:
       raise ValueError(
           'Table initializer {} did not have expected op type'.format(

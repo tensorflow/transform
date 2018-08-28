@@ -166,7 +166,7 @@ class GraphToolsTest(test_case.TransformTestCase):
         tensors[name] for name in should_be_ready if should_be_ready[name]]
     ready_table_initializers, ready_tensors = (
         graph_tools.determine_ready_tensors_and_table_initializers(
-            fetches, feeds, replaced_tensors_ready))
+            tf.get_default_graph(), fetches, feeds, replaced_tensors_ready))
     self.assertEqual(len(ready_table_initializers),
                      num_ready_table_initializers)
     self.assertCountEqual(ready_tensors, expected_ready_tensors)
@@ -220,7 +220,8 @@ class GraphToolsTest(test_case.TransformTestCase):
                               for name, ready in replaced_tensors_ready.items()}
     with self.assertRaisesRegexp(ValueError, error_msg_regex):
       graph_tools.determine_ready_tensors_and_table_initializers(
-          fetches, feeds, replaced_tensors_ready)
+          tf.get_default_graph(), fetches, feeds, replaced_tensors_ready)
+
 
 if __name__ == '__main__':
   unittest.main()

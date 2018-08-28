@@ -389,7 +389,8 @@ def create_phases(inputs):
       analyzer_inputs.extend(analyzer.inputs)
     ready_init_ops, ready_analyzer_inputs = (
         graph_tools.determine_ready_tensors_and_table_initializers(
-            analyzer_inputs, feed_tensors, analyzer_output_ready))
+            tf.get_default_graph(), analyzer_inputs, feed_tensors,
+            analyzer_output_ready))
     ready_analyzer_inputs = set(ready_analyzer_inputs)
 
     new_remaining_analyzers = []

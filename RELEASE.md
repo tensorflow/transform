@@ -10,6 +10,9 @@
 * Add bucketize_per_key which computes separate quantiles for each key and then
   bucketizes each value according to the quantiles computed for its key.
 * `tft.scale_to_z_score` is now implemented with a single pass over the data.
+* Export schema_utils package to convert from the `tensorflow-metadata` package
+  to the (soon to be deprecated) `tf_metadata` subpackage of
+  `tensorflow-transform`.
 
 ## Bug Fixes and Other Changes
 * Memory reduction during vocabulary generation.
@@ -30,8 +33,11 @@
   checkpoint when calling it from the training `input_fn` when using
   `tf.Estimator`.
 * 'tft.vocabulary' and 'tft.compute_and_apply_vocabulary' now accept an
-  optoinal `weights` argument. When `weights` is provided, weighted frequencies
+  optional `weights` argument. When `weights` is provided, weighted frequencies
   are used instead of frequencies based on counts.
+* 'tft.quantiles' and 'tft.bucketize' now accept an optoinal `weights` argument.
+  When `weights` is provided, weighted count is used for quantiles instead of
+  the counts themselves.
 
 ## Breaking changes
 * Removed Schema.as_batched_placeholders() method.
