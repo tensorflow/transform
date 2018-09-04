@@ -264,7 +264,6 @@ class _NumPyCombinerSpec(CombinerSpec):
 
   Args:
     fn: The numpy function representing the reduction to be done.
-    reduce_instance_dims: Whether to reduce across non-batch dimensions.
     output_dtypes: The numpy dtype to cast each output to.
   """
 
