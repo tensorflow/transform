@@ -124,26 +124,6 @@ class SchemaIOv1JsonTest(unittest.TestCase):
     self._write_schema_to_disk(basedir, schema_no_sparse_features)
     _ = metadata_io.read_metadata(basedir)
 
-  def test_read_no_features(self):
-    basedir = tempfile.mkdtemp()
-    schema_no_features = """
-    {
-      "sparseFeature": [{
-        "name": "my_key",
-        "indexFeature": [],
-        "valueFeature": [{
-          "name": "value_key",
-          "type": "INT",
-          "domain": {
-            "ints": {}
-          }
-        }]
-      }]
-    }
-    """
-    self._write_schema_to_disk(basedir, schema_no_features)
-    _ = metadata_io.read_metadata(basedir)
-
   def test_write_and_read(self):
     basedir = tempfile.mkdtemp()
     original = dataset_metadata.DatasetMetadata(

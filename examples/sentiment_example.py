@@ -45,12 +45,13 @@ REVIEW_KEY = 'review'
 REVIEW_WEIGHT_KEY = 'review_weight'
 LABEL_KEY = 'label'
 
-RAW_DATA_METADATA = dataset_metadata.DatasetMetadata(dataset_schema.Schema({
-    REVIEW_KEY: dataset_schema.ColumnSchema(
-        tf.string, [], dataset_schema.FixedColumnRepresentation()),
-    LABEL_KEY: dataset_schema.ColumnSchema(
-        tf.int64, [], dataset_schema.FixedColumnRepresentation()),
-}))
+RAW_DATA_FEATURE_SPEC = {
+    REVIEW_KEY: tf.FixedLenFeature([], tf.string),
+    LABEL_KEY: tf.FixedLenFeature([], tf.int64)
+}
+
+RAW_DATA_METADATA = dataset_metadata.DatasetMetadata(
+    dataset_schema.from_feature_spec(RAW_DATA_FEATURE_SPEC))
 
 DELIMITERS = '.,!?() '
 

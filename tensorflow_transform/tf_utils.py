@@ -21,6 +21,34 @@ from __future__ import print_function
 import tensorflow as tf
 
 
+def reduce_batch_vocabulary(x, weights):
+  """Constructs analyzer inputs and computes uniques when weights are provided.
+
+  Args:
+    x: Input `Tensor` for vocabulary analyzer.
+    weights: Weights `Tensor` for vocabulary analyzer.
+
+  Returns:
+    A list of:
+      - Just a flattened x if weights are None.
+      - Otherwise, 2 Tensors:
+          * unique values
+          * sum of weights for those unique values
+  """
+  if weights is not None:
+    x = assert_same_shape(x, weights)
+    x = tf.reshape(x, [-1])
+    weights = tf.reshape(weights, [-1])
+    unique = tf.unique(x, out_idx=tf.int64)
+    summed_weights = tf.unsorted_segment_sum(weights, unique.idx,
+                                             tf.size(unique.y))
+    return [unique.y, summed_weights]
+
+  else:
+    x = tf.reshape(x, [-1])
+    return [x]
+
+
 def assert_same_shape(x, y):
   """Asserts two tensors have the same dynamic and static shape.
 

@@ -201,40 +201,26 @@ Here's the definition of the schema for the example data:
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
-raw_data_metadata = dataset_metadata.DatasetMetadata(dataset_schema.Schema({
-    's': dataset_schema.ColumnSchema(tf.string, [],
-        dataset_schema.FixedColumnRepresentation()),
-    'y': dataset_schema.ColumnSchema(tf.float32, [],
-        dataset_schema.FixedColumnRepresentation()),
-    'x': dataset_schema.ColumnSchema(tf.float32, [],
-        dataset_schema.FixedColumnRepresentation())
-}))
-
+raw_data_metadata = dataset_metadata.DatasetMetadata(
+    dataset_schema.from_feature_spec({
+        's': tf.FixedLenFeature([], tf.string),
+        'y': tf.FixedLenFeature([], tf.float32),
+        'x': tf.FixedLenFeature([], tf.float32),
+    }))
 ```
 
-The `dataset_schema.Schema` class is a wrapper around a `dict` that contains
-`dataset_schema.ColumnSchema`s. Each key describes the logical name of a
-tensor and the `ColumnSchema` describes both the kind of tensor and how it
-is represented in-memory or on-disk.
+The `dataset_schema.Schema` class contains the information needed to parse the
+data from its on-disk or in-memory format, into tensors.  It is typically
+constructed by calling `dataset_schema.from_feature_spec` with a dict mapping
+feature keys to `tf.FixedLenFeature`, `tf.VarLenFeature`, and `tf.SparseFeature`
+values.  See the documentation for
+[`tf.parse_example`](https://www.tensorflow.org/api_docs/python/tf/parse_example)
+for more details.
 
-The first argument to `ColumnSchema` specifies the `Domain` that includes the
-data type and more detailed information such as ranges. Here, only the data type
-is specified and a helper function is used to create the `Domain`. The second
-argument provides a list of `Axis` objects describing the shape of the tensor.
-In this example, the shape has no axes because the values are scalars (rank 0
-tensors).
-
-The third argument to `ColumnSchema` is the representation of the data. There
-are three kinds of representation. A `FixedColumnRepresentation` is a
-representation of a column with fixed, known size. This allows each instance to
-be represented as a list that can be packed into a tensor of that size. See
-`tf_metadata/dataset_schema.py` for a description of the other kinds of
-representation.
-
-While the shape of the tensor is determined by its axes, if it's represented by a
-`Tensor` or `SparseTensor` in the graph is determined by the representation.
-Data stored in a sparse format is mapped to a sparse tensor, and users are free
-to convert between `Tensor`s and `SparseTensor`s in their custom code.
+Above we use `tf.FixedLenFeature` to indicate that each feature contains a fixed
+number of values, in this case a single scalar value.  Because `tf.Transform`
+batches instances, the actual `Tensor` representing the feature will have shape
+`(None,)` where the unknown dimension is the batch dimension.
 
 ## Input and output with Apache Beam
 
@@ -275,6 +261,12 @@ file—required because the schema does not contain this information. Some extra
 Beam transforms are removed since they're already done when reading from the CSV
 file. Each CSV row is converted to an instance in the in-memory format.
 
+In this example we allow the `education-num` feature to be missing. This means
+that it is represented as a `tf.VarLenFeature` in the feature_spec, and as a
+`tf.SparseTensor` in the preprocessing_fn.
+To handle the possibly missing feature value we fill in missing instances with a
+default value, in this case 0.
+
 ```python
 converter = tft.coders.CsvCoder(ordered_columns, raw_data_schema)
 
@@ -294,21 +286,34 @@ categorical columns:
 ```python
 def preprocessing_fn(inputs):
   """Preprocess input columns into transformed columns."""
-  outputs = {}
+  # Since we are modifying some features and leaving others unchanged, we
+  # start by setting `outputs` to a copy of `inputs.
+  outputs = inputs.copy()
 
   # Scale numeric columns to have range [0, 1].
-  for key in NUMERIC_COLUMNS:
-    outputs[key] = tft.scale_to_0_1(inputs[key])
+  for key in NUMERIC_FEATURE_KEYS:
+    outputs[key] = tft.scale_to_0_1(outputs[key])
 
-  # For all categorical columns except the label column, we use
-  # tft.compute_and_apply_vocabulary which computes the set of unique values and
-  # uses this to convert the strings to indices.
-  for key in CATEGORICAL_COLUMNS:
-    outputs[key] = tft.compute_and_apply_vocabulary(inputs[key])
+  for key in OPTIONAL_NUMERIC_FEATURE_KEYS:
+    # This is a SparseTensor because it is optional. Here we fill in a default
+    # value when it is missing.
+    dense = tf.sparse_to_dense(outputs[key].indices,
+                               [outputs[key].dense_shape[0], 1],
+                               outputs[key].values, default_value=0.)
+    # Reshaping from a batch of vectors of size 1 to a batch to scalars.
+    dense = tf.squeeze(dense, axis=1)
+    outputs[key] = tft.scale_to_0_1(dense)
+
+  # For all categorical columns except the label column, we generate a
+  # vocabulary but do not modify the feature.  This vocabulary is instead
+  # used in the trainer, by means of a feature column, to convert the feature
+  # from a string to an integer id.
+  for key in CATEGORICAL_FEATURE_KEYS:
+    tft.vocabulary(inputs[key], vocab_filename=key)
 
   # For the label column we provide the mapping from string to index.
-  table = lookup.string_to_index_table_from_tensor(['>50K', '<=50K'])
-  outputs[LABEL_COLUMN] = table.lookup(inputs[LABEL_COLUMN])
+  table = tf.contrib.lookup.index_table_from_tensor(['>50K', '<=50K'])
+  outputs[LABEL_KEY] = table.lookup(outputs[LABEL_KEY])
 
   return outputs
 ```

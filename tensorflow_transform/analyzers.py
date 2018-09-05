@@ -928,19 +928,7 @@ def vocabulary(x,
     spec = _VocabularySpec(top_k, frequency_threshold, vocab_filename,
                            store_frequency, weights is not None)
 
-    x = tf.reshape(x, [-1])
-
-    if weights is None:
-      analyzer_inputs = [x]
-    else:
-      # Reducing in TF first.
-      x = tf_utils.assert_same_shape(x, weights)
-      unique = tf.unique(x, out_idx=tf.int64)
-
-      weights = tf.reshape(weights, [-1])
-      summed_weights = tf.unsorted_segment_sum(weights, unique.idx,
-                                               tf.size(unique.y))
-      analyzer_inputs = [unique.y, summed_weights]
+    analyzer_inputs = tf_utils.reduce_batch_vocabulary(x, weights)
 
     result = tf.placeholder(tf.string, [])
     tf.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, result)

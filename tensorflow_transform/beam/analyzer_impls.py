@@ -107,12 +107,10 @@ class _VocabularyAnalyzerImpl(beam.PTransform):
 
     def flatten_value_and_weights_to_list_of_tuples(batch_values):
       """Converts a batch of vocabulary and weights to a list of KV tuples."""
-      # Ravel for flattening and tolist so that we go to native Python types
-      # for more efficient followup processing.
-      #
       batch_value, weights = batch_values
-      batch_value = batch_value.ravel().tolist()
-      weights = weights.ravel().tolist()
+
+      batch_value = batch_value.tolist()
+      weights = weights.tolist()
       if len(batch_value) != len(weights):
         raise ValueError(
             'Values and weights contained different number of values ({} vs {})'
@@ -121,11 +119,9 @@ class _VocabularyAnalyzerImpl(beam.PTransform):
 
     def flatten_value_to_list(batch_values):
       """Converts an N-D dense or sparse batch to a 1-D list."""
-      # Ravel for flattening and tolist so that we go to native Python types
-      # for more efficient followup processing.
-      #
       batch_value, = batch_values
-      return batch_value.ravel().tolist()
+
+      return batch_value.tolist()
 
     if self._spec.has_weights:
       flatten_map_fn = flatten_value_and_weights_to_list_of_tuples

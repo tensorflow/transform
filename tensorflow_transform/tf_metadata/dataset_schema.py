@@ -23,6 +23,9 @@ import contextlib
 import six
 
 import tensorflow as tf
+from tensorflow_transform.tf_metadata import schema_utils
+
+from tensorflow_metadata.proto.v0 import schema_pb2
 
 
 _TF_EXAMPLE_ALLOWED_TYPES = [tf.string, tf.int64, tf.float32, tf.bool]
@@ -57,9 +60,29 @@ class Schema(object):
     if not isinstance(column_schemas, dict):
       raise ValueError('column_schemas must be a dict.')
     self._column_schemas = column_schemas
+    self._validate_column_schemas()
+
+  def _validate_column_schemas(self):
+    """Validate that this Schema can be represented as a schema_pb2.Schema."""
+    feature_spec = self.as_feature_spec()
+    int_domains = {}
+    for name, column_schema in self._column_schemas.items():
+      domain = column_schema.domain
+      if isinstance(domain, IntDomain):
+        int_domains[name] = schema_pb2.IntDomain(
+            min=domain.min_value, max=domain.max_value,
+            is_categorical=domain.is_categorical)
+    try:
+      schema_utils.schema_from_feature_spec(feature_spec, int_domains)
+    except Exception as e:
+      raise ValueError(
+          'The values of column_schemas were invalid, as detected when '
+          'converting them to a schema_pb2.Schema proto.  Original error: '
+          '{}'.format(e.message))
 
   @property
   def column_schemas(self):
+    """The column schemas for this schema. Do not mutate."""
     return self._column_schemas
 
   def __eq__(self, other):

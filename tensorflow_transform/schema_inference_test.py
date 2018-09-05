@@ -32,7 +32,7 @@ class SchemaInferenceTest(unittest.TestCase):
       tensors = {
           'a': tf.placeholder(tf.float32, (None,)),
           'b': tf.placeholder(tf.string, (1, 2, 3)),
-          'c': tf.placeholder(tf.int64, None)
+          'c': tf.placeholder(tf.int64, (None,))
       }
       schema_inference.set_tensor_schema_override(
           tensors['c'], tf.constant(5), tf.constant(6))
@@ -44,7 +44,7 @@ class SchemaInferenceTest(unittest.TestCase):
             tf.string, [2, 3], dataset_schema.FixedColumnRepresentation()),
         'c': dataset_schema.ColumnSchema(
             dataset_schema.IntDomain(tf.int64, is_categorical=True),
-            None, dataset_schema.FixedColumnRepresentation())
+            [], dataset_schema.FixedColumnRepresentation())
     })
     self.assertEqual(schema, expected_schema)
 
@@ -61,7 +61,7 @@ class SchemaInferenceTest(unittest.TestCase):
       tensors = {
           'a': tf.placeholder(tf.float32, (None,)),
           'b': tf.placeholder(tf.string, (1, 2, 3)),
-          'c': tf.placeholder(tf.int64, None)
+          'c': tf.placeholder(tf.int64, (None,))
       }
       schema_inference.set_tensor_schema_override(
           tensors['c'], tf.constant(5), tf.constant(6))
@@ -75,7 +75,7 @@ class SchemaInferenceTest(unittest.TestCase):
             tf.string, [2, 3], dataset_schema.FixedColumnRepresentation()),
         'c': dataset_schema.ColumnSchema(
             dataset_schema.IntDomain(tf.int64, 5, 6, is_categorical=True),
-            None, dataset_schema.FixedColumnRepresentation())
+            [], dataset_schema.FixedColumnRepresentation())
     })
     self.assertEqual(schema, expected_schema)
 

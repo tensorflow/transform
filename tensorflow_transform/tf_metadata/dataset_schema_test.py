@@ -34,17 +34,18 @@ class DatasetSchemaTest(unittest.TestCase):
     generated_feature_spec = schema.as_feature_spec()
     self.assertEqual(test_common.test_feature_spec, generated_feature_spec)
 
-  def test_feature_spec_unsupported_dtype(self):
-    schema = sch.Schema()
-    schema.column_schemas['fixed_float_with_default'] = (
-        sch.ColumnSchema(tf.float64, [1], sch.FixedColumnRepresentation(0.0)))
-
-    with self.assertRaisesRegexp(ValueError,
-                                 'tf.Example parser supports only types '
-                                 r'\[tf.string, tf.int64, tf.float32, tf.bool\]'
-                                 ', so it is invalid to generate a feature_spec'
-                                 ' with type tf.float64.'):
-      schema.as_feature_spec()
+  def test_schema_with_unsupported_dtype(self):
+    with self.assertRaisesRegexp(
+        ValueError,
+        r'tf.Example parser supports only types \[tf.string, tf.int64, '
+        r'tf.float32, tf.bool\], so it is invalid to generate a feature_spec'
+        r' with type tf.float64.'):
+      sch.Schema(
+          column_schemas={
+              'fixed_float_with_default':
+                  sch.ColumnSchema(tf.float64, [1],
+                                   sch.FixedColumnRepresentation([-1]))
+          })
 
 
   def test_sequence_feature_not_supported(self):
@@ -95,26 +96,26 @@ class DatasetSchemaTest(unittest.TestCase):
 
   def test_schema_equality(self):
     schema1 = sch.Schema(column_schemas={
-        'fixed_bool_with_default': sch.ColumnSchema(
-            tf.bool, [1], sch.FixedColumnRepresentation(False)),
+        'fixed_int': sch.ColumnSchema(
+            tf.int64, [2], sch.FixedColumnRepresentation()),
         'var_float': sch.ColumnSchema(
             tf.float32, None, sch.ListColumnRepresentation())
     })
     schema2 = sch.Schema(column_schemas={
-        'fixed_bool_with_default': sch.ColumnSchema(
-            tf.bool, [1], sch.FixedColumnRepresentation(False)),
+        'fixed_int': sch.ColumnSchema(
+            tf.int64, [2], sch.FixedColumnRepresentation()),
         'var_float': sch.ColumnSchema(
             tf.float32, None, sch.ListColumnRepresentation())
     })
     schema3 = sch.Schema(column_schemas={
-        'fixed_bool_with_default': sch.ColumnSchema(
-            tf.bool, [1], sch.FixedColumnRepresentation(False)),
+        'fixed_int': sch.ColumnSchema(
+            tf.int64, [2], sch.FixedColumnRepresentation()),
         'var_float': sch.ColumnSchema(
-            tf.float64, None, sch.ListColumnRepresentation())
+            tf.string, None, sch.ListColumnRepresentation())
     })
     schema4 = sch.Schema(column_schemas={
-        'fixed_bool_with_default': sch.ColumnSchema(
-            tf.bool, [1], sch.FixedColumnRepresentation(False))
+        'fixed_int': sch.ColumnSchema(
+            tf.int64, [2], sch.FixedColumnRepresentation())
     })
 
     self.assertEqual(schema1, schema2)

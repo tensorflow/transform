@@ -38,8 +38,20 @@
 * 'tft.quantiles' and 'tft.bucketize' now accept an optoinal `weights` argument.
   When `weights` is provided, weighted count is used for quantiles instead of
   the counts themselves.
+* Updated examples to construct the schema using
+  `dataset_schema.from_feature_spec`.
+* Updated the census example to allow the 'education-num' feature to be missing
+  and fill in a default value when it is.
+* Depends on `tensorflow-metadata>=0.9,<1`.
+* Depends on `apache-beam[gcp]>=2.6,<3`.
 
 ## Breaking changes
+* We now validate a `Schema` in its constructor to make sure that it can be
+  converted to a feature spec.  In particular only `tf.int64`, `tf.string` and
+  `tf.float32` types are allowed.
+* We now disallow default values for `FixedColumnRepresentation`.
+* It is no longer possible to set a default value in the Schema, and validation
+  of shape parameters will occur earlier.
 * Removed Schema.as_batched_placeholders() method.
 * Removed all components of DatasetMetadata except the schema, and removed all
   related classes and code.

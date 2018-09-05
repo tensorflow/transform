@@ -51,14 +51,12 @@ def main():
       {'x': 3, 'y': 3, 's': 'hello'}
   ]
 
-  raw_data_metadata = dataset_metadata.DatasetMetadata(dataset_schema.Schema({
-      's': dataset_schema.ColumnSchema(
-          tf.string, [], dataset_schema.FixedColumnRepresentation()),
-      'y': dataset_schema.ColumnSchema(
-          tf.float32, [], dataset_schema.FixedColumnRepresentation()),
-      'x': dataset_schema.ColumnSchema(
-          tf.float32, [], dataset_schema.FixedColumnRepresentation())
-  }))
+  raw_data_metadata = dataset_metadata.DatasetMetadata(
+      dataset_schema.from_feature_spec({
+          's': tf.FixedLenFeature([], tf.string),
+          'y': tf.FixedLenFeature([], tf.float32),
+          'x': tf.FixedLenFeature([], tf.float32),
+      }))
 
   with beam_impl.Context(temp_dir=tempfile.mkdtemp()):
     transformed_dataset, transform_fn = (  # pylint: disable=unused-variable

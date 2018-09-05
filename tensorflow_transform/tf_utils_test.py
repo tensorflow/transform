@@ -17,7 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-
+import numpy as np
 import tensorflow as tf
 
 from tensorflow_transform import test_case
@@ -25,6 +25,29 @@ from tensorflow_transform import tf_utils
 
 
 class AnalyzersTest(test_case.TransformTestCase):
+
+  @test_case.named_parameters(
+      ('rank1_without_weights', ['a', 'b', 'a'], None, [['a', 'b', 'a']]),
+      ('rank1_with_weights', ['a', 'b', 'a'], [1, 1, 2], [['a', 'b'], [3, 1]]),
+      ('rank2_without_weights', [['a', 'b', 'a'], ['b', 'a', 'b']], None,
+       [['a', 'b', 'a', 'b', 'a', 'b']]),
+      ('rank2_with_weights', [['a', 'b', 'a'], ['b', 'a', 'b']],
+       [[1, 2, 1], [1, 2, 2]], [['a', 'b'], [4, 5]]),
+      ('rank3_with_weights', [
+          [['a', 'b', 'a'], ['b', 'a', 'b']], [['a', 'b', 'a'], ['b', 'a', 'b']]
+      ], None, [['a', 'b', 'a', 'b', 'a', 'b', 'a', 'b', 'a', 'b', 'a', 'b']]),
+      ('rank3_without_weights', [[['a', 'b', 'a'], ['b', 'a', 'b']],
+                                 [['a', 'b', 'a'], ['b', 'a', 'b']]],
+       [[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]], [['a', 'b'], [9, 7]]),
+  )
+  def test_reduce_batch_vocabulary(self, x, weights, expected_analyzer_inputs):
+    x = tf.constant(x)
+    if weights is not None:
+      weights = tf.constant(weights)
+    with tf.Session() as sess:
+      results = sess.run(tf_utils.reduce_batch_vocabulary(x, weights))
+      self.assertAllEqual(results,
+                          np.array(expected_analyzer_inputs, dtype=np.object))
 
   @test_case.parameters(
       ([[1], [2]], [[1], [2], [3]], None, None, tf.errors.InvalidArgumentError,

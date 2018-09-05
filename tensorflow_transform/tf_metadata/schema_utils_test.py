@@ -176,6 +176,13 @@ NON_ROUNDTRIP_SCHEMAS = [
             'x': schema_pb2.StringDomain(name='my_domain', value=['a', 'b'])
         }
     },
+    {
+        'testcase_name': 'missing_schema_level_string_domain',
+        'ascii_proto': '''
+          feature: {name: "x" type: BYTES domain: "my_domain"}
+        ''',
+        'feature_spec': {'x': tf.VarLenFeature(tf.string)}
+    },
 ]
 
 INVALID_SCHEMA_PROTOS = [

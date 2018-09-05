@@ -203,11 +203,18 @@ def _get_string_domains(schema):
 
 
 def _get_domain(feature, string_domains):
+  """Get the domain of a feature, possibly looking up a schema-level domain."""
   domain_info = feature.WhichOneof('domain_info')
   if domain_info is None:
     return None
   if domain_info == 'domain':
-    return string_domains[feature.domain]
+    try:
+      return string_domains[feature.domain]
+    except KeyError:
+      tf.logging.warn(
+          'Feature "%s" referred to string domain "%s" which did not exist',
+          feature.name, feature.domain)
+      return None
   return getattr(feature, domain_info)
 
 

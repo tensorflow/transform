@@ -37,18 +37,14 @@ from tensorflow.python.lib.io import file_io
 
 _TEST_METADATA_COMPLETE = dataset_metadata.DatasetMetadata({
     'fixed_column': dataset_schema.ColumnSchema(
-        tf.string, (1, 3, 2), dataset_schema.FixedColumnRepresentation()),
-    'fixed_column_with_default': dataset_schema.ColumnSchema(
-        tf.float32, (1, 3, 2), dataset_schema.FixedColumnRepresentation(123.4)),
+        tf.string, (3,), dataset_schema.FixedColumnRepresentation()),
     'list_columm': dataset_schema.ColumnSchema(
         tf.float32, (None,), dataset_schema.ListColumnRepresentation())
 })
 
 _TEST_METADATA = dataset_metadata.DatasetMetadata({
     'fixed_column': dataset_schema.ColumnSchema(
-        tf.string, (1, 3, 2), dataset_schema.FixedColumnRepresentation()),
-    'fixed_column_with_default': dataset_schema.ColumnSchema(
-        tf.float32, (1, 3, 2), dataset_schema.FixedColumnRepresentation(123.4)),
+        tf.string, (3,), dataset_schema.FixedColumnRepresentation()),
     # zeros will be overriddden
     'list_columm': dataset_schema.ColumnSchema(
         dataset_schema.IntDomain(tf.int64, min_value=0, max_value=0),

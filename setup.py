@@ -17,13 +17,13 @@ from setuptools import find_packages
 from setuptools import setup
 
 # Tensorflow transform version.
-__version__ = '0.8.1dev'
+__version__ = '0.9.0dev'
 
 
 def _make_required_install_packages():
   return [
       'absl-py>=0.1.6',
-      'apache-beam[gcp]>=2.5,<3',
+      'apache-beam[gcp]>=2.6,<3',
       'numpy>=1.13.3,<2',
 
       # TF now requires protobuf>=3.6.0.
@@ -31,9 +31,25 @@ def _make_required_install_packages():
 
       'six>=1.10,<2',
 
-      'tensorflow-metadata>=0.6,<1',
+      'tensorflow-metadata>=0.9,<1',
 
   ]
+
+_LONG_DESCRIPTION = """\
+*TensorFlow Transform* is a library for preprocessing data with TensorFlow.
+`tf.Transform` is useful for data that requires a full-pass, such as:
+
+* Normalize an input value by mean and standard deviation.
+* Convert strings to integers by generating a vocabulary over all input values.
+* Convert floats to integers by assigning them to buckets based on the observed
+  data distribution.
+
+TensorFlow has built-in support for manipulations on a single example or a batch
+of examples. `tf.Transform` extends these capabilities to support full-passes
+over the example data.
+
+https://github.com/tensorflow/transform/blob/master/README.md
+"""
 
 
 setup(
@@ -59,11 +75,13 @@ setup(
         'Topic :: Software Development',
         'Topic :: Software Development :: Libraries',
         'Topic :: Software Development :: Libraries :: Python Modules',
-    ],
+        ],
     namespace_packages=[],
     install_requires=_make_required_install_packages(),
     python_requires='>=2.7,<3',
     packages=find_packages(),
     include_package_data=True,
     description='A library for data preprocessing with TensorFlow',
+    long_description=_LONG_DESCRIPTION,
     requires=[])
+

@@ -37,12 +37,23 @@ from tensorflow_transform.tf_metadata import dataset_schema
 import apache_beam as beam
 
 CATEGORICAL_FEATURE_KEYS = [
-    'workclass', 'education', 'marital-status', 'occupation', 'relationship',
-    'race', 'sex', 'native-country'
+    'workclass',
+    'education',
+    'marital-status',
+    'occupation',
+    'relationship',
+    'race',
+    'sex',
+    'native-country',
 ]
 NUMERIC_FEATURE_KEYS = [
-    'age', 'education-num', 'capital-gain', 'capital-loss',
-    'hours-per-week'
+    'age',
+    'capital-gain',
+    'capital-loss',
+    'hours-per-week',
+]
+OPTIONAL_NUMERIC_FEATURE_KEYS = [
+    'education-num',
 ]
 LABEL_KEY = 'label'
 
@@ -72,26 +83,18 @@ class MapAndFilterErrors(beam.PTransform):
   def expand(self, pcoll):
     return pcoll | beam.ParDo(self._MapAndFilterErrorsDoFn(self._fn))
 
+RAW_DATA_FEATURE_SPEC = dict(
+    [(name, tf.FixedLenFeature([], tf.string))
+     for name in CATEGORICAL_FEATURE_KEYS] +
+    [(name, tf.FixedLenFeature([], tf.float32))
+     for name in NUMERIC_FEATURE_KEYS] +
+    [(name, tf.VarLenFeature(tf.float32))
+     for name in OPTIONAL_NUMERIC_FEATURE_KEYS] +
+    [(LABEL_KEY, tf.FixedLenFeature([], tf.string))]
+)
 
-def _create_raw_metadata():
-  """Create a DatasetMetadata for the raw data."""
-  column_schemas = {
-      key: dataset_schema.ColumnSchema(
-          tf.string, [], dataset_schema.FixedColumnRepresentation())
-      for key in CATEGORICAL_FEATURE_KEYS
-  }
-  column_schemas.update({
-      key: dataset_schema.ColumnSchema(
-          tf.float32, [], dataset_schema.FixedColumnRepresentation())
-      for key in NUMERIC_FEATURE_KEYS
-  })
-  column_schemas[LABEL_KEY] = dataset_schema.ColumnSchema(
-      tf.string, [], dataset_schema.FixedColumnRepresentation())
-  raw_data_metadata = dataset_metadata.DatasetMetadata(dataset_schema.Schema(
-      column_schemas))
-  return raw_data_metadata
-
-RAW_DATA_METADATA = _create_raw_metadata()
+RAW_DATA_METADATA = dataset_metadata.DatasetMetadata(
+    dataset_schema.from_feature_spec(RAW_DATA_FEATURE_SPEC))
 
 # Constants used for training.  Note that the number of instances will be
 # computed by tf.Transform in future versions, in which case it can be read from
@@ -135,6 +138,16 @@ def transform_data(train_data_file, test_data_file, working_dir):
     # Scale numeric columns to have range [0, 1].
     for key in NUMERIC_FEATURE_KEYS:
       outputs[key] = tft.scale_to_0_1(outputs[key])
+
+    for key in OPTIONAL_NUMERIC_FEATURE_KEYS:
+      # This is a SparseTensor because it is optional. Here we fill in a default
+      # value when it is missing.
+      dense = tf.sparse_to_dense(outputs[key].indices,
+                                 [outputs[key].dense_shape[0], 1],
+                                 outputs[key].values, default_value=0.)
+      # Reshaping from a batch of vectors of size 1 to a batch to scalars.
+      dense = tf.squeeze(dense, axis=1)
+      outputs[key] = tft.scale_to_0_1(dense)
 
     # For all categorical columns except the label column, we generate a
     # vocabulary but do not modify the feature.  This vocabulary is instead
