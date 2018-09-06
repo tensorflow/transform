@@ -1,4 +1,4 @@
-# Current version (not yet released; still in development)
+# Release 0.9.0
 
 ## Major Features and Improvements
 * Performance improvements for vocabulary generation when using top_k.
@@ -59,6 +59,7 @@
 * read_metadata can now only read from a single metadata directory and
   read_metadata and write_metadata no longer accept the `versions`  parameter.
   They now only read/write the JSON format.
+* Requires pre-installed TensorFlow >=1.9,<2.
 
 ## Deprecations
 * `apply_function` is no longer needed and is deprecated.
