@@ -70,7 +70,6 @@ import copy
 import datetime
 import os
 import threading
-import uuid
 
 
 import apache_beam as beam
@@ -89,7 +88,6 @@ import tensorflow as tf
 from tensorflow_transform import analyzers as tft_analyzers
 from tensorflow_transform import impl_helper
 from tensorflow_transform import schema_inference
-from tensorflow_transform.beam import analyzer_impls
 from tensorflow_transform.beam import common
 from tensorflow_transform.beam import deep_copy
 from tensorflow_transform.beam import shared
@@ -328,7 +326,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
     self._graph_state = None
 
     # Metrics.
-    self._graph_load_seconds_distribution = beam.metrics.Metrics.distribution(
+    self._graph_load_seconds = beam.metrics.Metrics.distribution(
         common.METRICS_NAMESPACE, 'graph_load_seconds')
     self._batch_size_distribution = beam.metrics.Metrics.distribution(
         common.METRICS_NAMESPACE, 'batch_size')
@@ -371,7 +369,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
         self._serialized_tf_config)
     result = self._GraphState(saved_model_dir, self._input_schema,
                               self._exclude_outputs, tf_config)
-    self._graph_load_seconds_distribution.update(
+    self._graph_load_seconds.update(
         int((datetime.datetime.now() - start).total_seconds()))
     return result
 
@@ -411,11 +409,6 @@ def _assert_tensorflow_version():
         'TensorFlow version >= 1.9, < 2 is required. Found (%s). Please '
         'install the latest 1.x version from '
         'https://github.com/tensorflow/tensorflow. ' % tf.__version__)
-
-
-def _make_unique_temp_dir(base_temp_dir):
-  """Create path to a unique temp dir from given base temp dir."""
-  return os.path.join(base_temp_dir, uuid.uuid4().hex)
 
 
 def _write_saved_transform(graph, inputs, outputs, saved_model_dir):
@@ -565,7 +558,7 @@ class _ReplaceTensorsWithConstants(beam.PTransform):
           tensor_replacement_map[orig_tensor_name] = new_tensor
 
         with tf.Session(graph=graph) as session:
-          temp_dir = _make_unique_temp_dir(self._base_temp_dir)
+          temp_dir = common.make_unique_temp_dir(self._base_temp_dir)
           input_tensors, output_tensors = (
               saved_transform_io.partially_apply_saved_transform_internal(
                   saved_model_dir, {}, tensor_replacement_map))
@@ -600,8 +593,10 @@ class _RunPhase(beam.PTransform):
 
       # obviates unnecessary data materialization when the input data source is
       # safe to read more than once.
-      tf.logging.info('Deep copying inputs for: %s',
-                      [a.name for a in self._analyzer_infos])
+      tf.logging.info(
+          'Deep copying inputs for: %s',
+          [analyzer_info.attributes.name
+           for analyzer_info in self._analyzer_infos])
       input_values = deep_copy.deep_copy(input_values)
 
     return input_values, tensor_pcoll_mapping
@@ -633,29 +628,31 @@ class _RunPhase(beam.PTransform):
     # and run the analyzer on these values.
     result = {}
     for analyzer_info in self._analyzer_infos:
-      temp_assets_dir = _make_unique_temp_dir(self._base_temp_dir)
-      tf.gfile.MkDir(temp_assets_dir)
-      output_pcolls = (
+      num_outputs = len(analyzer_info.output_infos)
+      inputs = (
           analyzer_input_values
-          | 'ExtractInputs[%s]' % analyzer_info.name >> beam.Map(
-              lambda batch, keys: [batch[key] for key in keys],
-              keys=analyzer_info.input_tensor_names)
-          | 'Analyze[%s]' % analyzer_info.name >> analyzer_impls._AnalyzerImpl(
-              analyzer_info.spec, temp_assets_dir))
-      # pylint: enable=protected-access
+          | 'ExtractInputs[%s]' % analyzer_info.attributes.name >> beam.Map(
+              lambda batch, keys: tuple(batch[key] for key in keys),
+              keys=analyzer_info.input_tensor_names))
+      ptransform = common.lookup_registered_ptransform(analyzer_info.attributes)
+      output_pcolls = (
+          (inputs,)
+          | ptransform(num_outputs, analyzer_info.attributes,
+                       serialized_tf_config=self._serialized_tf_config,
+                       base_temp_dir=self._base_temp_dir))
 
-      if len(output_pcolls) != len(analyzer_info.output_infos):
+      if len(output_pcolls) != num_outputs:
         raise ValueError(
             'Analyzer {} has {} outputs but its implementation produced {} '
             'pcollections'.format(
-                analyzer_info.name, len(analyzer_info.output_infos),
-                len(output_pcolls)))
+                analyzer_info.name, num_outputs, len(output_pcolls)))
 
       for index, (output_pcoll, (name, is_asset)) in enumerate(zip(
           output_pcolls, analyzer_info.output_infos)):
         result[name] = (
             output_pcoll
-            | 'WrapAsTensorValue[%s][%d]' % (analyzer_info.name, index)
+            | 'WrapAsTensorValue[%s][%d]' % (analyzer_info.attributes.name,
+                                             index)
             >> beam.Map(_TensorValue, is_asset))
     return result
 
@@ -771,7 +768,7 @@ class AnalyzeDataset(beam.PTransform):
             analyzer_inputs[input_tensor_name] = graph.get_tensor_by_name(
                 input_tensor_name)
         table_initializers.extend(phase.table_initializers)
-        unbound_saved_model_dir = _make_unique_temp_dir(base_temp_dir)
+        unbound_saved_model_dir = common.make_unique_temp_dir(base_temp_dir)
         _write_saved_transform(graph, inputs, analyzer_inputs,
                                unbound_saved_model_dir)
 
@@ -786,7 +783,7 @@ class AnalyzeDataset(beam.PTransform):
 
       del table_initializers[:]
       table_initializers.extend(original_table_initializers)
-      saved_model_dir = _make_unique_temp_dir(base_temp_dir)
+      saved_model_dir = common.make_unique_temp_dir(base_temp_dir)
       _write_saved_transform(graph, inputs, outputs, saved_model_dir)
       transform_fn = (
           tensor_pcoll_mapping

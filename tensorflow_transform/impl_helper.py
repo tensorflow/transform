@@ -306,7 +306,7 @@ AnalyzerOutputInfo = collections.namedtuple(
 
 AnalyzerInfo = collections.namedtuple(
     'AnalyzerInfo',
-    ['name', 'input_tensor_names', 'spec', 'output_infos'])
+    ['input_tensor_names', 'attributes', 'output_infos'])
 
 
 Phase = collections.namedtuple(
@@ -402,7 +402,7 @@ def create_phases(inputs):
             AnalyzerOutputInfo(tensor.name, asset_filepaths.pop(tensor, False))
             for tensor in analyzer.outputs]
         analyzer_infos.append(AnalyzerInfo(
-            analyzer.name, input_tensor_names, analyzer.spec, output_infos))
+            input_tensor_names, analyzer.attributes, output_infos))
 
         for tensor in analyzer.outputs:
           analyzer_output_ready[tensor] = True

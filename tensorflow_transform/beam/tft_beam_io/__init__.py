@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Module level imports for tensorflow_transform.beam.io."""
+"""Module level imports for tensorflow_transform.beam.tft_beam_io."""
 
 from tensorflow_transform.beam.tft_beam_io.beam_metadata_io import WriteMetadata
 from tensorflow_transform.beam.tft_beam_io.transform_fn_io import ReadTransformFn

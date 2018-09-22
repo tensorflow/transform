@@ -46,7 +46,9 @@ _TABLE_INIT_OP_TYPES = [
     'InitializeTable',
     'InitializeTableV2',
     'InitializeTableFromTextFile',
-    'InitializeTableFromTextFileV2'
+    'InitializeTableFromTextFileV2',
+    'LookupTableImport',
+    'LookupTableImportV2',
 ]
 
 

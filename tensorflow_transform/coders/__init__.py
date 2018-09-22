@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Module level imports for tensorflow_transform.beam.coders."""
+"""Module level imports for tensorflow_transform.coders."""
 
 from tensorflow_transform.coders.csv_coder import CsvCoder
 from tensorflow_transform.coders.example_proto_coder import ExampleProtoCoder

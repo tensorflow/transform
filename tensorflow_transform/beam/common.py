@@ -17,6 +17,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+import uuid
+
 
 import apache_beam as beam
 from apache_beam.typehints import Union
@@ -53,3 +56,45 @@ def _maybe_deserialize_tf_config(serialized_tf_config):
   result = tf.ConfigProto()
   result.ParseFromString(serialized_tf_config)
   return result
+
+
+def make_unique_temp_dir(base_temp_dir):
+  """Create path to a unique temp dir from given base temp dir."""
+  return os.path.join(base_temp_dir, uuid.uuid4().hex)
+
+
+PTRANSFORM_BY_ATTRIBUTES_CLASS = {}
+
+
+def register_ptransform(attributes_class):
+  """Decorator to register a PTransform as the implementation for an analyzer.
+
+  Note that this PTransform may be called multiple times, but with unique
+  attributes, so it should implement default_label to be unique given
+  attributes.
+
+  This function is used to define implementations of the analyzers defined in
+  attributes_classes.py
+
+  Args:
+    attributes_class: The class of attributes that is being registered.
+
+  Returns:
+    A class decorator that registers a PTransform as an implementation of the
+        generalized op for that type.
+  """
+
+  def register(ptransform_class):
+    assert attributes_class not in PTRANSFORM_BY_ATTRIBUTES_CLASS
+    PTRANSFORM_BY_ATTRIBUTES_CLASS[attributes_class] = ptransform_class
+    return ptransform_class
+
+  return register
+
+
+def lookup_registered_ptransform(attributes):
+  try:
+    return PTRANSFORM_BY_ATTRIBUTES_CLASS[attributes.__class__]
+  except KeyError:
+    raise ValueError('No implementation registered for {}'.format(
+        attributes.__class__))

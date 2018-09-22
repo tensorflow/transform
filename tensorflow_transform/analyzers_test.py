@@ -29,7 +29,7 @@ _NP_TYPES = (np.float32, np.float64, np.int32, np.int64)
 
 _SUM_TEST = dict(
     testcase_name='Sum',
-    combiner_spec=analyzers._NumPyCombinerSpec(
+    combiner=analyzers.NumPyCombiner(
         np.sum, output_dtypes=[np.int64]),
     batches=[
         (np.array([1, 2, 3, 4, 5, 6]),),
@@ -40,7 +40,7 @@ _SUM_TEST = dict(
 
 _SUM_SCALAR_TEST = dict(
     testcase_name='SumScalar',
-    combiner_spec=analyzers._NumPyCombinerSpec(
+    combiner=analyzers.NumPyCombiner(
         np.sum, output_dtypes=[np.int64]),
     batches=[
         (np.array(1),),
@@ -51,7 +51,7 @@ _SUM_SCALAR_TEST = dict(
 
 _SUM_OF_SIZE_ZERO_TENSORS_TEST = dict(
     testcase_name='SumOfSizeZeroTensors',
-    combiner_spec=analyzers._NumPyCombinerSpec(
+    combiner=analyzers.NumPyCombiner(
         np.sum, output_dtypes=[np.int64]),
     batches=[
         (np.array([]),),
@@ -62,7 +62,7 @@ _SUM_OF_SIZE_ZERO_TENSORS_TEST = dict(
 
 _COVARIANCE_SIZE_ZERO_TENSORS_TEST = dict(
     testcase_name='CovarianceSizeZeroTensors',
-    combiner_spec=analyzers._CovarianceCombinerSpec(numpy_dtype=np.float64),
+    combiner=analyzers.CovarianceCombiner(numpy_dtype=np.float64),
     batches=[
         (np.empty((1, 0)),),
         (np.empty((2, 0)),),
@@ -72,7 +72,7 @@ _COVARIANCE_SIZE_ZERO_TENSORS_TEST = dict(
 
 _COVARIANCE_WITH_DEGENERATE_COVARIANCE_MATRIX_TEST = dict(
     testcase_name='CovarianceWithDegenerateCovarianceMatrix',
-    combiner_spec=analyzers._CovarianceCombinerSpec(numpy_dtype=np.float64),
+    combiner=analyzers.CovarianceCombiner(numpy_dtype=np.float64),
     batches=[
         (np.array([[0, 0, 1]]),),
         (np.array([[4, 0, 1], [2, -1, 1]]),),
@@ -85,7 +85,7 @@ _COVARIANCE_WITH_DEGENERATE_COVARIANCE_MATRIX_TEST = dict(
 
 _COVARIANCE_WITH_LARGE_NUMBERS_TEST = dict(
     testcase_name='CovarianceWithLargeNumbers',
-    combiner_spec=analyzers._CovarianceCombinerSpec(numpy_dtype=np.float64),
+    combiner=analyzers.CovarianceCombiner(numpy_dtype=np.float64),
     batches=[
         (np.array([[2e15, 0], [1e15, 0]]),),
         (np.array([[-2e15, 0], [-1e15, 0]]),),
@@ -95,7 +95,7 @@ _COVARIANCE_WITH_LARGE_NUMBERS_TEST = dict(
 
 _PCA_WITH_DEGENERATE_COVARIANCE_MATRIX_TEST = dict(
     testcase_name='PCAWithDegenerateCovarianceMatrix',
-    combiner_spec=analyzers._PCACombinerSpec(numpy_dtype=np.float64),
+    combiner=analyzers.PCACombiner(numpy_dtype=np.float64),
     batches=[
         (np.array([[0, 0, 1]]),),
         (np.array([[4, 0, 1], [2, -1, 1]]),),
@@ -116,7 +116,7 @@ def _make_mean_and_var_accumulator_from_instance(instance, axis=None):
 
 _MEAN_AND_VAR_TEST = dict(
     testcase_name='MeanAndVar',
-    combiner_spec=analyzers._MeanAndVarCombinerSpec(np.float32),
+    combiner=analyzers.MeanAndVarCombiner(np.float32),
     batches=[
         _make_mean_and_var_accumulator_from_instance([[1, 2, 3, 4, 5, 6, 7]]),
         # Count is 5*0xFFFF=327675 for this accumulator.
@@ -132,7 +132,7 @@ _MEAN_AND_VAR_TEST = dict(
 
 _MEAN_AND_VAR_BIG_TEST = dict(
     testcase_name='MeanAndVarBig',
-    combiner_spec=analyzers._MeanAndVarCombinerSpec(np.float32),
+    combiner=analyzers.MeanAndVarCombiner(np.float32),
     batches=[
         _make_mean_and_var_accumulator_from_instance([[1, 2, 3, 4, 5, 6, 7]]),
         _make_mean_and_var_accumulator_from_instance([[1e15, 2e15, 3000]]),
@@ -146,7 +146,7 @@ _MEAN_AND_VAR_BIG_TEST = dict(
 
 _MEAN_AND_VAR_VECTORS_TEST = dict(
     testcase_name='MeanAndVarForVectors',
-    combiner_spec=analyzers._MeanAndVarCombinerSpec(np.float32),
+    combiner=analyzers.MeanAndVarCombiner(np.float32),
     # Note: each vector has to be of the same size for this to work.
     batches=[
         _make_mean_and_var_accumulator_from_instance(
@@ -165,7 +165,7 @@ _MEAN_AND_VAR_VECTORS_TEST = dict(
 
 _QUANTILES_NO_ELEMENTS_TEST = dict(
     testcase_name='ComputeQuantilesNoElements',
-    combiner_spec=analyzers._QuantilesCombinerSpec(
+    combiner=analyzers.QuantilesCombiner(
         num_quantiles=5,
         epsilon=0.00001,
         bucket_numpy_dtype=np.float32,
@@ -178,7 +178,7 @@ _QUANTILES_NO_ELEMENTS_TEST = dict(
 
 _QUANTILES_EXACT_NO_ELEMENTS_TEST = dict(
     testcase_name='ComputeExactQuantilesNoElements',
-    combiner_spec=analyzers._QuantilesCombinerSpec(
+    combiner=analyzers.QuantilesCombiner(
         num_quantiles=5,
         epsilon=0.00001,
         bucket_numpy_dtype=np.float32,
@@ -192,7 +192,7 @@ _QUANTILES_EXACT_NO_ELEMENTS_TEST = dict(
 _QUANTILES_SINGLE_BATCH_TESTS = [
     dict(
         testcase_name='ComputeQuantilesSingleBatch-{}'.format(np_type),
-        combiner_spec=analyzers._QuantilesCombinerSpec(
+        combiner=analyzers.QuantilesCombiner(
             num_quantiles=5,
             epsilon=0.00001,
             bucket_numpy_dtype=np.float32,
@@ -209,7 +209,7 @@ _QUANTILES_SINGLE_BATCH_TESTS = [
 _QUANTILES_MULTIPLE_BATCH_TESTS = [
     dict(
         testcase_name='ComputeQuantilesMultipleBatch-{}'.format(np_type),
-        combiner_spec=analyzers._QuantilesCombinerSpec(
+        combiner=analyzers.QuantilesCombiner(
             num_quantiles=3,
             epsilon=0.00001,
             bucket_numpy_dtype=np.float32,
@@ -224,7 +224,7 @@ _QUANTILES_MULTIPLE_BATCH_TESTS = [
 _EXACT_NUM_QUANTILES_TESTS = [
     dict(
         testcase_name='ComputeExactNumQuantiles-{}'.format(np_type),
-        combiner_spec=analyzers._QuantilesCombinerSpec(
+        combiner=analyzers.QuantilesCombiner(
             num_quantiles=4,
             epsilon=0.00001,
             bucket_numpy_dtype=np.float32,
@@ -282,11 +282,11 @@ class AnalyzersTest(test_case.TransformTestCase):
       _QUANTILES_EXACT_NO_ELEMENTS_TEST,
   ] + _QUANTILES_SINGLE_BATCH_TESTS + _QUANTILES_MULTIPLE_BATCH_TESTS +
                               _EXACT_NUM_QUANTILES_TESTS)
-  def testCombinerSpec(self, combiner_spec, batches, expected_outputs):
+  def testCombiner(self, combiner, batches, expected_outputs):
     """Tests the provided combiner.
 
     Args:
-      combiner_spec: A CominerSpec.
+      combiner: An object implementing the Combiner interface.
       batches: A list of batches, each is a tuples of ndarrays.  each ndarray
         represents the values of an input tensor of the analyzer over a single
         batch.
@@ -295,17 +295,17 @@ class AnalyzersTest(test_case.TransformTestCase):
     Exercises create_accumulator, add_input, merge_accumulators,
     and extract_output.
     """
-    if isinstance(combiner_spec, analyzers._QuantilesCombinerSpec):
-      combiner_spec.initialize_local_state()
+    if isinstance(combiner, analyzers.QuantilesCombiner):
+      combiner.initialize_local_state()
 
     # Note `accumulators` is a generator, not list.  We do this to ensure that
     # add_input is not relying on its input being a list.
     accumulators = (
-        combiner_spec.add_input(combiner_spec.create_accumulator(), batch)
+        combiner.add_input(combiner.create_accumulator(), batch)
         for batch in batches)
 
-    final_accumulator = combiner_spec.merge_accumulators(accumulators)
-    outputs = combiner_spec.extract_output(final_accumulator)
+    final_accumulator = combiner.merge_accumulators(accumulators)
+    outputs = combiner.extract_output(final_accumulator)
     self.assertEqual(len(outputs), len(expected_outputs))
     for output, expected_output in zip(outputs, expected_outputs):
       self.assertEqual(output.dtype, expected_output.dtype)

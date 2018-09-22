@@ -23,7 +23,7 @@ import tempfile
 
 import tensorflow as tf
 import tensorflow_transform as tft
-import tensorflow_transform.beam.impl as beam_impl
+import tensorflow_transform.beam.impl as tft_beam
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
@@ -58,9 +58,9 @@ def main():
           'x': tf.FixedLenFeature([], tf.float32),
       }))
 
-  with beam_impl.Context(temp_dir=tempfile.mkdtemp()):
+  with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
     transformed_dataset, transform_fn = (  # pylint: disable=unused-variable
-        (raw_data, raw_data_metadata) | beam_impl.AnalyzeAndTransformDataset(
+        (raw_data, raw_data_metadata) | tft_beam.AnalyzeAndTransformDataset(
             preprocessing_fn))
 
   transformed_data, transformed_metadata = transformed_dataset  # pylint: disable=unused-variable

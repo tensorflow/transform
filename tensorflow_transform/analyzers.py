@@ -34,6 +34,7 @@ import re
 import numpy as np
 import tensorflow as tf
 
+from tensorflow_transform import attributes_classes
 from tensorflow_transform import tf_utils
 from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
 
@@ -111,34 +112,28 @@ class Analyzer(object):
     inputs: The `Tensor`s that are used to create inputs to this analyzer,
     outputs: The `Tensor`s whose values will be replaced by the result of the
         analyzer.
-    spec: An object that will be used to determine how the analyzer is
+    attributes: An object that will be used to determine how the analyzer is
         implemented by Beam.
-    name: The name of this analyzer, typically a TensorFlow scope.
   """
 
-  def __init__(self, inputs, outputs, spec, name):
+  def __init__(self, inputs, outputs, attributes):
     for index, tensor in enumerate(inputs):
       if not isinstance(tensor, tf.Tensor):
         raise ValueError(
             'In analyzer {}, the {}th input ({}) was not a Tensor'.format(
-                name, index, tensor))
+                attributes.name, index, tensor))
     for index, tensor in enumerate(outputs):
       if not isinstance(tensor, tf.Tensor):
         raise ValueError(
             'In analyzer {}, the {}th output ({}) was not a Tensor'.format(
-                name, index, tensor))
+                attributes.name, index, tensor))
     self._inputs = inputs
     self._outputs = outputs
-    self._spec = spec
-    self._name = name
+    self._attributes = attributes
 
   @property
-  def spec(self):
-    return self._spec
-
-  @property
-  def name(self):
-    return self._name
+  def attributes(self):
+    return self._attributes
 
   @property
   def inputs(self):
@@ -153,82 +148,7 @@ class Analyzer(object):
     return []
 
 
-class CombinerSpec(object):
-  """Analyze using combiner function.
-
-  This object mirrors a beam.CombineFn, that will receive a beam PCollection
-  representing the batched input tensors.
-  """
-
-  def create_accumulator(self):
-    """Return a fresh, empty accumulator.
-
-    Returns: An empty accumulator.  This can be any Python value.
-    """
-    raise NotImplementedError
-
-  def add_input(self, accumulator, batch_values):
-    """Return result of folding a batch of inputs into accumulator.
-
-    Args:
-      accumulator: the current accumulator
-      batch_values: A list of ndarrays representing the values of the inputs for
-          a batch, which should be added to the accumulator.
-
-    Returns: An accumulator that includes the batch of inputs.
-    """
-    raise NotImplementedError
-
-  def merge_accumulators(self, accumulators):
-    """Merges several accumulators to a single accumulator value.
-
-    Args:
-      accumulators: the accumulators to merge
-
-    Returns: The sole merged accumulator.
-    """
-    raise NotImplementedError
-
-  def extract_output(self, accumulator):
-    """Return result of converting accumulator into the output value.
-
-    Args:
-      accumulator: the final accumulator value.
-
-    Returns: A list of ndarrays representing the result of this combiner.
-    """
-    raise NotImplementedError
-
-  def num_outputs(self):
-    """Return the number of outputs that are produced by extract_output.
-
-    Returns: The number of outputs extract_output will produce.
-    """
-    raise NotImplementedError
-
-
-class _CombinePerKeySpec(object):
-  """A wrapper for per-key combining.
-
-  For private use in tf.Transform implemenation only.
-
-  All outputs returned by extract_output must be the same shape across keys so
-  they can be stacked.
-
-  Args:
-    combiner_spec: A `CombinerSpec` that will be used to reduce values for each
-        key.
-  """
-
-  def __init__(self, combiner_spec):
-    self._combiner_spec = combiner_spec
-
-  @property
-  def combiner_spec(self):
-    return self._combiner_spec
-
-
-def combine_analyzer(inputs, output_dtypes, output_shapes, combiner_spec, name):
+def apply_combiner(inputs, output_dtypes, output_shapes, combiner, name):
   """Applies the combiner over the whole dataset.
 
   Args:
@@ -236,14 +156,14 @@ def combine_analyzer(inputs, output_dtypes, output_shapes, combiner_spec, name):
     output_dtypes: The list of dtypes of the output of the analyzer.
     output_shapes: The list of shapes of the output of the analyzer.  Must have
       the same length as output_dtypes.
-    combiner_spec: A subclass of CombinerSpec.
+    combiner: An object implementing the Combiner interface.
     name: Similar to a TF op name.  Used to define a unique scope for this
       analyzer, which can be used for debugging info.
 
   Returns:
     A list of `Tensor`s representing the combined values.  These will have
         `dtype` and `shape` given by `output_dtypes` and `output_shapes`.  These
-        dtypes and shapes must be compatible with the combiner_spec.
+        dtypes and shapes must be compatible with the combiner.
 
   Raises:
     ValueError: If output_dtypes and output_shapes have different lengths.
@@ -255,11 +175,49 @@ def combine_analyzer(inputs, output_dtypes, output_shapes, combiner_spec, name):
     outputs = [tf.placeholder(dtype, shape)
                for dtype, shape in zip(output_dtypes, output_shapes)]
     tf.add_to_collection(
-        ANALYZER_COLLECTION, Analyzer(inputs, outputs, combiner_spec, scope))
+        ANALYZER_COLLECTION,
+        Analyzer(inputs, outputs, attributes_classes.Combine(combiner, scope)))
     return outputs
 
 
-class _NumPyCombinerSpec(CombinerSpec):
+def _apply_combiner_per_key(key, inputs, output_dtypes, output_shapes, combiner,
+                            name):
+  """Applies the combiner over the whole dataset per-key.
+
+  Args:
+    key: A `Tensor` with rank 1 and dtype tf.string.
+    inputs: A list of input `Tensor`s or `SparseTensor`s.
+    output_dtypes: The list of dtypes of the output of the analyzer.
+    output_shapes: The list of shapes of the output of the analyzer.  Must have
+      the same length as output_dtypes.
+    combiner: An object implementing the Combiner interface.
+    name: Similar to a TF op name.  Used to define a unique scope for this
+      analyzer, which can be used for debugging info.
+
+  Returns:
+    A list of `Tensor`s representing the combined values.  These will have
+        `dtype` and `shape` given by `output_dtypes` and `output_shapes`.  These
+        dtypes and shapes must be compatible with the combiner.
+
+  Raises:
+    ValueError: If output_dtypes and output_shapes have different lengths.
+  """
+  if len(output_dtypes) != len(output_shapes):
+    raise ValueError('output_dtypes ({}) and output_shapes ({}) had different'
+                     ' lengths'.format(output_dtypes, output_shapes))
+  with tf.name_scope(name) as scope:
+    key_vocab = tf.placeholder(tf.string, (None,))
+    outputs = [tf.placeholder(dtype, shape)
+               for dtype, shape in zip(output_dtypes, output_shapes)]
+
+    tf.add_to_collection(
+        ANALYZER_COLLECTION,
+        Analyzer([key] + inputs, [key_vocab] + outputs,
+                 attributes_classes.CombinePerKey(combiner, scope)))
+    return key_vocab, outputs
+
+
+class NumPyCombiner(attributes_classes.Combiner):
   """Combines the PCollection only on the 0th dimension using nparray.
 
   Args:
@@ -308,9 +266,6 @@ class _NumPyCombinerSpec(CombinerSpec):
               for sub_accumulator, output_dtype
               in zip(accumulator, self._output_dtypes)]
 
-  def num_outputs(self):
-    return len(self._output_dtypes)
-
 
 def _get_output_shape_from_input(x):
   if isinstance(x, tf.SparseTensor):
@@ -353,14 +308,14 @@ def _numeric_combine(inputs,
     output_dtypes = [x.dtype for x in inputs]
   if reduce_instance_dims:
     # If reducing over all dimensions, result is scalar.
-    shapes = [() for _ in inputs]
+    output_shapes = [() for _ in inputs]
   else:
     # Reducing over batch dimensions.
-    shapes = [x.get_shape() for x in inputs]
-  spec = _NumPyCombinerSpec(fn,
-                            [dtype.as_numpy_dtype for dtype in output_dtypes])
-  return combine_analyzer(inputs, output_dtypes, shapes, spec, name
-                          if name is not None else fn.__name__)
+    output_shapes = [x.get_shape() for x in inputs]
+  combiner = NumPyCombiner(fn,
+                           [dtype.as_numpy_dtype for dtype in output_dtypes])
+  return apply_combiner(inputs, output_dtypes, output_shapes, combiner, name
+                        if name is not None else fn.__name__)
 
 
 def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
@@ -651,11 +606,11 @@ def _mean_and_var(x, reduce_instance_dims=True, name=None, output_dtype=None):
       output_shape = _get_output_shape_from_input(
           tf.expand_dims(x_count, axis=0))
 
-    x_mean, x_var = combine_analyzer(
+    x_mean, x_var = apply_combiner(
         inputs=combine_inputs,
         output_dtypes=[output_dtype] * 2,
         output_shapes=[output_shape] * 2,
-        combiner_spec=_MeanAndVarCombinerSpec(output_dtype.as_numpy_dtype),
+        combiner=MeanAndVarCombiner(output_dtype.as_numpy_dtype),
         name=name if name is not None else 'mean_and_var')
 
   return x_mean, x_var
@@ -664,7 +619,7 @@ def _mean_and_var(x, reduce_instance_dims=True, name=None, output_dtype=None):
 class _MeanAndVarAccumulator(
     collections.namedtuple('MeanAndVarAccumulator',
                            ['count', 'mean', 'variance'])):
-  """Container for _MeanAndVarCombinerSpec intermediate values."""
+  """Container for MeanAndVarCombiner intermediate values."""
 
   @classmethod
   def make_nan_to_num(cls, counts, means, variances):
@@ -674,7 +629,7 @@ class _MeanAndVarAccumulator(
     return self.__class__, tuple(self)
 
 
-class _MeanAndVarCombinerSpec(CombinerSpec):
+class MeanAndVarCombiner(attributes_classes.Combiner):
   """Combines a PCollection of accumulators to compute mean and variance."""
 
   def __init__(self, output_numpy_dtype):
@@ -773,38 +728,6 @@ class _MeanAndVarCombinerSpec(CombinerSpec):
                                   combined_variance)
 
 
-class _VocabularySpec(object):
-  """Operation to compute unique values."""
-
-  def __init__(self, top_k, frequency_threshold, vocab_filename,
-               store_frequency, has_weights):
-    self._top_k = top_k
-    self._frequency_threshold = frequency_threshold
-    self._vocab_filename = vocab_filename
-    self._store_frequency = store_frequency
-    self._has_weights = has_weights
-
-  @property
-  def top_k(self):
-    return self._top_k
-
-  @property
-  def frequency_threshold(self):
-    return self._frequency_threshold
-
-  @property
-  def vocab_filename(self):
-    return self._vocab_filename
-
-  @property
-  def store_frequency(self):
-    return self._store_frequency
-
-  @property
-  def has_weights(self):
-    return self._has_weights
-
-
 def sanitized_vocab_filename(filename=None, prefix=None):
   """Generates a sanitized filename either from the given filename or the scope.
 
@@ -846,6 +769,7 @@ def vocabulary(x,
                vocab_filename=None,
                store_frequency=False,
                weights=None,
+               labels=None,
                name=None):
   r"""Computes the unique values of a `Tensor` over the whole dataset.
 
@@ -857,12 +781,15 @@ def vocabulary(x,
   will be discarded since we are currently writing the vocabularies as text
   files. This behavior will likely be fixed/improved in the future.
 
-  The unique values are sorted by decreasing frequency and then decreasing
-  lexicographical order.
+  The unique values are sorted by decreasing frequency and then reverse
+  lexicographical order (e.g. [('a', 5), ('c', 3), ('b', 3)]).
 
   For large datasets it is highly recommended to either set frequency_threshold
   or top_k to control the size of the output, and also the run time of this
   operation.
+
+  When labels are provided, we filter the vocabulary based on how correlated the
+  unique value is with a positive label (Mutual Information).
 
   Args:
     x: An input `Tensor` or `SparseTensor` with dtype tf.string.
@@ -880,11 +807,14 @@ def vocabulary(x,
       set `vocab_filename` when you are using the vocab_filename on a downstream
       component.
     store_frequency: If True, frequency of the words is stored in the
-      vocabulary file. Each line in the file will be of the form
-      'frequency word\n'.
-    weights: (Optional) Weights tensor for the vocabulary. Tensor must have the
+      vocabulary file. In the case labels are provided, the mutual
+      information is stored in the file instead. Each line in the file
+      will be of the form 'frequency word'.
+    weights: (Optional) Weights `Tensor` for the vocabulary. It must have the
       same shape as x.
-      name: (Optional) A name for this operation.
+    labels: (Optional) Labels `Tensor` for the vocabulary. It must have dtype
+      int64, have values 0 or 1, and have the same shape as x.
+    name: (Optional) A name for this operation.
 
   Returns:
     The path name for the vocabulary file containing the unique values of `x`.
@@ -925,15 +855,35 @@ def vocabulary(x,
     # Make the file name path safe.
     vocab_filename = sanitized_vocab_filename(vocab_filename, prefix=prefix)
 
-    spec = _VocabularySpec(top_k, frequency_threshold, vocab_filename,
-                           store_frequency, weights is not None)
+    if labels is not None:
+      vocab_ordering_type = (
+          tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION)
+      unique_inputs, sum_total, sum_positive = tf_utils.reduce_batch_vocabulary(
+          x, vocab_ordering_type, weights, labels)
+      analyzer_inputs = [unique_inputs, sum_total, sum_positive]
 
-    analyzer_inputs = tf_utils.reduce_batch_vocabulary(x, weights)
+    elif weights is not None:
+      vocab_ordering_type = tf_utils.VocabOrderingType.WEIGHTED_FREQUENCY
+      unique_inputs, sum_weights, none_sum = tf_utils.reduce_batch_vocabulary(
+          x, vocab_ordering_type, weights)
+      assert none_sum is None
+      analyzer_inputs = [unique_inputs, sum_weights]
+    else:
+      vocab_ordering_type = tf_utils.VocabOrderingType.FREQUENCY
+      unique_inputs, none_weights, none_sum = tf_utils.reduce_batch_vocabulary(
+          x, vocab_ordering_type)
+      assert none_sum is None
+      assert none_weights is None
+      analyzer_inputs = [unique_inputs]
+
+    attributes = attributes_classes.Vocabulary(
+        top_k, frequency_threshold, vocab_filename, store_frequency,
+        vocab_ordering_type, scope)
 
     result = tf.placeholder(tf.string, [])
     tf.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, result)
     tf.add_to_collection(ANALYZER_COLLECTION,
-                         Analyzer(analyzer_inputs, [result], spec, scope))
+                         Analyzer(analyzer_inputs, [result], attributes))
     return result
 
 
@@ -944,6 +894,7 @@ def uniques(x,
             vocab_filename=None,
             store_frequency=False,
             weights=None,
+            labels=None,
             name=None):
   r"""See `tft.vocabulary`."""
   return vocabulary(
@@ -952,11 +903,12 @@ def uniques(x,
       frequency_threshold=frequency_threshold,
       vocab_filename=vocab_filename,
       store_frequency=store_frequency,
-      name=name,
-      weights=weights)
+      weights=weights,
+      labels=labels,
+      name=name)
 
 
-class _QuantilesCombinerSpec(CombinerSpec):
+class QuantilesCombiner(attributes_classes.Combiner):
   """Computes quantiles on the PCollection.
 
   This implementation is based on go/squawd.
@@ -1052,10 +1004,10 @@ class _QuantilesCombinerSpec(CombinerSpec):
     self._empty_summary = self._session.run(self._flush_summary_op)
 
   def __reduce__(self):
-    return _QuantilesCombinerSpec, (self._num_quantiles, self._epsilon,
-                                    self._bucket_numpy_dtype,
-                                    self._always_return_num_quantiles,
-                                    self._has_weights)
+    return QuantilesCombiner, (self._num_quantiles, self._epsilon,
+                               self._bucket_numpy_dtype,
+                               self._always_return_num_quantiles,
+                               self._has_weights)
 
   def create_accumulator(self):
     return None
@@ -1150,9 +1102,6 @@ class _QuantilesCombinerSpec(CombinerSpec):
 
     return [buckets]
 
-  def num_outputs(self):
-    return 1
-
 
 def quantiles(x, num_buckets, epsilon, weights=None, name=None):
   """Computes the quantile boundaries of a `Tensor` over the whole dataset.
@@ -1191,28 +1140,27 @@ def quantiles(x, num_buckets, epsilon, weights=None, name=None):
     The bucket boundaries represented as a list, with num_bucket-1 elements
     See code below for discussion on the type of bucket boundaries.
   """
-
-  with tf.name_scope(name, 'quantiles'):
-    bucket_dtype = tf.float32
-    if weights is None:
-      analyzer_inputs = [x]
-      has_weights = False
-      always_return_num_quantiles = False
-    else:
-      x = tf_utils.assert_same_shape(x, weights)
-      analyzer_inputs = [x, weights]
-      has_weights = True
-      always_return_num_quantiles = True
-    combiner_spec = _QuantilesCombinerSpec(
-        num_buckets,
-        epsilon,
-        bucket_dtype.as_numpy_dtype,
-        always_return_num_quantiles=always_return_num_quantiles,
-        has_weights=has_weights)
-    quantile_boundaries = combine_analyzer(analyzer_inputs, [bucket_dtype],
-                                           [(None,)], combiner_spec,
-                                           'quantiles')[0]
-    return tf.expand_dims(quantile_boundaries, axis=0)
+  bucket_dtype = tf.float32
+  if weights is None:
+    analyzer_inputs = [x]
+    has_weights = False
+    always_return_num_quantiles = False
+  else:
+    x = tf_utils.assert_same_shape(x, weights)
+    analyzer_inputs = [x, weights]
+    has_weights = True
+    always_return_num_quantiles = True
+  combiner = QuantilesCombiner(
+      num_buckets,
+      epsilon,
+      bucket_dtype.as_numpy_dtype,
+      always_return_num_quantiles=always_return_num_quantiles,
+      has_weights=has_weights)
+  if name is None:
+    name = 'quantiles'
+  quantile_boundaries = apply_combiner(analyzer_inputs, [bucket_dtype],
+                                       [(None,)], combiner, name)[0]
+  return tf.expand_dims(quantile_boundaries, axis=0)
 
 
 def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
@@ -1238,19 +1186,22 @@ def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
   Raises:
     ValueError: If key has wrong dtype.
   """
-  with tf.name_scope(name, 'quantiles_by_key'):
-    if key.dtype != tf.string:
-      raise ValueError('key must have type tf.string')
-    bucket_dtype = tf.float32
-    combiner_spec = _CombinePerKeySpec(
-        _QuantilesCombinerSpec(num_buckets, epsilon,
-                               bucket_dtype.as_numpy_dtype,
-                               always_return_num_quantiles=True))
-    return combine_analyzer([key, x], [tf.string, bucket_dtype],
-                            [(None,), (None, None)], combiner_spec, 'quantiles')
+  if key.dtype != tf.string:
+    raise ValueError('key must have type tf.string')
+  bucket_dtype = tf.float32
+  combiner = QuantilesCombiner(
+      num_buckets,
+      epsilon,
+      bucket_dtype.as_numpy_dtype,
+      always_return_num_quantiles=True)
+  if name is None:
+    name = 'quantiles_by_key'
+  key, (bucket_boundaries,) = _apply_combiner_per_key(
+      key, [x], [bucket_dtype], [(None, None)], combiner, name)
+  return key, bucket_boundaries
 
 
-class _CovarianceCombinerSpec(CombinerSpec):
+class CovarianceCombiner(attributes_classes.Combiner):
   """Combines the PCollection to compute the biased covariance matrix."""
 
   def __init__(self, numpy_dtype=np.float64):
@@ -1343,9 +1294,6 @@ class _CovarianceCombinerSpec(CombinerSpec):
 
     return [expected_cross_terms - np.outer(expected_terms, expected_terms)]
 
-  def num_outputs(self):
-    return 1
-
 
 def covariance(x, dtype, name=None):
   """Computes the covariance matrix over the whole dataset.
@@ -1377,27 +1325,27 @@ def covariance(x, dtype, name=None):
   input_dim = x.shape.as_list()[1]
   shape = (input_dim, input_dim)
 
-  spec = _CovarianceCombinerSpec(dtype.as_numpy_dtype)
-  return combine_analyzer(
-      [x], [dtype], [shape], spec,
-      name if name is not None else 'covariance')[0]
+  combiner = CovarianceCombiner(dtype.as_numpy_dtype)
+  if name is None:
+    name = 'covariance'
+  return apply_combiner([x], [dtype], [shape], combiner, name)[0]
 
 
-class _PCACombinerSpec(_CovarianceCombinerSpec):
+class PCACombiner(CovarianceCombiner):
   """Compute PCA of accumulated data using the biased covariance matrix."""
 
   def __init__(self, output_dim=None, numpy_dtype=np.float64):
     """Store pca output dimension, and dtype for precision."""
-    super(_PCACombinerSpec, self).__init__(numpy_dtype=numpy_dtype)
+    super(PCACombiner, self).__init__(numpy_dtype=numpy_dtype)
     self._output_dim = output_dim
 
   def extract_output(self, accumulator):
     """Compute PCA of the accumulated data using the biased covariance matrix.
 
-    Following the covariance computation in _CovarianceCombinerSpec,
-    this method runs eigenvalue decomposition on the covariance matrix,
-    sorts eigenvalues in decreasing order, and returns the first output_dim
-    corresponding eigenvectors (principal components) as a matrix.
+    Following the covariance computation in CovarianceCombiner, this method runs
+    eigenvalue decomposition on the covariance matrix, sorts eigenvalues in
+    decreasing order, and returns the first output_dim corresponding
+    eigenvectors (principal components) as a matrix.
 
     Args:
       accumulator: final accumulator as a list of the sum of cross-terms matrix,
@@ -1416,9 +1364,6 @@ class _PCACombinerSpec(_CovarianceCombinerSpec):
       return [sorted_vecs]
     else:
       return [sorted_vecs[:, :self._output_dim]]
-
-  def num_outputs(self):
-    return 1
 
 
 def pca(x, output_dim, dtype, name=None):
@@ -1500,9 +1445,7 @@ def pca(x, output_dim, dtype, name=None):
   input_dim = x.shape.as_list()[1]
   shape = (input_dim, output_dim)
 
-  spec = _PCACombinerSpec(output_dim, dtype.as_numpy_dtype)
-  return combine_analyzer(
-      [x], [dtype], [shape], spec,
-      name if name is not None else 'pca')[0]
-
-
+  combiner = PCACombiner(output_dim, dtype.as_numpy_dtype)
+  if name is None:
+    name = 'pca'
+  return apply_combiner([x], [dtype], [shape], combiner, name)[0]

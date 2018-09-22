@@ -24,16 +24,13 @@ import pprint
 import tempfile
 
 
+import apache_beam as beam
 import tensorflow as tf
 import tensorflow_transform as tft
-from apache_beam.io import textio
-from apache_beam.io import tfrecordio
-from tensorflow_transform.beam import impl as beam_impl
-from tensorflow_transform.beam.tft_beam_io import transform_fn_io
+import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
-import apache_beam as beam
 
 VOCAB_SIZE = 20000
 TRAIN_BATCH_SIZE = 128
@@ -89,11 +86,11 @@ def ReadAndShuffleData(pcoll, filepatterns):
   # correct label.
   negative_examples = (
       pcoll
-      | 'ReadNegativeExamples' >> textio.ReadFromText(neg_filepattern)
+      | 'ReadNegativeExamples' >> beam.io.ReadFromText(neg_filepattern)
       | 'PairWithZero' >> beam.Map(lambda review: (review, 0)))
   positive_examples = (
       pcoll
-      | 'ReadPositiveExamples' >> textio.ReadFromText(pos_filepattern)
+      | 'ReadPositiveExamples' >> beam.io.ReadFromText(pos_filepattern)
       | 'PairWithOne' >> beam.Map(lambda review: (review, 1)))
   all_examples = (
       [negative_examples, positive_examples] | 'Merge' >> beam.Flatten())
@@ -138,7 +135,7 @@ def read_and_shuffle_data(
         | 'ReadAndShuffleTrain' >> ReadAndShuffleData(
             (train_neg_filepattern, train_pos_filepattern))
         | 'EncodeTrainData' >> beam.Map(coder.encode)
-        | 'WriteTrainData' >> tfrecordio.WriteToTFRecord(
+        | 'WriteTrainData' >> beam.io.WriteToTFRecord(
             os.path.join(working_dir, SHUFFLED_TRAIN_DATA_FILEBASE)))
 
     _ = (
@@ -146,7 +143,7 @@ def read_and_shuffle_data(
         | 'ReadAndShuffleTest' >> ReadAndShuffleData(
             (test_neg_filepattern, test_pos_filepattern))
         | 'EncodeTestData' >> beam.Map(coder.encode)
-        | 'WriteTestData' >> tfrecordio.WriteToTFRecord(
+        | 'WriteTestData' >> beam.io.WriteToTFRecord(
             os.path.join(working_dir, SHUFFLED_TEST_DATA_FILEBASE)))
     # pylint: enable=no-value-for-parameter
 
@@ -164,17 +161,17 @@ def transform_data(working_dir):
   """
 
   with beam.Pipeline() as pipeline:
-    with beam_impl.Context(temp_dir=tempfile.mkdtemp()):
+    with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
       coder = tft.coders.ExampleProtoCoder(RAW_DATA_METADATA.schema)
       train_data = (
           pipeline
-          | 'ReadTrain' >> tfrecordio.ReadFromTFRecord(
+          | 'ReadTrain' >> beam.io.ReadFromTFRecord(
               os.path.join(working_dir, SHUFFLED_TRAIN_DATA_FILEBASE + '*'))
           | 'DecodeTrain' >> beam.Map(coder.decode))
 
       test_data = (
           pipeline
-          | 'ReadTest' >> tfrecordio.ReadFromTFRecord(
+          | 'ReadTest' >> beam.io.ReadFromTFRecord(
               os.path.join(working_dir, SHUFFLED_TEST_DATA_FILEBASE + '*'))
           | 'DecodeTest' >> beam.Map(coder.decode))
 
@@ -196,34 +193,34 @@ def transform_data(working_dir):
 
       (transformed_train_data, transformed_metadata), transform_fn = (
           (train_data, RAW_DATA_METADATA)
-          | 'AnalyzeAndTransform' >> beam_impl.AnalyzeAndTransformDataset(
+          | 'AnalyzeAndTransform' >> tft_beam.AnalyzeAndTransformDataset(
               preprocessing_fn))
       transformed_data_coder = tft.coders.ExampleProtoCoder(
           transformed_metadata.schema)
 
       transformed_test_data, _ = (
           ((test_data, RAW_DATA_METADATA), transform_fn)
-          | 'Transform' >> beam_impl.TransformDataset())
+          | 'Transform' >> tft_beam.TransformDataset())
 
       _ = (
           transformed_train_data
           | 'EncodeTrainData' >> beam.Map(transformed_data_coder.encode)
-          | 'WriteTrainData' >> tfrecordio.WriteToTFRecord(
+          | 'WriteTrainData' >> beam.io.WriteToTFRecord(
               os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE)))
 
       _ = (
           transformed_test_data
           | 'EncodeTestData' >> beam.Map(transformed_data_coder.encode)
-          | 'WriteTestData' >> tfrecordio.WriteToTFRecord(
+          | 'WriteTestData' >> beam.io.WriteToTFRecord(
               os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE)))
 
       # Will write a SavedModel and metadata to two subdirectories of
-      # working_dir, given by transform_fn_io.TRANSFORM_FN_DIR and
-      # transform_fn_io.TRANSFORMED_METADATA_DIR respectively.
+      # working_dir, given by tft.TRANSFORM_FN_DIR and
+      # tft.TRANSFORMED_METADATA_DIR respectively.
       _ = (
           transform_fn
           | 'WriteTransformFn' >>
-          transform_fn_io.WriteTransformFn(working_dir))
+          tft_beam.WriteTransformFn(working_dir))
 
 
 # Functions for training

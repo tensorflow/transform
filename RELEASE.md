@@ -1,3 +1,18 @@
+# Current version (not yet released; still in development)
+
+## Major Features and Improvements
+
+## Bug Fixes and Other Changes
+* 'tft.vocabulary' and 'tft.compute_and_apply_vocabulary' now support filtering
+  based on mutual information when `labels` is provided.
+* Export all package level exports of `tensorflow_transform`, from the
+  `tensorflow_transform.beam` subpackage.  This allows users to just import the
+  `tensorflow_transform.beam` subpackage for all functionality.
+
+## Breaking changes
+
+## Deprecations
+
 # Release 0.9.0
 
 ## Major Features and Improvements

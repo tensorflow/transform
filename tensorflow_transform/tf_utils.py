@@ -21,32 +21,80 @@ from __future__ import print_function
 import tensorflow as tf
 
 
-def reduce_batch_vocabulary(x, weights):
-  """Constructs analyzer inputs and computes uniques when weights are provided.
+class VocabOrderingType(object):
+  FREQUENCY = 1
+  WEIGHTED_FREQUENCY = 2
+  WEIGHTED_MUTUAL_INFORMATION = 3
+
+
+def reduce_batch_vocabulary(x, vocab_ordering_type,
+                            weights=None, labels=None):
+  """Performs batch-wise reduction of vocabulary.
+
+  Args:
+    x: Input `Tensor` to compute a vocabulary over.
+    vocab_ordering_type: VocabOrderingType enum.
+    weights: (Optional) Weights input `Tensor`.
+    labels: (Optional) Binary labels input `Tensor`.
+
+
+  Returns:
+    A tuple of 3 `Tensor`s:
+      * unique values
+      * total weights sum for unique values when labels and or weights is
+        provided, otherwise, None.
+      * sum of positive weights for unique values when labels is provided,
+        otherwise, None.
+  """
+  if vocab_ordering_type == VocabOrderingType.FREQUENCY:
+    x = tf.reshape(x, [-1])
+    return (x, None, None)
+
+  if vocab_ordering_type == VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION:
+    tf.assert_type(labels, tf.int64)
+    x = assert_same_shape(x, labels)
+    if weights is None:
+      weights = tf.ones_like(labels)
+    labels = tf.reshape(labels, [-1])
+  x = assert_same_shape(x, weights)
+  weights = tf.reshape(weights, [-1])
+  x = tf.reshape(x, [-1])
+  return _reduce_vocabulary_inputs(x, weights, labels)
+
+
+def _reduce_vocabulary_inputs(x, weights, labels=None):
+  """Reduces vocabulary inputs.
 
   Args:
     x: Input `Tensor` for vocabulary analyzer.
     weights: Weights `Tensor` for vocabulary analyzer.
+    labels: (optional) Binary Labels `Tensor` for vocabulary analyzer.
 
   Returns:
-    A list of:
-      - Just a flattened x if weights are None.
-      - Otherwise, 2 Tensors:
-          * unique values
-          * sum of weights for those unique values
+    A tuple of 3 `Tensor`s:
+      * unique values
+      * total weights sum for unique values
+      * sum of positive weights for unique values when labels is provided,
+        otherwise, None.
   """
-  if weights is not None:
-    x = assert_same_shape(x, weights)
-    x = tf.reshape(x, [-1])
-    weights = tf.reshape(weights, [-1])
-    unique = tf.unique(x, out_idx=tf.int64)
-    summed_weights = tf.unsorted_segment_sum(weights, unique.idx,
-                                             tf.size(unique.y))
-    return [unique.y, summed_weights]
+  unique = tf.unique(x, out_idx=tf.int64)
 
+  summed_weights = tf.unsorted_segment_sum(weights, unique.idx,
+                                           tf.size(unique.y))
+  if labels is None:
+    summed_positive_weights = None
   else:
-    x = tf.reshape(x, [-1])
-    return [x]
+    less_assert = tf.Assert(tf.less_equal(tf.reduce_max(labels), 1), [labels])
+    greater_assert = tf.Assert(tf.greater_equal(
+        tf.reduce_min(labels), 0), [labels])
+    with tf.control_dependencies([less_assert, greater_assert]):
+      labels = tf.identity(labels)
+    positive_weights = (
+        tf.cast(labels, tf.float32) * tf.cast(weights, tf.float32))
+    summed_positive_weights = tf.unsorted_segment_sum(
+        positive_weights, unique.idx, tf.size(unique.y))
+
+  return (unique.y, summed_weights, summed_positive_weights)
 
 
 def assert_same_shape(x, y):

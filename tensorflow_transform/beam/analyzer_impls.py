@@ -22,41 +22,14 @@ import os
 
 import apache_beam as beam
 
-from apache_beam.typehints import List
+from apache_beam.typehints import Tuple
 from apache_beam.typehints import with_input_types
 
 import numpy as np
 from tensorflow_transform import analyzers
+from tensorflow_transform import attributes_classes
+from tensorflow_transform import tf_utils
 from tensorflow_transform.beam import common
-
-
-@with_input_types(List[np.ndarray])
-class _AnalyzerImpl(beam.PTransform):
-  """PTransform that implements a given analyzer.
-
-  _AnalyzerImpl accepts a PCollection where each element is a list of
-  `ndarray`s. Each element in this list contains a batch of values for the
-  corresponding input tensor of the analyzer. _AnalyzerImpl returns a tuple of
-  `PCollection`s each containing a single element which is an `ndarray`.
-
-  _AnalyzerImpl dispatches to an implementation transform, with the same
-  signature as _AnalyzerImpl.
-  """
-
-  def __init__(self, spec, temp_assets_dir):
-    self._spec = spec
-    self._temp_assets_dir = temp_assets_dir
-
-  def expand(self, pcoll):
-    # pylint: disable=protected-access
-    if isinstance(self._spec, analyzers._VocabularySpec):
-      return pcoll | _VocabularyAnalyzerImpl(self._spec, self._temp_assets_dir)
-    elif isinstance(self._spec, analyzers.CombinerSpec):
-      return pcoll | _CombinerAnalyzerImpl(self._spec)
-    elif isinstance(self._spec, analyzers._CombinePerKeySpec):
-      return pcoll | _CombinePerKeyAnalyzerImpl(self._spec)
-    else:
-      raise NotImplementedError(self._spec.__class__)
 
 
 class _OrderElementsFn(beam.DoFn):
@@ -66,13 +39,13 @@ class _OrderElementsFn(beam.DoFn):
     self._store_frequency = store_frequency
 
     # Metrics.
-    self._vocab_size_distribution = beam.metrics.Metrics.distribution(
+    self._vocab_size = beam.metrics.Metrics.distribution(
         common.METRICS_NAMESPACE, 'vocabulary_size')
 
   def process(self, element, counts_iter):
     del element
     counts = list(counts_iter)
-    self._vocab_size_distribution.update(len(counts))
+    self._vocab_size.update(len(counts))
 
     if not counts:
       counts = [(1, '49d0cd50-04bb-48c0-bc6f-5b575dce351a')]
@@ -85,49 +58,67 @@ class _OrderElementsFn(beam.DoFn):
         yield entry
 
 
-@with_input_types(List[np.ndarray])
-class _VocabularyAnalyzerImpl(beam.PTransform):
+@common.register_ptransform(attributes_classes.Vocabulary)
+class VocabularyImpl(beam.PTransform):
   """Saves the unique elements in a PCollection of batches."""
 
-  def __init__(self, spec, temp_assets_dir):
-    assert isinstance(spec, analyzers._VocabularySpec)  # pylint: disable=protected-access
-    self._spec = spec
-    self._temp_assets_dir = temp_assets_dir
+  def __init__(self, num_outputs, attributes, base_temp_dir, **kwargs):
+    assert num_outputs == 1
+    self._top_k = attributes.top_k
+    self._frequency_threshold = attributes.frequency_threshold
+    self._store_frequency = attributes.store_frequency
+    self._vocab_filename = attributes.vocab_filename
+    self._vocab_ordering_type = attributes.vocab_ordering_type
+    self._name = attributes.name
+    self._base_temp_dir = base_temp_dir
 
-  def expand(self, pcoll):
-    top_k = self._spec.top_k
-    frequency_threshold = self._spec.frequency_threshold
-    assert top_k is None or top_k >= 0
-    assert frequency_threshold is None or frequency_threshold >= 0
+  def default_label(self):
+    return 'VocabularyImpl[{}]'.format(self._name)
+
+  def expand(self, inputs):
+    pcoll, = inputs
+    assert self._top_k is None or self._top_k >= 0
+    assert self._frequency_threshold is None or self._frequency_threshold >= 0
 
     # Create a PCollection of (count, element) pairs, then iterates over
     # this to create a single element PCollection containing this list of
     # pairs in sorted order by decreasing counts (and by values for equal
     # counts).
 
-    def flatten_value_and_weights_to_list_of_tuples(batch_values):
-      """Converts a batch of vocabulary and weights to a list of KV tuples."""
-      batch_value, weights = batch_values
+    if (self._vocab_ordering_type ==
+        tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION):
+      flatten_map_fn = _flatten_positive_label_weights_and_total_weights
 
-      batch_value = batch_value.tolist()
-      weights = weights.tolist()
-      if len(batch_value) != len(weights):
-        raise ValueError(
-            'Values and weights contained different number of values ({} vs {})'
-            .format(len(batch_value), len(weights)))
-      return zip(batch_value, weights)
+      # total sum is a pcollection that contains the
+      # (sum_weights_positive_label, sum_weights)
+      # where `sum_weights_positive_label` is the sum of positive labels in the
+      # dataset and `sum_weights` is the sum of total weights in the dataset.
+      positive_and_total_sums = (
+          pcoll
+          | 'SumBatchPositiveAndTotalWeights' >> beam.Map(
+              _sum_positive_and_total_weights)
+          | 'SumPositiveAndTotalWeightsGlobally' >> beam.CombineGlobally(
+              PositiveAndTotalSumCombineFn()))
 
-    def flatten_value_to_list(batch_values):
-      """Converts an N-D dense or sparse batch to a 1-D list."""
-      batch_value, = batch_values
-
-      return batch_value.tolist()
-
-    if self._spec.has_weights:
-      flatten_map_fn = flatten_value_and_weights_to_list_of_tuples
+      # PositiveAndTotalSumCombineFn returns
+      # (sum_weights_positive_label, sum_weights) where,
+      # `sum_weights_positive_label` is the sum of positive label weights for
+      # this string, and `sum_weights` is the sum of total weights.
+      # This is fed into calculate_mutual_information along with the side input
+      # total_sum where the mutual information is calculated.
+      combine_transform = (
+          'SumPositiveAndTotalWeightsPerUniqueWord' >>
+          beam.CombinePerKey(PositiveAndTotalSumCombineFn()) |
+          'CalculateMutualInformationPerUniqueWord' >>
+          beam.Map(
+              _calculate_mutual_information,
+              sums_singleton=beam.pvalue.AsSingleton(positive_and_total_sums)))
+    elif (self._vocab_ordering_type ==
+          tf_utils.VocabOrderingType.WEIGHTED_FREQUENCY):
+      flatten_map_fn = _flatten_value_and_weights_to_list_of_tuples
       combine_transform = beam.CombinePerKey(sum)
     else:
-      flatten_map_fn = flatten_value_to_list
+      flatten_map_fn = _flatten_value_to_list
       combine_transform = beam.combiners.Count.PerElement()
 
     def is_problematic_string(kv):
@@ -136,18 +127,18 @@ class _VocabularyAnalyzerImpl(beam.PTransform):
 
     counts = (
         pcoll
-        | 'FlattenStringsAndMaybeWeights' >> beam.FlatMap(flatten_map_fn)
+        | 'FlattenStringsAndMaybeWeightsLabels' >> beam.FlatMap(flatten_map_fn)
         | 'CountPerString' >> combine_transform
         | 'FilterProblematicStrings' >> beam.Filter(is_problematic_string)
         | 'SwapStringsAndCounts' >> beam.KvSwap())
 
     # Filter is cheaper than TopK computation and the two commute, so
     # filter first.
-    if frequency_threshold is not None:
-      counts |= ('FilterByFrequencyThreshold(%s)' % frequency_threshold >>
-                 beam.Filter(lambda kv: kv[0] >= frequency_threshold))
+    if self._frequency_threshold is not None:
+      counts |= ('FilterByFrequencyThreshold(%s)' % self._frequency_threshold >>
+                 beam.Filter(lambda kv: kv[0] >= self._frequency_threshold))
 
-    if top_k is None:
+    if self._top_k is None:
       # Performance optimization to obviate reading from finely sharded files
       # via AsIter in order_elements below. By breaking fusion, we allow sharded
       # files' sizes to be automatically computed (when possible), so we end up
@@ -156,31 +147,32 @@ class _VocabularyAnalyzerImpl(beam.PTransform):
       # CombineGlobaly).
       counts |= 'Reshard' >> beam.transforms.Reshuffle()  # pylint: disable=no-value-for-parameter
     else:
-      counts = (counts
-                | 'Top(%s)' % top_k
-                # Using without_defaults() below since it obviates unnecessary
-                # materializations. This is worth doing because:
-                # a) Some vocabs could be really large and allthough they do
-                #    fit in memory they might go over per-record
-                #    materialization limits (TopCombineFn is producing
-                #    single-record with the entire vocabulary as a list).
-                # b) More fusion leads to increased performance in general.
-                >> beam.CombineGlobally(
-                    beam.combiners.TopCombineFn(top_k)).without_defaults()
-                | 'FlattenList' >> beam.FlatMap(lambda lst: lst))
+      counts = (
+          counts
+          | 'Top(%s)' % self._top_k
+          # Using without_defaults() below since it obviates unnecessary
+          # materializations. This is worth doing because:
+          # a) Some vocabs could be really large and allthough they do
+          #    fit in memory they might go over per-record
+          #    materialization limits (TopCombineFn is producing
+          #    single-record with the entire vocabulary as a list).
+          # b) More fusion leads to increased performance in general.
+          >> beam.CombineGlobally(beam.combiners.TopCombineFn(
+              self._top_k)).without_defaults()
+          | 'FlattenList' >> beam.FlatMap(lambda lst: lst))
 
-    vocabulary_file = os.path.join(self._temp_assets_dir,
-                                   self._spec.vocab_filename)
+    output_dir = common.make_unique_temp_dir(self._base_temp_dir)
+    vocabulary_file = os.path.join(output_dir, self._vocab_filename)
     vocab_is_written = (
         pcoll.pipeline
         | 'Prepare' >> beam.Create([None])
         | 'OrderElements' >> beam.ParDo(
-            _OrderElementsFn(self._spec.store_frequency),
+            _OrderElementsFn(self._store_frequency),
             # Using AsIter instead of AsList at the callsite below in order to
             # reduce max memory usage.
             counts_iter=beam.pvalue.AsIter(counts))
-        | 'WriteToFile' >> beam.io.WriteToText(vocabulary_file,
-                                               shard_name_template=''))
+        | 'WriteToFile' >> beam.io.WriteToText(
+            vocabulary_file, shard_name_template=''))
     # Return the vocabulary path.
     wait_for_vocabulary_transform = (
         pcoll.pipeline
@@ -191,31 +183,128 @@ class _VocabularyAnalyzerImpl(beam.PTransform):
     return (wait_for_vocabulary_transform,)
 
 
-@with_input_types(List[np.ndarray])
-class _CombineFnWrapper(beam.CombineFn):
-  """Class to wrap a analyzers._CombinerSpec as a beam.CombineFn."""
+def _flatten_value_to_list(batch_values):
+  """Converts an N-D dense or sparse batch to a 1-D list."""
+  batch_value, = batch_values
 
-  def __init__(self, spec, serialized_tf_config):
-    if isinstance(spec, analyzers._QuantilesCombinerSpec):  # pylint: disable=protected-access
-      spec.initialize_local_state(
-          common._maybe_deserialize_tf_config(serialized_tf_config))  # pylint: disable=protected-access
-    self._spec = spec
+  return batch_value.tolist()
+
+
+def _flatten_value_and_weights_to_list_of_tuples(batch_values):
+  """Converts a batch of vocabulary and weights to a list of KV tuples."""
+  batch_value, weights = batch_values
+
+  batch_value = batch_value.tolist()
+  weights = weights.tolist()
+  return zip(batch_value, weights)
+
+
+def _flatten_positive_label_weights_and_total_weights(batch_values):
+  """Converts a batch of vocab weights and counts to a list of KV tuples."""
+  batch_value, total_weights, positive_label_weights = batch_values
+  batch_value = batch_value.tolist()
+  positive_label_weights = positive_label_weights.tolist()
+  total_weights = total_weights.tolist()
+  return zip(batch_value, zip(positive_label_weights, total_weights))
+
+
+def _sum_positive_and_total_weights(batch_values):
+  _, total_weights, positive_label_weights = batch_values
+  return [sum(positive_label_weights), sum(total_weights)]
+
+
+def _clip_probabilities(p):
+  epsilon = 1e-6
+  p = np.clip(p, epsilon, 1 - epsilon)
+  return p, 1 - p
+
+
+def _calculate_mutual_information(feature_and_sums, sums_singleton):
+  """Calculates the mutual information of a feature.
+
+  H(x, y) = P(x) * [(P(y|x)*log2(P(y|x)/P(y))) + (P(~y|x)*log2(P(~y|x)/P(~y)))]
+  x is feature and y is label.
+  Args:
+    feature_and_sums: A tuple of the form:
+      (feature, sum_weights_feature_present_positive_label,
+      sum_weights_feature_present)
+      where `feature` is a single string, which is the word in the
+      vocabulary whose mutual information with the label is being computed,
+      `sum_weights_feature_present_positive_label` is the sum of positive
+      label weights for this string and `sum_weights_feature_present` is the
+      total weights sum for this string.
+    sums_singleton: A tuple of the form:
+      (sum_weights_positive_label, sum_weights)
+      where `sum_weights_positive_label` is the sum of positive labels in
+      the dataset and `sum_weights` is the sum of total weights in the
+      dataset.
+  Returns:
+    The feature and its mutual information.
+  """
+  feature, (sum_weights_feature_present_positive_label,
+            sum_weights_feature_present) = feature_and_sums
+  sum_weights_positive_label, sum_weights = sums_singleton
+  if sum_weights_feature_present == 0 or sum_weights == 0:
+    return float('NaN')
+  p_y_positive_given_x = (sum_weights_feature_present_positive_label /
+                          float(sum_weights_feature_present))
+  p_y_positive_given_x, p_y_negative_given_x = _clip_probabilities(
+      p_y_positive_given_x)
+  p_y_positive = sum_weights_positive_label / float(sum_weights)
+  p_y_positive, p_y_negative = _clip_probabilities(p_y_positive)
+  p_x = sum_weights_feature_present_positive_label / float(sum_weights)
+  mutual_information = p_x * (
+      (p_y_positive_given_x * np.log2(p_y_positive_given_x / p_y_positive)) +
+      (p_y_negative_given_x * np.log2(p_y_negative_given_x / p_y_negative)))
+  return (feature, mutual_information)
+
+
+class PositiveAndTotalSumCombineFn(beam.CombineFn):
+  """PositiveAndTotalSumCombineFn sums positive and total sums."""
+
+  def create_accumulator(self):
+    return (0, 0)
+
+  def add_input(self, sums, elements):
+    (sum_positive, sum_total) = sums
+    (element_sum_positive, element_sum_total) = elements
+    return (sum_positive + element_sum_positive,
+            sum_total + element_sum_total)
+
+  def merge_accumulators(self, sums):
+    (sum_positive, sum_total) = zip(*sums)
+    return sum(sum_positive), sum(sum_total)
+
+  def extract_output(self, sums):
+    return sums
+
+
+@with_input_types(Tuple[np.ndarray, ...])
+class _CombinerWrapper(beam.CombineFn):
+  """Class to wrap a attributes_classes.Combiner as a beam.CombineFn."""
+
+  def __init__(self, combiner, serialized_tf_config):
+    if isinstance(combiner, analyzers.QuantilesCombiner):
+      tf_config = common._maybe_deserialize_tf_config(  # pylint: disable=protected-access
+          serialized_tf_config)
+      combiner.initialize_local_state(tf_config)
+    self._combiner = combiner
     self._serialized_tf_config = serialized_tf_config
 
   def __reduce__(self):
-    return _CombineFnWrapper, (self._spec, self._serialized_tf_config)
+    return _CombinerWrapper, (self._combiner, self._serialized_tf_config)
 
   def create_accumulator(self):
-    return self._spec.create_accumulator()
+    return self._combiner.create_accumulator()
 
   def add_input(self, accumulator, next_input):
-    return self._spec.add_input(accumulator, next_input)
+    return self._combiner.add_input(accumulator, next_input)
 
   def merge_accumulators(self, accumulators):
-    return self._spec.merge_accumulators(accumulators)
+    return self._combiner.merge_accumulators(accumulators)
 
   def extract_output(self, accumulator):
-    return self._spec.extract_output(accumulator)
+    return self._combiner.extract_output(accumulator)
 
 
 def _split_inputs_by_key(batch_values):
@@ -302,23 +391,24 @@ def _merge_outputs_by_key(keys_and_outputs, num_outputs):
     yield beam.pvalue.TaggedOutput(str(i), np.stack(output, axis=0))
 
 
-@with_input_types(List[np.ndarray])
-class _CombinerAnalyzerImpl(beam.PTransform):
-  """Implement an analyzer based on a CombinerSpec."""
+@common.register_ptransform(attributes_classes.Combine)
+class CombineImpl(beam.PTransform):
+  """Implement an analyzer based on a Combine."""
 
-  def __init__(self, spec):
-    self._spec = spec
+  def __init__(self, num_outputs, attributes, serialized_tf_config, **kwargs):
+    self._combiner = attributes.combiner
+    self._name = attributes.name
+    self._serialized_tf_config = serialized_tf_config
+    self._num_outputs = num_outputs
 
-  def expand(self, pcoll):
-    serialized_tf_config = None
-    # NOTE: Currently, all combiner specs except _QuantilesCombinerSpec
+  def default_label(self):
+    return 'CombineImpl[{}]'.format(self._name)
+
+  def expand(self, inputs):
+    pcoll, = inputs
+    # NOTE: Currently, all combiners except QuantilesCombiner
     # require .with_defaults(False) to be set.
-    has_defaults = False
-
-    if isinstance(self._spec, analyzers._QuantilesCombinerSpec):  # pylint: disable=protected-access
-      serialized_tf_config = common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
-          pcoll.pipeline.runner)
-      has_defaults = True
+    has_defaults = isinstance(self._combiner, analyzers.QuantilesCombiner)
 
     def extract_outputs(outputs, num_outputs):
       if len(outputs) != num_outputs:
@@ -328,41 +418,44 @@ class _CombinerAnalyzerImpl(beam.PTransform):
       for i, output in enumerate(outputs):
         yield beam.pvalue.TaggedOutput(str(i), output)
 
-    output_keys = [str(i) for i in range(self._spec.num_outputs())]
+    output_keys = [str(i) for i in range(self._num_outputs)]
     outputs_tuple = (
         pcoll
-        | 'CombineGlobally' >> beam.CombineGlobally(_CombineFnWrapper(
-            self._spec, serialized_tf_config)).with_defaults(has_defaults)
-        | 'ExtractOutputs'
-        >> beam.FlatMap(extract_outputs, self._spec.num_outputs()).with_outputs(
-            *output_keys))
+        | 'CombineGlobally' >> beam.CombineGlobally(
+            _CombinerWrapper(self._combiner, self._serialized_tf_config))
+        .with_defaults(has_defaults)
+        | 'ExtractOutputs' >> beam.FlatMap(
+            extract_outputs, self._num_outputs).with_outputs(*output_keys))
     return tuple(outputs_tuple[key] for key in output_keys)
 
 
-@with_input_types(List[np.ndarray])
-class _CombinePerKeyAnalyzerImpl(beam.PTransform):
-  """Implement an analyzer based on a _CombinePerKeySpec."""
+@common.register_ptransform(attributes_classes.CombinePerKey)
+class _CombinePerKeyImpl(beam.PTransform):
+  """Implement an analyzer based on a CombinePerKey."""
 
-  def __init__(self, spec):
-    self._spec = spec.combiner_spec
+  def __init__(self, num_outputs, attributes, serialized_tf_config, **kwargs):
+    assert num_outputs >= 1
+    self._combiner = attributes.combiner
+    self._name = attributes.name
+    self._serialized_tf_config = serialized_tf_config
+    # Note we define self._num_outputs to be the number of outputs of the
+    # CombineFn, to which will be added the key vocabulary after merging by
+    # key.
+    self._num_outputs = num_outputs - 1
 
-  def expand(self, pcoll):
-    serialized_tf_config = None
+  def default_label(self):
+    return 'CombinePerKeyImpl[{}]'.format(self._name)
 
-    if isinstance(self._spec, analyzers._QuantilesCombinerSpec):  # pylint: disable=protected-access
-      serialized_tf_config = common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
-          pcoll.pipeline.runner)
-
-    output_keys = ['key'] + [str(i) for i in range(self._spec.num_outputs())]
+  def expand(self, inputs):
+    pcoll, = inputs
+    output_keys = ['key'] + [str(i) for i in range(self._num_outputs)]
     outputs_tuple = (
         pcoll
         | 'SplitByKey' >> beam.FlatMap(_split_inputs_by_key)
-        | 'CombinePerKey' >> beam.CombinePerKey(_CombineFnWrapper(
-            self._spec, serialized_tf_config))
+        | 'CombinePerKey' >> beam.CombinePerKey(
+            _CombinerWrapper(self._combiner, self._serialized_tf_config))
         | 'ToList' >> beam.combiners.ToList()
         | 'MergeByKey' >> beam.FlatMap(
             _merge_outputs_by_key,
-            self._spec.num_outputs()).with_outputs(*output_keys))
+            self._num_outputs).with_outputs(*output_keys))
     return tuple(outputs_tuple[key] for key in output_keys)
-
-

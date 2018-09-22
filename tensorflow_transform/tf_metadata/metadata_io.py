@@ -80,7 +80,8 @@ def _column_schema_from_json(feature_dict):
     default_value = None
     try:
       # int() is needed because protobuf JSON encodes int64 as string
-      default_value = int(tf_options['fixedLenFeature']['intDefaultValue'])
+      default_value = _convert_scalar_or_list(
+          int, tf_options['fixedLenFeature']['intDefaultValue'])
     except KeyError:
       try:
         default_value = tf_options['fixedLenFeature']['stringDefaultValue']
@@ -282,9 +283,10 @@ def _representation_to_json(representation, type_string):
         fixed_len_options = {'stringDefaultValue':
                              representation.default_value}
       elif type_string == 'INT':
-        int_default = int(representation.default_value)
+        int_default = _convert_scalar_or_list(
+            lambda x: str(int(x)), representation.default_value)
         # str() is needed to match protobuf JSON encoding of int64 as string
-        fixed_len_options = {'intDefaultValue': str(int_default)}
+        fixed_len_options = {'intDefaultValue': int_default}
       elif type_string == 'FLOAT':
         fixed_len_options = {'floatDefaultValue':
                              representation.default_value}
@@ -302,3 +304,10 @@ def _representation_to_json(representation, type_string):
   raise TypeError('Cannot represent {} using the Feature representation; '
                   'the SparseFeature representation should have been '
                   'chosen.'.format(representation))
+
+
+def _convert_scalar_or_list(fn, scalar_or_list):
+  if isinstance(scalar_or_list, list):
+    return map(fn, scalar_or_list)
+  else:
+    return fn(scalar_or_list)

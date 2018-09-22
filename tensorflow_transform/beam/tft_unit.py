@@ -19,9 +19,11 @@ import tempfile
 
 import apache_beam as beam
 
+import numpy as np
 import six
 import tensorflow as tf
 import tensorflow_transform as tft
+
 from tensorflow_transform import test_case
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
@@ -70,8 +72,9 @@ class TransformTestCase(test_case.TransformTestCase):
           If True, only transformed feature names, dtypes and representations
           are asserted.
       expected_vocab_file_contents: (optional) A dictionary from vocab filenames
-          to their expected content as a list of text lines.  Values should be
-          the expected result of calling f.readlines() on the given asset files.
+          to their expected content as a list of text lines or a list of tuples
+          of frequency and text. Values should be the expected result of calling
+          f.readlines() on the given asset files.
       expected_asset_file_contents: deprecated.  Use
           expected_vocab_file_contents.
       test_data: (optional) If this is provided then instead of calling
@@ -170,4 +173,19 @@ class TransformTestCase(test_case.TransformTestCase):
     for filename, file_contents in six.iteritems(expected_vocab_file_contents):
       full_filename = tf_transform_output.vocabulary_file_by_name(filename)
       with tf.gfile.Open(full_filename) as f:
-        self.assertEqual(f.readlines(), file_contents)
+        file_lines = f.readlines()
+
+        # Store frequency case.
+        if isinstance(file_contents[0], tuple):
+          word_and_frequency_list = []
+          for content in file_lines:
+            frequency, word = content.split(' ', 1)
+            word_and_frequency_list.append((word.strip('\n'),
+                                            float(frequency.strip('\n'))))
+          self.assertAllEqual(
+              zip(*word_and_frequency_list)[0], zip(*file_contents)[0])
+          np.testing.assert_almost_equal(
+              zip(*word_and_frequency_list)[1], zip(*file_contents)[1])
+        else:
+          file_lines = [content.strip('\n') for content in file_lines]
+          self.assertAllEqual(file_lines, file_contents)

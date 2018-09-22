@@ -27,27 +27,73 @@ from tensorflow_transform import tf_utils
 class AnalyzersTest(test_case.TransformTestCase):
 
   @test_case.named_parameters(
-      ('rank1_without_weights', ['a', 'b', 'a'], None, [['a', 'b', 'a']]),
-      ('rank1_with_weights', ['a', 'b', 'a'], [1, 1, 2], [['a', 'b'], [3, 1]]),
-      ('rank2_without_weights', [['a', 'b', 'a'], ['b', 'a', 'b']], None,
-       [['a', 'b', 'a', 'b', 'a', 'b']]),
+      ('rank1_without_weights_or_labels', ['a', 'b', 'a'], None, None,
+       [['a', 'b', 'a']]),
+      ('rank1_with_weights', ['a', 'b', 'a'], [1, 1, 2], None, [['a', 'b'],
+                                                                [3, 1]]),
+      ('rank1_with_labels', ['a', 'b', 'a'], None, [0, 1, 1], [['a', 'b'],
+                                                               [2, 1], [1, 1]]),
+      ('rank1_with_weights_and_labels', ['a', 'b', 'a'], [1, 1, 2], [0, 1, 1],
+       [['a', 'b'], [3, 1], [2, 1]]),
+      ('rank2_without_weights_or_labels', [['a', 'b', 'a'], ['b', 'a', 'b']],
+       None, None, [['a', 'b', 'a', 'b', 'a', 'b']]),
       ('rank2_with_weights', [['a', 'b', 'a'], ['b', 'a', 'b']],
-       [[1, 2, 1], [1, 2, 2]], [['a', 'b'], [4, 5]]),
-      ('rank3_with_weights', [
-          [['a', 'b', 'a'], ['b', 'a', 'b']], [['a', 'b', 'a'], ['b', 'a', 'b']]
-      ], None, [['a', 'b', 'a', 'b', 'a', 'b', 'a', 'b', 'a', 'b', 'a', 'b']]),
-      ('rank3_without_weights', [[['a', 'b', 'a'], ['b', 'a', 'b']],
-                                 [['a', 'b', 'a'], ['b', 'a', 'b']]],
-       [[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]], [['a', 'b'], [9, 7]]),
+       [[1, 2, 1], [1, 2, 2]], None, [['a', 'b'], [4, 5]]),
+      ('rank2_with_labels', [['a', 'b', 'a'], ['b', 'a', 'b']], None,
+       [[1, 0, 1], [1, 0, 0]], [['a', 'b'], [3, 3], [2, 1]]),
+      ('rank2_with_weights_and_labels', [['a', 'b', 'a'], ['b', 'a', 'b']],
+       [[1, 2, 1], [1, 2, 2]], [[1, 0, 1], [1, 0, 0]],
+       [['a', 'b'], [4, 5], [2, 1]]),
+      ('rank3_without_weights_or_labels', [[['a', 'b', 'a'], [
+          'b', 'a', 'b'
+      ]], [['a', 'b', 'a'], ['b', 'a', 'b']]], None, None,
+       [['a', 'b', 'a', 'b', 'a', 'b', 'a', 'b', 'a', 'b', 'a', 'b']]),
+      ('rank3_with_weights', [[['a', 'b', 'a'], ['b', 'a', 'b']], [[
+          'a', 'b', 'a'
+      ], ['b', 'a', 'b']]], [[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]],
+       None, [['a', 'b'], [9, 7]]),
+      ('rank3_with_labels', [[['a', 'b', 'a'], ['b', 'a', 'b']],
+                             [['a', 'b', 'a'], ['b', 'a', 'b']]], None,
+       [[[1, 1, 0], [1, 0, 1]], [[1, 0, 1], [1, 0, 1]]],
+       [['a', 'b'], [6, 6], [3, 5]]),
+      ('rank3_with_weights_and_labels', [[['a', 'b', 'a'], ['b', 'a', 'b']], [[
+          'a', 'b', 'a'
+      ], ['b', 'a', 'b']]], [[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]],
+       [[[1, 1, 0], [1, 0, 1]], [[1, 0, 1], [1, 0, 1]]],
+       [['a', 'b'], [9, 7], [3, 5]]),
   )
-  def test_reduce_batch_vocabulary(self, x, weights, expected_analyzer_inputs):
+  def test_reduce_batch_vocabulary(self, x, weights, labels,
+                                   expected_analyzer_inputs):
     x = tf.constant(x)
+    vocab_ordering_type = (
+        tf_utils.VocabOrderingType.FREQUENCY)
     if weights is not None:
       weights = tf.constant(weights)
+      vocab_ordering_type = (
+          tf_utils.VocabOrderingType.WEIGHTED_FREQUENCY)
+    if labels is not None:
+      labels = tf.constant(labels, dtype=tf.int64)
+      vocab_ordering_type = (
+          tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION)
+
+    x, sum_weights, sum_positive = tf_utils.reduce_batch_vocabulary(
+        x, vocab_ordering_type, weights, labels)
     with tf.Session() as sess:
-      results = sess.run(tf_utils.reduce_batch_vocabulary(x, weights))
-      self.assertAllEqual(results,
-                          np.array(expected_analyzer_inputs, dtype=np.object))
+      results = sess.run(
+          [a for a in [x, sum_weights, sum_positive] if a is not None])
+      for result, expected in zip(results, expected_analyzer_inputs):
+        self.assertAllEqual(result, np.array(expected))
+
+  def test_reduce_vocabulary_inputs(self):
+    with tf.Session() as sess:
+      x = tf.constant(['yes', 'no', 'yes'])
+      weights = tf.constant([1, 2, 3])
+      labels = tf.constant([1, 1, 0], tf.int64)
+      results = sess.run(
+          tf_utils._reduce_vocabulary_inputs(x, weights, labels))
+      expected_analyzer_inputs = [['yes', 'no'], [4, 2], [1, 2]]
+      for result, expected in zip(results, expected_analyzer_inputs):
+        self.assertAllEqual(result, np.array(expected))
 
   @test_case.parameters(
       ([[1], [2]], [[1], [2], [3]], None, None, tf.errors.InvalidArgumentError,
@@ -79,15 +125,14 @@ class AnalyzersTest(test_case.TransformTestCase):
     x = tf.constant([[[1], [2]], [[1], [2]]])
     with tf.Session():
       self.assertAllEqual(
-          tf_utils.reduce_batch_count(
-              x, reduce_instance_dims=True).eval(), 4)
+          tf_utils.reduce_batch_count(x, reduce_instance_dims=True).eval(), 4)
 
   def test_reduce_batch_count_elementwise(self):
     x = tf.constant([[[1], [2]], [[1], [2]]])
     with tf.Session():
       self.assertAllEqual(
-          tf_utils.reduce_batch_count(
-              x, reduce_instance_dims=False).eval(), [[2], [2]])
+          tf_utils.reduce_batch_count(x, reduce_instance_dims=False).eval(),
+          [[2], [2]])
 
   def test_reduce_batch_count_sparse(self):
     x = tf.SparseTensor(
@@ -96,8 +141,7 @@ class AnalyzersTest(test_case.TransformTestCase):
         dense_shape=[2, 4, 1])
     with tf.Session():
       self.assertAllEqual(
-          tf_utils.reduce_batch_count(
-              x, reduce_instance_dims=True).eval(), 4)
+          tf_utils.reduce_batch_count(x, reduce_instance_dims=True).eval(), 4)
 
   def test_reduce_batch_count_sparse_elementwise(self):
     x = tf.SparseTensor(
@@ -106,8 +150,8 @@ class AnalyzersTest(test_case.TransformTestCase):
         dense_shape=[2, 4, 1])
     with tf.Session():
       self.assertAllEqual(
-          tf_utils.reduce_batch_count(
-              x, reduce_instance_dims=False).eval(), [[1], [1], [2], [0]])
+          tf_utils.reduce_batch_count(x, reduce_instance_dims=False).eval(),
+          [[1], [1], [2], [0]])
 
   def test_reduce_batch_count_mean_and_var(self):
     x = tf.constant([[[1], [2]], [[3], [4]]], dtype=tf.float32)

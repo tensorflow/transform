@@ -1664,6 +1664,198 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_transformed_data,
         expected_metadata)
 
+  def testVocabularyAnalyzerWithLabelsAndTopK(self):
+    input_data = [
+        {'a': 'hello', 'labels': 1},
+        {'a': 'hello', 'labels': 1},
+        {'a': 'hello', 'labels': 1},
+        {'a': 'goodbye', 'labels': 1},
+        {'a': 'aaaaa', 'labels': 1},
+        {'a': 'aaaaa', 'labels': 1},
+        {'a': 'goodbye', 'labels': 0},
+        {'a': 'goodbye', 'labels': 0},
+        {'a': 'aaaaa', 'labels': 1},
+        {'a': 'aaaaa', 'labels': 1},
+        {'a': 'goodbye', 'labels': 1},
+        {'a': 'goodbye', 'labels': 0}
+    ]
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string),
+        'labels': tf.FixedLenFeature([], tf.int64)
+    })
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'index':
+            sch.ColumnSchema(
+                sch.IntDomain(tf.int64, -1, 1, True), [],
+                sch.FixedColumnRepresentation())
+    })
+
+    def preprocessing_fn(inputs):
+      return {
+          'index':
+              tft.compute_and_apply_vocabulary(
+                  inputs['a'], labels=inputs['labels'], top_k=2)
+      }
+
+    expected_data = [
+        {'index': 1},
+        {'index': 1},
+        {'index': 1},
+        {'index': -1},
+        {'index': 0},
+        {'index': 0},
+        {'index': -1},
+        {'index': -1},
+        {'index': -1},
+        {'index': 0},
+        {'index': 0},
+        {'index': -1}
+    ]
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
+  def testVocabularyAnalyzerWithLabelsAndFrequency(self):
+    input_data = [
+        {'a': 'hello', 'labels': 1},
+        {'a': 'hello', 'labels': 1},
+        {'a': 'hello', 'labels': 1},
+        {'a': 'goodbye', 'labels': 1},
+        {'a': 'aaaaa', 'labels': 1},
+        {'a': 'aaaaa', 'labels': 1},
+        {'a': 'goodbye', 'labels': 0},
+        {'a': 'goodbye', 'labels': 0},
+        {'a': 'aaaaa', 'labels': 1},
+        {'a': 'aaaaa', 'labels': 1},
+        {'a': 'goodbye', 'labels': 1},
+        {'a': 'goodbye', 'labels': 0}
+    ]
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string),
+        'labels': tf.FixedLenFeature([], tf.int64)
+    })
+    expected_metadata = input_metadata
+
+    def preprocessing_fn(inputs):
+      tft.vocabulary(
+          inputs['a'],
+          labels=inputs['labels'],
+          store_frequency=True,
+          vocab_filename='my_vocab')
+      return inputs
+
+    expected_data = input_data
+    expected_vocab_file_contents = {
+        'my_vocab': [('aaaaa', 0.1383392), ('hello', 0.1037544),
+                     ('goodbye', 0.0658441)]
+    }
+
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata,
+        expected_vocab_file_contents=expected_vocab_file_contents)
+
+  def testVocabularyAnalyzerWithLabelsAndWeights(self):
+    input_data = [
+        {'a': 'hello', 'weights': .3, 'labels': 1},
+        {'a': 'hello', 'weights': .4, 'labels': 1},
+        {'a': 'hello', 'weights': .3, 'labels': 1},
+        {'a': 'goodbye', 'weights': 1.2, 'labels': 1},
+        {'a': 'aaaaa', 'weights': .6, 'labels': 1},
+        {'a': 'aaaaa', 'weights': .7, 'labels': 1},
+        {'a': 'goodbye', 'weights': 1., 'labels': 0},
+        {'a': 'goodbye', 'weights': 1., 'labels': 0},
+        {'a': 'aaaaa', 'weights': .6, 'labels': 1},
+        {'a': 'aaaaa', 'weights': .7, 'labels': 1},
+        {'a': 'goodbye', 'weights': 1., 'labels': 1},
+        {'a': 'goodbye', 'weights': 1., 'labels': 0},
+    ]
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string),
+        'weights': tf.FixedLenFeature([], tf.float32),
+        'labels': tf.FixedLenFeature([], tf.int64)
+    })
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'index':
+            sch.ColumnSchema(
+                sch.IntDomain(tf.int64, -1, 2, True), [],
+                sch.FixedColumnRepresentation())
+    })
+
+    def preprocessing_fn(inputs):
+      return {
+          'index':
+              tft.compute_and_apply_vocabulary(
+                  inputs['a'],
+                  weights=inputs['weights'],
+                  labels=inputs['labels'])
+      }
+
+    expected_data = [
+        {'index': 1},
+        {'index': 1},
+        {'index': 1},
+        {'index': 2},
+        {'index': 0},
+        {'index': 0},
+        {'index': 2},
+        {'index': 2},
+        {'index': 0},
+        {'index': 0},
+        {'index': 2},
+        {'index': 2}
+    ]
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
+  def testVocabularyAnalyzerWithLabelsWeightsAndFrequency(self):
+    input_data = [
+        {'a': 'hello', 'weights': .3, 'labels': 1},
+        {'a': 'hello', 'weights': .4, 'labels': 1},
+        {'a': 'hello', 'weights': .3, 'labels': 1},
+        {'a': 'goodbye', 'weights': 1.2, 'labels': 1},
+        {'a': 'aaaaa', 'weights': .6, 'labels': 1},
+        {'a': 'aaaaa', 'weights': .7, 'labels': 1},
+        {'a': 'goodbye', 'weights': 1., 'labels': 0},
+        {'a': 'goodbye', 'weights': 1., 'labels': 0},
+        {'a': 'aaaaa', 'weights': .6, 'labels': 1},
+        {'a': 'aaaaa', 'weights': .7, 'labels': 1},
+        {'a': 'goodbye', 'weights': 1., 'labels': 1},
+        {'a': 'goodbye', 'weights': 1., 'labels': 0},
+    ]
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string),
+        'weights': tf.FixedLenFeature([], tf.float32),
+        'labels': tf.FixedLenFeature([], tf.int64)
+    })
+    expected_metadata = input_metadata
+
+    def preprocessing_fn(inputs):
+      tft.vocabulary(
+          inputs['a'],
+          weights=inputs['weights'],
+          labels=inputs['labels'],
+          store_frequency=True,
+          vocab_filename='my_vocab')
+      return inputs
+
+    expected_data = input_data
+    expected_vocab_file_contents = {
+        'my_vocab': [('aaaaa', 0.1776953), ('hello', 0.0683443),
+                     ('goodbye', 0.0418245)]
+    }
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata,
+        expected_vocab_file_contents=expected_vocab_file_contents)
+
   def testVocabularyAnalyzerWithWeights(self):
     input_data = [
         {'a': 'hello', 'weights': 1.},
@@ -1831,7 +2023,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
             [], sch.FixedColumnRepresentation())
     })
     expected_vocab_file_contents = {
-        'my_vocab': ['hello\n', 'world\n', 'goodbye\n', 'aaaaa\n', ' \n']
+        'my_vocab': ['hello', 'world', 'goodbye', 'aaaaa', ' ']
     }
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn_oov, expected_data,
@@ -2140,8 +2332,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'a': tf.FixedLenFeature([], tf.string)
     })
     # Generated vocab (ordered by frequency, then value) should be:
-    # ["hello", "world", "goodbye", "foo"]. After applying frequency_threshold=2
-    # this becomes empty.
+    # ["hello", "world", "goodbye", "foo"]. After applying
+    # frequency_threshold=77 this becomes empty.
     expected_data = [
         {'index1': [-99, -99, -99], 'index2': [-9, -9, -9]},
         {'index1': [-99, -99, -99], 'index2': [-9, -9, -9]},

@@ -24,17 +24,13 @@ import pprint
 import tempfile
 
 
+import apache_beam as beam
 import tensorflow as tf
 import tensorflow_transform as tft
-from apache_beam.io import textio
-from apache_beam.io import tfrecordio
-
-from tensorflow_transform.beam import impl as beam_impl
-from tensorflow_transform.beam.tft_beam_io import transform_fn_io
+import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
-import apache_beam as beam
 
 CATEGORICAL_FEATURE_KEYS = [
     'workclass',
@@ -165,7 +161,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
   # The "with" block will create a pipeline, and run that pipeline at the exit
   # of the block.
   with beam.Pipeline() as pipeline:
-    with beam_impl.Context(temp_dir=tempfile.mkdtemp()):
+    with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
       # Create a coder to read the census data with the schema.  To do this we
       # need to list all columns in order since the schema doesn't specify the
       # order of columns in the csv.
@@ -188,7 +184,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
       # convert.decode which should only occur for the trailing blank line.
       raw_data = (
           pipeline
-          | 'ReadTrainData' >> textio.ReadFromText(train_data_file)
+          | 'ReadTrainData' >> beam.io.ReadFromText(train_data_file)
           | 'FixCommasTrainData' >> beam.Map(
               lambda line: line.replace(', ', ','))
           | 'DecodeTrainData' >> MapAndFilterErrors(converter.decode))
@@ -198,7 +194,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
       # raw_data.
       raw_dataset = (raw_data, RAW_DATA_METADATA)
       transformed_dataset, transform_fn = (
-          raw_dataset | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
+          raw_dataset | tft_beam.AnalyzeAndTransformDataset(preprocessing_fn))
       transformed_data, transformed_metadata = transformed_dataset
       transformed_data_coder = tft.coders.ExampleProtoCoder(
           transformed_metadata.schema)
@@ -206,7 +202,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
       _ = (
           transformed_data
           | 'EncodeTrainData' >> beam.Map(transformed_data_coder.encode)
-          | 'WriteTrainData' >> tfrecordio.WriteToTFRecord(
+          | 'WriteTrainData' >> beam.io.WriteToTFRecord(
               os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE)))
 
       # Now apply transform function to test data.  In this case we remove the
@@ -214,8 +210,8 @@ def transform_data(train_data_file, test_data_file, working_dir):
       # that is present in the test data file.
       raw_test_data = (
           pipeline
-          | 'ReadTestData' >> textio.ReadFromText(test_data_file,
-                                                  skip_header_lines=1)
+          | 'ReadTestData' >> beam.io.ReadFromText(test_data_file,
+                                                   skip_header_lines=1)
           | 'FixCommasTestData' >> beam.Map(
               lambda line: line.replace(', ', ','))
           | 'RemoveTrailingPeriodsTestData' >> beam.Map(lambda line: line[:-1])
@@ -224,23 +220,21 @@ def transform_data(train_data_file, test_data_file, working_dir):
       raw_test_dataset = (raw_test_data, RAW_DATA_METADATA)
 
       transformed_test_dataset = (
-          (raw_test_dataset, transform_fn) | beam_impl.TransformDataset())
+          (raw_test_dataset, transform_fn) | tft_beam.TransformDataset())
       # Don't need transformed data schema, it's the same as before.
       transformed_test_data, _ = transformed_test_dataset
 
       _ = (
           transformed_test_data
           | 'EncodeTestData' >> beam.Map(transformed_data_coder.encode)
-          | 'WriteTestData' >> tfrecordio.WriteToTFRecord(
+          | 'WriteTestData' >> beam.io.WriteToTFRecord(
               os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE)))
 
-      # Will write a SavedModel and metadata to two subdirectories of
-      # working_dir, given by transform_fn_io.TRANSFORM_FN_DIR and
-      # transform_fn_io.TRANSFORMED_METADATA_DIR respectively.
+      # Will write a SavedModel and metadata to working_dir, which can then
+      # be read by the tft.TFTransformOutput class.
       _ = (
           transform_fn
-          | 'WriteTransformFn' >>
-          transform_fn_io.WriteTransformFn(working_dir))
+          | 'WriteTransformFn' >> tft_beam.WriteTransformFn(working_dir))
 
 # Functions for training
 
