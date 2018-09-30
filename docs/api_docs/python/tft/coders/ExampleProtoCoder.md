@@ -1,0 +1,54 @@
+<div itemscope itemtype="http://developers.google.com/ReferenceObject">
+<meta itemprop="name" content="tft.coders.ExampleProtoCoder" />
+<meta itemprop="path" content="Stable" />
+<meta itemprop="property" content="__init__"/>
+<meta itemprop="property" content="decode"/>
+<meta itemprop="property" content="encode"/>
+</div>
+
+# tft.coders.ExampleProtoCoder
+
+## Class `ExampleProtoCoder`
+
+
+
+A coder between serialized TF Examples and tf.Transform datasets.
+
+<h2 id="__init__"><code>__init__</code></h2>
+
+``` python
+__init__(schema)
+```
+
+Build an ExampleProtoCoder.
+
+#### Args:
+
+* <b>`schema`</b>: A `Schema` object.
+
+#### Raises:
+
+* <b>`ValueError`</b>: If `schema` is invalid.
+
+
+
+## Methods
+
+<h3 id="decode"><code>decode</code></h3>
+
+``` python
+decode(serialized_example_proto)
+```
+
+Decode serialized tf.Example as a tf.transform encoded dict.
+
+<h3 id="encode"><code>encode</code></h3>
+
+``` python
+encode(instance)
+```
+
+Encode a tf.transform encoded dict as serialized tf.Example.
+
+
+

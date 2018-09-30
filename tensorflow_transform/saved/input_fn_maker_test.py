@@ -28,42 +28,39 @@ import tensorflow as tf
 from tensorflow_transform.saved import input_fn_maker
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import dataset_schema as sch
 import unittest
 
 
-def _make_raw_schema(shape, should_add_unused_feature=False):
-  schema = sch.Schema()
+class _MockSchema(object):
+  """Mock object that allows feature specs not allowed by the actual Schema."""
 
-  schema.column_schemas['raw_a'] = (sch.ColumnSchema(
-      tf.int64, shape, sch.FixedColumnRepresentation(default_value=0)))
+  def __init__(self, feature_spec):
+    self._feature_spec = feature_spec
 
-  schema.column_schemas['raw_b'] = (sch.ColumnSchema(
-      tf.int64, shape, sch.FixedColumnRepresentation(default_value=1)))
+  def as_feature_spec(self):
+    return self._feature_spec
 
-  schema.column_schemas['raw_label'] = (sch.ColumnSchema(
-      tf.int64, shape, sch.FixedColumnRepresentation(default_value=-1)))
 
+def _make_raw_schema(
+    shape=None,
+    should_add_unused_feature=False):
+  feature_spec = {
+      'raw_a': tf.FixedLenFeature(shape, tf.int64, 0),
+      'raw_b': tf.FixedLenFeature(shape, tf.int64, 1),
+      'raw_label': tf.FixedLenFeature(shape, tf.int64, -1),
+  }
   if should_add_unused_feature:
-    schema.column_schemas['raw_unused'] = (sch.ColumnSchema(
-        tf.int64, shape, sch.FixedColumnRepresentation(default_value=1)))
-
-  return schema
+    feature_spec['raw_unused'] = tf.FixedLenFeature(shape, tf.int64, 1)
+  return _MockSchema(feature_spec=feature_spec)
 
 
 def _make_transformed_schema(shape):
-  schema = sch.Schema()
-
-  schema.column_schemas['transformed_a'] = (
-      sch.ColumnSchema(tf.int64, shape, sch.FixedColumnRepresentation()))
-
-  schema.column_schemas['transformed_b'] = (
-      sch.ColumnSchema(tf.int64, shape, sch.ListColumnRepresentation()))
-
-  schema.column_schemas['transformed_label'] = (
-      sch.ColumnSchema(tf.int64, shape, sch.FixedColumnRepresentation()))
-
-  return schema
+  feature_spec = {
+      'transformed_a': tf.FixedLenFeature(shape, tf.int64),
+      'transformed_b': tf.VarLenFeature(tf.int64),
+      'transformed_label': tf.FixedLenFeature(shape, tf.int64),
+  }
+  return _MockSchema(feature_spec=feature_spec)
 
 
 class InputFnMakerTest(unittest.TestCase):

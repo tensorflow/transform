@@ -31,36 +31,36 @@ class AnalyzersTest(test_case.TransformTestCase):
        [['a', 'b', 'a']]),
       ('rank1_with_weights', ['a', 'b', 'a'], [1, 1, 2], None, [['a', 'b'],
                                                                 [3, 1]]),
-      ('rank1_with_labels', ['a', 'b', 'a'], None, [0, 1, 1], [['a', 'b'],
-                                                               [2, 1], [1, 1]]),
+      ('rank1_with_labels', ['a', 'b', 'a'], None, [0, 1, 1],
+       [['a', 'b'], [2, 1], [1, 1], [2, 1]]),
       ('rank1_with_weights_and_labels', ['a', 'b', 'a'], [1, 1, 2], [0, 1, 1],
-       [['a', 'b'], [3, 1], [2, 1]]),
+       [['a', 'b'], [3, 1], [2, 1], [2, 1]]),
       ('rank2_without_weights_or_labels', [['a', 'b', 'a'], ['b', 'a', 'b']],
        None, None, [['a', 'b', 'a', 'b', 'a', 'b']]),
       ('rank2_with_weights', [['a', 'b', 'a'], ['b', 'a', 'b']],
        [[1, 2, 1], [1, 2, 2]], None, [['a', 'b'], [4, 5]]),
       ('rank2_with_labels', [['a', 'b', 'a'], ['b', 'a', 'b']], None,
-       [[1, 0, 1], [1, 0, 0]], [['a', 'b'], [3, 3], [2, 1]]),
+       [[1, 0, 1], [1, 0, 0]], [['a', 'b'], [3, 3], [2, 1], [3, 3]]),
       ('rank2_with_weights_and_labels', [['a', 'b', 'a'], ['b', 'a', 'b']],
-       [[1, 2, 1], [1, 2, 2]], [[1, 0, 1], [1, 0, 0]],
-       [['a', 'b'], [4, 5], [2, 1]]),
-      ('rank3_without_weights_or_labels', [[['a', 'b', 'a'], [
-          'b', 'a', 'b'
-      ]], [['a', 'b', 'a'], ['b', 'a', 'b']]], None, None,
+       [[1, 2, 1], [1, 2, 2]], [[1, 0, 1], [1, 0, 0]], [['a', 'b'], [4, 5],
+                                                        [2, 1], [3, 3]]),
+      ('rank3_without_weights_or_labels', [[['a', 'b', 'a'], ['b', 'a', 'b']],
+                                           [['a', 'b', 'a'], ['b', 'a', 'b']]
+                                          ], None, None,
        [['a', 'b', 'a', 'b', 'a', 'b', 'a', 'b', 'a', 'b', 'a', 'b']]),
-      ('rank3_with_weights', [[['a', 'b', 'a'], ['b', 'a', 'b']], [[
-          'a', 'b', 'a'
-      ], ['b', 'a', 'b']]], [[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]],
-       None, [['a', 'b'], [9, 7]]),
+      ('rank3_with_weights', [[['a', 'b', 'a'], ['b', 'a', 'b']],
+                              [['a', 'b', 'a'], ['b', 'a', 'b']]],
+       [[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]], None, [['a', 'b'],
+                                                                [9, 7]]),
       ('rank3_with_labels', [[['a', 'b', 'a'], ['b', 'a', 'b']],
                              [['a', 'b', 'a'], ['b', 'a', 'b']]], None,
-       [[[1, 1, 0], [1, 0, 1]], [[1, 0, 1], [1, 0, 1]]],
-       [['a', 'b'], [6, 6], [3, 5]]),
-      ('rank3_with_weights_and_labels', [[['a', 'b', 'a'], ['b', 'a', 'b']], [[
-          'a', 'b', 'a'
-      ], ['b', 'a', 'b']]], [[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]],
-       [[[1, 1, 0], [1, 0, 1]], [[1, 0, 1], [1, 0, 1]]],
-       [['a', 'b'], [9, 7], [3, 5]]),
+       [[[1, 1, 0], [1, 0, 1]], [[1, 0, 1], [1, 0, 1]]], [['a', 'b'], [6, 6],
+                                                          [3, 5], [6, 6]]),
+      ('rank3_with_weights_and_labels', [
+          [['a', 'b', 'a'], ['b', 'a', 'b']], [['a', 'b', 'a'], ['b', 'a', 'b']]
+      ], [[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]], [[[1, 1, 0], [
+          1, 0, 1
+      ]], [[1, 0, 1], [1, 0, 1]]], [['a', 'b'], [9, 7], [3, 5], [6, 6]]),
   )
   def test_reduce_batch_vocabulary(self, x, weights, labels,
                                    expected_analyzer_inputs):
@@ -76,11 +76,11 @@ class AnalyzersTest(test_case.TransformTestCase):
       vocab_ordering_type = (
           tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION)
 
-    x, sum_weights, sum_positive = tf_utils.reduce_batch_vocabulary(
+    x, sum_weights, sum_positive, counts = tf_utils.reduce_batch_vocabulary(
         x, vocab_ordering_type, weights, labels)
     with tf.Session() as sess:
       results = sess.run(
-          [a for a in [x, sum_weights, sum_positive] if a is not None])
+          [a for a in [x, sum_weights, sum_positive, counts] if a is not None])
       for result, expected in zip(results, expected_analyzer_inputs):
         self.assertAllEqual(result, np.array(expected))
 
@@ -91,7 +91,7 @@ class AnalyzersTest(test_case.TransformTestCase):
       labels = tf.constant([1, 1, 0], tf.int64)
       results = sess.run(
           tf_utils._reduce_vocabulary_inputs(x, weights, labels))
-      expected_analyzer_inputs = [['yes', 'no'], [4, 2], [1, 2]]
+      expected_analyzer_inputs = [['yes', 'no'], [4, 2], [1, 2], [2, 1]]
       for result, expected in zip(results, expected_analyzer_inputs):
         self.assertAllEqual(result, np.array(expected))
 

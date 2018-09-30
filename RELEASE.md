@@ -3,15 +3,24 @@
 ## Major Features and Improvements
 
 ## Bug Fixes and Other Changes
-* 'tft.vocabulary' and 'tft.compute_and_apply_vocabulary' now support filtering
-  based on mutual information when `labels` is provided.
-* Export all package level exports of `tensorflow_transform`, from the
-  `tensorflow_transform.beam` subpackage.  This allows users to just import the
-  `tensorflow_transform.beam` subpackage for all functionality.
+
+*   'tft.vocabulary' and 'tft.compute_and_apply_vocabulary' now support
+    filtering based on mutual information when `labels` is provided.
+*   Export all package level exports of `tensorflow_transform`, from the
+    `tensorflow_transform.beam` subpackage. This allows users to just import the
+    `tensorflow_transform.beam` subpackage for all functionality.
+*   Adding API docs
 
 ## Breaking changes
 
 ## Deprecations
+* All functions in `tensorflow_transform.saved.input_fn_maker` are deprecated.
+  See the examples for how to construct the `input_fn` for training and serving.
+  Note that the examples demonstrate the use of the `tf.estimator` API.  The
+  functions named \*\_serving\_input\_fn were for use with the
+  `tf.contrib.estimator` API which is now deprecated.  We do not provide
+  examples of usage of the `tf.contrib.estimator` API, instead users should
+  upgrade to the `tf.estimator` API.
 
 # Release 0.9.0
 

@@ -763,6 +763,50 @@ def sanitized_vocab_filename(filename=None, prefix=None):
   return re.sub(r'[-\s]+', '-', filename)
 
 
+def _get_vocab_filename(vocab_filename, store_frequency):
+  """Returns a sanitized vocabulary filename with appropriate prefix applied.
+
+  Args:
+    vocab_filename: The file name for the vocabulary file. If none, the
+      "uniques" scope name in the context of this graph will be used as the file
+      name.
+    store_frequency: A bool that is true when the vocabulary for which this
+      generates a filename stores term frequency. False otherwise.
+
+  Returns:
+    A valid filename.
+  """
+  if vocab_filename is not None:
+    prefix = None
+  elif store_frequency:
+    prefix = VOCAB_FREQUENCY_FILENAME_PREFIX
+  else:
+    prefix = VOCAB_FILENAME_PREFIX
+
+  # Make the file name path safe.
+  return sanitized_vocab_filename(vocab_filename, prefix=prefix)
+
+
+def _get_top_k_and_frequency_threshold(top_k, frequency_threshold):
+  """Validate `top_k` and `frequency_threshold` values and convert to int."""
+  if top_k is not None:
+    top_k = int(top_k)
+    if top_k < 0:
+      raise ValueError('top_k must be non-negative, but got: %r' % top_k)
+
+  if frequency_threshold is not None:
+    frequency_threshold = int(frequency_threshold)
+    if frequency_threshold < 0:
+      raise ValueError(
+          'frequency_threshold must be non-negative, but got: %r' %
+          frequency_threshold)
+    elif frequency_threshold <= 1:
+      tf.logging.warn(
+          'frequency_threshold %d <= 1 is a no-op, use None instead.',
+          frequency_threshold)
+  return top_k, frequency_threshold
+
+
 def vocabulary(x,
                top_k=None,
                frequency_threshold=None,
@@ -822,21 +866,8 @@ def vocabulary(x,
   Raises:
     ValueError: If `top_k` or `frequency_threshold` is negative.
   """
-  if top_k is not None:
-    top_k = int(top_k)
-    if top_k < 0:
-      raise ValueError('top_k must be non-negative, but got: %r' % top_k)
-
-  if frequency_threshold is not None:
-    frequency_threshold = int(frequency_threshold)
-    if frequency_threshold < 0:
-      raise ValueError(
-          'frequency_threshold must be non-negative, but got: %r' %
-          frequency_threshold)
-    elif frequency_threshold <= 1:
-      tf.logging.warn(
-          'frequency_threshold %d <= 1 is a no-op, use None instead.',
-          frequency_threshold)
+  top_k, frequency_threshold = _get_top_k_and_frequency_threshold(
+      top_k, frequency_threshold)
 
   if isinstance(x, tf.SparseTensor):
     x = x.values
@@ -845,35 +876,31 @@ def vocabulary(x,
     raise ValueError('expected tf.string but got %r' % x.dtype)
 
   with tf.name_scope(name, 'vocabulary') as scope:
-    if vocab_filename is not None:
-      prefix = None
-    elif store_frequency:
-      prefix = VOCAB_FREQUENCY_FILENAME_PREFIX
-    else:
-      prefix = VOCAB_FILENAME_PREFIX
-
-    # Make the file name path safe.
-    vocab_filename = sanitized_vocab_filename(vocab_filename, prefix=prefix)
+    vocab_filename = _get_vocab_filename(vocab_filename, store_frequency)
 
     if labels is not None:
       vocab_ordering_type = (
           tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION)
-      unique_inputs, sum_total, sum_positive = tf_utils.reduce_batch_vocabulary(
-          x, vocab_ordering_type, weights, labels)
-      analyzer_inputs = [unique_inputs, sum_total, sum_positive]
+      (unique_inputs, sum_total,
+       sum_positive, counts) = tf_utils.reduce_batch_vocabulary(
+           x, vocab_ordering_type, weights, labels)
+      analyzer_inputs = [unique_inputs, sum_total, sum_positive, counts]
 
     elif weights is not None:
       vocab_ordering_type = tf_utils.VocabOrderingType.WEIGHTED_FREQUENCY
-      unique_inputs, sum_weights, none_sum = tf_utils.reduce_batch_vocabulary(
-          x, vocab_ordering_type, weights)
+      (unique_inputs, sum_weights,
+       none_sum, none_counts) = tf_utils.reduce_batch_vocabulary(
+           x, vocab_ordering_type, weights)
       assert none_sum is None
+      assert none_counts is None
       analyzer_inputs = [unique_inputs, sum_weights]
     else:
       vocab_ordering_type = tf_utils.VocabOrderingType.FREQUENCY
-      unique_inputs, none_weights, none_sum = tf_utils.reduce_batch_vocabulary(
-          x, vocab_ordering_type)
+      (unique_inputs, none_weights, none_sum,
+       none_counts) = tf_utils.reduce_batch_vocabulary(x, vocab_ordering_type)
       assert none_sum is None
       assert none_weights is None
+      assert none_counts is None
       analyzer_inputs = [unique_inputs]
 
     attributes = attributes_classes.Vocabulary(

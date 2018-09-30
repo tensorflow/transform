@@ -235,7 +235,7 @@ workers (although this section uses the in-memory execution mode).
 
 The following example requires both reading and writing data on disk and
 representing data as a `PCollection` (not a list), see:
-[`census_example.py`](./examples/census_example.py).
+[`census_example.py`](https://github.com/tensorflow/transform/tree/master/examples/census_example.py).
 Below we show how to download the data and run this example. The "Census Income"
 dataset is provided by the
 [UCI Machine Learning Repository](https://archive.ics.uci.edu/ml/datasets/Census+Income).
@@ -375,16 +375,17 @@ Download the census dataset using the following shell commands:
 </pre>
 
 When running the
-[`census_example.py`](./examples/census_example.py) script, pass the
+[`census_example.py`](https://github.com/tensorflow/transform/tree/master/examples/census_example.py)
+script, pass the
 directory containing this data as the first argument. The script creates a
 temporary sub-directory to add the preprocessed data.
 
 ## Integrate with TensorFlow Training
 
 The final section of
-[`census_example.py`](./examples/census_example.py) show how the preprocessed
+[`census_example.py`](https://github.com/tensorflow/transform/tree/master/examples/census_example.py) show how the preprocessed
 data is used to train a model. See the
-[premade Estimators documentation](http://tensorflow.org/get_started/premade_estimators)
+[Estimators documentation](https://www.tensorflow.org/tutorials/estimators/linear)
 for details. The first step is to construct an `Estimator` which requires a
 description of the preprocessed columns. Each numeric column is described as a
 `real_valued_column` that is a wrapper around a dense vector with a fixed
@@ -429,7 +430,7 @@ def _make_training_input_fn(tf_transform_output, transformed_examples,
 ```
 
 The remaining code is the same as using the
-[`Estimator`](/api_docs/python/tf/contrib/learn/BaseEstimator) class. The
+[`Estimator`](/api_docs/python/tf/estimator/Estimator) class. The
 example also contains code to export the model in the `SavedModel` format. The
 exported model can be used by
 [Tensorflow Serving](https://www.tensorflow.org/serving/serving_basic) or the

@@ -24,6 +24,7 @@ from __future__ import division
 from __future__ import print_function
 
 
+import six
 import tensorflow as tf
 
 from tensorflow.contrib.session_bundle import bundle_shim
@@ -80,7 +81,7 @@ def apply_saved_model(model_dir, inputs, tags, signature_name=None,
           'The SavedModel contains multiple signatures (%r) but signature_name '
           'was not specified.' % (meta_graph.signature_def.keys(),))
     else:
-      signature = meta_graph.signature_def.values()[0]
+      signature = next(six.itervalues(meta_graph.signature_def))
 
   # Generate mapping from tensors in the graph to the input tensors.
   if isinstance(inputs, dict):
@@ -96,7 +97,9 @@ def apply_saved_model(model_dir, inputs, tags, signature_name=None,
         'The SavedModel does not have exactly one input (had inputs %r) but '
         '`inputs` was not a dict.' % (signature.inputs.keys(),))
   else:
-    input_name_to_tensor_map = {signature.inputs.values()[0].name: inputs}
+    input_name_to_tensor_map = {
+        next(six.itervalues(signature.inputs)).name: inputs
+    }
 
   # Get output tensor names.
   if output_keys_in_signature:
@@ -116,7 +119,7 @@ def apply_saved_model(model_dir, inputs, tags, signature_name=None,
         'output_keys_in_signature was not specified.'
         % (signature.outputs.keys(),))
   else:
-    output_tensor_names = [signature.outputs.values()[0].name]
+    output_tensor_names = [next(six.itervalues(signature.outputs)).name]
     output_single_tensor = True
 
   # Convert_variables_to_constants() requires op name.

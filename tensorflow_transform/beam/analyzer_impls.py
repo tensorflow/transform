@@ -17,11 +17,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import os
 
 
 import apache_beam as beam
 
+from apache_beam.transforms.ptransform import ptransform_fn
+from apache_beam.typehints import KV
 from apache_beam.typehints import Tuple
 from apache_beam.typehints import with_input_types
 
@@ -58,6 +61,72 @@ class _OrderElementsFn(beam.DoFn):
         yield entry
 
 
+@ptransform_fn
+@beam.typehints.with_input_types(KV[float, str])
+@beam.typehints.with_output_types(KV[float, str])
+def _ApplyFrequencyThresholdAndTopK(counts, frequency_threshold, top_k):  # pylint: disable=invalid-name
+  """Applies `frequency_threshold` and `top_k` to (count, value) pairs."""
+  # Filter is cheaper than TopK computation and the two commute, so filter
+  # first.
+  if frequency_threshold is not None:
+    counts |= ('FilterByFrequencyThreshold(%s)' % frequency_threshold >>
+               beam.Filter(lambda kv: kv[0] >= frequency_threshold))
+
+  if top_k is None:
+    # Performance optimization to obviate reading from finely sharded files via
+    # AsIter in order_elements below. By breaking fusion, we allow sharded
+    # files' sizes to be automatically computed (when possible), so we end up
+    # reading from fewer and larger files. This is not needed when top_k is
+    # provided since that already induces a single-sharded output (due to the
+    # CombineGlobaly).
+    counts |= 'Reshard' >> beam.transforms.Reshuffle()  # pylint: disable=no-value-for-parameter
+  else:
+    counts = (counts
+              | 'Top(%s)' % top_k
+              # Using without_defaults() below since it obviates unnecessary
+              # materializations. This is worth doing because:
+              # a) Some vocabs could be really large and allthough they do fit
+              #    in memory they might go over per-record materialization
+              #    limits (TopCombineFn is producing single-record with the
+              #    entire vocabulary as a list).
+              # b) More fusion leads to increased performance in general.
+              >> beam.CombineGlobally(
+                  beam.combiners.TopCombineFn(top_k)).without_defaults()
+              | 'FlattenList' >> beam.FlatMap(lambda lst: lst))
+  return counts
+
+
+@ptransform_fn
+@beam.typehints.with_input_types(KV[float, str])
+@beam.typehints.with_output_types(str)
+def _WriteVocabFile(counts, temp_assets_dir, vocab_filename, store_frequency):  # pylint: disable=invalid-name
+  """Writes a vocab file from a pcoll of (weighted_count, value) pairs."""
+  vocabulary_file = os.path.join(temp_assets_dir, vocab_filename)
+  vocab_is_written = (
+      counts.pipeline
+      | 'Prepare' >> beam.Create([None])
+
+      # Using AsIter instead of AsList at the callsite below in order to reduce
+      # max memory usage.
+      | 'OrderElements' >> beam.ParDo(_OrderElementsFn(store_frequency),
+                                      counts_iter=beam.pvalue.AsIter(counts))
+      | 'WriteToFile' >> beam.io.WriteToText(vocabulary_file,
+                                             shard_name_template=''))
+  # Return the vocabulary path.
+  wait_for_vocabulary_transform = (
+      counts.pipeline
+      | 'CreatePath' >> beam.Create([np.array(vocabulary_file)])
+      # Ensure that the analysis returns only after the file is written.
+      | 'WaitForVocabularyFile' >> beam.Map(
+          lambda x, y: x, y=beam.pvalue.AsIter(vocab_is_written)))
+  return (wait_for_vocabulary_transform,)
+
+
+def _is_problematic_string(string):
+  """Returns True if `string` is a valid vocabulary entry. False otherwise."""
+  return string and '\n' not in string and '\r' not in string
+
+
 @common.register_ptransform(attributes_classes.Vocabulary)
 class VocabularyImpl(beam.PTransform):
   """Saves the unique elements in a PCollection of batches."""
@@ -85,34 +154,40 @@ class VocabularyImpl(beam.PTransform):
     # pairs in sorted order by decreasing counts (and by values for equal
     # counts).
 
+    def filter_problematic_string(kv):
+      string, _ = kv  # Ignore counts.
+      return _is_problematic_string(string)
+
     if (self._vocab_ordering_type ==
         tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION):
-      flatten_map_fn = _flatten_positive_label_weights_and_total_weights
+      flatten_map_fn = (
+          _flatten_positive_label_weights_total_weights_and_counts)
 
-      # total sum is a pcollection that contains the
-      # (sum_weights_positive_label, sum_weights)
-      # where `sum_weights_positive_label` is the sum of positive labels in the
-      # dataset and `sum_weights` is the sum of total weights in the dataset.
-      positive_and_total_sums = (
+      # count_and_means is a pcollection that contains a
+      # _CountAndWeightsMeansAccumulator where:
+      #   `weighted_mean` is the weighted mean of positive labels
+      #       for all features.
+      #   `count` is the count for all features.
+      #   `weights_mean` is the mean of the weights for all features.
+      count_and_means = (
           pcoll
-          | 'SumBatchPositiveAndTotalWeights' >> beam.Map(
-              _sum_positive_and_total_weights)
-          | 'SumPositiveAndTotalWeightsGlobally' >> beam.CombineGlobally(
-              PositiveAndTotalSumCombineFn()))
+          | 'SumBatchCountAndWeightsMeans' >> beam.Map(_count_and_means)
+          | 'ComputeCountAndWeightsMeansGlobally' >> beam.CombineGlobally(
+              CountAndWeightsMeansCombineFn()))
 
-      # PositiveAndTotalSumCombineFn returns
-      # (sum_weights_positive_label, sum_weights) where,
-      # `sum_weights_positive_label` is the sum of positive label weights for
-      # this string, and `sum_weights` is the sum of total weights.
-      # This is fed into calculate_mutual_information along with the side input
-      # total_sum where the mutual information is calculated.
+      # CountAndWeightsMeansCombineFn returns a tuple of the form:
+      # (feature,_CountAndWeightsMeansAccumulator) where:
+      #   `feature` is a single string, which is the word in the vocabulary
+      #       whose mutual information with the label is being computed.
+      #   `weighted_mean` is the weighted mean of y positive given x.
+      #   `count` is the count of weights for a feature.
+      #   `weights_mean` is the mean of the weights for a feature.
       combine_transform = (
-          'SumPositiveAndTotalWeightsPerUniqueWord' >>
-          beam.CombinePerKey(PositiveAndTotalSumCombineFn()) |
-          'CalculateMutualInformationPerUniqueWord' >>
-          beam.Map(
+          'ComputeCountAndWeightsMeansPerUniqueWord' >> beam.CombinePerKey(
+              CountAndWeightsMeansCombineFn())
+          | 'CalculateMutualInformationPerUniqueWord' >> beam.Map(
               _calculate_mutual_information,
-              sums_singleton=beam.pvalue.AsSingleton(positive_and_total_sums)))
+              global_accumulator=beam.pvalue.AsSingleton(count_and_means)))
     elif (self._vocab_ordering_type ==
           tf_utils.VocabOrderingType.WEIGHTED_FREQUENCY):
       flatten_map_fn = _flatten_value_and_weights_to_list_of_tuples
@@ -121,66 +196,17 @@ class VocabularyImpl(beam.PTransform):
       flatten_map_fn = _flatten_value_to_list
       combine_transform = beam.combiners.Count.PerElement()
 
-    def is_problematic_string(kv):
-      string, _ = kv  # Ignore counts.
-      return string and '\n' not in string and '\r' not in string
-
-    counts = (
+    return (
         pcoll
         | 'FlattenStringsAndMaybeWeightsLabels' >> beam.FlatMap(flatten_map_fn)
         | 'CountPerString' >> combine_transform
-        | 'FilterProblematicStrings' >> beam.Filter(is_problematic_string)
-        | 'SwapStringsAndCounts' >> beam.KvSwap())
-
-    # Filter is cheaper than TopK computation and the two commute, so
-    # filter first.
-    if self._frequency_threshold is not None:
-      counts |= ('FilterByFrequencyThreshold(%s)' % self._frequency_threshold >>
-                 beam.Filter(lambda kv: kv[0] >= self._frequency_threshold))
-
-    if self._top_k is None:
-      # Performance optimization to obviate reading from finely sharded files
-      # via AsIter in order_elements below. By breaking fusion, we allow sharded
-      # files' sizes to be automatically computed (when possible), so we end up
-      # reading from fewer and larger files. This is not needed when top_k is
-      # provided since that already induces a single-sharded output (due to the
-      # CombineGlobaly).
-      counts |= 'Reshard' >> beam.transforms.Reshuffle()  # pylint: disable=no-value-for-parameter
-    else:
-      counts = (
-          counts
-          | 'Top(%s)' % self._top_k
-          # Using without_defaults() below since it obviates unnecessary
-          # materializations. This is worth doing because:
-          # a) Some vocabs could be really large and allthough they do
-          #    fit in memory they might go over per-record
-          #    materialization limits (TopCombineFn is producing
-          #    single-record with the entire vocabulary as a list).
-          # b) More fusion leads to increased performance in general.
-          >> beam.CombineGlobally(beam.combiners.TopCombineFn(
-              self._top_k)).without_defaults()
-          | 'FlattenList' >> beam.FlatMap(lambda lst: lst))
-
-    output_dir = common.make_unique_temp_dir(self._base_temp_dir)
-    vocabulary_file = os.path.join(output_dir, self._vocab_filename)
-    vocab_is_written = (
-        pcoll.pipeline
-        | 'Prepare' >> beam.Create([None])
-        | 'OrderElements' >> beam.ParDo(
-            _OrderElementsFn(self._store_frequency),
-            # Using AsIter instead of AsList at the callsite below in order to
-            # reduce max memory usage.
-            counts_iter=beam.pvalue.AsIter(counts))
-        | 'WriteToFile' >> beam.io.WriteToText(
-            vocabulary_file, shard_name_template=''))
-    # Return the vocabulary path.
-    wait_for_vocabulary_transform = (
-        pcoll.pipeline
-        | 'CreatePath' >> beam.Create([np.array(vocabulary_file)])
-        # Ensure that the analysis returns only after the file is written.
-        | 'WaitForVocabularyFile' >> beam.Map(
-            lambda x, y: x, y=beam.pvalue.AsIter(vocab_is_written)))
-    return (wait_for_vocabulary_transform,)
+        | 'FilterProblematicStrings' >> beam.Filter(filter_problematic_string)
+        | 'SwapStringsAndCounts' >> beam.KvSwap()
+        | 'ApplyFrequencyThresholdAndTopK' >> (
+            _ApplyFrequencyThresholdAndTopK(  # pylint: disable=no-value-for-parameter
+                self._frequency_threshold, self._top_k))
+        | 'WriteVocabFile' >> _WriteVocabFile(  # pylint: disable=no-value-for-parameter
+            self._base_temp_dir, self._vocab_filename, self._store_frequency))
 
 
 def _flatten_value_to_list(batch_values):
@@ -199,84 +225,189 @@ def _flatten_value_and_weights_to_list_of_tuples(batch_values):
   return zip(batch_value, weights)
 
 
-def _flatten_positive_label_weights_and_total_weights(batch_values):
+def _flatten_positive_label_weights_total_weights_and_counts(batch_values):
   """Converts a batch of vocab weights and counts to a list of KV tuples."""
-  batch_value, total_weights, positive_label_weights = batch_values
+  batch_value, total_weights, positive_label_weights, counts = batch_values
   batch_value = batch_value.tolist()
   positive_label_weights = positive_label_weights.tolist()
   total_weights = total_weights.tolist()
-  return zip(batch_value, zip(positive_label_weights, total_weights))
+  counts = counts.tolist()
+  return zip(batch_value, zip(positive_label_weights, total_weights, counts))
 
 
-def _sum_positive_and_total_weights(batch_values):
-  _, total_weights, positive_label_weights = batch_values
-  return [sum(positive_label_weights), sum(total_weights)]
+def _count_and_means(batch_values):
+  _, total_weights, positive_label_weights, counts = batch_values
+  return [sum(positive_label_weights), sum(total_weights), sum(counts)]
 
 
-def _clip_probabilities(p):
+def _clip_probability(p):
   epsilon = 1e-6
   p = np.clip(p, epsilon, 1 - epsilon)
   return p, 1 - p
 
 
-def _calculate_mutual_information(feature_and_sums, sums_singleton):
+def _calculate_mutual_information(feature_and_accumulator, global_accumulator):
   """Calculates the mutual information of a feature.
 
-  H(x, y) = P(x) * [(P(y|x)*log2(P(y|x)/P(y))) + (P(~y|x)*log2(P(~y|x)/P(~y)))]
-  x is feature and y is label.
+  H(x, y) = (feature_sum_weights *
+             [(P(y|x)*log2(P(y|x)/P(y))) + (P(~y|x)*log2(P(~y|x)/P(~y)))])
+  x is feature and y is label. feature_sum_weights instead of p_x is used,
+  as this makes the "mutual_information" more interpretable.
+  If we don't divide by global_sum_weights, it can be though of as an "adjusted"
+  weighted count.
+
   Args:
-    feature_and_sums: A tuple of the form:
-      (feature, sum_weights_feature_present_positive_label,
-      sum_weights_feature_present)
-      where `feature` is a single string, which is the word in the
-      vocabulary whose mutual information with the label is being computed,
-      `sum_weights_feature_present_positive_label` is the sum of positive
-      label weights for this string and `sum_weights_feature_present` is the
-      total weights sum for this string.
-    sums_singleton: A tuple of the form:
-      (sum_weights_positive_label, sum_weights)
-      where `sum_weights_positive_label` is the sum of positive labels in
-      the dataset and `sum_weights` is the sum of total weights in the
-      dataset.
+    feature_and_accumulator: A tuple of the form:
+    (feature, (_CountAndWeightsMeansAccumulator)) where: `feature` is a single
+      string, which is the word in the vocabulary whose mutual information with
+      the label is beingcomputed. `weighted_mean` is the weighted mean positive
+      given x. `count` is the count of weights for a feature. `weights_mean`is
+      the mean of the weights for a feature.
+    global_accumulator: A _CountAndWeightsMeansAccumulator where:
+      `weighted_mean` is the weighted mean of positive labels for all features.
+      `count` is the count for all features. `mean` is the mean of the weights
+      for all features.
+
   Returns:
     The feature and its mutual information.
   """
-  feature, (sum_weights_feature_present_positive_label,
-            sum_weights_feature_present) = feature_and_sums
-  sum_weights_positive_label, sum_weights = sums_singleton
-  if sum_weights_feature_present == 0 or sum_weights == 0:
+  feature, current_accumulator = feature_and_accumulator
+  feature_sum_weights = (
+      current_accumulator.count * current_accumulator.weights_mean)
+  global_sum_weights = (
+      global_accumulator.count * global_accumulator.weights_mean)
+  if global_sum_weights == 0:
     return float('NaN')
-  p_y_positive_given_x = (sum_weights_feature_present_positive_label /
-                          float(sum_weights_feature_present))
-  p_y_positive_given_x, p_y_negative_given_x = _clip_probabilities(
-      p_y_positive_given_x)
-  p_y_positive = sum_weights_positive_label / float(sum_weights)
-  p_y_positive, p_y_negative = _clip_probabilities(p_y_positive)
-  p_x = sum_weights_feature_present_positive_label / float(sum_weights)
-  mutual_information = p_x * (
-      (p_y_positive_given_x * np.log2(p_y_positive_given_x / p_y_positive)) +
-      (p_y_negative_given_x * np.log2(p_y_negative_given_x / p_y_negative)))
+  weighted_mean_positive_given_x, weighted_mean_negative_given_x = (
+      _clip_probability(current_accumulator.weighted_mean))
+  weighted_mean_positive, weighted_mean_negative = _clip_probability(
+      global_accumulator.weighted_mean)
+  mutual_information = feature_sum_weights * (
+      (weighted_mean_positive_given_x * np.log2(
+          weighted_mean_positive_given_x / weighted_mean_positive)) +
+      (weighted_mean_negative_given_x * np.log2(
+          weighted_mean_negative_given_x / weighted_mean_negative)))
   return (feature, mutual_information)
 
 
-class PositiveAndTotalSumCombineFn(beam.CombineFn):
-  """PositiveAndTotalSumCombineFn sums positive and total sums."""
+class _CountAndWeightsMeansAccumulator(
+    collections.namedtuple('CountAndWeightsMeansAccumulator',
+                           ['weighted_mean', 'count', 'weights_mean'])):
+  """Container for CountAndWeightsMeansCombiner intermediate values."""
+
+  @classmethod
+  def make_nan_to_num(cls, weighted_means, counts, weights_mean):
+    return cls(
+        np.nan_to_num(weighted_means), counts, np.nan_to_num(weights_mean))
+
+  def __reduce__(self):
+    return self.__class__, tuple(self)
+
+
+class CountAndWeightsMeansCombineFn(beam.CombineFn):
+  """CountAndWeightsMeansCombineFn calculates total count and weighted means.
+
+  """
 
   def create_accumulator(self):
-    return (0, 0)
+    """Create an accumulator with all zero entries."""
+    return _CountAndWeightsMeansAccumulator(
+        weighted_mean=0., count=0, weights_mean=0.)
 
-  def add_input(self, sums, elements):
-    (sum_positive, sum_total) = sums
-    (element_sum_positive, element_sum_total) = elements
-    return (sum_positive + element_sum_positive,
-            sum_total + element_sum_total)
+  def add_input(self, accumulator, batch_values):
+    """Composes an accumulator from batch_values and calls merge_accumulators.
 
-  def merge_accumulators(self, sums):
-    (sum_positive, sum_total) = zip(*sums)
-    return sum(sum_positive), sum(sum_total)
+    Args:
+      accumulator: The `_CountAndWeightsMeansAccumulator` computed so far.
+      batch_values: A `_CountAndWeightsMeansAccumulator` for the current batch.
 
-  def extract_output(self, sums):
-    return sums
+    Returns:
+      A `_CountAndWeightsMeansAccumulator` which is accumulator and batch_values
+      combined.
+    """
+    (element_sum_positive, element_weights_sum_total,
+     element_count) = batch_values
+    new_accumulator = _CountAndWeightsMeansAccumulator(
+        weighted_mean=(element_sum_positive / element_weights_sum_total),
+        count=element_count,
+        weights_mean=(element_weights_sum_total / element_count))
+    return self._combine_counts_and_means_accumulators(accumulator,
+                                                       new_accumulator)
+
+  def merge_accumulators(self, accumulators):
+    """Merges several `_CountAndWeightsMeansAccumulator`s.
+
+    Args:
+      accumulators: A list of `_CountAndWeightsMeansAccumulator`s and/or Nones.
+
+    Returns:
+      The sole merged `_CountAndWeightsMeansAccumulator`.
+    """
+    non_empty_accumulators = [
+        accumulator for accumulator in accumulators if accumulator is not None
+    ]
+    if not non_empty_accumulators:
+      return self.create_accumulator()
+
+    result = non_empty_accumulators[0]
+
+    for accumulator in non_empty_accumulators[1:]:
+      result = self._combine_counts_and_means_accumulators(result, accumulator)
+
+    return result
+
+  def extract_output(self, accumulator):
+    """Returns the accumulator as the output.
+
+    Args:
+      accumulator: the final `_CountAndWeightsMeansAccumulator` value.
+
+    Returns:
+     The accumulator which could be None.
+    """
+    return accumulator
+
+  # Mean update formulas which are more numerically stable when a and b vary in
+  # magnitude.
+  def _compute_running_weighted_mean(self, total_count, total_weights_mean,
+                                     previous_weighted_mean, new_weighted_mean,
+                                     new_weights_mean):
+    return (
+        previous_weighted_mean + (new_weighted_mean - previous_weighted_mean) *
+        (new_weights_mean / (total_count * total_weights_mean)))
+
+  def _combine_counts_and_means_accumulators(self, a, b):
+    # NaNs get preserved through division by a.count + b.count.
+    a = _CountAndWeightsMeansAccumulator.make_nan_to_num(*a)
+    b = _CountAndWeightsMeansAccumulator.make_nan_to_num(*b)
+
+    # a.count >= b.count following this logic.
+    if np.sum(a.count) < np.sum(b.count):
+      a, b = b, a
+
+    if np.sum(a.count) == 0:
+      return b
+
+    combined_count = a.count + b.count
+
+    # We use the mean of the weights because it is more numerically stable than
+    # summing all of the weights.
+    combined_weights_mean = self._compute_running_weighted_mean(
+        total_count=combined_count,
+        total_weights_mean=1.,
+        previous_weighted_mean=a.weights_mean,
+        new_weighted_mean=b.weights_mean,
+        new_weights_mean=b.count)
+    combined_weighted_mean = self._compute_running_weighted_mean(
+        total_count=combined_count,
+        total_weights_mean=combined_weights_mean,
+        previous_weighted_mean=a.weighted_mean,
+        new_weighted_mean=b.weighted_mean,
+        new_weights_mean=(b.count * b.weights_mean))
+    return _CountAndWeightsMeansAccumulator(
+        weighted_mean=combined_weighted_mean,
+        count=combined_count,
+        weights_mean=combined_weights_mean)
 
 
 @with_input_types(Tuple[np.ndarray, ...])

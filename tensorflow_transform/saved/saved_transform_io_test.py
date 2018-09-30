@@ -63,7 +63,7 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
         _, transformed_features = (
             saved_transform_io.partially_apply_saved_transform_internal(
                 self._test_saved_model, input_features))
-        self.assertEqual(['x_scaled'], transformed_features.keys())
+        self.assertEqual(['x_scaled'], list(transformed_features))
         result_tensor = transformed_features['x_scaled']
         self.assertTrue(isinstance(result_tensor, tf.Tensor))
 
@@ -111,7 +111,7 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
           _, transformed_features = (
               saved_transform_io.partially_apply_saved_transform_internal(
                   self._test_saved_model, input_features))
-          self.assertEqual(['x_scaled'], transformed_features.keys())
+          self.assertEqual(['x_scaled'], list(transformed_features))
           result_tensor = transformed_features['x_scaled']
           self.assertAllEqual(session.run(result_tensor), [247.0])
 
@@ -124,7 +124,7 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
           _, transformed_features = (
               saved_transform_io.partially_apply_saved_transform_internal(
                   self._test_saved_model, input_features))
-          self.assertEqual(['x_scaled'], transformed_features.keys())
+          self.assertEqual(['x_scaled'], list(transformed_features))
           result_tensor = transformed_features['x_scaled']
           self.assertAllEqual(session.run(result_tensor), [247.0])
 

@@ -22,9 +22,9 @@ import six
 import tensorflow as tf
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import dataset_schema
 
 from tensorflow.contrib.learn.python.learn.utils import input_fn_utils
+from tensorflow.python.util import deprecation
 
 
 # Contrib feature columns expect shape (batch_size, 1), not just (batch_size).
@@ -69,6 +69,8 @@ def _legacy_serving_input_fn(receiver_fn):
 
 
 # pylint: disable=redefined-outer-name
+@deprecation.deprecated(
+    None, "See release notes for tensorflow_transform version 0.10")
 def build_csv_transforming_serving_input_fn(
     raw_metadata,
     transform_savedmodel_dir,
@@ -119,6 +121,8 @@ def build_csv_transforming_serving_input_fn(
   return _legacy_serving_input_fn(receiver_fn)
 
 
+@deprecation.deprecated(
+    None, "See release notes for tensorflow_transform version 0.10")
 def build_csv_transforming_serving_input_receiver_fn(
     raw_metadata,
     transform_savedmodel_dir,
@@ -163,17 +167,16 @@ def build_csv_transforming_serving_input_receiver_fn(
   if not raw_keys:
     raise ValueError("raw_keys must be set.")
 
-  column_schemas = raw_metadata.schema.column_schemas
+  feature_spec = raw_metadata.schema.as_feature_spec()
 
   # Check for errors.
   for k in raw_keys:
-    if k not in column_schemas:
+    if k not in feature_spec:
       raise ValueError("Key %s does not exist in the schema" % k)
-    if not isinstance(column_schemas[k].representation,
-                      dataset_schema.FixedColumnRepresentation):
+    if not isinstance(feature_spec[k], tf.FixedLenFeature):
       raise ValueError(("CSV files can only support tensors of fixed size"
                         "which %s is not.") % k)
-    shape = column_schemas[k].tf_shape().as_list()
+    shape = feature_spec[k].shape
     if shape and shape != [1]:
       # Column is not a scalar-like value. shape == [] or [1] is ok.
       raise ValueError(("CSV files can only support features that are scalars "
@@ -185,12 +188,11 @@ def build_csv_transforming_serving_input_receiver_fn(
 
     record_defaults = []
     for k in raw_keys:
-      if column_schemas[k].representation.default_value is not None:
-        # Note that 0 and '' are valid defaults.
-        value = tf.constant([column_schemas[k].representation.default_value],
-                            dtype=column_schemas[k].domain.dtype)
+      if feature_spec[k].default_value is not None:
+        value = tf.constant([feature_spec[k].default_value],
+                            dtype=feature_spec[k].dtype)
       else:
-        value = tf.constant([], dtype=column_schemas[k].domain.dtype)
+        value = tf.constant([], dtype=feature_spec[k].dtype)
       record_defaults.append(value)
 
     placeholder = tf.placeholder(dtype=tf.string, shape=(None,),
@@ -213,6 +215,8 @@ def build_csv_transforming_serving_input_receiver_fn(
   return default_transforming_serving_input_receiver_fn
 
 
+@deprecation.deprecated(
+    None, "See release notes for tensorflow_transform version 0.10")
 def build_json_example_transforming_serving_input_fn(
     raw_metadata,
     transform_savedmodel_dir,
@@ -255,6 +259,8 @@ def build_json_example_transforming_serving_input_fn(
   return _legacy_serving_input_fn(receiver_fn)
 
 
+@deprecation.deprecated(
+    None, "See release notes for tensorflow_transform version 0.10")
 def build_json_example_transforming_serving_input_receiver_fn(
     raw_metadata,
     transform_savedmodel_dir,
@@ -317,6 +323,8 @@ def build_json_example_transforming_serving_input_receiver_fn(
   return _serving_input_receiver_fn
 
 
+@deprecation.deprecated(
+    None, "See release notes for tensorflow_transform version 0.10")
 def build_parsing_transforming_serving_input_fn(
     raw_metadata,
     transform_savedmodel_dir,
@@ -352,6 +360,8 @@ def build_parsing_transforming_serving_input_fn(
   return _legacy_serving_input_fn(receiver_fn)
 
 
+@deprecation.deprecated(
+    None, "See release notes for tensorflow_transform version 0.10")
 def build_parsing_transforming_serving_input_receiver_fn(
     raw_metadata,
     transform_savedmodel_dir,
@@ -403,6 +413,8 @@ def build_parsing_transforming_serving_input_receiver_fn(
   return parsing_transforming_serving_input_receiver_fn
 
 
+@deprecation.deprecated(
+    None, "See release notes for tensorflow_transform version 0.10")
 def build_default_transforming_serving_input_fn(
     raw_metadata,
     transform_savedmodel_dir,
@@ -441,6 +453,8 @@ def build_default_transforming_serving_input_fn(
   return _legacy_serving_input_fn(receiver_fn)
 
 
+@deprecation.deprecated(
+    None, "See release notes for tensorflow_transform version 0.10")
 def build_default_transforming_serving_input_receiver_fn(
     raw_metadata,
     transform_savedmodel_dir,
@@ -476,7 +490,7 @@ def build_default_transforming_serving_input_receiver_fn(
     raise ValueError("exclude_raw_keys must be specified.")
   exclude_raw_keys = set(exclude_raw_keys)
   if include_raw_keys is None:
-    include_raw_keys = (set(six.iterkeys(raw_metadata.schema.column_schemas))
+    include_raw_keys = (set(six.iterkeys(raw_metadata.schema.as_feature_spec()))
                         - set(exclude_raw_keys))
   include_raw_keys = set(include_raw_keys)
   if include_raw_keys & exclude_raw_keys:
@@ -512,6 +526,8 @@ def build_default_transforming_serving_input_receiver_fn(
   return default_transforming_serving_input_receiver_fn
 
 
+@deprecation.deprecated(
+    None, "See release notes for tensorflow_transform version 0.10")
 def build_training_input_fn(metadata,
                             file_pattern,
                             training_batch_size,
@@ -583,6 +599,8 @@ def build_training_input_fn(metadata,
   return training_input_fn
 
 
+@deprecation.deprecated(
+    None, "See release notes for tensorflow_transform version 0.10")
 def build_transforming_training_input_fn(raw_metadata,
                                          transformed_metadata,
                                          transform_savedmodel_dir,
@@ -680,7 +698,7 @@ def build_transforming_training_input_fn(raw_metadata,
 def _prepare_feature_keys(all_keys, label_keys, feature_keys=None):
   """Infer feature keys if needed, and sanity-check label and feature keys."""
   if isinstance(all_keys, dataset_metadata.DatasetMetadata):
-    all_keys = six.iterkeys(all_keys.schema.column_schemas)
+    all_keys = six.iterkeys(all_keys.schema.as_feature_spec())
   if label_keys is None:
     raise ValueError("label_keys must be specified.")
   if feature_keys is None:

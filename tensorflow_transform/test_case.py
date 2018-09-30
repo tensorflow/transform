@@ -114,9 +114,17 @@ def _numpy_arrays_to_lists(maybe_arrays):
   return [x.tolist() if isinstance(x, np.ndarray) else x for x in maybe_arrays]
 
 
+def _sorted_dicts(list_of_dicts):
+  # Sorts dicts by their unordered (key, value) pairs.
+  return sorted(list_of_dicts, key=lambda d: sorted(d.items()))
+
+
 def _sorted_data(list_of_dicts_of_arrays):
   list_of_values = [
       _numpy_arrays_to_lists(d.values()) for d in list_of_dicts_of_arrays
   ]
   list_of_keys = [d.keys() for d in list_of_dicts_of_arrays]
-  return sorted([dict(zip(a, b)) for a, b in zip(list_of_keys, list_of_values)])
+  unsorted_dict_list = [
+      dict(zip(a, b)) for a, b in zip(list_of_keys, list_of_values)
+  ]
+  return _sorted_dicts(unsorted_dict_list)

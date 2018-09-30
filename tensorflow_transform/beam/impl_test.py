@@ -138,12 +138,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def tearDown(self):
     self._context.__exit__()
 
-  def assertMetadataEqual(self, a, b):
-    # Use extra assertEqual for schemas, since full metadata assertEqual error
-    # message is not conducive to debugging.
-    self.assertEqual(a.schema.column_schemas, b.schema.column_schemas)
-    self.assertEqual(a, b)
-
   def assertAnalyzerOutputs(self,
                             input_data,
                             input_metadata,
@@ -1697,20 +1691,31 @@ class BeamImplTest(tft_unit.TransformTestCase):
                   inputs['a'], labels=inputs['labels'], top_k=2)
       }
 
-    expected_data = [
-        {'index': 1},
-        {'index': 1},
-        {'index': 1},
-        {'index': -1},
-        {'index': 0},
-        {'index': 0},
-        {'index': -1},
-        {'index': -1},
-        {'index': -1},
-        {'index': 0},
-        {'index': 0},
-        {'index': -1}
-    ]
+    expected_data = [{
+        'index': -1
+    }, {
+        'index': -1
+    }, {
+        'index': -1
+    }, {
+        'index': 0
+    }, {
+        'index': 1
+    }, {
+        'index': 1
+    }, {
+        'index': 0
+    }, {
+        'index': 0
+    }, {
+        'index': 0
+    }, {
+        'index': 1
+    }, {
+        'index': 1
+    }, {
+        'index': 0
+    }]
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
@@ -1746,8 +1751,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     expected_data = input_data
     expected_vocab_file_contents = {
-        'my_vocab': [('aaaaa', 0.1383392), ('hello', 0.1037544),
-                     ('goodbye', 0.0658441)]
+        'my_vocab': [('goodbye', 1.975322), ('aaaaa', 1.6600708),
+                     ('hello', 1.2450531)]
     }
 
     self.assertAnalyzeAndTransformResults(
@@ -1794,20 +1799,31 @@ class BeamImplTest(tft_unit.TransformTestCase):
                   labels=inputs['labels'])
       }
 
-    expected_data = [
-        {'index': 1},
-        {'index': 1},
-        {'index': 1},
-        {'index': 2},
-        {'index': 0},
-        {'index': 0},
-        {'index': 2},
-        {'index': 2},
-        {'index': 0},
-        {'index': 0},
-        {'index': 2},
-        {'index': 2}
-    ]
+    expected_data = [{
+        'index': 2
+    }, {
+        'index': 2
+    }, {
+        'index': 2
+    }, {
+        'index': 1
+    }, {
+        'index': 0
+    }, {
+        'index': 0
+    }, {
+        'index': 1
+    }, {
+        'index': 1
+    }, {
+        'index': 0
+    }, {
+        'index': 0
+    }, {
+        'index': 1
+    }, {
+        'index': 1
+    }]
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
@@ -1845,9 +1861,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     expected_data = input_data
     expected_vocab_file_contents = {
-        'my_vocab': [('aaaaa', 0.1776953), ('hello', 0.0683443),
-                     ('goodbye', 0.0418245)]
+        'my_vocab': [('aaaaa', 1.5637185), ('goodbye', 0.8699492),
+                     ('hello', 0.6014302)]
     }
+
     self.assertAnalyzeAndTransformResults(
         input_data,
         input_metadata,
@@ -2475,8 +2492,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     # Sort the input based on value, index is used to create expected_data.
     indexed_input = enumerate(test_inputs)
-    sorted_list = sorted(indexed_input,
-                         cmp=lambda (xi, xv), (yi, yv): cmp(xv, yv))
+
+    def compare_second_elements(a, b):
+      return cmp(a[1], b[1])
+
+    sorted_list = sorted(indexed_input, cmp=compare_second_elements)
 
     # Expected data has the same size as input, one bucket per input value.
     expected_data = [None] * len(test_inputs)

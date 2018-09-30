@@ -39,6 +39,15 @@ class DeepCopyTest(unittest.TestCase):
     return x
 
   @staticmethod
+  def _MakeAdd1CountingIdentityFn(label):
+
+    def Add1CountingIdentityFn(x_y):
+      (x, y) = x_y
+      return DeepCopyTest._CountingIdentityFn(label, (x + 1, y))
+
+    return Add1CountingIdentityFn
+
+  @staticmethod
   def _InitializeCounts():
     DeepCopyTest._counts = collections.defaultdict(int)
 
@@ -53,18 +62,17 @@ class DeepCopyTest(unittest.TestCase):
                      lambda x: DeepCopyTest._CountingIdentityFn(
                          'PreGroup', x))
                  | beam.GroupByKey())
-      modified = (grouped
-                  | 'Add1' >> beam.Map(
-                      lambda (x, y): DeepCopyTest._CountingIdentityFn(
-                          'Add1', (x+1, y)))
-                  | 'Add2' >> beam.Map(
-                      lambda (x, y): DeepCopyTest._CountingIdentityFn(
-                          'Add2', (x+1, y))))
+      modified = (
+          grouped
+          |
+          'Add1' >> beam.Map(DeepCopyTest._MakeAdd1CountingIdentityFn('Add1'))
+          |
+          'Add2' >> beam.Map(DeepCopyTest._MakeAdd1CountingIdentityFn('Add2')))
       copied = deep_copy.deep_copy(modified)
 
       # pylint: disable=expression-not-assigned
-      (modified | 'Add3' >> beam.Map(
-          lambda (x, y): DeepCopyTest._CountingIdentityFn('Add3', (x+1, y))))
+      modified | 'Add3' >> beam.Map(
+          DeepCopyTest._MakeAdd1CountingIdentityFn('Add3'))
       # pylint: enable=expression-not-assigned
 
       # Check labels.
@@ -93,13 +101,12 @@ class DeepCopyTest(unittest.TestCase):
                  | beam.Map(lambda x: DeepCopyTest._CountingIdentityFn(
                      'PreGroup', x))
                  | beam.GroupByKey())
-      modified = (grouped
-                  | 'Add1' >> beam.Map(
-                      lambda (x, y): DeepCopyTest._CountingIdentityFn(
-                          'Add1', (x+1, y)))
-                  | 'Add2' >> beam.Map(
-                      lambda (x, y): DeepCopyTest._CountingIdentityFn(
-                          'Add2', (x+1, y))))
+      modified = (
+          grouped
+          |
+          'Add1' >> beam.Map(DeepCopyTest._MakeAdd1CountingIdentityFn('Add1'))
+          |
+          'Add2' >> beam.Map(DeepCopyTest._MakeAdd1CountingIdentityFn('Add2')))
 
       num_copies = 6
 
@@ -134,19 +141,19 @@ class DeepCopyTest(unittest.TestCase):
                       lambda x: DeepCopyTest._CountingIdentityFn(
                           'PreGroup2', x))
                   | 'GBK2' >> beam.GroupByKey())
-      modified1 = (grouped1
-                   | 'Add1' >> beam.Map(
-                       lambda (x, y): DeepCopyTest._CountingIdentityFn(
-                           'Add1', (x+1, y))))
-      modified2 = (grouped2
-                   | 'Add2' >> beam.Map(
-                       lambda (x, y): DeepCopyTest._CountingIdentityFn(
-                           'Add2', (x+1, y))))
+      modified1 = (
+          grouped1
+          |
+          'Add1' >> beam.Map(DeepCopyTest._MakeAdd1CountingIdentityFn('Add1')))
+      modified2 = (
+          grouped2
+          |
+          'Add2' >> beam.Map(DeepCopyTest._MakeAdd1CountingIdentityFn('Add2')))
       flattened = (modified1, modified2) | 'Flatten2' >> beam.Flatten()
-      modified3 = (flattened
-                   | 'Add3' >> beam.Map(
-                       lambda (x, y): DeepCopyTest._CountingIdentityFn(
-                           'Add3', (x+1, y))))
+      modified3 = (
+          flattened
+          |
+          'Add3' >> beam.Map(DeepCopyTest._MakeAdd1CountingIdentityFn('Add3')))
 
       copied = deep_copy.deep_copy(modified3)
 

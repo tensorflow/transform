@@ -267,13 +267,14 @@ def to_instance_dicts(schema, fetches):
 
   # Check batch size is the same for each output.  Note this assumes that
   # fetches is not empty.
-  batch_size = batch_sizes.values()[0]
+  batch_size = next(six.itervalues(batch_sizes))
   for name, batch_size_for_name in six.iteritems(batch_sizes):
     if batch_size_for_name != batch_size:
       raise ValueError(
           'Inconsistent batch sizes: "{}" had batch dimension {}, "{}" had'
-          ' batch dimension {}'.format(
-              name, batch_size_for_name, batch_sizes.keys()[0], batch_size))
+          ' batch dimension {}'.format(name, batch_size_for_name,
+                                       next(six.iterkeys(batch_sizes)),
+                                       batch_size))
 
   # The following is the simplest way to convert batch_dict from a dict of
   # iterables to a list of dicts.  It does this by first extracting the values

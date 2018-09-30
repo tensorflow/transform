@@ -48,7 +48,7 @@ def reduce_batch_vocabulary(x, vocab_ordering_type,
   """
   if vocab_ordering_type == VocabOrderingType.FREQUENCY:
     x = tf.reshape(x, [-1])
-    return (x, None, None)
+    return (x, None, None, None)
 
   if vocab_ordering_type == VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION:
     tf.assert_type(labels, tf.int64)
@@ -77,12 +77,13 @@ def _reduce_vocabulary_inputs(x, weights, labels=None):
       * sum of positive weights for unique values when labels is provided,
         otherwise, None.
   """
-  unique = tf.unique(x, out_idx=tf.int64)
+  unique = tf.unique_with_counts(x, out_idx=tf.int64)
 
   summed_weights = tf.unsorted_segment_sum(weights, unique.idx,
                                            tf.size(unique.y))
   if labels is None:
     summed_positive_weights = None
+    counts = None
   else:
     less_assert = tf.Assert(tf.less_equal(tf.reduce_max(labels), 1), [labels])
     greater_assert = tf.Assert(tf.greater_equal(
@@ -93,8 +94,9 @@ def _reduce_vocabulary_inputs(x, weights, labels=None):
         tf.cast(labels, tf.float32) * tf.cast(weights, tf.float32))
     summed_positive_weights = tf.unsorted_segment_sum(
         positive_weights, unique.idx, tf.size(unique.y))
+    counts = unique.count
 
-  return (unique.y, summed_weights, summed_positive_weights)
+  return (unique.y, summed_weights, summed_positive_weights, counts)
 
 
 def assert_same_shape(x, y):
