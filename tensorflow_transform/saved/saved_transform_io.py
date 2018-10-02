@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Utility functions to build input_fns for use with tf.Learn."""
+"""Utility functions to build input_fns for use with tf.estimator."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -374,4 +374,3 @@ def write_saved_transform_from_session(
       assets_collection=tf.get_collection(
           tf.GraphKeys.ASSET_FILEPATHS))
   builder.save(as_text)
-

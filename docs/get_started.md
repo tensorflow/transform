@@ -406,11 +406,11 @@ one_hot_columns = [
         key, bucket_size=bucket_size)
     for key, bucket_size in zip(CATEGORICAL_COLUMNS, BUCKET_SIZES)]
 
-estimator = learn.LinearClassifier(real_valued_columns + one_hot_columns)
+estimator = tf.estimator.LinearClassifier(real_valued_columns + one_hot_columns)
 ```
 
 The next step is to create a builder to generate the input function for training
-and evaluation. The differs from the training used by `tf.Learn` since a
+and evaluation. The differs from the training used by `tf.estimator` since a
 feature spec is not required to parse the transformed data. Instead, use the
 metadata for the transformed data to generate a feature spec.
 
