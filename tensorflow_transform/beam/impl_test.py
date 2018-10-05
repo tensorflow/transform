@@ -44,6 +44,12 @@ from google.protobuf import text_format
 import unittest
 from tensorflow.core.example import example_pb2
 
+try:
+  cmp             # Python 2
+except NameError:
+  def cmp(x, y):  # Python 3
+    return (x > y) - (x < y)
+
 
 def _construct_test_bucketization_parameters():
   args_without_dtype = (
