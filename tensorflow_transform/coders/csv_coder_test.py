@@ -89,26 +89,26 @@ class TestCSVCoder(unittest.TestCase):
 
   _DECODE_ERROR_CASES = [
       # FixedLenFeature scalar numeric missing value.
-      ('', ValueError, r'expected a value on column \'x\'', False,
+      ('', ValueError, r'expected a value on column \"x\"', False,
        tf.FixedLenFeature(shape=[], dtype=tf.int64)),
       # FixedLenFeature length 1 vector numeric missing value.
-      ('', ValueError, r'expected a value on column \'x\'', False,
+      ('', ValueError, r'expected a value on column \"x\"', False,
        tf.FixedLenFeature(shape=[1], dtype=tf.int64)),
       # FixedLenFeature length >1 vector.
       ('1', ValueError,
-       r'FixedLenFeature \'x\' was not multivalent', False,
+       r'FixedLenFeature \"x\" was not multivalent', False,
        tf.FixedLenFeature(shape=[2], dtype=tf.int64)),
       # FixedLenFeature scalar text missing value.
-      ('', ValueError, r'expected a value on column \'x\'', False,
+      ('', ValueError, r'expected a value on column \"x\"', False,
        tf.FixedLenFeature(shape=[], dtype=tf.string)),
       # SparseFeature with missing value but present index.
       ('5,', ValueError,
-       r'SparseFeature \'x\' has indices and values of different lengths',
+       r'SparseFeature \"x\" has indices and values of different lengths',
        False,
        tf.SparseFeature('idx', 'value', tf.float32, 10)),
       # SparseFeature with missing index but present value.
       (',2.0', ValueError,
-       r'SparseFeature \'x\' has indices and values of different lengths',
+       r'SparseFeature \"x\" has indices and values of different lengths',
        False,
        tf.SparseFeature('idx', 'value', tf.float32, 10)),
       # SparseFeature with negative index.
@@ -125,15 +125,15 @@ class TestCSVCoder(unittest.TestCase):
        tf.FixedLenFeature(shape=[], dtype=tf.float32)),
       # FixedLenFeature scalar int, multivalent, too many values.
       ('1|2', ValueError,
-       r'FixedLenFeature \'x\' got wrong number of values', True,
+       r'FixedLenFeature \"x\" got wrong number of values', True,
        tf.FixedLenFeature(shape=[], dtype=tf.float32)),
       # FixedLenFeature length 1 int, multivalent, too many values.
       ('1|2', ValueError,
-       r'FixedLenFeature \'x\' got wrong number of values', True,
+       r'FixedLenFeature \"x\" got wrong number of values', True,
        tf.FixedLenFeature(shape=[1], dtype=tf.float32)),
       # FixedLenFeature length 2 int, multivalent, too few values.
       ('1', ValueError,
-       r'FixedLenFeature \'x\' got wrong number of values', True,
+       r'FixedLenFeature \"x\" got wrong number of values', True,
        tf.FixedLenFeature(shape=[2], dtype=tf.float32)),
   ]
 
@@ -141,7 +141,7 @@ class TestCSVCoder(unittest.TestCase):
       # FixedLenFeature length 2 vector, multivalent with wrong number of
       # values.
       ([1, 2, 3], ValueError,
-       r'FixedLenFeature \'x\' got wrong number of values', True,
+       r'FixedLenFeature \"x\" got wrong number of values', True,
        tf.FixedLenFeature(shape=[2], dtype=tf.string))
   ]
 
@@ -343,7 +343,7 @@ class TestCSVCoder(unittest.TestCase):
 
     data = '12,,categorical_value,1,89.0,12.0,20'
     with self.assertRaisesRegexp(ValueError,
-                                 'expected a value on column \'text1\''):
+                                 'expected a value on column \"text1\"'):
       coder.decode(data)
 
   def test_bad_row(self):

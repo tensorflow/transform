@@ -20,12 +20,10 @@ from __future__ import print_function
 
 import tensorflow as tf
 from tensorflow_transform import mappers
-
-import unittest
-from tensorflow.python.framework import test_util
+from tensorflow_transform import test_case
 
 
-class MappersTest(test_util.TensorFlowTestCase):
+class MappersTest(test_case.TransformTestCase):
 
   def assertSparseOutput(self, expected_indices, expected_values,
                          expected_shape, actual_sparse_tensor, close_values):
@@ -81,12 +79,12 @@ class MappersTest(test_util.TensorFlowTestCase):
             [2, 22], [2, 23], [2, 24], [2, 25], [2, 26], [2, 27], [2, 28],
             [2, 29], [3, 0]],
         expected_values=[
-            'a', 'ab', 'abc', 'b', 'bc', 'c',
-            'd', 'de', 'def', 'e', 'ef', 'f',
-            'f', 'fg', 'fgh', 'fghi', 'fghij', 'g', 'gh', 'ghi', 'ghij',
-            'ghijk', 'h', 'hi', 'hij', 'hijk', 'hijkl', 'i', 'ij', 'ijk',
-            'ijkl', 'ijklm', 'j', 'jk', 'jkl', 'jklm', 'k', 'kl', 'klm', 'l',
-            'lm', 'm', 'z'],
+            b'a', b'ab', b'abc', b'b', b'bc', b'c', b'd', b'de', b'def', b'e',
+            b'ef', b'f', b'f', b'fg', b'fgh', b'fghi', b'fghij', b'g', b'gh',
+            b'ghi', b'ghij', b'ghijk', b'h', b'hi', b'hij', b'hijk', b'hijkl',
+            b'i', b'ij', b'ijk', b'ijkl', b'ijklm', b'j', b'jk', b'jkl',
+            b'jklm', b'k', b'kl', b'klm', b'l', b'lm', b'm', b'z'
+        ],
         expected_shape=[5, 30],
         actual_sparse_tensor=output_tensor,
         close_values=False)
@@ -106,11 +104,11 @@ class MappersTest(test_util.TensorFlowTestCase):
             [2, 8], [2, 9], [2, 10], [2, 11], [2, 12], [2, 13], [2, 14],
             [2, 15], [2, 16], [2, 17], [2, 18], [2, 19], [2, 20], [2, 21]],
         expected_values=[
-            'ab', 'abc', 'bc',
-            'de', 'def', 'ef',
-            'fg', 'fgh', 'fghi', 'fghij', 'gh', 'ghi', 'ghij', 'ghijk',
-            'hi', 'hij', 'hijk', 'hijkl', 'ij', 'ijk', 'ijkl', 'ijklm',
-            'jk', 'jkl', 'jklm', 'kl', 'klm', 'lm'],
+            b'ab', b'abc', b'bc', b'de', b'def', b'ef', b'fg', b'fgh', b'fghi',
+            b'fghij', b'gh', b'ghi', b'ghij', b'ghijk', b'hi', b'hij', b'hijk',
+            b'hijkl', b'ij', b'ijk', b'ijkl', b'ijklm', b'jk', b'jkl', b'jklm',
+            b'kl', b'klm', b'lm'
+        ],
         expected_shape=[5, 22],
         actual_sparse_tensor=output_tensor,
         close_values=False)
@@ -129,8 +127,9 @@ class MappersTest(test_util.TensorFlowTestCase):
           [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4],
            [1, 0], [1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [1, 6]])
       self.assertAllEqual(output.values, [
-          'One', 'One was', 'was', 'was Johnny', 'Johnny',
-          'Two', 'Two was', 'was', 'was a', 'a', 'a rat', 'rat'])
+          b'One', b'One was', b'was', b'was Johnny', b'Johnny', b'Two',
+          b'Two was', b'was', b'was a', b'a', b'a rat', b'rat'
+      ])
       self.assertAllEqual(output.dense_shape, [2, 7])
 
   def testNGramsBadSizes(self):
@@ -344,4 +343,4 @@ class MappersTest(test_util.TensorFlowTestCase):
 
 
 if __name__ == '__main__':
-  unittest.main()
+  test_case.main()

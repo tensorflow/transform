@@ -47,7 +47,8 @@ from tensorflow.core.example import example_pb2
 try:
   cmp             # Python 2
 except NameError:
-  def cmp(x, y):  # Python 3
+
+  def cmp(x, y):  # Python 3  # pylint: disable=redefined-builtin
     return (x > y) - (x < y)
 
 

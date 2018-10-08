@@ -114,8 +114,9 @@ class _FixedLenFeatureHandler(object):
     # Check that the size of the feature matches the valency.
     if self._size != 1 and not self._reader:
       raise ValueError(
-          'FixedLenFeature %r was not multivalent (see CsvCoder constructor) '
-          'but had shape %r whose size was not 1' % (name, feature_spec.shape))
+          'FixedLenFeature "{}" was not multivalent (see CsvCoder constructor) '
+          'but had shape {} whose size was not 1'.format(
+              name, feature_spec.shape))
 
   @property
   def name(self):
@@ -137,12 +138,12 @@ class _FixedLenFeatureHandler(object):
     if len(values) != self._size:
       if self._reader:
         raise ValueError(
-            'FixedLenFeature %r got wrong number of values. Expected'
-            ' %d but got %d' % (self._name, self._size, len(values)))
+            'FixedLenFeature "{}" got wrong number of values. Expected'
+            ' {} but got {}'.format(self._name, self._size, len(values)))
       else:
         # If there is no reader and size of values doesn't match, then this
         # must be because the value was missing.
-        raise ValueError('expected a value on column %r' % self._name)
+        raise ValueError('expected a value on column "{}"'.format(self._name))
 
     if self._rank == 0:
       # Encode the values as a scalar if shape == [].
@@ -165,9 +166,9 @@ class _FixedLenFeatureHandler(object):
       flattened_values = np.asarray(values, dtype=self._np_dtype).reshape(-1)
 
     if len(flattened_values) != self._size:
-      raise ValueError('FixedLenFeature %r got wrong number of values. Expected'
-                       ' %d but got %d' %
-                       (self._name, self._size, len(flattened_values)))
+      raise ValueError(
+          'FixedLenFeature "{}" got wrong number of values. Expected {} but '
+          'got {}'.format(self._name, self._size, len(flattened_values)))
 
     if self._encoder:
       string_list[self._index] = self._encoder.encode_record(
@@ -265,13 +266,14 @@ class _SparseFeatureHandler(object):
       i_min, i_max = min(indices), max(indices)
       if i_min < 0 or i_max >= self._size:
         i_bad = i_min if i_min < 0 else i_max
-        raise ValueError('SparseFeature %r has index %d out of range [0, %d)'
-                         % (self._name, i_bad, self._size))
+        raise ValueError(
+            'SparseFeature "{}" has index {} out of range [0, {})'.format(
+                self._name, i_bad, self._size))
 
     if len(values) != len(indices):
       raise ValueError(
-          'SparseFeature %r has indices and values of different lengths: '
-          'values: %r, indices: %r' % (self._name, values, indices))
+          'SparseFeature "{}" has indices and values of different lengths: '
+          'values: {}, indices: {}'.format(self._name, values, indices))
 
     return (np.asarray(indices, dtype=np.int64),
             np.asarray(values, dtype=self._np_dtype))
@@ -416,8 +418,9 @@ class CsvCoder(object):
       secondary_reader = self._ReaderWrapper(secondary_delimiter)
       secondary_encoder = self._WriterWrapper(secondary_delimiter)
     elif multivalent_columns:
-      raise ValueError('secondary_delimiter unspecified for multivalent'
-                       'columns %r' % multivalent_columns)
+      raise ValueError(
+          'secondary_delimiter unspecified for multivalent columns "{}"'.format(
+              multivalent_columns))
     secondary_reader_by_name = {
         name: secondary_reader for name in multivalent_columns
     }
@@ -430,7 +433,7 @@ class CsvCoder(object):
     def index(name):
       index = indices_by_name.get(name)
       if index is None:
-        raise ValueError('Column not found: %r' % name)
+        raise ValueError('Column not found: "{}"'.format(name))
       else:
         return index
 
@@ -533,7 +536,7 @@ class CsvCoder(object):
     # Check record length mismatches.
     if len(raw_values) != len(self._column_names):
       raise DecodeError(
-          'Columns do not match specified csv headers: %s -> %s' % (
+          'Columns do not match specified csv headers: {} -> {}'.format(
               self._column_names, raw_values))
 
     return {feature_handler.name: feature_handler.parse_value(raw_values)

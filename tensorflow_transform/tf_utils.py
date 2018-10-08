@@ -165,10 +165,6 @@ def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
     x = x.values
 
   x_count = tf.cast(reduce_batch_count(x, reduce_instance_dims), x.dtype)
-  if not reduce_instance_dims:
-    # Remove the batch dimension.
-    # x_count = tf.squeeze(x_count, axis=0)
-    pass
 
   reduce_sum_fn = (
       tf.sparse_reduce_sum if isinstance(x, tf.SparseTensor) else tf.reduce_sum)

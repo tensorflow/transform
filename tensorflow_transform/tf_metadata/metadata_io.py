@@ -308,6 +308,6 @@ def _representation_to_json(representation, type_string):
 
 def _convert_scalar_or_list(fn, scalar_or_list):
   if isinstance(scalar_or_list, list):
-    return map(fn, scalar_or_list)
+    return list(map(fn, scalar_or_list))
   else:
     return fn(scalar_or_list)
