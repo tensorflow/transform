@@ -4,7 +4,7 @@ toc:
 
 - heading: Examples
 - title: Simple example
-  path: https://github.com/tensorflow/transform/blob/master/examples/simple_example.py
+  path: https://colab.research.google.com/github/tensorflow/transform/blob/master/tutorials/TFT_simple_example.ipynb
   status: external
 - title: Census income
   path: https://github.com/tensorflow/transform/blob/master/examples/census_example.py

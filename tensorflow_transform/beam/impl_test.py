@@ -44,13 +44,6 @@ from google.protobuf import text_format
 import unittest
 from tensorflow.core.example import example_pb2
 
-try:
-  cmp             # Python 2
-except NameError:
-
-  def cmp(x, y):  # Python 3  # pylint: disable=redefined-builtin
-    return (x > y) - (x < y)
-
 
 def _construct_test_bucketization_parameters():
   args_without_dtype = (
@@ -183,7 +176,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
                            expected_outputs.keys())
 
       # Get batch size from any input tensor.
-      an_input = inputs.values()[0]
+      an_input = next(six.itervalues(inputs))
       batch_size = tf.shape(an_input)[0]
 
       # Add a batch dimension and broadcast the analyzer outputs.
@@ -998,7 +991,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                             preprocessing_fn, expected_data,
                                             expected_metadata)
     self.assertTrue(
-        'output_min must be less than output_max' in context.exception)
+        'output_min must be less than output_max' in str(context.exception))
 
   @tft_unit.parameters(*itertools.product([
       tf.int16,
@@ -2500,10 +2493,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # Sort the input based on value, index is used to create expected_data.
     indexed_input = enumerate(test_inputs)
 
-    def compare_second_elements(a, b):
-      return cmp(a[1], b[1])
-
-    sorted_list = sorted(indexed_input, cmp=compare_second_elements)
+    sorted_list = sorted(indexed_input, key=lambda p: p[1])
 
     # Expected data has the same size as input, one bucket per input value.
     expected_data = [None] * len(test_inputs)

@@ -78,7 +78,8 @@ class TFTransformOutput(object):
       vocab_filename: The relative filename to lookup.
     """
     return os.path.join(
-        self.transform_savedmodel_dir, 'assets', vocab_filename)
+        self.transform_savedmodel_dir, tf.saved_model.ASSETS_DIRECTORY,
+        vocab_filename)
 
   def vocabulary_size_by_name(self, vocab_filename):
     """Like vocabulary_file_by_name, but returns the size of vocabulary."""
