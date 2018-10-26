@@ -30,8 +30,15 @@ import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import graph_tools
 
-_EMPTY_ARRAY = np.array([])
-_EMPTY_ARRAY.setflags(write=False)
+_CACHED_EMPTY_ARRAY_BY_DTYPE = {}
+
+
+def _get_empty_array(dtype):
+  if dtype not in _CACHED_EMPTY_ARRAY_BY_DTYPE:
+    empty_array = np.array([], dtype)
+    empty_array.setflags(write=False)
+    _CACHED_EMPTY_ARRAY_BY_DTYPE[dtype] = empty_array
+  return _CACHED_EMPTY_ARRAY_BY_DTYPE[dtype]
 
 
 def feature_spec_as_batched_placeholders(feature_spec):
@@ -192,10 +199,10 @@ def to_instance_dicts(schema, fetches):
     """
     batch_indices, batch_values, batch_shape = sparse_value
     # Preallocate lists of length batch_size, initialized to empty ndarrays,
-    # representing the indices and values of instances. We can reuse
-    # _EMPTY_ARRAY here because it is immutable.
-    instance_indices = [_EMPTY_ARRAY] * batch_shape[0]
-    instance_values = [_EMPTY_ARRAY] * batch_shape[0]
+    # representing the indices and values of instances. We can reuse the return
+    # value of _get_empty_array here because it is immutable.
+    instance_indices = [_get_empty_array(batch_indices.dtype)] * batch_shape[0]
+    instance_values = [_get_empty_array(batch_values.dtype)] * batch_shape[0]
     instance_rank = len(batch_shape[1:])
 
     # Iterate over the rows in the batch. At each row, consume all the elements
@@ -219,7 +226,8 @@ def to_instance_dicts(schema, fetches):
               batch_indices[current_offset]))
 
       if current_offset == start_offset:
-        # If the current row is empty, leave the default value, _EMPTY_ARRAY.
+        # If the current row is empty, leave the default value, which is an
+        # empty array.
         pass
       else:
         instance_indices[current_row] = batch_indices[

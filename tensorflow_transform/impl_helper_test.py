@@ -252,6 +252,38 @@ class ImplHelperTest(test_util.TensorFlowTestCase):
     self.assertAllEqual(instance_dicts[1]['f'][0], [4, 8])
     self.assertAllEqual(instance_dicts[1]['f'][1], [40.0, 50.0])
 
+  def testMakeOutputDictVarLen(self):
+    # Specifically test the empty ndarray optimization codepaths.
+    schema = dataset_schema.from_feature_spec({
+        'a': tf.VarLenFeature(tf.int64),
+        'b': tf.VarLenFeature(tf.float32),
+        'c': tf.VarLenFeature(tf.string),
+    })
+
+    fetches = {
+        'a': tf.SparseTensorValue(
+            indices=np.array([(0, 0), (2, 0)]),
+            values=np.array([0, 1], np.int64),
+            dense_shape=(4, 1)),
+        'b': tf.SparseTensorValue(
+            indices=np.array([(0, 0), (2, 0)]),
+            values=np.array([0.5, 1.5], np.float32),
+            dense_shape=(4, 1)),
+        'c': tf.SparseTensorValue(
+            indices=np.array([(0, 0), (2, 0)]),
+            values=np.array(['hello', 'goodbye'], np.object),
+            dense_shape=(4, 1)),
+    }
+
+    instance_dicts = impl_helper.to_instance_dicts(schema, fetches)
+    self.assertEqual(4, len(instance_dicts))
+    self.assertEqual(instance_dicts[1]['a'].dtype, np.int64)
+    self.assertEqual(instance_dicts[3]['a'].dtype, np.int64)
+    self.assertEqual(instance_dicts[1]['b'].dtype, np.float32)
+    self.assertEqual(instance_dicts[3]['b'].dtype, np.float32)
+    self.assertEqual(instance_dicts[1]['c'].dtype, np.object)
+    self.assertEqual(instance_dicts[3]['c'].dtype, np.object)
+
   def testMakeOutputDictErrorSparse(self):
     schema = dataset_schema.from_feature_spec({
         'a': tf.VarLenFeature(tf.string)

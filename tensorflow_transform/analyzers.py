@@ -905,7 +905,8 @@ def vocabulary(x,
 
     attributes = attributes_classes.Vocabulary(
         top_k, frequency_threshold, vocab_filename, store_frequency,
-        vocab_ordering_type, scope)
+        vocab_ordering_type,
+        scope)
 
     result = tf.placeholder(tf.string, [])
     tf.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, result)

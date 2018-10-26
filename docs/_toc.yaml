@@ -4,11 +4,10 @@ toc:
 
 - heading: Examples
 - title: Simple example
-  path: https://colab.research.google.com/github/tensorflow/transform/blob/master/tutorials/TFT_simple_example.ipynb
+  path: /tfx/transform/tutorials/TFT_simple_example
   status: external
 - title: Census income
-  path: https://github.com/tensorflow/transform/blob/master/examples/census_example.py
-  status: external
+  path: /tfx/transform/tutorials/TFT_census_example
 - title: Sentiment analysis
   path: https://github.com/tensorflow/transform/blob/master/examples/sentiment.md
   status: external

@@ -35,7 +35,7 @@ def _utf8(s):
 
 def _to_string(x):
   """Encodes x as a (list of) utf-8 string when applicable."""
-  return map(_utf8, x) if isinstance(x, (list, np.ndarray)) else _utf8(x)
+  return list(map(_utf8, x)) if isinstance(x, (list, np.ndarray)) else _utf8(x)
 
 
 def _make_cast_fn(dtype):
@@ -127,7 +127,8 @@ class _FixedLenFeatureHandler(object):
     value_str = string_list[self._index]
     if value_str and self._reader:
       # NOTE: The default value is ignored when self._reader is set.
-      values = map(self._cast_fn, _decode_with_reader(value_str, self._reader))
+      values = list(
+          map(self._cast_fn, _decode_with_reader(value_str, self._reader)))
     elif value_str:
       values = [self._cast_fn(value_str)]
     elif self._default_value is not None:
@@ -172,7 +173,7 @@ class _FixedLenFeatureHandler(object):
 
     if self._encoder:
       string_list[self._index] = self._encoder.encode_record(
-          map(str, flattened_values))
+          list(map(str, flattened_values)))
     else:
       string_list[self._index] = str(flattened_values[0])
 
@@ -201,7 +202,8 @@ class _VarLenFeatureHandler(object):
     """Parse the value of this feature from string list split from CSV line."""
     value_str = string_list[self._index]
     if value_str and self._reader:
-      values = map(self._cast_fn, _decode_with_reader(value_str, self._reader))
+      values = list(
+          map(self._cast_fn, _decode_with_reader(value_str, self._reader)))
     elif value_str:
       values = [self._cast_fn(value_str)]
     else:
@@ -211,7 +213,8 @@ class _VarLenFeatureHandler(object):
   def encode_value(self, string_list, values):
     """Encode the value of this feature into the CSV line."""
     if self._encoder:
-      string_list[self._index] = self._encoder.encode_record(map(str, values))
+      string_list[self._index] = self._encoder.encode_record(
+          list(map(str, values)))
     else:
       string_list[self._index] = str(values[0]) if values else None
 
@@ -246,7 +249,8 @@ class _SparseFeatureHandler(object):
     index_str = string_list[self._index_index]
 
     if value_str and self._reader:
-      values = map(self._cast_fn, _decode_with_reader(value_str, self._reader))
+      values = list(
+          map(self._cast_fn, _decode_with_reader(value_str, self._reader)))
     elif value_str:
       values = [self._cast_fn(value_str)]
     else:
@@ -255,7 +259,7 @@ class _SparseFeatureHandler(object):
     # In Python 2, if the value is too large to fit into an int, int(..) returns
     # a long, but ints are cheaper to use when possible.
     if index_str and self._reader:
-      indices = map(int, _decode_with_reader(index_str, self._reader))
+      indices = list(map(int, _decode_with_reader(index_str, self._reader)))
     elif index_str:
       indices = [int(index_str)]
     else:
@@ -320,7 +324,7 @@ class _LineGenerator(object):
   def __iter__(self):
     return self
 
-  def next(self):
+  def __next__(self):
     # This API currently supports only one line at a time.
     # If this ever supports more than one row be aware that DictReader might
     # attempt to read more than one record if one of the records is empty line
@@ -333,6 +337,8 @@ class _LineGenerator(object):
     # because the list has only 1 element. If there were more and we wanted
     # to maintain order and timecomplexity we would switch to deque.popleft.
     return self._lines.pop()
+
+  next = __next__
 
 
 class CsvCoder(object):
@@ -389,8 +395,12 @@ class CsvCoder(object):
     def __setstate__(self, state):
       self.__init__(*state)
 
-  def __init__(self, column_names, schema, delimiter=',',
-               secondary_delimiter=None, multivalent_columns=None):
+  def __init__(self,
+               column_names,
+               schema,
+               delimiter=',',
+               secondary_delimiter=None,
+               multivalent_columns=None):
     """Initializes CsvCoder.
 
     Args:
@@ -399,8 +409,9 @@ class CsvCoder(object):
       delimiter: A one-character string used to separate fields.
       secondary_delimiter: A one-character string used to separate values within
         the same field.
-      multivalent_columns: A list of names for multivalent columns that need
-          to be split based on secondary delimiter.
+      multivalent_columns: A list of names for multivalent columns that need to
+        be split based on secondary delimiter.
+
     Raises:
       ValueError: If `schema` is invalid.
     """
@@ -408,12 +419,13 @@ class CsvCoder(object):
     self._schema = schema
     self._delimiter = delimiter
     self._secondary_delimiter = secondary_delimiter
-    self._multivalent_columns = multivalent_columns
     self._reader = self._ReaderWrapper(delimiter)
     self._encoder = self._WriterWrapper(delimiter)
 
     if multivalent_columns is None:
       multivalent_columns = []
+    self._multivalent_columns = multivalent_columns
+
     if secondary_delimiter:
       secondary_reader = self._ReaderWrapper(secondary_delimiter)
       secondary_encoder = self._WriterWrapper(secondary_delimiter)
@@ -462,18 +474,15 @@ class CsvCoder(object):
                          (name, type(feature_spec)))
 
   def __reduce__(self):
-    return CsvCoder, (self._column_names,
-                      self._schema,
-                      self._delimiter,
-                      self._secondary_delimiter,
-                      self._multivalent_columns)
+    return CsvCoder, (self._column_names, self._schema, self._delimiter,
+                      self._secondary_delimiter, self._multivalent_columns)
 
   def encode(self, instance):
     """Encode a tf.transform encoded dict to a csv-formatted string.
 
     Args:
-      instance: A python dictionary where the keys are the column names and
-        the values are fixed len or var len encoded features.
+      instance: A python dictionary where the keys are the column names and the
+        values are fixed len or var len encoded features.
 
     Returns:
       A csv-formatted string. The order of the columns is given by column_names.
@@ -497,7 +506,7 @@ class CsvCoder(object):
 
     1.a) If FixedLenFeature and has a default value, use that value for missing
          entries.
-    1.b) If FixedLenFeature and doesn't has default value throw an Exception on
+    1.b) If FixedLenFeature and doesn't have default value throw an Exception on
          missing entries.
 
     2) For VarLenFeature return an empty array.

@@ -87,6 +87,7 @@ CombinePerKey = collections.namedtuple('CombinePerKey', ['combiner', 'name'])
 Vocabulary = collections.namedtuple(
     'Vocabulary',
     ['top_k', 'frequency_threshold', 'vocab_filename', 'store_frequency',
-     'vocab_ordering_type', 'name'])
+     'vocab_ordering_type',
+     'name'])
 
 PTransform = collections.namedtuple('PTransform', ['ptransform', 'name'])

@@ -10,6 +10,8 @@
     `tensorflow_transform.beam` subpackage. This allows users to just import the
     `tensorflow_transform.beam` subpackage for all functionality.
 *   Adding API docs
+*   Fix bug where Transform returned a different dtype for a VarLenFeature with
+    0 elements.
 
 ## Breaking changes
 

@@ -64,7 +64,10 @@ class _OrderElementsFn(beam.DoFn):
 @ptransform_fn
 @beam.typehints.with_input_types(KV[float, str])
 @beam.typehints.with_output_types(KV[float, str])
-def _ApplyFrequencyThresholdAndTopK(counts, frequency_threshold, top_k):  # pylint: disable=invalid-name
+def _ApplyFrequencyThresholdAndTopK(counts,  # pylint: disable=invalid-name
+                                    frequency_threshold,
+                                    top_k
+                                   ):
   """Applies `frequency_threshold` and `top_k` to (count, value) pairs."""
   # Filter is cheaper than TopK computation and the two commute, so filter
   # first.
@@ -122,17 +125,14 @@ def _WriteVocabFile(counts, temp_assets_dir, vocab_filename, store_frequency):  
   return (wait_for_vocabulary_transform,)
 
 
-def _is_problematic_string(string):
-  """Returns True if `string` is a valid vocabulary entry. False otherwise."""
-  return string and '\n' not in string and '\r' not in string
-
-
 @common.register_ptransform(attributes_classes.Vocabulary)
 class VocabularyImpl(beam.PTransform):
   """Saves the unique elements in a PCollection of batches."""
 
   def __init__(self, num_outputs, attributes, base_temp_dir, **kwargs):
-    assert num_outputs == 1
+    if num_outputs != 1:
+      raise ValueError('num_outputs for VocabularyImpl should be 1, got {}`.'.
+                       format(num_outputs))
     self._top_k = attributes.top_k
     self._frequency_threshold = attributes.frequency_threshold
     self._store_frequency = attributes.store_frequency
@@ -146,17 +146,22 @@ class VocabularyImpl(beam.PTransform):
 
   def expand(self, inputs):
     pcoll, = inputs
-    assert self._top_k is None or self._top_k >= 0
-    assert self._frequency_threshold is None or self._frequency_threshold >= 0
+    if self._top_k is not None and self._top_k < 0:
+      raise ValueError('top_k for VocabularyImpl should be >= 0 or None, got '
+                       '{}.'.format(self._top_k))
+    if self._frequency_threshold is not None and self._frequency_threshold < 0:
+      raise ValueError(
+          'frequency_threshold for VocabularyImpl should be >= 0 or None, '
+          'got {}.'.format(self._frequency_threshold))
 
     # Create a PCollection of (count, element) pairs, then iterates over
     # this to create a single element PCollection containing this list of
     # pairs in sorted order by decreasing counts (and by values for equal
     # counts).
 
-    def filter_problematic_string(kv):
+    def is_problematic_string(kv):
       string, _ = kv  # Ignore counts.
-      return _is_problematic_string(string)
+      return string and '\n' not in string and '\r' not in string
 
     if (self._vocab_ordering_type ==
         tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION):
@@ -196,16 +201,22 @@ class VocabularyImpl(beam.PTransform):
       flatten_map_fn = _flatten_value_to_list
       combine_transform = beam.combiners.Count.PerElement()
 
-    return (
+    raw_counts = (
         pcoll
         | 'FlattenStringsAndMaybeWeightsLabels' >> beam.FlatMap(flatten_map_fn)
         | 'CountPerString' >> combine_transform
-        | 'FilterProblematicStrings' >> beam.Filter(filter_problematic_string)
-        | 'SwapStringsAndCounts' >> beam.KvSwap()
-        | 'ApplyFrequencyThresholdAndTopK' >> (
+        | 'FilterProblematicStrings' >> beam.Filter(is_problematic_string)
+        | 'SwapStringsAndCounts' >> beam.KvSwap())
+
+    counts = (
+        raw_counts | 'ApplyFrequencyThresholdAndTopK' >> (
             _ApplyFrequencyThresholdAndTopK(  # pylint: disable=no-value-for-parameter
-                self._frequency_threshold, self._top_k))
-        | 'WriteVocabFile' >> _WriteVocabFile(  # pylint: disable=no-value-for-parameter
+                self._frequency_threshold,
+                self._top_k
+                )))
+
+    return counts | 'WriteVocabFile' >> (
+        _WriteVocabFile(  # pylint: disable=no-value-for-parameter
             self._base_temp_dir, self._vocab_filename, self._store_frequency))
 
 
@@ -565,7 +576,9 @@ class _CombinePerKeyImpl(beam.PTransform):
   """Implement an analyzer based on a CombinePerKey."""
 
   def __init__(self, num_outputs, attributes, serialized_tf_config, **kwargs):
-    assert num_outputs >= 1
+    if num_outputs < 1:
+      raise ValueError('num_outputs for _ComvinePerKeyImpl should be >= 1, got '
+                       '{}'.format(num_outputs))
     self._combiner = attributes.combiner
     self._name = attributes.name
     self._serialized_tf_config = serialized_tf_config
