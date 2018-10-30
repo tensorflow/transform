@@ -287,6 +287,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
                   saved_model_dir, {}))
         self.session.run(tf.global_variables_initializer())
         self.session.run(tf.tables_initializer())
+        graph.finalize()
 
         input_schema_keys = input_schema.column_schemas.keys()
         extra_input_keys = set(input_schema_keys).difference(inputs.keys())

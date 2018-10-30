@@ -974,7 +974,8 @@ class QuantilesCombiner(attributes_classes.Combiner):
     stamp_token = 0
 
     # Create a new session with a new graph for quantile ops.
-    self._session = tf.Session(graph=tf.Graph(), config=tf_config)
+    graph = tf.Graph()
+    self._session = tf.Session(graph=graph, config=tf_config)
     with self._session.graph.as_default():
       with self._session.as_default():
         self._qaccumulator = quantile_ops.QuantileAccumulator(
@@ -1024,6 +1025,8 @@ class QuantilesCombiner(attributes_classes.Combiner):
             next_stamp_token=stamp_token)
         _, self._buckets_op = self._qaccumulator.get_buckets(
             stamp_token=stamp_token)
+
+        graph.finalize()
 
     # We generate an empty summary by calling self._flush_summary_op.
     # We cache this as some implementations may call create_accumulator for
