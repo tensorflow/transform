@@ -17,13 +17,13 @@ from setuptools import find_packages
 from setuptools import setup
 
 # Tensorflow transform version.
-__version__ = '0.10.0dev'
+__version__ = '0.11.0'
 
 
 def _make_required_install_packages():
   return [
       'absl-py>=0.1.6',
-      'apache-beam[gcp]>=2.6,<3',
+      'apache-beam[gcp]>=2.8,<3',
       'numpy>=1.13.3,<2',
 
       # TF now requires protobuf>=3.6.0.
