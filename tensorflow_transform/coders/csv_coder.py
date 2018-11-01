@@ -504,14 +504,15 @@ class CsvCoder(object):
 
     Missing value handling is as follows:
 
-    1.a) If FixedLenFeature and has a default value, use that value for missing
-         entries.
-    1.b) If FixedLenFeature and doesn't have default value throw an Exception on
-         missing entries.
+    1. For FixedLenFeature:
+        1. If FixedLenFeature and has a default value, use that value for
+        missing entries.
+        2. If FixedLenFeature and doesn't have default value throw an Exception
+        on missing entries.
 
-    2) For VarLenFeature return an empty array.
+    2. For VarLenFeature return an empty array.
 
-    3) For SparseFeature throw an Exception if only one of the indices or values
+    3. For SparseFeature throw an Exception if only one of the indices or values
        has a missing entry. If both indices and values are missing, return
        a tuple of 2 empty arrays.
 

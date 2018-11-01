@@ -35,8 +35,9 @@ Initializes CsvCoder.
 * <b>`delimiter`</b>: A one-character string used to separate fields.
 * <b>`secondary_delimiter`</b>: A one-character string used to separate values within
     the same field.
-* <b>`multivalent_columns`</b>: A list of names for multivalent columns that need
-      to be split based on secondary delimiter.
+* <b>`multivalent_columns`</b>: A list of names for multivalent columns that need to
+    be split based on secondary delimiter.
+
 
 #### Raises:
 
@@ -56,14 +57,15 @@ Decodes the given string record according to the schema.
 
 Missing value handling is as follows:
 
-1.a) If FixedLenFeature and has a default value, use that value for missing
-     entries.
-1.b) If FixedLenFeature and doesn't has default value throw an Exception on
-     missing entries.
+1. For FixedLenFeature:
+    1. If FixedLenFeature and has a default value, use that value for
+    missing entries.
+    2. If FixedLenFeature and doesn't have default value throw an Exception
+    on missing entries.
 
-2) For VarLenFeature return an empty array.
+2. For VarLenFeature return an empty array.
 
-3) For SparseFeature throw an Exception if only one of the indices or values
+3. For SparseFeature throw an Exception if only one of the indices or values
    has a missing entry. If both indices and values are missing, return
    a tuple of 2 empty arrays.
 
@@ -98,8 +100,8 @@ Encode a tf.transform encoded dict to a csv-formatted string.
 
 #### Args:
 
-* <b>`instance`</b>: A python dictionary where the keys are the column names and
-    the values are fixed len or var len encoded features.
+* <b>`instance`</b>: A python dictionary where the keys are the column names and the
+    values are fixed len or var len encoded features.
 
 
 #### Returns:

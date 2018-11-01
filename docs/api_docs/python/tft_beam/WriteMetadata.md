@@ -20,6 +20,7 @@
 <meta itemprop="property" content="infer_output_type"/>
 <meta itemprop="property" content="next"/>
 <meta itemprop="property" content="register_urn"/>
+<meta itemprop="property" content="runner_api_requires_keyed_input"/>
 <meta itemprop="property" content="to_runner_api"/>
 <meta itemprop="property" content="to_runner_api_parameter"/>
 <meta itemprop="property" content="to_runner_api_pickled"/>
@@ -231,6 +232,14 @@ register_urn(
     parameter_type,
     constructor=None
 )
+```
+
+
+
+<h3 id="runner_api_requires_keyed_input"><code>runner_api_requires_keyed_input</code></h3>
+
+``` python
+runner_api_requires_keyed_input()
 ```
 
 
