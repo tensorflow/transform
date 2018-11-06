@@ -91,17 +91,18 @@ def _get_items_to_clone(pcollection):
   seen.add(pcollection)
   while not to_process.empty():
     current_pcollection = to_process.get()
-    if isinstance(current_pcollection, pvalue.PBegin):
+
+    # Stop if we have reached the beginning of the pipeline, or at a
+    # materialization boundary.
+    if (isinstance(current_pcollection, pvalue.PBegin) or
+        _is_at_materialization_boundary(current_pcollection)):
       continue
+
     reversed_to_clone.append(current_pcollection)
     applied_transform = current_pcollection.producer
     if applied_transform is None:
       raise ValueError(
           'PCollection node has invalid producer: %s' % current_pcollection)
-
-    # Stop if we are at a materialization boundary.
-    if _is_at_materialization_boundary(current_pcollection):
-      continue
 
     # Visit the input PCollection(s).
     reversed_to_clone.append(applied_transform)

@@ -60,8 +60,8 @@ import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import schema_inference
 
-from tensorflow.contrib import lookup
 from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
+from tensorflow.python.ops import lookup_ops
 from tensorflow.python.util import deprecation
 
 
@@ -528,10 +528,10 @@ def apply_vocabulary(x,
     num_oov_buckets:  Any lookup of an out-of-vocabulary token will return a
       bucket ID based on its hash if `num_oov_buckets` is greater than zero.
       Otherwise it is assigned the `default_value`.
-    lookup_fn: Optional lookup function, if specified it should take a
-      tensor and a deferred vocab filename as an input and return a lookup `op`
-      along with the table size, by default `apply_vocab` performs a
-      lookup.string_to_index_table_from_file for the table lookup.
+    lookup_fn: Optional lookup function, if specified it should take a tensor
+      and a deferred vocab filename as an input and return a lookup `op` along
+      with the table size, by default `apply_vocab` performs a
+      lookup_ops.index_table_from_file for the table lookup.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -545,9 +545,10 @@ def apply_vocabulary(x,
     if lookup_fn:
       result, table_size = lookup_fn(x, deferred_vocab_filename_tensor)
     else:
-      table = lookup.index_table_from_file(deferred_vocab_filename_tensor,
-                                           num_oov_buckets=num_oov_buckets,
-                                           default_value=default_value)
+      table = lookup_ops.index_table_from_file(
+          deferred_vocab_filename_tensor,
+          num_oov_buckets=num_oov_buckets,
+          default_value=default_value)
       table_size = table.size()
       result = table.lookup(x)
 
@@ -875,7 +876,7 @@ def bucketize_per_key(x, key, num_buckets, epsilon=None, name=None):
 
 
 def _lookup_key(key, key_vocab):
-  table = lookup.index_table_from_tensor(key_vocab, default_value=-1)
+  table = lookup_ops.index_table_from_tensor(key_vocab, default_value=-1)
   key_indices = table.lookup(key)
   with tf.control_dependencies([tf.assert_non_negative(key_indices)]):
     return tf.identity(key_indices)

@@ -26,10 +26,10 @@ import tensorflow as tf
 from tensorflow_transform.saved import saved_transform_io
 
 import unittest
-from tensorflow.contrib import lookup
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import test_util
 from tensorflow.python.lib.io import file_io
+from tensorflow.python.ops import lookup_ops
 from tensorflow.python.platform import test
 from tensorflow.python.util import compat
 
@@ -161,7 +161,7 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
       with tf.Session().as_default() as session:
         input_string = tf.placeholder(tf.string)
         # Map string through a table, in this case based on a constant tensor.
-        table = lookup.index_table_from_tensor(
+        table = lookup_ops.index_table_from_tensor(
             tf.constant(['cat', 'dog', 'giraffe']))
         output = table.lookup(input_string)
         inputs = {'input': input_string}
@@ -227,7 +227,7 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
       with tf.Session().as_default() as session:
         input_string = tf.placeholder(tf.string)
         # Map string through a table loaded from an asset file
-        table = lookup.index_table_from_file(
+        table = lookup_ops.index_table_from_file(
             vocabulary_file, num_oov_buckets=12, default_value=12)
         output = table.lookup(input_string)
         inputs = {'input': input_string}

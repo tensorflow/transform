@@ -21,6 +21,7 @@ import collections
 
 
 import apache_beam as beam
+from apache_beam import pvalue
 from tensorflow_transform.beam import deep_copy
 import unittest
 
@@ -81,12 +82,11 @@ class DeepCopyTest(unittest.TestCase):
                        'Add1.Copy')
 
       # Check that deep copy was performed.
-      self.assertNotEqual(copied.producer.inputs[0],
-                          modified.producer.inputs[0])
+      self.assertIsNot(copied.producer.inputs[0], modified.producer.inputs[0])
 
       # Check that copy stops at materialization boundary.
-      self.assertEqual(copied.producer.inputs[0].producer.inputs[0],
-                       modified.producer.inputs[0].producer.inputs[0])
+      self.assertIs(copied.producer.inputs[0].producer.inputs[0],
+                    modified.producer.inputs[0].producer.inputs[0])
 
     # Check counts of processed items.
     self.assertEqual(DeepCopyTest._counts['PreGroup'], 3)
@@ -158,18 +158,17 @@ class DeepCopyTest(unittest.TestCase):
       copied = deep_copy.deep_copy(modified3)
 
       # Check that deep copy was performed.
-      self.assertNotEqual(copied.producer.inputs[0],
-                          modified3.producer.inputs[0])
-      self.assertNotEqual(copied.producer.inputs[0].producer.inputs[0],
-                          modified3.producer.inputs[0].producer.inputs[0])
-      self.assertNotEqual(copied.producer.inputs[0].producer.inputs[1],
-                          modified3.producer.inputs[0].producer.inputs[1])
+      self.assertIsNot(copied.producer.inputs[0], modified3.producer.inputs[0])
+      self.assertIsNot(copied.producer.inputs[0].producer.inputs[0],
+                       modified3.producer.inputs[0].producer.inputs[0])
+      self.assertIsNot(copied.producer.inputs[0].producer.inputs[1],
+                       modified3.producer.inputs[0].producer.inputs[1])
 
       # Check that copy stops at materialization boundary.
-      self.assertEqual(
+      self.assertIs(
           copied.producer.inputs[0].producer.inputs[0].producer.inputs[0],
           modified3.producer.inputs[0].producer.inputs[0].producer.inputs[0])
-      self.assertEqual(
+      self.assertIs(
           copied.producer.inputs[0].producer.inputs[1].producer.inputs[0],
           modified3.producer.inputs[0].producer.inputs[1].producer.inputs[0])
 
@@ -197,18 +196,22 @@ class DeepCopyTest(unittest.TestCase):
       copied = deep_copy.deep_copy(combined)
 
       # Check that deep copy was performed.
-      self.assertNotEqual(combined, copied)
-      self.assertNotEqual(combined.producer.inputs[0],
-                          copied.producer.inputs[0])
+      self.assertIsNot(combined, copied)
+      self.assertIsNot(combined.producer.inputs[0], copied.producer.inputs[0])
+      self.assertEqual(combined.producer.inputs[0].producer.full_label,
+                       'CombineGlobally(MeanCombineFn)/UnKey')
       self.assertEqual(copied.producer.inputs[0].producer.full_label,
                        'CombineGlobally(MeanCombineFn)/UnKey.Copy')
-      self.assertNotEqual(combined.producer.inputs[0].producer.inputs[0],
-                          copied.producer.inputs[0].producer.inputs[0])
 
       # Check that deep copy stops at materialization boundary.
+      self.assertIs(combined.producer.inputs[0].producer.inputs[0],
+                    copied.producer.inputs[0].producer.inputs[0])
       self.assertEqual(
-          combined.producer.inputs[0].producer.inputs[0].producer,
-          copied.producer.inputs[0].producer.inputs[0].producer)
+          str(combined.producer.inputs[0].producer.inputs[0]),
+          ('PCollection[CombineGlobally(MeanCombineFn)/CombinePerKey/Combine/'
+           'ParDo(CombineValuesDoFn).None]'))
+      self.assertIs(combined.producer.inputs[0].producer.inputs[0].producer,
+                    copied.producer.inputs[0].producer.inputs[0].producer)
       self.assertEqual(
           copied.producer.inputs[0].producer.inputs[0].producer.full_label,
           ('CombineGlobally(MeanCombineFn)/CombinePerKey/Combine/'
@@ -218,6 +221,34 @@ class DeepCopyTest(unittest.TestCase):
     self.assertEqual(DeepCopyTest._counts['PreCombine'], 3)
     self.assertEqual(DeepCopyTest._counts['PostCombine'], 2)
 
+  def testSideInputNotCopied(self):
+    with beam.Pipeline() as p:
+      side = (p
+              | 'CreateSide' >> beam.Create(['s1', 's2', 's3'])
+              | beam.Map(
+                  lambda x: DeepCopyTest._CountingIdentityFn(
+                      'SideInput', x)))
+      main = (p
+              | 'CreateMain' >> beam.Create([1, 2, 3])
+              | beam.Map(
+                  lambda x: DeepCopyTest._CountingIdentityFn(
+                      'Main', x))
+              | beam.Map(lambda e, s: (e, list(s)),
+                         pvalue.AsList(side)))
+      copied = deep_copy.deep_copy(main)
+
+      # Check that deep copy was performed.
+      self.assertIsNot(main, copied)
+      self.assertIsNot(main.producer, copied.producer)
+
+      # Check that deep copy stops at the side input materialization boundary.
+      self.assertIs(main.producer.side_inputs[0],
+                    copied.producer.side_inputs[0])
+      self.assertIs(main.producer.side_inputs[0].pvalue, side)
+
+    # Check counts of processed items.
+    self.assertEqual(DeepCopyTest._counts['SideInput'], 3)
+    self.assertEqual(DeepCopyTest._counts['Main'], 6)
 
 if __name__ == '__main__':
   unittest.main()

@@ -43,6 +43,7 @@ from tensorflow_transform.tf_metadata import dataset_schema as sch
 from google.protobuf import text_format
 import unittest
 from tensorflow.core.example import example_pb2
+from tensorflow.python.ops import lookup_ops
 
 
 def _construct_test_bucketization_parameters():
@@ -264,9 +265,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
       with instance.test_session(graph=tf.Graph()) as sess:
         key = tf.constant('test_key', shape=[1])
         value = tf.constant('test_value', shape=[1])
-        table = tf.contrib.lookup.HashTable(
-            tf.contrib.lookup.KeyValueTensorInitializer(key, value),
-            '__MISSING__')
+        table = lookup_ops.HashTable(
+            lookup_ops.KeyValueTensorInitializer(key, value), '__MISSING__')
 
         input1 = tf.placeholder(dtype=tf.string, shape=[1], name='myinput')
         output1 = tf.reshape(table.lookup(input1), shape=[1])
@@ -2130,23 +2130,29 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
       def _apply_vocab(y, deferred_vocab_filename_tensor):
         # NOTE: Please be aware that TextFileInitializer assigns a special
-        # meaning to the constant tf.contrib.lookup.TextFileIndex.LINE_NUMBER.
-        table = tf.contrib.lookup.HashTable(
-            tf.contrib.lookup.TextFileInitializer(
+        # meaning to the constant lookup_ops.TextFileIndex.LINE_NUMBER.
+        table = lookup_ops.HashTable(
+            lookup_ops.TextFileInitializer(
                 deferred_vocab_filename_tensor,
-                tf.string, 1,
-                tf.int64, tf.contrib.lookup.TextFileIndex.LINE_NUMBER,
-                delimiter=' '), default_value=-1)
+                tf.string,
+                1,
+                tf.int64,
+                lookup_ops.TextFileIndex.LINE_NUMBER,
+                delimiter=' '),
+            default_value=-1)
         table_size = table.size()
         return table.lookup(y), table_size
 
       def _apply_frequency(y, deferred_vocab_filename_tensor):
-        table = tf.contrib.lookup.HashTable(
-            tf.contrib.lookup.TextFileInitializer(
+        table = lookup_ops.HashTable(
+            lookup_ops.TextFileInitializer(
                 deferred_vocab_filename_tensor,
-                tf.string, 1,
-                tf.int64, 0,
-                delimiter=' '), default_value=-1)
+                tf.string,
+                1,
+                tf.int64,
+                0,
+                delimiter=' '),
+            default_value=-1)
         table_size = table.size()
         return table.lookup(y), table_size
 
