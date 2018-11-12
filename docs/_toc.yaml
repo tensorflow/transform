@@ -5,7 +5,6 @@ toc:
 - heading: Examples
 - title: Simple example
   path: /tfx/transform/tutorials/TFT_simple_example
-  status: external
 - title: Census income
   path: /tfx/transform/tutorials/TFT_census_example
 - title: Sentiment analysis

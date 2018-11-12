@@ -34,142 +34,179 @@ elif any(arg.startswith('--proto_implementation_type') for arg in sys.argv):
 
 import numpy as np
 import tensorflow as tf
-
+from tensorflow_transform import test_case
 from tensorflow_transform.coders import example_proto_coder
 from tensorflow_transform.tf_metadata import dataset_schema
 
 from google.protobuf.internal import api_implementation
 from google.protobuf import text_format
-import unittest
 
 
+_FEATURE_SPEC = {
+    'scalar_feature_1': tf.FixedLenFeature([], tf.int64),
+    'scalar_feature_2': tf.FixedLenFeature([], tf.int64),
+    'scalar_feature_3': tf.FixedLenFeature([], tf.float32),
+    'varlen_feature_1': tf.VarLenFeature(tf.float32),
+    'varlen_feature_2': tf.VarLenFeature(tf.string),
+    '1d_vector_feature': tf.FixedLenFeature([1], tf.string),
+    '2d_vector_feature': tf.FixedLenFeature([2, 2], tf.float32),
+    'sparse_feature': tf.SparseFeature('idx', 'value', tf.float32, 10),
+}
 
-class ExampleProtoCoderTest(unittest.TestCase):
+_ENCODE_DECODE_CASES = [
+    dict(testcase_name='multiple_columns',
+         feature_spec=_FEATURE_SPEC,
+         ascii_proto="""\
+features {
+  feature { key: "scalar_feature_1" value { int64_list { value: [ 12 ] } } }
+  feature { key: "varlen_feature_1"
+            value { float_list { value: [ 89.0 ] } } }
+  feature { key: "scalar_feature_2" value { int64_list { value: [ 12 ] } } }
+  feature { key: "scalar_feature_3"
+            value { float_list { value: [ 1.0 ] } } }
+  feature { key: "1d_vector_feature"
+            value { bytes_list { value: [ 'this is a ,text' ] } } }
+  feature { key: "2d_vector_feature"
+            value { float_list { value: [ 1.0, 2.0, 3.0, 4.0 ] } } }
+  feature { key: "varlen_feature_2"
+            value { bytes_list { value: [ 'female' ] } } }
+  feature { key: "value" value { float_list { value: [ 12.0, 20.0 ] } } }
+feature { key: "idx" value { int64_list { value: [ 1, 4 ] } } }
+}""",
+         instance={
+             'scalar_feature_1': 12,
+             'scalar_feature_2': 12,
+             'scalar_feature_3': 1.0,
+             'varlen_feature_1': [89.0],
+             '1d_vector_feature': ['this is a ,text'],
+             '2d_vector_feature': [[1.0, 2.0], [3.0, 4.0]],
+             'varlen_feature_2': ['female'],
+             'sparse_feature': ([1, 4], [12.0, 20.0])
+         }),
+    dict(testcase_name='multiple_columns_ndarray',
+         feature_spec=_FEATURE_SPEC,
+         ascii_proto="""\
+features {
+  feature { key: "scalar_feature_1" value { int64_list { value: [ 13 ] } } }
+  feature { key: "varlen_feature_1" value { float_list { } } }
+  feature { key: "scalar_feature_2"
+            value { int64_list { value: [ 214 ] } } }
+  feature { key: "scalar_feature_3"
+            value { float_list { value: [ 2.0 ] } } }
+  feature { key: "1d_vector_feature"
+            value { bytes_list { value: [ 'this is another ,text' ] } } }
+  feature { key: "2d_vector_feature"
+            value { float_list { value: [ 9.0, 8.0, 7.0, 6.0 ] } } }
+  feature { key: "varlen_feature_2"
+            value { bytes_list { value: [ 'male' ] } } }
+  feature { key: "value" value { float_list { value: [ 13.0, 21.0 ] } } }
+  feature { key: "idx" value { int64_list { value: [ 2, 5 ] } } }
+}""",
+         instance={
+             'scalar_feature_1': np.array(13),
+             'scalar_feature_2': np.int32(214),
+             'scalar_feature_3': np.array(2.0),
+             'varlen_feature_1': np.array([]),
+             '1d_vector_feature': np.array(['this is another ,text']),
+             '2d_vector_feature': np.array([[9.0, 8.0], [7.0, 6.0]]),
+             'varlen_feature_2': np.array(['male']),
+             'sparse_feature': (np.array([2, 5]), np.array([13.0, 21.0]))
+         }),
+]
 
-  _INPUT_SCHEMA = dataset_schema.from_feature_spec({
-      'scalar_feature_1': tf.FixedLenFeature(shape=[], dtype=tf.int64),
-      'scalar_feature_2': tf.FixedLenFeature(shape=[], dtype=tf.int64),
-      'scalar_feature_3': tf.FixedLenFeature(shape=[], dtype=tf.float32),
-      'varlen_feature_1': tf.VarLenFeature(dtype=tf.float32),
-      'varlen_feature_2': tf.VarLenFeature(dtype=tf.string),
-      '1d_vector_feature': tf.FixedLenFeature(shape=[1], dtype=tf.string),
-      '2d_vector_feature': tf.FixedLenFeature(shape=[2, 2], dtype=tf.float32),
-      'sparse_feature': tf.SparseFeature('idx', 'value', tf.float32, 10),
-  })
+_ENCODE_ONLY_CASES = [
+    dict(testcase_name='unicode',
+         feature_spec={
+             'unicode_feature': tf.FixedLenFeature([], tf.string)
+         },
+         ascii_proto="""\
+features {
+  feature { key: "unicode_feature" value { bytes_list { value: [ "Hello κόσμε" ] } } }
+}""",
+         instance={'unicode_feature': u'Hello κόσμε'}),
+]
+
+_DECODE_ONLY_CASES = [
+]
+
+_DECODE_ERROR_CASES = [
+    dict(testcase_name='to_few_values',
+         feature_spec={
+             '2d_vector_feature': tf.FixedLenFeature([2, 2], tf.int64),
+         },
+         ascii_proto="""\
+features {
+  feature {
+    key: "2d_vector_feature"
+    value { int64_list { value: [ 1, 2, 3 ] } }
+  }
+}""",
+         error_msg='got wrong number of values'),
+]
+
+_ENCODE_ERROR_CASES = [
+    dict(testcase_name='to_few_values',
+         feature_spec={
+             '2d_vector_feature': tf.FixedLenFeature([2, 2], tf.int64),
+         },
+         instance={'2d_vector_feature': [1, 2, 3]},
+         error_msg='got wrong number of values'),
+]
 
 
-  def _assert_encode_decode(self, coder, expected_proto_text, expected_decoded):
-    example = tf.train.Example()
-    text_format.Merge(expected_proto_text, example)
-    data = example.SerializeToString()
+def _ascii_to_binary(ascii_proto):
+  example = tf.train.Example()
+  text_format.Merge(ascii_proto, example)
+  return example.SerializeToString()
 
-    # Assert the data is decoded into the expected format.
-    decoded = coder.decode(data)
-    np.testing.assert_equal(expected_decoded, decoded)
 
-    # Assert the decoded data can be encoded back into the original proto.
-    encoded = coder.encode(decoded)
-    parsed_example = tf.train.Example()
-    parsed_example.ParseFromString(encoded)
-    self.assertEqual(example, parsed_example)
+def _binary_to_example(serialized_proto):
+  example = tf.train.Example()
+  example.MergeFromString(serialized_proto)
+  return example
 
-    # Assert the data can be decoded from the encoded string.
-    decoded_again = coder.decode(encoded)
-    np.testing.assert_equal(expected_decoded, decoded_again)
 
-  def _assert_decode_encode(self, coder, expected_proto_text, expected_decoded):
-    example = tf.train.Example()
-    text_format.Merge(expected_proto_text, example)
+class ExampleProtoCoderTest(test_case.TransformTestCase):
 
-    # Assert the expected decoded data can be encoded into the expected proto.
-    encoded = coder.encode(expected_decoded)
-    parsed_example = tf.train.Example()
-    parsed_example.ParseFromString(encoded)
-    self.assertEqual(example, parsed_example)
 
-    # Assert the encoded data can be decoded into the original input.
-    decoded = coder.decode(encoded)
-    np.testing.assert_equal(expected_decoded, decoded)
+  def assertSerializedProtosEqual(self, a, b):
+    self.assertEqual(_binary_to_example(a), _binary_to_example(b))
 
-    # Assert the decoded data can be encoded back into the expected proto.
-    encoded_again = coder.encode(decoded)
-    parsed_example_again = tf.train.Example()
-    parsed_example_again.ParseFromString(encoded_again)
-    np.testing.assert_equal(example, parsed_example_again)
+  @test_case.named_parameters(*(_ENCODE_DECODE_CASES + _DECODE_ONLY_CASES))
+  def test_decode(self, feature_spec, ascii_proto, instance, **kwargs):
+    schema = dataset_schema.from_feature_spec(feature_spec)
+    coder = example_proto_coder.ExampleProtoCoder(schema, **kwargs)
+    serialized_proto = _ascii_to_binary(ascii_proto)
+    np.testing.assert_equal(coder.decode(serialized_proto), instance)
 
-  def test_example_proto_coder(self):
-    # We use a single coder and invoke multiple encodes and decodes on it to
-    # make sure that cache consistency is implemented properly.
-    coder = example_proto_coder.ExampleProtoCoder(self._INPUT_SCHEMA)
+  @test_case.named_parameters(*(_ENCODE_DECODE_CASES + _ENCODE_ONLY_CASES))
+  def test_encode(self, feature_spec, ascii_proto, instance, **kwargs):
+    schema = dataset_schema.from_feature_spec(feature_spec)
+    coder = example_proto_coder.ExampleProtoCoder(schema, **kwargs)
+    serialized_proto = _ascii_to_binary(ascii_proto)
+    self.assertSerializedProtosEqual(coder.encode(instance), serialized_proto)
 
-    # Python types.
-    example_proto_text = """
-    features {
-      feature { key: "scalar_feature_1" value { int64_list { value: [ 12 ] } } }
-      feature { key: "varlen_feature_1"
-                value { float_list { value: [ 89.0 ] } } }
-      feature { key: "scalar_feature_2" value { int64_list { value: [ 12 ] } } }
-      feature { key: "scalar_feature_3"
-                value { float_list { value: [ 1.0 ] } } }
-      feature { key: "1d_vector_feature"
-                value { bytes_list { value: [ 'this is a ,text' ] } } }
-      feature { key: "2d_vector_feature"
-                value { float_list { value: [ 1.0, 2.0, 3.0, 4.0 ] } } }
-      feature { key: "varlen_feature_2"
-                value { bytes_list { value: [ 'female' ] } } }
-      feature { key: "value" value { float_list { value: [ 12.0, 20.0 ] } } }
-      feature { key: "idx" value { int64_list { value: [ 1, 4 ] } } }
-    }
-    """
-    expected_decoded = {
-        'scalar_feature_1': 12,
-        'scalar_feature_2': 12,
-        'scalar_feature_3': 1.0,
-        'varlen_feature_1': [89.0],
-        '1d_vector_feature': ['this is a ,text'],
-        '2d_vector_feature': [[1.0, 2.0], [3.0, 4.0]],
-        'varlen_feature_2': ['female'],
-        'sparse_feature': ([1, 4], [12.0, 20.0])
-    }
-    self._assert_encode_decode(coder, example_proto_text, expected_decoded)
-    self._assert_decode_encode(coder, example_proto_text, expected_decoded)
+  @test_case.named_parameters(*_DECODE_ERROR_CASES)
+  def test_decode_error(self, feature_spec, ascii_proto, error_msg,
+                        error_type=ValueError, **kwargs):
+    schema = dataset_schema.from_feature_spec(feature_spec)
+    coder = example_proto_coder.ExampleProtoCoder(schema, **kwargs)
+    serialized_proto = _ascii_to_binary(ascii_proto)
+    with self.assertRaisesRegexp(error_type, error_msg):
+      coder.decode(serialized_proto)
 
-    # Numpy types (with different values from above).
-    example_proto_text = """
-    features {
-      feature { key: "scalar_feature_1" value { int64_list { value: [ 13 ] } } }
-      feature { key: "varlen_feature_1" value { float_list { } } }
-      feature { key: "scalar_feature_2"
-                value { int64_list { value: [ 214 ] } } }
-      feature { key: "scalar_feature_3"
-                value { float_list { value: [ 2.0 ] } } }
-      feature { key: "1d_vector_feature"
-                value { bytes_list { value: [ 'this is another ,text' ] } } }
-      feature { key: "2d_vector_feature"
-                value { float_list { value: [ 9.0, 8.0, 7.0, 6.0 ] } } }
-      feature { key: "varlen_feature_2"
-                value { bytes_list { value: [ 'male' ] } } }
-      feature { key: "value" value { float_list { value: [ 13.0, 21.0 ] } } }
-      feature { key: "idx" value { int64_list { value: [ 2, 5 ] } } }
-    }
-    """
-    expected_decoded = {
-        'scalar_feature_1': np.array(13),
-        'scalar_feature_2': np.int32(214),
-        'scalar_feature_3': np.array(2.0),
-        'varlen_feature_1': np.array([]),
-        '1d_vector_feature': np.array(['this is another ,text']),
-        '2d_vector_feature': np.array([[9.0, 8.0], [7.0, 6.0]]),
-        'varlen_feature_2': np.array(['male']),
-        'sparse_feature': (np.array([2, 5]), np.array([13.0, 21.0]))
-    }
-    self._assert_encode_decode(coder, example_proto_text, expected_decoded)
-    self._assert_decode_encode(coder, example_proto_text, expected_decoded)
+  @test_case.named_parameters(*_ENCODE_ERROR_CASES)
+  def test_encode_error(self, feature_spec, instance, error_msg,
+                        error_type=ValueError, **kwargs):
+    schema = dataset_schema.from_feature_spec(feature_spec)
+    coder = example_proto_coder.ExampleProtoCoder(schema, **kwargs)
+    with self.assertRaisesRegexp(error_type, error_msg):
+      coder.encode(instance)
 
   def test_example_proto_coder_picklable(self):
-    coder = example_proto_coder.ExampleProtoCoder(self._INPUT_SCHEMA)
-
-    example_proto_text = """
+    schema = dataset_schema.from_feature_spec(_FEATURE_SPEC)
+    coder = example_proto_coder.ExampleProtoCoder(schema)
+    ascii_proto = """
     features {
       feature { key: "scalar_feature_1" value { int64_list { value: [ 12 ] } } }
       feature { key: "varlen_feature_1"
@@ -187,7 +224,7 @@ class ExampleProtoCoderTest(unittest.TestCase):
       feature { key: "idx" value { int64_list { value: [ 1, 4 ] } } }
     }
     """
-    expected_decoded = {
+    instance = {
         'scalar_feature_1': 12,
         'scalar_feature_2': 12,
         'scalar_feature_3': 2.0,
@@ -197,56 +234,12 @@ class ExampleProtoCoderTest(unittest.TestCase):
         'varlen_feature_2': ['female'],
         'sparse_feature': ([1, 4], [12.0, 20.0])
     }
-
-    # Ensure we can pickle right away.
-    coder = pickle.loads(pickle.dumps(coder))
-    self._assert_encode_decode(coder, example_proto_text, expected_decoded)
-    self._assert_decode_encode(coder, example_proto_text, expected_decoded)
-
-    #  And after use.
-    coder = pickle.loads(pickle.dumps(coder))
-    self._assert_encode_decode(coder, example_proto_text, expected_decoded)
-    self._assert_decode_encode(coder, example_proto_text, expected_decoded)
-
-  def test_example_proto_coder_unicode(self):
-    coder = example_proto_coder.ExampleProtoCoder(
-        dataset_schema.from_feature_spec({
-            'unicode_feature': tf.FixedLenFeature(shape=[], dtype=tf.string)
-        }))
-
-    encoded_example = coder.encode({'unicode_feature': u'Hello κόσμε'})
-    example = tf.train.Example()
-    example.ParseFromString(encoded_example)
-    self.assertEqual(
-        example.features.feature['unicode_feature'].bytes_list.value[0],
-        u'Hello κόσμε'.encode('utf-8'))
-
-  def test_example_proto_coder_error(self):
-    input_schema = dataset_schema.from_feature_spec({
-        '2d_vector_feature': tf.FixedLenFeature(shape=[2, 2], dtype=tf.int64),
-    })
-    coder = example_proto_coder.ExampleProtoCoder(input_schema)
-
-    example_decoded_value = {
-        '2d_vector_feature': [1, 2, 3]
-    }
-    example_proto_text = """
-    features {
-      feature { key: "1d_vector_feature"
-                value { int64_list { value: [ 1, 2, 3 ] } } }
-    }
-    """
-    example = tf.train.Example()
-    text_format.Merge(example_proto_text, example)
-
-    # Ensure that we raise an exception for trying to encode invalid data.
-    with self.assertRaisesRegexp(ValueError, 'got wrong number of values'):
-      _ = coder.encode(example_decoded_value)
-
-    # Ensure that we raise an exception for trying to parse invalid data.
-    with self.assertRaisesRegexp(ValueError, 'got wrong number of values'):
-      _ = coder.decode(example.SerializeToString())
+    serialized_proto = _ascii_to_binary(ascii_proto)
+    for _ in range(2):
+      coder = pickle.loads(pickle.dumps(coder))
+      np.testing.assert_equal(coder.decode(serialized_proto), instance)
+      self.assertSerializedProtosEqual(coder.encode(instance), serialized_proto)
 
 
 if __name__ == '__main__':
-  unittest.main()
+  test_case.main()

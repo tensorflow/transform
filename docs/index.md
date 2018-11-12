@@ -1,6 +1,6 @@
 <!-- See: www.tensorflow.org/tfx/transform/ -->
 
-# TensorFlow Transform [![PyPI](https://img.shields.io/pypi/pyversions/tensorflow-transform.svg?style=plastic)](https://github.com/tensorflow/transform)
+# TensorFlow Transform
 
 *TensorFlow Transform* is a library for preprocessing data with TensorFlow.
 `tf.Transform` is useful for data that requires a full-pass, such as:
