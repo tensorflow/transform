@@ -21,17 +21,18 @@ __version__ = '0.12.0dev'
 
 
 def _make_required_install_packages():
+  # Make sure to sync the versions of common dependencies (absl-py, numpy,
+  # six, and protobuf) with TF.
   return [
       'absl-py>=0.1.6',
       'apache-beam[gcp]>=2.8,<3',
       'numpy>=1.13.3,<2',
 
-      # TF now requires protobuf>=3.6.0.
       'protobuf>=3.6.0,<4',
 
       'six>=1.10,<2',
 
-      'tensorflow-metadata>=0.9,<1',
+      'tensorflow-metadata>=0.9,<0.10',
 
   ]
 
@@ -83,4 +84,7 @@ setup(
     include_package_data=True,
     description='A library for data preprocessing with TensorFlow',
     long_description=_LONG_DESCRIPTION,
+    keywords='tensorflow transform tfx',
+    url='https://www.tensorflow.org/tfx/transform',
+    download_url='https://pypi.org/project/tensorflow-transform',
     requires=[])
