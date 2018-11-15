@@ -32,11 +32,11 @@ _COLUMNS = [
 ]
 
 _FEATURE_SPEC = {
-    'numeric1': tf.FixedLenFeature(shape=[], dtype=tf.int64),
-    'numeric2': tf.VarLenFeature(dtype=tf.float32),
-    'numeric3': tf.FixedLenFeature(shape=[1], dtype=tf.int64),
-    'text1': tf.FixedLenFeature(shape=[], dtype=tf.string),
-    'category1': tf.VarLenFeature(dtype=tf.string),
+    'numeric1': tf.FixedLenFeature([], tf.int64),
+    'numeric2': tf.VarLenFeature(tf.float32),
+    'numeric3': tf.FixedLenFeature([1], tf.int64),
+    'text1': tf.FixedLenFeature([], tf.string),
+    'category1': tf.VarLenFeature(tf.string),
     'y': tf.SparseFeature('idx', 'value', tf.float32, 10),
 }
 
@@ -83,10 +83,10 @@ _ENCODE_DECODE_CASES = [
          columns=[
              'numeric1', 'category1', 'idx', 'numeric2', 'value', 'numeric3'],
          feature_spec={
-             'numeric1': tf.FixedLenFeature(shape=[2], dtype=tf.int64),
-             'numeric2': tf.VarLenFeature(dtype=tf.float32),
-             'numeric3': tf.FixedLenFeature(shape=[1], dtype=tf.int64),
-             'category1': tf.VarLenFeature(dtype=tf.string),
+             'numeric1': tf.FixedLenFeature([2], tf.int64),
+             'numeric2': tf.VarLenFeature(tf.float32),
+             'numeric3': tf.FixedLenFeature([1], tf.int64),
+             'category1': tf.VarLenFeature(tf.string),
              'y': tf.SparseFeature('idx', 'value', tf.float32, 10),
          },
          csv_line=('11|12,categorical_value|other_value,1|3,89.0|91.0,'
