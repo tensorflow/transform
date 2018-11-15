@@ -1,6 +1,6 @@
 <!-- See: www.tensorflow.org/tfx/transform/ -->
 
-% setvar github_path %}tensorflow/transform{% endsetvar %} {% include
+{% setvar github_path %}tensorflow/transform{% endsetvar %} {% include
 "_templates/github-bug.html" %}
 
 # TensorFlow Transform
