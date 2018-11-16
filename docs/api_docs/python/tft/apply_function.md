@@ -14,7 +14,7 @@ tft.apply_function(
 
 Deprecated function, equivalent to fn(*args). (deprecated)
 
-THIS FUNCTION IS DEPRECATED. It will be removed in a future version.
+Warning: THIS FUNCTION IS DEPRECATED. It will be removed in a future version.
 Instructions for updating:
 apply_function is no longer needed.  `apply_function(fn, *args)` is now equvalent to `fn(*args)`
 

@@ -80,21 +80,11 @@ def _ApplyFrequencyThresholdAndTopK(counts,  # pylint: disable=invalid-name
     # AsIter in order_elements below. By breaking fusion, we allow sharded
     # files' sizes to be automatically computed (when possible), so we end up
     # reading from fewer and larger files. This is not needed when top_k is
-    # provided since that already induces a single-sharded output (due to the
-    # CombineGlobaly).
+    # provided since that already induces a single-sharded output.
     counts |= 'Reshard' >> beam.transforms.Reshuffle()  # pylint: disable=no-value-for-parameter
   else:
     counts = (counts
-              | 'Top(%s)' % top_k
-              # Using without_defaults() below since it obviates unnecessary
-              # materializations. This is worth doing because:
-              # a) Some vocabs could be really large and allthough they do fit
-              #    in memory they might go over per-record materialization
-              #    limits (TopCombineFn is producing single-record with the
-              #    entire vocabulary as a list).
-              # b) More fusion leads to increased performance in general.
-              >> beam.CombineGlobally(
-                  beam.combiners.TopCombineFn(top_k)).without_defaults()
+              | 'Top(%s)' % top_k >> beam.combiners.Top.Of(top_k)
               | 'FlattenList' >> beam.FlatMap(lambda lst: lst))
   return counts
 

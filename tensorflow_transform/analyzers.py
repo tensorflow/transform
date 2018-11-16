@@ -949,12 +949,31 @@ class QuantilesCombiner(attributes_classes.Combiner):
                epsilon,
                bucket_numpy_dtype,
                always_return_num_quantiles=False,
-               has_weights=False):
+               has_weights=False,
+               include_max_and_min=False):
+    """Initializer.
+
+    Args:
+      num_quantiles: See param `num_buckets` of quantiles().
+      epsilon: See param `epsilon` of quantiles().
+      bucket_numpy_dtype: numpy dtype of the quantile boundaries.
+      always_return_num_quantiles: if True, always produce the requested number
+        of buckets.
+      has_weights: whether the input is weighted.
+      include_max_and_min: if True, the produced bucket boundaries will contain
+        the max and the min of the PCollection (as result[0] and result[-1]).
+        As a result, if `always_return_num_quantiles` is True, there are
+        num_quantiles + 1 bucket boundaries to be produced.
+        Note that to descretize a value to exactly num_quantiles with
+        tft.ApplyBuckets(), you need num_quantiles - 1 bucket boundaries, in
+        which case this flag should be set to True.
+    """
     self._num_quantiles = num_quantiles
     self._epsilon = epsilon
     self._bucket_numpy_dtype = bucket_numpy_dtype
     self._always_return_num_quantiles = always_return_num_quantiles
     self._has_weights = has_weights
+    self._include_max_and_min = include_max_and_min
 
   def initialize_local_state(self, tf_config=None):
     """Called by the CombineFnWrapper's __init__ method.
@@ -1108,28 +1127,25 @@ class QuantilesCombiner(attributes_classes.Combiner):
     self._session.run(self._flush_op)
     buckets = self._session.run(self._buckets_op)
 
-    # Quantile boundaries is a list of the form
-    #    [np.ndarrary(min, <internal-boundaries>, max)]
-    # If always_return_num_quantiles is set to True, the number of elements in
-    # buckets is always equal to num_quantiles + 1. Hence we trim the min and
-    # max quantile boundaries to return the internal boundaries.
-    if self._always_return_num_quantiles:
-      return [buckets[1:-1]]
-
-    # If always_return_num_quantiles is set to False, the approximate quantile
-    # library can return less or more than requested number of quantiles.
-    # The max value can be same as the last internal boundary, due to removal
-    # of duplicates. Below, the min and/or max quantile boundaries are trimmed
-    # depending on the actual boundaries returned by the library.
-    if buckets.size >= (self._num_quantiles + 1):
-      # Trim min/max.
-      buckets = buckets[1:-1]
-    elif buckets.size == self._num_quantiles:
-      # Trim min only.
-      buckets = buckets[1:]
-    else:
-      # Do not trim min/max, these are part of requested boundaries.
-      pass
+    if not self._include_max_and_min:
+      # If always_return_num_quantiles is set to True, the number of elements in
+      # buckets is always equal to num_quantiles + 1. Hence we trim the min and
+      # max quantile boundaries to return the internal boundaries.
+      if self._always_return_num_quantiles:
+        buckets = buckets[1:-1]
+      # If always_return_num_quantiles is set to False, the approximate quantile
+      # library can return less or more than requested number of quantiles.
+      # The max value can be same as the last internal boundary, due to removal
+      # of duplicates. Below, the min and/or max quantile boundaries are trimmed
+      # depending on the actual boundaries returned by the library.
+      elif buckets.size >= (self._num_quantiles + 1):
+        # Trim min/max.
+        buckets = buckets[1:-1]
+      elif buckets.size == self._num_quantiles:
+        buckets = buckets[1:]
+      else:
+        # Do not trim min/max, these are part of requested boundaries.
+        pass
 
     return [buckets]
 

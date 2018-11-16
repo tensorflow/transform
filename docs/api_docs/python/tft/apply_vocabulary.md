@@ -38,10 +38,10 @@ files. This behavior will likely be fixed/improved in the future.
 * <b>`num_oov_buckets`</b>:  Any lookup of an out-of-vocabulary token will return a
     bucket ID based on its hash if `num_oov_buckets` is greater than zero.
     Otherwise it is assigned the `default_value`.
-* <b>`lookup_fn`</b>: Optional lookup function, if specified it should take a
-    tensor and a deferred vocab filename as an input and return a lookup `op`
-    along with the table size, by default `apply_vocab` performs a
-    lookup.string_to_index_table_from_file for the table lookup.
+* <b>`lookup_fn`</b>: Optional lookup function, if specified it should take a tensor
+    and a deferred vocab filename as an input and return a lookup `op` along
+    with the table size, by default `apply_vocab` performs a
+    lookup_ops.index_table_from_file for the table lookup.
 * <b>`name`</b>: (Optional) A name for this operation.
 
 

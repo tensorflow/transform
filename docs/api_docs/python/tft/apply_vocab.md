@@ -18,6 +18,6 @@ tft.apply_vocab(
 
 See <a href="../tft/apply_vocabulary.md"><code>tft.apply_vocabulary</code></a>. (deprecated)
 
-THIS FUNCTION IS DEPRECATED. It will be removed in a future version.
+Warning: THIS FUNCTION IS DEPRECATED. It will be removed in a future version.
 Instructions for updating:
 Use `tft.apply_vocabulary()` instead.

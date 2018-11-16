@@ -20,6 +20,6 @@ tft.uniques(
 
 See <a href="../tft/vocabulary.md"><code>tft.vocabulary</code></a>. (deprecated)
 
-THIS FUNCTION IS DEPRECATED. It will be removed in a future version.
+Warning: THIS FUNCTION IS DEPRECATED. It will be removed in a future version.
 Instructions for updating:
 Use `tft.vocabulary()` instead.

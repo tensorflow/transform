@@ -21,6 +21,6 @@ tft.string_to_int(
 
 See <a href="../tft/compute_and_apply_vocabulary.md"><code>tft.compute_and_apply_vocabulary</code></a>. (deprecated)
 
-THIS FUNCTION IS DEPRECATED. It will be removed in a future version.
+Warning: THIS FUNCTION IS DEPRECATED. It will be removed in a future version.
 Instructions for updating:
 Use `tft.compute_and_apply_vocabulary()` instead.

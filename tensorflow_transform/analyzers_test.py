@@ -189,6 +189,20 @@ _QUANTILES_EXACT_NO_ELEMENTS_TEST = dict(
     expected_outputs=[np.zeros((4,), dtype=np.float32)],
 )
 
+_QUANTILES_NO_TRIM_TEST = dict(
+    testcase_name='NoTrimQuantilesTest',
+    combiner=analyzers.QuantilesCombiner(
+        num_quantiles=4,
+        epsilon=0.00001,
+        bucket_numpy_dtype=np.float32,
+        always_return_num_quantiles=True,
+        include_max_and_min=True),
+    batches=[
+        (np.array([1, 1]),),
+    ],
+    expected_outputs=[np.array([1, 1, 1, 1, 1], dtype=np.float32)],
+)
+
 _QUANTILES_SINGLE_BATCH_TESTS = [
     dict(
         testcase_name='ComputeQuantilesSingleBatch-{}'.format(np_type),
@@ -279,6 +293,7 @@ class AnalyzersTest(test_case.TransformTestCase):
       _MEAN_AND_VAR_BIG_TEST,
       _MEAN_AND_VAR_VECTORS_TEST,
       _QUANTILES_NO_ELEMENTS_TEST,
+      _QUANTILES_NO_TRIM_TEST,
       _QUANTILES_EXACT_NO_ELEMENTS_TEST,
   ] + _QUANTILES_SINGLE_BATCH_TESTS + _QUANTILES_MULTIPLE_BATCH_TESTS +
                               _EXACT_NUM_QUANTILES_TESTS)

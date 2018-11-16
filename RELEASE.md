@@ -1,6 +1,7 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
+* Performance improvements for vocabulary generation when using top_k.
 
 ## Bug Fixes and Other Changes
 
