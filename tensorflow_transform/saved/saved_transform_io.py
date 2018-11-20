@@ -43,7 +43,9 @@ def _update_legacy_signature(signature):
     signature: A SignatureDef.
   """
   for tensor_info_map in [signature.inputs, signature.outputs]:
-    for original_name, original_tensor_info in tensor_info_map.items():
+    # It is necessary to make a copy of tensor_info_map.items() since we need to
+    # modify tensor_info_map while iterating it.
+    for original_name, original_tensor_info in list(tensor_info_map.items()):
       match = _MANGLED_TENSOR_NAME_RE.match(original_name)
       if not match:
         continue

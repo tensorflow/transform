@@ -1763,6 +1763,73 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_metadata,
         expected_vocab_file_contents=expected_vocab_file_contents)
 
+  def testVocabularyAnalyzerWithLabelsAndFrequencyAndAdjustedMutualInfo(self):
+    input_data = [{
+        'a': 'hello',
+        'labels': 1
+    }, {
+        'a': 'hello',
+        'labels': 1
+    }, {
+        'a': 'hello',
+        'labels': 1
+    }, {
+        'a': 'goodbye',
+        'labels': 1
+    }, {
+        'a': 'aaaaa',
+        'labels': 1
+    }, {
+        'a': 'aaaaa',
+        'labels': 1
+    }, {
+        'a': 'goodbye',
+        'labels': 0
+    }, {
+        'a': 'goodbye',
+        'labels': 0
+    }, {
+        'a': 'aaaaa',
+        'labels': 1
+    }, {
+        'a': 'aaaaa',
+        'labels': 1
+    }, {
+        'a': 'goodbye',
+        'labels': 1
+    }, {
+        'a': 'goodbye',
+        'labels': 0
+    }]
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string),
+        'labels': tf.FixedLenFeature([], tf.int64)
+    })
+    expected_metadata = input_metadata
+
+    def preprocessing_fn(inputs):
+      tft.vocabulary(
+          inputs['a'],
+          labels=inputs['labels'],
+          store_frequency=True,
+          vocab_filename='my_vocab',
+          use_adjusted_mutual_info=True)
+      return inputs
+
+    expected_data = input_data
+    expected_vocab_file_contents = {
+        'my_vocab': [('goodbye', 1.4070791), ('aaaaa', 0.9987449),
+                     ('hello', 0.5017179)]
+    }
+
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata,
+        expected_vocab_file_contents=expected_vocab_file_contents)
+
   def testVocabularyAnalyzerWithLabelsAndWeights(self):
     input_data = [
         {'a': 'hello', 'weights': .3, 'labels': 1},

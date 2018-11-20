@@ -30,6 +30,7 @@ from __future__ import print_function
 
 import abc
 import collections
+from future.utils import with_metaclass
 
 
 class ValueNode(collections.namedtuple(
@@ -134,10 +135,8 @@ def apply_multi_output_operation(operation_def_cls, *args, **kwargs):
   return OperationNode(operation_def_cls(**kwargs), args).outputs
 
 
-class Visitor(object):
+class Visitor(with_metaclass(abc.ABCMeta, object)):
   """Class to visit nodes in the graph."""
-
-  __metaclass__ = abc.ABCMeta
 
   @abc.abstractmethod
   def validate_value(self, value):

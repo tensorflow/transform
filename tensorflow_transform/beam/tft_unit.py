@@ -13,11 +13,16 @@
 # limitations under the License.
 """Library for testing Tensorflow Transform."""
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import os
 import tempfile
 
 
 import apache_beam as beam
+from builtins import zip  # pylint: disable=redefined-builtin
 
 import numpy as np
 import six
@@ -182,10 +187,10 @@ class TransformTestCase(test_case.TransformTestCase):
             frequency, word = content.split(' ', 1)
             word_and_frequency_list.append((word.strip('\n'),
                                             float(frequency.strip('\n'))))
-          self.assertAllEqual(
-              zip(*word_and_frequency_list)[0], zip(*file_contents)[0])
-          np.testing.assert_almost_equal(
-              zip(*word_and_frequency_list)[1], zip(*file_contents)[1])
+          expected_words, expected_frequency = zip(*word_and_frequency_list)
+          actual_words, actual_frequency = zip(*file_contents)
+          self.assertAllEqual(expected_words, actual_words)
+          np.testing.assert_almost_equal(expected_frequency, actual_frequency)
         else:
           file_lines = [content.strip('\n') for content in file_lines]
           self.assertAllEqual(file_lines, file_contents)

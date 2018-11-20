@@ -5,6 +5,10 @@
 
 ## Bug Fixes and Other Changes
 
+* 'tft.vocabulary' and 'tft.compute_and_apply_vocabulary' now support filtering
+  based on adjusted mutual information when `use_adjusetd_mutual_info` is set to
+  True.
+
 ## Breaking changes
 
 ## Deprecations

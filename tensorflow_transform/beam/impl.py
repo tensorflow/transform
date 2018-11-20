@@ -65,6 +65,10 @@ entrypoints into our code where this happens and creating a
 4) In extract_scalar_constants, which is called in a beam.Map.
 """
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import collections
 import copy
 import datetime
@@ -96,9 +100,10 @@ from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
-_DATASET_ELEMENT_TYPE = Dict[str, Union[common.PRIMITIVE_TYPE,
-                                        # Arbitrarily-nested lists are allowed.
-                                        List[Any], np.generic, np.ndarray]]
+_DATASET_ELEMENT_TYPE = Dict[six.text_type,
+                             Union[common.PRIMITIVE_TYPE,
+                                   # Arbitrarily-nested lists are allowed.
+                                   List[Any], np.generic, np.ndarray]]
 
 
 

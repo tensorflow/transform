@@ -20,6 +20,7 @@ from __future__ import print_function
 import abc
 import collections
 import contextlib
+from future.utils import with_metaclass
 import six
 
 import tensorflow as tf
@@ -199,10 +200,8 @@ class ColumnSchema(object):
     return True
 
 
-class Domain(object):
+class Domain(with_metaclass(abc.ABCMeta, object)):
   """A description of the valid values that a column can take."""
-
-  __metaclass__ = abc.ABCMeta
 
   def __init__(self, dtype):
     self._dtype = tf.as_dtype(dtype)

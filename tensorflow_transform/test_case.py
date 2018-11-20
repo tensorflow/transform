@@ -13,12 +13,17 @@
 # limitations under the License.
 """Library for Tensorflow Transform test cases."""
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import inspect
 
 
 from absl.testing import parameterized
 
 import numpy as np
+import six
 import tensorflow as tf
 from tensorflow.python.framework import test_util
 
@@ -98,8 +103,9 @@ class TransformTestCase(parameterized.TestCase, test_util.TensorFlowTestCase):
 
   def _assertValuesCloseOrEqual(self, a_value, b_value, msg=None):
     try:
-      if (isinstance(a_value, str) or isinstance(a_value, list) and a_value and
-          isinstance(a_value[0], str) or
+      if (isinstance(a_value, (six.binary_type, six.text_type)) or
+          isinstance(a_value, list) and a_value and
+          isinstance(a_value[0], (six.binary_type, six.text_type)) or
           isinstance(a_value, np.ndarray) and a_value.dtype == np.object):
         self.assertAllEqual(a_value, b_value)
       else:

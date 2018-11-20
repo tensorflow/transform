@@ -807,14 +807,16 @@ def _get_top_k_and_frequency_threshold(top_k, frequency_threshold):
   return top_k, frequency_threshold
 
 
-def vocabulary(x,
-               top_k=None,
-               frequency_threshold=None,
-               vocab_filename=None,
-               store_frequency=False,
-               weights=None,
-               labels=None,
-               name=None):
+def vocabulary(
+    x,
+    top_k=None,
+    frequency_threshold=None,
+    vocab_filename=None,
+    store_frequency=False,
+    weights=None,
+    labels=None,
+    use_adjusted_mutual_info=False,
+    name=None):
   r"""Computes the unique values of a `Tensor` over the whole dataset.
 
   Computes The unique values taken by `x`, which can be a `Tensor` or
@@ -858,6 +860,7 @@ def vocabulary(x,
       same shape as x.
     labels: (Optional) Labels `Tensor` for the vocabulary. It must have dtype
       int64, have values 0 or 1, and have the same shape as x.
+    use_adjusted_mutual_info: If true, use adjusted mutual information.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -904,8 +907,12 @@ def vocabulary(x,
       analyzer_inputs = [unique_inputs]
 
     attributes = attributes_classes.Vocabulary(
-        top_k, frequency_threshold, vocab_filename, store_frequency,
+        top_k,
+        frequency_threshold,
+        vocab_filename,
+        store_frequency,
         vocab_ordering_type,
+        use_adjusted_mutual_info,
         scope)
 
     result = tf.placeholder(tf.string, [])

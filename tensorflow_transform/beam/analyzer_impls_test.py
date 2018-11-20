@@ -66,6 +66,30 @@ class AnalyzerImplsTest(tft_unit.TransformTestCase):
     self.assertAllEqual(merged_outputs_pcolls[2][0],
                         np.array([[21, 22], [24, 25]]))
 
+  def testHypergeometricPmf(self):
+    expected_results = [(0, 0.75), (1, 0.25)]
+    results = list(analyzer_impls._hypergeometric_pmf(4, 1, 1))
+    for expected_result, result in zip(expected_results, results):
+      self.assertEqual(expected_result[0], result[0])
+      self.assertNear(expected_result[1], result[1], 1e-6)
+
+  def testHypergeometricPmf_LargeN(self):
+    expected_results = [(0, 0.9508937), (1, 0.0482198), (2, 0.0008794),
+                        (3, 7.1e-06), (4, 2.5e-08), (5, 0.0)]
+    results = list(analyzer_impls._hypergeometric_pmf(1000, 5, 10))
+    for expected_result, result in zip(expected_results, results):
+      self.assertEqual(expected_result[0], result[0])
+      self.assertNear(expected_result[1], result[1], 1e-6)
+
+  def testHypergeometricPmf_SumUpToOne(self):
+    for x in range(1000, 10000):
+      probs = [
+          prob
+          for _, prob in analyzer_impls._hypergeometric_pmf(10000, x, 1000)
+      ]
+      sum_prob = sum(probs)
+      self.assertNear(sum_prob, 1.0, 1e-6)
+
 
 if __name__ == '__main__':
   unittest.main()

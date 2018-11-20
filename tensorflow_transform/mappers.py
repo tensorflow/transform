@@ -408,15 +408,17 @@ def _count_docs_with_term(term_frequency):
   return tf.expand_dims(out, 0)
 
 
-def compute_and_apply_vocabulary(x,
-                                 default_value=-1,
-                                 top_k=None,
-                                 frequency_threshold=None,
-                                 num_oov_buckets=0,
-                                 vocab_filename=None,
-                                 weights=None,
-                                 labels=None,
-                                 name=None):
+def compute_and_apply_vocabulary(
+    x,
+    default_value=-1,
+    top_k=None,
+    frequency_threshold=None,
+    num_oov_buckets=0,
+    vocab_filename=None,
+    weights=None,
+    labels=None,
+    use_adjusted_mutual_info=False,
+    name=None):
   r"""Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
   In case one of the tokens contains the '\n' or '\r' characters or is empty it
@@ -453,6 +455,7 @@ def compute_and_apply_vocabulary(x,
       same shape as x.
     labels: (Optional) Labels `Tensor` for the vocabulary. It must have dtype
       int64, have values 0 or 1, and have the same shape as x.
+    use_adjusted_mutual_info: If true, use adjusted mutual information.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -472,6 +475,7 @@ def compute_and_apply_vocabulary(x,
         vocab_filename=vocab_filename,
         weights=weights,
         labels=labels,
+        use_adjusted_mutual_info=use_adjusted_mutual_info,
         name=name)
     return apply_vocabulary(
         x, deferred_vocab_and_filename, default_value, num_oov_buckets)

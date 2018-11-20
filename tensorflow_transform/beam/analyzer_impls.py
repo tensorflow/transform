@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import math
 import os
 
 
@@ -130,6 +131,7 @@ class VocabularyImpl(beam.PTransform):
     self._vocab_ordering_type = attributes.vocab_ordering_type
     self._name = attributes.name
     self._base_temp_dir = base_temp_dir
+    self._use_adjusted_mutual_info = attributes.use_adjusted_mutual_info
 
   def default_label(self):
     return 'VocabularyImpl[{}]'.format(self._name)
@@ -151,7 +153,7 @@ class VocabularyImpl(beam.PTransform):
 
     def is_problematic_string(kv):
       string, _ = kv  # Ignore counts.
-      return string and '\n' not in string and '\r' not in string
+      return string and b'\n' not in string and b'\r' not in string
 
     if (self._vocab_ordering_type ==
         tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION):
@@ -182,7 +184,8 @@ class VocabularyImpl(beam.PTransform):
               CountAndWeightsMeansCombineFn())
           | 'CalculateMutualInformationPerUniqueWord' >> beam.Map(
               _calculate_mutual_information,
-              global_accumulator=beam.pvalue.AsSingleton(count_and_means)))
+              global_accumulator=beam.pvalue.AsSingleton(count_and_means),
+              use_adjusted_mutual_info=self._use_adjusted_mutual_info))
     elif (self._vocab_ordering_type ==
           tf_utils.VocabOrderingType.WEIGHTED_FREQUENCY):
       flatten_map_fn = _flatten_value_and_weights_to_list_of_tuples
@@ -247,48 +250,143 @@ def _clip_probability(p):
   return p, 1 - p
 
 
-def _calculate_mutual_information(feature_and_accumulator, global_accumulator):
-  """Calculates the mutual information of a feature.
+def _calculate_mutual_information(feature_and_accumulator, global_accumulator,
+                                  use_adjusted_mutual_info):
+  """Calculates the (adjusted) mutual information of a feature.
 
-  H(x, y) = (feature_sum_weights *
+  Mutual information H(x, y) = (feature_sum_weights *
              [(P(y|x)*log2(P(y|x)/P(y))) + (P(~y|x)*log2(P(~y|x)/P(~y)))])
   x is feature and y is label. feature_sum_weights instead of p_x is used,
   as this makes the "mutual_information" more interpretable.
   If we don't divide by global_sum_weights, it can be though of as an "adjusted"
   weighted count.
 
+  Adjusted mutual information AMI(x, y) = MI(x, y) - EMI(x, y)
+  x is the feature and y is label. It's calculated by subtracting the expected
+  mutual information (EMI) from mutual information. The calculation is based on
+  the following paper:
+
+  Vinh, N. X.; Epps, J.; Bailey, J. (2009). "Information theoretic measures for
+  clusterings comparison". Proceedings of the 26th Annual International Confere
+  nce on Machine Learning - ICML '09. p. 1.
+  doi:10.1145/1553374.1553511. ISBN 9781605585161.
+
+  Short summary can be found in the Wikipedia link:
+  https://en.wikipedia.org/wiki/Adjusted_mutual_information
+
   Args:
     feature_and_accumulator: A tuple of the form:
     (feature, (_CountAndWeightsMeansAccumulator)) where: `feature` is a single
       string, which is the word in the vocabulary whose mutual information with
-      the label is beingcomputed. `weighted_mean` is the weighted mean positive
+      the label is being computed. `weighted_mean` is the weighted mean positive
       given x. `count` is the count of weights for a feature. `weights_mean`is
       the mean of the weights for a feature.
     global_accumulator: A _CountAndWeightsMeansAccumulator where:
       `weighted_mean` is the weighted mean of positive labels for all features.
       `count` is the count for all features. `mean` is the mean of the weights
       for all features.
+    use_adjusted_mutual_info: If set to True, use adjusted mutual information.
 
   Returns:
     The feature and its mutual information.
   """
   feature, current_accumulator = feature_and_accumulator
-  feature_sum_weights = (
-      current_accumulator.count * current_accumulator.weights_mean)
-  global_sum_weights = (
-      global_accumulator.count * global_accumulator.weights_mean)
-  if global_sum_weights == 0:
-    return float('NaN')
-  weighted_mean_positive_given_x, weighted_mean_negative_given_x = (
-      _clip_probability(current_accumulator.weighted_mean))
-  weighted_mean_positive, weighted_mean_negative = _clip_probability(
-      global_accumulator.weighted_mean)
-  mutual_information = feature_sum_weights * (
-      (weighted_mean_positive_given_x * np.log2(
-          weighted_mean_positive_given_x / weighted_mean_positive)) +
-      (weighted_mean_negative_given_x * np.log2(
-          weighted_mean_negative_given_x / weighted_mean_negative)))
-  return (feature, mutual_information)
+  x = (current_accumulator.count * current_accumulator.weights_mean)
+  N = (global_accumulator.count * global_accumulator.weights_mean)  # pylint: disable=invalid-name
+  if N == 0:
+    return (feature, float('NaN'))
+
+  n_1, n_0 = [
+      weighted_mean * current_accumulator.weights_mean *
+      current_accumulator.count
+      for weighted_mean in _clip_probability(current_accumulator.weighted_mean)
+  ]
+  y_1, y_0 = [
+      weighted_mean * global_accumulator.weights_mean * global_accumulator.count
+      for weighted_mean in _clip_probability(global_accumulator.weighted_mean)
+  ]
+  mutual_information = (
+      n_1 * (np.log2(n_1) + np.log2(N) - np.log2(y_1) - np.log2(x)) +
+      n_0 * (np.log2(n_0) + np.log2(N) - np.log2(y_0) - np.log2(x)))
+
+  if use_adjusted_mutual_info:
+    expected_mutual_information = (
+        _calculate_expteced_mutual_information_per_label(N, x, y_1) +
+        _calculate_expteced_mutual_information_per_label(N, x, y_0))
+
+    return (feature, mutual_information - expected_mutual_information)
+  else:
+    return (feature, mutual_information)
+
+
+def _calculate_expteced_mutual_information_per_label(N, x, y_j):  # pylint: disable=invalid-name
+  """Calculates the expected mutual information of a feature and a label.
+
+    EMI(x, y) = sum_{n_ij = max(0, x_i + y_j - N) to min(x_i, y_j)} (
+      n_ij / N * log2((N * n_ij / (x_i * y_j))
+      * ((x_i! * y_j! * (N - x_i)! * (N - y_j)!) /
+      (N! * n_ij! * (x_i - n_ij)! * (y_j - n_ij)! * (N - x_i - y_j + n_ij)!)))
+    where n_ij is the joint count of feature and label, x_i is the count for
+    feature x, y_j is the count for label y, and N represents total count.
+
+    Note: In the paper, expected mutual information is calculated by summing
+    over both i and j, but here we don't count the consitrbution of the case i=0
+    (where the feature is not present), and this is consistent with how mutual
+    information is computed.
+
+  Args:
+    N: The sum of weights for all features.
+    x: The sum of weights for the feature whose expected mutual information is
+      computed.
+    y_j: The sum of weights for positive (or negative) labels for all features.
+
+  Returns:
+    Calculated expected mutual information.
+  """
+  coefficient = (-np.log2(x) - np.log2(y_j) + np.log2(N))
+  sum_probability = 0.0
+  partial_result = 0.0
+  for n_j, p_j in _hypergeometric_pmf(N, x, y_j):
+    if n_j != 0:
+      partial_result += n_j * (coefficient + np.log2(n_j)) * p_j
+    sum_probability += p_j
+  # With approximate calculations for log2(x) and exp2(x) with large x, need a
+  # correction to the probablity approximation.
+  return partial_result / sum_probability
+
+
+def _hypergeometric_pmf(N, x, y_j):  # pylint: disable=invalid-name
+  """Probablity for expectation computation under hypergeometric distribution.
+
+  Args:
+    N: The sum of weights for all features.
+    x: The sum of weights for the feature whose expected mutual information is
+      computed.
+    y_j: The sum of weights for positive (or negative) labels for all features.
+
+  Yields:
+    Calculated coefficient, numerator and denominator for hypergeometric
+    distribution.
+  """
+  start = int(max(0, N - (N - x) - (N - y_j)))
+  end = int(min(x, y_j))
+  numerator = (
+      _logfactorial(x) + _logfactorial(y_j) + _logfactorial(N - x) +
+      _logfactorial(N - y_j))
+  denominator = (
+      _logfactorial(N) + _logfactorial(start) + _logfactorial(x - start) +
+      _logfactorial(y_j - start) + _logfactorial(N - x - y_j + start))
+  for n_j in range(start, end + 1):
+    p_j = np.exp(numerator - denominator)
+    denominator += (
+        np.log(n_j + 1) - np.log(x - n_j) - np.log(y_j - n_j) +
+        np.log(N - x - y_j + n_j + 1))
+    yield n_j, p_j
+
+
+def _logfactorial(n):
+  """Calculate natural logarithm of n!."""
+  return math.lgamma(n + 1)
 
 
 class _CountAndWeightsMeansAccumulator(
@@ -512,7 +610,7 @@ def _merge_outputs_by_key(keys_and_outputs, num_outputs):
   # keys and a list of outputs (where the outer dimension is the number of
   # outputs not the number of keys).
   key, outputs = zip(*keys_and_outputs)
-  outputs = zip(*outputs)
+  outputs = list(zip(*outputs))
   # key is a list of scalars so we use np.stack to convert a single array.
   yield beam.pvalue.TaggedOutput('key', np.stack(key, axis=0))
   if len(outputs) != num_outputs:
