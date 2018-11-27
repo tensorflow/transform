@@ -1763,6 +1763,72 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_metadata,
         expected_vocab_file_contents=expected_vocab_file_contents)
 
+  def testVocabularyAnalyzerWithLabelsAndFrequencyAndMinDiffFromAvg(self):
+    input_data = [{
+        'a': 'hello',
+        'labels': 1
+    }, {
+        'a': 'hello',
+        'labels': 1
+    }, {
+        'a': 'hello',
+        'labels': 1
+    }, {
+        'a': 'goodbye',
+        'labels': 1
+    }, {
+        'a': 'aaaaa',
+        'labels': 1
+    }, {
+        'a': 'aaaaa',
+        'labels': 1
+    }, {
+        'a': 'goodbye',
+        'labels': 0
+    }, {
+        'a': 'goodbye',
+        'labels': 0
+    }, {
+        'a': 'aaaaa',
+        'labels': 1
+    }, {
+        'a': 'aaaaa',
+        'labels': 1
+    }, {
+        'a': 'goodbye',
+        'labels': 1
+    }, {
+        'a': 'goodbye',
+        'labels': 0
+    }]
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string),
+        'labels': tf.FixedLenFeature([], tf.int64)
+    })
+    expected_metadata = input_metadata
+
+    def preprocessing_fn(inputs):
+      tft.vocabulary(
+          inputs['a'],
+          labels=inputs['labels'],
+          store_frequency=True,
+          vocab_filename='my_vocab',
+          min_diff_from_avg=2.0)
+      return inputs
+
+    expected_data = input_data
+    expected_vocab_file_contents = {
+        'my_vocab': [('hello', 0.0), ('goodbye', 0.0), ('aaaaa', 0.0)]
+    }
+
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata,
+        expected_vocab_file_contents=expected_vocab_file_contents)
+
   def testVocabularyAnalyzerWithLabelsAndFrequencyAndAdjustedMutualInfo(self):
     input_data = [{
         'a': 'hello',
@@ -3077,6 +3143,359 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     self._assert_quantile_boundaries(
         inputs, expected_boundaries, tf.float32, num_buckets=5)
+
+  class _SumCombiner(beam.PTransform):
+
+    @staticmethod
+    def _flatten_fn(batch_values):
+      for value in zip(*batch_values):
+        yield value
+
+    @staticmethod
+    def _sum_fn(values):
+      return np.sum(list(values), axis=0)
+
+    @staticmethod
+    def _extract_outputs(sums):
+      return [beam.pvalue.TaggedOutput('0', sums[0]),
+              beam.pvalue.TaggedOutput('1', sums[1])]
+
+    def expand(self, pcoll):
+      output_tuple = (
+          pcoll
+          | beam.FlatMap(self._flatten_fn)
+          | beam.CombineGlobally(self._sum_fn)
+          | beam.FlatMap(self._extract_outputs).with_outputs('0', '1'))
+      return (output_tuple['0'], output_tuple['1'])
+
+  def testPTransformAnalyzer(self):
+
+    def analyzer_fn(inputs):
+      outputs = analyzers.ptransform_analyzer([inputs['x'], inputs['y']],
+                                              [tf.int64, tf.int64],
+                                              [[], []],
+                                              self._SumCombiner())
+      return {'x_sum': outputs[0], 'y_sum': outputs[1]}
+
+    # NOTE: We force 10 batches: data has 100 elements and we request a batch
+    # size of 10.
+    input_data = [{'x': 1, 'y': i} for i in range(100)]
+    input_metadata = _metadata_from_feature_spec({
+        'x': tf.FixedLenFeature([], tf.int64),
+        'y': tf.FixedLenFeature([], tf.int64)
+    })
+    expected_outputs = {
+        'x_sum': np.array(100, np.int64),
+        'y_sum': np.array(4950, np.int64)
+    }
+    self.assertAnalyzerOutputs(
+        input_data,
+        input_metadata,
+        analyzer_fn,
+        expected_outputs,
+        desired_batch_size=10)
+
+  def testVocabularyAnalyzerWithKeyFn(self):
+    def key_fn(string):
+      return string.split('_X_')[0]
+
+    def preprocessing_fn(inputs):
+      return {
+          'index1':
+              tft.compute_and_apply_vocabulary(
+                  tf.string_split(inputs['a']), coverage_top_k=1,
+                  default_value=-99, key_fn=key_fn, frequency_threshold=3)
+      }
+
+    input_data = [
+        {'a': 'a_X_1 a_X_1 a_X_2 b_X_1 b_X_2'},
+        {'a': 'a_X_1 a_X_1 a_X_2 a_X_2'},
+        {'a': 'b_X_2'}
+    ]
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string)
+    })
+
+    expected_data = [
+        {'index1': [0, 0, 1, -99, 2]},
+        {'index1': [0, 0, 1, 1]},
+        {'index1': [2]}
+    ]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'index1': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -99, 2, True),
+            [None], sch.ListColumnRepresentation())
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata, preprocessing_fn, expected_data,
+        expected_metadata)
+
+  def testVocabularyAnalyzerWithKeyFnAndMultiCoverageTopK(self):
+    def key_fn(string):
+      return string.split('_X_')[0]
+
+    def preprocessing_fn(inputs):
+      return {
+          'index1':
+              tft.compute_and_apply_vocabulary(
+                  tf.string_split(inputs['a']), coverage_top_k=2,
+                  default_value=-99, key_fn=key_fn, frequency_threshold=300)
+      }
+
+    input_data = [
+        {'a': 'a_X_1 a_X_1 a_X_2 b_X_1 b_X_2'},
+        {'a': 'a_X_1 a_X_1 a_X_2 a_X_2 a_X_3'},
+        {'a': 'b_X_2'}
+    ]
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string)
+    })
+
+    expected_data = [
+        {'index1': [0, 0, 1, 3, 2]},
+        {'index1': [0, 0, 1, 1, -99]},
+        {'index1': [2]}
+    ]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'index1': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -99, 3, True),
+            [None], sch.ListColumnRepresentation())
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata, preprocessing_fn, expected_data,
+        expected_metadata)
+
+  def testVocabularyAnalyzerWithKeyFnAndTopK(self):
+    def key_fn(string):
+      return string.split('_X_')[0]
+
+    def preprocessing_fn(inputs):
+      return {
+          'index1':
+              tft.compute_and_apply_vocabulary(
+                  tf.string_split(inputs['a']), coverage_top_k=1,
+                  default_value=-99, key_fn=key_fn, top_k=2)
+      }
+
+    input_data = [
+        {'a': 'a_X_1 a_X_1 a_X_2 b_X_1 b_X_2'},
+        {'a': 'a_X_1 a_X_1 a_X_2 a_X_2'},
+        {'a': 'b_X_2 b_X_2 b_X_2 b_X_2 c_X_1'}
+    ]
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string)
+    })
+
+    expected_data = [
+        {'index1': [1, 1, -99, -99, 0]},
+        {'index1': [1, 1, -99, -99]},
+        {'index1': [0, 0, 0, 0, 2]}
+    ]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'index1': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -99, 2, True),
+            [None], sch.ListColumnRepresentation())
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata, preprocessing_fn, expected_data,
+        expected_metadata)
+
+  def testVocabularyAnalyzerWithKeyFnMultiCoverageTopK(self):
+    def key_fn(string):
+      return string.split('_X_')[1]
+
+    def preprocessing_fn(inputs):
+      return {
+          'index1':
+              tft.compute_and_apply_vocabulary(
+                  tf.string_split(inputs['a']), coverage_top_k=2,
+                  default_value=-99, key_fn=key_fn,
+                  frequency_threshold=4)
+      }
+
+    input_data = [
+        {'a': '0_X_a 0_X_a 5_X_a 6_X_a 6_X_a 0_X_a'},
+        {'a': '0_X_a 2_X_a 2_X_a 2_X_a 0_X_a 5_X_a'},
+        {'a': '1_X_b 1_X_b 3_X_b 3_X_b 0_X_b 1_X_b 1_X_b'}
+    ]
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string)
+    })
+
+    expected_data = [
+        {'index1': [0, 0, -99, -99, -99, 0]},
+        {'index1': [0, 2, 2, 2, 0, -99]},
+        {'index1': [1, 1, 3, 3, -99, 1, 1]}
+    ]
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'index1': sch.ColumnSchema(
+            sch.IntDomain(tf.int64, -99, 3, True),
+            [None], sch.ListColumnRepresentation())
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata, preprocessing_fn, expected_data,
+        expected_metadata)
+
+  def testVocabularyWithKeyFnAndFrequency(self):
+    def key_fn(string):
+      return string.split('_X_')[1]
+
+    outfile = 'vocabulary_with_frequency'
+
+    def preprocessing_fn(inputs):
+
+      # Force the analyzer to be executed, and store the frequency file as a
+      # side-effect.
+
+      _ = tft.vocabulary(
+          tf.string_split(inputs['a']), coverage_top_k=1, key_fn=key_fn,
+          frequency_threshold=4, vocab_filename=outfile, store_frequency=True)
+
+      _ = tft.vocabulary(
+          tf.string_split(inputs['a']), coverage_top_k=1, key_fn=key_fn,
+          frequency_threshold=4, store_frequency=True)
+
+      a_int = tft.compute_and_apply_vocabulary(
+          tf.string_split(inputs['a']), coverage_top_k=1, key_fn=key_fn,
+          frequency_threshold=4)
+
+      # Return input unchanged, this preprocessing_fn is a no-op except for
+      # computing uniques.
+      return {'a_int': a_int}
+
+    def check_asset_file_contents(assets_path, filename, expected):
+      assets_file = os.path.join(assets_path, filename)
+      with tf.gfile.GFile(assets_file, 'r') as f:
+        contents = f.read()
+
+      self.assertMultiLineEqual(expected, contents)
+
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string)
+    })
+
+    tft_tmp_dir = os.path.join(self.get_temp_dir(), 'temp_dir')
+    transform_fn_dir = os.path.join(self.get_temp_dir(), 'export_transform_fn')
+
+    with beam_impl.Context(temp_dir=tft_tmp_dir):
+      with beam.Pipeline(runner=self._makeRunner()) as pipeline:
+        input_data = pipeline | beam.Create([
+            {'a': '1_X_a 1_X_a 2_X_a 1_X_b 2_X_b'},
+            {'a': '1_X_a 1_X_a 2_X_a 2_X_a'},
+            {'a': '2_X_b 3_X_c 4_X_c'}
+        ])
+
+        transform_fn = (
+            (input_data, input_metadata)
+            | beam_impl.AnalyzeDataset(preprocessing_fn))
+        _ = transform_fn | transform_fn_io.WriteTransformFn(transform_fn_dir)
+
+    self.assertTrue(os.path.isdir(tft_tmp_dir))
+
+    saved_model_path = os.path.join(transform_fn_dir, 'transform_fn')
+    assets_path = os.path.join(saved_model_path, 'assets')
+    self.assertTrue(os.path.isdir(assets_path))
+
+    check_asset_file_contents(assets_path, outfile,
+                              '4 1_X_a\n2 2_X_b\n1 4_X_c\n')
+
+  def testVocabularyAnalyzerWithKeyFnAndWeights(self):
+    def key_fn(string):
+      return string[0]
+
+    input_data = [
+        {'a': 'xa', 'weights': 1.},
+        {'a': 'xa', 'weights': .5},
+        {'a': 'xb', 'weights': 3},
+        {'a': 'ya', 'weights': .6},
+        {'a': 'yb', 'weights': .25},
+        {'a': 'yc', 'weights': .5},
+    ]
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string),
+        'weights': tf.FixedLenFeature([], tf.float32)
+    })
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'index':
+            sch.ColumnSchema(
+                sch.IntDomain(tf.int64, -1, 1, True), [],
+                sch.FixedColumnRepresentation())
+    })
+
+    def preprocessing_fn(inputs):
+      return {
+          'index':
+              tft.compute_and_apply_vocabulary(
+                  inputs['a'], weights=inputs['weights'], coverage_top_k=1,
+                  key_fn=key_fn, frequency_threshold=1.5,
+                  coverage_frequency_threshold=1)
+      }
+
+    expected_data = [
+        {'index': 1},
+        {'index': 1},
+        {'index': 0},
+        {'index': -1},
+        {'index': -1},
+        {'index': -1},
+    ]
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
+  def testVocabularyAnalyzerWithKeyFnAndLabels(self):
+    def key_fn(string):
+      return string[:2]
+
+    input_data = [
+        {'a': 'aaa', 'labels': 1},
+        {'a': 'aaa', 'labels': 1},
+        {'a': 'aaa', 'labels': 1},
+        {'a': 'aab', 'labels': 1},
+        {'a': 'aba', 'labels': 0},
+        {'a': 'aba', 'labels': 1},
+        {'a': 'aab', 'labels': 0},
+        {'a': 'aab', 'labels': 0},
+        {'a': 'aba', 'labels': 0},
+        {'a': 'abc', 'labels': 1},
+        {'a': 'abc', 'labels': 1},
+        {'a': 'aab', 'labels': 0}
+    ]
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string),
+        'labels': tf.FixedLenFeature([], tf.int64)
+    })
+    expected_metadata = dataset_metadata.DatasetMetadata({
+        'index':
+            sch.ColumnSchema(
+                sch.IntDomain(tf.int64, -1, 1, True), [],
+                sch.FixedColumnRepresentation())
+    })
+
+    def preprocessing_fn(inputs):
+      return {
+          'index':
+              tft.compute_and_apply_vocabulary(
+                  inputs['a'], key_fn=key_fn, labels=inputs['labels'],
+                  coverage_top_k=1, frequency_threshold=3)
+      }
+
+    expected_data = [
+        {'index': 0},
+        {'index': 0},
+        {'index': 0},
+        {'index': -1},
+        {'index': -1},
+        {'index': -1},
+        {'index': -1},
+        {'index': -1},
+        {'index': -1},
+        {'index': 1},
+        {'index': 1},
+        {'index': -1}]
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
 
 
 

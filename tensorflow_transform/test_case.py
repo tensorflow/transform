@@ -18,6 +18,8 @@ from __future__ import division
 from __future__ import print_function
 
 import inspect
+import os
+import subprocess
 
 
 from absl.testing import parameterized
@@ -114,6 +116,9 @@ class TransformTestCase(parameterized.TestCase, test_util.TensorFlowTestCase):
       if msg:
         e.args = ((e.args[0] + ' : ' + msg,) + e.args[1:])
       raise
+
+  def WriteRenderedDotFile(self, dot_string, output_file=None):
+    tf.logging.info('Writing a rendered dot file is not yet supported.')
 
 
 def _numpy_arrays_to_lists(maybe_arrays):

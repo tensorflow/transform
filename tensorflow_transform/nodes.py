@@ -31,6 +31,7 @@ from __future__ import print_function
 import abc
 import collections
 from future.utils import with_metaclass
+import pydot
 
 
 class ValueNode(collections.namedtuple(
@@ -59,13 +60,27 @@ class OperationDef(object):
   """The definition of an operation.
 
   This class contains all the information needed to run an operation, except
-  the number of inputs and their values.
+  the number of inputs and their values.  A subclass should document
+
+    - How many inputs it expects, and what they should contain.
+    - What it outputs, as a function of its inputs.
+
+  An OperationDef is just a specification and does not contain the actual
+  computation.
   """
+
+  __metaclass__ = abc.ABCMeta
 
   @property
   def num_outputs(self):
     """The number of outputs returned by this operation."""
     return 1
+
+  @property
+  @abc.abstractmethod
+  def label(self):
+    """A unique label for this operation in the graph."""
+    pass
 
 
 class OperationNode(object):
@@ -106,10 +121,6 @@ class OperationNode(object):
     """A tuple of `ValueNode`s representing outputs of this operation."""
     return tuple(ValueNode(self, value_index)
                  for value_index in range(self.operation_def.num_outputs))
-
-  def __repr__(self):
-    return 'OperationNode(operation_def={}, inputs=[...])'.format(
-        self.operation_def)
 
 
 def apply_operation(operation_def_cls, *args, **kwargs):
@@ -200,9 +211,9 @@ class Traverser(object):
     """Visit an `OperationNode`."""
     if operation in self._stack:
       cycle = self._stack[self._stack.index(operation):] + [operation]
-      # For readability, just print the cycle of `operation_def`s
-      cycle = [operation.operation_def for operation in cycle]
-      raise AssertionError('Cycle detected: {}'.format(cycle))
+      # For readability, just print the label of `operation_def`s
+      cycle = ', '.join(operation.operation_def.label for operation in cycle)
+      raise AssertionError('Cycle detected: [{}]'.format(cycle))
     self._stack.append(operation)
     input_values = tuple(map(self.visit_value_node, operation.inputs))
     assert operation is self._stack.pop()
@@ -223,3 +234,73 @@ class Traverser(object):
     for output, value in zip(outputs, output_values):
       self._visitor.validate_value(value)
       self._cached_value_nodes_values[output] = value
+
+
+def _escape(line):
+  for char in '<>{}':
+    line = line.replace(char, '\\%s' % char)
+  return line
+
+
+class _PrintGraphVisitor(Visitor):
+  """Visitor to produce a human readable string for a graph."""
+
+  def __init__(self):
+    self._print_result = ''
+    self._dot_graph = pydot.Dot(directed=True)
+    self._dot_graph.obj_dict = collections.OrderedDict(
+        sorted(self._dot_graph.obj_dict.items(), key=lambda t: t[0]))
+    self._dot_graph.set_node_defaults(shape='Mrecord')
+
+  def get_dot_graph(self):
+    return self._dot_graph
+
+  def visit(self, operation_def, input_nodes):
+    num_outputs = operation_def.num_outputs
+    node_name = operation_def.label
+
+    display_label_rows = ([operation_def.__class__.__name__] + [
+        _escape('%s: %s' % (field, value))
+        for field, value in operation_def._asdict().items()
+    ])
+    if num_outputs != 1:
+      ports = '|'.join('<{0}>{0}'.format(idx) for idx in range(num_outputs))
+      display_label_rows.append('{%s}' % ports)
+    display_label = '{%s}' % '|'.join(display_label_rows)
+
+    node = pydot.Node(node_name, label=display_label)
+
+    self._dot_graph.add_node(node)
+
+    for input_node in input_nodes:
+      self._dot_graph.add_edge(pydot.Edge(input_node, node))
+
+    if num_outputs == 1:
+      return (node,)
+    else:
+      return tuple(
+          pydot.Node(obj_dict={'name': '"{}":{}'.format(node_name, idx)})
+          for idx in range(num_outputs))
+
+  def validate_value(self, value):
+    assert isinstance(value, pydot.Node)
+
+
+def get_dot_graph(leaf_nodes):
+  """Utility to print a graph in a human readable manner.
+
+  The format resembles a sequence of calls to apply_operation or
+  apply_multi_output_operation.
+
+  Args:
+    leaf_nodes: A list of leaf `ValueNode`s to define the graph.  The graph will
+      be the transitive parents of the leaf nodes.
+
+  Returns:
+    A human readable summary of the graph.
+  """
+  visitor = _PrintGraphVisitor()
+  traverser = Traverser(visitor)
+  for value_node in leaf_nodes:
+    traverser.visit_value_node(value_node)
+  return visitor.get_dot_graph()

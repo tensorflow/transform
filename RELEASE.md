@@ -5,9 +5,17 @@
 
 ## Bug Fixes and Other Changes
 
-* 'tft.vocabulary' and 'tft.compute_and_apply_vocabulary' now support filtering
+* `tft.vocabulary` and `tft.compute_and_apply_vocabulary` now support filtering
   based on adjusted mutual information when `use_adjusetd_mutual_info` is set to
   True.
+* `tft.vocabulary` and `tft.compute_and_apply_vocabulary` now takes
+  regularization term 'min_diff_from_avg' that adjusts mutual information to
+  zero whenever the difference between count of the feature with any label and
+  its expected count is lower than the threshold.
+* Added an option to `tft.vocabulary` and `tft.compute_and_apply_vocabulary`
+  to compute a coverage vocabulary, using the new `coverage_top_k`,
+  `coverage_frequency_threshold` and `key_fn` parameters.
+* Added `tft.ptransform_analyzer` for advanced use cases.
 
 ## Breaking changes
 

@@ -6,7 +6,7 @@
 <meta itemprop="property" content="create_accumulator"/>
 <meta itemprop="property" content="extract_output"/>
 <meta itemprop="property" content="merge_accumulators"/>
-<meta itemprop="property" content="num_outputs"/>
+<meta itemprop="property" content="output_tensor_infos"/>
 </div>
 
 # tft.CovarianceCombiner
@@ -20,7 +20,10 @@ Combines the PCollection to compute the biased covariance matrix.
 <h2 id="__init__"><code>__init__</code></h2>
 
 ``` python
-__init__(numpy_dtype=np.float64)
+__init__(
+    numpy_dtype=np.float64,
+    output_shape=None
+)
 ```
 
 Store the dtype for np arrays/matrices for precision.
@@ -99,15 +102,13 @@ merge_accumulators(accumulators)
 
 Sums values in each accumulator entry.
 
-<h3 id="num_outputs"><code>num_outputs</code></h3>
+<h3 id="output_tensor_infos"><code>output_tensor_infos</code></h3>
 
 ``` python
-num_outputs()
+output_tensor_infos()
 ```
 
-Return the number of outputs that are produced by extract_output.
 
-Returns: The number of outputs extract_output will produce.
 
 
 

@@ -4,12 +4,10 @@ toc:
     section:
     - title: Overview
       path: /tfx/transform/api_docs/python/tft
-    - title: Analyzer
-      path: /tfx/transform/api_docs/python/tft/Analyzer
+    - title: apply_analyzer
+      path: /tfx/transform/api_docs/python/tft/apply_analyzer
     - title: apply_buckets
       path: /tfx/transform/api_docs/python/tft/apply_buckets
-    - title: apply_combiner
-      path: /tfx/transform/api_docs/python/tft/apply_combiner
     - title: apply_function
       path: /tfx/transform/api_docs/python/tft/apply_function
     - title: apply_function_with_checkpoint
@@ -48,6 +46,8 @@ toc:
       path: /tfx/transform/api_docs/python/tft/pca
     - title: PCACombiner
       path: /tfx/transform/api_docs/python/tft/PCACombiner
+    - title: ptransform_analyzer
+      path: /tfx/transform/api_docs/python/tft/ptransform_analyzer
     - title: quantiles
       path: /tfx/transform/api_docs/python/tft/quantiles
     - title: QuantilesCombiner

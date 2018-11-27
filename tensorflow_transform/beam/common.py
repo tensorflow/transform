@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import os
 import uuid
 
@@ -26,6 +27,7 @@ from apache_beam.typehints import Union
 from six import integer_types
 from six import string_types
 import tensorflow as tf
+from tensorflow_transform import nodes
 
 NUMERIC_TYPE = Union[float, Union[integer_types]]
 PRIMITIVE_TYPE = Union[NUMERIC_TYPE, Union[string_types]]
@@ -58,43 +60,111 @@ def _maybe_deserialize_tf_config(serialized_tf_config):
   return result
 
 
-def make_unique_temp_dir(base_temp_dir):
-  """Create path to a unique temp dir from given base temp dir."""
+def get_unique_temp_path(base_temp_dir):
+  """Return a path to a unique temp dir from given base temp dir.
+
+  Note this doesn't create the path that it returns.
+
+  Args:
+    base_temp_dir: A base directory
+
+  Returns:
+    The path name of a subdirectory of base_temp_dir, where the subdirectory is
+        unique.
+  """
   return os.path.join(base_temp_dir, uuid.uuid4().hex)
 
 
-PTRANSFORM_BY_ATTRIBUTES_CLASS = {}
+PTRANSFORM_BY_OPERATION_DEF_SUBCLASS = {}
 
 
-def register_ptransform(attributes_class):
+def register_ptransform(operation_def_subclass):
   """Decorator to register a PTransform as the implementation for an analyzer.
 
-  Note that this PTransform may be called multiple times, but with unique
-  attributes, so it should implement default_label to be unique given
-  attributes.
-
   This function is used to define implementations of the analyzers defined in
-  attributes_classes.py
+  tensorflow_transform/analyzer_nodes.py and also the internal operations
+  defined in tensorflow_transform/beam/beam_nodes.py.  The registered PTransform
+  will be invoked as follows:
+
+  outputs = inputs | operation.label >> MyPTransform(operation, extra_args)
+
+  where operation is a the instance of the subclass that was registered,
+  extra_args are global arguments available to each PTransform (see
+  ConstructBeamPipelineVisitor.extra_args) and `inputs` is a tuple of
+  PCollections correpsonding to the inputs of the OperationNode being
+  implemented.  The return value `outputs` should be a a tuple of PCollections
+  corresponding to the outputs of the OperationNode.  If the OperationNode has
+  a single output then the return value can also be a PCollection instead of a
+  tuple.
+
+  In some cases the implementation cannot be a PTransform and so instead the
+  value being registered may also be a function.  The registered function will
+  be invoked as follows:
+
+  outputs = my_function(inputs, operation, extra_args)
+
+  where inputs, operation, extra_args and outputs are the same as for the
+  PTransform case.
 
   Args:
-    attributes_class: The class of attributes that is being registered.
+    operation_def_subclass: The class of attributes that is being registered.
+        Should be a subclass of `tensorflow_transform.nodes.OperationDef`.
 
   Returns:
-    A class decorator that registers a PTransform as an implementation of the
-        generalized op for that type.
+    A class decorator that registers a PTransform or function as an
+        implementation of the OperationDef subclass.
   """
 
   def register(ptransform_class):
-    assert attributes_class not in PTRANSFORM_BY_ATTRIBUTES_CLASS
-    PTRANSFORM_BY_ATTRIBUTES_CLASS[attributes_class] = ptransform_class
+    assert operation_def_subclass not in PTRANSFORM_BY_OPERATION_DEF_SUBCLASS
+    PTRANSFORM_BY_OPERATION_DEF_SUBCLASS[operation_def_subclass] = (
+        ptransform_class)
     return ptransform_class
 
   return register
 
 
-def lookup_registered_ptransform(attributes):
-  try:
-    return PTRANSFORM_BY_ATTRIBUTES_CLASS[attributes.__class__]
-  except KeyError:
-    raise ValueError('No implementation registered for {}'.format(
-        attributes.__class__))
+class ConstructBeamPipelineVisitor(nodes.Visitor):
+  """Visitor that constructs the beam pipeline from the node graph."""
+
+  ExtraArgs = collections.namedtuple(  # pylint: disable=invalid-name
+      'ExtraArgs',
+      ['base_temp_dir', 'input_values_pcoll', 'serialized_tf_config', 'graph',
+       'input_signature', 'input_schema'])
+
+  def __init__(self, extra_args):
+    self._extra_args = extra_args
+
+  def visit(self, operation, inputs):
+    try:
+      ptransform = PTRANSFORM_BY_OPERATION_DEF_SUBCLASS[operation.__class__]
+    except KeyError:
+      raise ValueError('No implementation for {} was registered'.format(
+          operation))
+
+    try:
+      outputs = self._apply_operation(inputs, operation, ptransform)
+    except TypeError as e:
+      raise TypeError(
+          'Failed to apply Operation {}, with error: {}'.format(
+              operation, str(e)))
+
+    if isinstance(outputs, beam.pvalue.PCollection):
+      return (outputs,)
+    else:
+      return outputs
+
+  def _apply_operation(self, inputs, operation, ptransform):
+    if isinstance(ptransform, type) and issubclass(ptransform,
+                                                   beam.PTransform):
+      outputs = (
+          inputs
+          | operation.label >> ptransform(operation, self._extra_args))
+    else:
+      outputs = ptransform(inputs, operation, self._extra_args)
+    return outputs
+
+  def validate_value(self, value):
+    if not isinstance(value, beam.pvalue.PCollection):
+      raise TypeError('Expected a PCollection, got {} of type {}'.format(
+          value, type(value)))

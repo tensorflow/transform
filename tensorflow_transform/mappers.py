@@ -418,6 +418,10 @@ def compute_and_apply_vocabulary(
     weights=None,
     labels=None,
     use_adjusted_mutual_info=False,
+    min_diff_from_avg=0.0,
+    coverage_top_k=None,
+    coverage_frequency_threshold=None,
+    key_fn=None,
     name=None):
   r"""Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
@@ -456,6 +460,17 @@ def compute_and_apply_vocabulary(
     labels: (Optional) Labels `Tensor` for the vocabulary. It must have dtype
       int64, have values 0 or 1, and have the same shape as x.
     use_adjusted_mutual_info: If true, use adjusted mutual information.
+    min_diff_from_avg: Mutual information of a feature will be adjusted to zero
+      whenever the difference between count of the feature with any label and
+      its expected count is lower than min_diff_from_average.
+    coverage_top_k: (Optional), (Experimental) The minimum number of elements
+      per key to be included in the vocabulary.
+    coverage_frequency_threshold: (Optional), (Experimental) Limit the coverage
+      arm of the vocabulary only to elements whose absolute frequency is >= this
+      threshold for a given key.
+    key_fn: (Optional), (Experimental) A fn that takes in a single entry of `x`
+      and returns the corresponding key for coverage calculation. If this is
+      `None`, no coverage arm is added to the vocabulary.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -466,6 +481,7 @@ def compute_and_apply_vocabulary(
 
   Raises:
     ValueError: If `top_k` or `frequency_threshold` is negative.
+      If `coverage_top_k` or `coverage_frequency_threshold` is negative.
   """
   with tf.name_scope(name, 'compute_and_apply_vocabulary'):
     deferred_vocab_and_filename = analyzers.vocabulary(
@@ -476,6 +492,10 @@ def compute_and_apply_vocabulary(
         weights=weights,
         labels=labels,
         use_adjusted_mutual_info=use_adjusted_mutual_info,
+        min_diff_from_avg=min_diff_from_avg,
+        coverage_top_k=coverage_top_k,
+        coverage_frequency_threshold=coverage_frequency_threshold,
+        key_fn=key_fn,
         name=name)
     return apply_vocabulary(
         x, deferred_vocab_and_filename, default_value, num_oov_buckets)

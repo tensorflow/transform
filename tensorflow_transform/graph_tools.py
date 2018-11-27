@@ -178,8 +178,7 @@ class _GraphAnalyzer(object):
         for component in _decompose_tensor_or_sparse_tensor(tensor_or_op))
 
 
-def determine_ready_tensors_and_table_initializers(graph, fetches, feeds,
-                                                   replaced_tensors_ready):
+class InitializableGraphAnalyzer(object):
   """Determines which tensors will be ready when running the graph.
 
   Determines which tensors from `fetches` are ready to run, using following
@@ -196,68 +195,67 @@ def determine_ready_tensors_and_table_initializers(graph, fetches, feeds,
 
   Args:
     graph: a `Graph`.
-    fetches: a list of `Tensor` or `SparseTensor`s
     feeds: a list of `Tensor` or `SparseTensor`s
     replaced_tensors_ready: a dict from `Tensor` to bool indicating whether a
         `Tensor` is ready in this phase.
-
-  Returns:
-    A pair (ready_table_initializers, ready_fetches) where
-        ready_table_initializers a list containing the table initializers that
-        are ready to run, and ready_fetches is the elements of `fetches` that
-        are ready to run.
 
   Raises:
     ValueError: If unexpected placeholders or tables are encountered, or table
         initializers do not have the expected structure in the graph.
   """
-  # Determine which table initializers are ready, based on the replaced tensors.
-  # Since no input tensors are fed during table initialization, we do not set
-  # the value of any tensors in `feeds`.
 
-  graph_analyzer_for_table_init = _GraphAnalyzer(replaced_tensors_ready)
-  ready_table_initializers = []
-  ready_in_feed = {}
+  def __init__(self, graph, feeds, replaced_tensors_ready):
+    self._ready_table_initializers = []
 
-  for table_init_op in graph.get_collection(tf.GraphKeys.TABLE_INITIALIZERS):
-    if table_init_op.type not in _TABLE_INIT_OP_TYPES:
-      raise ValueError(
-          'Table initializer {} did not have expected op type'.format(
-              table_init_op))
-    if not table_init_op.inputs:
-      raise ValueError(
-          'Table initializer {} did not have expected number if inputs '
-          '(expected >= 1 inputs, got 0)'.format(table_init_op))
-    table_op = table_init_op.inputs[0].op
+    # Determine which table initializers are ready, based on the replaced
+    # tensors. Since no input tensors are fed during table initialization, we do
+    # not set the value of any tensors in `feeds`.
+    graph_analyzer_for_table_init = _GraphAnalyzer(replaced_tensors_ready)
+    ready_in_feed = {}
+
+    for table_init_op in graph.get_collection(tf.GraphKeys.TABLE_INITIALIZERS):
+      if table_init_op.type not in _TABLE_INIT_OP_TYPES:
+        raise ValueError(
+            'Table initializer {} did not have expected op type'.format(
+                table_init_op))
+      if not table_init_op.inputs:
+        raise ValueError(
+            'Table initializer {} did not have expected number if inputs '
+            '(expected >= 1 inputs, got 0)'.format(table_init_op))
+      table_op = table_init_op.inputs[0].op
+      try:
+        ready = all(map(graph_analyzer_for_table_init.ready_to_run,
+                        table_init_op.inputs[1:]))
+      except _UnexpectedPlaceholderError as e:
+        raise ValueError(
+            'The table initializer {} depended on a placeholder ({}).  Note '
+            'placeholders will not be fed during table initialization'.format(
+                table_init_op, e.tensor))
+      except _UnexpectedTableError as e:
+        raise ValueError(
+            'The table initializer {} depended on an initializable table ({}). '
+            'Note tables are initialized in one pass so a table initializer '
+            'cannot depend on the output of an initializeable table'.format(
+                table_init_op, e.op))
+
+      ready_in_feed[table_op] = ready
+      if ready:
+        self._ready_table_initializers.append(table_init_op)
+
+    # Now determine which tensors are ready to run once the table has been
+    # initialized.
+    ready_in_feed.update(replaced_tensors_ready)
+    ready_in_feed.update({tensor: True for tensor in feeds})
+    self._graph_analyzer = _GraphAnalyzer(ready_in_feed)
+
+  @property
+  def ready_table_initializers(self):
+    return self._ready_table_initializers
+
+  def ready_to_run(self, tensor):
+    """Determine if a given tensor or op is ready to run."""
     try:
-      ready = all(map(graph_analyzer_for_table_init.ready_to_run,
-                      table_init_op.inputs[1:]))
-    except _UnexpectedPlaceholderError as e:
-      raise ValueError(
-          'The table initializer {} depended on a placeholder ({}).  Note '
-          'placeholders will not be fed during table initialization'.format(
-              table_init_op, e.tensor))
-    except _UnexpectedTableError as e:
-      raise ValueError(
-          'The table initializer {} depended on an initializable table ({}). '
-          'Note tables are initialized in one pass so a table initializer '
-          'cannot depend on the output of an initializeable table'.format(
-              table_init_op, e.op))
-
-    ready_in_feed[table_op] = ready
-    if ready:
-      ready_table_initializers.append(table_init_op)
-
-  # Now determine which tensors are ready to run once the table has been
-  # initialized.
-  ready_in_feed.update(replaced_tensors_ready)
-  ready_in_feed.update({tensor: True for tensor in feeds})
-  graph_analyzer_for_feed = _GraphAnalyzer(ready_in_feed)
-  ready_fetches = []
-  for tensor in fetches:
-    try:
-      if graph_analyzer_for_feed.ready_to_run(tensor):
-        ready_fetches.append(tensor)
+      return self._graph_analyzer.ready_to_run(tensor)
     except _UnexpectedPlaceholderError as e:
       raise ValueError(
           'The tensor {} depended on a placeholder ({}) that was not in the '
@@ -269,5 +267,3 @@ def determine_ready_tensors_and_table_initializers(graph, fetches, feeds,
           'tracked by the graph analysis.  This may be caused by adding an '
           'initializable table without adding its initializer to the '
           'collection tf.GraphKeys.TABLE_INITIALIZERS'.format(tensor, e.op))
-
-  return (ready_table_initializers, ready_fetches)

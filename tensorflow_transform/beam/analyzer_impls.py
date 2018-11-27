@@ -30,8 +30,8 @@ from apache_beam.typehints import Tuple
 from apache_beam.typehints import with_input_types
 
 import numpy as np
+from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import analyzers
-from tensorflow_transform import attributes_classes
 from tensorflow_transform import tf_utils
 from tensorflow_transform.beam import common
 
@@ -65,10 +65,8 @@ class _OrderElementsFn(beam.DoFn):
 @ptransform_fn
 @beam.typehints.with_input_types(KV[float, str])
 @beam.typehints.with_output_types(KV[float, str])
-def _ApplyFrequencyThresholdAndTopK(counts,  # pylint: disable=invalid-name
-                                    frequency_threshold,
-                                    top_k
-                                   ):
+def _ApplyFrequencyThresholdAndTopK(  # pylint: disable=invalid-name
+    counts, frequency_threshold, top_k, key_fn):
   """Applies `frequency_threshold` and `top_k` to (count, value) pairs."""
   # Filter is cheaper than TopK computation and the two commute, so filter
   # first.
@@ -84,6 +82,19 @@ def _ApplyFrequencyThresholdAndTopK(counts,  # pylint: disable=invalid-name
     # provided since that already induces a single-sharded output.
     counts |= 'Reshard' >> beam.transforms.Reshuffle()  # pylint: disable=no-value-for-parameter
   else:
+    if key_fn:
+      def map_key_to_count_and_term(kv, key_fn):
+        """Parses key from term with `key_fn` and maps it to count and term."""
+        count, term = kv
+        key = key_fn(term)
+        return key, (count, term)
+
+      return (
+          counts
+          | 'MapKeyToCountAndTerm' >> beam.Map(
+              lambda x: map_key_to_count_and_term(x, key_fn))
+          | 'CoverageTop(%s)' % top_k >> beam.combiners.Top.LargestPerKey(top_k)
+          | 'FlattenCoverageTerms' >> beam.FlatMap(lambda kv: kv[1]))
     counts = (counts
               | 'Top(%s)' % top_k >> beam.combiners.Top.Of(top_k)
               | 'FlattenList' >> beam.FlatMap(lambda lst: lst))
@@ -116,25 +127,22 @@ def _WriteVocabFile(counts, temp_assets_dir, vocab_filename, store_frequency):  
   return (wait_for_vocabulary_transform,)
 
 
-@common.register_ptransform(attributes_classes.Vocabulary)
+@common.register_ptransform(analyzer_nodes.Vocabulary)
 class VocabularyImpl(beam.PTransform):
   """Saves the unique elements in a PCollection of batches."""
 
-  def __init__(self, num_outputs, attributes, base_temp_dir, **kwargs):
-    if num_outputs != 1:
-      raise ValueError('num_outputs for VocabularyImpl should be 1, got {}`.'.
-                       format(num_outputs))
-    self._top_k = attributes.top_k
-    self._frequency_threshold = attributes.frequency_threshold
-    self._store_frequency = attributes.store_frequency
-    self._vocab_filename = attributes.vocab_filename
-    self._vocab_ordering_type = attributes.vocab_ordering_type
-    self._name = attributes.name
-    self._base_temp_dir = base_temp_dir
-    self._use_adjusted_mutual_info = attributes.use_adjusted_mutual_info
-
-  def default_label(self):
-    return 'VocabularyImpl[{}]'.format(self._name)
+  def __init__(self, operation, extra_args):
+    self._top_k = operation.top_k
+    self._frequency_threshold = operation.frequency_threshold
+    self._store_frequency = operation.store_frequency
+    self._vocab_filename = operation.vocab_filename
+    self._vocab_ordering_type = operation.vocab_ordering_type
+    self._base_temp_dir = extra_args.base_temp_dir
+    self._use_adjusted_mutual_info = operation.use_adjusted_mutual_info
+    self._min_diff_from_avg = operation.min_diff_from_avg
+    self._coverage_top_k = operation.coverage_top_k
+    self._coverage_frequency_threshold = operation.coverage_frequency_threshold
+    self._key_fn = operation.key_fn
 
   def expand(self, inputs):
     pcoll, = inputs
@@ -145,6 +153,14 @@ class VocabularyImpl(beam.PTransform):
       raise ValueError(
           'frequency_threshold for VocabularyImpl should be >= 0 or None, '
           'got {}.'.format(self._frequency_threshold))
+    if self._coverage_top_k is not None and self._coverage_top_k < 0:
+      raise ValueError('coverage_top_k for VocabularyImpl should be >= 0 or '
+                       'None, got {}.'.format(self._coverage_top_k))
+    if (self._coverage_frequency_threshold is not None and
+        self._coverage_frequency_threshold < 0):
+      raise ValueError(
+          'coverage_frequency_threshold for VocabularyImpl should be >= 0 or '
+          'None, got {}.'.format(self._coverage_frequency_threshold))
 
     # Create a PCollection of (count, element) pairs, then iterates over
     # this to create a single element PCollection containing this list of
@@ -157,35 +173,9 @@ class VocabularyImpl(beam.PTransform):
 
     if (self._vocab_ordering_type ==
         tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION):
-      flatten_map_fn = (
-          _flatten_positive_label_weights_total_weights_and_counts)
-
-      # count_and_means is a pcollection that contains a
-      # _CountAndWeightsMeansAccumulator where:
-      #   `weighted_mean` is the weighted mean of positive labels
-      #       for all features.
-      #   `count` is the count for all features.
-      #   `weights_mean` is the mean of the weights for all features.
-      count_and_means = (
-          pcoll
-          | 'SumBatchCountAndWeightsMeans' >> beam.Map(_count_and_means)
-          | 'ComputeCountAndWeightsMeansGlobally' >> beam.CombineGlobally(
-              CountAndWeightsMeansCombineFn()))
-
-      # CountAndWeightsMeansCombineFn returns a tuple of the form:
-      # (feature,_CountAndWeightsMeansAccumulator) where:
-      #   `feature` is a single string, which is the word in the vocabulary
-      #       whose mutual information with the label is being computed.
-      #   `weighted_mean` is the weighted mean of y positive given x.
-      #   `count` is the count of weights for a feature.
-      #   `weights_mean` is the mean of the weights for a feature.
-      combine_transform = (
-          'ComputeCountAndWeightsMeansPerUniqueWord' >> beam.CombinePerKey(
-              CountAndWeightsMeansCombineFn())
-          | 'CalculateMutualInformationPerUniqueWord' >> beam.Map(
-              _calculate_mutual_information,
-              global_accumulator=beam.pvalue.AsSingleton(count_and_means),
-              use_adjusted_mutual_info=self._use_adjusted_mutual_info))
+      flatten_map_fn = _flatten_to_key_and_means_accumulator_list
+      combine_transform = _MutualInformationTransform(  # pylint: disable=no-value-for-parameter
+          self._use_adjusted_mutual_info, self._min_diff_from_avg)
     elif (self._vocab_ordering_type ==
           tf_utils.VocabOrderingType.WEIGHTED_FREQUENCY):
       flatten_map_fn = _flatten_value_and_weights_to_list_of_tuples
@@ -204,9 +194,19 @@ class VocabularyImpl(beam.PTransform):
     counts = (
         raw_counts | 'ApplyFrequencyThresholdAndTopK' >> (
             _ApplyFrequencyThresholdAndTopK(  # pylint: disable=no-value-for-parameter
-                self._frequency_threshold,
-                self._top_k
-                )))
+                self._frequency_threshold, self._top_k, None)))
+
+    if self._key_fn:
+      coverage_counts = (
+          raw_counts | 'ApplyCoverageFrequencyThresholdAndTopK' >> (
+              _ApplyFrequencyThresholdAndTopK(  # pylint: disable=no-value-for-parameter
+                  self._coverage_frequency_threshold, self._coverage_top_k,
+                  self._key_fn)))
+
+      counts = (
+          (counts, coverage_counts)
+          | 'MergeStandardAndCoverageArms' >> beam.Flatten()
+          | 'RemoveDuplicates' >> beam.RemoveDuplicates())
 
     return counts | 'WriteVocabFile' >> (
         _WriteVocabFile(  # pylint: disable=no-value-for-parameter
@@ -229,19 +229,27 @@ def _flatten_value_and_weights_to_list_of_tuples(batch_values):
   return zip(batch_value, weights)
 
 
-def _flatten_positive_label_weights_total_weights_and_counts(batch_values):
-  """Converts a batch of vocab weights and counts to a list of KV tuples."""
-  batch_value, total_weights, positive_label_weights, counts = batch_values
-  batch_value = batch_value.tolist()
+def _make_count_and_weights_means_accumulator(sum_positive, weights_sum_total,
+                                              count):
+  return _CountAndWeightsMeansAccumulator(
+      weighted_mean=(sum_positive / weights_sum_total),
+      count=count,
+      weights_mean=(weights_sum_total / count))
+
+
+def _flatten_to_key_and_means_accumulator_list(batch_values):
+  """Converts a batch of keys, weights, and counts to a list of KV pairs."""
+  keys, total_weights, positive_label_weights, counts = batch_values
+
+  keys = keys.tolist()
   positive_label_weights = positive_label_weights.tolist()
   total_weights = total_weights.tolist()
   counts = counts.tolist()
-  return zip(batch_value, zip(positive_label_weights, total_weights, counts))
 
-
-def _count_and_means(batch_values):
-  _, total_weights, positive_label_weights, counts = batch_values
-  return [sum(positive_label_weights), sum(total_weights), sum(counts)]
+  return zip(keys, [
+      _make_count_and_weights_means_accumulator(*batch)
+      for batch in zip(positive_label_weights, total_weights, counts)
+  ])
 
 
 def _clip_probability(p):
@@ -251,14 +259,15 @@ def _clip_probability(p):
 
 
 def _calculate_mutual_information(feature_and_accumulator, global_accumulator,
-                                  use_adjusted_mutual_info):
+                                  use_adjusted_mutual_info, min_diff_from_avg):
   """Calculates the (adjusted) mutual information of a feature.
 
-  Mutual information H(x, y) = (feature_sum_weights *
+  Mutual information H(x, y) = (sum(weights) *
              [(P(y|x)*log2(P(y|x)/P(y))) + (P(~y|x)*log2(P(~y|x)/P(~y)))])
-  x is feature and y is label. feature_sum_weights instead of p_x is used,
-  as this makes the "mutual_information" more interpretable.
-  If we don't divide by global_sum_weights, it can be though of as an "adjusted"
+  Where x is feature and y is label.
+  We use sum(weights) instead of P(x), as this makes the mutual information more
+  interpretable.
+  If we don't divide by sum(weights), it can be thought of as an adjusted
   weighted count.
 
   Adjusted mutual information AMI(x, y) = MI(x, y) - EMI(x, y)
@@ -276,16 +285,20 @@ def _calculate_mutual_information(feature_and_accumulator, global_accumulator,
 
   Args:
     feature_and_accumulator: A tuple of the form:
-    (feature, (_CountAndWeightsMeansAccumulator)) where: `feature` is a single
-      string, which is the word in the vocabulary whose mutual information with
-      the label is being computed. `weighted_mean` is the weighted mean positive
-      given x. `count` is the count of weights for a feature. `weights_mean`is
-      the mean of the weights for a feature.
+      (feature, _CountAndWeightsMeansAccumulator) where:
+        `feature` is a single string, which is the word in the vocabulary whose
+          mutual information with the label is being computed.
+        `weighted_mean` is the weighted mean positive given x.
+        `count` is the count of weights for a feature.
+        `weights_mean` is the mean of the weights for a feature.
     global_accumulator: A _CountAndWeightsMeansAccumulator where:
       `weighted_mean` is the weighted mean of positive labels for all features.
       `count` is the count for all features. `mean` is the mean of the weights
       for all features.
     use_adjusted_mutual_info: If set to True, use adjusted mutual information.
+    min_diff_from_avg: Mutual information of a feature will be adjusted to zero
+      whenever the absolute difference between count of the feature with any
+      label and its expected count is lower than min_diff_from_average.
 
   Returns:
     The feature and its mutual information.
@@ -305,6 +318,10 @@ def _calculate_mutual_information(feature_and_accumulator, global_accumulator,
       weighted_mean * global_accumulator.weights_mean * global_accumulator.count
       for weighted_mean in _clip_probability(global_accumulator.weighted_mean)
   ]
+
+  diff_from_avg = x * y_1 / N - n_1
+  if abs(diff_from_avg) < min_diff_from_avg:
+    return (feature, 0)
   mutual_information = (
       n_1 * (np.log2(n_1) + np.log2(N) - np.log2(y_1) - np.log2(x)) +
       n_0 * (np.log2(n_0) + np.log2(N) - np.log2(y_0) - np.log2(x)))
@@ -403,8 +420,32 @@ class _CountAndWeightsMeansAccumulator(
     return self.__class__, tuple(self)
 
 
-class CountAndWeightsMeansCombineFn(beam.CombineFn):
-  """CountAndWeightsMeansCombineFn calculates total count and weighted means.
+@ptransform_fn
+@beam.typehints.with_input_types(KV[str, _CountAndWeightsMeansAccumulator])
+@beam.typehints.with_output_types(KV[str, float])
+def _MutualInformationTransform(  # pylint: disable=invalid-name
+    pcol, use_adjusted_mutual_info, min_diff_from_avg):
+  """Computes mutual information for each key using the given accumulators."""
+  feature_accumulator_pcol = (
+      pcol | 'VocabCountPerLabelPerString' >> beam.CombinePerKey(
+          _CountAndWeightsMeansCombineFn()))
+
+  global_accumulator = (
+      feature_accumulator_pcol
+      | 'DropKeys' >> beam.Values()
+      | 'VocabCountPerLabelGlobally' >> beam.CombineGlobally(
+          _CountAndWeightsMeansCombineFn()))
+
+  return (feature_accumulator_pcol
+          | 'CalculateMutualInformationPerString' >> beam.Map(
+              _calculate_mutual_information,
+              beam.pvalue.AsSingleton(global_accumulator),
+              use_adjusted_mutual_info=use_adjusted_mutual_info,
+              min_diff_from_avg=min_diff_from_avg))
+
+
+class _CountAndWeightsMeansCombineFn(beam.CombineFn):
+  """_CountAndWeightsMeansCombineFn calculates total count and weighted means.
 
   """
 
@@ -424,14 +465,8 @@ class CountAndWeightsMeansCombineFn(beam.CombineFn):
       A `_CountAndWeightsMeansAccumulator` which is accumulator and batch_values
       combined.
     """
-    (element_sum_positive, element_weights_sum_total,
-     element_count) = batch_values
-    new_accumulator = _CountAndWeightsMeansAccumulator(
-        weighted_mean=(element_sum_positive / element_weights_sum_total),
-        count=element_count,
-        weights_mean=(element_weights_sum_total / element_count))
     return self._combine_counts_and_means_accumulators(accumulator,
-                                                       new_accumulator)
+                                                       batch_values)
 
   def merge_accumulators(self, accumulators):
     """Merges several `_CountAndWeightsMeansAccumulator`s.
@@ -511,7 +546,7 @@ class CountAndWeightsMeansCombineFn(beam.CombineFn):
 
 @with_input_types(Tuple[np.ndarray, ...])
 class _CombinerWrapper(beam.CombineFn):
-  """Class to wrap a attributes_classes.Combiner as a beam.CombineFn."""
+  """Class to wrap a analyzer_nodes.Combiner as a beam.CombineFn."""
 
   def __init__(self, combiner, serialized_tf_config):
     if isinstance(combiner, analyzers.QuantilesCombiner):
@@ -621,18 +656,14 @@ def _merge_outputs_by_key(keys_and_outputs, num_outputs):
     yield beam.pvalue.TaggedOutput(str(i), np.stack(output, axis=0))
 
 
-@common.register_ptransform(attributes_classes.Combine)
-class CombineImpl(beam.PTransform):
+@common.register_ptransform(analyzer_nodes.Combine)
+class _CombineImpl(beam.PTransform):
   """Implement an analyzer based on a Combine."""
 
-  def __init__(self, num_outputs, attributes, serialized_tf_config, **kwargs):
-    self._combiner = attributes.combiner
-    self._name = attributes.name
-    self._serialized_tf_config = serialized_tf_config
-    self._num_outputs = num_outputs
-
-  def default_label(self):
-    return 'CombineImpl[{}]'.format(self._name)
+  def __init__(self, operation, extra_args):
+    self._combiner = operation.combiner
+    self._serialized_tf_config = extra_args.serialized_tf_config
+    self._num_outputs = operation.num_outputs
 
   def expand(self, inputs):
     pcoll, = inputs
@@ -659,28 +690,19 @@ class CombineImpl(beam.PTransform):
     return tuple(outputs_tuple[key] for key in output_keys)
 
 
-@common.register_ptransform(attributes_classes.CombinePerKey)
+@common.register_ptransform(analyzer_nodes.CombinePerKey)
 class _CombinePerKeyImpl(beam.PTransform):
   """Implement an analyzer based on a CombinePerKey."""
 
-  def __init__(self, num_outputs, attributes, serialized_tf_config, **kwargs):
-    if num_outputs < 1:
-      raise ValueError('num_outputs for _ComvinePerKeyImpl should be >= 1, got '
-                       '{}'.format(num_outputs))
-    self._combiner = attributes.combiner
-    self._name = attributes.name
-    self._serialized_tf_config = serialized_tf_config
-    # Note we define self._num_outputs to be the number of outputs of the
-    # CombineFn, to which will be added the key vocabulary after merging by
-    # key.
-    self._num_outputs = num_outputs - 1
-
-  def default_label(self):
-    return 'CombinePerKeyImpl[{}]'.format(self._name)
+  def __init__(self, operation, extra_args):
+    self._combiner = operation.combiner
+    self._serialized_tf_config = extra_args.serialized_tf_config
 
   def expand(self, inputs):
     pcoll, = inputs
-    output_keys = ['key'] + [str(i) for i in range(self._num_outputs)]
+    output_keys = (
+        ['key'] + [str(i)
+                   for i in range(len(self._combiner.output_tensor_infos()))])
     outputs_tuple = (
         pcoll
         | 'SplitByKey' >> beam.FlatMap(_split_inputs_by_key)
@@ -689,5 +711,13 @@ class _CombinePerKeyImpl(beam.PTransform):
         | 'ToList' >> beam.combiners.ToList()
         | 'MergeByKey' >> beam.FlatMap(
             _merge_outputs_by_key,
-            self._num_outputs).with_outputs(*output_keys))
+            len(self._combiner.output_tensor_infos())
+            ).with_outputs(*output_keys))
     return tuple(outputs_tuple[key] for key in output_keys)
+
+
+@common.register_ptransform(analyzer_nodes.PTransform)
+def _ptransform_impl(inputs, operation, extra_args):
+  del extra_args  # unused
+  pcoll, = inputs
+  return pcoll | operation.label >> operation.ptransform

@@ -7,7 +7,7 @@
 <meta itemprop="property" content="extract_output"/>
 <meta itemprop="property" content="initialize_local_state"/>
 <meta itemprop="property" content="merge_accumulators"/>
-<meta itemprop="property" content="num_outputs"/>
+<meta itemprop="property" content="output_tensor_infos"/>
 </div>
 
 # tft.QuantilesCombiner
@@ -30,7 +30,9 @@ __init__(
     epsilon,
     bucket_numpy_dtype,
     always_return_num_quantiles=False,
-    has_weights=False
+    has_weights=False,
+    output_shape=None,
+    include_max_and_min=False
 )
 ```
 
@@ -91,15 +93,13 @@ merge_accumulators(summaries)
 
 
 
-<h3 id="num_outputs"><code>num_outputs</code></h3>
+<h3 id="output_tensor_infos"><code>output_tensor_infos</code></h3>
 
 ``` python
-num_outputs()
+output_tensor_infos()
 ```
 
-Return the number of outputs that are produced by extract_output.
 
-Returns: The number of outputs extract_output will produce.
 
 
 

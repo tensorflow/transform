@@ -1,15 +1,14 @@
 # All symbols in TensorFlow Transform
 
 *  <a href="./tft.md"><code>tft</code></a>
-*  <a href="./tft/Analyzer.md"><code>tft.Analyzer</code></a>
 *  <a href="./tft/CovarianceCombiner.md"><code>tft.CovarianceCombiner</code></a>
 *  <a href="./tft/MeanAndVarCombiner.md"><code>tft.MeanAndVarCombiner</code></a>
 *  <a href="./tft/NumPyCombiner.md"><code>tft.NumPyCombiner</code></a>
 *  <a href="./tft/PCACombiner.md"><code>tft.PCACombiner</code></a>
 *  <a href="./tft/QuantilesCombiner.md"><code>tft.QuantilesCombiner</code></a>
 *  <a href="./tft/TFTransformOutput.md"><code>tft.TFTransformOutput</code></a>
+*  <a href="./tft/apply_analyzer.md"><code>tft.apply_analyzer</code></a>
 *  <a href="./tft/apply_buckets.md"><code>tft.apply_buckets</code></a>
-*  <a href="./tft/apply_combiner.md"><code>tft.apply_combiner</code></a>
 *  <a href="./tft/apply_function.md"><code>tft.apply_function</code></a>
 *  <a href="./tft/apply_function_with_checkpoint.md"><code>tft.apply_function_with_checkpoint</code></a>
 *  <a href="./tft/apply_saved_model.md"><code>tft.apply_saved_model</code></a>
@@ -28,6 +27,7 @@
 *  <a href="./tft/min.md"><code>tft.min</code></a>
 *  <a href="./tft/ngrams.md"><code>tft.ngrams</code></a>
 *  <a href="./tft/pca.md"><code>tft.pca</code></a>
+*  <a href="./tft/ptransform_analyzer.md"><code>tft.ptransform_analyzer</code></a>
 *  <a href="./tft/quantiles.md"><code>tft.quantiles</code></a>
 *  <a href="./tft/sanitized_vocab_filename.md"><code>tft.sanitized_vocab_filename</code></a>
 *  <a href="./tft/scale_by_min_max.md"><code>tft.scale_by_min_max</code></a>

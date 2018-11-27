@@ -18,7 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
 import itertools
 
 
@@ -27,8 +26,6 @@ import six
 from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 import tensorflow as tf
-from tensorflow_transform import analyzers
-from tensorflow_transform import graph_tools
 
 _CACHED_EMPTY_ARRAY_BY_DTYPE = {}
 
@@ -306,126 +303,6 @@ def check_valid_sparse_tensor(indices, values, size, name):
     raise ValueError(
         'Sparse column {} has indices and values of different lengths: '
         'values: {}, indices: {}'.format(name, values, indices))
-
-
-# Named tuple with details for each output of an Analyzer.
-AnalyzerOutputInfo = collections.namedtuple(
-    'AnalyzerOutputInfo', ['name', 'is_asset'])
-
-
-AnalyzerInfo = collections.namedtuple(
-    'AnalyzerInfo',
-    ['input_tensor_names', 'attributes', 'output_infos'])
-
-
-Phase = collections.namedtuple(
-    'Phase', ['analyzer_infos', 'table_initializers'])
-
-
-def create_phases(inputs):
-  """Returns a list of `Phase`s describing how to execute the pipeline.
-
-  The default graph is assumed to contain some `Analyzer`s which must be
-  executed by doing a full pass over the dataset, and passing the inputs for
-  that analyzer into some implementation, then taking the results and replacing
-  the `Analyzer`s outputs with constants in the graph containing these results.
-
-  The execution plan is described by a list of `Phase`s.  Each phase contains
-  a list of `Analyzer`s, which are the `Analyzer`s which are ready to run in
-  that phase, together with a list of ops, which are the table initializers that
-  are ready to run in that phase.
-
-  An `Analyzer` or op is ready to run when all its dependencies in the graph
-  have been computed.  Thus if the graph is constructed by
-
-  def preprocessing_fn(input)
-    x = inputs['x']
-    scaled_0 = x - tft.min(x)
-    scaled_0_1 = scaled_0 / tft.max(scaled_0)
-
-  Then the first phase will contain the analyzer corresponding to the call to
-  `min`, because `x` is an input and so is ready to compute in the first phase,
-  while the second phase will contain the analyzer corresponding to the call to
-  `max` since `scaled_1` depends on the result of the call to `tft.min` which
-  is computed in the first phase.
-
-  More generally, we define a level for each op and each `Analyzer` by walking
-  the graph, assigning to each operation the max level of its inputs, to each
-  `Tensor` the level of its operation, unless it's the output of an `Analyzer`
-  in which case we assign the level of its `Analyzer` plus one.
-
-  The above description omits the role of `FunctionApplication`s.  A
-  `FunctionApplication` is a hint to create_phases about the control flow of the
-  graph.  Because control flow ops can introduce circular dependencies (and
-  other circumstances such as mutable reference introduce similar problems) we
-  allow users to construct a `FunctionApplication` which is a hint that the
-  outputs `Tensor`s depend only on the input `Tensor`s.  `FunctionApplication`s
-  are also needed to collect table initializers to determine which phase a table
-  initializer is ready to run in.
-
-  Args:
-    inputs: A dict whose keys are strings and values are `Tensor` or
-        `SparseTensor`s.
-
-  Returns:
-    A list of `Phase`s.
-
-  Raises:
-    ValueError: if the graph cannot be analyzed.
-  """
-  feed_tensors = inputs.values()
-
-  remaining_analyzers = tf.get_collection(analyzers.ANALYZER_COLLECTION)
-  analyzer_output_ready = {}
-  for analyzer in remaining_analyzers:
-    for tensor in analyzer.outputs:
-      analyzer_output_ready[tensor] = False
-
-  # Construct `AnalyzerInfo`s, removing any tensors that are analyzer outputs
-  # from the ASSET_FILEPATHS collection.  These tensors will be replaced and
-  # the replacements will be added to the ASSET_FILEPATHS.  Setting
-  # AnalyzerOutputInfo.is_asset instructs the implementation to do this.
-  asset_filepaths_collection = tf.get_collection_ref(
-      tf.GraphKeys.ASSET_FILEPATHS)
-  asset_filepaths = collections.OrderedDict(
-      (tensor, True)
-      for tensor in tf.get_collection(tf.GraphKeys.ASSET_FILEPATHS))
-
-  phases = []
-  while remaining_analyzers:
-    analyzer_inputs = []
-    for analyzer in remaining_analyzers:
-      analyzer_inputs.extend(analyzer.inputs)
-    ready_init_ops, ready_analyzer_inputs = (
-        graph_tools.determine_ready_tensors_and_table_initializers(
-            tf.get_default_graph(), analyzer_inputs, feed_tensors,
-            analyzer_output_ready))
-    ready_analyzer_inputs = set(ready_analyzer_inputs)
-
-    new_remaining_analyzers = []
-    analyzer_infos = []
-    for analyzer in remaining_analyzers:
-      if all(tensor in ready_analyzer_inputs for tensor in analyzer.inputs):
-        input_tensor_names = [tensor.name for tensor in analyzer.inputs]
-        output_infos = [
-            AnalyzerOutputInfo(tensor.name, asset_filepaths.pop(tensor, False))
-            for tensor in analyzer.outputs]
-        analyzer_infos.append(AnalyzerInfo(
-            input_tensor_names, analyzer.attributes, output_infos))
-
-        for tensor in analyzer.outputs:
-          analyzer_output_ready[tensor] = True
-      else:
-        new_remaining_analyzers.append(analyzer)
-    phases.append(Phase(analyzer_infos, ready_init_ops))
-
-    assert len(new_remaining_analyzers) < len(remaining_analyzers)
-    remaining_analyzers = new_remaining_analyzers
-
-  del asset_filepaths_collection[:]
-  asset_filepaths_collection.extend(six.iterkeys(asset_filepaths))
-
-  return phases
 
 
 def copy_tensors(tensors):

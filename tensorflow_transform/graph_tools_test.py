@@ -151,7 +151,7 @@ class GraphToolsTest(test_case.TransformTestCase):
       replaced_tensors_ready: A dict whose keys are keys in the dict returned by
           create_graph_fn and values are a bools indicating whether that tensor
           is ready to be replaced in this phase.
-      should_be_ready: A dict dict whose keys are keys in the dict returned by
+      should_be_ready: A dict whose keys are keys in the dict returned by
           create_graph_fn and value are bools indicating whether a tensor can be
           calculated in this phase.
       num_ready_table_initializers: The number of table initializers that are
@@ -161,43 +161,38 @@ class GraphToolsTest(test_case.TransformTestCase):
     feeds = [tensors[name] for name in feeds]
     replaced_tensors_ready = {tensors[name]: ready
                               for name, ready in replaced_tensors_ready.items()}
-    fetches = [tensors[name] for name in should_be_ready]
-    expected_ready_tensors = [
-        tensors[name] for name in should_be_ready if should_be_ready[name]]
-    ready_table_initializers, ready_tensors = (
-        graph_tools.determine_ready_tensors_and_table_initializers(
-            tf.get_default_graph(), fetches, feeds, replaced_tensors_ready))
-    self.assertEqual(len(ready_table_initializers),
+
+    graph_analyzer = graph_tools.InitializableGraphAnalyzer(
+        tf.get_default_graph(), feeds, replaced_tensors_ready)
+    self.assertEqual(len(graph_analyzer.ready_table_initializers),
                      num_ready_table_initializers)
-    self.assertCountEqual(ready_tensors, expected_ready_tensors)
+
+    for name, ready in should_be_ready.items():
+      tensor = tensors[name]
+      self.assertEqual(graph_analyzer.ready_to_run(tensor), ready)
 
   @test_case.parameters(
-      (_create_graph_with_y_function_of_x, [], {}, ['y'],
-       'may have be caused by manually adding a placeholder to the graph'),
       (_create_graph_with_y_function_of_x_and_table,
-       [], {'x': False}, ['y'],
+       [], {'x': False},
        'placeholders will not be fed during table initialization'),
       (_create_graph_with_y_function_of_x_and_table,
-       [], {'x': True}, ['y'],
+       [], {'x': True},
        'placeholders will not be fed during table initialization'),
       (_create_graph_with_y_function_of_x_and_table,
-       ['filename'], {'x': False}, ['y'],
+       ['filename'], {'x': False},
        'placeholders will not be fed during table initialization'),
       (_create_graph_with_y_function_of_x_and_table,
-       ['filename'], {'x': True}, ['y'],
+       ['filename'], {'x': True},
        'placeholders will not be fed during table initialization'),
       (_create_graph_with_y_function_of_x_and_table,
-       ['filename', 'x'], {}, ['y'],
+       ['filename', 'x'], {},
        'placeholders will not be fed during table initialization'),
-      (_create_graph_with_y_function_of_x_and_untracked_table,
-       ['x'], {'filename': True}, ['y'],
-       'may be caused by adding an initializable table without'),
       (_create_graph_with_table_initialized_by_table_output,
-       ['x'], {'filename': True}, ['y'],
+       ['x'], {'filename': True},
        'tables are initialized in one pass')
   )
-  def testDetermineReadyTensorsAndTableInitializersRaises(
-      self, create_graph_fn, feeds, replaced_tensors_ready, fetches,
+  def testInitializableGraphAnalyzerConstructorRaises(
+      self, create_graph_fn, feeds, replaced_tensors_ready,
       error_msg_regex):
     """Test determine_ready_tensors_and_table_initializers.
 
@@ -209,19 +204,49 @@ class GraphToolsTest(test_case.TransformTestCase):
       replaced_tensors_ready: A dict whose keys are keys in the dict returned by
           create_graph_fn and values are a bools indicating whether that tensor
           is ready to be replaced in this phase.
-      fetches: A list keys in the dict returned by create_graph_fn to determine
-          ready status for.
       error_msg_regex: The expected error message.
     """
     tensors = create_graph_fn()
     feeds = [tensors[name] for name in feeds]
-    fetches = [tensors[name] for name in fetches]
     replaced_tensors_ready = {tensors[name]: ready
                               for name, ready in replaced_tensors_ready.items()}
     with self.assertRaisesRegexp(ValueError, error_msg_regex):
-      graph_tools.determine_ready_tensors_and_table_initializers(
-          tf.get_default_graph(), fetches, feeds, replaced_tensors_ready)
+      graph_tools.InitializableGraphAnalyzer(
+          tf.get_default_graph(), feeds, replaced_tensors_ready)
 
+  @test_case.parameters(
+      (_create_graph_with_y_function_of_x, [], {}, 'y',
+       'may have be caused by manually adding a placeholder to the graph'),
+      (_create_graph_with_y_function_of_x_and_untracked_table,
+       ['x'], {'filename': True}, 'y',
+       'may be caused by adding an initializable table without'),
+  )
+  def testInitializableGraphAnalyzerReadyToRunRaises(
+      self, create_graph_fn, feeds, replaced_tensors_ready, fetch,
+      error_msg_regex):
+    """Test determine_ready_tensors_and_table_initializers.
+
+    Args:
+      create_graph_fn: A function that adds ops to a graph and returns a dict
+          mapping tensor names to `Tensor` or `SparseTensor`s.
+      feeds: A list of keys in the dict returned by create_graph_fn that are fed
+          in the main run (but not table initialization run).
+      replaced_tensors_ready: A dict whose keys are keys in the dict returned by
+          create_graph_fn and values are a bools indicating whether that tensor
+          is ready to be replaced in this phase.
+      fetch: The tensor to fetch.  Should be a key in the dict returned by
+          create_graph_fn.
+      error_msg_regex: The expected error message.
+    """
+    tensors = create_graph_fn()
+    feeds = [tensors[name] for name in feeds]
+    replaced_tensors_ready = {tensors[name]: ready
+                              for name, ready in replaced_tensors_ready.items()}
+    graph_analyzer = graph_tools.InitializableGraphAnalyzer(
+        tf.get_default_graph(), feeds, replaced_tensors_ready)
+    with self.assertRaisesRegexp(ValueError, error_msg_regex):
+      tensor = tensors[fetch]
+      graph_analyzer.ready_to_run(tensor)
 
 if __name__ == '__main__':
   unittest.main()

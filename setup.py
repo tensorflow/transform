@@ -34,6 +34,8 @@ def _make_required_install_packages():
 
       'tensorflow-metadata>=0.9,<0.10',
 
+
+      'pydot>=1.2.0,<1.3',
   ]
 
 _LONG_DESCRIPTION = """\

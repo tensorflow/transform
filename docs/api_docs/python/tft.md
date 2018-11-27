@@ -1,7 +1,6 @@
 <div itemscope itemtype="http://developers.google.com/ReferenceObject">
 <meta itemprop="name" content="tft" />
 <meta itemprop="path" content="Stable" />
-<meta itemprop="property" content="ANALYZER_COLLECTION"/>
 <meta itemprop="property" content="VOCAB_FILENAME_PREFIX"/>
 <meta itemprop="property" content="VOCAB_FREQUENCY_FILENAME_PREFIX"/>
 </div>
@@ -15,8 +14,6 @@ Init module for TF.Transform.
 [`coders`](./tft/coders.md) module: Module level imports for tensorflow_transform.coders.
 
 ## Classes
-
-[`class Analyzer`](./tft/Analyzer.md): A class representing computation that will be done by Beam.
 
 [`class CovarianceCombiner`](./tft/CovarianceCombiner.md): Combines the PCollection to compute the biased covariance matrix.
 
@@ -32,9 +29,9 @@ Init module for TF.Transform.
 
 ## Functions
 
-[`apply_buckets(...)`](./tft/apply_buckets.md): Returns a bucketized column, with a bucket index assigned to each input.
+[`apply_analyzer(...)`](./tft/apply_analyzer.md): Applies the analyzer over the whole dataset.
 
-[`apply_combiner(...)`](./tft/apply_combiner.md): Applies the combiner over the whole dataset.
+[`apply_buckets(...)`](./tft/apply_buckets.md): Returns a bucketized column, with a bucket index assigned to each input.
 
 [`apply_function(...)`](./tft/apply_function.md): Deprecated function, equivalent to fn(*args). (deprecated)
 
@@ -66,6 +63,8 @@ Init module for TF.Transform.
 
 [`pca(...)`](./tft/pca.md): Computes pca on the dataset using biased covariance.
 
+[`ptransform_analyzer(...)`](./tft/ptransform_analyzer.md): Applies a user-provided PTransform over the whole dataset.
+
 [`quantiles(...)`](./tft/quantiles.md): Computes the quantile boundaries of a `Tensor` over the whole dataset.
 
 [`sanitized_vocab_filename(...)`](./tft/sanitized_vocab_filename.md): Generates a sanitized filename either from the given filename or the scope.
@@ -95,8 +94,6 @@ Init module for TF.Transform.
 [`vocabulary(...)`](./tft/vocabulary.md): Computes the unique values of a `Tensor` over the whole dataset.
 
 ## Other Members
-
-<h3 id="ANALYZER_COLLECTION"><code>ANALYZER_COLLECTION</code></h3>
 
 <h3 id="VOCAB_FILENAME_PREFIX"><code>VOCAB_FILENAME_PREFIX</code></h3>
 

@@ -20,12 +20,9 @@ from __future__ import print_function
 
 import numpy as np
 import tensorflow as tf
-from tensorflow_transform import analyzers
 from tensorflow_transform import impl_helper
-from tensorflow_transform import mappers
 from tensorflow_transform import test_case
 from tensorflow_transform.tf_metadata import dataset_schema
-from tensorflow.python.ops import control_flow_ops
 
 _FEATURE_SPEC = {
     'a': tf.FixedLenFeature([], tf.int64),
@@ -308,88 +305,6 @@ class ImplHelperTest(test_case.TransformTestCase):
     schema = dataset_schema.from_feature_spec(feature_spec)
     with self.assertRaisesRegexp(error_type, error_msg):
       impl_helper.to_instance_dicts(schema, feed_dict)
-
-  def test_create_phases_with_multiple_levels_of_analyzers(self):
-    # Create graph similar to calling scale_to_0_1 except involving multiple
-    # interleavings of analyzers and transforms.
-    float_placeholder = tf.placeholder(tf.float32, shape=(None,))
-    scaled_to_0 = float_placeholder - analyzers.min(float_placeholder)
-    scaled_to_0 / analyzers.max(scaled_to_0)  # pylint: disable=expression-not-assigned
-
-    phases = impl_helper.create_phases({'x': float_placeholder})
-    self.assertEqual(len(phases), 2)
-    self.assertEqual(len(phases[0].analyzer_infos), 1)
-    self.assertEqual(len(phases[1].analyzer_infos), 1)
-
-  def test_scale_to_z_score_is_single_phase(self):
-    float_placeholder = tf.placeholder(tf.float32, shape=(None, 1))
-    mappers.scale_to_z_score(float_placeholder)  # pylint: disable=expression-not-assigned
-
-    phases = impl_helper.create_phases({'x': float_placeholder})
-    self.assertEqual(len(phases), 1)
-    self.assertEqual(len(phases[0].analyzer_infos), 1)
-
-  def test_create_phases_with_table(self):
-    # Create a graph with table that can only be run after the first analyzer
-    # has run.  Note converting an integerized string into a float doesn't make
-    # much sense, but is a legal tensorflow computation.
-    string_placeholder = tf.placeholder(tf.string, shape=(None,))
-    integerized = mappers.compute_and_apply_vocabulary(string_placeholder)
-    integerized = tf.to_float(integerized)
-    integerized / analyzers.max(integerized)  # pylint: disable=expression-not-assigned
-
-    phases = impl_helper.create_phases({'x': string_placeholder})
-    self.assertEqual(len(phases), 2)
-    self.assertEqual(len(phases[0].analyzer_infos), 1)
-    self.assertEqual(len(phases[1].analyzer_infos), 1)
-    self.assertEqual(len(phases[0].table_initializers), 0)
-    self.assertEqual(len(phases[1].table_initializers), 1)
-
-  def test_create_phases_with_assert_equal(self):
-    # Create a graph with a assert_equal, which tests the case when an op has
-    # control flow inputs that are ops (not tensors).
-    x = tf.placeholder(tf.float32, shape=(None,))
-    y = tf.placeholder(tf.float32, shape=(None,))
-    x = control_flow_ops.with_dependencies([tf.assert_equal(x, y)], x)
-    # We need to call an analyzer after the loop because only the transitive
-    # parents of analyzers are inspected by create_phases
-    mappers.scale_to_0_1(x)
-
-    phases = impl_helper.create_phases({'x': x, 'y': y})
-    self.assertEqual(len(phases), 1)
-    #  tft.scale_to_0_1 uses a single analyzer: analyzers._min_and_max.
-    self.assertEqual(len(phases[0].analyzer_infos), 1)
-
-  def test_create_phases_with_tf_cond(self):
-    int_placeholder = tf.placeholder(tf.int64, shape=(None,))
-    abs_int_placeholder = tf.cond(
-        tf.reduce_sum(int_placeholder) > 0,
-        lambda: int_placeholder,
-        lambda: -int_placeholder)
-
-    # We need to call an analyzer after the tf.cond because only the transitive
-    # parents of analyzers are inspected by create_phases.
-    mappers.scale_to_0_1(abs_int_placeholder)
-
-    phases = impl_helper.create_phases({'x': int_placeholder})
-    self.assertEqual(len(phases), 1)
-
-    # tft.scale_to_0_1 uses a single analyzer: analyzers._min_and_max.
-    self.assertEqual(len(phases[0].analyzer_infos), 1)
-
-  def test_create_phases_with_tf_while(self):
-    int_placeholder = tf.placeholder(tf.int64, shape=(None,))
-    int_placeholder_minus_10 = _subtract_ten_with_tf_while(int_placeholder)
-
-    # We need to call an analyzer after the loop because only the transitive
-    # parents of analyzers are inspected by create_phases.
-    mappers.scale_to_0_1(int_placeholder_minus_10)
-
-    phases = impl_helper.create_phases({'x': int_placeholder})
-    self.assertEqual(len(phases), 1)
-
-    # tft.scale_to_0_1 uses a single analyzer: analyzers._min_and_max.
-    self.assertEqual(len(phases[0].analyzer_infos), 1)
 
   def test_copy_tensors_produces_different_tensors(self):
     tensors = {

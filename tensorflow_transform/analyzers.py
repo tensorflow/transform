@@ -33,16 +33,15 @@ import re
 
 import numpy as np
 import tensorflow as tf
-
-from tensorflow_transform import attributes_classes
+from tensorflow_transform import analyzer_nodes
+from tensorflow_transform import nodes
 from tensorflow_transform import tf_utils
-from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
 
+from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
 from tensorflow.python.ops import resources
 from tensorflow.python.util import deprecation
 
 
-ANALYZER_COLLECTION = 'tft_analyzers'
 VOCAB_FILENAME_PREFIX = 'vocab_'
 VOCAB_FREQUENCY_FILENAME_PREFIX = 'vocab_frequency_'
 
@@ -76,158 +75,46 @@ _MEAN_OUTPUT_DTYPE_MAP = {
 }
 
 
-# NOTE: this code is designed so that Analyzer is pickleable, and in particular
-# does not try to pickle a tf.Graph or tf.Tensor which may not be pickleable.
-# This is due to https://issues.apache.org/jira/browse/BEAM-3812.  Until that
-# issue is fixed, anything that is a member variable of a Beam PTransform may
-# end up getting pickled.  Instances of Analyzer do end up as member variables
-# of a PTransform in our implementation of tf.Transform on Beam currently, so
-# we must avoid directly putting `Tensor`s inside `Analyzer`, and instead use
-# tensor names.
-#
-# Due to these pickling issues and also logical separation of TensorFlow and
-# numpy code, the spec should also not contain TensorFlow dtypes but rather
-# their numpy equivalent.
-class Analyzer(object):
-  """A class representing computation that will be done by Beam.
-
-  An Analyzer is like a tf.Operation except that it requires computation over
-  the full dataset.  E.g. sum(my_tensor) will compute the sum of the value of
-  my_tensor over all instances in the dataset.  The Analyzer class contains the
-  inputs to this computation, and placeholders which will later be converted to
-  constants during a call to AnalyzeDataset.
-
-  Analyzer implementations write some files to disk in a temporary location and
-  return tensors that contain the filename.  These outputs must be added to the
-  tf.GraphKeys.ASSET_FILEPATHS collection.  Doing so will ensure a few things
-  happen:
-  * the tensor will be removed from the collection prior to writing the
-    SavedModel (since the tensor will be replaced)
-  * when the tensor is replaced, the replacement will be added to the
-    tf.GraphKeys.ASSET_FILEPATHS collection
-  * This in turn causes the underlying file to be added to the SavedModel's
-    `assets` directory when the model is saved
+def apply_analyzer(analyzer_def_cls, *tensor_inputs, **analyzer_def_kwargs):
+  """Applies the analyzer over the whole dataset.
 
   Args:
-    inputs: The `Tensor`s that are used to create inputs to this analyzer,
-    outputs: The `Tensor`s whose values will be replaced by the result of the
-        analyzer.
-    attributes: An object that will be used to determine how the analyzer is
-        implemented by Beam.
-  """
-
-  def __init__(self, inputs, outputs, attributes):
-    for index, tensor in enumerate(inputs):
-      if not isinstance(tensor, tf.Tensor):
-        raise ValueError(
-            'In analyzer {}, the {}th input ({}) was not a Tensor'.format(
-                attributes.name, index, tensor))
-    for index, tensor in enumerate(outputs):
-      if not isinstance(tensor, tf.Tensor):
-        raise ValueError(
-            'In analyzer {}, the {}th output ({}) was not a Tensor'.format(
-                attributes.name, index, tensor))
-    self._inputs = inputs
-    self._outputs = outputs
-    self._attributes = attributes
-
-  @property
-  def attributes(self):
-    return self._attributes
-
-  @property
-  def inputs(self):
-    return self._inputs
-
-  @property
-  def outputs(self):
-    return self._outputs
-
-  @property
-  def control_inputs(self):
-    return []
-
-
-def apply_combiner(inputs, output_dtypes, output_shapes, combiner, name):
-  """Applies the combiner over the whole dataset.
-
-  Args:
-    inputs: A list of input `Tensor`s or `SparseTensor`s.
-    output_dtypes: The list of dtypes of the output of the analyzer.
-    output_shapes: The list of shapes of the output of the analyzer.  Must have
-      the same length as output_dtypes.
-    combiner: An object implementing the Combiner interface.
-    name: Similar to a TF op name.  Used to define a unique scope for this
-      analyzer, which can be used for debugging info.
+    analyzer_def_cls: A class inheriting from analyzer_nodes.AnalyzerDef that
+      should be applied.
+    *tensor_inputs: A list of input `Tensor`s or `SparseTensor`s.
+    **analyzer_def_kwargs: KW arguments to use when constructing
+      analyzer_def_cls.
 
   Returns:
-    A list of `Tensor`s representing the combined values.  These will have
-        `dtype` and `shape` given by `output_dtypes` and `output_shapes`.  These
-        dtypes and shapes must be compatible with the combiner.
-
-  Raises:
-    ValueError: If output_dtypes and output_shapes have different lengths.
+    A list of `Tensor`s representing the values of the analysis result.
   """
-  if len(output_dtypes) != len(output_shapes):
-    raise ValueError('output_dtypes ({}) and output_shapes ({}) had different'
-                     ' lengths'.format(output_dtypes, output_shapes))
-  with tf.name_scope(name) as scope:
-    outputs = [tf.placeholder(dtype, shape)
-               for dtype, shape in zip(output_dtypes, output_shapes)]
-    tf.add_to_collection(
-        ANALYZER_COLLECTION,
-        Analyzer(inputs, outputs, attributes_classes.Combine(combiner, scope)))
-    return outputs
+  input_values_node = nodes.apply_operation(
+      analyzer_nodes.TensorSource, tensors=tensor_inputs)
+  output_value_nodes = nodes.apply_multi_output_operation(
+      analyzer_def_cls,
+      input_values_node,
+      **analyzer_def_kwargs)
+  analyzer_def = output_value_nodes[0].parent_operation.operation_def
+  assert len(output_value_nodes) == len(analyzer_def.output_tensor_infos)
+  return [
+      analyzer_nodes.bind_future_as_tensor(future, info) for future, info in
+      zip(output_value_nodes, analyzer_def.output_tensor_infos)
+  ]
 
 
-def _apply_combiner_per_key(key, inputs, output_dtypes, output_shapes, combiner,
-                            name):
-  """Applies the combiner over the whole dataset per-key.
-
-  Args:
-    key: A `Tensor` with rank 1 and dtype tf.string.
-    inputs: A list of input `Tensor`s or `SparseTensor`s.
-    output_dtypes: The list of dtypes of the output of the analyzer.
-    output_shapes: The list of shapes of the output of the analyzer.  Must have
-      the same length as output_dtypes.
-    combiner: An object implementing the Combiner interface.
-    name: Similar to a TF op name.  Used to define a unique scope for this
-      analyzer, which can be used for debugging info.
-
-  Returns:
-    A list of `Tensor`s representing the combined values.  These will have
-        `dtype` and `shape` given by `output_dtypes` and `output_shapes`.  These
-        dtypes and shapes must be compatible with the combiner.
-
-  Raises:
-    ValueError: If output_dtypes and output_shapes have different lengths.
-  """
-  if len(output_dtypes) != len(output_shapes):
-    raise ValueError('output_dtypes ({}) and output_shapes ({}) had different'
-                     ' lengths'.format(output_dtypes, output_shapes))
-  with tf.name_scope(name) as scope:
-    key_vocab = tf.placeholder(tf.string, (None,))
-    outputs = [tf.placeholder(dtype, shape)
-               for dtype, shape in zip(output_dtypes, output_shapes)]
-
-    tf.add_to_collection(
-        ANALYZER_COLLECTION,
-        Analyzer([key] + inputs, [key_vocab] + outputs,
-                 attributes_classes.CombinePerKey(combiner, scope)))
-    return key_vocab, outputs
-
-
-class NumPyCombiner(attributes_classes.Combiner):
+class NumPyCombiner(analyzer_nodes.Combiner):
   """Combines the PCollection only on the 0th dimension using nparray.
 
   Args:
     fn: The numpy function representing the reduction to be done.
     output_dtypes: The numpy dtype to cast each output to.
+    output_shapes: The shapes of the outputs.
   """
 
-  def __init__(self, fn, output_dtypes):
+  def __init__(self, fn, output_dtypes, output_shapes=None):
     self._fn = fn
     self._output_dtypes = output_dtypes
+    self._output_shapes = output_shapes
 
   def create_accumulator(self):
     return None
@@ -266,6 +153,12 @@ class NumPyCombiner(attributes_classes.Combiner):
               for sub_accumulator, output_dtype
               in zip(accumulator, self._output_dtypes)]
 
+  def output_tensor_infos(self):
+    return [
+        analyzer_nodes.TensorInfo(dtype, shape, False)
+        for dtype, shape in zip(self._output_dtypes, self._output_shapes)
+    ]
+
 
 def _get_output_shape_from_input(x):
   if isinstance(x, tf.SparseTensor):
@@ -280,7 +173,6 @@ def _get_output_shape_from_input(x):
 def _numeric_combine(inputs,
                      fn,
                      reduce_instance_dims=True,
-                     name=None,
                      output_dtypes=None):
   """Apply a reduction, defined by a numpy function to multiple inputs.
 
@@ -291,7 +183,6 @@ def _numeric_combine(inputs,
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
-    name: (Optional) A name for this operation.
     output_dtypes: (Optional) A list of dtypes of the output tensors. If None,
         the output tensor has the same type as the input one.
 
@@ -312,10 +203,9 @@ def _numeric_combine(inputs,
   else:
     # Reducing over batch dimensions.
     output_shapes = [x.get_shape() for x in inputs]
-  combiner = NumPyCombiner(fn,
-                           [dtype.as_numpy_dtype for dtype in output_dtypes])
-  return apply_combiner(inputs, output_dtypes, output_shapes, combiner, name
-                        if name is not None else fn.__name__)
+  combiner = NumPyCombiner(
+      fn, [dtype.as_numpy_dtype for dtype in output_dtypes], output_shapes)
+  return apply_analyzer(analyzer_nodes.Combine, *inputs, combiner=combiner)
 
 
 def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
@@ -337,7 +227,8 @@ def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Raises:
     TypeError: If the type of `x` is not supported.
   """
-  return _min_and_max(x, reduce_instance_dims, name)[0]
+  with tf.name_scope(name, 'min'):
+    return _min_and_max(x, reduce_instance_dims, name)[0]
 
 
 def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
@@ -358,7 +249,8 @@ def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Raises:
     TypeError: If the type of `x` is not supported.
   """
-  return _min_and_max(x, reduce_instance_dims, name)[1]
+  with tf.name_scope(name, 'max'):
+    return _min_and_max(x, reduce_instance_dims, name)[1]
 
 
 def _sparse_minus_reduce_min_and_reduce_max(x):
@@ -491,21 +383,22 @@ def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Raises:
     TypeError: If the type of `x` is not supported.
   """
-  if reduce_instance_dims:
-    if isinstance(x, tf.SparseTensor):
-      x = x.values
-    x = tf.reduce_sum(x)
-  elif isinstance(x, tf.SparseTensor):
-    if x.dtype == tf.uint8 or x.dtype == tf.uint16:
-      x = tf.cast(x, tf.int64)
-    elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
-      TypeError('Data type %r is not supported' % x.dtype)
-    x = tf.sparse_reduce_sum(x, axis=0)
-  else:
-    x = tf.reduce_sum(x, axis=0)
-  output_dtype, sum_fn = _sum_combine_fn_and_dtype(x.dtype)
-  return _numeric_combine([x], sum_fn, reduce_instance_dims, name,
-                          [output_dtype])[0]
+  with tf.name_scope(name, 'sum'):
+    if reduce_instance_dims:
+      if isinstance(x, tf.SparseTensor):
+        x = x.values
+      x = tf.reduce_sum(x)
+    elif isinstance(x, tf.SparseTensor):
+      if x.dtype == tf.uint8 or x.dtype == tf.uint16:
+        x = tf.cast(x, tf.int64)
+      elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
+        TypeError('Data type %r is not supported' % x.dtype)
+      x = tf.sparse_reduce_sum(x, axis=0)
+    else:
+      x = tf.reduce_sum(x, axis=0)
+    output_dtype, sum_fn = _sum_combine_fn_and_dtype(x.dtype)
+    return _numeric_combine([x], sum_fn, reduce_instance_dims,
+                            [output_dtype])[0]
 
 
 def size(x, reduce_instance_dims=True, name=None):
@@ -553,7 +446,7 @@ def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
     TypeError: If the type of `x` is not supported.
   """
   with tf.name_scope(name, 'mean'):
-    return _mean_and_var(x, reduce_instance_dims, name, output_dtype)[0]
+    return _mean_and_var(x, reduce_instance_dims, output_dtype)[0]
 
 
 def var(x, reduce_instance_dims=True, name=None, output_dtype=None):
@@ -580,17 +473,17 @@ def var(x, reduce_instance_dims=True, name=None, output_dtype=None):
     TypeError: If the type of `x` is not supported.
   """
   with tf.name_scope(name, 'var'):
-    return _mean_and_var(x, reduce_instance_dims, name, output_dtype)[1]
+    return _mean_and_var(x, reduce_instance_dims, output_dtype)[1]
 
 
-def _mean_and_var(x, reduce_instance_dims=True, name=None, output_dtype=None):
+def _mean_and_var(x, reduce_instance_dims=True, output_dtype=None):
   """More efficient combined `mean` and `var`.  See `var`."""
   if output_dtype is None:
     output_dtype = _MEAN_OUTPUT_DTYPE_MAP.get(x.dtype)
     if output_dtype is None:
       raise TypeError('Tensor type %r is not supported' % x.dtype)
 
-  with tf.name_scope(name, 'mean_and_var'):
+  with tf.name_scope('mean_and_var'):
 
     x = tf.cast(x, output_dtype)
 
@@ -606,12 +499,10 @@ def _mean_and_var(x, reduce_instance_dims=True, name=None, output_dtype=None):
       output_shape = _get_output_shape_from_input(
           tf.expand_dims(x_count, axis=0))
 
-    x_mean, x_var = apply_combiner(
-        inputs=combine_inputs,
-        output_dtypes=[output_dtype] * 2,
-        output_shapes=[output_shape] * 2,
-        combiner=MeanAndVarCombiner(output_dtype.as_numpy_dtype),
-        name=name if name is not None else 'mean_and_var')
+    x_mean, x_var = apply_analyzer(
+        analyzer_nodes.Combine,
+        *combine_inputs,
+        combiner=MeanAndVarCombiner(output_dtype.as_numpy_dtype, output_shape))
 
   return x_mean, x_var
 
@@ -629,11 +520,12 @@ class _MeanAndVarAccumulator(
     return self.__class__, tuple(self)
 
 
-class MeanAndVarCombiner(attributes_classes.Combiner):
+class MeanAndVarCombiner(analyzer_nodes.Combiner):
   """Combines a PCollection of accumulators to compute mean and variance."""
 
-  def __init__(self, output_numpy_dtype):
+  def __init__(self, output_numpy_dtype, output_shape=None):
     self._output_numpy_dtype = output_numpy_dtype
+    self._output_shape = output_shape
 
   def create_accumulator(self):
     """Create an accumulator with all zero entries."""
@@ -689,9 +581,12 @@ class MeanAndVarCombiner(attributes_classes.Combiner):
       return (self._output_numpy_dtype(accumulator.mean),
               self._output_numpy_dtype(accumulator.variance))
 
-  def num_outputs(self):
+  def output_tensor_infos(self):
     # The output is (mean, var).
-    return 2
+    return [
+        analyzer_nodes.TensorInfo(self._output_numpy_dtype, self._output_shape,
+                                  False)
+    ] * 2
 
   def _combine_mean_and_var_accumulators(self, a, b):
     """Combines two mean and var accumulators.
@@ -816,6 +711,10 @@ def vocabulary(
     weights=None,
     labels=None,
     use_adjusted_mutual_info=False,
+    min_diff_from_avg=0.0,
+    coverage_top_k=None,
+    coverage_frequency_threshold=None,
+    key_fn=None,
     name=None):
   r"""Computes the unique values of a `Tensor` over the whole dataset.
 
@@ -836,6 +735,25 @@ def vocabulary(
 
   When labels are provided, we filter the vocabulary based on how correlated the
   unique value is with a positive label (Mutual Information).
+
+
+  WARNING: The following is experimental and is still being actively worked on.
+
+  Supply `key_fn` if you would like to generate a vocabulary with coverage over
+  specific keys.
+
+  A "coverage vocabulary" is the union of two vocabulary "arms". The "standard
+  arm" of the vocabulary is equivalent to the one generated by the same function
+  call with no coverage arguments. Adding coverage only appends additional
+  entries to the end of the standard vocabulary.
+
+  The "coverage arm" of the vocabulary is determined by taking the
+  `coverage_top_k` most frequent unique terms per key. A term's key is obtained
+  by applying `key_fn` to the term. Use `coverage_frequency_threshold` to lower
+  bound the frequency of entries in the coverage arm of the vocabulary.
+
+  Note this is currently implemented for the case where the key is contained
+  within each vocabulary entry (b/117796748).
 
   Args:
     x: An input `Tensor` or `SparseTensor` with dtype tf.string.
@@ -861,6 +779,17 @@ def vocabulary(
     labels: (Optional) Labels `Tensor` for the vocabulary. It must have dtype
       int64, have values 0 or 1, and have the same shape as x.
     use_adjusted_mutual_info: If true, use adjusted mutual information.
+    min_diff_from_avg: Mutual information of a feature will be adjusted to zero
+      whenever the difference between count of the feature with any label and
+      its expected count is lower than min_diff_from_average.
+    coverage_top_k: (Optional), (Experimental) The minimum number of elements
+      per key to be included in the vocabulary.
+    coverage_frequency_threshold: (Optional), (Experimental) Limit the coverage
+      arm of the vocabulary only to elements whose absolute frequency is >= this
+      threshold for a given key.
+    key_fn: (Optional), (Experimental) A fn that takes in a single entry of `x`
+      and returns the corresponding key for coverage calculation. If this is
+      `None`, no coverage arm is added to the vocabulary.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -868,9 +797,26 @@ def vocabulary(
 
   Raises:
     ValueError: If `top_k` or `frequency_threshold` is negative.
+      If `coverage_top_k` or `coverage_frequency_threshold` is negative.
+      If either `coverage_top_k` or `coverage_frequency_threshold` is specified
+        and `key_fn` is not.
+      If `key_fn` is specified and neither `coverage_top_k`, nor
   """
   top_k, frequency_threshold = _get_top_k_and_frequency_threshold(
       top_k, frequency_threshold)
+
+  if (coverage_top_k or coverage_frequency_threshold) and not key_fn:
+    raise ValueError('You must specify `key_fn` if you specify `coverage_top_k'
+                     ' or `coverage_frequency_threshold` in `vocabulary`.')
+
+  if key_fn and not (coverage_top_k or coverage_frequency_threshold):
+    raise ValueError('You must specify `coverage_top_k`  or '
+                     '`coverage_frequency_threshold` if you specify `key_fn` in'
+                     ' `vocabulary`.')
+
+  coverage_top_k, coverage_frequency_threshold = (
+      _get_top_k_and_frequency_threshold(
+          coverage_top_k, coverage_frequency_threshold))
 
   if isinstance(x, tf.SparseTensor):
     x = x.values
@@ -878,7 +824,7 @@ def vocabulary(
   if x.dtype != tf.string:
     raise ValueError('expected tf.string but got %r' % x.dtype)
 
-  with tf.name_scope(name, 'vocabulary') as scope:
+  with tf.name_scope(name, 'vocabulary'):
     vocab_filename = _get_vocab_filename(vocab_filename, store_frequency)
 
     if labels is not None:
@@ -906,20 +852,20 @@ def vocabulary(
       assert none_counts is None
       analyzer_inputs = [unique_inputs]
 
-    attributes = attributes_classes.Vocabulary(
-        top_k,
-        frequency_threshold,
-        vocab_filename,
-        store_frequency,
-        vocab_ordering_type,
-        use_adjusted_mutual_info,
-        scope)
-
-    result = tf.placeholder(tf.string, [])
-    tf.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, result)
-    tf.add_to_collection(ANALYZER_COLLECTION,
-                         Analyzer(analyzer_inputs, [result], attributes))
-    return result
+    (vocab_filename,) = apply_analyzer(
+        analyzer_nodes.Vocabulary,
+        *analyzer_inputs,
+        use_adjusted_mutual_info=use_adjusted_mutual_info,
+        min_diff_from_avg=min_diff_from_avg,
+        coverage_top_k=coverage_top_k,
+        coverage_frequency_threshold=coverage_frequency_threshold,
+        key_fn=key_fn,
+        top_k=top_k,
+        frequency_threshold=frequency_threshold,
+        vocab_filename=vocab_filename,
+        store_frequency=store_frequency,
+        vocab_ordering_type=vocab_ordering_type)
+    return vocab_filename
 
 
 @deprecation.deprecated(None, 'Use `tft.vocabulary()` instead.')
@@ -943,7 +889,7 @@ def uniques(x,
       name=name)
 
 
-class QuantilesCombiner(attributes_classes.Combiner):
+class QuantilesCombiner(analyzer_nodes.Combiner):
   """Computes quantiles on the PCollection.
 
   This implementation is based on go/squawd.
@@ -957,29 +903,14 @@ class QuantilesCombiner(attributes_classes.Combiner):
                bucket_numpy_dtype,
                always_return_num_quantiles=False,
                has_weights=False,
+               output_shape=None,
                include_max_and_min=False):
-    """Initializer.
-
-    Args:
-      num_quantiles: See param `num_buckets` of quantiles().
-      epsilon: See param `epsilon` of quantiles().
-      bucket_numpy_dtype: numpy dtype of the quantile boundaries.
-      always_return_num_quantiles: if True, always produce the requested number
-        of buckets.
-      has_weights: whether the input is weighted.
-      include_max_and_min: if True, the produced bucket boundaries will contain
-        the max and the min of the PCollection (as result[0] and result[-1]).
-        As a result, if `always_return_num_quantiles` is True, there are
-        num_quantiles + 1 bucket boundaries to be produced.
-        Note that to descretize a value to exactly num_quantiles with
-        tft.ApplyBuckets(), you need num_quantiles - 1 bucket boundaries, in
-        which case this flag should be set to True.
-    """
     self._num_quantiles = num_quantiles
     self._epsilon = epsilon
     self._bucket_numpy_dtype = bucket_numpy_dtype
     self._always_return_num_quantiles = always_return_num_quantiles
     self._has_weights = has_weights
+    self._output_shape = output_shape
     self._include_max_and_min = include_max_and_min
 
   def initialize_local_state(self, tf_config=None):
@@ -1156,6 +1087,12 @@ class QuantilesCombiner(attributes_classes.Combiner):
 
     return [buckets]
 
+  def output_tensor_infos(self):
+    return [
+        analyzer_nodes.TensorInfo(
+            tf.as_dtype(self._bucket_numpy_dtype), self._output_shape, False)
+    ]
+
 
 def quantiles(x, num_buckets, epsilon, weights=None, name=None):
   """Computes the quantile boundaries of a `Tensor` over the whole dataset.
@@ -1195,26 +1132,26 @@ def quantiles(x, num_buckets, epsilon, weights=None, name=None):
     See code below for discussion on the type of bucket boundaries.
   """
   bucket_dtype = tf.float32
-  if weights is None:
-    analyzer_inputs = [x]
-    has_weights = False
-    always_return_num_quantiles = False
-  else:
-    x = tf_utils.assert_same_shape(x, weights)
-    analyzer_inputs = [x, weights]
-    has_weights = True
-    always_return_num_quantiles = True
-  combiner = QuantilesCombiner(
-      num_buckets,
-      epsilon,
-      bucket_dtype.as_numpy_dtype,
-      always_return_num_quantiles=always_return_num_quantiles,
-      has_weights=has_weights)
-  if name is None:
-    name = 'quantiles'
-  quantile_boundaries = apply_combiner(analyzer_inputs, [bucket_dtype],
-                                       [(None,)], combiner, name)[0]
-  return tf.expand_dims(quantile_boundaries, axis=0)
+  with tf.name_scope(name, 'quantiles'):
+    if weights is None:
+      analyzer_inputs = [x]
+      has_weights = False
+      always_return_num_quantiles = False
+    else:
+      x = tf_utils.assert_same_shape(x, weights)
+      analyzer_inputs = [x, weights]
+      has_weights = True
+      always_return_num_quantiles = True
+    combiner = QuantilesCombiner(
+        num_buckets,
+        epsilon,
+        bucket_dtype.as_numpy_dtype,
+        always_return_num_quantiles=always_return_num_quantiles,
+        has_weights=has_weights,
+        output_shape=(None,))
+    (quantile_boundaries,) = apply_analyzer(
+        analyzer_nodes.Combine, *analyzer_inputs, combiner=combiner)
+    return tf.expand_dims(quantile_boundaries, axis=0)
 
 
 def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
@@ -1243,23 +1180,24 @@ def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
   if key.dtype != tf.string:
     raise ValueError('key must have type tf.string')
   bucket_dtype = tf.float32
-  combiner = QuantilesCombiner(
-      num_buckets,
-      epsilon,
-      bucket_dtype.as_numpy_dtype,
-      always_return_num_quantiles=True)
-  if name is None:
-    name = 'quantiles_by_key'
-  key, (bucket_boundaries,) = _apply_combiner_per_key(
-      key, [x], [bucket_dtype], [(None, None)], combiner, name)
-  return key, bucket_boundaries
+  with tf.name_scope(name, 'quantiles_by_key'):
+    combiner = QuantilesCombiner(
+        num_buckets,
+        epsilon,
+        bucket_dtype.as_numpy_dtype,
+        always_return_num_quantiles=True,
+        output_shape=(None, None))
+    key, bucket_boundaries = apply_analyzer(
+        analyzer_nodes.CombinePerKey, key, x, combiner=combiner)
+    return key, bucket_boundaries
 
 
-class CovarianceCombiner(attributes_classes.Combiner):
+class CovarianceCombiner(analyzer_nodes.Combiner):
   """Combines the PCollection to compute the biased covariance matrix."""
 
-  def __init__(self, numpy_dtype=np.float64):
+  def __init__(self, numpy_dtype=np.float64, output_shape=None):
     """Store the dtype for np arrays/matrices for precision."""
+    self._output_shape = output_shape
     self._numpy_dtype = numpy_dtype
 
   def create_accumulator(self):
@@ -1348,6 +1286,12 @@ class CovarianceCombiner(attributes_classes.Combiner):
 
     return [expected_cross_terms - np.outer(expected_terms, expected_terms)]
 
+  def output_tensor_infos(self):
+    return [
+        analyzer_nodes.TensorInfo(
+            tf.as_dtype(self._numpy_dtype), self._output_shape, False)
+    ]
+
 
 def covariance(x, dtype, name=None):
   """Computes the covariance matrix over the whole dataset.
@@ -1374,23 +1318,27 @@ def covariance(x, dtype, name=None):
   if not isinstance(x, tf.Tensor):
     raise TypeError('Expected a Tensor, but got %r' % x)
 
-  x.shape.assert_has_rank(2)
+  with tf.name_scope(name, 'covariance'):
+    x.shape.assert_has_rank(2)
 
-  input_dim = x.shape.as_list()[1]
-  shape = (input_dim, input_dim)
+    input_dim = x.shape.as_list()[1]
+    shape = (input_dim, input_dim)
 
-  combiner = CovarianceCombiner(dtype.as_numpy_dtype)
-  if name is None:
-    name = 'covariance'
-  return apply_combiner([x], [dtype], [shape], combiner, name)[0]
+    (result,) = apply_analyzer(
+        analyzer_nodes.Combine,
+        x,
+        combiner=CovarianceCombiner(dtype.as_numpy_dtype, shape))
+    return result
 
 
 class PCACombiner(CovarianceCombiner):
   """Compute PCA of accumulated data using the biased covariance matrix."""
 
-  def __init__(self, output_dim=None, numpy_dtype=np.float64):
+  def __init__(self, output_dim=None, numpy_dtype=np.float64,
+               output_shape=None):
     """Store pca output dimension, and dtype for precision."""
-    super(PCACombiner, self).__init__(numpy_dtype=numpy_dtype)
+    super(PCACombiner, self).__init__(
+        numpy_dtype=numpy_dtype, output_shape=output_shape)
     self._output_dim = output_dim
 
   def extract_output(self, accumulator):
@@ -1494,12 +1442,59 @@ def pca(x, output_dim, dtype, name=None):
   if not isinstance(x, tf.Tensor):
     raise TypeError('Expected a Tensor, but got %r' % x)
 
-  x.shape.assert_has_rank(2)
+  with tf.name_scope(name, 'pca'):
+    x.shape.assert_has_rank(2)
 
-  input_dim = x.shape.as_list()[1]
-  shape = (input_dim, output_dim)
+    input_dim = x.shape.as_list()[1]
+    shape = (input_dim, output_dim)
 
-  combiner = PCACombiner(output_dim, dtype.as_numpy_dtype)
-  if name is None:
-    name = 'pca'
-  return apply_combiner([x], [dtype], [shape], combiner, name)[0]
+    (result,) = apply_analyzer(
+        analyzer_nodes.Combine,
+        x,
+        combiner=PCACombiner(output_dim, dtype.as_numpy_dtype, shape))
+    return result
+
+
+def ptransform_analyzer(inputs, output_dtypes, output_shapes, ptransform,
+                        name=None):
+  """Applies a user-provided PTransform over the whole dataset.
+
+  WARNING: This is experimental.
+
+  Note that in order to have asset files copied correctly, any outputs that
+  represent asset filenames must be added to the `tf.GraphKeys.ASSET_FILEPATHS`
+  collection by the caller.
+
+  Args:
+    inputs: A list of input `Tensor`s.
+    output_dtypes: The list of dtypes of the output of the analyzer.
+    output_shapes: The list of shapes of the output of the analyzer.  Must have
+      the same length as output_dtypes.
+    ptransform: A Beam PTransform that accepts a Beam PCollection where each
+      element is a list of `ndarray`s.  Each element in the list contains a
+      batch of values for the corresponding input tensor of the analyzer.  It
+      returns a tuple of `PCollection`, each containing a single element which
+      is an `ndarray`.
+    name: (Optional) Similar to a TF op name.  Used to define a unique scope for
+      this analyzer, which can be used for debugging info.
+
+  Returns:
+    A list of output `Tensor`s.  These will have `dtype` and `shape` as
+      specified by `output_dtypes` and `output_shapes`.
+
+  Raises:
+    ValueError: If output_dtypes and output_shapes have different lengths.
+  """
+  if len(output_dtypes) != len(output_shapes):
+    raise ValueError('output_dtypes ({}) and output_shapes ({}) had different'
+                     ' lengths'.format(output_dtypes, output_shapes))
+  with tf.name_scope(name, 'ptransform'):
+    output_tensor_infos = [
+        analyzer_nodes.TensorInfo(dtype, shape, False)
+        for dtype, shape in zip(output_dtypes, output_shapes)
+    ]
+    return apply_analyzer(
+        analyzer_nodes.PTransform,
+        *inputs,
+        ptransform=ptransform,
+        output_tensor_info_list=output_tensor_infos)

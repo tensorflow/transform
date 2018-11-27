@@ -6,7 +6,7 @@
 <meta itemprop="property" content="create_accumulator"/>
 <meta itemprop="property" content="extract_output"/>
 <meta itemprop="property" content="merge_accumulators"/>
-<meta itemprop="property" content="num_outputs"/>
+<meta itemprop="property" content="output_tensor_infos"/>
 </div>
 
 # tft.MeanAndVarCombiner
@@ -20,7 +20,10 @@ Combines a PCollection of accumulators to compute mean and variance.
 <h2 id="__init__"><code>__init__</code></h2>
 
 ``` python
-__init__(output_numpy_dtype)
+__init__(
+    output_numpy_dtype,
+    output_shape=None
+)
 ```
 
 
@@ -92,10 +95,10 @@ Merges several `_MeanAndVarAccumulator`s to a single accumulator.
 
 The sole merged `_MeanAndVarAccumulator`.
 
-<h3 id="num_outputs"><code>num_outputs</code></h3>
+<h3 id="output_tensor_infos"><code>output_tensor_infos</code></h3>
 
 ``` python
-num_outputs()
+output_tensor_infos()
 ```
 
 
