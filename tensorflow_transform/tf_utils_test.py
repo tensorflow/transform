@@ -244,6 +244,107 @@ class AnalyzersTest(test_case.TransformTestCase):
       self.assertAllEqual(mean.eval(), [1.0, 3.0, 3.0, nan, nan])
       self.assertAllEqual(var.eval(), [2.0, 2.0, 1.0, inf, inf])
 
+  @test_case.named_parameters(
+      dict(testcase_name='sparse_tensor',
+           feature=tf.SparseTensorValue(
+               indices=[[0, 0], [0, 1], [0, 2], [1, 0]],
+               values=[1., 2., 3., 4.],
+               dense_shape=[2, 5]),
+           ascii_protos=[
+               'float_list { value: [1.0, 2.0, 3.0] }',
+               'float_list { value: [4.0] }',
+           ]),
+      dict(testcase_name='dense_scalar_int',
+           feature=np.array([0, 1, 2], np.int64),
+           ascii_protos=[
+               'int64_list { value: [0] }',
+               'int64_list { value: [1] }',
+               'int64_list { value: [2] }',
+           ]),
+      dict(testcase_name='dense_scalar_float',
+           feature=np.array([0.5, 1.5, 2.5], np.float32),
+           ascii_protos=[
+               'float_list { value: [0.5] }',
+               'float_list { value: [1.5] }',
+               'float_list { value: [2.5] }',
+           ]),
+      dict(testcase_name='dense_scalar_string',
+           feature=np.array(['hello', 'world'], np.object),
+           ascii_protos=[
+               'bytes_list { value: "hello" }',
+               'bytes_list { value: "world" }',
+           ]),
+      dict(testcase_name='dense_vector_int',
+           feature=np.array([[0, 1], [2, 3]], np.int64),
+           ascii_protos=[
+               'int64_list { value: [0, 1] }',
+               'int64_list { value: [2, 3] }',
+           ]),
+      dict(testcase_name='dense_matrix_int',
+           feature=np.array([[[0, 1], [2, 3]], [[4, 5], [6, 7]]], np.int64),
+           ascii_protos=[
+               'int64_list { value: [0, 1, 2, 3] }',
+               'int64_list { value: [4, 5, 6, 7] }',
+           ]),
+      )
+  def test_serialize_feature(self, feature, ascii_protos):
+    serialized_features_tensor = tf_utils._serialize_feature(feature)
+    with tf.Session():
+      serialized_features = serialized_features_tensor.eval()
+      feature_proto = tf.train.Feature()
+    self.assertEqual(len(serialized_features), len(ascii_protos))
+    for ascii_proto, serialized_feature in zip(ascii_protos,
+                                               serialized_features):
+      feature_proto.ParseFromString(serialized_feature)
+      self.assertProtoEquals(ascii_proto, feature_proto)
+
+  @test_case.named_parameters(
+      dict(testcase_name='multiple_features',
+           examples={
+               'my_value': tf.SparseTensorValue(
+                   indices=[[0, 0], [0, 1], [0, 2], [1, 0]],
+                   values=[1., 2., 3., 4.],
+                   dense_shape=[2, 5]),
+               'my_other_value': np.array([1, 2], np.int64),
+           },
+           ascii_protos=[
+               """
+               features {
+                 feature {
+                   key: "my_value"
+                   value: { float_list { value: [1, 2, 3] } }
+                 }
+                 feature {
+                   key: "my_other_value"
+                    value: { int64_list { value: [1] } }
+                 }
+               }
+               """,
+               """
+               features {
+                 feature {
+                   key: "my_value"
+                   value: { float_list { value: [4] } }
+                 }
+                 feature {
+                   key: "my_other_value"
+                    value: { int64_list { value: [2] } }
+                 }
+               }
+               """
+           ])
+      )
+  def test_serialize_example(self, examples, ascii_protos):
+    serialized_examples_tensor = tf_utils.serialize_example(examples)
+    with tf.Session():
+      serialized_examples = serialized_examples_tensor.eval()
+      example_proto = tf.train.Example()
+    self.assertEqual(len(serialized_examples), len(ascii_protos))
+    for ascii_proto, serialized_example in zip(ascii_protos,
+                                               serialized_examples):
+      example_proto.ParseFromString(serialized_example)
+      self.assertProtoEquals(ascii_proto, example_proto)
+
 
 if __name__ == '__main__':
   test_case.main()

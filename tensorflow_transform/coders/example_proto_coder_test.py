@@ -54,9 +54,10 @@ _FEATURE_SPEC = {
 }
 
 _ENCODE_DECODE_CASES = [
-    dict(testcase_name='multiple_columns',
-         feature_spec=_FEATURE_SPEC,
-         ascii_proto="""\
+    dict(
+        testcase_name='multiple_columns',
+        feature_spec=_FEATURE_SPEC,
+        ascii_proto="""\
 features {
   feature { key: "scalar_feature_1" value { int64_list { value: [ 12 ] } } }
   feature { key: "varlen_feature_1"
@@ -73,19 +74,20 @@ features {
   feature { key: "value" value { float_list { value: [ 12.0, 20.0 ] } } }
 feature { key: "idx" value { int64_list { value: [ 1, 4 ] } } }
 }""",
-         instance={
-             'scalar_feature_1': 12,
-             'scalar_feature_2': 12,
-             'scalar_feature_3': 1.0,
-             'varlen_feature_1': [89.0],
-             '1d_vector_feature': ['this is a ,text'],
-             '2d_vector_feature': [[1.0, 2.0], [3.0, 4.0]],
-             'varlen_feature_2': ['female'],
-             'sparse_feature': ([1, 4], [12.0, 20.0])
-         }),
-    dict(testcase_name='multiple_columns_ndarray',
-         feature_spec=_FEATURE_SPEC,
-         ascii_proto="""\
+        instance={
+            'scalar_feature_1': 12,
+            'scalar_feature_2': 12,
+            'scalar_feature_3': 1.0,
+            'varlen_feature_1': [89.0],
+            '1d_vector_feature': [b'this is a ,text'],
+            '2d_vector_feature': [[1.0, 2.0], [3.0, 4.0]],
+            'varlen_feature_2': [b'female'],
+            'sparse_feature': ([1, 4], [12.0, 20.0])
+        }),
+    dict(
+        testcase_name='multiple_columns_ndarray',
+        feature_spec=_FEATURE_SPEC,
+        ascii_proto="""\
 features {
   feature { key: "scalar_feature_1" value { int64_list { value: [ 13 ] } } }
   feature { key: "varlen_feature_1" value { float_list { } } }
@@ -102,55 +104,56 @@ features {
   feature { key: "value" value { float_list { value: [ 13.0, 21.0 ] } } }
   feature { key: "idx" value { int64_list { value: [ 2, 5 ] } } }
 }""",
-         instance={
-             'scalar_feature_1': np.array(13),
-             'scalar_feature_2': np.int32(214),
-             'scalar_feature_3': np.array(2.0),
-             'varlen_feature_1': np.array([]),
-             '1d_vector_feature': np.array(['this is another ,text']),
-             '2d_vector_feature': np.array([[9.0, 8.0], [7.0, 6.0]]),
-             'varlen_feature_2': np.array(['male']),
-             'sparse_feature': (np.array([2, 5]), np.array([13.0, 21.0]))
-         }),
+        instance={
+            'scalar_feature_1': np.array(13),
+            'scalar_feature_2': np.int32(214),
+            'scalar_feature_3': np.array(2.0),
+            'varlen_feature_1': np.array([]),
+            '1d_vector_feature': np.array([b'this is another ,text']),
+            '2d_vector_feature': np.array([[9.0, 8.0], [7.0, 6.0]]),
+            'varlen_feature_2': np.array([b'male']),
+            'sparse_feature': (np.array([2, 5]), np.array([13.0, 21.0]))
+        }),
 ]
 
 _ENCODE_ONLY_CASES = [
-    dict(testcase_name='unicode',
-         feature_spec={
-             'unicode_feature': tf.FixedLenFeature([], tf.string)
-         },
-         ascii_proto="""\
+    dict(
+        testcase_name='unicode',
+        feature_spec={'unicode_feature': tf.FixedLenFeature([], tf.string)},
+        ascii_proto="""\
 features {
   feature { key: "unicode_feature" value { bytes_list { value: [ "Hello κόσμε" ] } } }
 }""",
-         instance={'unicode_feature': u'Hello κόσμε'}),
+        instance={'unicode_feature': u'Hello κόσμε'}),
 ]
 
 _DECODE_ONLY_CASES = [
 ]
 
 _DECODE_ERROR_CASES = [
-    dict(testcase_name='to_few_values',
-         feature_spec={
-             '2d_vector_feature': tf.FixedLenFeature([2, 2], tf.int64),
-         },
-         ascii_proto="""\
+    dict(
+        testcase_name='to_few_values',
+        feature_spec={
+            '2d_vector_feature': tf.FixedLenFeature([2, 2], tf.int64),
+        },
+        ascii_proto="""\
 features {
   feature {
     key: "2d_vector_feature"
     value { int64_list { value: [ 1, 2, 3 ] } }
   }
 }""",
-         error_msg='got wrong number of values'),
+        error_msg='got wrong number of values'),
 ]
 
 _ENCODE_ERROR_CASES = [
-    dict(testcase_name='to_few_values',
-         feature_spec={
-             '2d_vector_feature': tf.FixedLenFeature([2, 2], tf.int64),
-         },
-         instance={'2d_vector_feature': [1, 2, 3]},
-         error_msg='got wrong number of values'),
+    dict(
+        testcase_name='to_few_values',
+        feature_spec={
+            '2d_vector_feature': tf.FixedLenFeature([2, 2], tf.int64),
+        },
+        instance={'2d_vector_feature': [1, 2, 3]},
+        error_msg='got wrong number of values'),
 ]
 
 
@@ -187,8 +190,12 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
     self.assertSerializedProtosEqual(coder.encode(instance), serialized_proto)
 
   @test_case.named_parameters(*_DECODE_ERROR_CASES)
-  def test_decode_error(self, feature_spec, ascii_proto, error_msg,
-                        error_type=ValueError, **kwargs):
+  def test_decode_error(self,
+                        feature_spec,
+                        ascii_proto,
+                        error_msg,
+                        error_type=ValueError,
+                        **kwargs):
     schema = dataset_schema.from_feature_spec(feature_spec)
     coder = example_proto_coder.ExampleProtoCoder(schema, **kwargs)
     serialized_proto = _ascii_to_binary(ascii_proto)
@@ -196,8 +203,12 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
       coder.decode(serialized_proto)
 
   @test_case.named_parameters(*_ENCODE_ERROR_CASES)
-  def test_encode_error(self, feature_spec, instance, error_msg,
-                        error_type=ValueError, **kwargs):
+  def test_encode_error(self,
+                        feature_spec,
+                        instance,
+                        error_msg,
+                        error_type=ValueError,
+                        **kwargs):
     schema = dataset_schema.from_feature_spec(feature_spec)
     coder = example_proto_coder.ExampleProtoCoder(schema, **kwargs)
     with self.assertRaisesRegexp(error_type, error_msg):
@@ -229,9 +240,9 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
         'scalar_feature_2': 12,
         'scalar_feature_3': 2.0,
         'varlen_feature_1': [89.0],
-        '1d_vector_feature': ['this is a ,text'],
+        '1d_vector_feature': [b'this is a ,text'],
         '2d_vector_feature': [[1.0, 2.0], [3.0, 4.0]],
-        'varlen_feature_2': ['female'],
+        'varlen_feature_2': [b'female'],
         'sparse_feature': ([1, 4], [12.0, 20.0])
     }
     serialized_proto = _ascii_to_binary(ascii_proto)

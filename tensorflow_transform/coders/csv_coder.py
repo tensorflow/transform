@@ -11,14 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Coder classes for encoding/decoding CSV into tf.Transform datasets.
-"""
+"""Coder classes for encoding/decoding CSV into tf.Transform datasets."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
 import csv
-
 
 import numpy as np
 import six
@@ -27,15 +25,33 @@ import tensorflow as tf
 
 
 # This is in agreement with Tensorflow conversions for Unicode values for both
-# Python 2 and 3 (and also works for non-Unicode objects). It is also in
-# agreement with the testWithUnicode of the Beam impl.
-def _utf8(s):
-  return s if isinstance(s, bytes) else s.encode('utf-8')
+# Python 2 and 3 (and also works for non-Unicode objects).
+def _to_bytes(x):
+  """Converts x to bytes."""
+  return tf.compat.as_bytes(x)
 
 
 def _to_string(x):
-  """Encodes x as a (list of) utf-8 string when applicable."""
-  return list(map(_utf8, x)) if isinstance(x, (list, np.ndarray)) else _utf8(x)
+  """Converts x to string.
+
+  This will return bytes for Py2 and Unicode for Py3. This is needed as a
+  pre-processing step before calling csv reader/writer since it only supports
+  bytes for Py2 and Unicode for Py3.
+
+  Args:
+    x: The data to be converted.
+
+  Returns:
+    Bytes representation of x for Py2 and Unicode representation for Py3.
+
+  """
+  return tf.compat.as_str_any(x)
+
+
+def _elements_to_bytes(x):
+  if isinstance(x, (list, np.ndarray)):
+    return list(map(_to_bytes, x))
+  return _to_bytes(x)
 
 
 def _make_cast_fn(dtype):
@@ -48,6 +64,7 @@ def _make_cast_fn(dtype):
 
   Args:
     dtype: The type of the Tensorflow feature.
+
   Returns:
     A function to extract the value field from a string depending on dtype.
   """
@@ -69,7 +86,7 @@ def _make_cast_fn(dtype):
   elif dtype.is_bool:
     return to_boolean
   else:
-    return _to_string
+    return _elements_to_bytes
 
 
 def _decode_with_reader(value, reader):
@@ -78,6 +95,7 @@ def _decode_with_reader(value, reader):
   Args:
     value: A string to be decoded.
     reader: A optional reader for splitting the input string.
+
   Returns:
     A list of strings.
   Raises:
@@ -86,7 +104,7 @@ def _decode_with_reader(value, reader):
   try:
     result = reader.read_record(value)
   except Exception as e:  # pylint: disable=broad-except
-    raise DecodeError('%s: %s' % (e, value))
+    raise DecodeError('{}: {}'.format(e, value))
   return result
 
 
@@ -172,10 +190,9 @@ class _FixedLenFeatureHandler(object):
           'got {}'.format(self._name, self._size, len(flattened_values)))
 
     if self._encoder:
-      string_list[self._index] = self._encoder.encode_record(
-          list(map(str, flattened_values)))
+      string_list[self._index] = self._encoder.encode_record(flattened_values)
     else:
-      string_list[self._index] = str(flattened_values[0])
+      string_list[self._index] = _to_string(flattened_values[0])
 
 
 class _VarLenFeatureHandler(object):
@@ -213,10 +230,9 @@ class _VarLenFeatureHandler(object):
   def encode_value(self, string_list, values):
     """Encode the value of this feature into the CSV line."""
     if self._encoder:
-      string_list[self._index] = self._encoder.encode_record(
-          list(map(str, values)))
+      string_list[self._index] = self._encoder.encode_record(values)
     else:
-      string_list[self._index] = str(values[0]) if values else None
+      string_list[self._index] = _to_string(values[0]) if values else None
 
 
 class _SparseFeatureHandler(object):
@@ -226,8 +242,13 @@ class _SparseFeatureHandler(object):
   array corresponds to their indices and the second to the values.
   """
 
-  def __init__(self, name, feature_spec, value_index, index_index,
-               reader=None, encoder=None):
+  def __init__(self,
+               name,
+               feature_spec,
+               value_index,
+               index_index,
+               reader=None,
+               encoder=None):
     self._name = name
     self._cast_fn = _make_cast_fn(feature_spec.dtype)
     self._np_dtype = feature_spec.dtype.as_numpy_dtype
@@ -287,17 +308,15 @@ class _SparseFeatureHandler(object):
     index, value = sparse_value
     if len(value) == len(index):
       if self._encoder:
-        string_list[self._value_index] = self._encoder.encode_record(
-            map(str, value))
-        string_list[self._index_index] = self._encoder.encode_record(
-            map(str, index))
+        string_list[self._value_index] = self._encoder.encode_record(value)
+        string_list[self._index_index] = self._encoder.encode_record(index)
       else:
-        string_list[self._value_index] = str(value[0]) if value else ''
-        string_list[self._index_index] = str(index[0]) if index else ''
+        string_list[self._value_index] = _to_string(value[0]) if value else ''
+        string_list[self._index_index] = _to_string(index[0]) if index else ''
     else:
       raise ValueError(
-          'SparseFeature %r has value and index unaligned %r vs %r.' %
-          (self._name, value, index))
+          'SparseFeature {!r} has value and index unaligned {!r} vs {!r}.'
+          .format(self._name, value, index))
 
 
 class DecodeError(Exception):
@@ -350,11 +369,17 @@ class CsvCoder(object):
     def __init__(self, delimiter):
       self._state = (delimiter)
       self._line_generator = _LineGenerator()
-      self._reader = csv.reader(self._line_generator, delimiter=str(delimiter))
+      self._reader = csv.reader(
+          self._line_generator, delimiter=_to_string(delimiter))
 
     def read_record(self, x):
-      self._line_generator.push_line(_to_string(x))
-      return self._reader.next()
+      """Reads out bytes for PY2 and Unicode for PY3."""
+      if six.PY2:
+        line = _to_bytes(x)
+      else:
+        line = _to_string(x)
+      self._line_generator.push_line(line)
+      return next(self._reader)
 
     def __getstate__(self):
       return self._state
@@ -377,13 +402,23 @@ class CsvCoder(object):
       # Since we use self._writer to encode individual rows, we set
       # lineterminator='' so that self._writer doesn't add a newline.
       self._writer = csv.writer(
-          self._buffer,
-          lineterminator='',
-          delimiter=delimiter)
+          self._buffer, lineterminator='', delimiter=delimiter)
 
     def encode_record(self, record):
-      self._writer.writerow(_to_string(record))
-      result = self._buffer.getvalue()
+      """Converts the record to bytes.
+
+      Since csv writer only supports bytes for PY2 and Unicode for PY3, we need
+      to convert them conditionally before calling csv writer. We always return
+      result in bytes format to be consistent with current behavior.
+
+      Args:
+        record: The data to be converted.
+
+      Returns:
+        Bytes representation input.
+      """
+      self._writer.writerow([_to_string(x) for x in record])
+      result = tf.compat.as_bytes(self._buffer.getvalue())
       # Reset the buffer.
       self._buffer.seek(0)
       self._buffer.truncate(0)
@@ -442,6 +477,7 @@ class CsvCoder(object):
     indices_by_name = {
         name: index for index, name in enumerate(self._column_names)
     }
+
     def index(name):
       index = indices_by_name.get(name)
       if index is None:
@@ -469,9 +505,10 @@ class CsvCoder(object):
                                   secondary_reader_by_name.get(name),
                                   secondary_encoder_by_name.get(name)))
       else:
-        raise ValueError('feature_spec should be one of tf.FixedLenFeature, '
-                         'tf.VarLenFeature or tf.SparseFeature: %r was %r' %
-                         (name, type(feature_spec)))
+        raise ValueError(
+            'feature_spec should be one of tf.FixedLenFeature, '
+            'tf.VarLenFeature or tf.SparseFeature: {!r} was {!r}'.format(
+                name, type(feature_spec)))
 
   def __reduce__(self):
     return CsvCoder, (self._column_names, self._schema, self._delimiter,
@@ -493,8 +530,8 @@ class CsvCoder(object):
         feature_handler.encode_value(string_list,
                                      instance[feature_handler.name])
       except TypeError as e:
-        raise TypeError('%s while encoding feature "%s"' %
-                        (e, feature_handler.name))
+        raise TypeError('{} while encoding feature "{}"'.format(
+            e, feature_handler.name))
     return self._encoder.encode_record(string_list)
 
   # Please run tensorflow_transform/coders/benchmark_coders_test.py
@@ -549,5 +586,7 @@ class CsvCoder(object):
           'Columns do not match specified csv headers: {} -> {}'.format(
               self._column_names, raw_values))
 
-    return {feature_handler.name: feature_handler.parse_value(raw_values)
-            for feature_handler in self._feature_handlers}
+    return {
+        feature_handler.name: feature_handler.parse_value(raw_values)
+        for feature_handler in self._feature_handlers
+    }

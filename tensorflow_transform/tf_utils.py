@@ -20,6 +20,8 @@ from __future__ import print_function
 
 import tensorflow as tf
 
+from tensorflow.contrib.proto.python.ops import encode_proto_op
+
 
 class VocabOrderingType(object):
   FREQUENCY = 1
@@ -185,3 +187,106 @@ def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
   x_variance = tf.reduce_sum(tf.square(x_minus_mean), axis=axis) / x_count
 
   return (x_count, x_mean, x_variance)
+
+
+# Code for serializing and example proto
+
+
+_DEFAULT_VALUE_BY_DTYPE = {
+    tf.string: '',
+    tf.float32: 0,
+    tf.int64: 0
+}
+
+
+def _encode_proto(values_dict, message_type):
+  """A wrapper around encode_proto_op.encode_proto."""
+  field_names = []
+  sizes = []
+  values = []
+  for field_name, value in sorted(values_dict.items(), key=lambda x: x[0]):
+    if isinstance(value, tf.SparseTensor):
+      size = tf.sparse_reduce_sum(
+          tf.SparseTensor(
+              value.indices,
+              tf.ones_like(value.values, dtype=tf.int32),
+              value.dense_shape),
+          axis=1)
+      value = tf.sparse_tensor_to_dense(
+          value, _DEFAULT_VALUE_BY_DTYPE[value.dtype])
+    else:
+      value = tf.reshape(value, [tf.shape(value)[0], -1])
+      size = tf.fill((tf.shape(value)[0],), tf.shape(value)[1])
+    field_names.append(field_name)
+    values.append(value)
+    sizes.append(size)
+
+  sizes = tf.stack(sizes, axis=1)
+  return encode_proto_op.encode_proto(sizes, values, field_names, message_type)
+
+
+def _serialize_feature(values):
+  """Serialize a Tensor or SparseTensor as `Feature` protos.
+
+  `values` should be a Tensor of rank >=1 or SparseTensor of rank 2.  We will
+  refer to the size of the first dimension as batch_size.
+
+  This function encodes each row of the `Tensor` as a list of values (flattening
+  the other dimensions) and each row of the `SparseTensor` as a list of values,
+  where the indices within each row are ignored and assumed to be 0, 1, ....
+
+  Args:
+    values: A `Tensor` or `SparseTensor`.
+
+  Returns:
+    A tensor of shape (batch_size,) and type `tf.string` where each element is
+        a serialized `Feature` proto.
+
+  Raises:
+    ValueError: If the dtype is of `values` is not `tf.string`, `tf.float32`
+        or `tf.int64`.
+  """
+  values = tf.convert_to_tensor_or_sparse_tensor(values)
+  if values.dtype == tf.string:
+    values_dict = {
+        'bytes_list': _encode_proto({'value': values}, 'tensorflow.BytesList')
+    }
+  elif values.dtype == tf.float32:
+    values_dict = {
+        'float_list': _encode_proto({'value': values}, 'tensorflow.FloatList')
+    }
+  elif values.dtype == tf.int64:
+    values_dict = {
+        'int64_list': _encode_proto({'value': values}, 'tensorflow.Int64List')
+    }
+  else:
+    raise ValueError('Cannot encode values of dtype {}'.format(values.dtype))
+  return _encode_proto(values_dict, 'tensorflow.Feature')
+
+
+def serialize_example(features):
+  """Serialized a dict of `Tensor` or `SparseTensor`s as example protos.
+
+  `features` should be a dict where each value is a Tensor of rank >=1 or
+  SparseTensor of rank 2.  The sizes of the first dimension of each value should
+  be the same, and we refer to this size as batch_size.
+
+  Args:
+    features: A dictionary whose values are `Tensor`s or `SparseTensor`s.
+
+  Returns:
+    A tensor of shape (batch_size,) and type `tf.string` where each element is
+        a serialized `Example` proto.
+  """
+  features_dict = []
+  for key, value in sorted(features.items(), key=lambda x: x[0]):
+    serialized_value = _serialize_feature(value)
+    features_dict.append(_encode_proto(
+        {
+            'key': tf.fill((tf.shape(serialized_value)[0],), key),
+            'value': serialized_value,
+        },
+        'tensorflow.Features.FeatureEntry'))
+  features_dict = tf.stack(features_dict, axis=1)
+  features = _encode_proto({'feature': features_dict}, 'tensorflow.Features')
+  return _encode_proto({'features': features}, 'tensorflow.Example')

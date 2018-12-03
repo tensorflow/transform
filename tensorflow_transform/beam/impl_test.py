@@ -2975,8 +2975,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     self.assertTrue(os.path.isdir(tft_tmp_dir))
 
-    saved_model_path = os.path.join(transform_fn_dir, 'transform_fn')
-    assets_path = os.path.join(saved_model_path, 'assets')
+    saved_model_path = os.path.join(transform_fn_dir,
+                                    tft.TFTransformOutput.TRANSFORM_FN_DIR)
+    assets_path = os.path.join(saved_model_path,
+                               tf.saved_model.constants.ASSETS_DIRECTORY)
     self.assertTrue(os.path.isdir(assets_path))
     six.assertCountEqual(self, [
         outfile, 'vocab_frequency_vocabulary_1', 'vocab_frequency_vocabulary_2',
@@ -3392,8 +3394,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     self.assertTrue(os.path.isdir(tft_tmp_dir))
 
-    saved_model_path = os.path.join(transform_fn_dir, 'transform_fn')
-    assets_path = os.path.join(saved_model_path, 'assets')
+    saved_model_path = os.path.join(transform_fn_dir,
+                                    tft.TFTransformOutput.TRANSFORM_FN_DIR)
+    assets_path = os.path.join(saved_model_path,
+                               tf.saved_model.constants.ASSETS_DIRECTORY)
     self.assertTrue(os.path.isdir(assets_path))
 
     check_asset_file_contents(assets_path, outfile,
