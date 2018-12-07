@@ -21,6 +21,7 @@ from __future__ import print_function
 import apache_beam as beam
 
 import numpy as np
+import tensorflow as tf
 from tensorflow_transform.beam import analyzer_impls
 from tensorflow_transform.beam import tft_unit
 
@@ -57,14 +58,25 @@ class AnalyzerImplsTest(tft_unit.TransformTestCase):
     ]
     outputs_pcoll = [outputs]
     merged_outputs_pcolls = tuple(outputs_pcoll | beam.FlatMap(
-        analyzer_impls._merge_outputs_by_key, num_outputs=2).with_outputs(
-            'key', '0', '1'))
+        analyzer_impls._merge_outputs_by_key,
+        outputs_dtype=[tf.int64, tf.int64]).with_outputs('key', '0', '1'))
     self.assertAllEqual(merged_outputs_pcolls[0][0],
                         np.array(['my_key', 'my_other_key']))
     self.assertAllEqual(merged_outputs_pcolls[1][0],
                         np.array([20, 23]))
     self.assertAllEqual(merged_outputs_pcolls[2][0],
                         np.array([[21, 22], [24, 25]]))
+
+  def testMergeOutputsByKeyEmptyInput(self):
+    outputs = []
+    outputs_pcoll = [outputs]
+    merged_outputs_pcolls = tuple(outputs_pcoll | beam.FlatMap(
+        analyzer_impls._merge_outputs_by_key,
+        outputs_dtype=[tf.float32, tf.float32]).with_outputs('key', '0', '1'))
+    self.assertAllEqual(merged_outputs_pcolls[0][0],
+                        np.array([]))
+    self.assertAllEqual(merged_outputs_pcolls[1][0], np.array([]))
+    self.assertAllEqual(merged_outputs_pcolls[2][0], np.array([]))
 
   def testHypergeometricPmf(self):
     expected_results = [(0, 0.75), (1, 0.25)]

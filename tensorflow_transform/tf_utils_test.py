@@ -245,6 +245,89 @@ class AnalyzersTest(test_case.TransformTestCase):
       self.assertAllEqual(var.eval(), [2.0, 2.0, 1.0, inf, inf])
 
   @test_case.named_parameters(
+      dict(
+          testcase_name='sparse',
+          placeholder_fn=lambda: tf.sparse_placeholder(tf.int64, [None, None]),
+          value=tf.SparseTensorValue(
+              indices=[[0, 0], [0, 1], [0, 2]],
+              values=[3, 2, -1],
+              dense_shape=[1, 5]),
+          reduce_instance_dims=True,
+          expected_result=(1, 3)),
+      dict(
+          testcase_name='float',
+          placeholder_fn=lambda: tf.placeholder(tf.float32, [None, None]),
+          value=[[1, 5, 2]],
+          reduce_instance_dims=True,
+          expected_result=(-1, 5)),
+      dict(
+          testcase_name='sparse_float_elementwise',
+          placeholder_fn=lambda: tf.sparse_placeholder(tf.float32, [None, None]
+                                                      ),
+          value=tf.SparseTensorValue(
+              indices=[[0, 0], [0, 1], [1, 0]],
+              values=[3, 2, -1],
+              dense_shape=[2, 3]),
+          reduce_instance_dims=False,
+          expected_result=([[1, -2, np.nan], [3, 2, np.nan]])),
+      dict(
+          testcase_name='float_elementwise',
+          placeholder_fn=lambda: tf.placeholder(tf.float32, [None, None]),
+          value=[[1, 5, 2], [2, 3, 4]],
+          reduce_instance_dims=False,
+          expected_result=([[-1, -3, -2], [2, 5, 4]])),
+      dict(
+          testcase_name='sparse_int64_elementwise',
+          placeholder_fn=lambda: tf.sparse_placeholder(tf.int64, [None, None]),
+          value=tf.SparseTensorValue(
+              indices=[[0, 0], [0, 1], [1, 0]],
+              values=[3, 2, -1],
+              dense_shape=[2, 3]),
+          reduce_instance_dims=False,
+          expected_result=([[1, -2, tf.int64.min + 1], [3, 2,
+                                                        tf.int64.min + 1]])),
+      dict(
+          testcase_name='sparse_int32_elementwise',
+          placeholder_fn=lambda: tf.sparse_placeholder(tf.int32, [None, None]),
+          value=tf.SparseTensorValue(
+              indices=[[0, 0], [0, 1], [1, 0]],
+              values=[3, 2, -1],
+              dense_shape=[2, 3]),
+          reduce_instance_dims=False,
+          expected_result=([[1, -2, tf.int32.min + 1], [3, 2,
+                                                        tf.int32.min + 1]])),
+      dict(
+          testcase_name='sparse_float32_elementwise',
+          placeholder_fn=lambda: tf.sparse_placeholder(tf.float32, [None, None]
+                                                      ),
+          value=tf.SparseTensorValue(
+              indices=[[0, 0], [0, 1], [1, 0]],
+              values=[3, 2, -1],
+              dense_shape=[2, 3]),
+          reduce_instance_dims=False,
+          expected_result=([[1, -2, np.nan], [3, 2, np.nan]])),
+      dict(
+          testcase_name='sparse_float64_elementwise',
+          placeholder_fn=lambda: tf.sparse_placeholder(tf.float64, [None, None]
+                                                      ),
+          value=tf.SparseTensorValue(
+              indices=[[0, 0], [0, 1], [1, 0]],
+              values=[3, 2, -1],
+              dense_shape=[2, 3]),
+          reduce_instance_dims=False,
+          expected_result=([[1, -2, np.nan], [3, 2, np.nan]])),
+  )
+  def test_reduce_batch_minus_min_and_max(
+      self, placeholder_fn, value, reduce_instance_dims, expected_result):
+    x = placeholder_fn()
+    batch_minus_min, batch_max = tf_utils.reduce_batch_minus_min_and_max(
+        x, reduce_instance_dims)
+
+    with tf.Session() as sess:
+      result = sess.run([batch_minus_min, batch_max], feed_dict={x: value})
+    self.assertAllEqual(result, expected_result)
+
+  @test_case.named_parameters(
       dict(testcase_name='sparse_tensor',
            feature=tf.SparseTensorValue(
                indices=[[0, 0], [0, 1], [0, 2], [1, 0]],

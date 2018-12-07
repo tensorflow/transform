@@ -55,7 +55,8 @@ class TransformTestCase(test_case.TransformTestCase):
                                        expected_asset_file_contents=None,
                                        test_data=None,
                                        desired_batch_size=None,
-                                       beam_pipeline=None):
+                                       beam_pipeline=None,
+                                       temp_dir=None):
     """Assert that input data and metadata is transformed as expected.
 
     This methods asserts transformed data and transformed metadata match
@@ -90,6 +91,8 @@ class TransformTestCase(test_case.TransformTestCase):
       desired_batch_size: (optional) A batch size to batch elements by. If not
           provided, a batch size will be computed automatically.
       beam_pipeline: (optional) A Beam Pipeline to use in this test.
+      temp_dir: If set, it is used as output directory, else a new unique
+          directory is created.
     Raises:
       AssertionError: if the expected data does not match the results of
           transforming input_data according to preprocessing_fn, or
@@ -113,7 +116,7 @@ class TransformTestCase(test_case.TransformTestCase):
     # AnalyzeAndTransformDataset currently simply composes these two
     # transforms.  If in future versions of the code, the implementation
     # differs, we should also run AnalyzeDataset and TransformDatset composed.
-    temp_dir = tempfile.mkdtemp(
+    temp_dir = temp_dir or tempfile.mkdtemp(
         prefix=self._testMethodName, dir=self.get_temp_dir())
     with beam_pipeline or beam.Pipeline(runner=self._makeRunner()) as pipeline:
       with beam_impl.Context(
@@ -177,20 +180,20 @@ class TransformTestCase(test_case.TransformTestCase):
 
     for filename, file_contents in six.iteritems(expected_vocab_file_contents):
       full_filename = tf_transform_output.vocabulary_file_by_name(filename)
-      with tf.gfile.Open(full_filename) as f:
+      with tf.gfile.Open(full_filename, 'rb') as f:
         file_lines = f.readlines()
 
         # Store frequency case.
         if isinstance(file_contents[0], tuple):
           word_and_frequency_list = []
           for content in file_lines:
-            frequency, word = content.split(' ', 1)
-            word_and_frequency_list.append((word.strip('\n'),
-                                            float(frequency.strip('\n'))))
+            frequency, word = content.split(b' ', 1)
+            word_and_frequency_list.append((word.strip(b'\n'),
+                                            float(frequency.strip(b'\n'))))
           expected_words, expected_frequency = zip(*word_and_frequency_list)
           actual_words, actual_frequency = zip(*file_contents)
           self.assertAllEqual(expected_words, actual_words)
           np.testing.assert_almost_equal(expected_frequency, actual_frequency)
         else:
-          file_lines = [content.strip('\n') for content in file_lines]
+          file_lines = [content.strip(b'\n') for content in file_lines]
           self.assertAllEqual(file_lines, file_contents)

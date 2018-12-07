@@ -22,6 +22,8 @@ import tensorflow as tf
 
 from tensorflow.contrib.proto.python.ops import encode_proto_op
 
+_FLOATING_NAN = float('nan')
+
 
 class VocabOrderingType(object):
   FREQUENCY = 1
@@ -290,3 +292,89 @@ def serialize_example(features):
   features_dict = tf.stack(features_dict, axis=1)
   features = _encode_proto({'feature': features_dict}, 'tensorflow.Features')
   return _encode_proto({'features': features}, 'tensorflow.Example')
+
+
+def _sparse_minus_reduce_min_and_reduce_max(x):
+  """Computes the -min and max of a SparseTensor x.
+
+  It differs from sparse_reduce_max in that sparse_reduce_max returns 0 when all
+  elements are missing along axis 0.
+  We replace the 0 with NaN when x's dtype is float and dtype.min+1 when it's
+  int.
+
+  Args:
+    x: A `SparseTensor`.
+
+  Returns:
+    Two `Tensors' which are the -min and max.
+
+  Raises:
+    TypeError: If the type of `x` is not supported.
+  """
+  if not isinstance(x, tf.SparseTensor):
+    raise TypeError('Expected a SparseTensor, but got %r' % x)
+  minus_x = tf.SparseTensor(
+      indices=x.indices, values=0 - x.values, dense_shape=x.dense_shape)
+  x_count = reduce_batch_count(x, reduce_instance_dims=False)
+  batch_has_no_values = tf.equal(x_count, tf.constant(0, dtype=tf.int64))
+  x_batch_max = tf.sparse_reduce_max(x, axis=0)
+  x_batch_minus_min = tf.sparse_reduce_max(minus_x, axis=0)
+
+  if x.dtype.is_floating:
+    missing_value = tf.constant(_FLOATING_NAN, x.dtype)
+  else:
+    missing_value = tf.constant(x.dtype.min + 1, x.dtype)
+
+  x_batch_max = tf.where(batch_has_no_values,
+                         tf.fill(tf.shape(x_batch_max), missing_value),
+                         x_batch_max)
+  x_batch_minus_min = tf.where(
+      batch_has_no_values, tf.fill(tf.shape(x_batch_minus_min), missing_value),
+      x_batch_minus_min)
+  return x_batch_minus_min, x_batch_max
+
+
+def _inf_to_nan(tensor, output_dtype):
+  if tensor.dtype.is_floating:
+    nan = tf.constant(_FLOATING_NAN, output_dtype)
+    return tf.where(tf.is_inf(tensor), tensor + nan, tensor)
+  return tensor
+
+
+def reduce_batch_minus_min_and_max(x, reduce_instance_dims):
+  """Computes the -min and max of a tensor x.
+
+  Args:
+    x: A `tf.Tensor`.
+    reduce_instance_dims: A bool indicating whether this should collapse the
+      batch and instance dimensions to arrive at a single scalar output, or only
+      collapse the batch dimension and outputs a vector of the same shape as the
+      input.
+
+  Returns:
+    The computed `tf.Tensor`s (batch -min, batch max) pair.
+  """
+  output_dtype = x.dtype
+
+  if x.dtype == tf.uint8 or x.dtype == tf.uint16:
+    x = tf.cast(x, tf.int32)
+
+  elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
+    raise TypeError('Tensor type %r is not supported' % x.dtype)
+
+  if reduce_instance_dims:
+    if isinstance(x, tf.SparseTensor):
+      x = x.values
+
+    x_batch_max = tf.reduce_max(x)
+    x_batch_minus_min = tf.reduce_max(tf.zeros_like(x) - x)
+    x_batch_minus_min = assert_same_shape(x_batch_minus_min, x_batch_max)
+  elif isinstance(x, tf.SparseTensor):
+    x_batch_minus_min, x_batch_max = (
+        _sparse_minus_reduce_min_and_reduce_max(x))
+  else:
+    x_batch_max = tf.reduce_max(x, axis=0)
+    x_batch_minus_min = tf.reduce_max(0 - x, axis=0)
+
+  return (_inf_to_nan(x_batch_minus_min, output_dtype),
+          _inf_to_nan(x_batch_max, output_dtype))

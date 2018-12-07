@@ -16,6 +16,8 @@
   to compute a coverage vocabulary, using the new `coverage_top_k`,
   `coverage_frequency_threshold` and `key_fn` parameters.
 * Added `tft.ptransform_analyzer` for advanced use cases.
+* Modified `QuantilesCombiner` to use `tf.Session.make_callable` instead of
+  `tf.Session.run` for improved performance.
 
 ## Breaking changes
 

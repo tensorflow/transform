@@ -301,7 +301,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x': tf.FixedLenFeature([1], tf.string),
     })
     expected_data = [
-        {'out': 'test_value'}
+        {'out': b'test_value'}
     ]
     expected_metadata = _metadata_from_feature_spec({
         'out': tf.FixedLenFeature([], tf.string)
@@ -511,12 +511,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'sequence_example': tf.FixedLenFeature([], tf.string)
     })
     expected_data = [
-        {'x': 'ab'},
-        {'x': ''},
-        {'x': 'c'},
-        {'x': 'd'},
-        {'x': 'ef'},
-        {'x': 'g'}
+        {'x': b'ab'},
+        {'x': b''},
+        {'x': b'c'},
+        {'x': b'd'},
+        {'x': b'ef'},
+        {'x': b'g'}
     ]
     expected_metadata = _metadata_from_feature_spec({
         'x': tf.FixedLenFeature([], tf.string)
@@ -721,7 +721,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'b': tf.FixedLenFeature([], tf.string),
     })
     expected_data = [
-        {'a b': 'Hello world'},
+        {'a b': b'Hello world'},
         {'a b': u'Hello κόσμε'.encode('utf-8')}
     ]
     expected_metadata = _metadata_from_feature_spec({
@@ -1722,18 +1722,18 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testVocabularyAnalyzerWithLabelsAndFrequency(self):
     input_data = [
-        {'a': 'hello', 'labels': 1},
-        {'a': 'hello', 'labels': 1},
-        {'a': 'hello', 'labels': 1},
-        {'a': 'goodbye', 'labels': 1},
-        {'a': 'aaaaa', 'labels': 1},
-        {'a': 'aaaaa', 'labels': 1},
-        {'a': 'goodbye', 'labels': 0},
-        {'a': 'goodbye', 'labels': 0},
-        {'a': 'aaaaa', 'labels': 1},
-        {'a': 'aaaaa', 'labels': 1},
-        {'a': 'goodbye', 'labels': 1},
-        {'a': 'goodbye', 'labels': 0}
+        {'a': b'hello', 'labels': 1},
+        {'a': b'hello', 'labels': 1},
+        {'a': b'hello', 'labels': 1},
+        {'a': b'goodbye', 'labels': 1},
+        {'a': b'aaaaa', 'labels': 1},
+        {'a': b'aaaaa', 'labels': 1},
+        {'a': b'goodbye', 'labels': 0},
+        {'a': b'goodbye', 'labels': 0},
+        {'a': b'aaaaa', 'labels': 1},
+        {'a': b'aaaaa', 'labels': 1},
+        {'a': b'goodbye', 'labels': 1},
+        {'a': b'goodbye', 'labels': 0}
     ]
     input_metadata = _metadata_from_feature_spec({
         'a': tf.FixedLenFeature([], tf.string),
@@ -1751,8 +1751,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     expected_data = input_data
     expected_vocab_file_contents = {
-        'my_vocab': [('goodbye', 1.975322), ('aaaaa', 1.6600708),
-                     ('hello', 1.2450531)]
+        'my_vocab': [(b'goodbye', 1.975322), (b'aaaaa', 1.6600708),
+                     (b'hello', 1.2450531)]
     }
 
     self.assertAnalyzeAndTransformResults(
@@ -1765,40 +1765,40 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testVocabularyAnalyzerWithLabelsAndFrequencyAndMinDiffFromAvg(self):
     input_data = [{
-        'a': 'hello',
+        'a': b'hello',
         'labels': 1
     }, {
-        'a': 'hello',
+        'a': b'hello',
         'labels': 1
     }, {
-        'a': 'hello',
+        'a': b'hello',
         'labels': 1
     }, {
-        'a': 'goodbye',
+        'a': b'goodbye',
         'labels': 1
     }, {
-        'a': 'aaaaa',
+        'a': b'aaaaa',
         'labels': 1
     }, {
-        'a': 'aaaaa',
+        'a': b'aaaaa',
         'labels': 1
     }, {
-        'a': 'goodbye',
+        'a': b'goodbye',
         'labels': 0
     }, {
-        'a': 'goodbye',
+        'a': b'goodbye',
         'labels': 0
     }, {
-        'a': 'aaaaa',
+        'a': b'aaaaa',
         'labels': 1
     }, {
-        'a': 'aaaaa',
+        'a': b'aaaaa',
         'labels': 1
     }, {
-        'a': 'goodbye',
+        'a': b'goodbye',
         'labels': 1
     }, {
-        'a': 'goodbye',
+        'a': b'goodbye',
         'labels': 0
     }]
     input_metadata = _metadata_from_feature_spec({
@@ -1818,7 +1818,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     expected_data = input_data
     expected_vocab_file_contents = {
-        'my_vocab': [('hello', 0.0), ('goodbye', 0.0), ('aaaaa', 0.0)]
+        'my_vocab': [(b'hello', 0.0), (b'goodbye', 0.0), (b'aaaaa', 0.0)]
     }
 
     self.assertAnalyzeAndTransformResults(
@@ -1831,40 +1831,40 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testVocabularyAnalyzerWithLabelsAndFrequencyAndAdjustedMutualInfo(self):
     input_data = [{
-        'a': 'hello',
+        'a': b'hello',
         'labels': 1
     }, {
-        'a': 'hello',
+        'a': b'hello',
         'labels': 1
     }, {
-        'a': 'hello',
+        'a': b'hello',
         'labels': 1
     }, {
-        'a': 'goodbye',
+        'a': b'goodbye',
         'labels': 1
     }, {
-        'a': 'aaaaa',
+        'a': b'aaaaa',
         'labels': 1
     }, {
-        'a': 'aaaaa',
+        'a': b'aaaaa',
         'labels': 1
     }, {
-        'a': 'goodbye',
+        'a': b'goodbye',
         'labels': 0
     }, {
-        'a': 'goodbye',
+        'a': b'goodbye',
         'labels': 0
     }, {
-        'a': 'aaaaa',
+        'a': b'aaaaa',
         'labels': 1
     }, {
-        'a': 'aaaaa',
+        'a': b'aaaaa',
         'labels': 1
     }, {
-        'a': 'goodbye',
+        'a': b'goodbye',
         'labels': 1
     }, {
-        'a': 'goodbye',
+        'a': b'goodbye',
         'labels': 0
     }]
     input_metadata = _metadata_from_feature_spec({
@@ -1884,8 +1884,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     expected_data = input_data
     expected_vocab_file_contents = {
-        'my_vocab': [('goodbye', 1.4070791), ('aaaaa', 0.9987449),
-                     ('hello', 0.5017179)]
+        'my_vocab': [(b'goodbye', 1.4070791), (b'aaaaa', 0.9987449),
+                     (b'hello', 0.5017179)]
     }
 
     self.assertAnalyzeAndTransformResults(
@@ -1963,18 +1963,18 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testVocabularyAnalyzerWithLabelsWeightsAndFrequency(self):
     input_data = [
-        {'a': 'hello', 'weights': .3, 'labels': 1},
-        {'a': 'hello', 'weights': .4, 'labels': 1},
-        {'a': 'hello', 'weights': .3, 'labels': 1},
-        {'a': 'goodbye', 'weights': 1.2, 'labels': 1},
-        {'a': 'aaaaa', 'weights': .6, 'labels': 1},
-        {'a': 'aaaaa', 'weights': .7, 'labels': 1},
-        {'a': 'goodbye', 'weights': 1., 'labels': 0},
-        {'a': 'goodbye', 'weights': 1., 'labels': 0},
-        {'a': 'aaaaa', 'weights': .6, 'labels': 1},
-        {'a': 'aaaaa', 'weights': .7, 'labels': 1},
-        {'a': 'goodbye', 'weights': 1., 'labels': 1},
-        {'a': 'goodbye', 'weights': 1., 'labels': 0},
+        {'a': b'hello', 'weights': .3, 'labels': 1},
+        {'a': b'hello', 'weights': .4, 'labels': 1},
+        {'a': b'hello', 'weights': .3, 'labels': 1},
+        {'a': b'goodbye', 'weights': 1.2, 'labels': 1},
+        {'a': b'aaaaa', 'weights': .6, 'labels': 1},
+        {'a': b'aaaaa', 'weights': .7, 'labels': 1},
+        {'a': b'goodbye', 'weights': 1., 'labels': 0},
+        {'a': b'goodbye', 'weights': 1., 'labels': 0},
+        {'a': b'aaaaa', 'weights': .6, 'labels': 1},
+        {'a': b'aaaaa', 'weights': .7, 'labels': 1},
+        {'a': b'goodbye', 'weights': 1., 'labels': 1},
+        {'a': b'goodbye', 'weights': 1., 'labels': 0},
     ]
     input_metadata = _metadata_from_feature_spec({
         'a': tf.FixedLenFeature([], tf.string),
@@ -1994,8 +1994,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     expected_data = input_data
     expected_vocab_file_contents = {
-        'my_vocab': [('aaaaa', 1.5637185), ('goodbye', 0.8699492),
-                     ('hello', 0.6014302)]
+        'my_vocab': [(b'aaaaa', 1.5637185), (b'goodbye', 0.8699492),
+                     (b'hello', 0.6014302)]
     }
 
     self.assertAnalyzeAndTransformResults(
@@ -2173,7 +2173,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
             [], sch.FixedColumnRepresentation())
     })
     expected_vocab_file_contents = {
-        'my_vocab': ['hello', 'world', 'goodbye', 'aaaaa', ' ']
+        'my_vocab': [b'hello', b'world', b'goodbye', b'aaaaa', b' ']
     }
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn_oov, expected_data,
@@ -2557,6 +2557,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def preprocessing_fn(inputs):
       return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
 
+    def equal_to(expected):
+
+      def _equal(actual):
+        dict_key_fn = lambda d: sorted(d.items())
+        sorted_expected = sorted(expected, key=dict_key_fn)
+        sorted_actual = sorted(actual, key=dict_key_fn)
+        if sorted_expected != sorted_actual:
+          raise ValueError('Failed assert: %s == %s' % (expected, actual))
+      return _equal
+
     with beam.Pipeline(runner=self._makeRunner()) as pipeline:
       input_data = pipeline | 'CreateTrainingData' >> beam.Create(
           [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}])
@@ -2576,7 +2586,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           | 'TransformDataset' >> beam_impl.TransformDataset())
       expected_data = [{'x_scaled': 1.25}, {'x_scaled': 0.5}]
       beam_test_util.assert_that(
-          transformed_eval_data, beam_test_util.equal_to(expected_data))
+          transformed_eval_data, equal_to(expected_data))
 
   def testNestedContextCreateBaseTempDir(self):
     level_1_dir = self.get_temp_dir()
@@ -2755,7 +2765,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     # The expected data has 2 boundaries that divides the data into 3 buckets.
     expected_outputs = {
-        'key_vocab': np.array(['a', 'b'], np.object),
+        'key_vocab': np.array([b'a', b'b'], np.object),
         'q_b': np.array([[17, 33], [66, 83]], np.float32)
     }
     self.assertAnalyzerOutputs(
@@ -3199,7 +3209,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testVocabularyAnalyzerWithKeyFn(self):
     def key_fn(string):
-      return string.split('_X_')[0]
+      return string.split(b'_X_')[0]
 
     def preprocessing_fn(inputs):
       return {
@@ -3234,7 +3244,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testVocabularyAnalyzerWithKeyFnAndMultiCoverageTopK(self):
     def key_fn(string):
-      return string.split('_X_')[0]
+      return string.split(b'_X_')[0]
 
     def preprocessing_fn(inputs):
       return {
@@ -3269,7 +3279,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testVocabularyAnalyzerWithKeyFnAndTopK(self):
     def key_fn(string):
-      return string.split('_X_')[0]
+      return string.split(b'_X_')[0]
 
     def preprocessing_fn(inputs):
       return {
@@ -3304,7 +3314,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testVocabularyAnalyzerWithKeyFnMultiCoverageTopK(self):
     def key_fn(string):
-      return string.split('_X_')[1]
+      return string.split(b'_X_')[1]
 
     def preprocessing_fn(inputs):
       return {
@@ -3340,7 +3350,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testVocabularyWithKeyFnAndFrequency(self):
     def key_fn(string):
-      return string.split('_X_')[1]
+      return string.split(b'_X_')[1]
 
     outfile = 'vocabulary_with_frequency'
 

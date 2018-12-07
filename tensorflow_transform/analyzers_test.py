@@ -17,10 +17,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import pickle
+
 
 import numpy as np
-
-import tensorflow as tf
 
 from tensorflow_transform import analyzers
 from tensorflow_transform import test_case
@@ -253,34 +253,6 @@ _EXACT_NUM_QUANTILES_TESTS = [
 
 class AnalyzersTest(test_case.TransformTestCase):
 
-  @test_case.parameters(
-      (tf.int32,),
-      (tf.int64,),
-      (tf.float32,),
-      (tf.float64,),
-  )
-  def testSparseMinusReduceMinAndReduceMax(self, input_dtype):
-    outputs = analyzers._sparse_minus_reduce_min_and_reduce_max(
-        tf.cast(
-            tf.SparseTensor(
-                dense_shape=[2, 4],
-                indices=[[0, 0], [0, 1], [1, 1], [1, 3]],
-                values=[0., 1., 2., 3.]), input_dtype))
-
-    expected_missing_value = input_dtype.min + 1
-    if input_dtype.is_floating:
-      expected_missing_value = float('nan')
-
-    expected_max = np.array([0, 2, expected_missing_value, 3],
-                            input_dtype.as_numpy_dtype)
-    expected_neg_min = np.array([0, -1, expected_missing_value, -3],
-                                input_dtype.as_numpy_dtype)
-
-    with self.test_session() as sess:
-      output_neg_min, output_max = sess.run(outputs)
-      self.assertAllEqual(output_neg_min, expected_neg_min)
-      self.assertAllEqual(output_max, expected_max)
-
   @test_case.named_parameters(*[
       _SUM_TEST,
       _SUM_SCALAR_TEST,
@@ -310,6 +282,10 @@ class AnalyzersTest(test_case.TransformTestCase):
     Exercises create_accumulator, add_input, merge_accumulators,
     and extract_output.
     """
+    # Test serialization faithfully reproduces the object. If tests
+    # mysteriously break, it could be because __reduce__ is missing something.
+    combiner = pickle.loads(pickle.dumps(combiner))
+
     if isinstance(combiner, analyzers.QuantilesCombiner):
       combiner.initialize_local_state()
 

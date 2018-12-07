@@ -30,6 +30,8 @@ from apache_beam.typehints import Tuple
 from apache_beam.typehints import with_input_types
 
 import numpy as np
+import six
+import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import analyzers
 from tensorflow_transform import tf_utils
@@ -57,7 +59,13 @@ class _OrderElementsFn(beam.DoFn):
     counts.sort(reverse=True)  # Largest first.
     for count, entry in counts:
       if self._store_frequency:
-        yield '{} {}'.format(count, entry)
+        # Converts bytes to unicode for PY3, otherwise the result will look like
+        # "b'real_string'". We convert everything to bytes afterwards.
+        if six.PY2:
+          yield '{} {}'.format(count, entry)
+        else:
+          yield tf.compat.as_bytes('{} {}'.format(count,
+                                                  tf.compat.as_text(entry)))
       else:
         yield entry
 
@@ -328,15 +336,15 @@ def _calculate_mutual_information(feature_and_accumulator, global_accumulator,
 
   if use_adjusted_mutual_info:
     expected_mutual_information = (
-        _calculate_expteced_mutual_information_per_label(N, x, y_1) +
-        _calculate_expteced_mutual_information_per_label(N, x, y_0))
+        _calculate_expected_mutual_information_per_label(N, x, y_1) +
+        _calculate_expected_mutual_information_per_label(N, x, y_0))
 
     return (feature, mutual_information - expected_mutual_information)
   else:
     return (feature, mutual_information)
 
 
-def _calculate_expteced_mutual_information_per_label(N, x, y_j):  # pylint: disable=invalid-name
+def _calculate_expected_mutual_information_per_label(N, x, y_j):  # pylint: disable=invalid-name
   """Calculates the expected mutual information of a feature and a label.
 
     EMI(x, y) = sum_{n_ij = max(0, x_i + y_j - N) to min(x_i, y_j)} (
@@ -616,7 +624,7 @@ def _split_inputs_by_key(batch_values):
     yield (key, instance_args)
 
 
-def _merge_outputs_by_key(keys_and_outputs, num_outputs):
+def _merge_outputs_by_key(keys_and_outputs, outputs_dtype):
   """Merge outputs of analyzers per key into a single output.
 
   Takes a list of elements of the form (key, [output0, ..., output{N-1}]) and
@@ -629,9 +637,9 @@ def _merge_outputs_by_key(keys_and_outputs, num_outputs):
   element of the list.
 
   Args:
-    keys_and_outputs: a list of elements of the form
+    keys_and_outputs: A list of elements of the form
       (key, [output0, ..., output{N-1}])
-    num_outputs: The number of expected outputs.
+    outputs_dtype: A list of tf.DType. Each element corresponds to an output.
 
   Yields:
     The `TaggedOutput`s: keys, outputs0, ..., outputs[{N-1}]
@@ -639,21 +647,30 @@ def _merge_outputs_by_key(keys_and_outputs, num_outputs):
   Raises:
     ValueError: If the number is outputs doesn't match num_outputs.
   """
+  num_outputs = len(outputs_dtype)
   # Sort keys_and_outputs by keys.
   keys_and_outputs.sort(key=lambda x: x[0])
   # Convert from a list of pairs of the form (key, outputs_for_key) to a list of
   # keys and a list of outputs (where the outer dimension is the number of
   # outputs not the number of keys).
-  key, outputs = zip(*keys_and_outputs)
-  outputs = list(zip(*outputs))
-  # key is a list of scalars so we use np.stack to convert a single array.
-  yield beam.pvalue.TaggedOutput('key', np.stack(key, axis=0))
+  key = []
+  outputs = []
+  for k, o in keys_and_outputs:
+    key.append(k)
+    outputs.append(o)
+  if not outputs:
+    outputs = [[]] * num_outputs
+  else:
+    outputs = list(zip(*outputs))
+  yield beam.pvalue.TaggedOutput('key',
+                                 np.array(key, dtype=tf.string.as_numpy_dtype))
   if len(outputs) != num_outputs:
     raise ValueError(
         'Analyzer has {} outputs but its implementation produced {} '
         'values'.format(num_outputs, len(outputs)))
-  for i, output in enumerate(outputs):
-    yield beam.pvalue.TaggedOutput(str(i), np.stack(output, axis=0))
+  for i, (output, dtype) in enumerate(zip(outputs, outputs_dtype)):
+    yield beam.pvalue.TaggedOutput(str(i), np.array(output,
+                                                    dtype=dtype.as_numpy_dtype))
 
 
 @common.register_ptransform(analyzer_nodes.Combine)
@@ -711,8 +728,8 @@ class _CombinePerKeyImpl(beam.PTransform):
         | 'ToList' >> beam.combiners.ToList()
         | 'MergeByKey' >> beam.FlatMap(
             _merge_outputs_by_key,
-            len(self._combiner.output_tensor_infos())
-            ).with_outputs(*output_keys))
+            [info.dtype for info in self._combiner.output_tensor_infos()])
+        .with_outputs(*output_keys))
     return tuple(outputs_tuple[key] for key in output_keys)
 
 

@@ -253,47 +253,6 @@ def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
     return _min_and_max(x, reduce_instance_dims, name)[1]
 
 
-def _sparse_minus_reduce_min_and_reduce_max(x):
-  """Computes the -min and max of a tensor x.
-
-  It differs from sparse_reduce_max in that sparse_reduce_max returns 0 when all
-  elements are missing along axis 0.
-  We replace the 0 with NaN when x's dtype is float and dtype.min+1 when it's
-  int.
-
-  Args:
-    x: A `SparseTensor`.
-
-  Returns:
-    Two `Tensors' which are the -min and max.
-
-  Raises:
-    TypeError: If the type of `x` is not supported.
-  """
-  if not isinstance(x, tf.SparseTensor):
-    raise TypeError('Expected a SparseTensor, but got %r' % x)
-  minus_x = tf.SparseTensor(
-      indices=x.indices, values=0 - x.values, dense_shape=x.dense_shape)
-  x_count = tf_utils.reduce_batch_count(x, reduce_instance_dims=False)
-  batch_has_no_values = tf.equal(x_count, tf.constant(0, dtype=tf.int64))
-  x_batch_max = tf.sparse_reduce_max(x, axis=0)
-  x_batch_minus_min = tf.sparse_reduce_max(minus_x, axis=0)
-
-  if x.dtype.is_floating:
-    missing_value = tf.constant(np.nan, x.dtype)
-  else:
-    missing_value = tf.constant(x.dtype.min + 1, x.dtype)
-
-  x_batch_max = tf.where(batch_has_no_values,
-                         tf.fill(tf.shape(x_batch_max), missing_value),
-                         x_batch_max)
-  x_batch_minus_min = tf.where(batch_has_no_values,
-                               tf.fill(tf.shape(x_batch_minus_min),
-                                       missing_value),
-                               x_batch_minus_min)
-  return x_batch_minus_min, x_batch_max
-
-
 def _min_and_max(x, reduce_instance_dims=True, name=None):
   """Computes the min and max of the values of a `Tensor` or `SparseTensor`.
 
@@ -315,38 +274,17 @@ def _min_and_max(x, reduce_instance_dims=True, name=None):
   """
   with tf.name_scope(name, 'min_and_max'):
     combine_fn = np.max
+    if (not reduce_instance_dims and isinstance(x, tf.SparseTensor) and
+        x.dtype.is_floating):
+      combine_fn = np.nanmax
+
     output_dtype = x.dtype
 
-    if x.dtype == tf.uint8 or x.dtype == tf.uint16:
-      x = tf.cast(x, tf.int32)
-
-    elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
-      raise TypeError('Tensor type %r is not supported' % x.dtype)
-
-    if reduce_instance_dims:
-      if isinstance(x, tf.SparseTensor):
-        x = x.values
-
-      x_batch_max = tf.reduce_max(x)
-      x_batch_minus_min = tf.reduce_max(0 - x)
-    elif isinstance(x, tf.SparseTensor):
-      x_batch_minus_min, x_batch_max = (
-          _sparse_minus_reduce_min_and_reduce_max(x))
-      if x.dtype.is_floating:
-        combine_fn = np.nanmax
-    else:
-      x_batch_max = tf.reduce_max(x, axis=0)
-      x_batch_minus_min = tf.reduce_max(0 - x, axis=0)
-
-    def inf_to_nan(tensor):
-      if tensor.dtype.is_floating:
-        nan = tf.constant(np.nan, output_dtype)
-        return tf.where(tf.is_inf(tensor), tensor + nan, tensor)
-      return tensor
+    x_batch_minus_min, x_batch_max = tf_utils.reduce_batch_minus_min_and_max(
+        x, reduce_instance_dims)
 
     minus_x_min, x_max = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
-        [inf_to_nan(x_batch_minus_min),
-         inf_to_nan(x_batch_max)], combine_fn, reduce_instance_dims)
+        [x_batch_minus_min, x_batch_max], combine_fn, reduce_instance_dims)
     return tf.cast(0 - minus_x_min, output_dtype), tf.cast(x_max, output_dtype)
 
 
@@ -931,71 +869,109 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     stamp_token = 0
 
     # Create a new session with a new graph for quantile ops.
-    graph = tf.Graph()
-    self._session = tf.Session(graph=graph, config=tf_config)
-    with self._session.graph.as_default():
-      with self._session.as_default():
-        self._qaccumulator = quantile_ops.QuantileAccumulator(
-            init_stamp_token=stamp_token,
-            num_quantiles=self._num_quantiles,
-            epsilon=self._epsilon,
-            name='qaccumulator',
-            generate_quantiles=self._always_return_num_quantiles)
-        resources.initialize_resources(resources.shared_resources()).run()
+    with tf.Graph().as_default() as graph:
+      self._session = tf.Session(graph=graph)
 
-        # Create placeholders that will be used to provide input and weights to
-        # the QuantileAccumulator.
-        # They need to have shapes (1, None) as this is what the
-        # QuantileAccumulator accepts.
-        self._add_summary_input = tf.placeholder(
-            dtype=self._bucket_numpy_dtype, shape=[1, None])
-        if self._has_weights:
-          self._add_summary_weights = tf.placeholder(
-              dtype=tf.float32, shape=[1, None])
-        else:
-          self._add_summary_weights = tf.ones_like(self._add_summary_input)
+      qaccumulator = quantile_ops.QuantileAccumulator(
+          init_stamp_token=stamp_token,
+          num_quantiles=self._num_quantiles,
+          epsilon=self._epsilon,
+          name='qaccumulator',
+          generate_quantiles=self._always_return_num_quantiles)
+      self._session.run(
+          resources.initialize_resources(resources.shared_resources()))
 
-        # Create op to update the accumulator with new input fed from
-        # self._add_summary_input.
-        self._add_summary_op = self._qaccumulator.add_summary(
-            stamp_token=stamp_token,
-            column=self._add_summary_input,
-            example_weights=self._add_summary_weights)
+      self._add_input_callable = self._make_add_input_callable(
+          qaccumulator, stamp_token)
+      self._merge_inputs_callable = self._make_add_summary_callable(
+          qaccumulator, stamp_token)
+      self._get_buckets_callable = self._make_get_buckets_callable(
+          qaccumulator, stamp_token)
 
-        # Create op to add a prebuilt summary to the accumulator, and a
-        # placeholder tensor to provide the input for this op.
-        self._prebuilt_summary_input = tf.placeholder(
-            dtype=tf.string, shape=[])
-        self._add_prebuilt_summary_op = self._qaccumulator.add_prebuilt_summary(
-            stamp_token=stamp_token,
-            summary=self._prebuilt_summary_input)
+      # Create op to flush summaries and return a summary representing the
+      # summaries that were added the accumulator so far.
+      self._flush_summary_callable = self._session.make_callable(
+          fetches=qaccumulator.flush_summary(
+              stamp_token=stamp_token, next_stamp_token=stamp_token))
 
-        # Create op to flush summaries and return a summary representing the
-        # summaries that were added the accumulator so far.
-        self._flush_summary_op = self._qaccumulator.flush_summary(
-            stamp_token=stamp_token,
-            next_stamp_token=stamp_token)
+      # We generate an empty summary by calling self._flush_summary_op.
+      # We cache this as some implementations may call create_accumulator for
+      # every input, and it can be cached since it will always be the same and
+      # immutable.
+      self._empty_summary = self._session.run(
+          qaccumulator.flush_summary(
+              stamp_token=stamp_token, next_stamp_token=stamp_token))
 
-        # Create ops to flush the accumulator and return approximate boundaries.
-        self._flush_op = self._qaccumulator.flush(
-            stamp_token=stamp_token,
-            next_stamp_token=stamp_token)
-        _, self._buckets_op = self._qaccumulator.get_buckets(
-            stamp_token=stamp_token)
-
-        graph.finalize()
-
-    # We generate an empty summary by calling self._flush_summary_op.
-    # We cache this as some implementations may call create_accumulator for
-    # every input, and it can be cached since it will always be the same and
-    # immutable.
-    self._empty_summary = self._session.run(self._flush_summary_op)
+      graph.finalize()
 
   def __reduce__(self):
     return QuantilesCombiner, (self._num_quantiles, self._epsilon,
                                self._bucket_numpy_dtype,
                                self._always_return_num_quantiles,
-                               self._has_weights)
+                               self._has_weights,
+                               self._output_shape,
+                               self._include_max_and_min)
+
+  def _make_add_input_callable(self, qaccumulator, stamp_token):
+    # Create placeholders for add_inputs_callable.  These placeholders will
+    # be used to provide prebuilt summary, input and weights to the
+    # QuantileAccumulator.
+    # inputs and weights need to have shapes (1, None) as this is what the
+    # QuantileAccumulator accepts.
+    prebuilt_summary = tf.placeholder(dtype=tf.string, shape=[])
+    inputs = tf.placeholder(dtype=self._bucket_numpy_dtype, shape=[1, None])
+    feed_list = [prebuilt_summary, inputs]
+    if self._has_weights:
+      weights = tf.placeholder(dtype=tf.float32, shape=[1, None])
+      feed_list.append(weights)
+    else:
+      weights = tf.ones_like(inputs)
+
+    add_prebuilt_summary_op = qaccumulator.add_prebuilt_summary(
+        stamp_token=stamp_token, summary=prebuilt_summary)
+
+    with tf.control_dependencies([add_prebuilt_summary_op]):
+      # Create op to update the accumulator with new input fed from
+      # inputs_placeholder.
+      add_summary_op = qaccumulator.add_summary(
+          stamp_token=stamp_token, column=inputs, example_weights=weights)
+
+    with tf.control_dependencies([add_summary_op]):
+      # After the flush_summary, qaccumulator will not contain any
+      # uncommitted information that represents the input. Instead all the
+      # digested information is returned as 'summary'. Many such summaries
+      # will be combined by merge_accumulators().
+      summary = qaccumulator.flush_summary(
+          stamp_token=stamp_token, next_stamp_token=stamp_token)
+
+    return self._session.make_callable(fetches=summary, feed_list=feed_list)
+
+  def _make_add_summary_callable(self, qaccumulator, stamp_token):
+    merge_prebuilt_summary = tf.placeholder(dtype=tf.string, shape=[])
+
+    add_merge_prebuilt_summary_op = qaccumulator.add_prebuilt_summary(
+        stamp_token=stamp_token, summary=merge_prebuilt_summary)
+
+    return self._session.make_callable(
+        fetches=add_merge_prebuilt_summary_op,
+        feed_list=[merge_prebuilt_summary])
+
+  def _make_get_buckets_callable(self, qaccumulator, stamp_token):
+    final_summary = tf.placeholder(dtype=tf.string, shape=[])
+
+    add_final_summary_op = qaccumulator.add_prebuilt_summary(
+        stamp_token=stamp_token, summary=final_summary)
+
+    # Create ops to flush the accumulator and return approximate boundaries.
+    with tf.control_dependencies([add_final_summary_op]):
+      flush_op = qaccumulator.flush(
+          stamp_token=stamp_token, next_stamp_token=stamp_token)
+
+    with tf.control_dependencies([flush_op]):
+      _, buckets = qaccumulator.get_buckets(stamp_token=stamp_token)
+
+    return self._session.make_callable(
+        fetches=buckets, feed_list=[final_summary])
 
   def create_accumulator(self):
     return None
@@ -1009,32 +985,16 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     if summary is None and flattened_input.size == 0:
       return None
 
+    callable_args = [summary or self._empty_summary, flattened_input]
     if self._has_weights:
       flattened_weights = np.reshape(next_input[1], newshape=(1, -1))
       if len(flattened_input) != len(flattened_weights):
         raise ValueError(
             'Values and weights contained different number of values ({} vs {})'
             .format(len(flattened_input), len(flattened_weights)))
-      add_summary_op_feed_dict = {
-          self._add_summary_input: flattened_input,
-          self._add_summary_weights: flattened_weights
-      }
-    else:
-      add_summary_op_feed_dict = {self._add_summary_input: flattened_input}
+      callable_args.append(flattened_weights)
 
-    self._session.run(
-        self._add_prebuilt_summary_op,
-        feed_dict={
-            self._prebuilt_summary_input: summary or self._empty_summary
-        })
-
-    self._session.run(self._add_summary_op, add_summary_op_feed_dict)
-
-    # After the flush_summary, qaccumulator will not contain any
-    # uncommitted information that represents the input. Instead all the
-    # digested information is returned as 'summary'. Many such summaries
-    # will be combined by merge_accumulators().
-    return self._session.run(self._flush_summary_op)
+    return self._add_input_callable(*callable_args)
 
   def merge_accumulators(self, summaries):
     summaries = [summary for summary in summaries if summary is not None]
@@ -1042,14 +1002,9 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
       return None
 
     for summary in summaries:
-      self._session.run(
-          self._add_prebuilt_summary_op,
-          feed_dict={self._prebuilt_summary_input: summary})
+      self._merge_inputs_callable(summary)
 
-    # Compute new summary.
-    # All relevant state about the input is captured by 'summary'
-    # (see comment at the end of add_input()).
-    return self._session.run(self._flush_summary_op)
+    return self._flush_summary_callable()
 
   def extract_output(self, summary):
     if summary is None:
@@ -1057,13 +1012,7 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
           self._num_quantiles - 1 if self._always_return_num_quantiles else 0)
       return [np.zeros((num_buckets,), np.float32)]
 
-    # All relevant state about the input is captured by 'summary'
-    # (see comment in add_input() and merge_accumulators()).
-    self._session.run(
-        self._add_prebuilt_summary_op,
-        feed_dict={self._prebuilt_summary_input: summary})
-    self._session.run(self._flush_op)
-    buckets = self._session.run(self._buckets_op)
+    buckets = self._get_buckets_callable(summary)
 
     if not self._include_max_and_min:
       # If always_return_num_quantiles is set to True, the number of elements in
