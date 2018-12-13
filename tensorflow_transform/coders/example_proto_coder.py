@@ -155,7 +155,7 @@ class _FixedLenFeatureHandler(object):
     self._value = self._value_fn(example.features.feature[self._name])
 
   def parse_value(self, feature_map):
-    """Decodes a feature into its TF.Transform representation."""
+    """Non-Mutating Decode of a feature into its TF.Transform representation."""
     if self._name in feature_map:
       feature = feature_map[self._name]
       values = self._value_fn(feature)
@@ -215,8 +215,13 @@ class _VarLenFeatureHandler(object):
     self._value = self._value_fn(example.features.feature[self._name])
 
   def parse_value(self, feature_map):
-    feature = feature_map[self._name]
-    return np.asarray(self._value_fn(feature), dtype=self._np_dtype)
+    """Non-Mutating Decode of a feature into its TF.Transform representation."""
+    if self._name in feature_map:
+      feature = feature_map[self._name]
+      values = self._value_fn(feature)
+    else:
+      values = []
+    return np.asarray(values, dtype=self._np_dtype)
 
   def encode_value(self, values):
     del self._value[:]
@@ -253,10 +258,21 @@ class _SparseFeatureHandler(object):
         self._index_key])
 
   def parse_value(self, feature_map):
-    value_feature = feature_map[self._value_key]
-    index_feature = feature_map[self._index_key]
-    values = np.asarray(self._value_fn(value_feature), dtype=self._np_dtype)
-    indices = np.asarray(self._index_fn(index_feature), dtype=np.int64)
+    """Non-Mutating Decode of a feature into its TF.Transform representation."""
+    if self._value_key in feature_map:
+      feature = feature_map[self._value_key]
+      value_values = self._value_fn(feature)
+    else:
+      value_values = []
+
+    if self._index_key in feature_map:
+      feature = feature_map[self._index_key]
+      index_values = self._index_fn(feature)
+    else:
+      index_values = []
+
+    values = np.asarray(value_values, dtype=self._np_dtype)
+    indices = np.asarray(index_values, dtype=np.int64)
     return (indices, values)
 
   def encode_value(self, sparse_value):
@@ -268,19 +284,25 @@ class _SparseFeatureHandler(object):
 
 
 class ExampleProtoCoder(object):
-  """A coder between serialized TF Examples and tf.Transform datasets."""
+  """A coder between maybe-serialized TF Examples and tf.Transform datasets."""
 
-  def __init__(self, schema):
+  def __init__(self, schema, serialized=True):
     """Build an ExampleProtoCoder.
 
     Args:
       schema: A `Schema` object.
+      serialized: Whether to encode / decode serialized Example protos (as
+        opposed to in-memory Example protos). The default (True) is used for
+        backwards compatibility. Note that the serialized=True option might be
+        removed in a future version.
     Raises:
       ValueError: If `schema` is invalid.
     """
     self._schema = schema
+    self._serialized = serialized
 
-    # Using pre-allocated tf.train.Example objects for performance reasons.
+    # Using pre-allocated tf.train.Example and FeatureHandler objects for
+    # performance reasons.
     #
     # The _encode_example_cache is used solely by "encode" paths while the
     # the _decode_example_cache is used solely be "decode" paths, since the
@@ -292,42 +314,29 @@ class ExampleProtoCoder(object):
     # Example's FeatureMap (ie all fields are always cleared/assigned or
     # copied), the optimizations and implementation are correct and
     # thread-compatible.
-    #
-    # Due to pickling issues actual initialization of this will happen lazily
-    # in encode or decode respectively.
-    self._encode_example_cache = None
-    self._decode_example_cache = None
-
+    self._encode_example_cache = tf.train.Example()
+    self._decode_example_cache = tf.train.Example()
     self._feature_handlers = []
     for name, feature_spec in six.iteritems(schema.as_feature_spec()):
       if isinstance(feature_spec, tf.FixedLenFeature):
-        self._feature_handlers.append(
-            _FixedLenFeatureHandler(name, feature_spec))
+        feature_handler = _FixedLenFeatureHandler(name, feature_spec)
       elif isinstance(feature_spec, tf.VarLenFeature):
-        self._feature_handlers.append(
-            _VarLenFeatureHandler(name, feature_spec))
+        feature_handler = _VarLenFeatureHandler(name, feature_spec)
       elif isinstance(feature_spec, tf.SparseFeature):
-        self._feature_handlers.append(
-            _SparseFeatureHandler(name, feature_spec))
+        feature_handler = _SparseFeatureHandler(name, feature_spec)
       else:
         raise ValueError('feature_spec should be one of tf.FixedLenFeature, '
                          'tf.VarLenFeature or tf.SparseFeature: %s was %s' %
                          (name, type(feature_spec)))
+      feature_handler.initialize_encode_cache(self._encode_example_cache)
+      self._feature_handlers.append(feature_handler)
 
   def __reduce__(self):
-    return ExampleProtoCoder, (self._schema,)
+    return ExampleProtoCoder, (self._schema, self._serialized)
 
   def encode(self, instance):
-    """Encode a tf.transform encoded dict as serialized tf.Example."""
-    if self._encode_example_cache is None:
-      # Initialize the encode Example cache (used by this and all subsequent
-      # calls to encode).
-      example = tf.train.Example()
-      for feature_handler in self._feature_handlers:
-        feature_handler.initialize_encode_cache(example)
-      self._encode_example_cache = example
-
-    # Encode and serialize using the Example cache.
+    """Encode a tf.transform encoded dict as tf.Example."""
+    # The feature handles encode using the self._encode_example_cache.
     for feature_handler in self._feature_handlers:
       value = instance[feature_handler.name]
       try:
@@ -336,17 +345,21 @@ class ExampleProtoCoder(object):
         raise TypeError('%s while encoding feature "%s"' %
                         (e, feature_handler.name))
 
-    return self._encode_example_cache.SerializeToString()
+    if self._serialized:
+      return self._encode_example_cache.SerializeToString()
+    else:
+      result = tf.train.Example()
+      result.CopyFrom(self._encode_example_cache)
+      return result
 
-  def decode(self, serialized_example_proto):
-    """Decode serialized tf.Example as a tf.transform encoded dict."""
-    if self._decode_example_cache is None:
-      # Initialize the decode Example cache (used by this and all subsequent
-      # calls to decode).
-      self._decode_example_cache = tf.train.Example()
+  def decode(self, example_proto):
+    """Decode tf.Example as a tf.transform encoded dict."""
+    if self._serialized:
+      example = self._decode_example_cache
+      example.ParseFromString(example_proto)
+    else:
+      example = example_proto
 
-    example = self._decode_example_cache
-    example.ParseFromString(serialized_example_proto)
     feature_map = example.features.feature
     return {feature_handler.name: feature_handler.parse_value(feature_map)
             for feature_handler in self._feature_handlers}

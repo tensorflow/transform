@@ -89,7 +89,6 @@ from apache_beam.typehints import with_output_types
 import numpy as np
 import six
 import tensorflow as tf
-from tensorflow_transform import analyzers as tft_analyzers
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
 from tensorflow_transform import schema_inference
@@ -418,29 +417,6 @@ def _assert_tensorflow_version():
         'TensorFlow version >= 1.11, < 2 is required. Found (%s). Please '
         'install the latest 1.x version from '
         'https://github.com/tensorflow/tensorflow. ' % tf.__version__)
-
-
-def _write_saved_transform(graph, inputs, outputs, saved_model_dir):
-  """Write the given function as a saved transform."""
-  with tf.Session(graph=graph) as session:
-    # Remove collections that can't be serialized, as these produce annoying
-    # warnings.
-    # pylint: disable=protected-access
-    collections_blacklist = [
-        tft_analyzers.ANALYZER_COLLECTION
-    ]
-    # pylint: enable=protected-access
-    removed_collections = []
-    for collection_name in collections_blacklist:
-      removed_collections.append((collection_name,
-                                  graph.get_collection(collection_name)))
-      graph.clear_collection(collection_name)
-    # Initialize all variables so they can be saved.
-    session.run(tf.global_variables_initializer())
-    saved_transform_io.write_saved_transform_from_session(
-        session, inputs, outputs, saved_model_dir)
-    for collection_name, collection in removed_collections:
-      graph.get_collection_ref(collection_name).extend(collection)
 
 
 def _convert_and_unbatch_to_instance_dicts(batch_dict, schema,

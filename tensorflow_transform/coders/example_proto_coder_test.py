@@ -157,23 +157,23 @@ _ENCODE_ERROR_CASES = [
 ]
 
 
+def _ascii_to_example(ascii_proto):
+  return text_format.Merge(ascii_proto, tf.train.Example())
+
+
 def _ascii_to_binary(ascii_proto):
-  example = tf.train.Example()
-  text_format.Merge(ascii_proto, example)
-  return example.SerializeToString()
+  return _ascii_to_example(ascii_proto).SerializeToString()
 
 
 def _binary_to_example(serialized_proto):
-  example = tf.train.Example()
-  example.MergeFromString(serialized_proto)
-  return example
+  return tf.train.Example.FromString(serialized_proto)
 
 
 class ExampleProtoCoderTest(test_case.TransformTestCase):
 
 
   def assertSerializedProtosEqual(self, a, b):
-    self.assertEqual(_binary_to_example(a), _binary_to_example(b))
+    np.testing.assert_equal(_binary_to_example(a), _binary_to_example(b))
 
   @test_case.named_parameters(*(_ENCODE_DECODE_CASES + _DECODE_ONLY_CASES))
   def test_decode(self, feature_spec, ascii_proto, instance, **kwargs):
@@ -182,12 +182,30 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
     serialized_proto = _ascii_to_binary(ascii_proto)
     np.testing.assert_equal(coder.decode(serialized_proto), instance)
 
+  @test_case.named_parameters(*(_ENCODE_DECODE_CASES + _DECODE_ONLY_CASES))
+  def test_decode_non_serialized(self, feature_spec, ascii_proto, instance,
+                                 **kwargs):
+    schema = dataset_schema.from_feature_spec(feature_spec)
+    coder = example_proto_coder.ExampleProtoCoder(
+        schema, serialized=False, **kwargs)
+    proto = _ascii_to_example(ascii_proto)
+    np.testing.assert_equal(coder.decode(proto), instance)
+
   @test_case.named_parameters(*(_ENCODE_DECODE_CASES + _ENCODE_ONLY_CASES))
   def test_encode(self, feature_spec, ascii_proto, instance, **kwargs):
     schema = dataset_schema.from_feature_spec(feature_spec)
     coder = example_proto_coder.ExampleProtoCoder(schema, **kwargs)
     serialized_proto = _ascii_to_binary(ascii_proto)
     self.assertSerializedProtosEqual(coder.encode(instance), serialized_proto)
+
+  @test_case.named_parameters(*(_ENCODE_DECODE_CASES + _ENCODE_ONLY_CASES))
+  def test_encode_non_serialized(self, feature_spec, ascii_proto, instance,
+                                 **kwargs):
+    schema = dataset_schema.from_feature_spec(feature_spec)
+    coder = example_proto_coder.ExampleProtoCoder(
+        schema, serialized=False, **kwargs)
+    proto = _ascii_to_example(ascii_proto)
+    np.testing.assert_equal(coder.encode(instance), proto)
 
   @test_case.named_parameters(*_DECODE_ERROR_CASES)
   def test_decode_error(self,

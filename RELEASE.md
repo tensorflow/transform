@@ -18,6 +18,7 @@
 * Added `tft.ptransform_analyzer` for advanced use cases.
 * Modified `QuantilesCombiner` to use `tf.Session.make_callable` instead of
   `tf.Session.run` for improved performance.
+* ExampleProtoCoder now also supports non-serialized Example representations.
 
 ## Breaking changes
 
