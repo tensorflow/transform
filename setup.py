@@ -16,8 +16,11 @@
 from setuptools import find_packages
 from setuptools import setup
 
-# Tensorflow transform version.
-__version__ = '0.13.0dev'
+# Get version from version module.
+with open('tensorflow_transform/version.py') as fp:
+  globals_dict = {}
+  exec (fp.read(), globals_dict)  # pylint: disable=exec-used
+__version__ = globals_dict['__version__']
 
 
 def _make_required_install_packages():
