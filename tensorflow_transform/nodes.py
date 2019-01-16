@@ -55,6 +55,9 @@ class ValueNode(collections.namedtuple(
               value_index, num_outputs))
     super(ValueNode, self).__init__()
 
+  def __iter__(self):
+    raise ValueError('ValueNode is not iterable')
+
 
 class OperationDef(object):
   """The definition of an operation.
@@ -76,11 +79,35 @@ class OperationDef(object):
     """The number of outputs returned by this operation."""
     return 1
 
-  @property
-  @abc.abstractmethod
+  @abc.abstractproperty
   def label(self):
     """A unique label for this operation in the graph."""
     pass
+
+  @property
+  def is_partitionable(self):
+    """If True, means that this operation can be applied on partitioned data.
+
+    Being able to be applied on partitioned data means that partitioning the
+    data, running this operation on each of the data subsets independently, and
+    then having the next operation get the flattened results as inputs would be
+    equivalent to running this operation on the entire data and passing the
+    result to the next operation.
+
+    Returns:
+      A bool indicating whether or not this operation is partitionable.
+    """
+    return False
+
+  @property
+  def cache_coder(self):
+    """A CacheCoder object used to cache outputs returned by this operation.
+
+    If this doesn't return None, then:
+      * num_outputs has to be 1
+      * is_partitionable has to be True.
+    """
+    return None
 
 
 class OperationNode(object):
@@ -88,7 +115,7 @@ class OperationNode(object):
 
   Args:
     operation_def: An `OperationDef`.
-    inputs: An iterable of `ValueNode`s.
+    inputs: A tuple of `ValueNode`s.
   """
 
   def __init__(self, operation_def, inputs):
@@ -107,6 +134,10 @@ class OperationNode(object):
         raise TypeError(
             'Inputs to Operation must be a ValueNode, got {} of type {}'.format(
                 value_node, type(value_node)))
+
+  def __repr__(self):
+    return '{}(operation_def={}, inputs={})'.format(
+        self.__class__.__name__, self.operation_def, self.inputs)
 
   @property
   def operation_def(self):
@@ -143,7 +174,11 @@ def apply_operation(operation_def_cls, *args, **kwargs):
 
 def apply_multi_output_operation(operation_def_cls, *args, **kwargs):
   """Like `apply_operation` but returns a tuple of outputs."""
-  return OperationNode(operation_def_cls(**kwargs), args).outputs
+  try:
+    return OperationNode(operation_def_cls(**kwargs), args).outputs
+  except TypeError as e:
+    raise RuntimeError('Failed to apply Operation {}, with error: {}'.format(
+        operation_def_cls, str(e)))
 
 
 class Visitor(with_metaclass(abc.ABCMeta, object)):
@@ -203,6 +238,18 @@ class Traverser(object):
       A value corresponding to `value_node` determined by the implementation of
           the abstract `visit` method.
     """
+    return self._maybe_visit_value_node(value_node)
+
+  def _maybe_visit_value_node(self, value_node):
+    """Visit a value node if not cached, and return a corresponding value.
+
+    Args:
+      value_node: A `ValueNode`.
+
+    Returns:
+      A value corresponding to `value_node` determined by the implementation of
+          the abstract `visit` method.
+    """
     if value_node not in self._cached_value_nodes_values:
       self._visit_operation(value_node.parent_operation)
     return self._cached_value_nodes_values[value_node]
@@ -215,15 +262,19 @@ class Traverser(object):
       cycle = ', '.join(operation.operation_def.label for operation in cycle)
       raise AssertionError('Cycle detected: [{}]'.format(cycle))
     self._stack.append(operation)
-    input_values = tuple(map(self.visit_value_node, operation.inputs))
+    input_values = tuple(map(self._maybe_visit_value_node, operation.inputs))
     assert operation is self._stack.pop()
     output_values = self._visitor.visit(operation.operation_def, input_values)
     outputs = operation.outputs
 
-    if not isinstance(output_values, tuple):
+    # Expect a tuple of outputs.  Since ValueNode and OperationDef are both
+    # subclasses of tuple, we also explicitly disallow them, since returning
+    # a single ValueNode or OperationDef is almost certainly an error.
+    if (not isinstance(output_values, tuple) or
+        isinstance(output_values, (ValueNode, OperationDef))):
       raise ValueError(
           'When running operation {} expected visitor to return a tuple, got '
-          '{} of type {}'.format(operation.operation_def, output_values,
+          '{} of type {}'.format(operation.operation_def.label, output_values,
                                  type(output_values)))
     if len(output_values) != len(outputs):
       raise ValueError(
@@ -263,6 +314,10 @@ class _PrintGraphVisitor(Visitor):
         _escape('%s: %s' % (field, value))
         for field, value in operation_def._asdict().items()
     ])
+
+    if operation_def.is_partitionable:
+      display_label_rows.append('partitionable: %s' % True)
+
     if num_outputs != 1:
       ports = '|'.join('<{0}>{0}'.format(idx) for idx in range(num_outputs))
       display_label_rows.append('{%s}' % ports)

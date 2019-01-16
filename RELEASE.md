@@ -2,9 +2,10 @@
 
 ## Major Features and Improvements
 * Performance improvements for vocabulary generation when using top_k.
+* New optimized highly experimental API for analyzing a dataset was added,
+  `AnalyzeDatasetWithCache`, which allows reading and writing analyzer cache.
 
 ## Bug Fixes and Other Changes
-
 * `tft.vocabulary` and `tft.compute_and_apply_vocabulary` now support filtering
   based on adjusted mutual information when `use_adjusetd_mutual_info` is set to
   True.
@@ -19,6 +20,7 @@
 * Modified `QuantilesCombiner` to use `tf.Session.make_callable` instead of
   `tf.Session.run` for improved performance.
 * ExampleProtoCoder now also supports non-serialized Example representations.
+* `tft.tfidf` now accepts a scalar Tensor as `vocab_size`.
 
 ## Breaking changes
 
@@ -29,7 +31,6 @@
 ## Major Features and Improvements
 
 ## Bug Fixes and Other Changes
-
 * 'tft.vocabulary' and 'tft.compute_and_apply_vocabulary' now support filtering
   based on mutual information when `labels` is provided.
 * Export all package level exports of `tensorflow_transform`, from the

@@ -89,6 +89,7 @@ from apache_beam.typehints import with_output_types
 import numpy as np
 import six
 import tensorflow as tf
+from tensorflow_transform import analyzer_cache
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
 from tensorflow_transform import schema_inference
@@ -113,6 +114,13 @@ def _clear_shared_state_after_barrier(pipeline, input_barrier):
   """Clears any shared state from within a pipeline context.
 
   This will only be cleared once input_barrier becomes available.
+
+  Args:
+    pipeline: A `beam.Pipeline` object.
+    input_barrier: A `PCollection` which the pipeline should wait for.
+
+  Returns:
+    An empty `PCollection`.
   """
   empty_pcoll = input_barrier | 'MakeCheapBarrier' >> beam.FlatMap(
       lambda x: None)
@@ -281,6 +289,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
   # Thread-safe.
   class _GraphState(object):
+    """A container for a shared graph state."""
 
     def __init__(self, saved_model_dir, input_schema, exclude_outputs,
                  tf_config):
@@ -523,9 +532,7 @@ def _create_saved_model_impl(inputs, operation, extra_args):
       del table_initializers_ref[:]
       table_initializers_ref.extend(original_table_initializers)
   return inputs | operation.label >> _BindTensors(
-      extra_args.base_temp_dir,
-      unbound_saved_model_dir,
-      extra_args.input_values_pcoll.pipeline)
+      extra_args.base_temp_dir, unbound_saved_model_dir, extra_args.pipeline)
 
 
 class _BindTensors(beam.PTransform):
@@ -558,10 +565,15 @@ class _ApplySavedModelImpl(beam.PTransform):
   def __init__(self, operation, extra_args):
     self._input_schema = extra_args.input_schema
     self._serialized_tf_config = extra_args.serialized_tf_config
-    self._input_values_pcoll = extra_args.input_values_pcoll
     self._phase = operation.phase
+    if operation.dataset_key is None:
+      self._input_values_pcoll = extra_args.flat_pcollection
+    else:
+      self._input_values_pcoll = extra_args.pcollection_dict[
+          operation.dataset_key]
 
   def expand(self, inputs):
+
     # We don't deep_copy pcollections used for the first phase, or when
     # the user defined `Context` disables it.
     if self._phase > 0 and Context.get_use_deep_copy_optimization():
@@ -591,6 +603,21 @@ def _extract_from_dict_impl(inputs, operation, extra_args):
       lambda d, keys=operation.keys: tuple(d[key] for key in keys))
 
 
+@common.register_ptransform(beam_nodes.Flatten)
+class _Flatten(beam.PTransform):
+  """PTransform to flatten PCollections."""
+
+  def __init__(self, operation, extra_args):
+    del extra_args  # unused
+    self._label = operation.label
+
+  def default_label(self):
+    return self._label
+
+  def expand(self, inputs):
+    return inputs | beam.Flatten()
+
+
 def _infer_metadata_from_saved_model(saved_model_dir):
   """Infers a DatasetMetadata for outputs of a SavedModel."""
   with tf.Graph().as_default() as graph:
@@ -605,27 +632,24 @@ def _infer_metadata_from_saved_model(saved_model_dir):
           schema=schema_inference.infer_feature_schema(outputs, graph, session))
 
 
-class AnalyzeDataset(beam.PTransform):
-  """Takes a preprocessing_fn and computes the relevant statistics.
+class CacheLocation(
+    collections.namedtuple('CacheLocation',
+                           ['input_cache_dir', 'output_cache_dir'])):
+  pass
 
-  AnalyzeDataset accepts a preprocessing_fn in its constructor.  When its
-  `expand` method is called on a dataset, it computes all the relevant
-  statistics required to run the transformation described by the
-  preprocessing_fn, and returns a TransformFn representing the application of
-  the preprocessing_fn.
 
-  Args:
-    preprocessing_fn: A function that accepts and returns a dictionary from
-      strings to `Tensor` or `SparseTensor`s.
-  """
+class _AnalyzeDatasetCommon(beam.PTransform):
+  """Common implementation for AnalyzeDataset, with or without cache."""
 
-  def __init__(self, preprocessing_fn):
+  def __init__(self, preprocessing_fn, cache_location=None):
     self._preprocessing_fn = preprocessing_fn
+    self._cache_location = cache_location
     _assert_tensorflow_version()
 
   def _extract_input_pvalues(self, dataset):
-    data, metadata = dataset
-    pvalues = [data]
+    # This method returns all nested pvalues to inform beam of nested pvalues.
+    flat_data, data_dict, metadata = dataset
+    pvalues = [flat_data] + [data_dict[k] for k in data_dict]
     if isinstance(metadata, beam_metadata_io.BeamDatasetMetadata):
       pvalues.append(metadata.deferred_metadata)
     return dataset, pvalues
@@ -642,8 +666,12 @@ class AnalyzeDataset(beam.PTransform):
     Raises:
       ValueError: If preprocessing_fn has no outputs.
     """
-    input_values_pcoll, input_metadata = dataset
+    flattened_pcoll, input_values_pcoll_dict, input_metadata = dataset
     input_schema = input_metadata.schema
+
+    input_values_pcoll_dict = input_values_pcoll_dict or dict()
+
+    analyzer_cache.validate_dataset_keys(input_values_pcoll_dict.keys())
 
     with tf.Graph().as_default() as graph:
 
@@ -673,18 +701,23 @@ class AnalyzeDataset(beam.PTransform):
           '{}'.format(
               graph.get_collection_ref(tf.GraphKeys.TRAINABLE_VARIABLES)))
 
-    transform_fn_future = analysis_graph_builder.build(
-        graph, input_signature, output_signature)
-
+    pipeline = flattened_pcoll.pipeline
     serialized_tf_config = common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
-        input_values_pcoll.pipeline.runner)
+        pipeline.runner)
     extra_args = common.ConstructBeamPipelineVisitor.ExtraArgs(
         base_temp_dir=Context.create_base_temp_dir(),
         serialized_tf_config=serialized_tf_config,
-        input_values_pcoll=input_values_pcoll,
+        pipeline=pipeline,
+        flat_pcollection=flattened_pcoll,
+        pcollection_dict=input_values_pcoll_dict,
         graph=graph,
         input_signature=input_signature,
-        input_schema=input_schema)
+        input_schema=input_schema,
+        cache_location=self._cache_location)
+
+    transform_fn_future = analysis_graph_builder.build(
+        graph, input_signature, output_signature,
+        input_values_pcoll_dict.keys(), self._cache_location)
 
     transform_fn_pcoll = nodes.Traverser(
         common.ConstructBeamPipelineVisitor(extra_args)).visit_value_node(
@@ -702,16 +735,67 @@ class AnalyzeDataset(beam.PTransform):
 
     deferred_metadata = (
         transform_fn_pcoll
-        | 'ComputeDeferredMetadata' >> beam.Map(
-            _infer_metadata_from_saved_model))
+        |
+        'ComputeDeferredMetadata' >> beam.Map(_infer_metadata_from_saved_model))
 
     full_metadata = beam_metadata_io.BeamDatasetMetadata(
         metadata, deferred_metadata)
 
-    _clear_shared_state_after_barrier(input_values_pcoll.pipeline,
-                                      transform_fn_pcoll)
+    _clear_shared_state_after_barrier(pipeline, transform_fn_pcoll)
 
     return transform_fn_pcoll, full_metadata
+
+
+class AnalyzeDatasetWithCache(_AnalyzeDatasetCommon):
+  """Takes a preprocessing_fn and computes the relevant statistics.
+
+  WARNING: This is experimental.
+
+  Operates similarly to AnalyzeDataset, by computing the required statistics
+  except this will not re-compute statistics when they are already cached, and
+  will write out cache for statistics that it does compute whenever possible.
+
+  Args:
+    preprocessing_fn: A function that accepts and returns a dictionary from
+      strings to `Tensor` or `SparseTensor`s.
+    cache_location: A `CacheLocation` used to determine where cache should
+      written to and read from.
+  """
+
+  def __init__(self, preprocessing_fn, cache_location):
+    super(AnalyzeDatasetWithCache, self).__init__(preprocessing_fn,
+                                                  cache_location)
+
+
+class AnalyzeDataset(_AnalyzeDatasetCommon):
+  """Takes a preprocessing_fn and computes the relevant statistics.
+
+  AnalyzeDataset accepts a preprocessing_fn in its constructor.  When its
+  `expand` method is called on a dataset, it computes all the relevant
+  statistics required to run the transformation described by the
+  preprocessing_fn, and returns a TransformFn representing the application of
+  the preprocessing_fn.
+
+  Args:
+    preprocessing_fn: A function that accepts and returns a dictionary from
+      strings to `Tensor` or `SparseTensor`s.
+  """
+
+  def __init__(self, preprocessing_fn):
+    super(AnalyzeDataset, self).__init__(preprocessing_fn)
+
+  def _extract_input_pvalues(self, dataset):
+    # This method returns all nested pvalues to inform beam of nested pvalues.
+    data, metadata = dataset
+    pvalues = [data]
+    if isinstance(metadata, beam_metadata_io.BeamDatasetMetadata):
+      pvalues.append(metadata.deferred_metadata)
+    return dataset, pvalues
+
+  def expand(self, dataset):
+    input_values, input_metadata = dataset
+    return super(AnalyzeDataset, self).expand((input_values, None,
+                                               input_metadata))
 
 
 class AnalyzeAndTransformDataset(beam.PTransform):
@@ -737,6 +821,7 @@ class AnalyzeAndTransformDataset(beam.PTransform):
     _assert_tensorflow_version()
 
   def _extract_input_pvalues(self, dataset):
+    # This method returns all nested pvalues to inform beam of nested pvalues.
     data, metadata = dataset
     pvalues = [data]
     if isinstance(metadata, beam_metadata_io.BeamDatasetMetadata):
@@ -799,6 +884,7 @@ class TransformDataset(beam.PTransform):
     _assert_tensorflow_version()
 
   def _extract_input_pvalues(self, dataset_and_transform_fn):
+    # This method returns all nested pvalues to inform beam of nested pvalues.
     (data, input_metadata), (transform_fn, output_metadata) = (
         dataset_and_transform_fn)
     pvalues = [data, transform_fn]

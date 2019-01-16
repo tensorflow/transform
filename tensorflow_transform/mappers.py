@@ -314,8 +314,8 @@ def _to_term_frequency(x, vocab_size):
 
   Args:
     x : a SparseTensor of int64 representing string indices in vocab.
-    vocab_size: An int - the count of vocab used to turn the string into int64s
-        including any OOV buckets.
+    vocab_size: A scalar int64 Tensor - the count of vocab used to turn the
+        string into int64s including any OOV buckets.
 
   Returns:
     a SparseTensor with the count of times a term appears in a document at
@@ -324,6 +324,7 @@ def _to_term_frequency(x, vocab_size):
   """
   # Construct intermediary sparse tensor with indices
   # [<doc>, <term_index_in_doc>, <vocab_id>] and tf.ones values.
+  vocab_size = tf.convert_to_tensor(vocab_size, dtype=tf.int64)
   split_indices = tf.to_int64(
       tf.split(x.indices, axis=1, num_or_size_splits=2))
   expanded_values = tf.to_int64(tf.expand_dims(x.values, 1))
@@ -331,9 +332,9 @@ def _to_term_frequency(x, vocab_size):
       [split_indices[0], split_indices[1], expanded_values], axis=1)
 
   next_values = tf.ones_like(x.values)
-  vocab_size_as_tensor = tf.constant([vocab_size], dtype=tf.int64)
+  expanded_vocab_size = tf.expand_dims(vocab_size, 0)
   next_shape = tf.concat(
-      [x.dense_shape, vocab_size_as_tensor], 0)
+      [x.dense_shape, expanded_vocab_size], 0)
 
   next_tensor = tf.SparseTensor(
       indices=tf.to_int64(next_index),

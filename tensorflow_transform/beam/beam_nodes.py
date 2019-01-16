@@ -101,7 +101,8 @@ class CreateSavedModel(
 
 
 class ApplySavedModel(
-    collections.namedtuple('ApplySavedModel', ['phase', 'label']),
+    collections.namedtuple('ApplySavedModel',
+                           ['dataset_key', 'phase', 'label']),
     nodes.OperationDef):
   """An operation that represents applying a SavedModel as a `beam.ParDo`.
 
@@ -117,7 +118,10 @@ class ApplySavedModel(
     phase: An integer which is the phase that this operation is run as part of.
     label: A unique label for this operation.
   """
-  pass
+
+  @property
+  def is_partitionable(self):
+    return True
 
 
 class ExtractFromDict(
@@ -135,4 +139,14 @@ class ExtractFromDict(
         input PCollection.
     label: A unique label for this operation.
   """
-  pass
+
+  @property
+  def is_partitionable(self):
+    return True
+
+
+class Flatten(collections.namedtuple('Flatten', ['label']), nodes.OperationDef):
+
+  @property
+  def is_partitionable(self):
+    return True

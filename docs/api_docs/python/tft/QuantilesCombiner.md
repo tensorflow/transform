@@ -1,6 +1,7 @@
 <div itemscope itemtype="http://developers.google.com/ReferenceObject">
 <meta itemprop="name" content="tft.QuantilesCombiner" />
 <meta itemprop="path" content="Stable" />
+<meta itemprop="property" content="accumulator_coder"/>
 <meta itemprop="property" content="__init__"/>
 <meta itemprop="property" content="add_input"/>
 <meta itemprop="property" content="create_accumulator"/>
@@ -35,6 +36,14 @@ __init__(
     include_max_and_min=False
 )
 ```
+
+
+
+
+
+## Properties
+
+<h3 id="accumulator_coder"><code>accumulator_coder</code></h3>
 
 
 

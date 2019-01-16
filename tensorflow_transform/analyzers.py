@@ -88,18 +88,49 @@ def apply_analyzer(analyzer_def_cls, *tensor_inputs, **analyzer_def_kwargs):
   Returns:
     A list of `Tensor`s representing the values of the analysis result.
   """
-  input_values_node = nodes.apply_operation(
-      analyzer_nodes.TensorSource, tensors=tensor_inputs)
+  input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
+      tensor_inputs)
   output_value_nodes = nodes.apply_multi_output_operation(
       analyzer_def_cls,
       input_values_node,
       **analyzer_def_kwargs)
-  analyzer_def = output_value_nodes[0].parent_operation.operation_def
-  assert len(output_value_nodes) == len(analyzer_def.output_tensor_infos)
-  return [
-      analyzer_nodes.bind_future_as_tensor(future, info) for future, info in
-      zip(output_value_nodes, analyzer_def.output_tensor_infos)
-  ]
+  return tuple(map(analyzer_nodes.wrap_as_tensor, output_value_nodes))
+
+
+def _apply_cacheable_combiner(combiner, *tensor_inputs):
+  """Applies the combiner over the whole dataset possibly utilizing cache."""
+  input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
+      tensor_inputs)
+
+  accumulate_outputs_value_nodes = nodes.apply_multi_output_operation(
+      analyzer_nodes.CacheableCombineAccumulate,
+      input_values_node,
+      combiner=combiner)
+
+  outputs_value_nodes = nodes.apply_multi_output_operation(
+      analyzer_nodes.CacheableCombineMerge,
+      *accumulate_outputs_value_nodes,
+      combiner=combiner)
+
+  return tuple(map(analyzer_nodes.wrap_as_tensor, outputs_value_nodes))
+
+
+def _apply_cacheable_combiner_per_key(combiner, *tensor_inputs):
+  """Similar to _apply_cacheable_combiner but this is computed per key."""
+  input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
+      tensor_inputs)
+
+  accumulate_outputs_value_nodes = nodes.apply_multi_output_operation(
+      analyzer_nodes.CacheableCombinePerKeyAccumulate,
+      input_values_node,
+      combiner=combiner)
+
+  output_value_nodes = nodes.apply_multi_output_operation(
+      analyzer_nodes.CacheableCombinePerKeyMerge,
+      *accumulate_outputs_value_nodes,
+      combiner=combiner)
+
+  return tuple(map(analyzer_nodes.wrap_as_tensor, output_value_nodes))
 
 
 class NumPyCombiner(analyzer_nodes.Combiner):
@@ -205,7 +236,7 @@ def _numeric_combine(inputs,
     output_shapes = [x.get_shape() for x in inputs]
   combiner = NumPyCombiner(
       fn, [dtype.as_numpy_dtype for dtype in output_dtypes], output_shapes)
-  return apply_analyzer(analyzer_nodes.Combine, *inputs, combiner=combiner)
+  return _apply_cacheable_combiner(combiner, *inputs)
 
 
 def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
@@ -217,8 +248,8 @@ def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Args:
     x: A `Tensor` or `SparseTensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
-        to arrive at a single scalar output. If False, only collapses the batch
-        dimension and outputs a `Tensor` of the same shape as the input.
+      to arrive at a single scalar output. If False, only collapses the batch
+      dimension and outputs a `Tensor` of the same shape as the input.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -240,8 +271,8 @@ def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Args:
     x: A `Tensor` or `SparseTensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
-        to arrive at a single scalar output. If False, only collapses the batch
-        dimension and outputs a vector of the same shape as the input.
+      to arrive at a single scalar output. If False, only collapses the batch
+      dimension and outputs a vector of the same shape as the input.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -345,8 +376,8 @@ def size(x, reduce_instance_dims=True, name=None):
   Args:
     x: A `Tensor` or `SparseTensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
-        to arrive at a single scalar output. If False, only collapses the batch
-        dimension and outputs a vector of the same shape as the input.
+      to arrive at a single scalar output. If False, only collapses the batch
+      dimension and outputs a vector of the same shape as the input.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -437,10 +468,9 @@ def _mean_and_var(x, reduce_instance_dims=True, output_dtype=None):
       output_shape = _get_output_shape_from_input(
           tf.expand_dims(x_count, axis=0))
 
-    x_mean, x_var = apply_analyzer(
-        analyzer_nodes.Combine,
-        *combine_inputs,
-        combiner=MeanAndVarCombiner(output_dtype.as_numpy_dtype, output_shape))
+    x_mean, x_var = _apply_cacheable_combiner(
+        MeanAndVarCombiner(output_dtype.as_numpy_dtype, output_shape),
+        *combine_inputs)
 
   return x_mean, x_var
 
@@ -861,15 +891,16 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     Args:
       tf_config: (optional) A tf.ConfigProto
     """
-    # stamp_token is used to commit the state of the qaccumulator. In
-    # this case, the qaccumulator state is completely returned and stored
-    # as part of quantile_state/summary in the combiner fn (i.e the summary is
-    # extracted and stored outside the qaccumulator). So we don't use
-    # the timestamp mechanism to signify progress in the qaccumulator state.
-    stamp_token = 0
-
     # Create a new session with a new graph for quantile ops.
     with tf.Graph().as_default() as graph:
+
+      # stamp_token is used to commit the state of the qaccumulator. In
+      # this case, the qaccumulator state is completely returned and stored
+      # as part of quantile_state/summary in the combiner fn (i.e the summary is
+      # extracted and stored outside the qaccumulator). So we don't use
+      # the timestamp mechanism to signify progress in the qaccumulator state.
+      stamp_token = 0
+
       self._session = tf.Session(graph=graph)
 
       qaccumulator = quantile_ops.QuantileAccumulator(
@@ -894,15 +925,13 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
           fetches=qaccumulator.flush_summary(
               stamp_token=stamp_token, next_stamp_token=stamp_token))
 
-      # We generate an empty summary by calling self._flush_summary_op.
-      # We cache this as some implementations may call create_accumulator for
-      # every input, and it can be cached since it will always be the same and
-      # immutable.
-      self._empty_summary = self._session.run(
-          qaccumulator.flush_summary(
-              stamp_token=stamp_token, next_stamp_token=stamp_token))
-
       graph.finalize()
+
+    # We generate an empty summary by calling self._flush_summary_op.
+    # We cache this as some implementations may call create_accumulator for
+    # every input, and it can be cached since it will always be the same and
+    # immutable.
+    self._empty_summary = self._flush_summary_callable()
 
   def __reduce__(self):
     return QuantilesCombiner, (self._num_quantiles, self._epsilon,
@@ -997,14 +1026,16 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     return self._add_input_callable(*callable_args)
 
   def merge_accumulators(self, summaries):
-    summaries = [summary for summary in summaries if summary is not None]
-    if not summaries:
-      return None
-
+    found_a_summary = False
     for summary in summaries:
-      self._merge_inputs_callable(summary)
+      if summary is not None:
+        found_a_summary = True
+        self._merge_inputs_callable(summary)
 
-    return self._flush_summary_callable()
+    if found_a_summary:
+      return self._flush_summary_callable()
+    else:
+      return None
 
   def extract_output(self, summary):
     if summary is None:
@@ -1042,6 +1073,20 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
             tf.as_dtype(self._bucket_numpy_dtype), self._output_shape, False)
     ]
 
+  @property
+  def accumulator_coder(self):
+    return _QuantilesAccumulatorCacheCoder()
+
+
+class _QuantilesAccumulatorCacheCoder(analyzer_nodes.CacheCoder):
+  """The quantiles accumulator is already encoded."""
+
+  def encode_cache(self, accumulator):
+    return accumulator
+
+  def decode_cache(self, encoded_accumulator):
+    return encoded_accumulator
+
 
 def quantiles(x, num_buckets, epsilon, weights=None, name=None):
   """Computes the quantile boundaries of a `Tensor` over the whole dataset.
@@ -1053,25 +1098,25 @@ def quantiles(x, num_buckets, epsilon, weights=None, name=None):
 
   Args:
     x: An input `Tensor`.
-    num_buckets: Values in the `x` are divided into approximately
-      equal-sized buckets, where the number of buckets is num_buckets.
-      This is a hint. The actual number of buckets computed can be
-      less or more than the requested number. Use the generated metadata to
-      find the computed number of buckets.
-    epsilon: Error tolerance, typically a small fraction close to zero
-      (e.g. 0.01). Higher values of epsilon increase the quantile approximation,
-      and hence result in more unequal buckets, but could improve performance,
+    num_buckets: Values in the `x` are divided into approximately equal-sized
+      buckets, where the number of buckets is num_buckets. This is a hint. The
+      actual number of buckets computed can be less or more than the requested
+      number. Use the generated metadata to find the computed number of buckets.
+    epsilon: Error tolerance, typically a small fraction close to zero (e.g.
+      0.01). Higher values of epsilon increase the quantile approximation, and
+      hence result in more unequal buckets, but could improve performance,
       and resource consumption.  Some measured results on memory consumption:
-      For epsilon = 0.001, the amount of memory for each buffer to hold the
-      summary for 1 trillion input values is ~25000 bytes. If epsilon is
-      relaxed to 0.01, the buffer size drops to ~2000 bytes for the same input
-      size. If we use a strict epsilon value of 0, the buffer size is same size
-      as the input, because the intermediate stages have to remember every input
-      and the quantile boundaries can be found only after an equivalent to a
-      full sorting of input. The buffer size also determines the amount of work
-      in the different stages of the beam pipeline, in general, larger epsilon
-      results in fewer and smaller stages, and less time. For more performance
-      trade-offs see also http://web.cs.ucla.edu/~weiwang/paper/SSDBM07_2.pdf
+        For epsilon = 0.001, the amount of memory for each buffer to hold the
+        summary for 1 trillion input values is ~25000 bytes. If epsilon is
+        relaxed to 0.01, the buffer size drops to ~2000 bytes for the same input
+        size. If we use a strict epsilon value of 0, the buffer size is same
+        size as the input, because the intermediate stages have to remember
+        every input and the quantile boundaries can be found only after an
+        equivalent to a full sorting of input. The buffer size also determines
+        the amount of work in the different stages of the beam pipeline, in
+        general, larger epsilon results in fewer and smaller stages, and less
+        time. For more performance
+        trade-offs see also http://web.cs.ucla.edu/~weiwang/paper/SSDBM07_2.pdf
     weights: (Optional) Weights tensor for the quantiles. Tensor must have the
       same shape as x.
     name: (Optional) A name for this operation.
@@ -1098,8 +1143,8 @@ def quantiles(x, num_buckets, epsilon, weights=None, name=None):
         always_return_num_quantiles=always_return_num_quantiles,
         has_weights=has_weights,
         output_shape=(None,))
-    (quantile_boundaries,) = apply_analyzer(
-        analyzer_nodes.Combine, *analyzer_inputs, combiner=combiner)
+    (quantile_boundaries,) = _apply_cacheable_combiner(combiner,
+                                                       *analyzer_inputs)
     return tf.expand_dims(quantile_boundaries, axis=0)
 
 
@@ -1136,8 +1181,7 @@ def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
         bucket_dtype.as_numpy_dtype,
         always_return_num_quantiles=True,
         output_shape=(None, None))
-    key, bucket_boundaries = apply_analyzer(
-        analyzer_nodes.CombinePerKey, key, x, combiner=combiner)
+    key, bucket_boundaries = _apply_cacheable_combiner_per_key(combiner, key, x)
     return key, bucket_boundaries
 
 
@@ -1253,7 +1297,7 @@ def covariance(x, dtype, name=None):
 
   Args:
     x: A rank-2 `Tensor`, 0th dim are rows, 1st dim are indices in each input
-    vector.
+      vector.
     dtype: Tensorflow dtype of entries in the returned matrix.
     name: (Optional) A name for this operation.
 
@@ -1273,10 +1317,8 @@ def covariance(x, dtype, name=None):
     input_dim = x.shape.as_list()[1]
     shape = (input_dim, input_dim)
 
-    (result,) = apply_analyzer(
-        analyzer_nodes.Combine,
-        x,
-        combiner=CovarianceCombiner(dtype.as_numpy_dtype, shape))
+    (result,) = _apply_cacheable_combiner(
+        CovarianceCombiner(dtype.as_numpy_dtype, shape), x)
     return result
 
 
@@ -1397,10 +1439,8 @@ def pca(x, output_dim, dtype, name=None):
     input_dim = x.shape.as_list()[1]
     shape = (input_dim, output_dim)
 
-    (result,) = apply_analyzer(
-        analyzer_nodes.Combine,
-        x,
-        combiner=PCACombiner(output_dim, dtype.as_numpy_dtype, shape))
+    (result,) = _apply_cacheable_combiner(
+        PCACombiner(output_dim, dtype.as_numpy_dtype, shape), x)
     return result
 
 

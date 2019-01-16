@@ -24,7 +24,7 @@ elements in the vector, i.e. M[i,i] corresponds to the variance of x[:i].
 #### Args:
 
 * <b>`x`</b>: A rank-2 `Tensor`, 0th dim are rows, 1st dim are indices in each input
-  vector.
+    vector.
 * <b>`dtype`</b>: Tensorflow dtype of entries in the returned matrix.
 * <b>`name`</b>: (Optional) A name for this operation.
 

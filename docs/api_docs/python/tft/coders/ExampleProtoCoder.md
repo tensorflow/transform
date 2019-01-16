@@ -12,12 +12,15 @@
 
 
 
-A coder between serialized TF Examples and tf.Transform datasets.
+A coder between maybe-serialized TF Examples and tf.Transform datasets.
 
 <h2 id="__init__"><code>__init__</code></h2>
 
 ``` python
-__init__(schema)
+__init__(
+    schema,
+    serialized=True
+)
 ```
 
 Build an ExampleProtoCoder.
@@ -25,6 +28,10 @@ Build an ExampleProtoCoder.
 #### Args:
 
 * <b>`schema`</b>: A `Schema` object.
+* <b>`serialized`</b>: Whether to encode / decode serialized Example protos (as
+    opposed to in-memory Example protos). The default (True) is used for
+    backwards compatibility. Note that the serialized=True option might be
+    removed in a future version.
 
 #### Raises:
 
@@ -37,10 +44,10 @@ Build an ExampleProtoCoder.
 <h3 id="decode"><code>decode</code></h3>
 
 ``` python
-decode(serialized_example_proto)
+decode(example_proto)
 ```
 
-Decode serialized tf.Example as a tf.transform encoded dict.
+Decode tf.Example as a tf.transform encoded dict.
 
 <h3 id="encode"><code>encode</code></h3>
 
@@ -48,7 +55,7 @@ Decode serialized tf.Example as a tf.transform encoded dict.
 encode(instance)
 ```
 
-Encode a tf.transform encoded dict as serialized tf.Example.
+Encode a tf.transform encoded dict as tf.Example.
 
 
 

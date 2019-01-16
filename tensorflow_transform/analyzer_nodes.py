@@ -27,8 +27,10 @@ from __future__ import print_function
 
 import abc
 import collections
+import json
 
 
+import numpy as np
 import tensorflow as tf
 from tensorflow_transform import nodes
 
@@ -69,6 +71,10 @@ class TensorSource(
     return super(TensorSource, cls).__new__(cls, tensors=tensors, label=label)
 
 
+def get_input_tensors_value_nodes(tensor_inputs):
+  return nodes.apply_operation(TensorSource, tensors=tensor_inputs)
+
+
 TensorSink = collections.namedtuple('TensorSink',
                                     ['tensor', 'future', 'is_asset_filepath'])
 
@@ -80,6 +86,14 @@ def bind_future_as_tensor(future, tensor_info, name=None):
       TENSOR_REPLACEMENTS,
       TensorSink(result, future, tensor_info.is_asset_filepath))
   return result
+
+
+def wrap_as_tensor(output_value_node):
+  analyzer_def = output_value_node.parent_operation.operation_def
+  assert isinstance(analyzer_def, AnalyzerDef)
+  return bind_future_as_tensor(
+      output_value_node,
+      analyzer_def.output_tensor_infos[output_value_node.value_index])
 
 
 class Combiner(object):
@@ -138,6 +152,35 @@ class Combiner(object):
     """
     raise NotImplementedError
 
+  @property
+  def accumulator_coder(self):
+    return JsonNumpyCacheCoder()
+
+
+class CacheCoder(object):
+  """A coder iterface for encoding and decoding cache items."""
+
+  def __repr__(self):
+    return '<{}>'.format(self.__class__.__name__)
+
+  @abc.abstractmethod
+  def encode_cache(self, cache):
+    pass
+
+  @abc.abstractmethod
+  def decode_cache(self, encoded_cache):
+    pass
+
+
+class JsonNumpyCacheCoder(CacheCoder):
+
+  def encode_cache(self, accumulator):
+    # Need to wrap in np.array and call tolist to make it JSON serializable.
+    return tf.compat.as_bytes(json.dumps(np.array(accumulator).tolist()))
+
+  def decode_cache(self, encoded_accumulator):
+    return np.array(json.loads(encoded_accumulator))
+
 
 class AnalyzerDef(nodes.OperationDef):
   """A subclass of OperationDef whose outputs can be constant tensors.
@@ -172,16 +215,48 @@ class AnalyzerDef(nodes.OperationDef):
     return len(self.output_tensor_infos)
 
 
-class Combine(
-    collections.namedtuple('Combine', ['combiner', 'label']), AnalyzerDef):
-  """An analyzer that runs `beam.Combine`.
+class CacheableCombineAccumulate(
+    collections.namedtuple('CacheableCombineAccumulate', ['combiner', 'label']),
+    AnalyzerDef):
+  """An analyzer that runs a beam CombineFn to accumulate without merging.
 
   This analyzer reduces the values that it accepts as inputs, using the
   provided `Combiner`.  The `Combiner` is applied to the data by wrapping it as
   a `beam.CombineFn` and applying `beam.Combine`.
 
-  This analyzer is implemented by
-  `tensorflow_transform.beam.analyzer_impls._CombineImpl`.
+  Fields:
+    combiner: The Combiner to be applies to the inputs.
+    label: A unique label for this operation.
+  """
+
+  def __new__(cls, combiner, label=None):
+    if label is None:
+      scope = tf.get_default_graph().get_name_scope()
+      label = '{}[{}]'.format(cls.__name__, scope)
+    return super(CacheableCombineAccumulate, cls).__new__(
+        cls, combiner=combiner, label=label)
+
+  @property
+  def num_outputs(self):
+    return 1
+
+  @property
+  def is_partitionable(self):
+    return True
+
+  @property
+  def cache_coder(self):
+    return self.combiner.accumulator_coder
+
+
+class CacheableCombineMerge(
+    collections.namedtuple('CacheableCombineMerge', ['combiner', 'label']),
+    AnalyzerDef):
+  """An analyzer that runs a beam CombineFn to only merge computed accumulators.
+
+  This analyzer reduces the values that it accepts as inputs, using the
+  provided `Combiner`.  The `Combiner` is applied to the data by wrapping it as
+  a `beam.CombineFn` and applying `beam.Combine`.
 
   Fields:
     combiner: The Combiner to be applied to the inputs.
@@ -192,24 +267,23 @@ class Combine(
     if label is None:
       scope = tf.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
-    return super(Combine, cls).__new__(cls, combiner=combiner, label=label)
+    return super(CacheableCombineMerge, cls).__new__(
+        cls, combiner=combiner, label=label)
 
   @property
   def output_tensor_infos(self):
     return self.combiner.output_tensor_infos()
 
 
-class CombinePerKey(
-    collections.namedtuple('CombinePerKey', ['combiner', 'label']),
-    AnalyzerDef):
-  """An analyzer that runs `beam.CombinePerKey`.
+class CacheableCombinePerKeyAccumulate(CacheableCombineAccumulate):
+  """An analyzer that runs `beam.CombinePerKey` to accumulate without merging.
 
   This analyzer reduces the values that it accepts as inputs, using the
   provided `Combiner`.  The `Combiner` is applied to the data by wrapping it as
   a `beam.CombineFn` and applying `beam.CombinePerKey`.
 
   This analyzer is implemented by
-  `tensorflow_transform.beam.analyzer_impls._CombinePerKeyImpl`.
+  `tensorflow_transform.beam.analyzer_impls._IntermediateAccumulateCombineImpl`.
 
   Fields:
     combiner: The Combiner to be applied to the inputs.
@@ -220,7 +294,30 @@ class CombinePerKey(
     if label is None:
       scope = tf.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
-    return super(CombinePerKey, cls).__new__(
+    return super(CacheableCombinePerKeyAccumulate, cls).__new__(
+        cls, combiner=combiner, label=label)
+
+
+class CacheableCombinePerKeyMerge(CacheableCombineMerge):
+  """An analyzer that runs `beam.CombinePerKey` to only merge accumulators.
+
+  This analyzer reduces the values that it accepts as inputs, using the
+  provided `Combiner`.  The `Combiner` is applied to the data by wrapping it as
+  a `beam.CombineFn` and applying `beam.CombinePerKey`.
+
+  This analyzer is implemented by
+  `tensorflow_transform.beam.analyzer_impls._MergeAccumulatorsCombinePerKeyImpl`
+
+  Fields:
+    combiner: The Combiner to use for merging and extracting outputs.
+    label: A unique label for this operation.
+  """
+
+  def __new__(cls, combiner, label=None):
+    if label is None:
+      scope = tf.get_default_graph().get_name_scope()
+      label = '{}[{}]'.format(cls.__name__, scope)
+    return super(CacheableCombinePerKeyMerge, cls).__new__(
         cls, combiner=combiner, label=label)
 
   @property
@@ -324,3 +421,35 @@ class PTransform(
   @property
   def output_tensor_infos(self):
     return self.output_tensor_info_list
+
+
+class WriteCache(
+    collections.namedtuple('WriteCache', ['path', 'coder', 'label']),
+    nodes.OperationDef):
+  """OperationDef for writing a cache object to a file system.
+
+  Fields:
+    path: A path to write the cache to.
+    encode_cache_fn: A map function that will be used to encode a cache object.
+    label: A unique label for this operation.
+  """
+
+  @property
+  def is_partitionable(self):
+    return True
+
+
+class ReadCache(
+    collections.namedtuple('ReadCache', ['path', 'coder', 'label']),
+    nodes.OperationDef):
+  """OperationDef for reading a cache object from a file system.
+
+  Fields:
+    path: A path to read the cache from.
+    decode_cache_fn: A map function that will be used to decode a cache object.
+    label: A unique label for this operation.
+  """
+
+  @property
+  def is_partitionable(self):
+    return True

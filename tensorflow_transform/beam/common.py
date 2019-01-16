@@ -128,9 +128,17 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
   """Visitor that constructs the beam pipeline from the node graph."""
 
   ExtraArgs = collections.namedtuple(  # pylint: disable=invalid-name
-      'ExtraArgs',
-      ['base_temp_dir', 'input_values_pcoll', 'serialized_tf_config', 'graph',
-       'input_signature', 'input_schema'])
+      'ExtraArgs', [
+          'base_temp_dir',
+          'pipeline',
+          'flat_pcollection',
+          'pcollection_dict',
+          'serialized_tf_config',
+          'graph',
+          'input_signature',
+          'input_schema',
+          'cache_location',
+      ])
 
   def __init__(self, extra_args):
     self._extra_args = extra_args
@@ -142,12 +150,7 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
       raise ValueError('No implementation for {} was registered'.format(
           operation))
 
-    try:
-      outputs = self._apply_operation(inputs, operation, ptransform)
-    except TypeError as e:
-      raise TypeError(
-          'Failed to apply Operation {}, with error: {}'.format(
-              operation, str(e)))
+    outputs = self._apply_operation(inputs, operation, ptransform)
 
     if isinstance(outputs, beam.pvalue.PCollection):
       return (outputs,)

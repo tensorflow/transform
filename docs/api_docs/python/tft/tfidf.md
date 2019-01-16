@@ -16,8 +16,11 @@ tft.tfidf(
 
 Maps the terms in x to their term frequency * inverse document frequency.
 
-The inverse document frequency of a term is calculated as 1+
-log((corpus size + 1) / (document frequency of term + 1)) by default.
+The term frequency of a term in a document is calculated as
+(count of term in document) / (document size)
+
+The inverse document frequency of a term is, by default, calculated as
+1 + log((corpus size + 1) / (count of documents containing term + 1)).
 
 Example usage:
   example strings [["I", "like", "pie", "pie", "pie"], ["yum", "yum", "pie]]
@@ -27,8 +30,8 @@ Example usage:
   out: SparseTensor(indices=[[0, 0], [0, 1], [0, 2], [1, 0], [1, 1]],
                     values=[1, 2, 0, 3, 0])
        SparseTensor(indices=[[0, 0], [0, 1], [0, 2], [1, 0], [1, 1]],
-                    values=[(1/5)*(log(3/2)+1), (1/5)*(log(3/2)+1), (1/5),
-                            (1/3), (2/3)*(log(3/2)+1])
+                    values=[(1/5)*(log(3/2)+1), (1/5)*(log(3/2)+1), (3/5),
+                            (2/3)*(log(3/2)+1), (1/3)]
   NOTE that the first doc's duplicate "pie" strings have been combined to
   one output, as have the second doc's duplicate "yum" strings.
 

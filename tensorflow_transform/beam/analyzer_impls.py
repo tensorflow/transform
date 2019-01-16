@@ -556,28 +556,60 @@ class _CountAndWeightsMeansCombineFn(beam.CombineFn):
 class _CombinerWrapper(beam.CombineFn):
   """Class to wrap a analyzer_nodes.Combiner as a beam.CombineFn."""
 
-  def __init__(self, combiner, serialized_tf_config):
+  def __init__(self,
+               combiner,
+               serialized_tf_config,
+               is_combining_accumulators,
+               should_extract_output=None):
+    """Init method for _CombinerWrapper.
+
+    Args:
+      combiner: A `analyzer_nodes.Combiner` object used to combine.
+      serialized_tf_config: A str which is a serialized form of
+        `tf.ConfigProto`.
+      is_combining_accumulators: A bool which indicates whether this is
+        combining single or batched inputs, or already accumulated objects.
+      should_extract_output: A bool which indicates whether this should call the
+        combiner's extract_output method in extract_output. If not specified, we
+        assume it's the same value as `should_extract_output`.
+    """
     if isinstance(combiner, analyzers.QuantilesCombiner):
       tf_config = common._maybe_deserialize_tf_config(  # pylint: disable=protected-access
           serialized_tf_config)
       combiner.initialize_local_state(tf_config)
     self._combiner = combiner
     self._serialized_tf_config = serialized_tf_config
+    self._is_combining_accumulators = is_combining_accumulators
+    if should_extract_output is None:
+      should_extract_output = is_combining_accumulators
+    self._should_extract_output = should_extract_output
 
   def __reduce__(self):
-    return _CombinerWrapper, (self._combiner, self._serialized_tf_config)
+    return _CombinerWrapper, (self._combiner, self._serialized_tf_config,
+                              self._is_combining_accumulators,
+                              self._should_extract_output)
 
   def create_accumulator(self):
     return self._combiner.create_accumulator()
 
   def add_input(self, accumulator, next_input):
+    if self._is_combining_accumulators:
+      # First accumulator can be None.
+      accumulators = []
+      if accumulator is not None:
+        accumulators.append(accumulator)
+      if next_input is not None:
+        accumulators.append(next_input)
+      return self.merge_accumulators(accumulators)
     return self._combiner.add_input(accumulator, next_input)
 
   def merge_accumulators(self, accumulators):
     return self._combiner.merge_accumulators(accumulators)
 
   def extract_output(self, accumulator):
-    return self._combiner.extract_output(accumulator)
+    if self._should_extract_output:
+      return self._combiner.extract_output(accumulator)
+    return accumulator
 
 
 def _split_inputs_by_key(batch_values):
@@ -673,14 +705,41 @@ def _merge_outputs_by_key(keys_and_outputs, outputs_dtype):
                                                     dtype=dtype.as_numpy_dtype))
 
 
-@common.register_ptransform(analyzer_nodes.Combine)
-class _CombineImpl(beam.PTransform):
+@common.register_ptransform(analyzer_nodes.CacheableCombineAccumulate)
+class _IntermediateAccumulateCombineImpl(beam.PTransform):
   """Implement an analyzer based on a Combine."""
 
   def __init__(self, operation, extra_args):
     self._combiner = operation.combiner
     self._serialized_tf_config = extra_args.serialized_tf_config
     self._num_outputs = operation.num_outputs
+    self._name = operation.label
+
+  def expand(self, inputs):
+    pcoll, = inputs
+    # NOTE: Currently, all combiners except QuantilesCombiner
+    # require .with_defaults(False) to be set.
+    has_defaults = isinstance(self._combiner, analyzers.QuantilesCombiner)
+
+    return (
+        pcoll
+        | 'InitialCombineGlobally' >> beam.CombineGlobally(
+            _CombinerWrapper(
+                self._combiner,
+                self._serialized_tf_config,
+                is_combining_accumulators=False)).with_defaults(has_defaults))
+
+
+@common.register_ptransform(analyzer_nodes.CacheableCombineMerge)
+class _MergeAccumulatorsCombineImpl(beam.PTransform):
+  """Implement an analyzer based on a Combine."""
+
+  def __init__(self, operation, extra_args):
+    self._combiner = operation.combiner
+    self._serialized_tf_config = extra_args.serialized_tf_config
+    self._num_outputs = operation.num_outputs
+
+    self._name = operation.label
 
   def expand(self, inputs):
     pcoll, = inputs
@@ -697,18 +756,40 @@ class _CombineImpl(beam.PTransform):
         yield beam.pvalue.TaggedOutput(str(i), output)
 
     output_keys = [str(i) for i in range(self._num_outputs)]
+
     outputs_tuple = (
         pcoll
-        | 'CombineGlobally' >> beam.CombineGlobally(
-            _CombinerWrapper(self._combiner, self._serialized_tf_config))
-        .with_defaults(has_defaults)
+        | 'MergeCombinesGlobally' >> beam.CombineGlobally(
+            _CombinerWrapper(
+                self._combiner,
+                self._serialized_tf_config,
+                is_combining_accumulators=True)).with_defaults(has_defaults)
         | 'ExtractOutputs' >> beam.FlatMap(
             extract_outputs, self._num_outputs).with_outputs(*output_keys))
     return tuple(outputs_tuple[key] for key in output_keys)
 
 
-@common.register_ptransform(analyzer_nodes.CombinePerKey)
-class _CombinePerKeyImpl(beam.PTransform):
+@common.register_ptransform(analyzer_nodes.CacheableCombinePerKeyAccumulate)
+class _IntermediateAccumulateCombinePerKeyImpl(beam.PTransform):
+  """Implement an analyzer based on a CombinePerKey."""
+
+  def __init__(self, operation, extra_args):
+    self._combiner = operation.combiner
+    self._serialized_tf_config = extra_args.serialized_tf_config
+
+  def expand(self, inputs):
+    pcoll, = inputs
+    return (pcoll
+            | 'SplitByKey' >> beam.FlatMap(_split_inputs_by_key)
+            | 'CombinePerKey' >> beam.CombinePerKey(
+                _CombinerWrapper(
+                    self._combiner,
+                    self._serialized_tf_config,
+                    is_combining_accumulators=False)))
+
+
+@common.register_ptransform(analyzer_nodes.CacheableCombinePerKeyMerge)
+class _MergeAccumulatorsCombinePerKeyImpl(beam.PTransform):
   """Implement an analyzer based on a CombinePerKey."""
 
   def __init__(self, operation, extra_args):
@@ -718,18 +799,19 @@ class _CombinePerKeyImpl(beam.PTransform):
   def expand(self, inputs):
     pcoll, = inputs
     output_keys = (
-        ['key'] + [str(i)
-                   for i in range(len(self._combiner.output_tensor_infos()))])
+        ['key'
+        ] + [str(i) for i in range(len(self._combiner.output_tensor_infos()))])
     outputs_tuple = (
         pcoll
-        | 'SplitByKey' >> beam.FlatMap(_split_inputs_by_key)
-        | 'CombinePerKey' >> beam.CombinePerKey(
-            _CombinerWrapper(self._combiner, self._serialized_tf_config))
+        | 'MergeCombinePerKey' >> beam.CombinePerKey(
+            _CombinerWrapper(
+                self._combiner,
+                self._serialized_tf_config,
+                is_combining_accumulators=True))
         | 'ToList' >> beam.combiners.ToList()
-        | 'MergeByKey' >> beam.FlatMap(
-            _merge_outputs_by_key,
-            [info.dtype for info in self._combiner.output_tensor_infos()])
-        .with_outputs(*output_keys))
+        | 'MergeByKey' >> beam.FlatMap(_merge_outputs_by_key, [
+            info.dtype for info in self._combiner.output_tensor_infos()
+        ]).with_outputs(*output_keys))
     return tuple(outputs_tuple[key] for key in output_keys)
 
 
@@ -738,3 +820,52 @@ def _ptransform_impl(inputs, operation, extra_args):
   del extra_args  # unused
   pcoll, = inputs
   return pcoll | operation.label >> operation.ptransform
+
+
+@common.register_ptransform(analyzer_nodes.WriteCache)
+class _WriteCacheImpl(beam.PTransform):
+  """A PTransform that writes a cache object and returns it."""
+
+  def __init__(self, operation, extra_args):
+    self._path = os.path.join(extra_args.cache_location.output_cache_dir,
+                              operation.path)
+    self._coder = operation.coder
+    self._label = operation.label
+
+  def expand(self, inputs):
+    pcoll, = inputs
+
+    cache_is_written = (
+        pcoll
+        | 'EncodeCache[%s][%s]' %
+        (self._label, self._path) >> beam.Map(self._coder.encode_cache)
+        | 'WriteCache[%s][%s]' % (self._label, self._path) >>
+        beam.io.WriteToTFRecord(self._path, file_name_suffix='.gz'))
+
+    result = (
+        pcoll
+        | 'WaitForCacheFile' >>
+        beam.Map(lambda x, y: x, y=beam.pvalue.AsIter(cache_is_written)))
+
+    return (result,)
+
+
+@common.register_ptransform(analyzer_nodes.ReadCache)
+def _read_cache_impl(inputs, operation, extra_args):
+  """A PTransform-like method that reads and decodes a cache object."""
+  # This is implemented as a PTransform-like function because it has no
+  # PCollection inputs.
+  assert not inputs
+
+  absolute_path = os.path.join(extra_args.cache_location.input_cache_dir,
+                               operation.path)
+  pattern = '{}-*-of-*.gz'.format(absolute_path)
+
+  cache = (
+      extra_args.pipeline
+      | 'ReadCache[%s][%s]' % (operation.label, operation.path) >>
+      beam.io.ReadFromTFRecord(pattern, validate=False)
+      | 'DecodeCache[%s][%s]' % (operation.label, operation.path) >> beam.Map(
+          operation.coder.decode_cache))
+
+  return (cache,)

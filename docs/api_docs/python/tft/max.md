@@ -22,8 +22,8 @@ for float, NaN is used and for other dtypes the min is used.
 
 * <b>`x`</b>: A `Tensor` or `SparseTensor`.
 * <b>`reduce_instance_dims`</b>: By default collapses the batch and instance dimensions
-      to arrive at a single scalar output. If False, only collapses the batch
-      dimension and outputs a vector of the same shape as the input.
+    to arrive at a single scalar output. If False, only collapses the batch
+    dimension and outputs a vector of the same shape as the input.
 * <b>`name`</b>: (Optional) A name for this operation.
 
 

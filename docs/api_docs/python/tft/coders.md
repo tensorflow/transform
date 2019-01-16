@@ -11,5 +11,5 @@ Module level imports for tensorflow_transform.coders.
 
 [`class CsvCoder`](../tft/coders/CsvCoder.md): A coder to encode and decode CSV formatted data.
 
-[`class ExampleProtoCoder`](../tft/coders/ExampleProtoCoder.md): A coder between serialized TF Examples and tf.Transform datasets.
+[`class ExampleProtoCoder`](../tft/coders/ExampleProtoCoder.md): A coder between maybe-serialized TF Examples and tf.Transform datasets.
 

@@ -180,21 +180,7 @@ that has more display data that should be picked up. For example::
 expand(dataset)
 ```
 
-Analyze the dataset.
 
-#### Args:
-
-* <b>`dataset`</b>: A dataset.
-
-
-#### Returns:
-
-A TransformFn containing the deferred transform function.
-
-
-#### Raises:
-
-* <b>`ValueError`</b>: If preprocessing_fn has no outputs.
 
 <h3 id="from_runner_api"><code>from_runner_api</code></h3>
 
