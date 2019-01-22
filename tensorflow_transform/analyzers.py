@@ -142,7 +142,7 @@ class NumPyCombiner(analyzer_nodes.Combiner):
     output_shapes: The shapes of the outputs.
   """
 
-  def __init__(self, fn, output_dtypes, output_shapes=None):
+  def __init__(self, fn, output_dtypes, output_shapes):
     self._fn = fn
     self._output_dtypes = output_dtypes
     self._output_shapes = output_shapes
@@ -186,7 +186,7 @@ class NumPyCombiner(analyzer_nodes.Combiner):
 
   def output_tensor_infos(self):
     return [
-        analyzer_nodes.TensorInfo(dtype, shape, False)
+        analyzer_nodes.TensorInfo(tf.as_dtype(dtype), shape, False)
         for dtype, shape in zip(self._output_dtypes, self._output_shapes)
     ]
 
@@ -820,19 +820,35 @@ def vocabulary(
       assert none_counts is None
       analyzer_inputs = [unique_inputs]
 
-    (vocab_filename,) = apply_analyzer(
-        analyzer_nodes.Vocabulary,
-        *analyzer_inputs,
+    input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
+        analyzer_inputs)
+
+    accumulate_output_value_node = nodes.apply_operation(
+        analyzer_nodes.VocabularyAccumulate, input_values_node,
+        vocab_ordering_type=vocab_ordering_type)
+
+    merge_output_value_node = nodes.apply_operation(
+        analyzer_nodes.VocabularyMerge, accumulate_output_value_node,
         use_adjusted_mutual_info=use_adjusted_mutual_info,
         min_diff_from_avg=min_diff_from_avg,
+        vocab_ordering_type=vocab_ordering_type)
+
+    filtered_value_node = nodes.apply_operation(
+        analyzer_nodes.VocabularyOrderAndFilter,
+        merge_output_value_node,
         coverage_top_k=coverage_top_k,
         coverage_frequency_threshold=coverage_frequency_threshold,
         key_fn=key_fn,
         top_k=top_k,
-        frequency_threshold=frequency_threshold,
+        frequency_threshold=frequency_threshold)
+
+    vocab_filename_node = nodes.apply_operation(
+        analyzer_nodes.VocabularyWrite,
+        filtered_value_node,
         vocab_filename=vocab_filename,
-        store_frequency=store_frequency,
-        vocab_ordering_type=vocab_ordering_type)
+        store_frequency=store_frequency)
+
+    vocab_filename = analyzer_nodes.wrap_as_tensor(vocab_filename_node)
     return vocab_filename
 
 

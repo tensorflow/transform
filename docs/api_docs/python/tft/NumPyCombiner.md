@@ -30,7 +30,7 @@ Combines the PCollection only on the 0th dimension using nparray.
 __init__(
     fn,
     output_dtypes,
-    output_shapes=None
+    output_shapes
 )
 ```
 

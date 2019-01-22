@@ -25,10 +25,10 @@ import tempfile
 import six
 import tensorflow as tf
 
+from tensorflow_transform import test_case
 from tensorflow_transform.saved import input_fn_maker
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
-import unittest
 
 
 class _MockSchema(object):
@@ -63,7 +63,7 @@ def _make_transformed_schema(shape):
   return _MockSchema(feature_spec=feature_spec)
 
 
-class InputFnMakerTest(unittest.TestCase):
+class InputFnMakerTest(test_case.TransformTestCase):
 
   def test_build_csv_transforming_serving_input_fn_with_defaults(self):
     feed_dict = [',,']
@@ -85,7 +85,7 @@ class InputFnMakerTest(unittest.TestCase):
       with tf.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
 
-        self.assertItemsEqual(
+        self.assertCountEqual(
             outputs.keys(),
             {'transformed_a', 'transformed_b', 'transformed_label'})
         self.assertIsNone(labels)
@@ -133,7 +133,7 @@ class InputFnMakerTest(unittest.TestCase):
       with tf.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
 
-        self.assertItemsEqual(
+        self.assertCountEqual(
             outputs.keys(),
             {'transformed_a', 'transformed_b', 'transformed_label'})
         self.assertIsNone(labels)
@@ -218,7 +218,7 @@ class InputFnMakerTest(unittest.TestCase):
       with tf.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
 
-        self.assertItemsEqual(
+        self.assertCountEqual(
             outputs.keys(),
             {'transformed_a', 'transformed_b', 'transformed_label'})
         self.assertIsNone(labels)
@@ -287,7 +287,7 @@ class InputFnMakerTest(unittest.TestCase):
       with tf.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
 
-        self.assertItemsEqual(
+        self.assertCountEqual(
             set(outputs.keys()),
             {'transformed_a', 'transformed_b', 'transformed_label'})
         self.assertEqual(labels, None)
@@ -351,7 +351,7 @@ class InputFnMakerTest(unittest.TestCase):
       with tf.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
 
-        self.assertItemsEqual(
+        self.assertCountEqual(
             set(outputs.keys()),
             {'transformed_a', 'transformed_b', 'transformed_label'})
         self.assertEqual(labels, None)
@@ -422,7 +422,7 @@ class InputFnMakerTest(unittest.TestCase):
       with tf.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
 
-        self.assertItemsEqual(
+        self.assertCountEqual(
             set(outputs.keys()),
             {'transformed_a', 'transformed_b', 'transformed_label'})
         self.assertEqual(labels, None)
@@ -485,7 +485,7 @@ class InputFnMakerTest(unittest.TestCase):
       with tf.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
 
-        self.assertItemsEqual(
+        self.assertCountEqual(
             set(outputs.keys()),
             {'transformed_a', 'transformed_b', 'transformed_label'})
         self.assertEqual(labels, None)
@@ -707,4 +707,4 @@ def _write_transform_savedmodel(transform_savedmodel_dir,
           session, inputs, outputs, transform_savedmodel_dir)
 
 if __name__ == '__main__':
-  unittest.main()
+  test_case.main()

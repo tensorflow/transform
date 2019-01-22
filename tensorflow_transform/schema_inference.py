@@ -28,6 +28,55 @@ import six
 import tensorflow as tf
 from tensorflow_transform.tf_metadata import dataset_schema
 
+from tensorflow_metadata.proto.v0 import schema_pb2
+
+
+def _feature_spec_from_batched_tensors(tensors):
+  """Infer `Schema` proto from a dict of tensors.
+
+  Args:
+    tensors: A dict whose keys are strings and values are `Tensor` or
+        `SparseTensor`s.
+
+  Returns:
+    A `Schema` proto inferred from the types and shapes of the tensors.
+
+  Raises:
+    ValueError: If the feature spec cannot be inferred.
+    TypeError: If any of the values of `tensors` are not a `Tensor` or
+        `SparseTensor`.
+  """
+  result = {}
+  for name, tensor in six.iteritems(tensors):
+    tensor = tensors[name]
+    shape = tensor.get_shape()
+    if tensor.dtype not in (tf.string, tf.int64, tf.float32):
+      raise ValueError('{} had invalid dtype {} for feature spec'.format(
+          tensor, tensor.dtype))
+    if isinstance(tensor, tf.SparseTensor):
+      if shape.ndims != 2:
+        raise ValueError(
+            '{} had invalid shape {} for VarLenFeature: must have rank '
+            '2'.format(tensor, shape))
+      result[name] = tf.VarLenFeature(tensor.dtype)
+    elif isinstance(tensor, tf.Tensor):
+      if shape.ndims in [None, 0]:
+        raise ValueError(
+            '{} had invalid shape {} for FixedLenFeature: must have rank '
+            'at least 1'.format(tensor, shape))
+      if any(dim is None for dim in shape.as_list()[1:]):
+        raise ValueError(
+            '{} had invalid shape {} for FixedLenFeature: apart from the batch '
+            'dimension, all dimensions must have known size'.format(
+                tensor, shape))
+      result[name] = tf.FixedLenFeature(shape.as_list()[1:], tensor.dtype)
+    else:
+      raise TypeError(
+          'Expected a Tensor or SparseTensor, got {} of type {}'.format(
+              tensor, type(tensor)))
+
+  return result
+
 
 def infer_feature_schema(features, graph, session=None):
   """Given a dict of tensors, creates a `Schema`.
@@ -46,37 +95,31 @@ def infer_feature_schema(features, graph, session=None):
     features: A dict mapping column names to `Tensor` or `SparseTensor`s. The
         `Tensor` or `SparseTensor`s should have a 0'th dimension which is
         interpreted as the batch dimension.
-    graph: A tf.Graph, used to look up schema overrides even they are not
-        computed.
+    graph: A `tf.Graph` used to determine schema overrides.
     session: (optional) A `tf.Session` used to compute schema overrides.  If
         None, schema overrides will not be computed.
 
   Returns:
     A `Schema` object.
   """
-  tensor_overrides = _get_tensor_schema_overrides(graph)
+  tensor_ranges = _get_tensor_schema_overrides(graph)
+  if session is None:
+    tensor_ranges = {tensor: (None, None) for tensor in tensor_ranges.keys()}
+  else:
+    tensor_ranges = session.run(tensor_ranges)
 
-  column_schemas = {}
+  domains = {}
   for name, tensor in six.iteritems(features):
-    column_schema = dataset_schema.infer_column_schema_from_tensor(tensor)
-    override_min_and_max = tensor_overrides.get(
-        tensor.values if isinstance(tensor, tf.SparseTensor) else tensor)
-    if override_min_and_max is not None:
-      assert column_schema.domain.dtype == tf.int64
-      assert isinstance(column_schema.domain, dataset_schema.IntDomain)
-      if session is not None:
-        min_value, max_value = session.run(override_min_and_max)
-      else:
-        min_value, max_value = None, None
-      column_schemas[name] = dataset_schema.ColumnSchema(
-          dataset_schema.IntDomain(tf.int64, min_value, max_value,
-                                   is_categorical=True),
-          column_schema.axes,
-          column_schema.representation)
-    else:
-      column_schemas[name] = column_schema
+    values = tensor.values if isinstance(tensor, tf.SparseTensor) else tensor
+    if values in tensor_ranges:
+      assert values.dtype == tf.int64
+      min_value, max_value = tensor_ranges[values]
+      domains[name] = schema_pb2.IntDomain(
+          min=min_value, max=max_value, is_categorical=True)
 
-  return dataset_schema.Schema(column_schemas)
+  feature_spec = _feature_spec_from_batched_tensors(features)
+
+  return dataset_schema.from_feature_spec(feature_spec, domains)
 
 
 # Names of collections, which should all be the same length and contain tensors.
@@ -88,9 +131,22 @@ _TF_METADATA_TENSOR_MAX_COLLECTION = 'tft_schema_override_max'
 
 
 def set_tensor_schema_override(tensor, min_value, max_value):
-  """Override parts of the schema of a `Tensor`."""
+  """Override parts of the schema of a `Tensor`.
+
+  Args:
+    tensor: The `Tensor` whose range is being set.  Must have dtype int64.
+    min_value: A `Tensor` representing the min value of `tensor`.
+    max_value: A `Tensor` representing the max value of `tensor`.
+
+  Raises:
+    ValueError: If any arguments are invalid.
+  """
   if not isinstance(tensor, tf.Tensor):
     raise ValueError('tensor {} was not a Tensor'.format(tensor))
+  if tensor.dtype != tf.int64:
+    raise ValueError(
+        'Range can only be set for feature of type tf.int64, got {}'.format(
+            tensor.dtype))
   if not isinstance(min_value, tf.Tensor):
     raise ValueError('min_vaue {} was not a Tensor'.format(min_value))
   if not isinstance(max_value, tf.Tensor):

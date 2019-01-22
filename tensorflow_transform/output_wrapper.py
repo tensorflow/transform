@@ -24,6 +24,8 @@ import tensorflow as tf
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import metadata_io
 
+from tensorflow_metadata.proto.v0 import schema_pb2
+
 
 class TFTransformOutput(object):
   """A wrapper around the output of the tf.Transform.
@@ -95,14 +97,18 @@ class TFTransformOutput(object):
     """Returns the number of buckets for an integerized transformed feature."""
     # Do checks that this tensor can be wrapped in
     # sparse_column_with_integerized_feature
-    column_schema = self.transformed_metadata.schema.column_schemas[name]
-    if column_schema.domain.dtype != tf.int64:
-      raise ValueError('Column {} has dtype {}, should be int64'.format(
-          name, column_schema.domain.dtype))
-    if column_schema.domain.min_value != 0:
+    domains = self.transformed_metadata.schema.domains()
+    try:
+      domain = domains[name]
+    except KeyError:
+      raise ValueError('Column {} did not have a domain provided.'.format(name))
+    if not isinstance(domain, schema_pb2.IntDomain):
+      raise ValueError('Column {} has domain {}, expected an IntDomain'.format(
+          name, domain))
+    if domain.min != 0:
       raise ValueError('Column {} has min value {}, should be 0'.format(
-          name, column_schema.domain.min_value))
-    return column_schema.domain.max_value + 1
+          name, domain.min))
+    return domain.max + 1
 
   def transform_raw_features(self, raw_features):
     """Takes a dict of tensors representing raw features and transforms them.
@@ -133,3 +139,55 @@ class TFTransformOutput(object):
     saved_transform_io.partially_apply_saved_transform_internal(
         self.transform_savedmodel_dir, {})
 
+  RAW_METADATA_DIR = 'metadata'
+  _FEATURE_STATS_PB = 'FeatureStats.pb'
+  PRE_TRANSFORM_FEATURE_STATS_PATH = os.path.join(
+      'pre_transform_feature_stats', _FEATURE_STATS_PB)
+  POST_TRANSFORM_FEATURE_STATS_PATH = os.path.join(
+      'post_transform_feature_stats', _FEATURE_STATS_PB)
+
+  @property
+  def raw_metadata(self):
+    """A DatasetMetadata.
+
+    Note: raw_metadata is not guaranteed to exist in the output of tf.transform
+    and hence using this could fail, if raw_metadata is not present in
+    TFTransformOutput.
+
+    Returns:
+      A DatasetMetadata
+    """
+    if self._raw_metadata is None:
+      self._raw_metadata = metadata_io.read_metadata(
+          os.path.join(self._transform_output_dir, self.RAW_METADATA_DIR))
+    return self._raw_metadata
+
+  def raw_feature_spec(self):
+    """Returns a feature_spec for the raw features.
+
+    Returns:
+      A dict from feature names to FixedLenFeature/SparseFeature/VarLenFeature.
+    """
+    return self.raw_metadata.schema.as_feature_spec()
+
+  @property
+  def pre_transform_statistics_path(self):
+    """Returns the path to the pre-transform datum statistics.
+
+    Note: pre_transform_statistics is not guaranteed to exist in the output of
+    tf.transform and hence using this could fail, if pre_transform statistics is
+    not present in TFTransformOutput.
+    """
+    return os.path.join(
+        self._transform_output_dir, self.PRE_TRANSFORM_FEATURE_STATS_PATH)
+
+  @property
+  def post_transform_statistics_path(self):
+    """Returns the path to the post-transform datum statistics.
+
+    Note: post_transform_statistics is not guaranteed to exist in the output of
+    tf.transform and hence using this could fail, if post_transform statistics
+    is not present in TFTransformOutput.
+    """
+    return os.path.join(
+        self._transform_output_dir, self.POST_TRANSFORM_FEATURE_STATS_PATH)

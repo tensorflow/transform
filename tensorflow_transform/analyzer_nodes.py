@@ -160,6 +160,8 @@ class Combiner(object):
 class CacheCoder(object):
   """A coder iterface for encoding and decoding cache items."""
 
+  __metaclass__ = abc.ABCMeta
+
   def __repr__(self):
     return '<{}>'.format(self.__class__.__name__)
 
@@ -327,32 +329,92 @@ class CacheableCombinePerKeyMerge(CacheableCombineMerge):
            ] + self.combiner.output_tensor_infos()
 
 
-class Vocabulary(
-    collections.namedtuple(
-        'Vocabulary',
-        [
-            'top_k',
-            'frequency_threshold',
-            'vocab_filename',
-            'store_frequency',
-            'vocab_ordering_type',
-            'use_adjusted_mutual_info',
-            'min_diff_from_avg',
-            'coverage_top_k',
-            'coverage_frequency_threshold',
-            'key_fn',
-            'label'
-        ]),
-    AnalyzerDef):
-  """OperationDef for computing a vocabulary of unique values.
+class VocabularyAccumulate(
+    collections.namedtuple('VocabularyAccumulate',
+                           ['vocab_ordering_type', 'label']),
+    nodes.OperationDef):
+  """An operation that accumulates unique words with their frequency or weight.
 
-  This analyzer computes a vocabulary composed of the unique values present in
-  the input elements.  It selects a subset of the unique elements based on the
-  provided parameters.  It may also accept a label and weight as input
-  depending on the parameters.
+  This operation is implemented by
+  `tensorflow_transform.beam.analyzer_impls.VocabularyAccumulateImpl`.
+  """
 
-  This analyzer is implemented by
-  `tensorflow_transform.beam.analyzer_impls.VocabularyImpl`.
+  def __new__(cls, vocab_ordering_type, label=None):
+    if label is None:
+      scope = tf.get_default_graph().get_name_scope()
+      label = '{}[{}]'.format(cls.__name__, scope)
+    return super(VocabularyAccumulate, cls).__new__(
+        cls, vocab_ordering_type=vocab_ordering_type, label=label)
+
+  @property
+  def num_outputs(self):
+    return 1
+
+  @property
+  def is_partitionable(self):
+    return True
+
+  @property
+  def cache_coder(self):
+    return _VocabularyAccumulatorCoder()
+
+
+class _VocabularyAccumulatorCoder(CacheCoder):
+  """Coder for vocabulary accumulators."""
+
+  def encode_cache(self, accumulator):
+    # Need to wrap in np.array and call tolist to make it JSON serializable.
+    word, count = accumulator
+    accumulator = (word.decode('utf-8'), count)
+    return tf.compat.as_bytes(
+        json.dumps(np.array(accumulator, dtype=object).tolist()))
+
+  def decode_cache(self, encoded_accumulator):
+    return np.array(json.loads(encoded_accumulator), dtype=object)
+
+
+class VocabularyMerge(
+    collections.namedtuple('VocabularyMerge', [
+        'vocab_ordering_type', 'use_adjusted_mutual_info', 'min_diff_from_avg',
+        'label'
+    ]), nodes.OperationDef):
+  """An operation that merges the accumulators produced by VocabularyAccumulate.
+
+  This operation operates on the output of VocabularyAccumulate and is
+  implemented by `tensorflow_transform.beam.analyzer_impls.VocabularyMergeImpl`.
+
+  See `tft.vocabulary` for a description of the parameters.
+  """
+
+  def __new__(cls,
+              vocab_ordering_type,
+              use_adjusted_mutual_info,
+              min_diff_from_avg,
+              label=None):
+    if label is None:
+      scope = tf.get_default_graph().get_name_scope()
+      label = '{}[{}]'.format(cls.__name__, scope)
+    return super(VocabularyMerge, cls).__new__(
+        cls,
+        vocab_ordering_type=vocab_ordering_type,
+        use_adjusted_mutual_info=use_adjusted_mutual_info,
+        min_diff_from_avg=min_diff_from_avg,
+        label=label)
+
+  @property
+  def num_outputs(self):
+    return 1
+
+
+class VocabularyOrderAndFilter(
+    collections.namedtuple('VocabularyOrderAndFilter', [
+        'top_k', 'frequency_threshold', 'coverage_top_k',
+        'coverage_frequency_threshold', 'key_fn', 'label'
+    ]), nodes.OperationDef):
+  """An operation that filters and orders a computed vocabulary.
+
+  This operation operates on the output of VocabularyMerge and is implemented by
+  `tensorflow_transform.beam.analyzer_impls.VocabularyOrderAndFilterImpl`.
 
   See `tft.vocabulary` for a description of the parameters.
   """
@@ -361,11 +423,6 @@ class Vocabulary(
       cls,
       top_k,
       frequency_threshold,
-      vocab_filename,
-      store_frequency,
-      vocab_ordering_type,
-      use_adjusted_mutual_info,
-      min_diff_from_avg,
       coverage_top_k,
       coverage_frequency_threshold,
       key_fn,
@@ -373,18 +430,40 @@ class Vocabulary(
     if label is None:
       scope = tf.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
-    return super(Vocabulary, cls).__new__(
+    return super(VocabularyOrderAndFilter, cls).__new__(
         cls,
         top_k=top_k,
         frequency_threshold=frequency_threshold,
-        vocab_filename=vocab_filename,
-        store_frequency=store_frequency,
-        vocab_ordering_type=vocab_ordering_type,
-        use_adjusted_mutual_info=use_adjusted_mutual_info,
-        min_diff_from_avg=min_diff_from_avg,
         coverage_top_k=coverage_top_k,
         coverage_frequency_threshold=coverage_frequency_threshold,
         key_fn=key_fn,
+        label=label)
+
+  @property
+  def num_outputs(self):
+    return 1
+
+
+class VocabularyWrite(
+    collections.namedtuple('VocabularyWrite',
+                           ['vocab_filename', 'store_frequency', 'label']),
+    AnalyzerDef):
+  """An analyzer that writes vocabulary files from an accumulator.
+
+  This operation operates on the output of VocabularyOrderAndFilter and is
+  implemented by `tensorflow_transform.beam.analyzer_impls.VocabularyWriteImpl`.
+
+  See `tft.vocabulary` for a description of the parameters.
+  """
+
+  def __new__(cls, vocab_filename, store_frequency, label=None):
+    if label is None:
+      scope = tf.get_default_graph().get_name_scope()
+      label = '{}[{}]'.format(cls.__name__, scope)
+    return super(VocabularyWrite, cls).__new__(
+        cls,
+        vocab_filename=vocab_filename,
+        store_frequency=store_frequency,
         label=label)
 
   @property

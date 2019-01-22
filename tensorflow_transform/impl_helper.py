@@ -70,21 +70,20 @@ def feature_spec_as_batched_placeholders(feature_spec):
   return result
 
 
-def make_feed_dict(input_tensors, schema, instances):
-  """Creates a feed dict for passing data to the graph.
+def make_feed_list(column_names, schema, instances):
+  """Creates a feed list for passing data to the graph.
 
   Converts a list of instances in the in-memory representation to a batch
   suitable for passing to `tf.Session.run`.
 
   Args:
-    input_tensors: A map from column names to `Tensor`s or `SparseTensor`s.
+    column_names: A list of column names.
     schema: A `Schema` object.
     instances: A list of instances, each of which is a map from column name to a
       python primitive, list, or ndarray.
 
   Returns:
-    A map from `Tensor`s or `SparseTensor`s to batches in the format required by
-    `tf.Session.run`.
+    A list of batches in the format required by a tf `Callable`.
 
   Raises:
     ValueError: If `schema` is invalid.
@@ -132,9 +131,9 @@ def make_feed_dict(input_tensors, schema, instances):
     batch_shape = (len(instance_indices), max_index)
     return tf.SparseTensorValue(batch_indices, batch_values, batch_shape)
 
-  result = {}
+  result = []
   feature_spec = schema.as_feature_spec()
-  for name, input_tensor in six.iteritems(input_tensors):
+  for name in column_names:
     spec = feature_spec[name]
     if isinstance(spec, tf.FixedLenFeature):
       feed_value = [instance[name] for instance in instances]
@@ -158,7 +157,7 @@ def make_feed_dict(input_tensors, schema, instances):
 
     else:
       raise ValueError('Invalid feature spec {}.'.format(spec))
-    result[input_tensor] = feed_value
+    result.append(feed_value)
 
   return result
 

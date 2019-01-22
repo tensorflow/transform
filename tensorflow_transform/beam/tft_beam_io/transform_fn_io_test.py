@@ -54,12 +54,6 @@ _TEST_METADATA = dataset_metadata.DatasetMetadata({
 
 class BeamMetadataIoTest(test_util.TensorFlowTestCase):
 
-  def assertMetadataEqual(self, a, b):
-    # Use extra assertEqual for schemas, since full metadata assertEqual error
-    # message is not conducive to debugging.
-    self.assertEqual(a.schema.column_schemas, b.schema.column_schemas)
-    self.assertEqual(a, b)
-
   def testReadTransformFn(self):
     path = self.get_temp_dir()
     # NOTE: we don't need to create or write to the transform_fn directory since

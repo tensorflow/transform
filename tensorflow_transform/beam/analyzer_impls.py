@@ -27,6 +27,7 @@ import apache_beam as beam
 from apache_beam.transforms.ptransform import ptransform_fn
 from apache_beam.typehints import KV
 from apache_beam.typehints import Tuple
+from apache_beam.typehints import Union
 from apache_beam.typehints import with_input_types
 
 import numpy as np
@@ -76,8 +77,6 @@ class _OrderElementsFn(beam.DoFn):
 def _ApplyFrequencyThresholdAndTopK(  # pylint: disable=invalid-name
     counts, frequency_threshold, top_k, key_fn):
   """Applies `frequency_threshold` and `top_k` to (count, value) pairs."""
-  # Filter is cheaper than TopK computation and the two commute, so filter
-  # first.
   if frequency_threshold is not None:
     counts |= ('FilterByFrequencyThreshold(%s)' % frequency_threshold >>
                beam.Filter(lambda kv: kv[0] >= frequency_threshold))
@@ -109,51 +108,91 @@ def _ApplyFrequencyThresholdAndTopK(  # pylint: disable=invalid-name
   return counts
 
 
-@ptransform_fn
-@beam.typehints.with_input_types(KV[float, str])
-@beam.typehints.with_output_types(str)
-def _WriteVocabFile(counts, temp_assets_dir, vocab_filename, store_frequency):  # pylint: disable=invalid-name
-  """Writes a vocab file from a pcoll of (weighted_count, value) pairs."""
-  vocabulary_file = os.path.join(temp_assets_dir, vocab_filename)
-  vocab_is_written = (
-      counts.pipeline
-      | 'Prepare' >> beam.Create([None])
+@common.register_ptransform(analyzer_nodes.VocabularyAccumulate)
+@beam.typehints.with_input_types(Tuple[np.ndarray, ...])
+@beam.typehints.with_output_types(KV[np.str, Union[int, float]])
+class VocabularyAccumulateImpl(beam.PTransform):
+  """Accumulates the unique elements in a PCollection of batches."""
 
-      # Using AsIter instead of AsList at the callsite below in order to reduce
-      # max memory usage.
-      | 'OrderElements' >> beam.ParDo(_OrderElementsFn(store_frequency),
-                                      counts_iter=beam.pvalue.AsIter(counts))
-      | 'WriteToFile' >> beam.io.WriteToText(vocabulary_file,
-                                             shard_name_template=''))
-  # Return the vocabulary path.
-  wait_for_vocabulary_transform = (
-      counts.pipeline
-      | 'CreatePath' >> beam.Create([np.array(vocabulary_file)])
-      # Ensure that the analysis returns only after the file is written.
-      | 'WaitForVocabularyFile' >> beam.Map(
-          lambda x, y: x, y=beam.pvalue.AsIter(vocab_is_written)))
-  return (wait_for_vocabulary_transform,)
+  def __init__(self, operation, extra_args):
+    self._vocab_ordering_type = operation.vocab_ordering_type
+
+  def expand(self, inputs):
+    pcoll, = inputs
+
+    # Create a PCollection of (count, element) pairs, then iterates over
+    # this to create a single element PCollection containing this list of
+    # pairs in sorted order by decreasing counts (and by values for equal
+    # counts).
+
+    def is_problematic_string(kv):
+      string, _ = kv  # Ignore counts.
+      return string and b'\n' not in string and b'\r' not in string
+
+    if (self._vocab_ordering_type ==
+        tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION):
+      flatten_map_fn = _flatten_to_key_and_means_accumulator_list
+      combine_transform = _MutualInformationTransformAccumulate()  # pylint: disable=no-value-for-parameter
+    elif (self._vocab_ordering_type ==
+          tf_utils.VocabOrderingType.WEIGHTED_FREQUENCY):
+      flatten_map_fn = _flatten_value_and_weights_to_list_of_tuples
+      combine_transform = beam.CombinePerKey(sum)
+    else:
+      flatten_map_fn = _flatten_value_to_list
+      combine_transform = beam.combiners.Count.PerElement()
+
+    raw_counts = (
+        pcoll
+        | 'FlattenStringsAndMaybeWeightsLabels' >> beam.FlatMap(flatten_map_fn)
+        | 'CountPerString' >> combine_transform
+        | 'FilterProblematicStrings' >> beam.Filter(is_problematic_string))
+
+    return raw_counts
 
 
-@common.register_ptransform(analyzer_nodes.Vocabulary)
-class VocabularyImpl(beam.PTransform):
-  """Saves the unique elements in a PCollection of batches."""
+@common.register_ptransform(analyzer_nodes.VocabularyMerge)
+@beam.typehints.with_input_types(KV[np.str, Union[int, float]])
+@beam.typehints.with_output_types(KV[Union[int, float], np.str])
+class VocabularyMergeImpl(beam.PTransform):
+  """Merges vocabulary accumulators of (word, num) pairs."""
+
+  def __init__(self, operation, extra_args):
+    self._vocab_ordering_type = operation.vocab_ordering_type
+    self._use_adjusted_mutual_info = operation.use_adjusted_mutual_info
+    self._min_diff_from_avg = operation.min_diff_from_avg
+
+  def expand(self, inputs):
+    if (self._vocab_ordering_type ==
+        tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION):
+      combine_transform = _MutualInformationTransformMerge(  # pylint: disable=no-value-for-parameter
+          self._use_adjusted_mutual_info, self._min_diff_from_avg)
+    else:
+      combine_transform = beam.CombinePerKey(sum)
+
+    pcoll, = inputs
+
+    raw_counts = (
+        pcoll
+        | 'CountPerString' >> combine_transform
+        | 'SwapStringsAndCounts' >> beam.KvSwap())
+
+    return raw_counts
+
+
+@common.register_ptransform(analyzer_nodes.VocabularyOrderAndFilter)
+@beam.typehints.with_input_types(KV[Union[int, float], np.str])
+@beam.typehints.with_output_types(KV[Union[int, float], np.str])
+class VocabularyOrderAndFilterImpl(beam.PTransform):
+  """Order, filters and writes the computed vocabulary file."""
 
   def __init__(self, operation, extra_args):
     self._top_k = operation.top_k
     self._frequency_threshold = operation.frequency_threshold
-    self._store_frequency = operation.store_frequency
-    self._vocab_filename = operation.vocab_filename
-    self._vocab_ordering_type = operation.vocab_ordering_type
-    self._base_temp_dir = extra_args.base_temp_dir
-    self._use_adjusted_mutual_info = operation.use_adjusted_mutual_info
-    self._min_diff_from_avg = operation.min_diff_from_avg
     self._coverage_top_k = operation.coverage_top_k
     self._coverage_frequency_threshold = operation.coverage_frequency_threshold
     self._key_fn = operation.key_fn
 
   def expand(self, inputs):
-    pcoll, = inputs
     if self._top_k is not None and self._top_k < 0:
       raise ValueError('top_k for VocabularyImpl should be >= 0 or None, got '
                        '{}.'.format(self._top_k))
@@ -169,44 +208,16 @@ class VocabularyImpl(beam.PTransform):
       raise ValueError(
           'coverage_frequency_threshold for VocabularyImpl should be >= 0 or '
           'None, got {}.'.format(self._coverage_frequency_threshold))
-
-    # Create a PCollection of (count, element) pairs, then iterates over
-    # this to create a single element PCollection containing this list of
-    # pairs in sorted order by decreasing counts (and by values for equal
-    # counts).
-
-    def is_problematic_string(kv):
-      string, _ = kv  # Ignore counts.
-      return string and b'\n' not in string and b'\r' not in string
-
-    if (self._vocab_ordering_type ==
-        tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION):
-      flatten_map_fn = _flatten_to_key_and_means_accumulator_list
-      combine_transform = _MutualInformationTransform(  # pylint: disable=no-value-for-parameter
-          self._use_adjusted_mutual_info, self._min_diff_from_avg)
-    elif (self._vocab_ordering_type ==
-          tf_utils.VocabOrderingType.WEIGHTED_FREQUENCY):
-      flatten_map_fn = _flatten_value_and_weights_to_list_of_tuples
-      combine_transform = beam.CombinePerKey(sum)
-    else:
-      flatten_map_fn = _flatten_value_to_list
-      combine_transform = beam.combiners.Count.PerElement()
-
-    raw_counts = (
-        pcoll
-        | 'FlattenStringsAndMaybeWeightsLabels' >> beam.FlatMap(flatten_map_fn)
-        | 'CountPerString' >> combine_transform
-        | 'FilterProblematicStrings' >> beam.Filter(is_problematic_string)
-        | 'SwapStringsAndCounts' >> beam.KvSwap())
+    pcoll, = inputs
 
     counts = (
-        raw_counts | 'ApplyFrequencyThresholdAndTopK' >> (
+        pcoll | 'ApplyFrequencyThresholdAndTopK' >> (
             _ApplyFrequencyThresholdAndTopK(  # pylint: disable=no-value-for-parameter
                 self._frequency_threshold, self._top_k, None)))
 
     if self._key_fn:
       coverage_counts = (
-          raw_counts | 'ApplyCoverageFrequencyThresholdAndTopK' >> (
+          pcoll | 'ApplyCoverageFrequencyThresholdAndTopK' >> (
               _ApplyFrequencyThresholdAndTopK(  # pylint: disable=no-value-for-parameter
                   self._coverage_frequency_threshold, self._coverage_top_k,
                   self._key_fn)))
@@ -216,9 +227,41 @@ class VocabularyImpl(beam.PTransform):
           | 'MergeStandardAndCoverageArms' >> beam.Flatten()
           | 'RemoveDuplicates' >> beam.RemoveDuplicates())
 
-    return counts | 'WriteVocabFile' >> (
-        _WriteVocabFile(  # pylint: disable=no-value-for-parameter
-            self._base_temp_dir, self._vocab_filename, self._store_frequency))
+    return counts
+
+
+@common.register_ptransform(analyzer_nodes.VocabularyWrite)
+@beam.typehints.with_input_types(KV[Union[int, float], np.str])
+@beam.typehints.with_output_types(np.ndarray)
+class VocabularyWriteImpl(beam.PTransform):
+  """Writes the computed vocabulary file."""
+
+  def __init__(self, operation, extra_args):
+    self._base_temp_dir = extra_args.base_temp_dir
+    self._store_frequency = operation.store_frequency
+    self._vocab_filename = operation.vocab_filename
+
+  def expand(self, inputs):
+    counts, = inputs
+    vocabulary_file = os.path.join(self._base_temp_dir, self._vocab_filename)
+    vocab_is_written = (
+        counts.pipeline
+        | 'Prepare' >> beam.Create([None])
+
+        # Using AsIter instead of AsList at the callsite below in order to
+        # reduce max memory usage.
+        | 'OrderElements' >> beam.ParDo(_OrderElementsFn(self._store_frequency),
+                                        counts_iter=beam.pvalue.AsIter(counts))
+        | 'WriteToFile' >> beam.io.WriteToText(vocabulary_file,
+                                               shard_name_template=''))
+    # Return the vocabulary path.
+    wait_for_vocabulary_transform = (
+        counts.pipeline
+        | 'CreatePath' >> beam.Create([np.array(vocabulary_file)])
+        # Ensure that the analysis returns only after the file is written.
+        | 'WaitForVocabularyFile' >> beam.Map(
+            lambda x, y: x, y=beam.pvalue.AsIter(vocab_is_written)))
+    return (wait_for_vocabulary_transform,)
 
 
 def _flatten_value_to_list(batch_values):
@@ -430,12 +473,21 @@ class _CountAndWeightsMeansAccumulator(
 
 @ptransform_fn
 @beam.typehints.with_input_types(KV[str, _CountAndWeightsMeansAccumulator])
+@beam.typehints.with_output_types(KV[str, _CountAndWeightsMeansAccumulator])
+def _MutualInformationTransformAccumulate(pcol):  # pylint: disable=invalid-name
+  """Accumulates information needed for mutual information computation."""
+  return (pcol | 'VocabCountPerLabelPerStringAccumulate' >> beam.CombinePerKey(
+      _CountAndWeightsMeansCombineFn()))
+
+
+@ptransform_fn
+@beam.typehints.with_input_types(KV[str, _CountAndWeightsMeansAccumulator])
 @beam.typehints.with_output_types(KV[str, float])
-def _MutualInformationTransform(  # pylint: disable=invalid-name
+def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
     pcol, use_adjusted_mutual_info, min_diff_from_avg):
   """Computes mutual information for each key using the given accumulators."""
   feature_accumulator_pcol = (
-      pcol | 'VocabCountPerLabelPerString' >> beam.CombinePerKey(
+      pcol | 'VocabCountPerLabelPerStringMerge' >> beam.CombinePerKey(
           _CountAndWeightsMeansCombineFn()))
 
   global_accumulator = (

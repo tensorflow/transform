@@ -50,7 +50,6 @@ class TransformTestCase(test_case.TransformTestCase):
                                        preprocessing_fn,
                                        expected_data=None,
                                        expected_metadata=None,
-                                       only_check_core_metadata=False,
                                        expected_vocab_file_contents=None,
                                        expected_asset_file_contents=None,
                                        test_data=None,
@@ -73,10 +72,6 @@ class TransformTestCase(test_case.TransformTestCase):
           If supplied, transformed data is asserted to be equal.
       expected_metadata: (optional) DatasetMetadata describing the transformed
           data. If supplied, transformed metadata is asserted to be equal.
-      only_check_core_metadata: A boolean to indicate if all elements in
-          the transformed metadata is asserted to be equal to expected metadata.
-          If True, only transformed feature names, dtypes and representations
-          are asserted.
       expected_vocab_file_contents: (optional) A dictionary from vocab filenames
           to their expected content as a list of text lines or a list of tuples
           of frequency and text. Values should be the expected result of calling
@@ -155,28 +150,8 @@ class TransformTestCase(test_case.TransformTestCase):
 
     tf_transform_output = tft.TFTransformOutput(temp_dir)
     if expected_metadata:
-      transformed_metadata = tf_transform_output.transformed_metadata
-
-      if only_check_core_metadata:
-        # preprocessing_fn may add metadata to column schema only relevant to
-        # internal implementation such as vocabulary_file. As such, only check
-        # feature names, dtypes and representations are as expected.
-        self.assertSameElements(
-            transformed_metadata.schema.column_schemas.keys(),
-            expected_metadata.schema.column_schemas.keys())
-        for k, v in transformed_metadata.schema.column_schemas.iteritems():
-          expected_schema = expected_metadata.schema.column_schemas[k]
-          self.assertEqual(expected_schema.representation, v.representation,
-                           "representation doesn't match for feature '%s'" % k)
-          self.assertEqual(expected_schema.domain.dtype, v.domain.dtype,
-                           "dtype doesn't match for feature '%s'" % k)
-      else:
-        # Check the entire DatasetMetadata is as expected.
-        # Use extra assertEqual for schemas, since full metadata assertEqual
-        # error message is not conducive to debugging.
-        self.assertEqual(expected_metadata.schema.column_schemas,
-                         transformed_metadata.schema.column_schemas)
-        self.assertEqual(expected_metadata, transformed_metadata)
+      self.assertEqual(expected_metadata,
+                       tf_transform_output.transformed_metadata)
 
     for filename, file_contents in six.iteritems(expected_vocab_file_contents):
       full_filename = tf_transform_output.vocabulary_file_by_name(filename)

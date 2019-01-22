@@ -312,7 +312,7 @@ def _feature_dtype(feature):
 
 def _fixed_shape_as_tf_shape(fixed_shape):
   """Returns a representation of a FixedShape as a tensorflow shape."""
-  return [dim.size for dim in fixed_shape.dim]
+  return [int(dim.size) for dim in fixed_shape.dim]
 
 
 _DEPRECATED_LIFECYCLE_STAGES = [

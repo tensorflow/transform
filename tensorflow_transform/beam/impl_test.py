@@ -673,6 +673,57 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
+  def testPyFuncs(self):
+    def my_multiply(x, y):
+      return x*y
+
+    def my_add(x, y):
+      return x+y
+
+    def preprocessing_fn(inputs):
+      result = {
+          'a+b': tft.apply_pyfunc(
+              my_add, tf.float32, True, 'add', inputs['a'], inputs['b']),
+          'a+c': tft.apply_pyfunc(
+              my_add, tf.float32, True, 'add', inputs['a'], inputs['c']),
+          'ab': tft.apply_pyfunc(
+              my_multiply, tf.float32, False, 'multiply',
+              inputs['a'], inputs['b']),
+          'sum_scaled': tft.scale_to_0_1(
+              tft.apply_pyfunc(
+                  my_add, tf.float32, True, 'add', inputs['a'], inputs['c']))
+      }
+      for value in result.values():
+        value.set_shape([1,])
+      return result
+
+    input_data = [
+        {'a': 4, 'b': 3, 'c': 2},
+        {'a': 1, 'b': 2, 'c': 3},
+        {'a': 5, 'b': 6, 'c': 7},
+        {'a': 2, 'b': 3, 'c': 4}
+    ]
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.float32),
+        'b': tf.FixedLenFeature([], tf.float32),
+        'c': tf.FixedLenFeature([], tf.float32)
+    })
+    expected_data = [
+        {'ab': 12, 'a+b': 7, 'a+c': 6, 'sum_scaled': 0.25},
+        {'ab': 2, 'a+b': 3, 'a+c': 4, 'sum_scaled': 0},
+        {'ab': 30, 'a+b': 11, 'a+c': 12, 'sum_scaled': 1},
+        {'ab': 6, 'a+b': 5, 'a+c': 6, 'sum_scaled': 0.25}
+    ]
+    # When calling tf.py_func, the output shape is set to unknown.
+    expected_metadata = _metadata_from_feature_spec({
+        'ab': tf.FixedLenFeature([], tf.float32),
+        'a+b': tf.FixedLenFeature([], tf.float32),
+        'a+c': tf.FixedLenFeature([], tf.float32),
+        'sum_scaled': tf.FixedLenFeature([], tf.float32)
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata, preprocessing_fn, expected_data,
+        expected_metadata)
 
   def testWithMoreThanDesiredBatchSize(self):
     def preprocessing_fn(inputs):

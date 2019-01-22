@@ -20,4 +20,5 @@ from tensorflow_transform.api import apply_function
 from tensorflow_transform.mappers import *
 from tensorflow_transform.output_wrapper import TFTransformOutput
 from tensorflow_transform.pretrained_models import *
+from tensorflow_transform.py_func.api import apply_pyfunc
 # pylint: enable=wildcard-import

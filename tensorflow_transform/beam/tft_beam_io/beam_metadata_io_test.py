@@ -49,12 +49,6 @@ _TEST_METADATA = dataset_metadata.DatasetMetadata({
 
 class BeamMetadataIoTest(test_util.TensorFlowTestCase):
 
-  def assertMetadataEqual(self, a, b):
-    # Use extra assertEqual for schemas, since full metadata assertEqual error
-    # message is not conducive to debugging.
-    self.assertEqual(a.schema.column_schemas, b.schema.column_schemas)
-    self.assertEqual(a, b)
-
   def testWriteMetadataNonDeferred(self):
     # Write properties as metadata to disk.
     with beam.Pipeline() as pipeline:
@@ -63,7 +57,7 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
            | beam_metadata_io.WriteMetadata(path, pipeline))
     # Load from disk and check that it is as expected.
     metadata = metadata_io.read_metadata(path)
-    self.assertMetadataEqual(metadata, _TEST_METADATA_COMPLETE)
+    self.assertEqual(metadata, _TEST_METADATA_COMPLETE)
 
   def testWriteMetadataDeferredProperties(self):
     # Write deferred properties as metadata to disk.
@@ -79,7 +73,7 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
       _ = metadata | beam_metadata_io.WriteMetadata(path, pipeline)
     # Load from disk and check that it is as expected.
     metadata = metadata_io.read_metadata(path)
-    self.assertMetadataEqual(metadata, _TEST_METADATA_COMPLETE)
+    self.assertEqual(metadata, _TEST_METADATA_COMPLETE)
 
 
 if __name__ == '__main__':

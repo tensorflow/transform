@@ -150,39 +150,46 @@ _ROUNDTRIP_CASES = [
          }),
 ]
 
-_MAKE_FEED_DICT_ERROR_CASES = [
-    dict(testcase_name='missing_feature',
-         feature_spec={
-             'a': tf.FixedLenFeature([1], tf.int64),
-             'b': tf.FixedLenFeature([1], tf.int64),
-         },
-         instances=[{'a': 100}],
-         error_msg='b',
-         error_type=KeyError),
-    dict(testcase_name='sparse_feature_index_negative',
-         feature_spec={
-             'a': tf.SparseFeature('idx', 'val', tf.float32, 10)
-         },
-         instances=[{'a': ([-1, 2], [1.0, 2.0])}],
-         error_msg='has index .* out of range'),
-    dict(testcase_name='sparse_feature_index_too_high',
-         feature_spec={
-             'a': tf.SparseFeature('idx', 'val', tf.float32, 10)
-         },
-         instances=[{'a': ([11, 2], [1.0, 2.0])}],
-         error_msg='has index .* out of range'),
-    dict(testcase_name='sparse_feature_indices_and_values_different_lengths',
-         feature_spec={
-             'a': tf.SparseFeature('idx', 'val', tf.float32, 10)
-         },
-         instances=[{'a': ([1, 2], [1])}],
-         error_msg='indices and values of different lengths'),
-    dict(testcase_name='sparse_feature_not_a_pair',
-         feature_spec={
-             'a': tf.SparseFeature('idx', 'val', tf.float32, 10)
-         },
-         instances=[{'a': ([1], [2], [3])}],
-         error_msg='too many values to unpack'),
+_MAKE_FEED_LIST_ERROR_CASES = [
+    dict(
+        testcase_name='missing_feature',
+        feature_spec={
+            'a': tf.FixedLenFeature([1], tf.int64),
+            'b': tf.FixedLenFeature([1], tf.int64),
+        },
+        instances=[{
+            'a': 100
+        }],
+        error_msg='b',
+        error_type=KeyError),
+    dict(
+        testcase_name='sparse_feature_index_negative',
+        feature_spec={'a': tf.SparseFeature('idx', 'val', tf.float32, 10)},
+        instances=[{
+            'a': ([-1, 2], [1.0, 2.0])
+        }],
+        error_msg='has index .* out of range'),
+    dict(
+        testcase_name='sparse_feature_index_too_high',
+        feature_spec={'a': tf.SparseFeature('idx', 'val', tf.float32, 10)},
+        instances=[{
+            'a': ([11, 2], [1.0, 2.0])
+        }],
+        error_msg='has index .* out of range'),
+    dict(
+        testcase_name='sparse_feature_indices_and_values_different_lengths',
+        feature_spec={'a': tf.SparseFeature('idx', 'val', tf.float32, 10)},
+        instances=[{
+            'a': ([1, 2], [1])
+        }],
+        error_msg='indices and values of different lengths'),
+    dict(
+        testcase_name='sparse_feature_not_a_pair',
+        feature_spec={'a': tf.SparseFeature('idx', 'val', tf.float32, 10)},
+        instances=[{
+            'a': ([1], [2], [3])
+        }],
+        error_msg='too many values to unpack'),
 ]
 
 _TO_INSTANCE_DICT_ERROR_CASES = [
@@ -260,9 +267,8 @@ class ImplHelperTest(test_case.TransformTestCase):
     }
     with tf.Graph().as_default():
       features = impl_helper.feature_spec_as_batched_placeholders(feature_spec)
-    self.assertItemsEqual(
-        features.keys(),
-        ['fixed_len_float', 'fixed_len_string', 'var_len_int'])
+    self.assertCountEqual(
+        features.keys(), ['fixed_len_float', 'fixed_len_string', 'var_len_int'])
     self.assertEqual(type(features['fixed_len_float']), tf.Tensor)
     self.assertEqual(features['fixed_len_float'].get_shape().as_list(),
                      [None, 2, 3])
@@ -274,23 +280,24 @@ class ImplHelperTest(test_case.TransformTestCase):
                      [None, None])
 
   @test_case.named_parameters(*_ROUNDTRIP_CASES)
-  def test_make_feed_dict(self, feature_spec, instances, feed_dict):
-    tensors = tf.parse_example(tf.placeholder(tf.string, [None]), feature_spec)
+  def test_make_feed_list(self, feature_spec, instances, feed_dict):
     schema = dataset_schema.from_feature_spec(feature_spec)
-    # feed_dict contains feature names as keys, replace these with the
-    # actual tensors.
-    feed_dict = {tensors[key]: value for key, value in feed_dict.items()}
+    feature_names = list(feature_spec.keys())
+    expected_feed_list = [feed_dict[key] for key in feature_names]
     np.testing.assert_equal(
-        impl_helper.make_feed_dict(tensors, schema, instances),
-        feed_dict)
+        impl_helper.make_feed_list(feature_names, schema, instances),
+        expected_feed_list)
 
-  @test_case.named_parameters(*_MAKE_FEED_DICT_ERROR_CASES)
-  def test_make_feed_dict_error(self, feature_spec, instances, error_msg,
+  @test_case.named_parameters(*_MAKE_FEED_LIST_ERROR_CASES)
+  def test_make_feed_list_error(self,
+                                feature_spec,
+                                instances,
+                                error_msg,
                                 error_type=ValueError):
     tensors = tf.parse_example(tf.placeholder(tf.string, [None]), feature_spec)
     schema = dataset_schema.from_feature_spec(feature_spec)
     with self.assertRaisesRegexp(error_type, error_msg):
-      impl_helper.make_feed_dict(tensors, schema, instances)
+      impl_helper.make_feed_list(tensors, schema, instances)
 
   @test_case.named_parameters(*_ROUNDTRIP_CASES)
   def test_to_instance_dicts(self, feature_spec, instances, feed_dict):

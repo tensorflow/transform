@@ -16,17 +16,14 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
 import collections
-
-
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
-from tensorflow_transform import test_case
 from tensorflow_transform.beam import analysis_graph_builder
+from tensorflow_transform.google import test_case
 
 
 def _preprocessing_fn_with_no_analyzers(inputs):
@@ -101,10 +98,16 @@ node [shape=Mrecord];
 "CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0]";
 "TensorSource[x]" [label="{ExtractFromDict|keys: ('x/Reshape',)|label: TensorSource[x]|partitionable: True}"];
 "ApplySavedModel[0]" -> "TensorSource[x]";
-"Vocabulary[x]" [label="{Vocabulary|top_k: None|frequency_threshold: None|vocab_filename: vocab_x|store_frequency: False|vocab_ordering_type: 1|use_adjusted_mutual_info: False|min_diff_from_avg: 0.0|coverage_top_k: None|coverage_frequency_threshold: None|key_fn: None|label: Vocabulary[x]}"];
-"TensorSource[x]" -> "Vocabulary[x]";
+"VocabularyAccumulate[x]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|label: VocabularyAccumulate[x]|partitionable: True}"];
+"TensorSource[x]" -> "VocabularyAccumulate[x]";
+"VocabularyMerge[x]" [label="{VocabularyMerge|vocab_ordering_type: 1|use_adjusted_mutual_info: False|min_diff_from_avg: 0.0|label: VocabularyMerge[x]}"];
+"VocabularyAccumulate[x]" -> "VocabularyMerge[x]";
+"VocabularyOrderAndFilter[x]" [label="{VocabularyOrderAndFilter|top_k: None|frequency_threshold: None|coverage_top_k: None|coverage_frequency_threshold: None|key_fn: None|label: VocabularyOrderAndFilter[x]}"];
+"VocabularyMerge[x]" -> "VocabularyOrderAndFilter[x]";
+"VocabularyWrite[x]" [label="{VocabularyWrite|vocab_filename: vocab_x|store_frequency: False|label: VocabularyWrite[x]}"];
+"VocabularyOrderAndFilter[x]" -> "VocabularyWrite[x]";
 "CreateTensorBinding[x/Placeholder]" [label="{CreateTensorBinding|tensor: x/Placeholder:0|is_asset_filepath: True|label: CreateTensorBinding[x/Placeholder]}"];
-"Vocabulary[x]" -> "CreateTensorBinding[x/Placeholder]";
+"VocabularyWrite[x]" -> "CreateTensorBinding[x/Placeholder]";
 CreateSavedModel [label="{CreateSavedModel|table_initializers: (\<tf.Operation 'string_to_index/hash_table/table_init' type=InitializeTableFromTextFileV2\>,)|output_signature: OrderedDict([('x_integerized', \<tf.Tensor 'hash_table_Lookup:0' shape=(?,) dtype=int64\>)])|label: CreateSavedModel}"];
 "CreateTensorBinding[x/Placeholder]" -> CreateSavedModel;
 }
@@ -222,7 +225,7 @@ _ANALYZE_TEST_CASES = [
 ]
 
 
-class AnalysisGraphBuilderTest(test_case.TransformTestCase):
+class AnalysisGraphBuilderTest(test_case.TransformTestCaseInternal):
 
   @test_case.named_parameters(*_ANALYZE_TEST_CASES)
   def test_build(self, feature_spec, preprocessing_fn, expected_dot_graph_str):

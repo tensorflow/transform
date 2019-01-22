@@ -16,23 +16,19 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
 import collections
 import json
 import os
-
-
 import apache_beam as beam
-
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
-from tensorflow_transform import test_case
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.beam import analysis_graph_builder
 from tensorflow_transform.beam import impl as beam_impl
+from tensorflow_transform.google import test_case
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
@@ -76,17 +72,34 @@ _OPTIMIZE_TRAVERSAL_COMMON_CASE = dict(
 directed=True;
 node [shape=Mrecord];
 "CreateSavedModelForAnalyzerInputs[0]" [label="{CreateSavedModel|table_initializers: ()|output_signature: OrderedDict([('vocabulary/Reshape', \<tf.Tensor 'vocabulary/Reshape:0' shape=(?,) dtype=string\>), ('x/mean_and_var/Cast', \<tf.Tensor 'x/mean_and_var/Cast:0' shape=() dtype=float32\>), ('x/mean_and_var/truediv', \<tf.Tensor 'x/mean_and_var/truediv:0' shape=() dtype=float32\>), ('x/mean_and_var/truediv_1', \<tf.Tensor 'x/mean_and_var/truediv_1:0' shape=() dtype=float32\>)])|label: CreateSavedModelForAnalyzerInputs[0]}"];
-"ApplySavedModel[0]" [label="{ApplySavedModel|dataset_key: None|phase: 0|label: ApplySavedModel[0]|partitionable: True}"];
-"CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0]";
-"TensorSource[vocabulary]" [label="{ExtractFromDict|keys: ('vocabulary/Reshape',)|label: TensorSource[vocabulary]|partitionable: True}"];
-"ApplySavedModel[0]" -> "TensorSource[vocabulary]";
-"Vocabulary[vocabulary]" [label="{Vocabulary|top_k: None|frequency_threshold: None|vocab_filename: vocab_vocabulary|store_frequency: False|vocab_ordering_type: 1|use_adjusted_mutual_info: False|min_diff_from_avg: 0.0|coverage_top_k: None|coverage_frequency_threshold: None|key_fn: None|label: Vocabulary[vocabulary]}"];
-"TensorSource[vocabulary]" -> "Vocabulary[vocabulary]";
-"CreateTensorBinding[vocabulary/Placeholder]" [label="{CreateTensorBinding|tensor: vocabulary/Placeholder:0|is_asset_filepath: True|label: CreateTensorBinding[vocabulary/Placeholder]}"];
-"Vocabulary[vocabulary]" -> "CreateTensorBinding[vocabulary/Placeholder]";
-"ReadCache[CacheableCombineAccumulate[x/mean_and_var]][span-0]" [label="{ReadCache|path: span-0/__v0__CacheableCombineAccumulate--x-mean_and_var--|coder: \<JsonNumpyCacheCoder\>|label: ReadCache[CacheableCombineAccumulate[x/mean_and_var]][span-0]|partitionable: True}"];
+"ApplySavedModel[0][span-0]" [label="{ApplySavedModel|dataset_key: span-0|phase: 0|label: ApplySavedModel[0][span-0]|partitionable: True}"];
+"CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0][span-0]";
+"TensorSource[vocabulary][span-0]" [label="{ExtractFromDict|keys: ('vocabulary/Reshape',)|label: TensorSource[vocabulary][span-0]|partitionable: True}"];
+"ApplySavedModel[0][span-0]" -> "TensorSource[vocabulary][span-0]";
+"VocabularyAccumulate[vocabulary][span-0]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|label: VocabularyAccumulate[vocabulary][span-0]|partitionable: True}"];
+"TensorSource[vocabulary][span-0]" -> "VocabularyAccumulate[vocabulary][span-0]";
+"WriteCache[VocabularyAccumulate[vocabulary]][span-0]" [label="{WriteCache|path: span-0/__v0__VocabularyAccumulate--vocabulary--|coder: \<_VocabularyAccumulatorCoder\>|label: WriteCache[VocabularyAccumulate[vocabulary]][span-0]|partitionable: True}"];
+"VocabularyAccumulate[vocabulary][span-0]" -> "WriteCache[VocabularyAccumulate[vocabulary]][span-0]";
 "ApplySavedModel[0][span-1]" [label="{ApplySavedModel|dataset_key: span-1|phase: 0|label: ApplySavedModel[0][span-1]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0][span-1]";
+"TensorSource[vocabulary][span-1]" [label="{ExtractFromDict|keys: ('vocabulary/Reshape',)|label: TensorSource[vocabulary][span-1]|partitionable: True}"];
+"ApplySavedModel[0][span-1]" -> "TensorSource[vocabulary][span-1]";
+"VocabularyAccumulate[vocabulary][span-1]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|label: VocabularyAccumulate[vocabulary][span-1]|partitionable: True}"];
+"TensorSource[vocabulary][span-1]" -> "VocabularyAccumulate[vocabulary][span-1]";
+"WriteCache[VocabularyAccumulate[vocabulary]][span-1]" [label="{WriteCache|path: span-1/__v0__VocabularyAccumulate--vocabulary--|coder: \<_VocabularyAccumulatorCoder\>|label: WriteCache[VocabularyAccumulate[vocabulary]][span-1]|partitionable: True}"];
+"VocabularyAccumulate[vocabulary][span-1]" -> "WriteCache[VocabularyAccumulate[vocabulary]][span-1]";
+"FlattenCache[VocabularyMerge[vocabulary]]" [label="{Flatten|label: FlattenCache[VocabularyMerge[vocabulary]]|partitionable: True}"];
+"WriteCache[VocabularyAccumulate[vocabulary]][span-0]" -> "FlattenCache[VocabularyMerge[vocabulary]]";
+"WriteCache[VocabularyAccumulate[vocabulary]][span-1]" -> "FlattenCache[VocabularyMerge[vocabulary]]";
+"VocabularyMerge[vocabulary]" [label="{VocabularyMerge|vocab_ordering_type: 1|use_adjusted_mutual_info: False|min_diff_from_avg: 0.0|label: VocabularyMerge[vocabulary]}"];
+"FlattenCache[VocabularyMerge[vocabulary]]" -> "VocabularyMerge[vocabulary]";
+"VocabularyOrderAndFilter[vocabulary]" [label="{VocabularyOrderAndFilter|top_k: None|frequency_threshold: None|coverage_top_k: None|coverage_frequency_threshold: None|key_fn: None|label: VocabularyOrderAndFilter[vocabulary]}"];
+"VocabularyMerge[vocabulary]" -> "VocabularyOrderAndFilter[vocabulary]";
+"VocabularyWrite[vocabulary]" [label="{VocabularyWrite|vocab_filename: vocab_vocabulary|store_frequency: False|label: VocabularyWrite[vocabulary]}"];
+"VocabularyOrderAndFilter[vocabulary]" -> "VocabularyWrite[vocabulary]";
+"CreateTensorBinding[vocabulary/Placeholder]" [label="{CreateTensorBinding|tensor: vocabulary/Placeholder:0|is_asset_filepath: True|label: CreateTensorBinding[vocabulary/Placeholder]}"];
+"VocabularyWrite[vocabulary]" -> "CreateTensorBinding[vocabulary/Placeholder]";
+"ReadCache[CacheableCombineAccumulate[x/mean_and_var]][span-0]" [label="{ReadCache|path: span-0/__v0__CacheableCombineAccumulate--x-mean_and_var--|coder: \<JsonNumpyCacheCoder\>|label: ReadCache[CacheableCombineAccumulate[x/mean_and_var]][span-0]|partitionable: True}"];
 "TensorSource[x/mean_and_var][span-1]" [label="{ExtractFromDict|keys: ('x/mean_and_var/Cast', 'x/mean_and_var/truediv', 'x/mean_and_var/truediv_1')|label: TensorSource[x/mean_and_var][span-1]|partitionable: True}"];
 "ApplySavedModel[0][span-1]" -> "TensorSource[x/mean_and_var][span-1]";
 "CacheableCombineAccumulate[x/mean_and_var][span-1]" [label="{CacheableCombineAccumulate|combiner: \<MeanAndVarCombiner\>|label: CacheableCombineAccumulate[x/mean_and_var][span-1]|partitionable: True}"];
@@ -291,7 +304,7 @@ _OPTIMIZE_TRAVERSAL_TEST_CASES = [
 ]
 
 
-class CachedImplTest(test_case.TransformTestCase):
+class CachedImplTest(test_case.TransformTestCaseInternal):
 
   def setUp(self):
     super(CachedImplTest, self).setUp()
@@ -325,11 +338,13 @@ class CachedImplTest(test_case.TransformTestCase):
 
     def preprocessing_fn(inputs):
 
-      _ = tft.vocabulary(inputs['s'])
+      integerized_s = tft.compute_and_apply_vocabulary(inputs['s'])
 
       _ = tft.bucketize(inputs['x'], 2, name='bucketize')
 
       return {
+          'integerized_s':
+              integerized_s,
           'x_min':
               tft.min(inputs['x'], name='x') + tf.zeros_like(inputs['x']),
           'x_mean':
@@ -342,7 +357,7 @@ class CachedImplTest(test_case.TransformTestCase):
 
     # Run AnalyzeAndTransform on some input data and compare with expected
     # output.
-    input_data = [{'x': 12, 'y': 1, 's': 'b'}, {'x': 10, 'y': 1, 's': 'b'}]
+    input_data = [{'x': 12, 'y': 1, 's': 'c'}, {'x': 10, 'y': 1, 's': 'c'}]
     input_metadata = dataset_metadata.DatasetMetadata(
         dataset_schema.from_feature_spec({
             'x': tf.FixedLenFeature([], tf.float32),
@@ -353,11 +368,11 @@ class CachedImplTest(test_case.TransformTestCase):
         span_0_key: [{
             'x': -2,
             'y': 1,
-            's': 'a',
+            's': 'b',
         }, {
             'x': 4,
             'y': -4,
-            's': 'a',
+            's': 'b',
         }],
         span_1_key: input_data,
     }
@@ -381,12 +396,14 @@ class CachedImplTest(test_case.TransformTestCase):
             'x_min': -2.0,
             'y_mean': -0.25,
             'y_min': -4.0,
+            'integerized_s': 0,
         },
         {
             'x_mean': 6.0,
             'x_min': -2.0,
             'y_mean': -0.25,
             'y_min': -4.0,
+            'integerized_s': 0,
         },
     ]
     self.assertDataCloseOrEqual(transformed_data, exepected_transformed_data)
@@ -419,7 +436,7 @@ class CachedImplTest(test_case.TransformTestCase):
               tft.mean(inputs['y'], name='y') + tf.zeros_like(inputs['y']),
       }
 
-    input_data = [{'x': 12, 'y': 1, 's': 'b'}, {'x': 10, 'y': 1, 's': 'b'}]
+    input_data = [{'x': 12, 'y': 1, 's': 'b'}, {'x': 10, 'y': 1, 's': 'c'}]
     input_metadata = dataset_metadata.DatasetMetadata(
         dataset_schema.from_feature_spec({
             'x': tf.FixedLenFeature([], tf.float32),
@@ -474,7 +491,7 @@ class CachedImplTest(test_case.TransformTestCase):
     for key in input_data_dict:
       key_cache_dir = os.path.join(cache_location.output_cache_dir, key)
       self.assertTrue(tf.gfile.IsDirectory(key_cache_dir))
-      self.assertEqual(len(tf.gfile.ListDirectory(key_cache_dir)), 5)
+      self.assertEqual(len(tf.gfile.ListDirectory(key_cache_dir)), 6)
 
     cache_location = self._make_cache_location('output_cache_1',
                                                'output_cache_2')
@@ -494,6 +511,94 @@ class CachedImplTest(test_case.TransformTestCase):
     self.assertDataCloseOrEqual(transformed_data, exepected_transformed_data)
 
     self.assertFalse(tf.gfile.IsDirectory(cache_location.output_cache_dir))
+
+  def test_non_frequency_vocabulary_merge(self):
+    """This test compares vocabularies produced with and without cache."""
+
+    mi_vocab_name = 'mutual_information_vocab'
+    adjusted_mi_vocab_name = 'adjusted_mutual_information_vocab'
+    weighted_frequency_vocab_name = 'weighted_frequency_vocab'
+
+    def preprocessing_fn(inputs):
+      _ = tft.vocabulary(
+          inputs['s'],
+          labels=inputs['label'],
+          store_frequency=True,
+          vocab_filename=mi_vocab_name,
+          min_diff_from_avg=0.1,
+          use_adjusted_mutual_info=False)
+
+      _ = tft.vocabulary(
+          inputs['s'],
+          labels=inputs['label'],
+          store_frequency=True,
+          vocab_filename=adjusted_mi_vocab_name,
+          min_diff_from_avg=1.0,
+          use_adjusted_mutual_info=True)
+
+      _ = tft.vocabulary(
+          inputs['s'],
+          weights=inputs['weight'],
+          store_frequency=True,
+          vocab_filename=weighted_frequency_vocab_name,
+          use_adjusted_mutual_info=False)
+      return inputs
+
+    span_0_key = 'span-0'
+    span_1_key = 'span-1'
+
+    input_data = [
+        dict(s='a', weight=1, label=1),
+        dict(s='a', weight=0.5, label=1),
+        dict(s='b', weight=0.75, label=1),
+        dict(s='b', weight=1, label=0),
+    ]
+    input_metadata = dataset_metadata.DatasetMetadata(
+        dataset_schema.from_feature_spec({
+            's': tf.FixedLenFeature([], tf.string),
+            'label': tf.FixedLenFeature([], tf.int64),
+            'weight': tf.FixedLenFeature([], tf.float32),
+        }))
+    input_data_dict = {
+        span_0_key: input_data,
+        span_1_key: input_data,
+    }
+    with beam_impl.Context(temp_dir=self.get_temp_dir()):
+
+      flat_data = input_data_dict.values() | 'Flatten' >> beam.Flatten()
+
+      transform_fn_with_cache = ((flat_data, input_data_dict, input_metadata) |
+                                 (beam_impl.AnalyzeDatasetWithCache(
+                                     preprocessing_fn,
+                                     self._make_cache_location())))
+
+      transform_fn_no_cache = ((input_data * 2, input_metadata) |
+                               (beam_impl.AnalyzeDataset(preprocessing_fn)))
+
+    transform_fn_with_cache_dir = os.path.join(self.base_test_dir,
+                                               'transform_fn_with_cache')
+    _ = transform_fn_with_cache | tft_beam.WriteTransformFn(
+        transform_fn_with_cache_dir)
+
+    transform_fn_no_cache_dir = os.path.join(self.base_test_dir,
+                                             'transform_fn_no_cache')
+    _ = transform_fn_no_cache | tft_beam.WriteTransformFn(
+        transform_fn_no_cache_dir)
+
+    tft_output_cache = tft.TFTransformOutput(transform_fn_with_cache_dir)
+    tft_output_no_cache = tft.TFTransformOutput(transform_fn_no_cache_dir)
+
+    for vocab_filename in (mi_vocab_name, adjusted_mi_vocab_name,
+                           weighted_frequency_vocab_name):
+      cache_path = tft_output_cache.vocabulary_file_by_name(vocab_filename)
+      no_cache_path = tft_output_no_cache.vocabulary_file_by_name(
+          vocab_filename)
+      with tf.gfile.Open(cache_path, 'rb') as f1, tf.gfile.Open(
+          no_cache_path, 'rb') as f2:
+        self.assertEqual(
+            f1.readlines(), f2.readlines(),
+            'vocab with cache != vocab without cache for: {}'.format(
+                vocab_filename))
 
   @test_case.named_parameters(*_OPTIMIZE_TRAVERSAL_TEST_CASES)
   def test_optimize_traversal(self, feature_spec, preprocessing_fn,

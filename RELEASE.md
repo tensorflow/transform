@@ -4,6 +4,13 @@
 * Performance improvements for vocabulary generation when using top_k.
 * New optimized highly experimental API for analyzing a dataset was added,
   `AnalyzeDatasetWithCache`, which allows reading and writing analyzer cache.
+* Update `DatasetMetadata` to be a wrapper around the
+  `tensorflow_metadata.proto.v0.schema_pb2.Schema` proto.  TensorFlow Metadata
+  will be the schema used to define data parsing across TFX.  The serialized
+  `DatasetMetadata` is now the `Schema` proto in ascii format, but the previous
+  format can still be read.
+* Change `ApplySavedModel` implementation to use `tf.Session.make_callable`
+  instead of `tf.Session.run` for improved performance.
 
 ## Bug Fixes and Other Changes
 * `tft.vocabulary` and `tft.compute_and_apply_vocabulary` now support filtering
@@ -21,8 +28,20 @@
   `tf.Session.run` for improved performance.
 * ExampleProtoCoder now also supports non-serialized Example representations.
 * `tft.tfidf` now accepts a scalar Tensor as `vocab_size`.
+* `assertItemsEqual` in unit tests are replaced by `assertCountEqual`.
+* `NumPyCombiner` now outputs TF dtypes in output_tensor_infos instead of numpy
+  dtypes.
+* Adds function `tft.apply_pyfunc` that provides limited support for
+  `tf.pyfunc`. Note that this is incompatible with serving. See documentation
+  for more details.
 
 ## Breaking changes
+* `ColumnSchema` and related classes (`Domain`, `Axis` and
+  `ColumnRepresentation` and their subclasses) have been removed.  In order to
+  create a schema, use `from_feature_spec`.  In order to inspect a schema
+  use the `as_feature_spec` and `domains` methods of `Schema`.  The
+  constructors of these classes are replaced by functions that still work when
+  creating a `Schema` but this usage is deprecated.
 
 ## Deprecations
 

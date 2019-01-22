@@ -18,8 +18,6 @@ from __future__ import division
 from __future__ import print_function
 
 import inspect
-import os
-import subprocess
 
 
 from absl.testing import parameterized
@@ -88,11 +86,11 @@ class TransformTestCase(parameterized.TestCase, test_util.TensorFlowTestCase):
     Raises:
       AssertionError: if the two datasets are not the same.
     """
-    a_data, b_data = _sorted_data(a_data), _sorted_data(b_data)
+    a_data, b_data = self._sorted_data(a_data), self._sorted_data(b_data)
     self.assertEqual(
         len(a_data), len(b_data), 'len(%r) != len(%r)' % (a_data, b_data))
     for i, (a_row, b_row) in enumerate(zip(a_data, b_data)):
-      self.assertItemsEqual(a_row.keys(), b_row.keys(), msg='Row %d' % i)
+      self.assertCountEqual(a_row.keys(), b_row.keys(), msg='Row %d' % i)
       for key in a_row.keys():
         a_value = a_row[key]
         b_value = b_row[key]
@@ -120,22 +118,20 @@ class TransformTestCase(parameterized.TestCase, test_util.TensorFlowTestCase):
   def WriteRenderedDotFile(self, dot_string, output_file=None):
     tf.logging.info('Writing a rendered dot file is not yet supported.')
 
+  def _numpy_arrays_to_lists(self, maybe_arrays):
+    return [
+        x.tolist() if isinstance(x, np.ndarray) else x for x in maybe_arrays]
 
-def _numpy_arrays_to_lists(maybe_arrays):
-  return [x.tolist() if isinstance(x, np.ndarray) else x for x in maybe_arrays]
+  def _sorted_dicts(self, list_of_dicts):
+    # Sorts dicts by their unordered (key, value) pairs.
+    return sorted(list_of_dicts, key=lambda d: sorted(d.items()))
 
-
-def _sorted_dicts(list_of_dicts):
-  # Sorts dicts by their unordered (key, value) pairs.
-  return sorted(list_of_dicts, key=lambda d: sorted(d.items()))
-
-
-def _sorted_data(list_of_dicts_of_arrays):
-  list_of_values = [
-      _numpy_arrays_to_lists(d.values()) for d in list_of_dicts_of_arrays
-  ]
-  list_of_keys = [d.keys() for d in list_of_dicts_of_arrays]
-  unsorted_dict_list = [
-      dict(zip(a, b)) for a, b in zip(list_of_keys, list_of_values)
-  ]
-  return _sorted_dicts(unsorted_dict_list)
+  def _sorted_data(self, list_of_dicts_of_arrays):
+    list_of_values = [
+        self._numpy_arrays_to_lists(d.values()) for d in list_of_dicts_of_arrays
+    ]
+    list_of_keys = [d.keys() for d in list_of_dicts_of_arrays]
+    unsorted_dict_list = [
+        dict(zip(a, b)) for a, b in zip(list_of_keys, list_of_values)
+    ]
+    return self._sorted_dicts(unsorted_dict_list)

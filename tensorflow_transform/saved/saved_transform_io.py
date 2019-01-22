@@ -23,6 +23,7 @@ import re
 
 import six
 import tensorflow as tf
+from tensorflow_transform.py_func import pyfunc_helper
 from tensorflow_transform.saved import constants
 from tensorflow_transform.saved import saved_model_loader
 from tensorflow.python.framework import ops
@@ -199,6 +200,9 @@ def _partially_apply_saved_transform_impl(
   else:
     import_scope = scope
 
+  # If the saved_model contained py_funcs, will reinsert them in the graph
+  # here and update their associated token in the model.
+  pyfunc_helper.register_pyfuncs_from_saved_transform(graph, meta_graph_def)
 
   # Save the ASSET_FILEPATHS before importing the MetaGraphDef
   current_assets = graph.get_collection(tf.GraphKeys.ASSET_FILEPATHS)

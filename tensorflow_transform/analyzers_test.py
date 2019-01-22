@@ -21,6 +21,7 @@ import pickle
 
 
 import numpy as np
+import tensorflow as tf
 
 from tensorflow_transform import analyzers
 from tensorflow_transform import test_case
@@ -30,7 +31,7 @@ _NP_TYPES = (np.float32, np.float64, np.int32, np.int64)
 _SUM_TEST = dict(
     testcase_name='Sum',
     combiner=analyzers.NumPyCombiner(
-        np.sum, output_dtypes=[np.int64]),
+        np.sum, output_dtypes=[np.int64], output_shapes=[(None,)]),
     batches=[
         (np.array([1, 2, 3, 4, 5, 6]),),
         (np.array([1, 2, 3, 4, 5, 6]),),
@@ -41,7 +42,7 @@ _SUM_TEST = dict(
 _SUM_SCALAR_TEST = dict(
     testcase_name='SumScalar',
     combiner=analyzers.NumPyCombiner(
-        np.sum, output_dtypes=[np.int64]),
+        np.sum, output_dtypes=[np.int64], output_shapes=[(None,)]),
     batches=[
         (np.array(1),),
         (np.array(2),),
@@ -52,7 +53,7 @@ _SUM_SCALAR_TEST = dict(
 _SUM_OF_SIZE_ZERO_TENSORS_TEST = dict(
     testcase_name='SumOfSizeZeroTensors',
     combiner=analyzers.NumPyCombiner(
-        np.sum, output_dtypes=[np.int64]),
+        np.sum, output_dtypes=[np.int64], output_shapes=[(None, None)]),
     batches=[
         (np.array([]),),
         (np.array([]),),
@@ -297,9 +298,14 @@ class AnalyzersTest(test_case.TransformTestCase):
 
     final_accumulator = combiner.merge_accumulators(accumulators)
     outputs = combiner.extract_output(final_accumulator)
+    tensor_infos = combiner.output_tensor_infos()
     self.assertEqual(len(outputs), len(expected_outputs))
-    for output, expected_output in zip(outputs, expected_outputs):
+    self.assertEqual(len(outputs), len(tensor_infos))
+    for output, expected_output, tensor_info in zip(
+        outputs, expected_outputs, tensor_infos):
       self.assertEqual(output.dtype, expected_output.dtype)
+      self.assertEqual(tensor_info.dtype,
+                       tf.as_dtype(expected_output.dtype))
       self.assertAllEqual(output, expected_output)
 
 

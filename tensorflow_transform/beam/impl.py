@@ -295,17 +295,17 @@ class _RunMetaGraphDoFn(beam.DoFn):
                  tf_config):
       self.saved_model_dir = saved_model_dir
       graph = tf.Graph()
-      self.session = tf.Session(graph=graph, config=tf_config)
+      self._session = tf.Session(graph=graph, config=tf_config)
       with graph.as_default():
-        with self.session.as_default():
+        with self._session.as_default():
           inputs, outputs = (
               saved_transform_io.partially_apply_saved_transform_internal(
                   saved_model_dir, {}))
-        self.session.run(tf.global_variables_initializer())
-        self.session.run(tf.tables_initializer())
+        self._session.run(tf.global_variables_initializer())
+        self._session.run(tf.tables_initializer())
         graph.finalize()
 
-        input_schema_keys = input_schema.column_schemas.keys()
+        input_schema_keys = sorted(input_schema.as_feature_spec().keys())
         extra_input_keys = set(input_schema_keys).difference(inputs.keys())
         if extra_input_keys:
           raise ValueError('Input schema contained keys not in graph: %s' %
@@ -314,10 +314,16 @@ class _RunMetaGraphDoFn(beam.DoFn):
         if extra_output_keys:
           raise ValueError('Excluded outputs contained keys not in graph: %s' %
                            exclude_outputs)
-        non_excluded_output_keys = set(
-            outputs.keys()).difference(exclude_outputs)
-        self.inputs = {key: inputs[key] for key in input_schema_keys}
-        self.outputs = {key: outputs[key] for key in non_excluded_output_keys}
+        non_excluded_output_keys = sorted(
+            set(outputs.keys()).difference(exclude_outputs))
+        fetches = [outputs[key] for key in non_excluded_output_keys]
+        tensor_inputs = [inputs[key] for key in input_schema_keys]
+
+        self.callable_get_outputs = self._session.make_callable(
+            fetches, feed_list=tensor_inputs)
+
+        self.inputs_tensor_keys = input_schema_keys
+        self.outputs_tensor_keys = non_excluded_output_keys
 
   def __init__(self,
                input_schema,
@@ -331,7 +337,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
         exclude_outputs if exclude_outputs is not None else [])
     self._serialized_tf_config = serialized_tf_config
     self._passthrough_keys = set(passthrough_keys)
-    schema_keys = set(input_schema.column_schemas.keys())
+    schema_keys = set(input_schema.as_feature_spec().keys())
     if self._passthrough_keys - schema_keys != self._passthrough_keys:
       raise ValueError(
           'passthrough_keys overlap with schema keys: {}, {}'.format(
@@ -364,16 +370,21 @@ class _RunMetaGraphDoFn(beam.DoFn):
              ] for key in self._passthrough_keys
     }
 
-    feed_dict = impl_helper.make_feed_dict(self._graph_state.inputs,
+    feed_list = impl_helper.make_feed_list(self._graph_state.inputs_tensor_keys,
                                            self._input_schema, batch)
 
     try:
-      result = self._graph_state.session.run(
-          self._graph_state.outputs, feed_dict=feed_dict)
+      outputs_list = self._graph_state.callable_get_outputs(*feed_list)
     except Exception as e:
       tf.logging.error('%s while applying transform function for tensors %s',
-                       (e, self._graph_state.outputs))
-      raise
+                       (e, self._graph_state.outputs_tensor_keys))
+      raise ValueError('bad inputs: {}'.format(feed_list))
+
+    assert len(self._graph_state.outputs_tensor_keys) == len(outputs_list)
+    result = {
+        key: value for key, value in zip(self._graph_state.outputs_tensor_keys,
+                                         outputs_list)
+    }
 
     for key, value in six.iteritems(passthrough_data):
       result[key] = value
@@ -859,13 +870,14 @@ class AnalyzeAndTransformDataset(beam.PTransform):
 
 def _remove_columns_from_metadata(metadata, excluded_columns):
   """Remove columns from metadata without mutating original metadata."""
-  schema = metadata.schema
-  new_schema = dataset_schema.Schema({
-      key: column_schema
-      for key, column_schema in six.iteritems(schema.column_schemas)
-      if key not in excluded_columns
-  })
-  return dataset_metadata.DatasetMetadata(new_schema)
+  feature_spec = metadata.schema.as_feature_spec()
+  domains = metadata.schema.domains()
+  new_feature_spec = {name: spec for name, spec in feature_spec.items()
+                      if name not in excluded_columns}
+  new_domains = {name: spec for name, spec in domains.items()
+                 if name not in excluded_columns}
+  return dataset_metadata.DatasetMetadata(
+      dataset_schema.from_feature_spec(new_feature_spec, new_domains))
 
 
 class TransformDataset(beam.PTransform):
