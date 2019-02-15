@@ -19,6 +19,7 @@ from __future__ import print_function
 
 import os
 
+# GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 from tensorflow_transform import pretrained_models

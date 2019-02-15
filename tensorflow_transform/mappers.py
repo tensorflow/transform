@@ -55,6 +55,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+# GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 from tensorflow_transform import analyzers
@@ -635,6 +636,9 @@ def segment_indices(segment_ids, name=None):
     A `Tensor` containing the indices within each segment.
   """
   with tf.name_scope(name, 'segment_indices'):
+    # TODO(KesterTong): This is a fundamental operation for segments, write a C++
+    # op to do this.
+    # TODO(KesterTong): Add a check that segment_ids are increasing.
     segment_lengths = tf.segment_sum(tf.ones_like(segment_ids), segment_ids)
     segment_starts = tf.gather(tf.concat([[0], tf.cumsum(segment_lengths)], 0),
                                segment_ids)

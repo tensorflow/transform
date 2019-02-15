@@ -20,6 +20,7 @@ from __future__ import print_function
 import os
 import tempfile
 
+# GOOGLE-INITIALIZATION
 import tensorflow as tf
 
 from tensorflow_transform.saved import saved_transform_io

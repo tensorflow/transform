@@ -189,12 +189,14 @@ _DECODE_ONLY_CASES = [
         feature_spec={'x': tf.FixedLenFeature([], tf.float32)},
         csv_line='"12.0"',
         instance={'x': 12}),
+    # TODO(b/35847532): Move this once it succeeds a roundtrip decode/encode.
     dict(
         testcase_name='var_len_string_with_missing_value',
         columns=['x'],
         feature_spec={'x': tf.VarLenFeature(tf.string)},
         csv_line='',
         instance={'x': []}),
+    # TODO(KesterTong): Fix bugs in encoding.
     dict(
         testcase_name='multiple_columns_numpy',
         columns=_COLUMNS,

@@ -20,6 +20,7 @@ from __future__ import print_function
 import os
 import re
 
+# GOOGLE-INITIALIZATION
 
 import six
 import tensorflow as tf
@@ -96,6 +97,8 @@ def _load_transform_saved_model(transform_savedmodel_dir):
   # The following code handles models produced prior to CL/200123875.  These
   # models used a non-standard naming convention for features in order to
   # support SparseTensor.
+  # TODO(b/34253951): Remove the following code once we no longer want to
+  # support the legacy formats.
   _update_legacy_signature(signature)
 
   # maps name to TensorInfo
@@ -245,6 +248,7 @@ def _partially_apply_saved_transform_impl(
     # We can't use the scope rename from init_from_checkpoint because it relies
     # on var scopes not rebuilt by import_meta_graph. So we need to construct it
     # explicitly by iterating over the variables.
+    # TODO(b/78624684): remove this workaround.
     var_map = {}
     for var in tf.global_variables():
       var_name = var.op.name

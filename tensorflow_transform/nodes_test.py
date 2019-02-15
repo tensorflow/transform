@@ -19,10 +19,11 @@ from __future__ import print_function
 
 import collections
 
+# GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 from tensorflow_transform import nodes
-from tensorflow_transform.google import test_case
+from tensorflow_transform import test_case
 
 mock = tf.test.mock
 
@@ -48,7 +49,7 @@ class _Identity(collections.namedtuple('_Identity', ['label']),
   pass
 
 
-class NodesTest(test_case.TransformTestCaseInternal):
+class NodesTest(test_case.TransformTestCase):
 
   def testApplyOperationWithKwarg(self):
     a = nodes.apply_operation(_Constant, value='a', label='Constant[a]')

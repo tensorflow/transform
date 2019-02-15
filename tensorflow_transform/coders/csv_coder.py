@@ -17,6 +17,7 @@ from __future__ import division
 from __future__ import print_function
 
 import csv
+# GOOGLE-INITIALIZATION
 
 import numpy as np
 import six
@@ -26,6 +27,7 @@ import tensorflow as tf
 
 # This is in agreement with Tensorflow conversions for Unicode values for both
 # Python 2 and 3 (and also works for non-Unicode objects).
+# TODO(b/123241312): Remove this fn since we will only support bytes input.
 def _to_bytes(x):
   """Converts x to bytes."""
   return tf.compat.as_bytes(x)
@@ -54,6 +56,7 @@ def _elements_to_bytes(x):
   return _to_bytes(x)
 
 
+# TODO(b/119621361): Consider harmonizing _make_cast_fn() for all coders.
 def _make_cast_fn(dtype):
   """Return a function to extract the typed value from the feature.
 
@@ -219,13 +222,12 @@ class _VarLenFeatureHandler(object):
     """Parse the value of this feature from string list split from CSV line."""
     value_str = string_list[self._index]
     if value_str and self._reader:
-      values = list(
+      return list(
           map(self._cast_fn, _decode_with_reader(value_str, self._reader)))
     elif value_str:
-      values = [self._cast_fn(value_str)]
+      return [self._cast_fn(value_str)]
     else:
-      values = []
-    return np.asarray(values, dtype=self._np_dtype)
+      return []
 
   def encode_value(self, string_list, values):
     """Encode the value of this feature into the CSV line."""
@@ -287,6 +289,7 @@ class _SparseFeatureHandler(object):
       indices = []
 
     # Check that all indices are in range.
+    # TODO(b/36040669): Move this validation so it can be shared by all coders.
     if indices:
       i_min, i_max = min(indices), max(indices)
       if i_min < 0 or i_max >= self._size:
@@ -329,6 +332,8 @@ class EncodeError(Exception):
   pass
 
 
+# TODO(b/32491265) Revisit using cStringIO for design compatibility with
+# coders.CsvCoder.
 class _LineGenerator(object):
   """A csv line generator that allows feeding lines to a csv.DictReader."""
 

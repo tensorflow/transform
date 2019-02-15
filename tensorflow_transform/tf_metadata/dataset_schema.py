@@ -57,6 +57,10 @@ class Schema(object):
   def __repr__(self):
     return '{}({})'.format(self.__class__.__name__, repr(self._schema_proto))
 
+  # TODO(b/36866244): consider writing a function that prepares a schema for
+  # parsing with tf.parse_example by adjusting the dtypes to the supported ones,
+  # e.g. new_schema = make_parseable(old_schema).  As it stands,
+  # as_feature_spec() may return dtypes that tf.parse_example doesn't support.
 
   def as_feature_spec(self):
     """Returns a representation of this Schema as a feature spec.

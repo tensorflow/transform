@@ -32,6 +32,8 @@ TRANSFORM_FN_DIR = tft.TFTransformOutput.TRANSFORM_FN_DIR
 
 def _copy_tree(source, destination):
   """Recursively copies source to destination."""
+  # TODO(b/35363519): Perhaps use Beam IO eventually (which also already
+  # supports recursive copy)?
   import tensorflow as tf  # pylint: disable=g-import-not-at-top
 
   if tf.gfile.IsDirectory(source):
@@ -80,6 +82,8 @@ class WriteTransformFn(beam.PTransform):
         saved_model_dir
         | 'WriteTransformFn' >> beam.Map(_copy_tree, transform_fn_path))
 
+    # TODO(KesterTong): Move this "must follows" logic into a TFT wide helper
+    # function or into Beam.
     return (
         write_transform_fn_done
         | 'WaitOnWriteMetadataDone' >> beam.Map(

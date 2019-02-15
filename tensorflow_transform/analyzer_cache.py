@@ -20,6 +20,7 @@ from __future__ import print_function
 import os
 import re
 
+# GOOGLE-INITIALIZATION
 
 # This should be advanced whenever a non-backwards compatible change is made
 # that affects analyzer cache. For example, changing accumulator format.

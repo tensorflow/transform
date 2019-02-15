@@ -25,35 +25,30 @@ def _make_required_install_packages():
   # six, and protobuf) with TF.
   return [
       'absl-py>=0.1.6',
-      'apache-beam[gcp]>=2.8,<3',
-      'numpy>=1.13.3,<2',
-
-      'protobuf>=3.6.0,<4',
-
+      'apache-beam[gcp]>=2.9,<3',
+      'numpy>=1.14.5,<2',
+      # TODO(b/124072021): currently one test fails for py3 with protobuf 3.6
+      # update this to a non-rc version.
+      'protobuf==3.7.0rc2',
       'six>=1.10,<2',
-
       'tensorflow-metadata>=0.9,<0.10',
 
-
+      # TODO(b/123240958): Uncomment this once TF can automatically select
+      # between CPU and GPU installation.
+      # 'tensorflow>=1.12,<2',
       'pydot>=1.2.0,<1.3',
   ]
 
-_LONG_DESCRIPTION = """\
-*TensorFlow Transform* is a library for preprocessing data with TensorFlow.
-`tf.Transform` is useful for data that requires a full-pass, such as:
+# TODO(b/121329572): Remove the following comment after we can guarantee the
+# required versions of packages through kokoro release workflow.
+# Note: In order for the README to be rendered correctly, make sure to have the
+# following minimum required versions of the respective packages when building
+# and uploading the zip/wheel package to PyPI:
+# setuptools >= 38.6.0, wheel >= 0.31.0, twine >= 1.11.0
 
-* Normalize an input value by mean and standard deviation.
-* Convert strings to integers by generating a vocabulary over all input values.
-* Convert floats to integers by assigning them to buckets based on the observed
-  data distribution.
-
-TensorFlow has built-in support for manipulations on a single example or a batch
-of examples. `tf.Transform` extends these capabilities to support full-passes
-over the example data.
-
-https://github.com/tensorflow/transform/blob/master/README.md
-"""
-
+# Get the long description from the README file.
+with open('README.md') as fp:
+  _LONG_DESCRIPTION = fp.read()
 
 setup(
     name='tensorflow-transform',
@@ -71,21 +66,29 @@ setup(
         'Programming Language :: Python',
         'Programming Language :: Python :: 2',
         'Programming Language :: Python :: 2.7',
+        # TODO(b/34685282): Once we support Python 3, remove this line.
         'Programming Language :: Python :: 2 :: Only',
+        # TODO(b/34685282): Once we support Python 3, uncomment these lines.
+        # 'Programming Language :: Python :: 3',
+        # 'Programming Language :: Python :: 3.4',
+        # 'Programming Language :: Python :: 3.5',
+        # 'Programming Language :: Python :: 3.6',
         'Topic :: Scientific/Engineering',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
         'Topic :: Scientific/Engineering :: Mathematics',
         'Topic :: Software Development',
         'Topic :: Software Development :: Libraries',
         'Topic :: Software Development :: Libraries :: Python Modules',
-        ],
+    ],
     namespace_packages=[],
     install_requires=_make_required_install_packages(),
+    # TODO(b/34685282): Remove < 3 after Apache Beam 2.11 is released.
     python_requires='>=2.7,<3',
     packages=find_packages(),
     include_package_data=True,
     description='A library for data preprocessing with TensorFlow',
     long_description=_LONG_DESCRIPTION,
+    long_description_content_type='text/markdown',
     keywords='tensorflow transform tfx',
     url='https://www.tensorflow.org/tfx/transform',
     download_url='https://pypi.org/project/tensorflow-transform',

@@ -20,6 +20,7 @@ from __future__ import print_function
 import json
 import os
 
+# GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 from tensorflow_transform.tf_metadata import dataset_metadata

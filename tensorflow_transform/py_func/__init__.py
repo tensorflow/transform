@@ -11,23 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for simple_example."""
+"""Module level imports for tensorflow_transform.py_func."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# GOOGLE-INITIALIZATION
-
-import tensorflow as tf
-import simple_example
-
-
-class SimpleExampleTest(tf.test.TestCase):
-
-  def testMainDoesNotCrash(self):
-    simple_example.main()
-
-
-if __name__ == '__main__':
-  tf.test.main()
+from tensorflow_transform.py_func.api import apply_pyfunc
+from tensorflow_transform.py_func.pyfunc_helper import register_pyfuncs_from_saved_transform

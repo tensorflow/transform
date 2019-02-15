@@ -13,6 +13,7 @@
 # limitations under the License.
 """Deprecated functionality required in previous version of tf.Transform."""
 
+# GOOGLE-INITIALIZATION
 
 from tensorflow.python.util import deprecation
 

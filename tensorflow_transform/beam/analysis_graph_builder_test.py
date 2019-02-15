@@ -17,13 +17,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import collections
+# GOOGLE-INITIALIZATION
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
 from tensorflow_transform.beam import analysis_graph_builder
-from tensorflow_transform.google import test_case
+from tensorflow_transform import test_case
 
 
 def _preprocessing_fn_with_no_analyzers(inputs):
@@ -225,7 +226,7 @@ _ANALYZE_TEST_CASES = [
 ]
 
 
-class AnalysisGraphBuilderTest(test_case.TransformTestCaseInternal):
+class AnalysisGraphBuilderTest(test_case.TransformTestCase):
 
   @test_case.named_parameters(*_ANALYZE_TEST_CASES)
   def test_build(self, feature_spec, preprocessing_fn, expected_dot_graph_str):

@@ -20,6 +20,7 @@ from __future__ import print_function
 import os
 import tempfile
 
+# GOOGLE-INITIALIZATION
 
 import apache_beam as beam
 from builtins import zip  # pylint: disable=redefined-builtin
@@ -143,6 +144,7 @@ class TransformTestCase(test_case.TransformTestCase):
               | beam.io.tfrecordio.WriteToTFRecord(
                   transformed_data_path, shard_name_template=''))
 
+    # TODO(ebreck) Log transformed_data somewhere.
     if expected_data is not None:
       examples = tf.python_io.tf_record_iterator(path=transformed_data_path)
       transformed_data = [transformed_data_coder.decode(x) for x in examples]

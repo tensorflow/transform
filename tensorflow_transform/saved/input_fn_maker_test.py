@@ -21,6 +21,7 @@ import json
 import os
 import tempfile
 
+# GOOGLE-INITIALIZATION
 
 import six
 import tensorflow as tf
@@ -262,6 +263,7 @@ class InputFnMakerTest(test_case.TransformTestCase):
     self._test_build_parsing_transforming_serving_input_fn_with_label([1])
 
   def _test_build_parsing_transforming_serving_input_fn_with_label(self, shape):
+    # TODO(b/123241798): use TEST_TMPDIR
     basedir = tempfile.mkdtemp()
 
     raw_metadata = dataset_metadata.DatasetMetadata(
@@ -325,6 +327,7 @@ class InputFnMakerTest(test_case.TransformTestCase):
     self.assertEqual(2000, transformed_label[1][0])
 
   def _test_build_parsing_transforming_serving_input_fn(self, shape):
+    # TODO(b/123241798): use TEST_TMPDIR
     basedir = tempfile.mkdtemp()
 
     raw_metadata = dataset_metadata.DatasetMetadata(
@@ -402,6 +405,7 @@ class InputFnMakerTest(test_case.TransformTestCase):
 
   def _test_build_default_transforming_serving_input_fn_with_label(
       self, shape, feed_input_values):
+    # TODO(b/123241798): use TEST_TMPDIR
     basedir = tempfile.mkdtemp()
 
     raw_metadata = dataset_metadata.DatasetMetadata(
@@ -464,6 +468,7 @@ class InputFnMakerTest(test_case.TransformTestCase):
 
   def _test_build_default_transforming_serving_input_fn(
       self, shape, feed_input_values):
+    # TODO(b/123241798): use TEST_TMPDIR
     basedir = tempfile.mkdtemp()
 
     raw_metadata = dataset_metadata.DatasetMetadata(
@@ -523,6 +528,7 @@ class InputFnMakerTest(test_case.TransformTestCase):
     self.assertEqual(-5, transformed_b_dict[(1, 0)])
 
   def test_build_training_input_fn(self):
+    # TODO(b/123241798): use TEST_TMPDIR
     basedir = tempfile.mkdtemp()
 
     # the transformed schema should be vectorized already.
@@ -579,6 +585,7 @@ class InputFnMakerTest(test_case.TransformTestCase):
     self._test_build_transforming_training_input_fn([1])
 
   def _test_build_transforming_training_input_fn(self, shape):
+    # TODO(b/123241798): use TEST_TMPDIR
     basedir = tempfile.mkdtemp()
 
     raw_metadata = dataset_metadata.DatasetMetadata(

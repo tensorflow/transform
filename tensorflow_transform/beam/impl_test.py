@@ -24,6 +24,7 @@ import os
 import random
 import shutil
 
+# GOOGLE-INITIALIZATION
 
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
@@ -90,6 +91,8 @@ def _construct_test_bucketization_parameters():
 
       # Tests for tft.apply_buckets.
       (range(1, 100), [26, 51, 76], False, 0.00001, True, False),
+      # TODO(b/78569039): Enable this test.
+      # (range(1, 100), [26, 51, 76], False, 0.00001, True, True),
   )
   dtypes = (tf.int32, tf.int64, tf.float16, tf.float32, tf.float64, tf.double)
   return (x + (dtype,) for x in args_without_dtype for dtype in dtypes)
@@ -115,6 +118,8 @@ def _mean_output_dtype(input_dtype):
   return tf.float64 if input_dtype == tf.float64 else tf.float32
 
 
+# TODO(b/206312306): Remove this function once DatasetMetadata is replaced by a
+# schema proto.
 def _metadata_from_feature_spec(feature_spec):
   """Construct a DatasetMetadata from a feature spec.
 
@@ -2728,6 +2733,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           expected_data,
           expected_metadata,
           desired_batch_size=1000,
+          # TODO(b/110855155): Remove this explicit use of DirectRunner.
           beam_pipeline=beam.Pipeline())
 
   @tft_unit.parameters(
@@ -2738,6 +2744,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
       (tf.float32,),
       (tf.float64,),
       (tf.double,),
+      # TODO(b/64836936): Enable test after bucket inconsistency is
+      # fixed.
+      # (tf.float16,)
   )
   def testQuantileBucketsWithWeights(self, input_dtype):
 
@@ -2773,6 +2782,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
       (tf.float32,),
       (tf.float64,),
       (tf.double,),
+      # TODO(b/64836936): Enable test after bucket inconsistency is
+      # fixed.
+      # (tf.float16,)
   )
   def testQuantileBuckets(self, input_dtype):
 
@@ -3139,6 +3151,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_data,
         expected_metadata,
         desired_batch_size=batch_size,
+        # TODO(b/110855155): Remove this explicit use of DirectRunner.
         beam_pipeline=beam.Pipeline())
 
   def testBucketizationForTightSequence(self):

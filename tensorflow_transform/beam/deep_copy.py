@@ -28,6 +28,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+# GOOGLE-INITIALIZATION
 
 import apache_beam as beam
 from apache_beam import pipeline as beam_pipeline
@@ -184,6 +185,11 @@ def _clone_items(pipeline, to_clone):
       ptransform_replacements[item] = copied
 
       # Update composite transform parent to include this copy.
+      # TODO(b/111366378): Reconcile the composite PTransform nesting hierarchy,
+      # especially in the case where copied PTransforms should be copied in an
+      # "all-or-nothing" manner. This would allow the deep copy operation to be
+      # safe in the case runners replace well-known composite PTransforms in
+      # their entirety during execution.
       copied.parent.parts.append(copied)
     else:
       raise ValueError('Invalid object to clone: %s' % item)
@@ -191,6 +197,10 @@ def _clone_items(pipeline, to_clone):
   return pcollection_replacements
 
 
+# TODO(ccy): When this method is written as a PTransform, the resulting Beam
+# pipeline graph incorrectly includes a stray DeepCopy transform, which the
+# runner cannot interpret. When this is fixed, we should express this method
+# as a DeepCopy PTransform.
 def deep_copy(pcollection):
   """Create a deep copy of a PCollection up to materialization boundaries."""
   if not isinstance(pcollection, pvalue.PCollection):

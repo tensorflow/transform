@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+# GOOGLE-INITIALIZATION
 
 from tensorflow_transform import analyzer_cache
 import unittest

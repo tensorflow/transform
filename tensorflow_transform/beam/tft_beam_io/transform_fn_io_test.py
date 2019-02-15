@@ -19,6 +19,7 @@ from __future__ import print_function
 
 import os
 
+# GOOGLE-INITIALIZATION
 
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util

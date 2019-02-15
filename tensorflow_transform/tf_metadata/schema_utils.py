@@ -19,8 +19,11 @@ from __future__ import print_function
 
 import collections
 
+# GOOGLE-INITIALIZATION
 
 import tensorflow as tf
+
+from tensorflow_transform.tf_metadata import schema_utils_legacy
 
 from tensorflow_metadata.proto.v0 import schema_pb2
 
@@ -44,6 +47,16 @@ def schema_from_feature_spec(feature_spec, domains=None):
     domains = {}
 
   result = schema_pb2.Schema()
+
+  # Some feature specs can only be represented with the legacy schema, in
+  # particular feature specs where any FixedLenFeature has default_value set.
+  # We represent these (and only these) using a schema with
+  # generate_legacy_feature_spec=True.  Note the generate_legacy_feature_spec
+  # field is not part of the open source codebase.
+  if schema_utils_legacy.should_set_generate_legacy_feature_spec(feature_spec):
+    return _legacy_schema_from_feature_spec(feature_spec, domains)
+
+  schema_utils_legacy.set_generate_legacy_feature_spec(result, False)
 
   # Add the features to the schema.
   for name, spec in sorted(feature_spec.items()):
@@ -169,6 +182,8 @@ def schema_as_feature_spec(schema_proto):
   Raises:
     ValueError: If the schema proto is invalid.
   """
+  if schema_utils_legacy.get_generate_legacy_feature_spec(schema_proto):
+    return _legacy_schema_as_feature_spec(schema_proto)
   feature_spec = {}
   # Will hold the domain_info (IntDomain, FloatDomain etc.) of the feature.  For
   # sparse features, will hold the domain_info of the values feature.  Features
@@ -180,6 +195,7 @@ def schema_as_feature_spec(schema_proto):
   # Generate a `tf.SparseFeature` for each element of
   # `schema_proto.sparse_feature`.  This also removed the features from
   # feature_by_name.
+  # TODO(KesterTong): Allow sparse features to share index features.
   for feature in schema_proto.sparse_feature:
     if _include_in_parsing_spec(feature):
       feature_spec[feature.name], domains[feature.name] = (
@@ -192,6 +208,8 @@ def schema_as_feature_spec(schema_proto):
     if _include_in_parsing_spec(feature):
       feature_spec[name], domains[name] = _feature_as_feature_spec(
           feature, string_domains)
+
+  schema_utils_legacy.check_for_unsupported_features(schema_proto)
 
   domains = {name: domain for name, domain in domains.items()
              if domain is not None}
@@ -312,6 +330,9 @@ def _feature_dtype(feature):
 
 def _fixed_shape_as_tf_shape(fixed_shape):
   """Returns a representation of a FixedShape as a tensorflow shape."""
+  # TODO(b/120869660): Remove the cast to int.  Casting to int is currently
+  # needed as some TF code explicitly checks for `int` and does not allow `long`
+  # in tensor shapes.
   return [int(dim.size) for dim in fixed_shape.dim]
 
 
@@ -324,5 +345,199 @@ _DEPRECATED_LIFECYCLE_STAGES = [
 
 
 def _include_in_parsing_spec(feature):
-  return feature.lifecycle_stage not in _DEPRECATED_LIFECYCLE_STAGES
+  return not (
+      schema_utils_legacy.get_deprecated(feature) or
+      feature.lifecycle_stage in _DEPRECATED_LIFECYCLE_STAGES)
 
+
+def _legacy_schema_from_feature_spec(feature_spec, domains=None):
+  """Infer a Schema from a feature spec, using the legacy feature spec logic.
+
+  Infers a Schema proto that with generate_legacy_feature_spec set to true,
+  which will result in the given feature spec and domains when
+  schema_as_feature_spec is called.  This is used to represent feature specs
+  that can only be represented when generate_legacy_feature_spec is true.  In
+  particular, feature specs with a default value set.
+
+  Args:
+    feature_spec: A TensorFlow feature spec
+    domains: A dict from key names to `IntDomain`s
+
+  Returns:
+    A Schema proto.
+
+  Raises:
+    ValueError: If a default value is invalid.
+    TypeError: If an unknown type of feature spec is encountered.
+  """
+  result = schema_pb2.Schema()
+  result.generate_legacy_feature_spec = True
+  for name, spec in sorted(feature_spec.items()):
+    if isinstance(spec, tf.FixedLenFeature):
+      # Validate shape first as shape governs which default values are valid.
+      if len(spec.shape) == 0:  # pylint: disable=g-explicit-length-test
+        size = 1
+        expected_default_value = '' if spec.dtype == tf.string else -1
+      elif len(spec.shape) == 1 and spec.shape[0] > 1:
+        size = spec.shape[0]
+        expected_default_value = ['' if spec.dtype == tf.string else -1] * size
+      else:
+        raise ValueError(
+            'When inferring legacy schema from feature spec, feature "{}" had '
+            'shape {}, but FixedLenFeature must have shape [] or [k] where '
+            'k > 1.'.format(name, spec.shape))
+
+      if spec.default_value is None:
+        min_fraction = 1
+      elif spec.default_value == expected_default_value:
+        min_fraction = 0
+      else:
+        raise ValueError(
+            'When inferring legacy schema from feature spec, feature "{}" had '
+            'default_value {}, but FixedLenFeature must have '
+            'default_value=None or {}'.format(
+                name, spec.default_value, expected_default_value))
+
+      feature = result.feature.add(
+          name=name,
+          presence=schema_pb2.FeaturePresence(min_fraction=min_fraction),
+          value_count=schema_pb2.ValueCount(min=size, max=size))
+    elif isinstance(spec, tf.VarLenFeature):
+      feature = result.feature.add(name=name)
+    else:
+      raise TypeError(
+          'When inferring legacy schema from feature spec, spec for feature '
+          '"{}" was {} of type {}, expected a FixedLenFeature or '
+          'VarLenFeature '.format(name, spec, type(spec)))
+
+    _set_type(name, feature, spec.dtype)
+    _set_domain(name, feature, domains.get(name))
+
+  return result
+
+
+def _legacy_schema_as_feature_spec(schema_proto):
+  """Generate a feature spec and domains using legacy feature spec."""
+  feature_spec = {}
+  # Will hold the domain_info (IntDomain, FloatDomain etc.) of the feature.  For
+  # sparse features, will hold the domain_info of the values feature.  Features
+  # that do not have a domain set will not be present in `domains`.
+  domains = {}
+  feature_by_name = {feature.name: feature for feature in schema_proto.feature}
+  string_domains = _get_string_domains(schema_proto)
+
+  for name, feature in feature_by_name.items():
+    if _include_in_parsing_spec(feature):
+      feature_spec[name] = _legacy_feature_as_feature_spec(feature)
+      domain = _get_domain(feature, string_domains)
+      if domain is not None:
+        domains[name] = domain
+
+  return SchemaAsFeatureSpecResult(feature_spec, domains)
+
+
+def _legacy_feature_as_feature_spec(feature):
+  """Translate a Feature proto into a TensorFlow feature spec.
+
+  This function applies heuristics to deduce the shape and other information
+  from a FeatureProto.  The FeatureProto contains information about the feature
+  in an ExampleProto, but the feature spec proto also requires enough
+  information to parse the feature into a tensor.  We apply the following rules:
+
+    1. The dtype is determined from the feature's type according to the mapping
+       BYTES -> string, INT -> int64, FLOAT -> float32.  TYPE_UNKNOWN or any
+       other type results in a ValueError.
+
+    2. The shape and representation of the column are determined by the
+       following rules:
+         * if the value_count.min and value_count.max are both 1 then the shape
+           is scalar and the representation is fixed length.
+         * If value_count.min and value_count.max are equal but greater than 1,
+           then the shape is a vector whose length is value_count.max and the
+           representation is fixed length.
+         * If value_count.min and value_count.max are equal and are less than 1,
+           then the shape is a vector of unknown length and the representation
+           is variable length.
+         * If value_count.min and value_count.max are not equal then
+           the shape is a vector of unknown length and the representation is
+           variable length.
+
+    3. If the feature is always present or is variable length (based on the
+        above rule), no default value is set but if the feature is not always
+        present and is fixed length, then a canonical default value is chosen
+        based on _DEFAULT_VALUE_FOR_DTYPE.
+
+    4. Features that are deprecated are completely ignored and removed.
+
+  Args:
+    feature: A FeatureProto
+
+  Returns:
+    A `tf.FixedLenFeature` or `tf.VarLenFeature`.
+
+  Raises:
+    ValueError: If the feature's type is not supported or the schema is invalid.
+  """
+  # Infer canonical tensorflow dtype.
+  dtype = _feature_dtype(feature)
+
+  if feature.value_count.min < 0:
+    raise ValueError(
+        'Feature "{}" has value_count.min < 0 (value was {}).'.format(
+            feature.name, feature.value_count.min))
+
+  if feature.value_count.max < 0:
+    raise ValueError(
+        'Feature "{}" has value_count.max < 0 (value was {}).'.format(
+            feature.name, feature.value_count.max))
+
+  # Use heuristics to infer the shape and representation.
+  if (feature.value_count.min == feature.value_count.max
+      and feature.value_count.min == 1):
+    # Case 1: value_count.min == value_count.max == 1.  Infer a FixedLenFeature
+    # with rank 0 and a default value.
+    tf.logging.info(
+        'Features %s has value_count.min == value_count.max == 1.  Setting to '
+        'fixed length scalar.', feature.name)
+    default_value = _legacy_infer_default_value(feature, dtype)
+    return tf.FixedLenFeature([], dtype, default_value)
+
+  elif (feature.value_count.min == feature.value_count.max
+        and feature.value_count.min > 1):
+    # Case 2: value_count.min == value_count.max > 1.  Infer a FixedLenFeature
+    # with rank 1 and a default value.
+    tf.logging.info(
+        'Feature %s has value_count.min == value_count.max > 1.  Setting to '
+        'fixed length vector.', feature.name)
+    default_value = _legacy_infer_default_value(feature, dtype)
+    return tf.FixedLenFeature([feature.value_count.min], dtype, default_value)
+
+  else:
+    # Case 3: Either value_count.min != value_count.max or
+    # value_count.min == value_count.max == 0.  Infer a VarLenFeature.
+    tf.logging.info(
+        'Feature %s has value_count.min != value_count.max or '
+        ' value_count.min == value_count.max == 0.  Setting to variable length '
+        ' vector.', feature.name)
+    return tf.VarLenFeature(dtype)
+
+
+# For numeric values, set defaults that are less likely to occur in the actual
+# data so that users can test for missing values.
+_LEGACY_DEFAULT_VALUE_FOR_DTYPE = {tf.string: '', tf.int64: -1, tf.float32: -1}
+
+
+def _legacy_infer_default_value(feature_proto, dtype):
+  """Returns a canonical default value if min_fraction < 1 or else None."""
+  if feature_proto.presence.min_fraction < 1:
+    default_value = _LEGACY_DEFAULT_VALUE_FOR_DTYPE[dtype]
+    tf.logging.info(
+        'Feature %s has min_fraction (%f) != 1.  Setting default value %r',
+        feature_proto.name, feature_proto.presence.min_fraction, default_value)
+    if feature_proto.value_count.min == 1:
+      # neglecting vector of size 1 because that never happens.
+      return default_value
+    else:
+      return [default_value] * feature_proto.value_count.min
+  else:
+    return None

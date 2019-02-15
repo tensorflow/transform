@@ -19,6 +19,7 @@ from __future__ import print_function
 
 import os
 
+# GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 from tensorflow_transform.saved import saved_transform_io
@@ -45,6 +46,7 @@ class TFTransformOutput(object):
 
     # Lazily constructed properties.
     self._transformed_metadata = None
+    self._raw_metadata = None
 
   @property
   def transformed_metadata(self):
@@ -93,6 +95,7 @@ class TFTransformOutput(object):
     with tf.gfile.GFile(self.vocabulary_file_by_name(vocab_filename)) as f:
       return [l.rstrip() for l in f]
 
+  # TODO(KesterTong): Add test for this in output_wrapper_test.py
   def num_buckets_for_transformed_feature(self, name):
     """Returns the number of buckets for an integerized transformed feature."""
     # Do checks that this tensor can be wrapped in

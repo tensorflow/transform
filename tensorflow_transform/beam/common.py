@@ -21,6 +21,7 @@ import collections
 import os
 import uuid
 
+# GOOGLE-INITIALIZATION
 
 import apache_beam as beam
 from apache_beam.typehints import Union
@@ -34,6 +35,8 @@ PRIMITIVE_TYPE = Union[NUMERIC_TYPE, Union[string_types]]
 
 METRICS_NAMESPACE = 'tfx.Transform'
 
+# TODO(b/35133536): Obviate the need for serialization and deserialization of
+# the values in the map.
 _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER = {
     # We rely on Beam to manage concurrency, i.e. we expect it to run one
     # session per CPU--so we don't want to proliferate TF threads.
@@ -42,12 +45,19 @@ _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER = {
     # at any given time.  This approach oversubscribes a bit to make sure
     # the CPUs are really saturated.
     #
+    # TODO(katsiapis): Perhaps remove this once b/69922446 and b/30837990 are
+    # resolved.
     beam.runners.DataflowRunner:
         tf.ConfigProto(
+            # TODO(b/36091595): use_per_session_threads is deprecated, but the
+            # replacement session_inter_op_thread_pool is experimental; using
+            # the former for now.
             use_per_session_threads=True,
             inter_op_parallelism_threads=2,
             intra_op_parallelism_threads=2).SerializeToString(),
 
+    # TODO(katsiapis): Perhaps do the same for DirectRunner once it becomes
+    # multi-process (https://issues.apache.org/jira/browse/BEAM-3645).
 }
 
 

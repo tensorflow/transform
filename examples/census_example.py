@@ -23,6 +23,7 @@ import os
 import pprint
 import tempfile
 
+# GOOGLE-INITIALIZATION
 
 import apache_beam as beam
 import tensorflow as tf
@@ -263,6 +264,7 @@ def _make_training_input_fn(tf_transform_output, transformed_examples,
     transformed_features = dataset.make_one_shot_iterator().get_next()
 
     # Extract features and label from the transformed tensors.
+    # TODO(b/30367437): make transformed_labels a dict.
     transformed_labels = transformed_features.pop(LABEL_KEY)
 
     return transformed_features, transformed_labels

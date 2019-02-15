@@ -21,10 +21,11 @@ from __future__ import print_function
 import os
 import tempfile
 
+# GOOGLE-INITIALIZATION
 
+from tensorflow_transform.tf_metadata import test_common
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import metadata_io
-from tensorflow_transform.tf_metadata import test_common
 import unittest
 
 from tensorflow.python.lib.io import file_io
@@ -73,10 +74,12 @@ class SchemaIOv1JsonTest(unittest.TestCase):
                                  schema_string)
 
   def test_read_with_invalid_keys(self):
+    # TODO(b/123241798): use TEST_TMPDIR
     basedir = tempfile.mkdtemp()
     self._write_schema_to_disk(basedir, _SCHEMA_WITH_INVALID_KEYS)
 
   def test_read_features_default_axis(self):
+    # TODO(b/123241798): use TEST_TMPDIR
     basedir = tempfile.mkdtemp()
     schema_no_sparse_features = """
     {
@@ -99,6 +102,7 @@ class SchemaIOv1JsonTest(unittest.TestCase):
     _ = metadata_io.read_metadata(basedir)
 
   def test_read_features(self):
+    # TODO(b/123241798): use TEST_TMPDIR
     basedir = tempfile.mkdtemp()
     schema_no_sparse_features = """
     {
@@ -125,6 +129,7 @@ class SchemaIOv1JsonTest(unittest.TestCase):
     _ = metadata_io.read_metadata(basedir)
 
   def test_write_and_read(self):
+    # TODO(b/123241798): use TEST_TMPDIR
     basedir = tempfile.mkdtemp()
     original = dataset_metadata.DatasetMetadata(
         schema=test_common.get_test_schema())

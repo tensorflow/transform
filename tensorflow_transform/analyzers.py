@@ -31,6 +31,7 @@ from __future__ import print_function
 import collections
 import re
 
+# GOOGLE-INITIALIZATION
 import numpy as np
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
@@ -147,10 +148,18 @@ class NumPyCombiner(analyzer_nodes.Combiner):
     self._output_dtypes = output_dtypes
     self._output_shapes = output_shapes
 
+  # TODO(b/34792459): merge_accumulators and extract_output assume that not all
+  # accumulator(s) are None.  This only works when .without_defaults() is
+  # used but even in that case it is an implementation detail of Beam that we
+  # should not be relying on.  Instead we should use 0 or +-inf depending on the
+  # accumulator. Invoking self._fn(()) might also be a good way of determining
+  # the default (works for some but not all fns).
   def create_accumulator(self):
     return None
 
   def add_input(self, accumulator, batch_values):
+    # TODO(b/112414577): Go back to accepting only a single input.
+    # See comment in _numeric_combine.
     reduced_values = batch_values
     if accumulator is None:
       return reduced_values
@@ -201,6 +210,9 @@ def _get_output_shape_from_input(x):
   return x.shape.as_list()[1:] if x.shape.dims is not None else None
 
 
+# TODO(b/112414577): Go back to accepting only a single input.
+# Currently we accept multiple inputs so that we can implement min and max
+# with a single combiner.
 def _numeric_combine(inputs,
                      fn,
                      reduce_instance_dims=True,
@@ -670,6 +682,10 @@ def _get_top_k_and_frequency_threshold(top_k, frequency_threshold):
   return top_k, frequency_threshold
 
 
+# TODO(KesterTong): Once multiple outputs are supported, return indices too.
+# TODO(b/117796748): Add coverage key feature input as alternative to `key_fn`.
+# TODO(b/116308354): rename store_frequency to store_importance because it now
+# can return mutual information.
 def vocabulary(
     x,
     top_k=None,
@@ -873,6 +889,15 @@ def uniques(x,
       name=name)
 
 
+# TODO(b/65627483): Make this an instantiation of a generic CombineFn based on
+# TF ops.
+#
+# TODO(KesterTong): It seems like QuantilesCombiner is using the state of the
+# current object as the accumulator (as opposed to using a bonafide
+# accumulator). We should change that to ensure correctness (I believe we
+# currently rely on runner implementation details), portability and
+# ease of understanding of the code. The fact that a summary/accumulator can be
+# None is also confusing.
 class QuantilesCombiner(analyzer_nodes.Combiner):
   """Computes quantiles on the PCollection.
 
@@ -897,6 +922,9 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     self._output_shape = output_shape
     self._include_max_and_min = include_max_and_min
 
+  # TODO(b/69566045): Move initialization to start_bundle() or follow the
+  # _start_bundle() approach that TFMA has taken and get rid of the __reduce__
+  # override below.
   def initialize_local_state(self, tf_config=None):
     """Called by the CombineFnWrapper's __init__ method.
 
@@ -972,6 +1000,8 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     else:
       weights = tf.ones_like(inputs)
 
+    # TODO(b/68277922): Investigate add_inputs() to efficiently handle multiple
+    # batches of inputs.
     add_prebuilt_summary_op = qaccumulator.add_prebuilt_summary(
         stamp_token=stamp_token, summary=prebuilt_summary)
 
@@ -1141,6 +1171,10 @@ def quantiles(x, num_buckets, epsilon, weights=None, name=None):
     The bucket boundaries represented as a list, with num_bucket-1 elements
     See code below for discussion on the type of bucket boundaries.
   """
+  # TODO(b/64039847): quantile ops only support float bucket boundaries as this
+  # triggers an assertion in MakeQuantileSummaries().
+  # The restriction does not apply to inputs, which can be of any integral
+  # dtype including tf.int32, tf.int64, tf.flost64 and tf.double.
   bucket_dtype = tf.float32
   with tf.name_scope(name, 'quantiles'):
     if weights is None:
@@ -1189,6 +1223,10 @@ def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
   """
   if key.dtype != tf.string:
     raise ValueError('key must have type tf.string')
+  # TODO(b/64039847): quantile ops only support float bucket boundaries as this
+  # triggers an assertion in MakeQuantileSummaries().
+  # The restriction does not apply to inputs, which can be of any integral
+  # dtype including tf.int32, tf.int64, tf.flost64 and tf.double.
   bucket_dtype = tf.float32
   with tf.name_scope(name, 'quantiles_by_key'):
     combiner = QuantilesCombiner(
@@ -1196,7 +1234,7 @@ def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
         epsilon,
         bucket_dtype.as_numpy_dtype,
         always_return_num_quantiles=True,
-        output_shape=(None, None))
+        output_shape=(None,))
     key, bucket_boundaries = _apply_cacheable_combiner_per_key(combiner, key, x)
     return key, bucket_boundaries
 

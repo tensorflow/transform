@@ -1,6 +1,9 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
+* Python 3.5 readiness complete (all tests pass). Full Python 3.5 compatibility
+  is expected to be available with the next version of Transform (after
+  Apache Beam 2.11 is released).
 * Performance improvements for vocabulary generation when using top_k.
 * New optimized highly experimental API for analyzing a dataset was added,
   `AnalyzeDatasetWithCache`, which allows reading and writing analyzer cache.
@@ -13,9 +16,10 @@
   instead of `tf.Session.run` for improved performance.
 
 ## Bug Fixes and Other Changes
-* `tft.vocabulary` and `tft.compute_and_apply_vocabulary` now support filtering
-  based on adjusted mutual information when `use_adjusetd_mutual_info` is set to
-  True.
+
+* `tft.vocabulary` and `tft.compute_and_apply_vocabulary` now support
+  filtering based on adjusted mutual information when
+  `use_adjusetd_mutual_info` is set to True.
 * `tft.vocabulary` and `tft.compute_and_apply_vocabulary` now takes
   regularization term 'min_diff_from_avg' that adjusts mutual information to
   zero whenever the difference between count of the feature with any label and
@@ -29,11 +33,20 @@
 * ExampleProtoCoder now also supports non-serialized Example representations.
 * `tft.tfidf` now accepts a scalar Tensor as `vocab_size`.
 * `assertItemsEqual` in unit tests are replaced by `assertCountEqual`.
-* `NumPyCombiner` now outputs TF dtypes in output_tensor_infos instead of numpy
-  dtypes.
+* `NumPyCombiner` now outputs TF dtypes in output_tensor_infos instead of
+  numpy dtypes.
 * Adds function `tft.apply_pyfunc` that provides limited support for
   `tf.pyfunc`. Note that this is incompatible with serving. See documentation
   for more details.
+* `CombinePerKey` now adds a dimension for the key.
+* Depends on `numpy>=1.14.5,<2`.
+* Depends on `apache-beam[gcp]>=2.9,<3`.
+* Depends on `protobuf==3.7.0rc2`.
+* `ExampleProtoCoder.encode` now converts a feature whose value is `None` to an
+  empty value, where before it did not accept `None` as a valid value.
+* `AnalyzeDataset`, `AnalyzeAndTransformDataset` and `TransformDataset` can now
+  accept dictionaries which contain `None`, and which will be interpreted the
+  same as an empty list.  They will never produce an output containing `None`.
 
 ## Breaking changes
 * `ColumnSchema` and related classes (`Domain`, `Axis` and
@@ -42,6 +55,13 @@
   use the `as_feature_spec` and `domains` methods of `Schema`.  The
   constructors of these classes are replaced by functions that still work when
   creating a `Schema` but this usage is deprecated.
+* Requires pre-installed TensorFlow >=1.12,<2.
+* `ExampleProtoCoder.decode` now converts a feature with empty value (e.g.
+  `features { feature { key: "varlen" value { } } }`) or missing key for a
+  feature (e.g. `features { }`) to a `None` in the output dictionary.  Before
+  it would represent these with an empty list.  This better reflects the
+  original example proto and is consistent with TensorFlow Data Validation.
+* Coders now returns a `list` instead of an `ndarray` for a `VarLenFeature`.
 
 ## Deprecations
 

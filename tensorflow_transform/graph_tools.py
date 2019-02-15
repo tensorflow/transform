@@ -29,6 +29,7 @@ from __future__ import print_function
 
 import itertools
 
+# GOOGLE-INITIALIZATION
 
 import six
 import tensorflow as tf

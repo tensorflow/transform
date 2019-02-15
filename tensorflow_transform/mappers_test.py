@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+# GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 from tensorflow_transform import mappers
@@ -237,6 +238,7 @@ class MappersTest(test_case.TransformTestCase):
         close_values=True)
 
   def testSplitTFIDFWithEmptyInput(self):
+    # TODO(b/123242111): rewrite this test using public functions.
     with tf.Graph().as_default():
       tfidf = tf.SparseTensor(
           values=tf.constant([], shape=[0], dtype=tf.float32),

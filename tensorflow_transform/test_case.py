@@ -19,6 +19,7 @@ from __future__ import print_function
 
 import inspect
 
+# GOOGLE-INITIALIZATION
 
 from absl.testing import parameterized
 

@@ -23,6 +23,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+# GOOGLE-INITIALIZATION
 
 import six
 import tensorflow as tf
@@ -191,6 +192,7 @@ def apply_function_with_checkpoint(fn, inputs, checkpoint, include=None,
       output_tensors = output
       output_single_tensor = False
 
+    # TODO(qimingj/kestert): Copy table initializers to the composed graph.
     if tf.get_collection(tf.GraphKeys.TABLE_INITIALIZERS):
       raise ValueError('Models with table init ops are not supported.')
 

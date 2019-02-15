@@ -21,10 +21,12 @@ import collections
 import math
 import os
 
+# GOOGLE-INITIALIZATION
 
 import apache_beam as beam
 
 from apache_beam.transforms.ptransform import ptransform_fn
+from apache_beam.typehints import Any
 from apache_beam.typehints import KV
 from apache_beam.typehints import Tuple
 from apache_beam.typehints import Union
@@ -55,6 +57,10 @@ class _OrderElementsFn(beam.DoFn):
     self._vocab_size.update(len(counts))
 
     if not counts:
+      # TODO(b/62272023) remove this workaround if/when fixed on tensorflow.
+      # If the vocabulary is empty add a dummy value with count one so
+      # the tensorflow index operations don't fail to initialize with empty
+      # tensors downstream.
       counts = [(1, '49d0cd50-04bb-48c0-bc6f-5b575dce351a')]
 
     counts.sort(reverse=True)  # Largest first.
@@ -77,6 +83,9 @@ class _OrderElementsFn(beam.DoFn):
 def _ApplyFrequencyThresholdAndTopK(  # pylint: disable=invalid-name
     counts, frequency_threshold, top_k, key_fn):
   """Applies `frequency_threshold` and `top_k` to (count, value) pairs."""
+  # TODO(b/117796748): Filter frequency per-key when key feature input enabled.
+  # Filter is cheaper than TopK computation and the two commute, so filter
+  # first.
   if frequency_threshold is not None:
     counts |= ('FilterByFrequencyThreshold(%s)' % frequency_threshold >>
                beam.Filter(lambda kv: kv[0] >= frequency_threshold))
@@ -87,8 +96,12 @@ def _ApplyFrequencyThresholdAndTopK(  # pylint: disable=invalid-name
     # files' sizes to be automatically computed (when possible), so we end up
     # reading from fewer and larger files. This is not needed when top_k is
     # provided since that already induces a single-sharded output.
+    # TODO(b/26245647): Remove this "Reshard".
     counts |= 'Reshard' >> beam.transforms.Reshuffle()  # pylint: disable=no-value-for-parameter
   else:
+    # TODO(katsiapis): Perhaps enhance Beam's Top to accept an N that can
+    # signify "unlimited" and then we can simplify a lot of our code (though
+    # that might come at a performance penalty).
     if key_fn:
       def map_key_to_count_and_term(kv, key_fn):
         """Parses key from term with `key_fn` and maps it to count and term."""
@@ -110,7 +123,8 @@ def _ApplyFrequencyThresholdAndTopK(  # pylint: disable=invalid-name
 
 @common.register_ptransform(analyzer_nodes.VocabularyAccumulate)
 @beam.typehints.with_input_types(Tuple[np.ndarray, ...])
-@beam.typehints.with_output_types(KV[np.str, Union[int, float]])
+# TODO(b/123325923): Constrain the key type here to the right string type.
+@beam.typehints.with_output_types(KV[Any, Union[int, float]])  # Any -> np.str?
 class VocabularyAccumulateImpl(beam.PTransform):
   """Accumulates the unique elements in a PCollection of batches."""
 
@@ -125,10 +139,13 @@ class VocabularyAccumulateImpl(beam.PTransform):
     # pairs in sorted order by decreasing counts (and by values for equal
     # counts).
 
+    # TODO(b/62379925) Filter empty strings or strings containing the \n or \r
+    # tokens since index_table_from_file doesn't allow empty rows.
     def is_problematic_string(kv):
       string, _ = kv  # Ignore counts.
       return string and b'\n' not in string and b'\r' not in string
 
+    # TODO(b/112916494): Unify the graph in both cases once possible.
     if (self._vocab_ordering_type ==
         tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION):
       flatten_map_fn = _flatten_to_key_and_means_accumulator_list
@@ -152,7 +169,8 @@ class VocabularyAccumulateImpl(beam.PTransform):
 
 @common.register_ptransform(analyzer_nodes.VocabularyMerge)
 @beam.typehints.with_input_types(KV[np.str, Union[int, float]])
-@beam.typehints.with_output_types(KV[Union[int, float], np.str])
+# TODO(b/123325923): Constrain the value type here to the right string type.
+@beam.typehints.with_output_types(KV[Union[int, float], Any])  # Any -> np.str?
 class VocabularyMergeImpl(beam.PTransform):
   """Merges vocabulary accumulators of (word, num) pairs."""
 
@@ -181,7 +199,8 @@ class VocabularyMergeImpl(beam.PTransform):
 
 @common.register_ptransform(analyzer_nodes.VocabularyOrderAndFilter)
 @beam.typehints.with_input_types(KV[Union[int, float], np.str])
-@beam.typehints.with_output_types(KV[Union[int, float], np.str])
+# TODO(b/123325923): Constrain the value type here to the right string type.
+@beam.typehints.with_output_types(KV[Union[int, float], Any])  # Any -> np.str?
 class VocabularyOrderAndFilterImpl(beam.PTransform):
   """Order, filters and writes the computed vocabulary file."""
 
@@ -252,6 +271,13 @@ class VocabularyWriteImpl(beam.PTransform):
         # reduce max memory usage.
         | 'OrderElements' >> beam.ParDo(_OrderElementsFn(self._store_frequency),
                                         counts_iter=beam.pvalue.AsIter(counts))
+        # TODO(b/62379925) For now force a single file. Should
+        # `InitializeTableFromTextFile` operate on a @N set of files?
+        # TODO(b/67863471) Here we are relying on fusion (an implementation
+        # detail) for the ordering to be maintained when the results are written
+        # to disk. Perform the write within the body of `OrderElements` maybe
+        # `OrderElementsAndWrite`. This would mean using TF IO instead of Beam
+        # IO so it's perhaps not great.
         | 'WriteToFile' >> beam.io.WriteToText(vocabulary_file,
                                                shard_name_template=''))
     # Return the vocabulary path.
@@ -268,6 +294,9 @@ def _flatten_value_to_list(batch_values):
   """Converts an N-D dense or sparse batch to a 1-D list."""
   batch_value, = batch_values
 
+  # TODO(b/36603294): Perhaps obviate the tolist(). It is currently used so
+  # that we go to native Python types for more efficient followup
+  # processing.
   return batch_value.tolist()
 
 
@@ -275,6 +304,9 @@ def _flatten_value_and_weights_to_list_of_tuples(batch_values):
   """Converts a batch of vocabulary and weights to a list of KV tuples."""
   batch_value, weights = batch_values
 
+  # TODO(b/36603294): Perhaps obviate the tolist(). It is currently used so
+  # that we go to native Python types for more efficient followup
+  # processing.
   batch_value = batch_value.tolist()
   weights = weights.tolist()
   return zip(batch_value, weights)
@@ -292,6 +324,9 @@ def _flatten_to_key_and_means_accumulator_list(batch_values):
   """Converts a batch of keys, weights, and counts to a list of KV pairs."""
   keys, total_weights, positive_label_weights, counts = batch_values
 
+  # TODO(b/36603294): Perhaps obviate the tolist(). It is currently used so
+  # that we go to native Python types for more efficient followup
+  # processing.
   keys = keys.tolist()
   positive_label_weights = positive_label_weights.tolist()
   total_weights = total_weights.tolist()
@@ -504,6 +539,7 @@ def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
               min_diff_from_avg=min_diff_from_avg))
 
 
+# TODO(b/116698987): Share logic with MeanAndVarCombiner.
 class _CountAndWeightsMeansCombineFn(beam.CombineFn):
   """_CountAndWeightsMeansCombineFn calculates total count and weighted means.
 
@@ -625,6 +661,8 @@ class _CombinerWrapper(beam.CombineFn):
         combiner's extract_output method in extract_output. If not specified, we
         assume it's the same value as `should_extract_output`.
     """
+    # TODO(b/69566045): Move initialization to start_bundle(), removing the need
+    # for initialize_local_state to be called here.
     if isinstance(combiner, analyzers.QuantilesCombiner):
       tf_config = common._maybe_deserialize_tf_config(  # pylint: disable=protected-access
           serialized_tf_config)
@@ -686,6 +724,9 @@ def _split_inputs_by_key(batch_values):
   Raises:
     ValueError: if inputs do not have correct sizes.
   """
+  # TODO(b/77873002): Raise these errors in the graph where more informative
+  # errors can be generated.  Keep these as a fallback for user-defined
+  # `Combiner`s.
   keys = batch_values[0]
   if keys.ndim != 1:
     raise ValueError(
@@ -771,6 +812,7 @@ class _IntermediateAccumulateCombineImpl(beam.PTransform):
     pcoll, = inputs
     # NOTE: Currently, all combiners except QuantilesCombiner
     # require .with_defaults(False) to be set.
+    # TODO(b/34792459): Don't set with_defaults.
     has_defaults = isinstance(self._combiner, analyzers.QuantilesCombiner)
 
     return (
@@ -797,6 +839,7 @@ class _MergeAccumulatorsCombineImpl(beam.PTransform):
     pcoll, = inputs
     # NOTE: Currently, all combiners except QuantilesCombiner
     # require .with_defaults(False) to be set.
+    # TODO(b/34792459): Don't set with_defaults.
     has_defaults = isinstance(self._combiner, analyzers.QuantilesCombiner)
 
     def extract_outputs(outputs, num_outputs):

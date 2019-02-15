@@ -29,6 +29,7 @@ import abc
 import collections
 import json
 
+# GOOGLE-INITIALIZATION
 
 import numpy as np
 import tensorflow as tf
@@ -181,7 +182,7 @@ class JsonNumpyCacheCoder(CacheCoder):
     return tf.compat.as_bytes(json.dumps(np.array(accumulator).tolist()))
 
   def decode_cache(self, encoded_accumulator):
-    return np.array(json.loads(encoded_accumulator))
+    return np.array(json.loads(tf.compat.as_text(encoded_accumulator)))
 
 
 class AnalyzerDef(nodes.OperationDef):
@@ -325,8 +326,10 @@ class CacheableCombinePerKeyMerge(CacheableCombineMerge):
   @property
   def output_tensor_infos(self):
     # Returns a key vocab and one output per combiner output.
-    return [TensorInfo(tf.string, [None], False)
-           ] + self.combiner.output_tensor_infos()
+    return [TensorInfo(tf.string, (None,), False)] + [
+        TensorInfo(info.dtype, (None,) + info.shape, info.is_asset_filepath)
+        for info in self.combiner.output_tensor_infos()
+    ]
 
 
 class VocabularyAccumulate(
@@ -370,7 +373,8 @@ class _VocabularyAccumulatorCoder(CacheCoder):
         json.dumps(np.array(accumulator, dtype=object).tolist()))
 
   def decode_cache(self, encoded_accumulator):
-    return np.array(json.loads(encoded_accumulator), dtype=object)
+    return np.array(
+        json.loads(tf.compat.as_text(encoded_accumulator)), dtype=object)
 
 
 class VocabularyMerge(

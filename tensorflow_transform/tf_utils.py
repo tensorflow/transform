@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 
+# GOOGLE-INITIALIZATION
 import tensorflow as tf
 
 from tensorflow.contrib.proto.python.ops import encode_proto_op
@@ -51,6 +52,7 @@ def reduce_batch_vocabulary(x, vocab_ordering_type,
         otherwise, None.
   """
   if vocab_ordering_type == VocabOrderingType.FREQUENCY:
+    # TODO(b/112916494): Always do batch wise reduction once possible.
     x = tf.reshape(x, [-1])
     return (x, None, None, None)
 
@@ -178,6 +180,7 @@ def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
 
   if isinstance(x, tf.SparseTensor):
     # This means reduce_instance_dims=False.
+    # TODO(b/112656428): Support SparseTensors with rank other than 2.
     if x.get_shape().ndims != 2:
       raise NotImplementedError(
           'Mean and var only support SparseTensors with rank 2')
@@ -376,5 +379,6 @@ def reduce_batch_minus_min_and_max(x, reduce_instance_dims):
     x_batch_max = tf.reduce_max(x, axis=0)
     x_batch_minus_min = tf.reduce_max(0 - x, axis=0)
 
+  # TODO(b/112309021): tf.reduce_max of a tensor of all NaNs produces -inf.
   return (_inf_to_nan(x_batch_minus_min, output_dtype),
           _inf_to_nan(x_batch_max, output_dtype))

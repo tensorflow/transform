@@ -46,6 +46,7 @@ from __future__ import print_function
 
 import collections
 
+# GOOGLE-INITIALIZATION
 
 from tensorflow_transform import nodes
 

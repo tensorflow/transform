@@ -19,6 +19,7 @@ from __future__ import print_function
 import collections
 import json
 import os
+# GOOGLE-INITIALIZATION
 import apache_beam as beam
 import tensorflow as tf
 import tensorflow_transform as tft
@@ -28,7 +29,7 @@ from tensorflow_transform import nodes
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.beam import analysis_graph_builder
 from tensorflow_transform.beam import impl as beam_impl
-from tensorflow_transform.google import test_case
+from tensorflow_transform import test_case
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
@@ -304,7 +305,7 @@ _OPTIMIZE_TRAVERSAL_TEST_CASES = [
 ]
 
 
-class CachedImplTest(test_case.TransformTestCaseInternal):
+class CachedImplTest(test_case.TransformTestCase):
 
   def setUp(self):
     super(CachedImplTest, self).setUp()
@@ -327,6 +328,7 @@ class CachedImplTest(test_case.TransformTestCaseInternal):
     span_0_key = 'span-0'
     span_1_key = 'span-1'
 
+    # TODO(b/37788560): Get these names programmatically.
     _write_cache('__v0__CacheableCombineAccumulate--x_1-mean_and_var--',
                  span_0_key, [2.0, 1.0, 9.0], cache_location.input_cache_dir)
     _write_cache('__v0__CacheableCombineAccumulate--x-x--', span_0_key,

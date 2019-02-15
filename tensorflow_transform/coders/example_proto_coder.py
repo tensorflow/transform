@@ -14,12 +14,15 @@
 """Coder classes for encoding/decoding TF Examples into tf.Transform datasets.
 """
 
+# TODO(b/33688275): Rename ExampleProto to just Example, for all aspects of this
+# API (eg Classes, Files, Benchmarks etc).
 
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+# GOOGLE-INITIALIZATION
 
 import numpy as np
 import six
@@ -30,6 +33,8 @@ import tensorflow as tf
 # the protocol buffer library installed in the workers (which might be different
 # from the one installed in the pipeline constructor).
 #
+# TODO(b/35573758): Simplify this once the 'python' implementation of the
+# protocol buffer API can handle the numpy type conversions properly.
 def _make_cast_fn(np_dtype):
   """Return a function to extract the typed value from the feature.
 
@@ -212,20 +217,29 @@ class _VarLenFeatureHandler(object):
   def initialize_encode_cache(self, example):
     """Initialize fields (performance caches) that point to example's state."""
     self._cast_fn = _make_cast_fn(self._np_dtype)
-    self._value = self._value_fn(example.features.feature[self._name])
+    self._feature = example.features.feature[self._name]
+    self._value = self._value_fn(self._feature)
 
   def parse_value(self, feature_map):
     """Non-Mutating Decode of a feature into its TF.Transform representation."""
     if self._name in feature_map:
       feature = feature_map[self._name]
-      values = self._value_fn(feature)
+      if feature.WhichOneof('kind') is None:
+        return None
+      else:
+        return list(self._value_fn(feature))
     else:
-      values = []
-    return np.asarray(values, dtype=self._np_dtype)
+      return None
 
   def encode_value(self, values):
-    del self._value[:]
-    self._value.extend(self._cast_fn(values))
+    if values is None:
+      self._feature.Clear()
+      # Note after Clear(), self._value no longer points to a submessage of
+      # self._feature so we need to reset it.
+      self._value = self._value_fn(self._feature)
+    else:
+      del self._value[:]
+      self._value.extend(self._cast_fn(values))
 
 
 class _SparseFeatureHandler(object):
@@ -271,6 +285,7 @@ class _SparseFeatureHandler(object):
     else:
       index_values = []
 
+    # TODO(b/36040669): Validate the values and indices in a uniform way.
     values = np.asarray(value_values, dtype=self._np_dtype)
     indices = np.asarray(index_values, dtype=np.int64)
     return (indices, values)

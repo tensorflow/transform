@@ -114,6 +114,12 @@ features {
             'varlen_feature_2': np.array([b'male']),
             'sparse_feature': (np.array([2, 5]), np.array([13.0, 21.0]))
         }),
+    dict(
+        testcase_name='multiple_columns_with_missing',
+        feature_spec={'varlen_feature': tf.VarLenFeature(tf.string)},
+        ascii_proto="""\
+features { feature { key: "varlen_feature" value {} } }""",
+        instance={'varlen_feature': None}),
 ]
 
 _ENCODE_ONLY_CASES = [
@@ -266,6 +272,23 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
     serialized_proto = _ascii_to_binary(ascii_proto)
     for _ in range(2):
       coder = pickle.loads(pickle.dumps(coder))
+      np.testing.assert_equal(coder.decode(serialized_proto), instance)
+      self.assertSerializedProtosEqual(coder.encode(instance), serialized_proto)
+
+  def test_example_proto_coder_cache(self):
+    """Test that the cache remains valid after reading/writing None."""
+    schema = dataset_schema.from_feature_spec({
+        'varlen': tf.VarLenFeature(tf.int64),
+    })
+    coder = example_proto_coder.ExampleProtoCoder(schema)
+    ascii_protos = [
+        'features {feature {key: "varlen" value {int64_list {value: [5] }}}}',
+        'features {feature {key: "varlen" value {}}}',
+        'features {feature {key: "varlen" value {int64_list {value: [6] }}}}',
+    ]
+    instances = [{'varlen': [5]}, {'varlen': None}, {'varlen': [6]}]
+    serialized_protos = map(_ascii_to_binary, ascii_protos)
+    for instance, serialized_proto in zip(instances, serialized_protos):
       np.testing.assert_equal(coder.decode(serialized_proto), instance)
       self.assertSerializedProtosEqual(coder.encode(instance), serialized_proto)
 

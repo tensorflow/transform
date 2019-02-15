@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 
+# TODO(b/123243166) eventually migrate this constant to tag_constants.TRANSFORM.
 TRANSFORM_TAG = 'transform'
 
 TRANSFORM_SIGNATURE = 'transform_signature'

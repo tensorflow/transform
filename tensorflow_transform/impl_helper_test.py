@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+# GOOGLE-INITIALIZATION
 
 import numpy as np
 import tensorflow as tf
@@ -150,46 +151,59 @@ _ROUNDTRIP_CASES = [
          }),
 ]
 
+# Non-canonical inputs that will not be the output of to_instance_dicts but
+# are valid inputs to make_feed_dict.
+_MAKE_FEED_DICT_CASES = [
+    dict(testcase_name='none_feature',
+         feature_spec={
+             'varlen_feature': tf.VarLenFeature(tf.int64),
+         },
+         instances=[
+             {'varlen_feature': []},
+             {'varlen_feature': None},
+             {'varlen_feature': [1, 2]}
+         ],
+         feed_dict={
+             'varlen_feature': tf.SparseTensorValue(
+                 indices=np.array([(2, 0), (2, 1)]),
+                 values=np.array([1, 2]),
+                 dense_shape=[3, 2])
+         }),
+]
+
 _MAKE_FEED_LIST_ERROR_CASES = [
-    dict(
-        testcase_name='missing_feature',
-        feature_spec={
-            'a': tf.FixedLenFeature([1], tf.int64),
-            'b': tf.FixedLenFeature([1], tf.int64),
-        },
-        instances=[{
-            'a': 100
-        }],
-        error_msg='b',
-        error_type=KeyError),
-    dict(
-        testcase_name='sparse_feature_index_negative',
-        feature_spec={'a': tf.SparseFeature('idx', 'val', tf.float32, 10)},
-        instances=[{
-            'a': ([-1, 2], [1.0, 2.0])
-        }],
-        error_msg='has index .* out of range'),
-    dict(
-        testcase_name='sparse_feature_index_too_high',
-        feature_spec={'a': tf.SparseFeature('idx', 'val', tf.float32, 10)},
-        instances=[{
-            'a': ([11, 2], [1.0, 2.0])
-        }],
-        error_msg='has index .* out of range'),
-    dict(
-        testcase_name='sparse_feature_indices_and_values_different_lengths',
-        feature_spec={'a': tf.SparseFeature('idx', 'val', tf.float32, 10)},
-        instances=[{
-            'a': ([1, 2], [1])
-        }],
-        error_msg='indices and values of different lengths'),
-    dict(
-        testcase_name='sparse_feature_not_a_pair',
-        feature_spec={'a': tf.SparseFeature('idx', 'val', tf.float32, 10)},
-        instances=[{
-            'a': ([1], [2], [3])
-        }],
-        error_msg='too many values to unpack'),
+    dict(testcase_name='missing_feature',
+         feature_spec={
+             'a': tf.FixedLenFeature([1], tf.int64),
+             'b': tf.FixedLenFeature([1], tf.int64),
+         },
+         instances=[{'a': 100}],
+         error_msg='b',
+         error_type=KeyError),
+    dict(testcase_name='sparse_feature_index_negative',
+         feature_spec={
+             'a': tf.SparseFeature('idx', 'val', tf.float32, 10)
+         },
+         instances=[{'a': ([-1, 2], [1.0, 2.0])}],
+         error_msg='has index .* out of range'),
+    dict(testcase_name='sparse_feature_index_too_high',
+         feature_spec={
+             'a': tf.SparseFeature('idx', 'val', tf.float32, 10)
+         },
+         instances=[{'a': ([11, 2], [1.0, 2.0])}],
+         error_msg='has index .* out of range'),
+    dict(testcase_name='sparse_feature_indices_and_values_different_lengths',
+         feature_spec={
+             'a': tf.SparseFeature('idx', 'val', tf.float32, 10)
+         },
+         instances=[{'a': ([1, 2], [1])}],
+         error_msg='indices and values of different lengths'),
+    dict(testcase_name='sparse_feature_not_a_pair',
+         feature_spec={
+             'a': tf.SparseFeature('idx', 'val', tf.float32, 10)
+         },
+         instances=[{'a': ([1], [2], [3])}],
+         error_msg='too many values to unpack'),
 ]
 
 _TO_INSTANCE_DICT_ERROR_CASES = [
@@ -279,7 +293,7 @@ class ImplHelperTest(test_case.TransformTestCase):
     self.assertEqual(features['var_len_int'].get_shape().as_list(),
                      [None, None])
 
-  @test_case.named_parameters(*_ROUNDTRIP_CASES)
+  @test_case.named_parameters(*(_ROUNDTRIP_CASES + _MAKE_FEED_DICT_CASES))
   def test_make_feed_list(self, feature_spec, instances, feed_dict):
     schema = dataset_schema.from_feature_spec(feature_spec)
     feature_names = list(feature_spec.keys())

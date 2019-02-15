@@ -20,6 +20,7 @@ from __future__ import print_function
 import collections
 import os
 
+# GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 from tensorflow_transform import analyzer_cache
@@ -155,6 +156,8 @@ class _OptimizeVisitor(nodes.Visitor):
   def visit(self, operation_def, input_values):
     self._validate_operation_def(operation_def)
 
+    # TODO(b/37788560): Possibly make this generic instead of special casing the
+    # ApplySavedModel operation.
     if (isinstance(operation_def, beam_nodes.ApplySavedModel) and
         operation_def.phase == 0):
       return self._visit_apply_savedmodel_operation(operation_def, input_values)
@@ -191,6 +194,8 @@ class _OptimizeVisitor(nodes.Visitor):
             fine_grained_view=None) for flat in flattened_view)
 
   def _visit_partitionable_operation(self, operation_def, upstream_views):
+    # TODO(b/37788560) Possibly support partitionable operations with multiple
+    # inputs.
     (upstream_view,) = upstream_views
     prefer_fine_grained_view = (
         upstream_view.prefer_fine_grained_view or
@@ -202,8 +207,14 @@ class _OptimizeVisitor(nodes.Visitor):
       for key in self._dataset_keys:
 
         if operation_def.cache_coder is not None:
+          # TODO(b/37788560): Add instrumentation.
+          # TODO(b/37788560): Use a better cache key than label. A good
+          # alternative is to reuse graph_tools logic to compose names that
+          # include properties and fingerprint it.
           cache_file_path = analyzer_cache.make_cache_file_path(
               key, operation_def.label)
+          # TODO(b/37788560): Come up with a more abstract way to do this that
+          # also ensures concistency.
           pattern = '{}-00000*.gz'.format(
               os.path.join(self._cache_location.input_cache_dir,
                            cache_file_path))
@@ -409,6 +420,8 @@ def build(graph,
   output_signature = collections.OrderedDict(
       sorted(output_signature.items(), key=lambda t: t[0]))
 
+  # TODO(KesterTong): check all table initializers are ready, check all output
+  # tensors are ready.
   saved_model_future = nodes.apply_operation(
       beam_nodes.CreateSavedModel,
       *tensor_bindings,

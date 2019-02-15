@@ -64,6 +64,9 @@ entrypoints into our code where this happens and creating a
 3) In _replace_tensors_with_constant_values, which is called in a beam.Map.
 4) In extract_scalar_constants, which is called in a beam.Map.
 """
+# TODO(KesterTong): Document data format.
+# TODO(KesterTong): Refactor and rename now that "TransformFn" is the path to a
+# SavedModel, not an in-memory object.
 
 from __future__ import absolute_import
 from __future__ import division
@@ -75,6 +78,7 @@ import datetime
 import os
 import threading
 
+# GOOGLE-INITIALIZATION
 
 import apache_beam as beam
 
@@ -103,13 +107,18 @@ from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
 
-_DATASET_ELEMENT_TYPE = Dict[six.text_type,
+# TODO(b/123325923): Fix the key type here to agree with the actual keys.
+_DATASET_ELEMENT_TYPE = Dict[Any,  # Any -> six.text_type?
                              Union[common.PRIMITIVE_TYPE,
                                    # Arbitrarily-nested lists are allowed.
                                    List[Any], np.generic, np.ndarray]]
 
+# TODO(b/68154497): pylint: disable=no-value-for-parameter
 
 
+# TODO(b/64956765): Remove this once either the keepalive issue (b/30837990), or
+# the mentioned bug above is resolved.
+# TODO(zoyahav): Make this a PTransform.
 def _clear_shared_state_after_barrier(pipeline, input_barrier):
   """Clears any shared state from within a pipeline context.
 
@@ -168,6 +177,8 @@ class Context(object):
     def __init__(self):
       self.frames = []
 
+  # TODO(b/36359436) Ensure tf.Transform code only uses consistent filesystem
+  # operations on Cloud.
   _TEMP_SUBDIR = 'tftransform_tmp'
 
   _thread_local = threading.local()
@@ -225,6 +236,7 @@ class Context(object):
           'manager.')
     base_temp_dir = os.path.join(state.temp_dir, cls._TEMP_SUBDIR)
 
+    # TODO(b/35363519): Perhaps use Beam IO eventually?
     tf.gfile.MakeDirs(base_temp_dir)
     return base_temp_dir
 
@@ -266,6 +278,7 @@ def _BatchElements(pcoll):  # pylint: disable=invalid-name
   return pcoll | 'BatchElements' >> util.BatchElements(**kwargs)
 
 
+# TODO(b/36223892): Verify that these type hints work and make needed fixes.
 @with_input_types(List[_DATASET_ELEMENT_TYPE], str)
 @with_output_types(Dict[str, Union[np.ndarray, tf.SparseTensorValue]])
 class _RunMetaGraphDoFn(beam.DoFn):
@@ -377,7 +390,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
       outputs_list = self._graph_state.callable_get_outputs(*feed_list)
     except Exception as e:
       tf.logging.error('%s while applying transform function for tensors %s',
-                       (e, self._graph_state.outputs_tensor_keys))
+                       e, self._graph_state.outputs_tensor_keys)
       raise ValueError('bad inputs: {}'.format(feed_list))
 
     assert len(self._graph_state.outputs_tensor_keys) == len(outputs_list)
@@ -432,9 +445,9 @@ class _RunMetaGraphDoFn(beam.DoFn):
 def _assert_tensorflow_version():
   # Fail with a clear error in case we are not using a compatible TF version.
   major, minor, _ = tf.__version__.split('.')
-  if int(major) != 1 or int(minor) < 11:
+  if int(major) != 1 or int(minor) < 12:
     raise RuntimeError(
-        'TensorFlow version >= 1.11, < 2 is required. Found (%s). Please '
+        'TensorFlow version >= 1.12, < 2 is required. Found (%s). Please '
         'install the latest 1.x version from '
         'https://github.com/tensorflow/tensorflow. ' % tf.__version__)
 
@@ -695,6 +708,9 @@ class _AnalyzeDatasetCommon(beam.PTransform):
         # (b/34288791), we avoid using the placeholder of an input column as an
         # output of a graph. We do this by applying tf.identity to all inputs of
         # the preprocessing_fn.  Note this applies at the level of raw tensors.
+        # TODO(b/34288791): Remove this workaround and use a shallow copy of
+        # inputs instead.  A shallow copy is needed in case
+        # self._preprocessing_fn mutates its input.
         copied_inputs = impl_helper.copy_tensors(input_signature)
 
       output_signature = self._preprocessing_fn(copied_inputs)

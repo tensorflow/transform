@@ -13,6 +13,9 @@
 # limitations under the License.
 """Module level imports for tensorflow_transform.saved."""
 
+# TODO(b/35581165) All of the following dependencies introduce a cyclical
+# on dependency on tensorflow_transform.saved which dill is not being able to
+# handle.
 
 # from tensorflow_transform.saved.input_fn_maker import
 # build_parsing_transforming_serving_input_fn

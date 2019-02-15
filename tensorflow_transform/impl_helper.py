@@ -20,6 +20,7 @@ from __future__ import print_function
 
 import itertools
 
+# GOOGLE-INITIALIZATION
 
 import numpy as np
 import six
@@ -135,16 +136,19 @@ def make_feed_list(column_names, schema, instances):
   feature_spec = schema.as_feature_spec()
   for name in column_names:
     spec = feature_spec[name]
+    # TODO(abrao): Validate dtypes, shapes etc.
     if isinstance(spec, tf.FixedLenFeature):
       feed_value = [instance[name] for instance in instances]
 
     elif isinstance(spec, tf.VarLenFeature):
-      values = [instance[name] for instance in instances]
-      indices = [range(len(instance[name])) for instance in instances]
-      max_index = max([len(instance[name]) for instance in instances])
+      values = [[] if instance[name] is None else instance[name]
+                for instance in instances]
+      indices = [range(len(value)) for value in values]
+      max_index = max([len(value) for value in values])
       feed_value = make_sparse_batch(indices, values, max_index)
 
     elif isinstance(spec, tf.SparseFeature):
+      # TODO(abrao): Add support for N-d SparseFeatures.
       max_index = spec.size
       indices, values = [], []
       for instance in instances:
@@ -262,6 +266,7 @@ def to_instance_dicts(schema, fetches):
       if not isinstance(value, tf.SparseTensorValue):
         raise ValueError(
             'Expected a SparseTensorValue, but got {}'.format(value))
+      # TODO(abrao): Add support for N-d SparseFeatures.
       instance_indices, instance_values = decompose_sparse_batch(value)
       batch_dict[name] = zip(instance_indices, instance_values)
       batch_sizes[name] = len(instance_values)
@@ -288,6 +293,7 @@ def to_instance_dicts(schema, fetches):
           for instance_values in zip(*six.itervalues(batch_dict))]
 
 
+# TODO(b/36040669): Consider moving this to where it can be shared with coders.
 def check_valid_sparse_tensor(indices, values, size, name):
   # Check that all indices are in range.
   if len(indices):  # pylint: disable=g-explicit-length-test

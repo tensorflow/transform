@@ -21,6 +21,7 @@ from __future__ import print_function
 import os
 import tempfile
 
+# GOOGLE-INITIALIZATION
 import numpy as np
 import tensorflow as tf
 from tensorflow_transform.saved import saved_transform_io
@@ -34,6 +35,8 @@ from tensorflow.python.platform import test
 from tensorflow.python.util import compat
 
 
+# TODO(b/123241798): Find an open-source compatible way to access
+# FLAGS.test_tmpdir.
 def _create_test_saved_model():
   export_path = os.path.join(tempfile.mkdtemp(), 'export')
 

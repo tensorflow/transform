@@ -17,11 +17,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+# GOOGLE-INITIALIZATION
 
 from tensorflow.python.saved_model import loader_impl
 
 
 # This file is forked and refactored from saved_model/loader_impl.py
+# TODO(b/123242568): refactor, moving most of this back into saved_model.
 
 
 def parse_saved_model(saved_model_dir):
@@ -60,6 +62,11 @@ def choose_meta_graph_def(saved_model, tags):
 
 
 def get_asset_tensors(saved_model_dir, meta_graph_def_to_load):
-  # pylint: disable=protected-access
-  return loader_impl._get_asset_tensors(saved_model_dir, meta_graph_def_to_load)
-  # pylint: enable=protected-access
+  try:
+    return loader_impl.get_asset_tensors(saved_model_dir,
+                                         meta_graph_def_to_load)
+  # TODO(b/124491249): Remove this backwards compatibility once TFT 0.14 is
+  # released.
+  except AttributeError:
+    return loader_impl._get_asset_tensors(  # pylint: disable=protected-access
+        saved_model_dir, meta_graph_def_to_load)
