@@ -17,7 +17,7 @@ from setuptools import find_packages
 from setuptools import setup
 
 # Tensorflow transform version.
-__version__ = '0.12.0dev'
+__version__ = '0.12.0'
 
 
 def _make_required_install_packages():
@@ -25,13 +25,13 @@ def _make_required_install_packages():
   # six, and protobuf) with TF.
   return [
       'absl-py>=0.1.6',
-      'apache-beam[gcp]>=2.9,<3',
+      'apache-beam[gcp]>=2.10,<3',
       'numpy>=1.14.5,<2',
       # TODO(b/124072021): currently one test fails for py3 with protobuf 3.6
       # update this to a non-rc version.
       'protobuf==3.7.0rc2',
       'six>=1.10,<2',
-      'tensorflow-metadata>=0.9,<0.10',
+      'tensorflow-metadata>=0.9,<0.13',
 
       # TODO(b/123240958): Uncomment this once TF can automatically select
       # between CPU and GPU installation.

@@ -1,4 +1,4 @@
-# Current version (not yet released; still in development)
+# Release 0.12.0
 
 ## Major Features and Improvements
 * Python 3.5 readiness complete (all tests pass). Full Python 3.5 compatibility
@@ -40,7 +40,7 @@
   for more details.
 * `CombinePerKey` now adds a dimension for the key.
 * Depends on `numpy>=1.14.5,<2`.
-* Depends on `apache-beam[gcp]>=2.9,<3`.
+* Depends on `apache-beam[gcp]>=2.10,<3`.
 * Depends on `protobuf==3.7.0rc2`.
 * `ExampleProtoCoder.encode` now converts a feature whose value is `None` to an
   empty value, where before it did not accept `None` as a valid value.
