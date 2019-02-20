@@ -17,7 +17,7 @@ from setuptools import find_packages
 from setuptools import setup
 
 # Tensorflow transform version.
-__version__ = '0.12.0'
+__version__ = '0.13.0dev'
 
 
 def _make_required_install_packages():
