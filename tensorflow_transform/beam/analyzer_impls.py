@@ -773,14 +773,16 @@ def _merge_outputs_by_key(keys_and_outputs, outputs_dtype):
     ValueError: If the number is outputs doesn't match num_outputs.
   """
   num_outputs = len(outputs_dtype)
-  # Sort keys_and_outputs by keys.
-  keys_and_outputs.sort(key=lambda x: x[0])
+
+  # Sort a copy of keys_and_outputs by keys.
+  sorted_keys_and_outputs = sorted(keys_and_outputs, key=lambda x: x[0])
+
   # Convert from a list of pairs of the form (key, outputs_for_key) to a list of
   # keys and a list of outputs (where the outer dimension is the number of
   # outputs not the number of keys).
   key = []
   outputs = []
-  for k, o in keys_and_outputs:
+  for k, o in sorted_keys_and_outputs:
     key.append(k)
     outputs.append(o)
   if not outputs:
