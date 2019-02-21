@@ -3,6 +3,7 @@
 ## Major Features and Improvements
 
 ## Bug Fixes and Other Changes
+* Version is now accessible as `tensorflow_transform.__version__`.
 
 ## Breaking changes
 

@@ -11,18 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Init module for TF.Transform."""
-# GOOGLE-INITIALIZATION
+"""Contains the version string of TF.Transform."""
 
-# pylint: disable=wildcard-import
-from tensorflow_transform import coders
-from tensorflow_transform.analyzers import *
-from tensorflow_transform.api import apply_function
-from tensorflow_transform.mappers import *
-from tensorflow_transform.output_wrapper import TFTransformOutput
-from tensorflow_transform.pretrained_models import *
-from tensorflow_transform.py_func.api import apply_pyfunc
-# pylint: enable=wildcard-import
-
-# Import version string.
-from tensorflow_transform.version import __version__
+# Note that setup.py uses this version.
+__version__ = '0.13.0dev'
