@@ -87,7 +87,8 @@ feature { key: "idx" value { int64_list { value: [ 1, 4 ] } } }
             '1d_vector_feature': [b'this is a ,text'],
             '2d_vector_feature': [[1.0, 2.0], [3.0, 4.0]],
             'varlen_feature_2': [b'female'],
-            'sparse_feature': ([1, 4], [12.0, 20.0])
+            'idx': [1, 4],
+            'value': [12.0, 20.0],
         }),
     dict(
         testcase_name='multiple_columns_ndarray',
@@ -117,7 +118,8 @@ features {
             '1d_vector_feature': np.array([b'this is another ,text']),
             '2d_vector_feature': np.array([[9.0, 8.0], [7.0, 6.0]]),
             'varlen_feature_2': np.array([b'male']),
-            'sparse_feature': (np.array([2, 5]), np.array([13.0, 21.0]))
+            'idx': np.array([2, 5]),
+            'value': np.array([13.0, 21.0]),
         }),
     dict(
         testcase_name='multiple_columns_with_missing',
@@ -275,7 +277,8 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
         '1d_vector_feature': [b'this is a ,text'],
         '2d_vector_feature': [[1.0, 2.0], [3.0, 4.0]],
         'varlen_feature_2': [b'female'],
-        'sparse_feature': ([1, 4], [12.0, 20.0])
+        'idx': [1, 4],
+        'value': [12.0, 20.0],
     }
     serialized_proto = _ascii_to_binary(ascii_proto)
     for _ in range(2):

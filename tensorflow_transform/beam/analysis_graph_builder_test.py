@@ -40,7 +40,7 @@ _NO_ANALYZERS_CASE = dict(
     expected_dot_graph_str=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-CreateSavedModel [label="{CreateSavedModel|table_initializers: ()|output_signature: OrderedDict([('x_plus_1', \<tf.Tensor 'add:0' shape=(?,) dtype=float32\>)])|label: CreateSavedModel}"];
+CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_plus_1', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\")])|label: CreateSavedModel}"];
 }
 """)
 
@@ -59,7 +59,7 @@ _ONE_ANALYZER_CASE = dict(
     expected_dot_graph_str=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[0]" [label="{CreateSavedModel|table_initializers: ()|output_signature: OrderedDict([('x/mean_and_var/Cast', \<tf.Tensor 'x/mean_and_var/Cast:0' shape=() dtype=float32\>), ('x/mean_and_var/truediv', \<tf.Tensor 'x/mean_and_var/truediv:0' shape=() dtype=float32\>), ('x/mean_and_var/truediv_1', \<tf.Tensor 'x/mean_and_var/truediv_1:0' shape=() dtype=float32\>)])|label: CreateSavedModelForAnalyzerInputs[0]}"];
+"CreateSavedModelForAnalyzerInputs[0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[0]}"];
 "ApplySavedModel[0]" [label="{ApplySavedModel|dataset_key: None|phase: 0|label: ApplySavedModel[0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0]";
 "TensorSource[x/mean_and_var]" [label="{ExtractFromDict|keys: ('x/mean_and_var/Cast', 'x/mean_and_var/truediv', 'x/mean_and_var/truediv_1')|label: TensorSource[x/mean_and_var]|partitionable: True}"];
@@ -72,7 +72,7 @@ node [shape=Mrecord];
 "CacheableCombineMerge[x/mean_and_var]":0 -> "CreateTensorBinding[x/mean_and_var/Placeholder]";
 "CreateTensorBinding[x/mean_and_var/Placeholder_1]" [label="{CreateTensorBinding|tensor: x/mean_and_var/Placeholder_1:0|is_asset_filepath: False|label: CreateTensorBinding[x/mean_and_var/Placeholder_1]}"];
 "CacheableCombineMerge[x/mean_and_var]":1 -> "CreateTensorBinding[x/mean_and_var/Placeholder_1]";
-CreateSavedModel [label="{CreateSavedModel|table_initializers: ()|output_signature: OrderedDict([('x_centered', \<tf.Tensor 'sub:0' shape=(?,) dtype=float32\>)])|label: CreateSavedModel}"];
+CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_centered', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\")])|label: CreateSavedModel}"];
 "CreateTensorBinding[x/mean_and_var/Placeholder]" -> CreateSavedModel;
 "CreateTensorBinding[x/mean_and_var/Placeholder_1]" -> CreateSavedModel;
 }
@@ -94,7 +94,7 @@ _WITH_TABLE_CASE = dict(
     expected_dot_graph_str=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[0]" [label="{CreateSavedModel|table_initializers: ()|output_signature: OrderedDict([('x/Reshape', \<tf.Tensor 'x/Reshape:0' shape=(?,) dtype=string\>)])|label: CreateSavedModelForAnalyzerInputs[0]}"];
+"CreateSavedModelForAnalyzerInputs[0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/Reshape', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[0]}"];
 "ApplySavedModel[0]" [label="{ApplySavedModel|dataset_key: None|phase: 0|label: ApplySavedModel[0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0]";
 "TensorSource[x]" [label="{ExtractFromDict|keys: ('x/Reshape',)|label: TensorSource[x]|partitionable: True}"];
@@ -109,7 +109,7 @@ node [shape=Mrecord];
 "VocabularyOrderAndFilter[x]" -> "VocabularyWrite[x]";
 "CreateTensorBinding[x/Placeholder]" [label="{CreateTensorBinding|tensor: x/Placeholder:0|is_asset_filepath: True|label: CreateTensorBinding[x/Placeholder]}"];
 "VocabularyWrite[x]" -> "CreateTensorBinding[x/Placeholder]";
-CreateSavedModel [label="{CreateSavedModel|table_initializers: (\<tf.Operation 'string_to_index/hash_table/table_init' type=InitializeTableFromTextFileV2\>,)|output_signature: OrderedDict([('x_integerized', \<tf.Tensor 'hash_table_Lookup:0' shape=(?,) dtype=int64\>)])|label: CreateSavedModel}"];
+CreateSavedModel [label="{CreateSavedModel|table_initializers: 1|output_signature: OrderedDict([('x_integerized', \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\")])|label: CreateSavedModel}"];
 "CreateTensorBinding[x/Placeholder]" -> CreateSavedModel;
 }
 """)
@@ -131,7 +131,7 @@ _TWO_PHASES_CASE = dict(
     expected_dot_graph_str=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[0]" [label="{CreateSavedModel|table_initializers: ()|output_signature: OrderedDict([('x/mean_and_var/Cast', \<tf.Tensor 'x/mean_and_var/Cast:0' shape=() dtype=float32\>), ('x/mean_and_var/truediv', \<tf.Tensor 'x/mean_and_var/truediv:0' shape=() dtype=float32\>), ('x/mean_and_var/truediv_1', \<tf.Tensor 'x/mean_and_var/truediv_1:0' shape=() dtype=float32\>)])|label: CreateSavedModelForAnalyzerInputs[0]}"];
+"CreateSavedModelForAnalyzerInputs[0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[0]}"];
 "ApplySavedModel[0]" [label="{ApplySavedModel|dataset_key: None|phase: 0|label: ApplySavedModel[0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0]";
 "TensorSource[x/mean_and_var]" [label="{ExtractFromDict|keys: ('x/mean_and_var/Cast', 'x/mean_and_var/truediv', 'x/mean_and_var/truediv_1')|label: TensorSource[x/mean_and_var]|partitionable: True}"];
@@ -144,7 +144,7 @@ node [shape=Mrecord];
 "CacheableCombineMerge[x/mean_and_var]":0 -> "CreateTensorBinding[x/mean_and_var/Placeholder]";
 "CreateTensorBinding[x/mean_and_var/Placeholder_1]" [label="{CreateTensorBinding|tensor: x/mean_and_var/Placeholder_1:0|is_asset_filepath: False|label: CreateTensorBinding[x/mean_and_var/Placeholder_1]}"];
 "CacheableCombineMerge[x/mean_and_var]":1 -> "CreateTensorBinding[x/mean_and_var/Placeholder_1]";
-"CreateSavedModelForAnalyzerInputs[1]" [label="{CreateSavedModel|table_initializers: ()|output_signature: OrderedDict([('x_square_deviations/mean_and_var/Cast', \<tf.Tensor 'x_square_deviations/mean_and_var/Cast:0' shape=() dtype=float32\>), ('x_square_deviations/mean_and_var/truediv', \<tf.Tensor 'x_square_deviations/mean_and_var/truediv:0' shape=() dtype=float32\>), ('x_square_deviations/mean_and_var/truediv_1', \<tf.Tensor 'x_square_deviations/mean_and_var/truediv_1:0' shape=() dtype=float32\>)])|label: CreateSavedModelForAnalyzerInputs[1]}"];
+"CreateSavedModelForAnalyzerInputs[1]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_square_deviations/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[1]}"];
 "CreateTensorBinding[x/mean_and_var/Placeholder]" -> "CreateSavedModelForAnalyzerInputs[1]";
 "CreateTensorBinding[x/mean_and_var/Placeholder_1]" -> "CreateSavedModelForAnalyzerInputs[1]";
 "ApplySavedModel[1]" [label="{ApplySavedModel|dataset_key: None|phase: 1|label: ApplySavedModel[1]|partitionable: True}"];
@@ -159,7 +159,7 @@ node [shape=Mrecord];
 "CacheableCombineMerge[x_square_deviations/mean_and_var]":0 -> "CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder]";
 "CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder_1]" [label="{CreateTensorBinding|tensor: x_square_deviations/mean_and_var/Placeholder_1:0|is_asset_filepath: False|label: CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder_1]}"];
 "CacheableCombineMerge[x_square_deviations/mean_and_var]":1 -> "CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder_1]";
-CreateSavedModel [label="{CreateSavedModel|table_initializers: ()|output_signature: OrderedDict([('x_normalized', \<tf.Tensor 'truediv:0' shape=(?,) dtype=float32\>)])|label: CreateSavedModel}"];
+CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_normalized', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\")])|label: CreateSavedModel}"];
 "CreateTensorBinding[x/mean_and_var/Placeholder]" -> CreateSavedModel;
 "CreateTensorBinding[x/mean_and_var/Placeholder_1]" -> CreateSavedModel;
 "CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder]" -> CreateSavedModel;
@@ -201,7 +201,7 @@ _CHAINED_PTRANSFORMS_CASE = dict(
     expected_dot_graph_str=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[0]" [label="{CreateSavedModel|table_initializers: ()|output_signature: OrderedDict([('inputs/x', \<tf.Tensor 'inputs/x:0' shape=(?,) dtype=int64\>)])|label: CreateSavedModelForAnalyzerInputs[0]}"];
+"CreateSavedModelForAnalyzerInputs[0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('inputs/x', \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[0]}"];
 "ApplySavedModel[0]" [label="{ApplySavedModel|dataset_key: None|phase: 0|label: ApplySavedModel[0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0]";
 "TensorSource[x]" [label="{ExtractFromDict|keys: ('inputs/x',)|label: TensorSource[x]|partitionable: True}"];
@@ -212,7 +212,7 @@ node [shape=Mrecord];
 "FakeChainable[x/ptransform1]" -> "FakeChainable[x/ptransform2]";
 "CreateTensorBinding[x/Placeholder]" [label="{CreateTensorBinding|tensor: x/Placeholder:0|is_asset_filepath: False|label: CreateTensorBinding[x/Placeholder]}"];
 "FakeChainable[x/ptransform2]" -> "CreateTensorBinding[x/Placeholder]";
-CreateSavedModel [label="{CreateSavedModel|table_initializers: ()|output_signature: OrderedDict([('x_chained', \<tf.Tensor 'x/Placeholder:0' shape=(17, 27) dtype=float32\>)])|label: CreateSavedModel}"];
+CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_chained', \"Tensor\<shape: [17, 27], \<dtype: 'float32'\>\>\")])|label: CreateSavedModel}"];
 "CreateTensorBinding[x/Placeholder]" -> CreateSavedModel;
 }
 """)

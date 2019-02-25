@@ -1,11 +1,19 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
+* Now `AnalyzeDataset`, `TransformDataset` and `AnalyzeAndTransformDataset` can
+  accept input data that only contains columns needed for that operation as
+  opposed to all columns defined in schema. Utility methods to infer the list of
+  needed columns are added to `tft.inspect_preprocessing_fn`. This makes it
+  easier to take advantage of columnar projection when data is stored in
+  columnar storage formats.
 
 ## Bug Fixes and Other Changes
 * Version is now accessible as `tensorflow_transform.__version__`.
 
 ## Breaking changes
+* Coders now return index and value features rather than a combined feature for
+  `SparseFeature`.
 
 ## Deprecations
 

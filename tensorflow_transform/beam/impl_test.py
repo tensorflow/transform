@@ -602,9 +602,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
       }
 
     input_data = [
-        {'sparse': ([0, 1], [0., 1.]), 'varlen': [0., 1.]},
-        {'sparse': ([2, 3], [2., 3.]), 'varlen': [3., 4., 5.]},
-        {'sparse': ([4, 5], [4., 5.]), 'varlen': [6., 7.]}
+        {'idx': [0, 1], 'val': [0., 1.], 'varlen': [0., 1.]},
+        {'idx': [2, 3], 'val': [2., 3.], 'varlen': [3., 4., 5.]},
+        {'idx': [4, 5], 'val': [4., 5.], 'varlen': [6., 7.]}
     ]
     input_metadata = _metadata_from_feature_spec({
         'sparse': tf.SparseFeature('idx', 'val', tf.float32, 10),
@@ -649,6 +649,41 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
+
+  def testSingleMapWithOnlyAnalyzerInputs(self):
+    def preprocessing_fn(inputs):
+      ab = tf.multiply(inputs['a'], inputs['b'])
+      return {'ab': ab, 'new_c': inputs['c'] + tft.mean(inputs['c'])}
+
+    test_data = [
+        {'a': 4, 'b': 3, 'c': 1},
+        {'a': 1, 'b': 2, 'c': 2},
+        {'a': 5, 'b': 6, 'c': 3},
+        {'a': 2, 'b': 3, 'c': 4}
+    ]
+    input_data = [
+        {'c': 10},
+        {'c': 20}
+    ]
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.float32),
+        'b': tf.FixedLenFeature([], tf.float32),
+        'c': tf.FixedLenFeature([], tf.float32),
+        'd': tf.VarLenFeature(tf.int64)
+    })
+    expected_data = [
+        {'ab': 12, 'new_c': 16},
+        {'ab': 2, 'new_c': 17},
+        {'ab': 30, 'new_c': 18},
+        {'ab': 6, 'new_c': 19}
+    ]
+    expected_metadata = _metadata_from_feature_spec({
+        'ab': tf.FixedLenFeature([], tf.float32),
+        'new_c': tf.FixedLenFeature([], tf.float32)
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata, preprocessing_fn, expected_data,
+        expected_metadata, test_data=test_data)
 
   def testMapWithCond(self):
     def preprocessing_fn(inputs):
@@ -1173,7 +1208,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'x_scaled': tf.cast(z_score, tf.float32)
       }
 
-    input_data = [{'x': ([0, 1], [-4, 10])}, {'x': ([0, 1], [2, 4])}]
+    input_data = [
+        {'idx': [0, 1], 'val': [-4, 10]},
+        {'idx': [0, 1], 'val': [2, 4]},
+    ]
     input_metadata = _metadata_from_feature_spec({
         'x': tf.SparseFeature('idx', 'val', _canonical_dtype(input_dtype), 4)
     })
@@ -1332,7 +1370,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
       }
 
     output_dtype = _canonical_dtype(input_dtype).as_numpy_dtype
-    input_data = [{'a': ([0, 1], [0., 1.])}, {'a': ([1, 3], [2., 3.])}]
+    input_data = [
+        {'idx': [0, 1], 'val': [0., 1.]},
+        {'idx': [1, 3], 'val': [2., 3.]},
+    ]
     input_metadata = _metadata_from_feature_spec({
         'a': tf.SparseFeature('idx', 'val', _canonical_dtype(input_dtype), 4)
     })
@@ -1454,11 +1495,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def analyzer_fn(inputs):
       return {'mean': tft.mean(tf.cast(inputs['sparse'], tf.int32), False)}
 
-    input_data = [{
-        'sparse': ([0, 1], [1, 1])
-    }, {
-        'sparse': ([1, 3], [2147483647, 3])
-    }]
+    input_data = [
+        {'idx': [0, 1], 'val': [1, 1]},
+        {'idx': [1, 3], 'val': [2147483647, 3]},
+    ]
     input_metadata = _metadata_from_feature_spec({
         'sparse': tf.SparseFeature('idx', 'val', tf.int64, 4)
     })

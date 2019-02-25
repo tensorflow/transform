@@ -21,60 +21,41 @@ from __future__ import print_function
 
 import apache_beam as beam
 
-import tensorflow as tf
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
-from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.beam.tft_beam_io import test_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 
 import unittest
 from tensorflow.python.framework import test_util
 
-_TEST_METADATA_COMPLETE = dataset_metadata.DatasetMetadata({
-    'fixed_column': dataset_schema.ColumnSchema(
-        tf.string, (3,), dataset_schema.FixedColumnRepresentation()),
-    'list_columm': dataset_schema.ColumnSchema(
-        dataset_schema.IntDomain(tf.int64, min_value=-1, max_value=5),
-        (None,), dataset_schema.ListColumnRepresentation())
-})
-
-_TEST_METADATA = dataset_metadata.DatasetMetadata({
-    'fixed_column': dataset_schema.ColumnSchema(
-        tf.string, (3,), dataset_schema.FixedColumnRepresentation()),
-    # zeros will be overriddden
-    'list_columm': dataset_schema.ColumnSchema(
-        dataset_schema.IntDomain(tf.int64, min_value=0, max_value=0),
-        (None,), dataset_schema.ListColumnRepresentation())
-})
-
 
 class BeamMetadataIoTest(test_util.TensorFlowTestCase):
 
   def testWriteMetadataNonDeferred(self):
-    # Write properties as metadata to disk.
+    # Write metadata to disk using WriteMetadata PTransform.
     with beam.Pipeline() as pipeline:
       path = self.get_temp_dir()
-      _ = (_TEST_METADATA_COMPLETE
+      _ = (test_metadata.COMPLETE_METADATA
            | beam_metadata_io.WriteMetadata(path, pipeline))
+
     # Load from disk and check that it is as expected.
     metadata = metadata_io.read_metadata(path)
-    self.assertEqual(metadata, _TEST_METADATA_COMPLETE)
+    self.assertEqual(metadata, test_metadata.COMPLETE_METADATA)
 
-  def testWriteMetadataDeferredProperties(self):
-    # Write deferred properties as metadata to disk.
+  def testWriteMetadataDeferred(self):
+    # Write metadata to disk using WriteMetadata PTransform, combining
+    # incomplete metadata with (deferred) complete metadata.
     with beam.Pipeline() as pipeline:
       path = self.get_temp_dir()
-
-      # Combine _TEST_METADATA with the complete (deferred) metadata.
       deferred_metadata = pipeline | 'CreateDeferredMetadata' >> beam.Create(
-          [_TEST_METADATA_COMPLETE])
+          [test_metadata.COMPLETE_METADATA])
       metadata = beam_metadata_io.BeamDatasetMetadata(
-          _TEST_METADATA, deferred_metadata)
-
+          test_metadata.INCOMPLETE_METADATA, deferred_metadata)
       _ = metadata | beam_metadata_io.WriteMetadata(path, pipeline)
+
     # Load from disk and check that it is as expected.
     metadata = metadata_io.read_metadata(path)
-    self.assertEqual(metadata, _TEST_METADATA_COMPLETE)
+    self.assertEqual(metadata, test_metadata.COMPLETE_METADATA)
 
 
 if __name__ == '__main__':

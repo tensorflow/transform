@@ -48,6 +48,7 @@ import collections
 
 # GOOGLE-INITIALIZATION
 
+import tensorflow as tf
 from tensorflow_transform import nodes
 
 
@@ -98,7 +99,29 @@ class CreateSavedModel(
         `SparseTensor`s.
     label: A unique label for this operation.
   """
-  pass
+
+  def _get_tensor_type_name(self, tensor):
+    if isinstance(tensor, tf.Tensor):
+      return 'Tensor'
+    elif isinstance(tensor, tf.SparseTensor):
+      return 'SparseTensor'
+    raise ValueError('Got a {}, expected a Tensor or SparseTensor'.format(
+        type(tensor)))
+
+  def get_field_str(self, field_name):
+    # Overriding the str representation of table initializers since it may be
+    # different for various versions of TF.
+    if field_name == 'table_initializers':
+      return '{}'.format(len(self.table_initializers))
+    elif field_name == 'output_signature':
+      copied = self.output_signature.copy()
+      for key in copied:
+        value = self.output_signature[key]
+        copied[key] = '{}<shape: {}, {}>'.format(
+            self._get_tensor_type_name(value), value.shape.as_list(),
+            value.dtype)
+      return str(copied)
+    return super(CreateSavedModel, self).get_field_str(field_name)
 
 
 class ApplySavedModel(
