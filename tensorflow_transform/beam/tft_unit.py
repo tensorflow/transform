@@ -33,17 +33,19 @@ import tensorflow_transform as tft
 from tensorflow_transform import test_case
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
-
+from tensorflow_transform.beam import test_helpers
 
 parameters = test_case.parameters
 named_parameters = test_case.named_parameters
+
+main = test_case.main
 
 
 class TransformTestCase(test_case.TransformTestCase):
   """Base test class for testing tf-transform preprocessing functions."""
 
-  def _makeRunner(self):
-    return None  # pylint: disable=unreachable
+  def _makeTestPipeline(self):
+    return beam.Pipeline(**test_helpers.make_test_beam_pipeline_kwargs())
 
   def assertAnalyzeAndTransformResults(self,
                                        input_data,
@@ -114,7 +116,7 @@ class TransformTestCase(test_case.TransformTestCase):
     # differs, we should also run AnalyzeDataset and TransformDatset composed.
     temp_dir = temp_dir or tempfile.mkdtemp(
         prefix=self._testMethodName, dir=self.get_temp_dir())
-    with beam_pipeline or beam.Pipeline(runner=self._makeRunner()) as pipeline:
+    with beam_pipeline or self._makeTestPipeline() as pipeline:
       with beam_impl.Context(
           temp_dir=temp_dir, desired_batch_size=desired_batch_size):
         input_data = pipeline | 'CreateInput' >> beam.Create(input_data)

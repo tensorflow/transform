@@ -22,7 +22,6 @@ import itertools
 import math
 import os
 import random
-import shutil
 
 # GOOGLE-INITIALIZATION
 
@@ -42,7 +41,6 @@ from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema as sch
 
 from google.protobuf import text_format
-import unittest
 from tensorflow.core.example import example_pb2
 from tensorflow.python.ops import lookup_ops
 
@@ -2663,7 +2661,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           raise ValueError('Failed assert: %s == %s' % (expected, actual))
       return _equal
 
-    with beam.Pipeline(runner=self._makeRunner()) as pipeline:
+    with self._makeTestPipeline() as pipeline:
       input_data = pipeline | 'CreateTrainingData' >> beam.Create(
           [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}])
       metadata = _metadata_from_feature_spec({
@@ -3075,7 +3073,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     transform_fn_dir = os.path.join(self.get_temp_dir(), 'export_transform_fn')
 
     with beam_impl.Context(temp_dir=tft_tmp_dir):
-      with beam.Pipeline(runner=self._makeRunner()) as pipeline:
+      with self._makeTestPipeline() as pipeline:
         input_data = pipeline | beam.Create([
             {'a': 'hello', 'b': 'hi'},
             {'a': 'world', 'b': 'ho ho'},
@@ -3494,7 +3492,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     transform_fn_dir = os.path.join(self.get_temp_dir(), 'export_transform_fn')
 
     with beam_impl.Context(temp_dir=tft_tmp_dir):
-      with beam.Pipeline(runner=self._makeRunner()) as pipeline:
+      with self._makeTestPipeline() as pipeline:
         input_data = pipeline | beam.Create([
             {'a': '1_X_a 1_X_a 2_X_a 1_X_b 2_X_b'},
             {'a': '1_X_a 1_X_a 2_X_a 2_X_a'},
@@ -3616,6 +3614,5 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           expected_metadata)
 
 
-
 if __name__ == '__main__':
-  unittest.main()
+  tft_unit.main()
