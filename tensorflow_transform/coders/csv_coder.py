@@ -63,31 +63,18 @@ def _make_cast_fn(dtype):
   For performance reasons it is preferred to have the cast fn
   constructed once (for each handler).
 
-  For boolean values the function will only accept "True" or "False" as input.
-
   Args:
     dtype: The type of the Tensorflow feature.
 
   Returns:
     A function to extract the value field from a string depending on dtype.
   """
-
-  def to_boolean(value):
-    if value == 'True':
-      return True
-    elif value == 'False':
-      return False
-    else:
-      raise ValueError('expected "True" or "False" as inputs.')
-
   if dtype.is_integer:
     # In Python 2, if the value is too large to fit into an int, int(..) returns
     # a long, but ints are cheaper to use when possible.
     return int
   elif dtype.is_floating:
     return float
-  elif dtype.is_bool:
-    return to_boolean
   else:
     return _elements_to_bytes
 
