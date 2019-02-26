@@ -38,11 +38,12 @@ from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import dataset_schema as sch
+from tensorflow_transform.tf_metadata import dataset_schema
 
 from google.protobuf import text_format
 from tensorflow.core.example import example_pb2
 from tensorflow.python.ops import lookup_ops
+from tensorflow_metadata.proto.v0 import schema_pb2
 
 
 def _construct_test_bucketization_parameters():
@@ -116,18 +117,19 @@ def _mean_output_dtype(input_dtype):
   return tf.float64 if input_dtype == tf.float64 else tf.float32
 
 
-# TODO(b/206312306): Remove this function once DatasetMetadata is replaced by a
+# TODO(b/77351671): Remove this function once DatasetMetadata is replaced by a
 # schema proto.
-def _metadata_from_feature_spec(feature_spec):
+def _metadata_from_feature_spec(feature_spec, domains=None):
   """Construct a DatasetMetadata from a feature spec.
 
   Args:
     feature_spec: A feature spec
+    domains: A dict containing domains of features
 
   Returns:
     A `tft.tf_metadata.dataset_metadata.DatasetMetadata` object.
   """
-  schema = sch.from_feature_spec(feature_spec)
+  schema = dataset_schema.from_feature_spec(feature_spec, domains)
   return dataset_metadata.DatasetMetadata(schema)
 
 
@@ -786,11 +788,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'ab': 2*i,
         'i': (len(input_data) - 1) - i,  # Due to reverse lexicographic sorting.
     } for i in range(len(input_data))]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'ab': sch.ColumnSchema(tf.float32, [], sch.FixedColumnRepresentation()),
-        'i': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, num_instances - 1, True),
-            [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'ab': tf.FixedLenFeature([], tf.float32),
+        'i': tf.FixedLenFeature([], tf.int64),
+    }, {
+        'i': schema_pb2.IntDomain(min=-1, max=num_instances - 1,
+                                  is_categorical=True)
     })
     self.assertAnalyzeAndTransformResults(
         input_data,
@@ -1771,11 +1774,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'a': tf.FixedLenFeature([], tf.string),
         'labels': tf.FixedLenFeature([], tf.int64)
     })
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index':
-            sch.ColumnSchema(
-                sch.IntDomain(tf.int64, -1, 1, True), [],
-                sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'index': tf.FixedLenFeature([], tf.int64),
+    }, {
+        'index': schema_pb2.IntDomain(min=-1, max=1, is_categorical=True)
     })
 
     def preprocessing_fn(inputs):
@@ -2010,11 +2012,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'weights': tf.FixedLenFeature([], tf.float32),
         'labels': tf.FixedLenFeature([], tf.int64)
     })
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index':
-            sch.ColumnSchema(
-                sch.IntDomain(tf.int64, -1, 2, True), [],
-                sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'index': tf.FixedLenFeature([], tf.int64),
+    }, {
+        'index': schema_pb2.IntDomain(min=-1, max=2, is_categorical=True),
     })
 
     def preprocessing_fn(inputs):
@@ -2113,11 +2114,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'a': tf.FixedLenFeature([], tf.string),
         'weights': tf.FixedLenFeature([], tf.float32)
     })
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index':
-            sch.ColumnSchema(
-                sch.IntDomain(tf.int64, -1, 3, True), [],
-                sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'index': tf.FixedLenFeature([], tf.int64),
+    }, {
+        'index': schema_pb2.IntDomain(min=-1, max=3, is_categorical=True),
     })
 
     def preprocessing_fn(inputs):
@@ -2160,10 +2160,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_metadata = _metadata_from_feature_spec({
         'a': tf.FixedLenFeature([], tf.string)
     })
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 4, True),
-            [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'index': tf.FixedLenFeature([], tf.int64),
+    }, {
+        'index': schema_pb2.IntDomain(min=-1, max=4, is_categorical=True),
     })
 
     # Assert empty string with default_value=-1
@@ -2261,10 +2261,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'index': 5},
         {'index': 5}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, 0, 5, True),
-            [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'index': tf.FixedLenFeature([], tf.int64),
+    }, {
+        'index': schema_pb2.IntDomain(min=0, max=5, is_categorical=True),
     })
     expected_vocab_file_contents = {
         'my_vocab': [b'hello', b'world', b'goodbye', b'aaaaa', b' ']
@@ -2287,13 +2287,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'c': tf.FixedLenFeature([], tf.string)
     })
     vocab_filename = 'test_compute_and_apply_vocabulary'
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index_a': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, True),
-            [], sch.FixedColumnRepresentation()),
-        'index_b': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, True),
-            [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'index_a': tf.FixedLenFeature([], tf.int64),
+        'index_b': tf.FixedLenFeature([], tf.int64),
+    }, {
+        'index_a': schema_pb2.IntDomain(min=-1, max=6, is_categorical=True),
+        'index_b': schema_pb2.IntDomain(min=-1, max=6, is_categorical=True),
     })
 
     def preprocessing_fn(inputs):
@@ -2334,19 +2333,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'c': tf.FixedLenFeature([], tf.string)
     })
     vocab_filename = 'test_vocab_with_frequency'
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index_a': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, True),
-            [], sch.FixedColumnRepresentation()),
-        'frequency_a': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, True),
-            [], sch.FixedColumnRepresentation()),
-        'index_b': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, True),
-            [], sch.FixedColumnRepresentation()),
-        'frequency_b': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 6, True),
-            [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'index_a': tf.FixedLenFeature([], tf.int64),
+        'index_b': tf.FixedLenFeature([], tf.int64),
+        'frequency_a': tf.FixedLenFeature([], tf.int64),
+        'frequency_b': tf.FixedLenFeature([], tf.int64),
+    }, {
+        'index_a': schema_pb2.IntDomain(min=-1, max=6, is_categorical=True),
+        'index_b': schema_pb2.IntDomain(min=-1, max=6, is_categorical=True),
+        'frequency_a': schema_pb2.IntDomain(min=-1, max=6, is_categorical=True),
+        'frequency_b': schema_pb2.IntDomain(min=-1, max=6, is_categorical=True),
     })
 
     def preprocessing_fn(inputs):
@@ -2435,10 +2431,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'index': [[4, 8], [2, 7]]},
         {'index': [[0, 1], [2, 6]]},
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 8, True),
-            [2, 2], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'index': tf.FixedLenFeature([2, 2], tf.int64),
+    }, {
+        'index': schema_pb2.IntDomain(min=-1, max=8, is_categorical=True),
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -2456,10 +2452,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'a': tf.FixedLenFeature([], tf.string)
     })
     expected_data = [{'index': [0, 0, 1]}, {'index': [0, 2, 1]}]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -1, 2, True),
-            [None], sch.ListColumnRepresentation())
+
+    expected_metadata = _metadata_from_feature_spec({
+        'index': tf.VarLenFeature(tf.int64),
+    }, {
+        'index': schema_pb2.IntDomain(min=-1, max=2, is_categorical=True),
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -2495,13 +2492,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'index1': [0, -99, 1], 'index2': [0, -9, 1]},
         {'index1': [0, -99, -99], 'index2': [0, -9, -9]}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -99, 1, True),
-            [None], sch.ListColumnRepresentation()),
-        'index2': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -9, 1, True),
-            [None], sch.ListColumnRepresentation())
+
+    expected_metadata = _metadata_from_feature_spec({
+        'index1': tf.VarLenFeature(tf.int64),
+        'index2': tf.VarLenFeature(tf.int64),
+    }, {
+        'index1': schema_pb2.IntDomain(min=-99, max=1, is_categorical=True),
+        'index2': schema_pb2.IntDomain(min=-9, max=1, is_categorical=True),
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -2542,13 +2539,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'index1': [0, 2, 1], 'index2': [0, 2, 1]},
         {'index1': [0, 2, -99], 'index2': [0, 2, -9]}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -99, 2, True),
-            [None], sch.ListColumnRepresentation()),
-        'index2': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -9, 2, True),
-            [None], sch.ListColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'index1': tf.VarLenFeature(tf.int64),
+        'index2': tf.VarLenFeature(tf.int64),
+    }, {
+        'index1': schema_pb2.IntDomain(min=-99, max=2, is_categorical=True),
+        'index2': schema_pb2.IntDomain(min=-9, max=2, is_categorical=True),
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -2590,13 +2586,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'index1': [-99, -99, -99], 'index2': [-9, -9, -9]}
     ]
     # Note the vocabs are empty but the tables have size 1 so max_value is 1.
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -99, 0, True),
-            [None], sch.ListColumnRepresentation()),
-        'index2': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -9, 0, True),
-            [None], sch.ListColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'index1': tf.VarLenFeature(tf.int64),
+        'index2': tf.VarLenFeature(tf.int64),
+    }, {
+        'index1': schema_pb2.IntDomain(min=-99, max=0, is_categorical=True),
+        'index2': schema_pb2.IntDomain(min=-9, max=0, is_categorical=True),
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -2631,10 +2626,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'index1': [0, 3, 1]},
         {'index1': [0, 2, 1]},
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, 0, 3, True), [None],
-            sch.ListColumnRepresentation()),
+    expected_metadata = _metadata_from_feature_spec({
+        'index1': tf.VarLenFeature(tf.int64),
+    }, {
+        'index1': schema_pb2.IntDomain(min=0, max=3, is_categorical=True),
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -2748,10 +2743,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
         bucket += 1
       expected_data[index] = {'q_b': [bucket]}
 
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'q_b': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, 0, len(expected_boundaries), True),
-            [1], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'q_b': tf.FixedLenFeature([1], tf.int64),
+    }, {
+        'q_b': schema_pb2.IntDomain(min=0, max=len(expected_boundaries),
+                                    is_categorical=True),
     })
 
     @contextlib.contextmanager
@@ -2911,10 +2907,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     expected_data = [{'x_bucketized': compute_quantile(instance)}
                      for instance in input_data]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'x_bucketized': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, 0, 2, True),
-            [], sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'x_bucketized': tf.FixedLenFeature([], tf.int64),
+    }, {
+        'x_bucketized': schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
     })
     self.assertAnalyzeAndTransformResults(
         input_data,
@@ -2977,10 +2973,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x_bucketized': [3]},
         {'x_bucketized': [3]}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'x_bucketized': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, 0, 3, True),
-            [None], sch.ListColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'x_bucketized': tf.VarLenFeature(tf.int64),
+    }, {
+        'x_bucketized': schema_pb2.IntDomain(min=0, max=3, is_categorical=True),
     })
     self.assertAnalyzeAndTransformResults(
         input_data,
@@ -3025,10 +3021,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     expected_data = [{'x_bucketized': [compute_quantile(instance)]}
                      for instance in input_data]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'x_bucketized': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, 0, 2, True),
-            [None], sch.ListColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'x_bucketized': tf.VarLenFeature(tf.int64),
+    }, {
+        'x_bucketized': schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
     })
     self.assertAnalyzeAndTransformResults(
         input_data,
@@ -3335,10 +3331,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'index1': [0, 0, 1, 1]},
         {'index1': [2]}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -99, 2, True),
-            [None], sch.ListColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'index1': tf.VarLenFeature(tf.int64),
+    }, {
+        'index1': schema_pb2.IntDomain(min=-99, max=2, is_categorical=True),
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -3370,10 +3366,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'index1': [0, 0, 1, 1, -99]},
         {'index1': [2]}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -99, 3, True),
-            [None], sch.ListColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'index1': tf.VarLenFeature(tf.int64),
+    }, {
+        'index1': schema_pb2.IntDomain(min=-99, max=3, is_categorical=True),
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -3405,10 +3401,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'index1': [1, 1, -99, -99]},
         {'index1': [0, 0, 0, 0, 2]}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -99, 2, True),
-            [None], sch.ListColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'index1': tf.VarLenFeature(tf.int64),
+    }, {
+        'index1': schema_pb2.IntDomain(min=-99, max=2, is_categorical=True),
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -3441,10 +3437,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'index1': [0, 2, 2, 2, 0, -99]},
         {'index1': [1, 1, 3, 3, -99, 1, 1]}
     ]
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index1': sch.ColumnSchema(
-            sch.IntDomain(tf.int64, -99, 3, True),
-            [None], sch.ListColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'index1': tf.VarLenFeature(tf.int64),
+    }, {
+        'index1': schema_pb2.IntDomain(min=-99, max=3, is_categorical=True),
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -3531,11 +3527,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'a': tf.FixedLenFeature([], tf.string),
         'weights': tf.FixedLenFeature([], tf.float32)
     })
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index':
-            sch.ColumnSchema(
-                sch.IntDomain(tf.int64, -1, 1, True), [],
-                sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'index': tf.FixedLenFeature([], tf.int64),
+    }, {
+        'index': schema_pb2.IntDomain(min=-1, max=1, is_categorical=True),
     })
 
     def preprocessing_fn(inputs):
@@ -3581,11 +3576,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'a': tf.FixedLenFeature([], tf.string),
         'labels': tf.FixedLenFeature([], tf.int64)
     })
-    expected_metadata = dataset_metadata.DatasetMetadata({
-        'index':
-            sch.ColumnSchema(
-                sch.IntDomain(tf.int64, -1, 1, True), [],
-                sch.FixedColumnRepresentation())
+    expected_metadata = _metadata_from_feature_spec({
+        'index': tf.FixedLenFeature([], tf.int64),
+    }, {
+        'index': schema_pb2.IntDomain(min=-1, max=1, is_categorical=True),
     })
 
     def preprocessing_fn(inputs):
