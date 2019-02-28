@@ -21,8 +21,8 @@ from __future__ import print_function
 import numpy as np
 import tensorflow as tf
 
-from tensorflow_transform import test_case
 from tensorflow_transform import tf_utils
+from tensorflow_transform import test_case
 
 
 class AnalyzersTest(test_case.TransformTestCase):

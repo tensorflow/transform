@@ -22,8 +22,8 @@ import pickle
 
 import numpy as np
 import tensorflow as tf
-from tensorflow_transform import test_case
 from tensorflow_transform.coders import csv_coder
+from tensorflow_transform import test_case
 from tensorflow_transform.tf_metadata import dataset_schema
 
 _COLUMNS = [

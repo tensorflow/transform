@@ -30,15 +30,17 @@ elif any(arg == '--proto_implementation_type=cpp' for arg in sys.argv):
 elif any(arg.startswith('--proto_implementation_type') for arg in sys.argv):
   raise ValueError('Unexpected value for --proto_implementation_type')
 
+# pylint: disable=g-import-not-at-top
 import numpy as np
 import tensorflow as tf
-from tensorflow_transform import test_case
 from tensorflow_transform.coders import example_proto_coder
+from tensorflow_transform import test_case
 from tensorflow_transform.coders import example_proto_coder_test_cases
 from tensorflow_transform.tf_metadata import dataset_schema
 
 from google.protobuf.internal import api_implementation
 from google.protobuf import text_format
+# pylint: enable=g-import-not-at-top
 
 
 tf.flags.DEFINE_string(

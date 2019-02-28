@@ -30,9 +30,9 @@ import six
 import tensorflow as tf
 import tensorflow_transform as tft
 
-from tensorflow_transform import test_case
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
+from tensorflow_transform import test_case
 from tensorflow_transform.beam import test_helpers
 
 parameters = test_case.parameters
