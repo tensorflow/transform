@@ -1,3 +1,4 @@
+<!-- mdformat off(mdformat causes unwanted indentation changes) -->
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
