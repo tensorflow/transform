@@ -34,7 +34,7 @@ def _make_required_install_packages():
       'six>=1.10,<2',
 
       # TODO(b/124908205): Set tensorflow-metadata>=0.13,<0.14 for TFT 0.13.
-      'tensorflow-metadata>=0.12.1,<0.13',
+      'tensorflow-metadata>=0.12.1,<0.14',
 
       # TODO(b/123240958): Uncomment this once TF can automatically select
       # between CPU and GPU installation.

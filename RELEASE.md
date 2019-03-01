@@ -1,5 +1,5 @@
 <!-- mdformat off(mdformat causes unwanted indentation changes) -->
-# Current version (not yet released; still in development)
+# Release 0.13.0
 
 ## Major Features and Improvements
 * Now `AnalyzeDataset`, `TransformDataset` and `AnalyzeAndTransformDataset` can
