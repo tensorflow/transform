@@ -27,12 +27,10 @@ def _make_required_install_packages():
   # Make sure to sync the versions of common dependencies (absl-py, numpy,
   # six, and protobuf) with TF.
   return [
-      'absl-py>=0.1.6',
-      'apache-beam[gcp]>=2.10,<3',
+      'absl-py>=0.1.6,<2',
+      'apache-beam[gcp]>=2.11,<3',
       'numpy>=1.14.5,<2',
-      # TODO(b/124072021): currently one test fails for py3 with protobuf 3.6
-      # update this to a non-rc version.
-      'protobuf==3.7.0rc2',
+      'protobuf>=3.7,<4',
       'six>=1.10,<2',
 
       # TODO(b/124908205): Set tensorflow-metadata>=0.13,<0.14 for TFT 0.13.
@@ -40,7 +38,8 @@ def _make_required_install_packages():
 
       # TODO(b/123240958): Uncomment this once TF can automatically select
       # between CPU and GPU installation.
-      # 'tensorflow>=1.12,<2',
+      # 'tensorflow>=1.13.1,<2',
+
       'pydot>=1.2.0,<1.3',
   ]
 
@@ -71,13 +70,12 @@ setup(
         'Programming Language :: Python',
         'Programming Language :: Python :: 2',
         'Programming Language :: Python :: 2.7',
-        # TODO(b/34685282): Once we support Python 3, remove this line.
-        'Programming Language :: Python :: 2 :: Only',
-        # TODO(b/34685282): Once we support Python 3, uncomment these lines.
-        # 'Programming Language :: Python :: 3',
-        # 'Programming Language :: Python :: 3.4',
-        # 'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.5',
+        # TODO(b/125613675): Once Beam supports Python 3.6 and 3.7, uncomment
+        # these lines.
         # 'Programming Language :: Python :: 3.6',
+        # 'Programming Language :: Python :: 3.7',
         'Topic :: Scientific/Engineering',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
         'Topic :: Scientific/Engineering :: Mathematics',
@@ -87,8 +85,7 @@ setup(
     ],
     namespace_packages=[],
     install_requires=_make_required_install_packages(),
-    # TODO(b/34685282): Remove < 3 after Apache Beam 2.11 is released.
-    python_requires='>=2.7,<3',
+    python_requires='>=2.7,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*',
     packages=find_packages(),
     include_package_data=True,
     description='A library for data preprocessing with TensorFlow',

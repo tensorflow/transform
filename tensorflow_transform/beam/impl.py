@@ -445,9 +445,9 @@ class _RunMetaGraphDoFn(beam.DoFn):
 def _assert_tensorflow_version():
   # Fail with a clear error in case we are not using a compatible TF version.
   major, minor, _ = tf.__version__.split('.')
-  if int(major) != 1 or int(minor) < 12:
+  if int(major) != 1 or int(minor) < 13:
     raise RuntimeError(
-        'TensorFlow version >= 1.12, < 2 is required. Found (%s). Please '
+        'TensorFlow version >= 1.13, < 2 is required. Found (%s). Please '
         'install the latest 1.x version from '
         'https://github.com/tensorflow/tensorflow. ' % tf.__version__)
 

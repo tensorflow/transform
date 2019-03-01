@@ -8,13 +8,17 @@
   needed columns are added to `tft.inspect_preprocessing_fn`. This makes it
   easier to take advantage of columnar projection when data is stored in
   columnar storage formats.
+* Python 3.5 is supported.
 
 ## Bug Fixes and Other Changes
 * Version is now accessible as `tensorflow_transform.__version__`.
+* Depends on `apache-beam[gcp]>=2.11,<3`.
+* Depends on `protobuf>=3.7,<4`.
 
 ## Breaking changes
 * Coders now return index and value features rather than a combined feature for
   `SparseFeature`.
+* Requires pre-installed TensorFlow >=1.13,<2.
 
 ## Deprecations
 
