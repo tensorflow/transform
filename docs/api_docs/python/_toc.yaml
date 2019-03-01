@@ -12,6 +12,8 @@ toc:
       path: /tfx/transform/api_docs/python/tft/apply_function
     - title: apply_function_with_checkpoint
       path: /tfx/transform/api_docs/python/tft/apply_function_with_checkpoint
+    - title: apply_pyfunc
+      path: /tfx/transform/api_docs/python/tft/apply_pyfunc
     - title: apply_saved_model
       path: /tfx/transform/api_docs/python/tft/apply_saved_model
     - title: apply_vocab
@@ -28,6 +30,10 @@ toc:
       path: /tfx/transform/api_docs/python/tft/covariance
     - title: CovarianceCombiner
       path: /tfx/transform/api_docs/python/tft/CovarianceCombiner
+    - title: get_analyze_input_columns
+      path: /tfx/transform/api_docs/python/tft/get_analyze_input_columns
+    - title: get_transform_input_columns
+      path: /tfx/transform/api_docs/python/tft/get_transform_input_columns
     - title: hash_strings
       path: /tfx/transform/api_docs/python/tft/hash_strings
     - title: max

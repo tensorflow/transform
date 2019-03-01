@@ -37,6 +37,8 @@ Init module for TF.Transform.
 
 [`apply_function_with_checkpoint(...)`](./tft/apply_function_with_checkpoint.md): Applies a tensor-in-tensor-out function with variables to some `Tensor`s.
 
+[`apply_pyfunc(...)`](./tft/apply_pyfunc.md): Applies a python function to some `Tensor`s.
+
 [`apply_saved_model(...)`](./tft/apply_saved_model.md): Applies a SavedModel to some `Tensor`s.
 
 [`apply_vocab(...)`](./tft/apply_vocab.md): See <a href="./tft/apply_vocabulary.md"><code>tft.apply_vocabulary</code></a>. (deprecated)
@@ -50,6 +52,10 @@ Init module for TF.Transform.
 [`compute_and_apply_vocabulary(...)`](./tft/compute_and_apply_vocabulary.md): Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
 [`covariance(...)`](./tft/covariance.md): Computes the covariance matrix over the whole dataset.
+
+[`get_analyze_input_columns(...)`](./tft/get_analyze_input_columns.md): Return columns that are required inputs of `AnalyzeDataset`.
+
+[`get_transform_input_columns(...)`](./tft/get_transform_input_columns.md): Return columns that are required inputs of `TransformDataset`.
 
 [`hash_strings(...)`](./tft/hash_strings.md): Hash strings into buckets.
 
