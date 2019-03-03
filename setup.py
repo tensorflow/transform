@@ -85,7 +85,7 @@ setup(
     ],
     namespace_packages=[],
     install_requires=_make_required_install_packages(),
-    python_requires='>=2.7,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*',
+    python_requires='>=2.7,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,<4',
     packages=find_packages(),
     include_package_data=True,
     description='A library for data preprocessing with TensorFlow',
@@ -93,5 +93,5 @@ setup(
     long_description_content_type='text/markdown',
     keywords='tensorflow transform tfx',
     url='https://www.tensorflow.org/tfx/transform',
-    download_url='https://pypi.org/project/tensorflow-transform',
+    download_url='https://github.com/tensorflow/transform/tags',
     requires=[])
