@@ -18,7 +18,6 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
-import math
 import os
 
 # GOOGLE-INITIALIZATION
@@ -39,6 +38,7 @@ from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import analyzers
 from tensorflow_transform import tf_utils
 from tensorflow_transform.beam import common
+from tensorflow_transform.beam import info_theory
 
 
 class _OrderElementsFn(beam.DoFn):
@@ -346,20 +346,21 @@ def _clip_probability(p):
 
 def _calculate_mutual_information(feature_and_accumulator, global_accumulator,
                                   use_adjusted_mutual_info, min_diff_from_avg):
-  """Calculates the (adjusted) mutual information of a feature.
+  """Calculates the (possibly adjusted) mutual information of a feature.
 
-  Mutual information H(x, y) = (sum(weights) *
+  Mutual information is calculated as:
+  H(x, y) = (sum(weights) *
              [(P(y|x)*log2(P(y|x)/P(y))) + (P(~y|x)*log2(P(~y|x)/P(~y)))])
-  Where x is feature and y is label.
-  We use sum(weights) instead of P(x), as this makes the mutual information more
-  interpretable.
+  where x is feature and y is label. We use sum(weights) instead of P(x), as
+  this makes the mutual information more interpretable.
   If we don't divide by sum(weights), it can be thought of as an adjusted
   weighted count.
 
-  Adjusted mutual information AMI(x, y) = MI(x, y) - EMI(x, y)
-  x is the feature and y is label. It's calculated by subtracting the expected
-  mutual information (EMI) from mutual information. The calculation is based on
-  the following paper:
+  Adjusted mutual information is calculated as:
+  AMI(x, y) = MI(x, y) - EMI(x, y)
+  where x is the feature and y is label. It's calculated by subtracting the
+  expected mutual information (EMI) from mutual information. The calculation is
+  based on the following paper:
 
   Vinh, N. X.; Epps, J.; Bailey, J. (2009). "Information theoretic measures for
   clusterings comparison". Proceedings of the 26th Annual International Confere
@@ -414,82 +415,12 @@ def _calculate_mutual_information(feature_and_accumulator, global_accumulator,
 
   if use_adjusted_mutual_info:
     expected_mutual_information = (
-        _calculate_expected_mutual_information_per_label(n, x, y_1) +
-        _calculate_expected_mutual_information_per_label(n, x, y_0))
+        info_theory.calculate_expected_mutual_information_per_label(n, x, y_1) +
+        info_theory.calculate_expected_mutual_information_per_label(n, x, y_0))
 
     return (feature, mutual_information - expected_mutual_information)
   else:
     return (feature, mutual_information)
-
-
-def _calculate_expected_mutual_information_per_label(n, x, y_j):
-  """Calculates the expected mutual information of a feature and a label.
-
-    EMI(x, y) = sum_{n_ij = max(0, x_i + y_j - n) to min(x_i, y_j)} (
-      n_ij / n * log2((n * n_ij / (x_i * y_j))
-      * ((x_i! * y_j! * (n - x_i)! * (n - y_j)!) /
-      (n! * n_ij! * (x_i - n_ij)! * (y_j - n_ij)! * (n - x_i - y_j + n_ij)!)))
-    where n_ij is the joint count of feature and label, x_i is the count for
-    feature x, y_j is the count for label y, and n represents total count.
-
-    Note: In the paper, expected mutual information is calculated by summing
-    over both i and j, but here we don't count the consitrbution of the case i=0
-    (where the feature is not present), and this is consistent with how mutual
-    information is computed.
-
-  Args:
-    n: The sum of weights for all features.
-    x: The sum of weights for the feature whose expected mutual information is
-      computed.
-    y_j: The sum of weights for positive (or negative) labels for all features.
-
-  Returns:
-    Calculated expected mutual information.
-  """
-  coefficient = (-np.log2(x) - np.log2(y_j) + np.log2(n))
-  sum_probability = 0.0
-  partial_result = 0.0
-  for n_j, p_j in _hypergeometric_pmf(n, x, y_j):
-    if n_j != 0:
-      partial_result += n_j * (coefficient + np.log2(n_j)) * p_j
-    sum_probability += p_j
-  # With approximate calculations for log2(x) and exp2(x) with large x, need a
-  # correction to the probablity approximation.
-  return partial_result / sum_probability
-
-
-def _hypergeometric_pmf(n, x, y_j):
-  """Probablity for expectation computation under hypergeometric distribution.
-
-  Args:
-    n: The sum of weights for all features.
-    x: The sum of weights for the feature whose expected mutual information is
-      computed.
-    y_j: The sum of weights for positive (or negative) labels for all features.
-
-  Yields:
-    Calculated coefficient, numerator and denominator for hypergeometric
-    distribution.
-  """
-  start = int(max(0, n - (n - x) - (n - y_j)))
-  end = int(min(x, y_j))
-  numerator = (
-      _logfactorial(x) + _logfactorial(y_j) + _logfactorial(n - x) +
-      _logfactorial(n - y_j))
-  denominator = (
-      _logfactorial(n) + _logfactorial(start) + _logfactorial(x - start) +
-      _logfactorial(y_j - start) + _logfactorial(n - x - y_j + start))
-  for n_j in range(start, end + 1):
-    p_j = np.exp(numerator - denominator)
-    denominator += (
-        np.log(n_j + 1) - np.log(x - n_j) - np.log(y_j - n_j) +
-        np.log(n - x - y_j + n_j + 1))
-    yield n_j, p_j
-
-
-def _logfactorial(n):
-  """Calculate natural logarithm of n!."""
-  return math.lgamma(n + 1)
 
 
 class _CountAndWeightsMeansAccumulator(
