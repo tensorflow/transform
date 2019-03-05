@@ -53,26 +53,26 @@ class InfoTheoryTest(tft_unit.TransformTestCase):
       sum_prob = sum(probs)
       self.assertNear(sum_prob, 1.0, EPSILON)
 
-  def testCalculateExpectedMutualInformationPerLabel(self):
+  def testCalculatePartialExpectedMutualInformation(self):
 
-    # The feature and the label appear in all observations, EMI is 0.
+    # The two values co-occur in all observations, EMI is 0.
     self.assertNear(
-        info_theory.calculate_expected_mutual_information_per_label(10, 10, 10),
+        info_theory.calculate_partial_expected_mutual_information(10, 10, 10),
         0, EPSILON)
 
-    # The feature and the label appear in no observations, EMI is 0
+    # The two values co-occur no observations, EMI is 0
     self.assertNear(
-        info_theory.calculate_expected_mutual_information_per_label(10, 0, 0),
-        0, EPSILON)
+        info_theory.calculate_partial_expected_mutual_information(10, 0, 0), 0,
+        EPSILON)
 
-    # The feature and the label each appear 50% of the time.
+    # The two values each appear 50% of the time.
     self.assertNear(
-        info_theory.calculate_expected_mutual_information_per_label(10, 5, 5),
+        info_theory.calculate_partial_expected_mutual_information(10, 5, 5),
         .215411, EPSILON)
 
-    # The feature and the label have differing frequencies.
+    # The two values have differing frequencies.
     self.assertNear(
-        info_theory.calculate_expected_mutual_information_per_label(10, 2, 4),
+        info_theory.calculate_partial_expected_mutual_information(10, 2, 4),
         0.524209, EPSILON)
 
 

@@ -344,9 +344,12 @@ def _clip_probability(p):
   return p, 1 - p
 
 
-def _calculate_mutual_information(feature_and_accumulator, global_accumulator,
-                                  use_adjusted_mutual_info, min_diff_from_avg):
-  """Calculates the (possibly adjusted) mutual information of a feature.
+def _calculate_mutual_information_for_binary_feature(
+    feature_and_accumulator, global_accumulator, use_adjusted_mutual_info,
+    min_diff_from_avg):
+  """Calculates the (possibly adjusted) mutual information of a binary feature.
+
+  Used as a measure of relatedness between a binary feature and binary label.
 
   Mutual information is calculated as:
   H(x, y) = (sum(weights) *
@@ -356,11 +359,12 @@ def _calculate_mutual_information(feature_and_accumulator, global_accumulator,
   If we don't divide by sum(weights), it can be thought of as an adjusted
   weighted count.
 
-  Adjusted mutual information is calculated as:
-  AMI(x, y) = MI(x, y) - EMI(x, y)
-  where x is the feature and y is label. It's calculated by subtracting the
-  expected mutual information (EMI) from mutual information. The calculation is
-  based on the following paper:
+  If use_adjusted_mutual_info is True, we use Adjusted Mutual Information (AMI)
+  which accounts for relatedness due to chance. AMI is generally calculated as:
+  AMI(x, y) = MI(x, y) - EMI(x, y) / (max(H(x), H(y)) - EMI(x, y))
+  where x is the feature and y is label. Here, we leave off the normalization
+  and only subtract expected mutual information (EMI) from mutual information.
+  The calculation is based on the following paper:
 
   Vinh, N. X.; Epps, J.; Bailey, J. (2009). "Information theoretic measures for
   clusterings comparison". Proceedings of the 26th Annual International Confere
@@ -372,11 +376,10 @@ def _calculate_mutual_information(feature_and_accumulator, global_accumulator,
 
   Args:
     feature_and_accumulator: A tuple of the form:
-      (feature, _CountAndWeightsMeansAccumulator) where:
-        `feature` is a single string, which is the word in the vocabulary whose
-          mutual information with the label is being computed.
-        `weighted_mean` is the weighted mean positive given x.
-        `count` is the count of weights for a feature.
+      (feature, _CountAndWeightsMeansAccumulator) where: `feature` is a single
+        string, which is the word in the vocabulary whose mutual information
+        with the label is being computed. `weighted_mean` is the weighted mean
+        positive given x. `count` is the count of weights for a feature.
         `weights_mean` is the mean of the weights for a feature.
     global_accumulator: A _CountAndWeightsMeansAccumulator where:
       `weighted_mean` is the weighted mean of positive labels for all features.
@@ -414,10 +417,16 @@ def _calculate_mutual_information(feature_and_accumulator, global_accumulator,
       n_0 * (np.log2(n_0) + np.log2(n) - np.log2(y_0) - np.log2(x)))
 
   if use_adjusted_mutual_info:
+    # Note: Expected mutual information is calculated by summing over all values
+    # of x and all values of y,  but here we don't count the contribution of the
+    # case where the feature is not present, and this is consistent with
+    # how mutual information is computed.
     expected_mutual_information = (
-        info_theory.calculate_expected_mutual_information_per_label(n, x, y_1) +
-        info_theory.calculate_expected_mutual_information_per_label(n, x, y_0))
+        info_theory.calculate_partial_expected_mutual_information(n, x, y_1) +
+        info_theory.calculate_partial_expected_mutual_information(n, x, y_0))
 
+    # TODO(b/127366670): Consider implementing the normalization step as per
+    # AMI(x, y) = MI(x, y) - EMI(x, y) / (max(H(x), H(y)) - EMI(x, y))
     return (feature, mutual_information - expected_mutual_information)
   else:
     return (feature, mutual_information)
@@ -464,7 +473,7 @@ def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
 
   return (feature_accumulator_pcol
           | 'CalculateMutualInformationPerString' >> beam.Map(
-              _calculate_mutual_information,
+              _calculate_mutual_information_for_binary_feature,
               beam.pvalue.AsSingleton(global_accumulator),
               use_adjusted_mutual_info=use_adjusted_mutual_info,
               min_diff_from_avg=min_diff_from_avg))
