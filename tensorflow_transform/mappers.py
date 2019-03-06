@@ -427,6 +427,7 @@ def compute_and_apply_vocabulary(
     coverage_top_k=None,
     coverage_frequency_threshold=None,
     key_fn=None,
+    fingerprint_shuffle=False,
     name=None):
   r"""Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
@@ -476,6 +477,10 @@ def compute_and_apply_vocabulary(
     key_fn: (Optional), (Experimental) A fn that takes in a single entry of `x`
       and returns the corresponding key for coverage calculation. If this is
       `None`, no coverage arm is added to the vocabulary.
+    fingerprint_shuffle: (Optional), (Experimental) Whether to sort the
+      vocabularies by fingerprint instead of counts. This is useful for load
+      balancing on the training parameter servers. Shuffle only happens while
+      writing the files, so all the filters above will still take effect.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -501,6 +506,7 @@ def compute_and_apply_vocabulary(
         coverage_top_k=coverage_top_k,
         coverage_frequency_threshold=coverage_frequency_threshold,
         key_fn=key_fn,
+        fingerprint_shuffle=fingerprint_shuffle,
         name=name)
     return apply_vocabulary(
         x, deferred_vocab_and_filename, default_value, num_oov_buckets)

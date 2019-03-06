@@ -4,6 +4,10 @@
 ## Major Features and Improvements
 
 ## Bug Fixes and Other Changes
+* `tft.vocabulary` and `tft.compute_and_apply_vocabulary` now support
+  `fingerprint_shuffle` to sort the vocabularies by fingerprint instead of
+  counts. This is useful for load balancing the training parameter servers.
+  This is an experimental feature.
 
 ## Breaking changes
 

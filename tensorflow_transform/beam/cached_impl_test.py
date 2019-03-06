@@ -96,7 +96,7 @@ node [shape=Mrecord];
 "FlattenCache[VocabularyMerge[vocabulary]]" -> "VocabularyMerge[vocabulary]";
 "VocabularyOrderAndFilter[vocabulary]" [label="{VocabularyOrderAndFilter|top_k: None|frequency_threshold: None|coverage_top_k: None|coverage_frequency_threshold: None|key_fn: None|label: VocabularyOrderAndFilter[vocabulary]}"];
 "VocabularyMerge[vocabulary]" -> "VocabularyOrderAndFilter[vocabulary]";
-"VocabularyWrite[vocabulary]" [label="{VocabularyWrite|vocab_filename: vocab_vocabulary|store_frequency: False|label: VocabularyWrite[vocabulary]}"];
+"VocabularyWrite[vocabulary]" [label="{VocabularyWrite|vocab_filename: vocab_vocabulary|store_frequency: False|label: VocabularyWrite[vocabulary]|fingerprint_shuffle: False}"];
 "VocabularyOrderAndFilter[vocabulary]" -> "VocabularyWrite[vocabulary]";
 "CreateTensorBinding[vocabulary/Placeholder]" [label="{CreateTensorBinding|tensor: vocabulary/Placeholder:0|is_asset_filepath: True|label: CreateTensorBinding[vocabulary/Placeholder]}"];
 "VocabularyWrite[vocabulary]" -> "CreateTensorBinding[vocabulary/Placeholder]";

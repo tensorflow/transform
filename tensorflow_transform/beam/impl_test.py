@@ -3108,6 +3108,74 @@ class BeamImplTest(tft_unit.TransformTestCase):
                               'vocab_compute_and_apply_vocabulary_vocabulary',
                               'hello\nworld\n')
 
+  def testVocabularyWithFrequencyAndFingerprintShuffle(self):
+
+    def preprocessing_fn(inputs):
+      # Sort by fingerprint.
+      _ = tft.vocabulary(
+          inputs['a'],
+          vocab_filename='vocabulary_with_frequency',
+          store_frequency=True,
+          fingerprint_shuffle=True)
+      _ = tft.vocabulary(
+          inputs['b'],
+          store_frequency=True,
+          vocab_filename='b_vocabulary_with_frequency_no_shuffle')
+
+      # The following must not produce frequency output, just the shuffled vocab
+      # words.
+      _ = tft.vocabulary(
+          inputs['a'],
+          vocab_filename='a_fingerprint_shuffle',
+          fingerprint_shuffle=True)
+      # Sort by frequency (default).
+      _ = tft.vocabulary(inputs['a'], vocab_filename='a_no_shuffle')
+      # Simply return 'a'.
+      return {'a': inputs['a']}
+
+    input_metadata = _metadata_from_feature_spec({
+        'a': tf.FixedLenFeature([], tf.string),
+        'b': tf.FixedLenFeature([], tf.string)
+    })
+
+    input_data = [
+        {
+            'a': 'world',
+            'b': 'hi'
+        },
+        {
+            'a': 'hello',
+            'b': 'ho ho'
+        },
+        {
+            'a': 'hello',
+            'b': 'ho ho'
+        },
+    ]
+
+    # Note how the elements on the vocab are now sorted by fringerprint and
+    # not by frequency:
+    # 'ho ho': '1b3dd735ddff70d90f3b7ba5ebf65df521d6ca4d'
+    # 'world': '7c211433f02071597741e6ff5a8ea34789abbf43'
+    # 'hello': 'aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d'
+    # 'hi': 'c22b5f9178342609428d6f51b2c5af4c0bde6a42'
+    # 'zip': 'f13e27693c85aed522df8c3fcb0bb0110ca54e14'
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_vocab_file_contents={
+            # This vocab is sorted by fingerprint.
+            'vocabulary_with_frequency': [(b'world', 1), (b'hello', 2)],
+            # # This vocab is sorted by frequency (default).
+            'b_vocabulary_with_frequency_no_shuffle': [(b'ho ho', 2), (b'hi',
+                                                                       1)],
+            # This vocab is sorted by fingerprint.
+            'a_fingerprint_shuffle': [b'world', b'hello'],
+            # This vocab is sorted by frequency (default).
+            'a_no_shuffle': [b'hello', b'world']
+        })
+
   def testCovarianceTwoDimensions(self):
     def analyzer_fn(inputs):
       return {'y': tft.covariance(inputs['x'], dtype=tf.float32)}

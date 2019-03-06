@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import hashlib
 import os
 
 # GOOGLE-INITIALIZATION
@@ -42,10 +43,11 @@ from tensorflow_transform.beam import info_theory
 
 
 class _OrderElementsFn(beam.DoFn):
-  """Sort the vocabulary by descending frequency count."""
+  """Sort the vocabulary by either descending frequency count or hash order."""
 
-  def __init__(self, store_frequency):
+  def __init__(self, store_frequency, fingerprint_shuffle):
     self._store_frequency = store_frequency
+    self._fingerprint_shuffle = fingerprint_shuffle
 
     # Metrics.
     self._vocab_size = beam.metrics.Metrics.distribution(
@@ -63,7 +65,11 @@ class _OrderElementsFn(beam.DoFn):
       # tensors downstream.
       counts = [(1, '49d0cd50-04bb-48c0-bc6f-5b575dce351a')]
 
-    counts.sort(reverse=True)  # Largest first.
+    if self._fingerprint_shuffle:
+      counts.sort(key=lambda kv: hashlib.sha1(kv[1]).digest())
+    else:
+      counts.sort(reverse=True)  # Largest first.
+
     for count, entry in counts:
       if self._store_frequency:
         # Converts bytes to unicode for PY3, otherwise the result will look like
@@ -259,6 +265,7 @@ class VocabularyWriteImpl(beam.PTransform):
     self._base_temp_dir = extra_args.base_temp_dir
     self._store_frequency = operation.store_frequency
     self._vocab_filename = operation.vocab_filename
+    self._fingerprint_shuffle = operation.fingerprint_shuffle
 
   def expand(self, inputs):
     counts, = inputs
@@ -269,8 +276,9 @@ class VocabularyWriteImpl(beam.PTransform):
 
         # Using AsIter instead of AsList at the callsite below in order to
         # reduce max memory usage.
-        | 'OrderElements' >> beam.ParDo(_OrderElementsFn(self._store_frequency),
-                                        counts_iter=beam.pvalue.AsIter(counts))
+        | 'OrderElements' >> beam.ParDo(
+            _OrderElementsFn(self._store_frequency, self._fingerprint_shuffle),
+            counts_iter=beam.pvalue.AsIter(counts))
         # TODO(b/62379925) For now force a single file. Should
         # `InitializeTableFromTextFile` operate on a @N set of files?
         # TODO(b/67863471) Here we are relying on fusion (an implementation
@@ -278,8 +286,8 @@ class VocabularyWriteImpl(beam.PTransform):
         # to disk. Perform the write within the body of `OrderElements` maybe
         # `OrderElementsAndWrite`. This would mean using TF IO instead of Beam
         # IO so it's perhaps not great.
-        | 'WriteToFile' >> beam.io.WriteToText(vocabulary_file,
-                                               shard_name_template=''))
+        | 'WriteToFile' >> beam.io.WriteToText(
+            vocabulary_file, shard_name_template=''))
     # Return the vocabulary path.
     wait_for_vocabulary_transform = (
         counts.pipeline
