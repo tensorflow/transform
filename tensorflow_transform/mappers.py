@@ -74,6 +74,7 @@ def sparse_tensor_to_dense_with_shape(x, shape, default_value=0):
     shape: The desired shape of the densified `Tensor`.
     default_value: (Optional) Value to set for indices not specified. Defaults
       to zero.
+
   Returns:
     A `Tensor` with the desired shape.
 
