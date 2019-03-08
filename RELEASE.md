@@ -5,9 +5,8 @@
 
 ## Bug Fixes and Other Changes
 
-* Now `tft.sparse_tensor_to_dense_with_shape` accepts an optional 
-   argument `default_value` which is set default to 0.
-
+* `sparse_tensor_to_dense_with_shape` now accepts an optional `default_value`
+  parameter.
 * `tft.vocabulary` and `tft.compute_and_apply_vocabulary` now support
   `fingerprint_shuffle` to sort the vocabularies by fingerprint instead of
   counts. This is useful for load balancing the training parameter servers.
