@@ -39,6 +39,7 @@ from tensorflow_transform import nodes
 from tensorflow_transform import tf_utils
 
 from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
+
 from tensorflow.python.ops import resources
 from tensorflow.python.util import deprecation
 
@@ -686,20 +687,24 @@ def _get_top_k_and_frequency_threshold(top_k, frequency_threshold):
 # TODO(b/117796748): Add coverage key feature input as alternative to `key_fn`.
 # TODO(b/116308354): rename store_frequency to store_importance because it now
 # can return mutual information.
-def vocabulary(
-    x,
-    top_k=None,
-    frequency_threshold=None,
-    vocab_filename=None,
-    store_frequency=False,
-    weights=None,
-    labels=None,
-    use_adjusted_mutual_info=False,
-    min_diff_from_avg=0.0,
-    coverage_top_k=None,
-    coverage_frequency_threshold=None,
-    key_fn=None,
-    name=None):
+# TODO(tensorflow/community) the experimental fingerprint_shuffle argument is a
+# workaround for the inability to appropriately rebalance sharded variables on
+# TF 1.0. The following TF 2.0 proposal should address this issue in the future
+# https://github.com/tensorflow/community/blob/master/rfcs/20190116-embedding-partitioned-variable.md#goals
+def vocabulary(x,
+               top_k=None,
+               frequency_threshold=None,
+               vocab_filename=None,
+               store_frequency=False,
+               weights=None,
+               labels=None,
+               use_adjusted_mutual_info=False,
+               min_diff_from_avg=0.0,
+               coverage_top_k=None,
+               coverage_frequency_threshold=None,
+               key_fn=None,
+               fingerprint_shuffle=False,
+               name=None):
   r"""Computes the unique values of a `Tensor` over the whole dataset.
 
   Computes The unique values taken by `x`, which can be a `Tensor` or
@@ -774,6 +779,11 @@ def vocabulary(
     key_fn: (Optional), (Experimental) A fn that takes in a single entry of `x`
       and returns the corresponding key for coverage calculation. If this is
       `None`, no coverage arm is added to the vocabulary.
+    fingerprint_shuffle: (Optional), (Experimental) Whether to sort the
+      vocabularies by fingerprint instead of counts. This is useful for load
+      balancing on the training parameter servers. Shuffle only happens while
+      writing the files, so all the filters above (top_k, frequency_threshold,
+      etc) will still take effect.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -862,7 +872,8 @@ def vocabulary(
         analyzer_nodes.VocabularyWrite,
         filtered_value_node,
         vocab_filename=vocab_filename,
-        store_frequency=store_frequency)
+        store_frequency=store_frequency,
+        fingerprint_shuffle=fingerprint_shuffle)
 
     vocab_filename = analyzer_nodes.wrap_as_tensor(vocab_filename_node)
     return vocab_filename

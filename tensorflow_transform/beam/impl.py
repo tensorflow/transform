@@ -318,25 +318,25 @@ class _RunMetaGraphDoFn(beam.DoFn):
         self._session.run(tf.tables_initializer())
         graph.finalize()
 
-        input_schema_keys = sorted(input_schema.as_feature_spec().keys())
-        extra_input_keys = set(input_schema_keys).difference(inputs.keys())
-        if extra_input_keys:
+        input_schema_keys = input_schema.as_feature_spec().keys()
+        if set(input_schema_keys).difference(inputs.keys()):
           raise ValueError('Input schema contained keys not in graph: %s' %
                            input_schema_keys)
-        extra_output_keys = set(exclude_outputs).difference(outputs.keys())
-        if extra_output_keys:
+        if set(exclude_outputs).difference(outputs.keys()):
           raise ValueError('Excluded outputs contained keys not in graph: %s' %
                            exclude_outputs)
         non_excluded_output_keys = sorted(
             set(outputs.keys()).difference(exclude_outputs))
         fetches = [outputs[key] for key in non_excluded_output_keys]
-        tensor_inputs = [inputs[key] for key in input_schema_keys]
-
-        self.callable_get_outputs = self._session.make_callable(
-            fetches, feed_list=tensor_inputs)
-
-        self.inputs_tensor_keys = input_schema_keys
+        tensor_inputs = impl_helper.filter_input_tensors(inputs, fetches)
+        self.inputs_tensor_keys = sorted(tensor_inputs.keys())
         self.outputs_tensor_keys = non_excluded_output_keys
+
+        tensor_inputs_list = [
+            tensor_inputs[key] for key in self.inputs_tensor_keys
+        ]
+        self.callable_get_outputs = self._session.make_callable(
+            fetches, feed_list=tensor_inputs_list)
 
   def __init__(self,
                input_schema,
@@ -445,9 +445,9 @@ class _RunMetaGraphDoFn(beam.DoFn):
 def _assert_tensorflow_version():
   # Fail with a clear error in case we are not using a compatible TF version.
   major, minor, _ = tf.__version__.split('.')
-  if int(major) != 1 or int(minor) < 12:
+  if int(major) != 1 or int(minor) < 13:
     raise RuntimeError(
-        'TensorFlow version >= 1.12, < 2 is required. Found (%s). Please '
+        'TensorFlow version >= 1.13, < 2 is required. Found (%s). Please '
         'install the latest 1.x version from '
         'https://github.com/tensorflow/tensorflow. ' % tf.__version__)
 

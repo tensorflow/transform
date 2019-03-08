@@ -204,10 +204,10 @@ class _VarLenFeatureHandler(object):
   `VarLenFeature` values will be parsed as an array of the corresponding dtype.
   """
 
-  def __init__(self, name, feature_spec):
+  def __init__(self, name, dtype):
     self._name = name
-    self._np_dtype = feature_spec.dtype.as_numpy_dtype
-    self._value_fn = _make_feature_value_fn(feature_spec.dtype)
+    self._np_dtype = dtype.as_numpy_dtype
+    self._value_fn = _make_feature_value_fn(dtype)
 
   @property
   def name(self):
@@ -240,62 +240,6 @@ class _VarLenFeatureHandler(object):
     else:
       del self._value[:]
       self._value.extend(self._cast_fn(values))
-
-
-class _SparseFeatureHandler(object):
-  """Handler for `SparseFeature` values.
-
-  `SparseFeature` values will be parsed as a tuple of 1-D arrays where the first
-  array corresponds to their indices and the second to the values.
-  """
-
-  def __init__(self, name, feature_spec):
-    self._name = name
-    self._np_dtype = feature_spec.dtype.as_numpy_dtype
-    self._value_key = feature_spec.value_key
-    self._index_key = feature_spec.index_key
-    self._value_fn = _make_feature_value_fn(feature_spec.dtype)
-    self._index_fn = _make_feature_value_fn(tf.int64)
-
-  @property
-  def name(self):
-    """The name of the feature."""
-    return self._name
-
-  def initialize_encode_cache(self, example):
-    """Initialize fields (performance caches) that point to example's state."""
-    self._value_cast_fn = _make_cast_fn(self._np_dtype)
-    self._index_cast_fn = _make_cast_fn(np.int64)
-    self._value = self._value_fn(example.features.feature[
-        self._value_key])
-    self._index = self._index_fn(example.features.feature[
-        self._index_key])
-
-  def parse_value(self, feature_map):
-    """Non-Mutating Decode of a feature into its TF.Transform representation."""
-    if self._value_key in feature_map:
-      feature = feature_map[self._value_key]
-      value_values = self._value_fn(feature)
-    else:
-      value_values = []
-
-    if self._index_key in feature_map:
-      feature = feature_map[self._index_key]
-      index_values = self._index_fn(feature)
-    else:
-      index_values = []
-
-    # TODO(b/36040669): Validate the values and indices in a uniform way.
-    values = np.asarray(value_values, dtype=self._np_dtype)
-    indices = np.asarray(index_values, dtype=np.int64)
-    return (indices, values)
-
-  def encode_value(self, sparse_value):
-    del self._value[:]
-    del self._index[:]
-    indices, values = sparse_value
-    self._value.extend(self._value_cast_fn(values))
-    self._index.extend(self._index_cast_fn(indices))
 
 
 class ExampleProtoCoder(object):
@@ -334,17 +278,23 @@ class ExampleProtoCoder(object):
     self._feature_handlers = []
     for name, feature_spec in six.iteritems(schema.as_feature_spec()):
       if isinstance(feature_spec, tf.FixedLenFeature):
-        feature_handler = _FixedLenFeatureHandler(name, feature_spec)
+        self._feature_handlers.append(
+            _FixedLenFeatureHandler(name, feature_spec))
       elif isinstance(feature_spec, tf.VarLenFeature):
-        feature_handler = _VarLenFeatureHandler(name, feature_spec)
+        self._feature_handlers.append(
+            _VarLenFeatureHandler(name, feature_spec.dtype))
       elif isinstance(feature_spec, tf.SparseFeature):
-        feature_handler = _SparseFeatureHandler(name, feature_spec)
+        self._feature_handlers.append(
+            _VarLenFeatureHandler(feature_spec.index_key, tf.int64))
+        self._feature_handlers.append(
+            _VarLenFeatureHandler(feature_spec.value_key, feature_spec.dtype))
       else:
         raise ValueError('feature_spec should be one of tf.FixedLenFeature, '
                          'tf.VarLenFeature or tf.SparseFeature: %s was %s' %
                          (name, type(feature_spec)))
+
+    for feature_handler in self._feature_handlers:
       feature_handler.initialize_encode_cache(self._encode_example_cache)
-      self._feature_handlers.append(feature_handler)
 
   def __reduce__(self):
     return ExampleProtoCoder, (self._schema, self._serialized)

@@ -22,8 +22,8 @@ import pickle
 
 import numpy as np
 import tensorflow as tf
-from tensorflow_transform import test_case
 from tensorflow_transform.coders import csv_coder
+from tensorflow_transform import test_case
 from tensorflow_transform.tf_metadata import dataset_schema
 
 _COLUMNS = [
@@ -51,7 +51,8 @@ _ENCODE_DECODE_CASES = [
             'numeric2': [89.0],
             'numeric3': [20],
             'text1': b'this is a ,text',
-            'y': ([1], [12.0])
+            'idx': [1],
+            'value': [12.0],
         }),
     dict(
         testcase_name='multiple_columns_unicode',
@@ -64,7 +65,8 @@ _ENCODE_DECODE_CASES = [
             'numeric2': [89.0],
             'numeric3': [20],
             'text1': b'this is a ,text',
-            'y': ([1], [12.0])
+            'idx': [1],
+            'value': [12.0],
         }),
     dict(
         testcase_name='multiple_columns_tab_separated',
@@ -78,7 +80,8 @@ _ENCODE_DECODE_CASES = [
             'numeric2': [89.0],
             'numeric3': [20],
             'text1': b'this is a \ttext',
-            'y': ([1], [12.0])
+            'idx': [1],
+            'value': [12.0],
         },
         delimiter='\t'),
     dict(
@@ -100,7 +103,8 @@ _ENCODE_DECODE_CASES = [
             'numeric1': [11, 12],
             'numeric2': [89.0, 91.0],
             'numeric3': [20],
-            'y': ([1, 3], [12.0, 15.0])
+            'idx': [1, 3],
+            'value': [12.0, 15.0],
         },
         secondary_delimiter='|',
         multivalent_columns=['numeric1', 'numeric2', 'y']),
@@ -151,13 +155,13 @@ _ENCODE_DECODE_CASES = [
         columns=['idx', 'value'],
         feature_spec={'x': tf.SparseFeature('idx', 'value', tf.float32, 10)},
         csv_line='5,2.0',
-        instance={'x': ([5], [2.0])}),
+        instance={'idx': [5], 'value': [2.0]}),
     dict(
         testcase_name='sparse_float_no_values',
         columns=['idx', 'value'],
         feature_spec={'x': tf.SparseFeature('idx', 'value', tf.float32, 10)},
         csv_line=',',
-        instance={'x': ([], [])}),
+        instance={'idx': [], 'value': []}),
     dict(
         testcase_name='size_2_vector_int_multivalent',
         columns=['x'],
@@ -208,7 +212,8 @@ _DECODE_ONLY_CASES = [
             'numeric2': np.array([89.0]),
             'numeric3': np.array([20]),
             'text1': np.array([b'this is a ,text']),
-            'y': (np.array(1), np.array([12.0]))
+            'idx': np.array(1),
+            'value': np.array([12.0]),
         }),
     dict(
         testcase_name='multiple_columns_unicode_numpy',
@@ -221,7 +226,8 @@ _DECODE_ONLY_CASES = [
             'numeric2': np.array([89.0]),
             'numeric3': np.array([20]),
             'text1': np.array([b'this is a ,text']),
-            'y': (np.array(1), np.array([12.0]))
+            'idx': np.array(1),
+            'value': np.array([12.0]),
         }),
     dict(
         testcase_name='multiple_missing_var_len_features',
@@ -271,38 +277,6 @@ _DECODE_ERROR_CASES = [
         feature_spec={'x': tf.FixedLenFeature([], tf.string)},
         csv_line='',
         error_msg=r'expected a value on column \"x\"'),
-    dict(
-        testcase_name='sparse_feature_with_missing_value_but_present_index',
-        columns=['idx', 'value'],
-        feature_spec={'x': tf.SparseFeature('idx', 'value', tf.float32, 10)},
-        csv_line='5,',
-        error_msg=(r'SparseFeature \"x\" has indices and values of different '
-                   r'lengths')),
-    dict(
-        testcase_name='sparse_feature_with_missing_index_but_present_value',
-        columns=['idx', 'value'],
-        feature_spec={'x': tf.SparseFeature('idx', 'value', tf.float32, 10)},
-        csv_line=',2.0',
-        error_msg=(r'SparseFeature \"x\" has indices and values of different '
-                   r'lengths')),
-    dict(
-        testcase_name='sparse_feature_with_negative_index',
-        columns=['idx', 'value'],
-        feature_spec={'x': tf.SparseFeature('idx', 'value', tf.float32, 10)},
-        csv_line='-1,2.0',
-        error_msg=r'has index -1 out of range'),
-    dict(
-        testcase_name='sparse_feature_with_index_equal_to_size',
-        columns=['idx', 'value'],
-        feature_spec={'x': tf.SparseFeature('idx', 'value', tf.float32, 10)},
-        csv_line='10,2.0',
-        error_msg=r'has index 10 out of range'),
-    dict(
-        testcase_name='sparse_feature_with_index_greater_than_size',
-        columns=['idx', 'value'],
-        feature_spec={'x': tf.SparseFeature('idx', 'value', tf.float32, 10)},
-        csv_line='11,2.0',
-        error_msg=r'has index 11 out of range'),
     dict(
         testcase_name='scalar_float_with_non_float_value',
         columns=['x'],
@@ -443,7 +417,8 @@ class TestCSVCoder(test_case.TransformTestCase):
         'numeric2': [89.0],
         'numeric3': [20],
         'text1': b'this is a ,text',
-        'y': ([1], [12.0])
+        'idx': [1],
+        'value': [12.0],
     }
     schema = dataset_schema.from_feature_spec(_FEATURE_SPEC)
     coder = csv_coder.CsvCoder(_COLUMNS, schema)

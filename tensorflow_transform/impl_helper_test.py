@@ -57,14 +57,16 @@ _ROUNDTRIP_CASES = [
              'c': [2.0],
              'd': [[1.0, 2.0], [3.0, 4.0]],
              'e': ['doe', 'a', 'deer'],
-             'f': ([2, 4, 8], [10.0, 20.0, 30.0]),
+             'idx': [2, 4, 8],
+             'val': [10.0, 20.0, 30.0],
          }, {
              'a': 100,
              'b': 2.0,
              'c': [4.0],
              'd': [[5.0, 6.0], [7.0, 8.0]],
              'e': ['a', 'female', 'deer'],
-             'f': ([], []),
+             'idx': [],
+             'val': [],
          }],
          feed_dict=_FEED_DICT),
     dict(testcase_name='multiple_features_ndarrays',
@@ -75,14 +77,16 @@ _ROUNDTRIP_CASES = [
              'c': np.array([2.0], np.float32),
              'd': np.array([[1.0, 2.0], [3.0, 4.0]], np.float32),
              'e': ['doe', 'a', 'deer'],
-             'f': (np.array([2, 4, 8]), np.array([10.0, 20.0, 30.0])),
+             'idx': np.array([2, 4, 8]),
+             'val': np.array([10.0, 20.0, 30.0]),
          }, {
              'a': np.int64(100),
              'b': np.array(2.0, np.float32),
              'c': np.array([4.0], np.float32),
              'd': np.array([[5.0, 6.0], [7.0, 8.0]], np.float32),
              'e': ['a', 'female', 'deer'],
-             'f': (np.array([], np.int32), np.array([], np.float32))
+             'idx': np.array([], np.int32),
+             'val': np.array([], np.float32),
          }],
          feed_dict=_FEED_DICT),
     dict(testcase_name='empty_var_len_feature',
@@ -142,7 +146,7 @@ _ROUNDTRIP_CASES = [
          feature_spec={
              'sparse': tf.SparseFeature('idx', 'val', tf.float32, 10)
          },
-         instances=[{'sparse': ([], [])}],
+         instances=[{'idx': [], 'val': []}],
          feed_dict={
              'sparse': tf.SparseTensorValue(
                  indices=np.empty([0, 2]),
@@ -184,26 +188,20 @@ _MAKE_FEED_LIST_ERROR_CASES = [
          feature_spec={
              'a': tf.SparseFeature('idx', 'val', tf.float32, 10)
          },
-         instances=[{'a': ([-1, 2], [1.0, 2.0])}],
+         instances=[{'idx': [-1, 2], 'val': [1.0, 2.0]}],
          error_msg='has index .* out of range'),
     dict(testcase_name='sparse_feature_index_too_high',
          feature_spec={
              'a': tf.SparseFeature('idx', 'val', tf.float32, 10)
          },
-         instances=[{'a': ([11, 2], [1.0, 2.0])}],
+         instances=[{'idx': [11, 2], 'val': [1.0, 2.0]}],
          error_msg='has index .* out of range'),
     dict(testcase_name='sparse_feature_indices_and_values_different_lengths',
          feature_spec={
              'a': tf.SparseFeature('idx', 'val', tf.float32, 10)
          },
-         instances=[{'a': ([1, 2], [1])}],
-         error_msg='indices and values of different lengths'),
-    dict(testcase_name='sparse_feature_not_a_pair',
-         feature_spec={
-             'a': tf.SparseFeature('idx', 'val', tf.float32, 10)
-         },
-         instances=[{'a': ([1], [2], [3])}],
-         error_msg='too many values to unpack'),
+         instances=[{'idx': [1, 2], 'val': [1]}],
+         error_msg='indices and values of different lengths')
 ]
 
 _TO_INSTANCE_DICT_ERROR_CASES = [
@@ -367,6 +365,42 @@ class ImplHelperTest(test_case.TransformTestCase):
                           sparse_value.values)
       self.assertAllEqual(sample_tensors['sparse'].dense_shape,
                           sparse_value.dense_shape)
+
+  def test_filter_input_tensors(self):
+    with tf.Graph().as_default():
+      a = tf.placeholder(tf.float32, shape=(10, 10))
+      b = tf.sparse.placeholder(tf.float32)
+      c = tf.sparse.placeholder(tf.float32)
+      d = tf.placeholder(tf.float32)
+      e = tf.placeholder(tf.float32)
+      f = tf.placeholder(tf.float32)
+      input_tensors = {
+          'a': a,
+          'b': b,
+          'c': c,
+          'd': d,
+          'e': e,
+          'f': f,
+          'unused_1': tf.placeholder(tf.float32),
+          'unused_2': tf.sparse.placeholder(tf.float32),
+      }
+
+      matmul_a = tf.matmul(a, a)
+      add_b_c = tf.sparse.add(b, c)
+      add_d_e = d + e
+      add_d_e_f = add_d_e + f
+      output_tensors = [matmul_a, add_b_c, add_d_e_f]
+
+    filtered_input_tensors = impl_helper.filter_input_tensors(
+        input_tensors, output_tensors)
+    self.assertEqual(filtered_input_tensors, {
+        'a': a,
+        'b': b,
+        'c': c,
+        'd': d,
+        'e': e,
+        'f': f,
+    })
 
 
 def _subtract_ten_with_tf_while(x):

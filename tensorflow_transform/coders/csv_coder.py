@@ -63,31 +63,18 @@ def _make_cast_fn(dtype):
   For performance reasons it is preferred to have the cast fn
   constructed once (for each handler).
 
-  For boolean values the function will only accept "True" or "False" as input.
-
   Args:
     dtype: The type of the Tensorflow feature.
 
   Returns:
     A function to extract the value field from a string depending on dtype.
   """
-
-  def to_boolean(value):
-    if value == 'True':
-      return True
-    elif value == 'False':
-      return False
-    else:
-      raise ValueError('expected "True" or "False" as inputs.')
-
   if dtype.is_integer:
     # In Python 2, if the value is too large to fit into an int, int(..) returns
     # a long, but ints are cheaper to use when possible.
     return int
   elif dtype.is_floating:
     return float
-  elif dtype.is_bool:
-    return to_boolean
   else:
     return _elements_to_bytes
 
@@ -206,10 +193,10 @@ class _VarLenFeatureHandler(object):
   will be returned.
   """
 
-  def __init__(self, name, feature_spec, index, reader=None, encoder=None):
+  def __init__(self, name, dtype, index, reader=None, encoder=None):
     self._name = name
-    self._cast_fn = _make_cast_fn(feature_spec.dtype)
-    self._np_dtype = feature_spec.dtype.as_numpy_dtype
+    self._cast_fn = _make_cast_fn(dtype)
+    self._np_dtype = dtype.as_numpy_dtype
     self._index = index
     self._reader = reader
     self._encoder = encoder
@@ -234,92 +221,7 @@ class _VarLenFeatureHandler(object):
     if self._encoder:
       string_list[self._index] = self._encoder.encode_record(values)
     else:
-      string_list[self._index] = _to_string(values[0]) if values else None
-
-
-class _SparseFeatureHandler(object):
-  """Handler for `SparseFeature` values.
-
-  `SparseFeature` values will be parsed as a tuple of 1-D arrays where the first
-  array corresponds to their indices and the second to the values.
-  """
-
-  def __init__(self,
-               name,
-               feature_spec,
-               value_index,
-               index_index,
-               reader=None,
-               encoder=None):
-    self._name = name
-    self._cast_fn = _make_cast_fn(feature_spec.dtype)
-    self._np_dtype = feature_spec.dtype.as_numpy_dtype
-    self._value_index = value_index
-    self._value_name = feature_spec.value_key
-    self._index_index = index_index
-    self._index_name = feature_spec.index_key
-    self._size = feature_spec.size
-    self._reader = reader
-    self._encoder = encoder
-
-  @property
-  def name(self):
-    return self._name
-
-  def parse_value(self, string_list):
-    """Parse the value of this feature from string list split from CSV line."""
-    value_str = string_list[self._value_index]
-    index_str = string_list[self._index_index]
-
-    if value_str and self._reader:
-      values = list(
-          map(self._cast_fn, _decode_with_reader(value_str, self._reader)))
-    elif value_str:
-      values = [self._cast_fn(value_str)]
-    else:
-      values = []
-
-    # In Python 2, if the value is too large to fit into an int, int(..) returns
-    # a long, but ints are cheaper to use when possible.
-    if index_str and self._reader:
-      indices = list(map(int, _decode_with_reader(index_str, self._reader)))
-    elif index_str:
-      indices = [int(index_str)]
-    else:
-      indices = []
-
-    # Check that all indices are in range.
-    # TODO(b/36040669): Move this validation so it can be shared by all coders.
-    if indices:
-      i_min, i_max = min(indices), max(indices)
-      if i_min < 0 or i_max >= self._size:
-        i_bad = i_min if i_min < 0 else i_max
-        raise ValueError(
-            'SparseFeature "{}" has index {} out of range [0, {})'.format(
-                self._name, i_bad, self._size))
-
-    if len(values) != len(indices):
-      raise ValueError(
-          'SparseFeature "{}" has indices and values of different lengths: '
-          'values: {}, indices: {}'.format(self._name, values, indices))
-
-    return (np.asarray(indices, dtype=np.int64),
-            np.asarray(values, dtype=self._np_dtype))
-
-  def encode_value(self, string_list, sparse_value):
-    """Encode the value of this feature into the CSV line."""
-    index, value = sparse_value
-    if len(value) == len(index):
-      if self._encoder:
-        string_list[self._value_index] = self._encoder.encode_record(value)
-        string_list[self._index_index] = self._encoder.encode_record(index)
-      else:
-        string_list[self._value_index] = _to_string(value[0]) if value else ''
-        string_list[self._index_index] = _to_string(index[0]) if index else ''
-    else:
-      raise ValueError(
-          'SparseFeature {!r} has value and index unaligned {!r} vs {!r}.'
-          .format(self._name, value, index))
+      string_list[self._index] = _to_string(values[0]) if values else ''
 
 
 class DecodeError(Exception):
@@ -499,14 +401,18 @@ class CsvCoder(object):
                                     secondary_encoder_by_name.get(name)))
       elif isinstance(feature_spec, tf.VarLenFeature):
         self._feature_handlers.append(
-            _VarLenFeatureHandler(name, feature_spec, index(name),
+            _VarLenFeatureHandler(name, feature_spec.dtype, index(name),
                                   secondary_reader_by_name.get(name),
                                   secondary_encoder_by_name.get(name)))
       elif isinstance(feature_spec, tf.SparseFeature):
         self._feature_handlers.append(
-            _SparseFeatureHandler(name, feature_spec,
-                                  index(feature_spec.value_key),
+            _VarLenFeatureHandler(feature_spec.index_key, tf.int64,
                                   index(feature_spec.index_key),
+                                  secondary_reader_by_name.get(name),
+                                  secondary_encoder_by_name.get(name)))
+        self._feature_handlers.append(
+            _VarLenFeatureHandler(feature_spec.value_key, feature_spec.dtype,
+                                  index(feature_spec.value_key),
                                   secondary_reader_by_name.get(name),
                                   secondary_encoder_by_name.get(name)))
       else:

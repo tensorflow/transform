@@ -1,15 +1,5 @@
 toc:
-- title: Get Started
+- title: "Install"
+  path: /tfx/transform/install
+- title: "Get started"
   path: /tfx/transform/get_started
-
-- heading: Examples
-- title: Simple example
-  path: /tfx/transform/tutorials/TFT_simple_example
-- title: Census income
-  path: /tfx/transform/tutorials/TFT_census_example
-- title: Sentiment analysis
-  path: https://github.com/tensorflow/transform/blob/master/examples/sentiment.md
-  status: external
-- title: Chicago Taxi (end-to-end)
-  path: https://github.com/tensorflow/tfx/tree/master/examples/chicago_taxi
-  status: external

@@ -70,6 +70,10 @@ Note: raw_metadata is not guaranteed to exist in the output of tf.transform
 and hence using this could fail, if raw_metadata is not present in
 TFTransformOutput.
 
+#### Returns:
+
+A DatasetMetadata
+
 <h3 id="transform_savedmodel_dir"><code>transform_savedmodel_dir</code></h3>
 
 A python str.

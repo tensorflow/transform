@@ -1,12 +1,42 @@
+<!-- mdformat off(mdformat causes unwanted indentation changes) -->
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
 
 ## Bug Fixes and Other Changes
+
 * Now `tft.sparse_tensor_to_dense_with_shape` accepts an optional 
    argument `default_value` which is set default to 0.
 
+* `tft.vocabulary` and `tft.compute_and_apply_vocabulary` now support
+  `fingerprint_shuffle` to sort the vocabularies by fingerprint instead of
+  counts. This is useful for load balancing the training parameter servers.
+  This is an experimental feature.
+
 ## Breaking changes
+
+## Deprecations
+
+# Release 0.13.0
+
+## Major Features and Improvements
+* Now `AnalyzeDataset`, `TransformDataset` and `AnalyzeAndTransformDataset` can
+  accept input data that only contains columns needed for that operation as
+  opposed to all columns defined in schema. Utility methods to infer the list of
+  needed columns are added to `tft.inspect_preprocessing_fn`. This makes it
+  easier to take advantage of columnar projection when data is stored in
+  columnar storage formats.
+* Python 3.5 is supported.
+
+## Bug Fixes and Other Changes
+* Version is now accessible as `tensorflow_transform.__version__`.
+* Depends on `apache-beam[gcp]>=2.11,<3`.
+* Depends on `protobuf>=3.7,<4`.
+
+## Breaking changes
+* Coders now return index and value features rather than a combined feature for
+  `SparseFeature`.
+* Requires pre-installed TensorFlow >=1.13,<2.
 
 ## Deprecations
 

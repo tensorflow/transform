@@ -18,7 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
-import math
+import hashlib
 import os
 
 # GOOGLE-INITIALIZATION
@@ -39,13 +39,15 @@ from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import analyzers
 from tensorflow_transform import tf_utils
 from tensorflow_transform.beam import common
+from tensorflow_transform.beam import info_theory
 
 
 class _OrderElementsFn(beam.DoFn):
-  """Sort the vocabulary by descending frequency count."""
+  """Sort the vocabulary by either descending frequency count or hash order."""
 
-  def __init__(self, store_frequency):
+  def __init__(self, store_frequency, fingerprint_shuffle):
     self._store_frequency = store_frequency
+    self._fingerprint_shuffle = fingerprint_shuffle
 
     # Metrics.
     self._vocab_size = beam.metrics.Metrics.distribution(
@@ -63,7 +65,11 @@ class _OrderElementsFn(beam.DoFn):
       # tensors downstream.
       counts = [(1, '49d0cd50-04bb-48c0-bc6f-5b575dce351a')]
 
-    counts.sort(reverse=True)  # Largest first.
+    if self._fingerprint_shuffle:
+      counts.sort(key=lambda kv: hashlib.sha1(kv[1]).digest())
+    else:
+      counts.sort(reverse=True)  # Largest first.
+
     for count, entry in counts:
       if self._store_frequency:
         # Converts bytes to unicode for PY3, otherwise the result will look like
@@ -259,6 +265,7 @@ class VocabularyWriteImpl(beam.PTransform):
     self._base_temp_dir = extra_args.base_temp_dir
     self._store_frequency = operation.store_frequency
     self._vocab_filename = operation.vocab_filename
+    self._fingerprint_shuffle = operation.fingerprint_shuffle
 
   def expand(self, inputs):
     counts, = inputs
@@ -269,8 +276,9 @@ class VocabularyWriteImpl(beam.PTransform):
 
         # Using AsIter instead of AsList at the callsite below in order to
         # reduce max memory usage.
-        | 'OrderElements' >> beam.ParDo(_OrderElementsFn(self._store_frequency),
-                                        counts_iter=beam.pvalue.AsIter(counts))
+        | 'OrderElements' >> beam.ParDo(
+            _OrderElementsFn(self._store_frequency, self._fingerprint_shuffle),
+            counts_iter=beam.pvalue.AsIter(counts))
         # TODO(b/62379925) For now force a single file. Should
         # `InitializeTableFromTextFile` operate on a @N set of files?
         # TODO(b/67863471) Here we are relying on fusion (an implementation
@@ -278,8 +286,8 @@ class VocabularyWriteImpl(beam.PTransform):
         # to disk. Perform the write within the body of `OrderElements` maybe
         # `OrderElementsAndWrite`. This would mean using TF IO instead of Beam
         # IO so it's perhaps not great.
-        | 'WriteToFile' >> beam.io.WriteToText(vocabulary_file,
-                                               shard_name_template=''))
+        | 'WriteToFile' >> beam.io.WriteToText(
+            vocabulary_file, shard_name_template=''))
     # Return the vocabulary path.
     wait_for_vocabulary_transform = (
         counts.pipeline
@@ -344,22 +352,27 @@ def _clip_probability(p):
   return p, 1 - p
 
 
-def _calculate_mutual_information(feature_and_accumulator, global_accumulator,
-                                  use_adjusted_mutual_info, min_diff_from_avg):
-  """Calculates the (adjusted) mutual information of a feature.
+def _calculate_mutual_information_for_binary_feature(
+    feature_and_accumulator, global_accumulator, use_adjusted_mutual_info,
+    min_diff_from_avg):
+  """Calculates the (possibly adjusted) mutual information of a binary feature.
 
-  Mutual information H(x, y) = (sum(weights) *
+  Used as a measure of relatedness between a binary feature and binary label.
+
+  Mutual information is calculated as:
+  H(x, y) = (sum(weights) *
              [(P(y|x)*log2(P(y|x)/P(y))) + (P(~y|x)*log2(P(~y|x)/P(~y)))])
-  Where x is feature and y is label.
-  We use sum(weights) instead of P(x), as this makes the mutual information more
-  interpretable.
+  where x is feature and y is label. We use sum(weights) instead of P(x), as
+  this makes the mutual information more interpretable.
   If we don't divide by sum(weights), it can be thought of as an adjusted
   weighted count.
 
-  Adjusted mutual information AMI(x, y) = MI(x, y) - EMI(x, y)
-  x is the feature and y is label. It's calculated by subtracting the expected
-  mutual information (EMI) from mutual information. The calculation is based on
-  the following paper:
+  If use_adjusted_mutual_info is True, we use Adjusted Mutual Information (AMI)
+  which accounts for relatedness due to chance. AMI is generally calculated as:
+  AMI(x, y) = MI(x, y) - EMI(x, y) / (max(H(x), H(y)) - EMI(x, y))
+  where x is the feature and y is label. Here, we leave off the normalization
+  and only subtract expected mutual information (EMI) from mutual information.
+  The calculation is based on the following paper:
 
   Vinh, N. X.; Epps, J.; Bailey, J. (2009). "Information theoretic measures for
   clusterings comparison". Proceedings of the 26th Annual International Confere
@@ -371,11 +384,10 @@ def _calculate_mutual_information(feature_and_accumulator, global_accumulator,
 
   Args:
     feature_and_accumulator: A tuple of the form:
-      (feature, _CountAndWeightsMeansAccumulator) where:
-        `feature` is a single string, which is the word in the vocabulary whose
-          mutual information with the label is being computed.
-        `weighted_mean` is the weighted mean positive given x.
-        `count` is the count of weights for a feature.
+      (feature, _CountAndWeightsMeansAccumulator) where: `feature` is a single
+        string, which is the word in the vocabulary whose mutual information
+        with the label is being computed. `weighted_mean` is the weighted mean
+        positive given x. `count` is the count of weights for a feature.
         `weights_mean` is the mean of the weights for a feature.
     global_accumulator: A _CountAndWeightsMeansAccumulator where:
       `weighted_mean` is the weighted mean of positive labels for all features.
@@ -413,83 +425,19 @@ def _calculate_mutual_information(feature_and_accumulator, global_accumulator,
       n_0 * (np.log2(n_0) + np.log2(n) - np.log2(y_0) - np.log2(x)))
 
   if use_adjusted_mutual_info:
+    # Note: Expected mutual information is calculated by summing over all values
+    # of x and all values of y,  but here we don't count the contribution of the
+    # case where the feature is not present, and this is consistent with
+    # how mutual information is computed.
     expected_mutual_information = (
-        _calculate_expected_mutual_information_per_label(n, x, y_1) +
-        _calculate_expected_mutual_information_per_label(n, x, y_0))
+        info_theory.calculate_partial_expected_mutual_information(n, x, y_1) +
+        info_theory.calculate_partial_expected_mutual_information(n, x, y_0))
 
+    # TODO(b/127366670): Consider implementing the normalization step as per
+    # AMI(x, y) = MI(x, y) - EMI(x, y) / (max(H(x), H(y)) - EMI(x, y))
     return (feature, mutual_information - expected_mutual_information)
   else:
     return (feature, mutual_information)
-
-
-def _calculate_expected_mutual_information_per_label(n, x, y_j):
-  """Calculates the expected mutual information of a feature and a label.
-
-    EMI(x, y) = sum_{n_ij = max(0, x_i + y_j - n) to min(x_i, y_j)} (
-      n_ij / n * log2((n * n_ij / (x_i * y_j))
-      * ((x_i! * y_j! * (n - x_i)! * (n - y_j)!) /
-      (n! * n_ij! * (x_i - n_ij)! * (y_j - n_ij)! * (n - x_i - y_j + n_ij)!)))
-    where n_ij is the joint count of feature and label, x_i is the count for
-    feature x, y_j is the count for label y, and n represents total count.
-
-    Note: In the paper, expected mutual information is calculated by summing
-    over both i and j, but here we don't count the consitrbution of the case i=0
-    (where the feature is not present), and this is consistent with how mutual
-    information is computed.
-
-  Args:
-    n: The sum of weights for all features.
-    x: The sum of weights for the feature whose expected mutual information is
-      computed.
-    y_j: The sum of weights for positive (or negative) labels for all features.
-
-  Returns:
-    Calculated expected mutual information.
-  """
-  coefficient = (-np.log2(x) - np.log2(y_j) + np.log2(n))
-  sum_probability = 0.0
-  partial_result = 0.0
-  for n_j, p_j in _hypergeometric_pmf(n, x, y_j):
-    if n_j != 0:
-      partial_result += n_j * (coefficient + np.log2(n_j)) * p_j
-    sum_probability += p_j
-  # With approximate calculations for log2(x) and exp2(x) with large x, need a
-  # correction to the probablity approximation.
-  return partial_result / sum_probability
-
-
-def _hypergeometric_pmf(n, x, y_j):
-  """Probablity for expectation computation under hypergeometric distribution.
-
-  Args:
-    n: The sum of weights for all features.
-    x: The sum of weights for the feature whose expected mutual information is
-      computed.
-    y_j: The sum of weights for positive (or negative) labels for all features.
-
-  Yields:
-    Calculated coefficient, numerator and denominator for hypergeometric
-    distribution.
-  """
-  start = int(max(0, n - (n - x) - (n - y_j)))
-  end = int(min(x, y_j))
-  numerator = (
-      _logfactorial(x) + _logfactorial(y_j) + _logfactorial(n - x) +
-      _logfactorial(n - y_j))
-  denominator = (
-      _logfactorial(n) + _logfactorial(start) + _logfactorial(x - start) +
-      _logfactorial(y_j - start) + _logfactorial(n - x - y_j + start))
-  for n_j in range(start, end + 1):
-    p_j = np.exp(numerator - denominator)
-    denominator += (
-        np.log(n_j + 1) - np.log(x - n_j) - np.log(y_j - n_j) +
-        np.log(n - x - y_j + n_j + 1))
-    yield n_j, p_j
-
-
-def _logfactorial(n):
-  """Calculate natural logarithm of n!."""
-  return math.lgamma(n + 1)
 
 
 class _CountAndWeightsMeansAccumulator(
@@ -533,7 +481,7 @@ def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
 
   return (feature_accumulator_pcol
           | 'CalculateMutualInformationPerString' >> beam.Map(
-              _calculate_mutual_information,
+              _calculate_mutual_information_for_binary_feature,
               beam.pvalue.AsSingleton(global_accumulator),
               use_adjusted_mutual_info=use_adjusted_mutual_info,
               min_diff_from_avg=min_diff_from_avg))

@@ -11,6 +11,7 @@
 *  <a href="./tft/apply_buckets.md"><code>tft.apply_buckets</code></a>
 *  <a href="./tft/apply_function.md"><code>tft.apply_function</code></a>
 *  <a href="./tft/apply_function_with_checkpoint.md"><code>tft.apply_function_with_checkpoint</code></a>
+*  <a href="./tft/apply_pyfunc.md"><code>tft.apply_pyfunc</code></a>
 *  <a href="./tft/apply_saved_model.md"><code>tft.apply_saved_model</code></a>
 *  <a href="./tft/apply_vocab.md"><code>tft.apply_vocab</code></a>
 *  <a href="./tft/apply_vocabulary.md"><code>tft.apply_vocabulary</code></a>
@@ -21,6 +22,8 @@
 *  <a href="./tft/coders/ExampleProtoCoder.md"><code>tft.coders.ExampleProtoCoder</code></a>
 *  <a href="./tft/compute_and_apply_vocabulary.md"><code>tft.compute_and_apply_vocabulary</code></a>
 *  <a href="./tft/covariance.md"><code>tft.covariance</code></a>
+*  <a href="./tft/get_analyze_input_columns.md"><code>tft.get_analyze_input_columns</code></a>
+*  <a href="./tft/get_transform_input_columns.md"><code>tft.get_transform_input_columns</code></a>
 *  <a href="./tft/hash_strings.md"><code>tft.hash_strings</code></a>
 *  <a href="./tft/max.md"><code>tft.max</code></a>
 *  <a href="./tft/mean.md"><code>tft.mean</code></a>

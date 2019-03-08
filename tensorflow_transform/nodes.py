@@ -84,6 +84,10 @@ class OperationDef(object):
     """A unique label for this operation in the graph."""
     pass
 
+  def get_field_str(self, field_name):
+    """Returns a str representation of the requested field."""
+    return getattr(self, field_name)
+
   @property
   def is_partitionable(self):
     """If True, means that this operation can be applied on partitioned data.
@@ -311,8 +315,8 @@ class _PrintGraphVisitor(Visitor):
     node_name = operation_def.label
 
     display_label_rows = ([operation_def.__class__.__name__] + [
-        _escape('%s: %s' % (field, value))
-        for field, value in operation_def._asdict().items()
+        _escape('%s: %s' % (field, operation_def.get_field_str(field)))
+        for field in operation_def._fields
     ])
 
     if operation_def.is_partitionable:
