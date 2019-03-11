@@ -1018,7 +1018,7 @@ def apply_buckets(x, bucket_boundaries, name=None):
     x: A numeric input `Tensor` or `SparseTensor` whose values should be mapped
         to buckets.  For `SparseTensor`s, the non-missing values will be mapped
         to buckets and missing value left missing.
-    bucket_boundaries: The bucket boundaries represented as a rank 1 `Tensor`.
+    bucket_boundaries: The bucket boundaries represented as a rank 2 `Tensor`.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1026,6 +1026,7 @@ def apply_buckets(x, bucket_boundaries, name=None):
     returned tensor representing the bucketized value. Bucketized value is
     in the range [0, len(bucket_boundaries)].
   """
+  tf.assert_rank(bucket_boundaries, 2)
   with tf.name_scope(name, 'apply_buckets'):
     x_values = x.values if isinstance(x, tf.SparseTensor) else x
     buckets = quantile_ops.bucketize_with_input_boundaries(
