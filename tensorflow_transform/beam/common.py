@@ -147,7 +147,7 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
           'graph',
           'input_signature',
           'input_schema',
-          'cache_location',
+          'cache_pcoll_dict',
       ])
 
   def __init__(self, extra_args):

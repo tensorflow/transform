@@ -17,10 +17,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import collections
-import json
+import itertools
 import os
 # GOOGLE-INITIALIZATION
 import apache_beam as beam
+from apache_beam.testing import util as beam_test_util
+
+import six
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import analyzer_nodes
@@ -28,22 +31,11 @@ from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.beam import analysis_graph_builder
+from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform import test_case
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
-
-
-def _write_cache(name, dataset_key, values, input_cache_dir):
-  dataset_cache_dir = os.path.join(input_cache_dir, dataset_key)
-
-  if not tf.gfile.IsDirectory(dataset_cache_dir):
-    tf.gfile.MakeDirs(dataset_cache_dir)
-  cache_file = '{}-00000-of-00001.gz'.format(
-      os.path.join(dataset_cache_dir, name))
-
-  with tf.io.TFRecordWriter(cache_file, 'GZIP') as writer:
-    writer.write(tf.compat.as_bytes(json.dumps(values)))
 
 
 def _preprocessing_fn_for_common_optimize_traversal(inputs):
@@ -56,11 +48,6 @@ def _preprocessing_fn_for_common_optimize_traversal(inputs):
   return {'x_normalized': x_normalized}
 
 
-def _write_cache_for_common_optimize_traversal(location, dataset_keys):
-  _write_cache('__v0__CacheableCombineAccumulate--x-mean_and_var--',
-               dataset_keys[0], [1., 1., 1.], location)
-
-
 _OPTIMIZE_TRAVERSAL_COMMON_CASE = dict(
     testcase_name='common',
     feature_spec={
@@ -68,7 +55,9 @@ _OPTIMIZE_TRAVERSAL_COMMON_CASE = dict(
         's': tf.FixedLenFeature([], tf.string)
     },
     preprocessing_fn=_preprocessing_fn_for_common_optimize_traversal,
-    write_cache_fn=_write_cache_for_common_optimize_traversal,
+    dataset_input_cache_dict={
+        '__v0__CacheableCombineAccumulate--x-mean_and_var--': 'cache hit',
+    },
     expected_dot_graph_str=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
@@ -79,19 +68,15 @@ node [shape=Mrecord];
 "ApplySavedModel[0][span-0]" -> "TensorSource[vocabulary][span-0]";
 "VocabularyAccumulate[vocabulary][span-0]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|label: VocabularyAccumulate[vocabulary][span-0]|partitionable: True}"];
 "TensorSource[vocabulary][span-0]" -> "VocabularyAccumulate[vocabulary][span-0]";
-"WriteCache[VocabularyAccumulate[vocabulary]][span-0]" [label="{WriteCache|path: span-0/__v0__VocabularyAccumulate--vocabulary--|coder: \<_VocabularyAccumulatorCoder\>|label: WriteCache[VocabularyAccumulate[vocabulary]][span-0]|partitionable: True}"];
-"VocabularyAccumulate[vocabulary][span-0]" -> "WriteCache[VocabularyAccumulate[vocabulary]][span-0]";
 "ApplySavedModel[0][span-1]" [label="{ApplySavedModel|dataset_key: span-1|phase: 0|label: ApplySavedModel[0][span-1]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0][span-1]";
 "TensorSource[vocabulary][span-1]" [label="{ExtractFromDict|keys: ('vocabulary/Reshape',)|label: TensorSource[vocabulary][span-1]|partitionable: True}"];
 "ApplySavedModel[0][span-1]" -> "TensorSource[vocabulary][span-1]";
 "VocabularyAccumulate[vocabulary][span-1]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|label: VocabularyAccumulate[vocabulary][span-1]|partitionable: True}"];
 "TensorSource[vocabulary][span-1]" -> "VocabularyAccumulate[vocabulary][span-1]";
-"WriteCache[VocabularyAccumulate[vocabulary]][span-1]" [label="{WriteCache|path: span-1/__v0__VocabularyAccumulate--vocabulary--|coder: \<_VocabularyAccumulatorCoder\>|label: WriteCache[VocabularyAccumulate[vocabulary]][span-1]|partitionable: True}"];
-"VocabularyAccumulate[vocabulary][span-1]" -> "WriteCache[VocabularyAccumulate[vocabulary]][span-1]";
 "FlattenCache[VocabularyMerge[vocabulary]]" [label="{Flatten|label: FlattenCache[VocabularyMerge[vocabulary]]|partitionable: True}"];
-"WriteCache[VocabularyAccumulate[vocabulary]][span-0]" -> "FlattenCache[VocabularyMerge[vocabulary]]";
-"WriteCache[VocabularyAccumulate[vocabulary]][span-1]" -> "FlattenCache[VocabularyMerge[vocabulary]]";
+"VocabularyAccumulate[vocabulary][span-0]" -> "FlattenCache[VocabularyMerge[vocabulary]]";
+"VocabularyAccumulate[vocabulary][span-1]" -> "FlattenCache[VocabularyMerge[vocabulary]]";
 "VocabularyMerge[vocabulary]" [label="{VocabularyMerge|vocab_ordering_type: 1|use_adjusted_mutual_info: False|min_diff_from_avg: 0.0|label: VocabularyMerge[vocabulary]}"];
 "FlattenCache[VocabularyMerge[vocabulary]]" -> "VocabularyMerge[vocabulary]";
 "VocabularyOrderAndFilter[vocabulary]" [label="{VocabularyOrderAndFilter|top_k: None|frequency_threshold: None|coverage_top_k: None|coverage_frequency_threshold: None|key_fn: None|label: VocabularyOrderAndFilter[vocabulary]}"];
@@ -100,16 +85,14 @@ node [shape=Mrecord];
 "VocabularyOrderAndFilter[vocabulary]" -> "VocabularyWrite[vocabulary]";
 "CreateTensorBinding[vocabulary/Placeholder]" [label="{CreateTensorBinding|tensor: vocabulary/Placeholder:0|is_asset_filepath: True|label: CreateTensorBinding[vocabulary/Placeholder]}"];
 "VocabularyWrite[vocabulary]" -> "CreateTensorBinding[vocabulary/Placeholder]";
-"ReadCache[CacheableCombineAccumulate[x/mean_and_var]][span-0]" [label="{ReadCache|path: span-0/__v0__CacheableCombineAccumulate--x-mean_and_var--|coder: \<JsonNumpyCacheCoder\>|label: ReadCache[CacheableCombineAccumulate[x/mean_and_var]][span-0]|partitionable: True}"];
+"DecodeCache[span-0][__v0__CacheableCombineAccumulate--x-mean_and_var--]" [label="{DecodeCache|dataset_key: span-0|cache_key: __v0__CacheableCombineAccumulate--x-mean_and_var--|coder: \<JsonNumpyCacheCoder\>|label: DecodeCache[span-0][__v0__CacheableCombineAccumulate--x-mean_and_var--]|partitionable: True}"];
 "TensorSource[x/mean_and_var][span-1]" [label="{ExtractFromDict|keys: ('x/mean_and_var/Cast', 'x/mean_and_var/truediv', 'x/mean_and_var/truediv_1')|label: TensorSource[x/mean_and_var][span-1]|partitionable: True}"];
 "ApplySavedModel[0][span-1]" -> "TensorSource[x/mean_and_var][span-1]";
 "CacheableCombineAccumulate[x/mean_and_var][span-1]" [label="{CacheableCombineAccumulate|combiner: \<MeanAndVarCombiner\>|label: CacheableCombineAccumulate[x/mean_and_var][span-1]|partitionable: True}"];
 "TensorSource[x/mean_and_var][span-1]" -> "CacheableCombineAccumulate[x/mean_and_var][span-1]";
-"WriteCache[CacheableCombineAccumulate[x/mean_and_var]][span-1]" [label="{WriteCache|path: span-1/__v0__CacheableCombineAccumulate--x-mean_and_var--|coder: \<JsonNumpyCacheCoder\>|label: WriteCache[CacheableCombineAccumulate[x/mean_and_var]][span-1]|partitionable: True}"];
-"CacheableCombineAccumulate[x/mean_and_var][span-1]" -> "WriteCache[CacheableCombineAccumulate[x/mean_and_var]][span-1]";
 "FlattenCache[CacheableCombineMerge[x/mean_and_var]]" [label="{Flatten|label: FlattenCache[CacheableCombineMerge[x/mean_and_var]]|partitionable: True}"];
-"ReadCache[CacheableCombineAccumulate[x/mean_and_var]][span-0]" -> "FlattenCache[CacheableCombineMerge[x/mean_and_var]]";
-"WriteCache[CacheableCombineAccumulate[x/mean_and_var]][span-1]" -> "FlattenCache[CacheableCombineMerge[x/mean_and_var]]";
+"DecodeCache[span-0][__v0__CacheableCombineAccumulate--x-mean_and_var--]" -> "FlattenCache[CacheableCombineMerge[x/mean_and_var]]";
+"CacheableCombineAccumulate[x/mean_and_var][span-1]" -> "FlattenCache[CacheableCombineMerge[x/mean_and_var]]";
 "CacheableCombineMerge[x/mean_and_var]" [label="{CacheableCombineMerge|combiner: \<MeanAndVarCombiner\>|label: CacheableCombineMerge[x/mean_and_var]|{<0>0|<1>1}}"];
 "FlattenCache[CacheableCombineMerge[x/mean_and_var]]" -> "CacheableCombineMerge[x/mean_and_var]";
 "CreateTensorBinding[x/mean_and_var/Placeholder]" [label="{CreateTensorBinding|tensor: x/mean_and_var/Placeholder:0|is_asset_filepath: False|label: CreateTensorBinding[x/mean_and_var/Placeholder]}"];
@@ -138,6 +121,12 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signatur
 "CreateTensorBinding[x/mean_and_var/Placeholder_1]" -> CreateSavedModel;
 "CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder]" -> CreateSavedModel;
 "CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder_1]" -> CreateSavedModel;
+"EncodeCache[CacheableCombineAccumulate[x/mean_and_var]][span-1]" [label="{EncodeCache|coder: \<JsonNumpyCacheCoder\>|label: EncodeCache[CacheableCombineAccumulate[x/mean_and_var]][span-1]|partitionable: True}"];
+"CacheableCombineAccumulate[x/mean_and_var][span-1]" -> "EncodeCache[CacheableCombineAccumulate[x/mean_and_var]][span-1]";
+"EncodeCache[VocabularyAccumulate[vocabulary]][span-0]" [label="{EncodeCache|coder: \<_VocabularyAccumulatorCoder\>|label: EncodeCache[VocabularyAccumulate[vocabulary]][span-0]|partitionable: True}"];
+"VocabularyAccumulate[vocabulary][span-0]" -> "EncodeCache[VocabularyAccumulate[vocabulary]][span-0]";
+"EncodeCache[VocabularyAccumulate[vocabulary]][span-1]" [label="{EncodeCache|coder: \<_VocabularyAccumulatorCoder\>|label: EncodeCache[VocabularyAccumulate[vocabulary]][span-1]|partitionable: True}"];
+"VocabularyAccumulate[vocabulary][span-1]" -> "EncodeCache[VocabularyAccumulate[vocabulary]][span-1]";
 }
 """)
 
@@ -237,7 +226,7 @@ _OPTIMIZE_TRAVERSAL_GENERALIZED_CHAINED_PTRANSFORMS_CASE = dict(
     testcase_name='generalized_chained_ptransforms',
     feature_spec={'x': tf.FixedLenFeature([], tf.float32)},
     preprocessing_fn=_preprocessing_fn_for_generalized_chained_ptransforms,
-    write_cache_fn=None,
+    dataset_input_cache_dict=None,
     expected_dot_graph_str=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
@@ -250,16 +239,12 @@ node [shape=Mrecord];
 "TensorSource[x][span-0]" -> "FakeChainablePartitionable[x/partitionable1][span-0]";
 "FakeChainableCacheable[x/cacheable1][span-0]" [label="{FakeChainableCacheable|label: FakeChainableCacheable[x/cacheable1][span-0]|partitionable: True}"];
 "FakeChainablePartitionable[x/partitionable1][span-0]" -> "FakeChainableCacheable[x/cacheable1][span-0]";
-"WriteCache[FakeChainableCacheable[x/cacheable1]][span-0]" [label="{WriteCache|path: span-0/__v0__FakeChainableCacheable--x-cacheable1--|coder: Not-a-coder-but-thats-ok!|label: WriteCache[FakeChainableCacheable[x/cacheable1]][span-0]|partitionable: True}"];
-"FakeChainableCacheable[x/cacheable1][span-0]" -> "WriteCache[FakeChainableCacheable[x/cacheable1]][span-0]";
 "FakeChainablePartitionable[x/partitionable2][span-0]" [label="{FakeChainablePartitionable|label: FakeChainablePartitionable[x/partitionable2][span-0]|partitionable: True}"];
-"WriteCache[FakeChainableCacheable[x/cacheable1]][span-0]" -> "FakeChainablePartitionable[x/partitionable2][span-0]";
+"FakeChainableCacheable[x/cacheable1][span-0]" -> "FakeChainablePartitionable[x/partitionable2][span-0]";
 "FakeChainableCacheable[x/cacheable2][span-0]" [label="{FakeChainableCacheable|label: FakeChainableCacheable[x/cacheable2][span-0]|partitionable: True}"];
 "FakeChainablePartitionable[x/partitionable2][span-0]" -> "FakeChainableCacheable[x/cacheable2][span-0]";
-"WriteCache[FakeChainableCacheable[x/cacheable2]][span-0]" [label="{WriteCache|path: span-0/__v0__FakeChainableCacheable--x-cacheable2--|coder: Not-a-coder-but-thats-ok!|label: WriteCache[FakeChainableCacheable[x/cacheable2]][span-0]|partitionable: True}"];
-"FakeChainableCacheable[x/cacheable2][span-0]" -> "WriteCache[FakeChainableCacheable[x/cacheable2]][span-0]";
 "FakeChainablePartitionable[x/partitionable3][span-0]" [label="{FakeChainablePartitionable|label: FakeChainablePartitionable[x/partitionable3][span-0]|partitionable: True}"];
-"WriteCache[FakeChainableCacheable[x/cacheable2]][span-0]" -> "FakeChainablePartitionable[x/partitionable3][span-0]";
+"FakeChainableCacheable[x/cacheable2][span-0]" -> "FakeChainablePartitionable[x/partitionable3][span-0]";
 "ApplySavedModel[0][span-1]" [label="{ApplySavedModel|dataset_key: span-1|phase: 0|label: ApplySavedModel[0][span-1]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0][span-1]";
 "TensorSource[x][span-1]" [label="{ExtractFromDict|keys: ('inputs/x',)|label: TensorSource[x][span-1]|partitionable: True}"];
@@ -268,16 +253,12 @@ node [shape=Mrecord];
 "TensorSource[x][span-1]" -> "FakeChainablePartitionable[x/partitionable1][span-1]";
 "FakeChainableCacheable[x/cacheable1][span-1]" [label="{FakeChainableCacheable|label: FakeChainableCacheable[x/cacheable1][span-1]|partitionable: True}"];
 "FakeChainablePartitionable[x/partitionable1][span-1]" -> "FakeChainableCacheable[x/cacheable1][span-1]";
-"WriteCache[FakeChainableCacheable[x/cacheable1]][span-1]" [label="{WriteCache|path: span-1/__v0__FakeChainableCacheable--x-cacheable1--|coder: Not-a-coder-but-thats-ok!|label: WriteCache[FakeChainableCacheable[x/cacheable1]][span-1]|partitionable: True}"];
-"FakeChainableCacheable[x/cacheable1][span-1]" -> "WriteCache[FakeChainableCacheable[x/cacheable1]][span-1]";
 "FakeChainablePartitionable[x/partitionable2][span-1]" [label="{FakeChainablePartitionable|label: FakeChainablePartitionable[x/partitionable2][span-1]|partitionable: True}"];
-"WriteCache[FakeChainableCacheable[x/cacheable1]][span-1]" -> "FakeChainablePartitionable[x/partitionable2][span-1]";
+"FakeChainableCacheable[x/cacheable1][span-1]" -> "FakeChainablePartitionable[x/partitionable2][span-1]";
 "FakeChainableCacheable[x/cacheable2][span-1]" [label="{FakeChainableCacheable|label: FakeChainableCacheable[x/cacheable2][span-1]|partitionable: True}"];
 "FakeChainablePartitionable[x/partitionable2][span-1]" -> "FakeChainableCacheable[x/cacheable2][span-1]";
-"WriteCache[FakeChainableCacheable[x/cacheable2]][span-1]" [label="{WriteCache|path: span-1/__v0__FakeChainableCacheable--x-cacheable2--|coder: Not-a-coder-but-thats-ok!|label: WriteCache[FakeChainableCacheable[x/cacheable2]][span-1]|partitionable: True}"];
-"FakeChainableCacheable[x/cacheable2][span-1]" -> "WriteCache[FakeChainableCacheable[x/cacheable2]][span-1]";
 "FakeChainablePartitionable[x/partitionable3][span-1]" [label="{FakeChainablePartitionable|label: FakeChainablePartitionable[x/partitionable3][span-1]|partitionable: True}"];
-"WriteCache[FakeChainableCacheable[x/cacheable2]][span-1]" -> "FakeChainablePartitionable[x/partitionable3][span-1]";
+"FakeChainableCacheable[x/cacheable2][span-1]" -> "FakeChainablePartitionable[x/partitionable3][span-1]";
 "FlattenCache[FakeChainable[x/merge]]" [label="{Flatten|label: FlattenCache[FakeChainable[x/merge]]|partitionable: True}"];
 "FakeChainablePartitionable[x/partitionable3][span-0]" -> "FlattenCache[FakeChainable[x/merge]]";
 "FakeChainablePartitionable[x/partitionable3][span-1]" -> "FlattenCache[FakeChainable[x/merge]]";
@@ -296,6 +277,14 @@ node [shape=Mrecord];
 CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_chained', \"Tensor\<shape: [17, 27], \<dtype: 'float32'\>\>\"), ('x_plain', \"Tensor\<shape: [7, 13], \<dtype: 'int64'\>\>\")])|label: CreateSavedModel}"];
 "CreateTensorBinding[x/Placeholder]" -> CreateSavedModel;
 "CreateTensorBinding[x/Placeholder_1]" -> CreateSavedModel;
+"EncodeCache[FakeChainableCacheable[x/cacheable1]][span-0]" [label="{EncodeCache|coder: Not-a-coder-but-thats-ok!|label: EncodeCache[FakeChainableCacheable[x/cacheable1]][span-0]|partitionable: True}"];
+"FakeChainableCacheable[x/cacheable1][span-0]" -> "EncodeCache[FakeChainableCacheable[x/cacheable1]][span-0]";
+"EncodeCache[FakeChainableCacheable[x/cacheable1]][span-1]" [label="{EncodeCache|coder: Not-a-coder-but-thats-ok!|label: EncodeCache[FakeChainableCacheable[x/cacheable1]][span-1]|partitionable: True}"];
+"FakeChainableCacheable[x/cacheable1][span-1]" -> "EncodeCache[FakeChainableCacheable[x/cacheable1]][span-1]";
+"EncodeCache[FakeChainableCacheable[x/cacheable2]][span-0]" [label="{EncodeCache|coder: Not-a-coder-but-thats-ok!|label: EncodeCache[FakeChainableCacheable[x/cacheable2]][span-0]|partitionable: True}"];
+"FakeChainableCacheable[x/cacheable2][span-0]" -> "EncodeCache[FakeChainableCacheable[x/cacheable2]][span-0]";
+"EncodeCache[FakeChainableCacheable[x/cacheable2]][span-1]" [label="{EncodeCache|coder: Not-a-coder-but-thats-ok!|label: EncodeCache[FakeChainableCacheable[x/cacheable2]][span-1]|partitionable: True}"];
+"FakeChainableCacheable[x/cacheable2][span-1]" -> "EncodeCache[FakeChainableCacheable[x/cacheable2]][span-1]";
 }
 """)
 
@@ -312,31 +301,11 @@ class CachedImplTest(test_case.TransformTestCase):
     self.base_test_dir = os.path.join(
         os.environ.get('TEST_UNDECLARED_OUTPUTS_DIR', self.get_temp_dir()),
         self._testMethodName)
-
-  def _make_cache_location(self,
-                           input_cache_dir_name=None,
-                           output_cache_dir_name=None):
-    return beam_impl.CacheLocation(
-        input_cache_dir=os.path.join(self.base_test_dir, input_cache_dir_name or
-                                     'input_cache'),
-        output_cache_dir=os.path.join(self.base_test_dir,
-                                      output_cache_dir_name or 'output_cache'))
+    self._cache_dir = os.path.join(self.base_test_dir, 'cache')
 
   def test_single_phase_mixed_analyzer_run_once(self):
-    cache_location = self._make_cache_location()
-
     span_0_key = 'span-0'
     span_1_key = 'span-1'
-
-    # TODO(b/37788560): Get these names programmatically.
-    _write_cache('__v0__CacheableCombineAccumulate--x_1-mean_and_var--',
-                 span_0_key, [2.0, 1.0, 9.0], cache_location.input_cache_dir)
-    _write_cache('__v0__CacheableCombineAccumulate--x-x--', span_0_key,
-                 [2.0, 4.0], cache_location.input_cache_dir)
-    _write_cache('__v0__CacheableCombineAccumulate--y_1-mean_and_var--',
-                 span_0_key, [2.0, -1.5, 6.25], cache_location.input_cache_dir)
-    _write_cache('__v0__CacheableCombineAccumulate--y-y--', span_0_key,
-                 [4.0, 1.0], cache_location.input_cache_dir)
 
     def preprocessing_fn(inputs):
 
@@ -378,45 +347,68 @@ class CachedImplTest(test_case.TransformTestCase):
         }],
         span_1_key: input_data,
     }
+
     with beam_impl.Context(temp_dir=self.get_temp_dir()):
+      with beam.Pipeline() as p:
 
-      flat_data = input_data_dict.values() | 'Flatten' >> beam.Flatten()
+        flat_data = p | 'CreateInputData' >> beam.Create(
+            list(itertools.chain(*input_data_dict.values())))
 
-      transform_fn = ((flat_data, input_data_dict, input_metadata) |
-                      (beam_impl.AnalyzeDatasetWithCache(
-                          preprocessing_fn, cache_location)))
+        # TODO(b/37788560): Get these names programmatically.
+        cache_dict = {
+            span_0_key: {
+                '__v0__CacheableCombineAccumulate--x_1-mean_and_var--':
+                    p | 'CreateA' >> beam.Create([b'[2.0, 1.0, 9.0]']),
+                '__v0__CacheableCombineAccumulate--x-x--':
+                    p | 'CreateB' >> beam.Create([b'[2.0, 4.0]']),
+                '__v0__CacheableCombineAccumulate--y_1-mean_and_var--':
+                    p | 'CreateC' >> beam.Create([b'[2.0, -1.5, 6.25]']),
+                '__v0__CacheableCombineAccumulate--y-y--':
+                    p | 'CreateD' >> beam.Create([b'[4.0, 1.0]']),
+            },
+            span_1_key: {},
+        }
 
-    transformed_dataset = (((input_data_dict[span_1_key], input_metadata),
-                            transform_fn)
-                           | beam_impl.TransformDataset())
+        transform_fn, cache_output = (
+            (flat_data, input_data_dict, cache_dict, input_metadata)
+            | 'Analyze' >>
+            (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
+        _ = cache_output | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
+            self._cache_dir)
 
-    transformed_data, unused_transformed_metadata = transformed_dataset
+        transformed_dataset = (((input_data_dict[span_1_key], input_metadata),
+                                transform_fn)
+                               | 'Transform' >> beam_impl.TransformDataset())
 
-    exepected_transformed_data = [
-        {
-            'x_mean': 6.0,
-            'x_min': -2.0,
-            'y_mean': -0.25,
-            'y_min': -4.0,
-            'integerized_s': 0,
-        },
-        {
-            'x_mean': 6.0,
-            'x_min': -2.0,
-            'y_mean': -0.25,
-            'y_min': -4.0,
-            'integerized_s': 0,
-        },
-    ]
-    self.assertDataCloseOrEqual(transformed_data, exepected_transformed_data)
+        dot_string = nodes.get_dot_graph(
+            [analysis_graph_builder._ANALYSIS_GRAPH]).to_string()
+        self.WriteRenderedDotFile(dot_string)
 
-    transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn')
-    _ = transform_fn | tft_beam.WriteTransformFn(transform_fn_dir)
+        transformed_data, unused_transformed_metadata = transformed_dataset
+
+        expected_transformed = [
+            {
+                'x_mean': 6.0,
+                'x_min': -2.0,
+                'y_mean': -0.25,
+                'y_min': -4.0,
+                'integerized_s': 0,
+            },
+            {
+                'x_mean': 6.0,
+                'x_min': -2.0,
+                'y_mean': -0.25,
+                'y_min': -4.0,
+                'integerized_s': 0,
+            },
+        ]
+        beam_test_util.assert_that(
+            transformed_data, beam_test_util.equal_to(expected_transformed))
+
+        transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn')
+        _ = transform_fn | tft_beam.WriteTransformFn(transform_fn_dir)
 
   def test_single_phase_run_twice(self):
-
-    cache_location = self._make_cache_location('input_cache_1',
-                                               'output_cache_1')
 
     span_0_key = 'span-0'
     span_1_key = 'span-1'
@@ -458,61 +450,73 @@ class CachedImplTest(test_case.TransformTestCase):
         span_1_key: input_data,
     }
     with beam_impl.Context(temp_dir=self.get_temp_dir()):
+      with beam.Pipeline() as p:
 
-      flat_data = input_data_dict.values() | 'Flatten' >> beam.Flatten()
+        flat_data = p | 'CreateInputData' >> beam.Create(
+            list(itertools.chain(*input_data_dict.values())))
 
-      transform_fn = ((flat_data, input_data_dict, input_metadata) |
-                      (beam_impl.AnalyzeDatasetWithCache(
-                          preprocessing_fn, cache_location)))
+        # This is needed due to b/123895600.
+        for a, b in six.iteritems(input_data_dict):
+          input_data_dict[a] = p | a >> beam.Create(b)
 
-    transformed_dataset = (((input_data_dict[span_1_key], input_metadata),
-                            transform_fn)
-                           | beam_impl.TransformDataset())
+        transform_fn, cache_output = (
+            (flat_data, input_data_dict, {}, input_metadata)
+            | 'Analyze' >>
+            (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
+        _ = cache_output | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
+            self._cache_dir)
 
+        transformed_dataset = (((input_data_dict[span_1_key], input_metadata),
+                                transform_fn)
+                               | 'Transform' >> beam_impl.TransformDataset())
+
+        transformed_data, unused_transformed_metadata = transformed_dataset
+
+        expected_transformed_data = [
+            {
+                'x_mean': 6.0,
+                'x_min': -2.0,
+                'y_mean': -0.25,
+                'y_min': -4.0,
+            },
+            {
+                'x_mean': 6.0,
+                'x_min': -2.0,
+                'y_mean': -0.25,
+                'y_min': -4.0,
+            },
+        ]
+        beam_test_util.assert_that(
+            transformed_data,
+            beam_test_util.equal_to(expected_transformed_data),
+            label='first')
+
+        transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn')
+        _ = transform_fn | tft_beam.WriteTransformFn(transform_fn_dir)
+
+        for key in input_data_dict:
+          self.assertIn(key, cache_output)
+          self.assertEqual(6, len(cache_output[key]))
+
+        transform_fn, second_output_cache = (
+            (flat_data, input_data_dict, cache_output, input_metadata)
+            | 'AnalyzeAgain' >>
+            (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
+
+        dot_string = nodes.get_dot_graph(
+            [analysis_graph_builder._ANALYSIS_GRAPH]).to_string()
+        self.WriteRenderedDotFile(dot_string)
+
+        transformed_dataset = (
+            ((input_data_dict[span_1_key], input_metadata), transform_fn)
+            | 'TransformAgain' >> beam_impl.TransformDataset())
     transformed_data, unused_transformed_metadata = transformed_dataset
+    beam_test_util.assert_that(
+        transformed_data,
+        beam_test_util.equal_to(expected_transformed_data),
+        label='second')
 
-    exepected_transformed_data = [
-        {
-            'x_mean': 6.0,
-            'x_min': -2.0,
-            'y_mean': -0.25,
-            'y_min': -4.0,
-        },
-        {
-            'x_mean': 6.0,
-            'x_min': -2.0,
-            'y_mean': -0.25,
-            'y_min': -4.0,
-        },
-    ]
-    self.assertDataCloseOrEqual(transformed_data, exepected_transformed_data)
-
-    transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn')
-    _ = transform_fn | tft_beam.WriteTransformFn(transform_fn_dir)
-
-    for key in input_data_dict:
-      key_cache_dir = os.path.join(cache_location.output_cache_dir, key)
-      self.assertTrue(tf.gfile.IsDirectory(key_cache_dir))
-      self.assertEqual(len(tf.gfile.ListDirectory(key_cache_dir)), 6)
-
-    cache_location = self._make_cache_location('output_cache_1',
-                                               'output_cache_2')
-
-    with beam_impl.Context(temp_dir=self.get_temp_dir()):
-
-      flat_data = input_data_dict.values() | 'Flatten' >> beam.Flatten()
-
-      transform_fn = ((flat_data, input_data_dict, input_metadata) |
-                      (beam_impl.AnalyzeDatasetWithCache(
-                          preprocessing_fn, cache_location)))
-
-    transformed_dataset = (((input_data_dict[span_1_key], input_metadata),
-                            transform_fn)
-                           | beam_impl.TransformDataset())
-    transformed_data, unused_transformed_metadata = transformed_dataset
-    self.assertDataCloseOrEqual(transformed_data, exepected_transformed_data)
-
-    self.assertFalse(tf.gfile.IsDirectory(cache_location.output_cache_dir))
+    self.assertFalse(second_output_cache)
 
   def test_non_frequency_vocabulary_merge(self):
     """This test compares vocabularies produced with and without cache."""
@@ -569,10 +573,28 @@ class CachedImplTest(test_case.TransformTestCase):
 
       flat_data = input_data_dict.values() | 'Flatten' >> beam.Flatten()
 
-      transform_fn_with_cache = ((flat_data, input_data_dict, input_metadata) |
-                                 (beam_impl.AnalyzeDatasetWithCache(
-                                     preprocessing_fn,
-                                     self._make_cache_location())))
+      transform_fn_with_cache, output_cache = (
+          (flat_data, input_data_dict, {}, input_metadata) |
+          (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
+
+      expected_accumulators = {
+          '__v0__VocabularyAccumulate--vocabulary--': [
+              b'["a", [1.0, 2, 1.0]]', b'["b", [0.5, 2, 1.0]]'
+          ],
+          '__v0__VocabularyAccumulate--vocabulary_1--': [
+              b'["a", [1.0, 2, 1.0]]', b'["b", [0.5, 2, 1.0]]'
+          ],
+          '__v0__VocabularyAccumulate--vocabulary_2--': [
+              b'["a", 1.5]', b'["b", 1.75]'
+          ],
+      }
+      spans = [span_0_key, span_1_key]
+      self.assertCountEqual(output_cache.keys(), spans)
+      for span in spans:
+        self.assertCountEqual(output_cache[span].keys(),
+                              expected_accumulators.keys())
+        for key, value in six.iteritems(expected_accumulators):
+          self.assertCountEqual(output_cache[span][key], value)
 
       transform_fn_no_cache = ((input_data * 2, input_metadata) |
                                (beam_impl.AnalyzeDataset(preprocessing_fn)))
@@ -604,21 +626,24 @@ class CachedImplTest(test_case.TransformTestCase):
 
   @test_case.named_parameters(*_OPTIMIZE_TRAVERSAL_TEST_CASES)
   def test_optimize_traversal(self, feature_spec, preprocessing_fn,
-                              write_cache_fn, expected_dot_graph_str):
-    cache_location = self._make_cache_location()
+                              dataset_input_cache_dict, expected_dot_graph_str):
     span_0_key, span_1_key = 'span-0', 'span-1'
-    if write_cache_fn is not None:
-      write_cache_fn(cache_location.input_cache_dir, [span_0_key, span_1_key])
+    if dataset_input_cache_dict is not None:
+      cache = {span_0_key: dataset_input_cache_dict}
+    else:
+      cache = {}
 
     with tf.name_scope('inputs'):
       input_signature = impl_helper.feature_spec_as_batched_placeholders(
           feature_spec)
     output_signature = preprocessing_fn(input_signature)
-    transform_fn_future = analysis_graph_builder.build(
+    transform_fn_future, cache_output_dict = analysis_graph_builder.build(
         tf.get_default_graph(), input_signature, output_signature,
-        {span_0_key, span_1_key}, cache_location)
+        {span_0_key, span_1_key}, cache)
 
-    dot_string = nodes.get_dot_graph([transform_fn_future]).to_string()
+    leaf_nodes = [transform_fn_future] + sorted(
+        cache_output_dict.values(), key=str)
+    dot_string = nodes.get_dot_graph(leaf_nodes).to_string()
     self.WriteRenderedDotFile(dot_string)
 
     self.assertSameElements(

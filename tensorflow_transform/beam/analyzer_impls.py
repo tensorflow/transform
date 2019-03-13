@@ -867,50 +867,30 @@ def _ptransform_impl(inputs, operation, extra_args):
   return pcoll | operation.label >> operation.ptransform
 
 
-@common.register_ptransform(analyzer_nodes.WriteCache)
-class _WriteCacheImpl(beam.PTransform):
-  """A PTransform that writes a cache object and returns it."""
+@common.register_ptransform(analyzer_nodes.EncodeCache)
+class _EncodeCacheImpl(beam.PTransform):
+  """A PTransform that encodes cache entries."""
 
   def __init__(self, operation, extra_args):
-    self._path = os.path.join(extra_args.cache_location.output_cache_dir,
-                              operation.path)
     self._coder = operation.coder
     self._label = operation.label
 
   def expand(self, inputs):
     pcoll, = inputs
 
-    cache_is_written = (
-        pcoll
-        | 'EncodeCache[%s][%s]' %
-        (self._label, self._path) >> beam.Map(self._coder.encode_cache)
-        | 'WriteCache[%s][%s]' % (self._label, self._path) >>
-        beam.io.WriteToTFRecord(self._path, file_name_suffix='.gz'))
-
-    result = (
-        pcoll
-        | 'WaitForCacheFile' >>
-        beam.Map(lambda x, y: x, y=beam.pvalue.AsIter(cache_is_written)))
-
-    return (result,)
+    return (pcoll
+            | 'EncodeCache[%s]' %
+            (self._label) >> beam.Map(self._coder.encode_cache))
 
 
-@common.register_ptransform(analyzer_nodes.ReadCache)
-def _read_cache_impl(inputs, operation, extra_args):
-  """A PTransform-like method that reads and decodes a cache object."""
-  # This is implemented as a PTransform-like function because it has no
-  # PCollection inputs.
+@common.register_ptransform(analyzer_nodes.DecodeCache)
+def _decode_cache_impl(inputs, operation, extra_args):
+  """A PTransform-like method that extracts and decodes a cache object."""
+  # This is implemented as a PTransform-like function because its PCollection
+  # inputs were passed in from the user.
   assert not inputs
 
-  absolute_path = os.path.join(extra_args.cache_location.input_cache_dir,
-                               operation.path)
-  pattern = '{}-*-of-*.gz'.format(absolute_path)
-
-  cache = (
-      extra_args.pipeline
-      | 'ReadCache[%s][%s]' % (operation.label, operation.path) >>
-      beam.io.ReadFromTFRecord(pattern, validate=False)
-      | 'DecodeCache[%s][%s]' % (operation.label, operation.path) >> beam.Map(
-          operation.coder.decode_cache))
-
-  return (cache,)
+  return (
+      extra_args.cache_pcoll_dict[operation.dataset_key][operation.cache_key]
+      | 'DecodeCache[%s]' %
+      (operation.label) >> beam.Map(operation.coder.decode_cache))

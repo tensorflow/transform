@@ -18,16 +18,19 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
-import os
 
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
-from tensorflow_transform import analyzer_cache
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import graph_tools
 from tensorflow_transform import nodes
+from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import beam_nodes
+
+
+# Used for debugging only. This will point to the most recent graph built.
+_ANALYSIS_GRAPH = None
 
 
 def _tensor_name(tensor):
@@ -140,10 +143,10 @@ class _OptimizeVisitor(nodes.Visitor):
   input data, according to the `is_partitionable` annotation.
   """
 
-  def __init__(self, dataset_keys, cache_location):
+  def __init__(self, dataset_keys, cache_dict, cache_output_nodes):
     self._dataset_keys = sorted(dataset_keys)
-    self._cache_location = cache_location
-    self._flattened_apply_saved_model = None
+    self._cache_dict = cache_dict
+    self.cache_output_nodes = cache_output_nodes
 
   def _validate_operation_def(self, operation_def):
     if operation_def.cache_coder is not None:
@@ -162,7 +165,10 @@ class _OptimizeVisitor(nodes.Visitor):
         operation_def.phase == 0):
       return self._visit_apply_savedmodel_operation(operation_def, input_values)
 
-    if self._cache_location and operation_def.is_partitionable:
+    # When self._cache_dict is None this means that we shouldn't do any cacheing
+    # for this pipeline, and so there's no need to create any fine grained
+    # views.
+    if self._cache_dict is not None and operation_def.is_partitionable:
       return self._visit_partitionable_operation(operation_def, input_values)
 
     if input_values and any(v.fine_grained_view and v.prefer_fine_grained_view
@@ -188,7 +194,7 @@ class _OptimizeVisitor(nodes.Visitor):
     flattened_view = nodes.OperationNode(operation_def, next_inputs).outputs
 
     return tuple(
-        _OptimizationView(
+        _OptimizationView(  # pylint: disable=g-complex-comprehension
             prefer_fine_grained_view=False,
             flattened_view=flat,
             fine_grained_view=None) for flat in flattened_view)
@@ -197,72 +203,79 @@ class _OptimizeVisitor(nodes.Visitor):
     # TODO(b/37788560) Possibly support partitionable operations with multiple
     # inputs.
     (upstream_view,) = upstream_views
+
+    # This is a hint for whether or not the `fine_grained_view` should be used
+    # downstream.  It should be set to true if either the upstream view has
+    # cacheing operations that haven't been flattened yet, or the current
+    # operation is cacheable.
     prefer_fine_grained_view = (
         upstream_view.prefer_fine_grained_view or
         upstream_view.fine_grained_view and
         operation_def.cache_coder is not None)
 
     if upstream_view.fine_grained_view:
-      value_nodes = collections.OrderedDict()
-      for key in self._dataset_keys:
-
-        if operation_def.cache_coder is not None:
-          # TODO(b/37788560): Add instrumentation.
-          # TODO(b/37788560): Use a better cache key than label. A good
-          # alternative is to reuse graph_tools logic to compose names that
-          # include properties and fingerprint it.
-          cache_file_path = analyzer_cache.make_cache_file_path(
-              key, operation_def.label)
-          # TODO(b/37788560): Come up with a more abstract way to do this that
-          # also ensures concistency.
-          pattern = '{}-00000*.gz'.format(
-              os.path.join(self._cache_location.input_cache_dir,
-                           cache_file_path))
-          try:
-            if tf.gfile.Glob(pattern):
-              op_outputs = nodes.apply_multi_output_operation(
-                  analyzer_nodes.ReadCache,
-                  path=cache_file_path,
-                  coder=operation_def.cache_coder,
-                  label='ReadCache[{}][{}]'.format(operation_def.label, key))
-              value_nodes[key] = op_outputs
-              continue
-          except tf.errors.NotFoundError:
-            pass
-        else:
-          cache_file_path = None
-
-        values = upstream_view.fine_grained_view[key]
-        op_outputs = nodes.OperationNode(
-            operation_def._replace(
-                label='{}[{}]'.format(operation_def.label, key)),
-            (values,)).outputs
-        if cache_file_path is not None:
-          op_outputs = nodes.apply_multi_output_operation(
-              analyzer_nodes.WriteCache,
-              *op_outputs,
-              path=cache_file_path,
-              coder=operation_def.cache_coder,
-              label='WriteCache[{}][{}]'.format(operation_def.label, key))
-        value_nodes[key] = op_outputs
-
-      fine_grained_views = (
-          [collections.OrderedDict()] * operation_def.num_outputs)
-      for key in self._dataset_keys:
-        for idx in range(operation_def.num_outputs):
-          fine_grained_views[idx][key] = value_nodes[key][idx]
+      fine_grained_views = (self._apply_operation_on_fine_grained_view(
+          operation_def, upstream_view.fine_grained_view),)
     else:
       fine_grained_views = (None,) * operation_def.num_outputs
 
     flattened_views = nodes.OperationNode(
         operation_def, (upstream_view.flattened_view,)).outputs
 
+    assert len(fine_grained_views) == len(flattened_views)
     return tuple(
-        _OptimizationView(
+        _OptimizationView(  # pylint: disable=g-complex-comprehension
             prefer_fine_grained_view=prefer_fine_grained_view,
             flattened_view=flat,
             fine_grained_view=fine)
         for flat, fine in zip(flattened_views, fine_grained_views))
+
+  def _apply_operation_on_fine_grained_view(self, operation_def,
+                                            fine_grained_view):
+    """Applies a shardable operation on a fine grained view.
+
+    This also updates `cache_output_nodes` when necessary.
+
+    Args:
+      operation_def: A shardable `OperationDef`.
+      fine_grained_view: A `_OptimizationView.fine_grained_view`.
+
+    Returns:
+      The resulting list of `_OptimizationView.fine_grained_view`s.
+    """
+    result_fine_grained_view = collections.OrderedDict()
+
+    # TODO(b/37788560): Use a better cache key than label. A good alternative is
+    # to reuse graph_tools logic to compose names that include properties and
+    # fingerprint it.
+    cache_entry_key = analyzer_cache.make_cache_entry_key(operation_def.label)
+    for dataset_key in self._dataset_keys:
+
+      # TODO(b/37788560): Add instrumentation.
+
+      if self._cache_dict.get(dataset_key, {}).get(cache_entry_key) is not None:
+        (op_output,) = nodes.OperationNode(
+            analyzer_nodes.DecodeCache(
+                dataset_key, cache_entry_key, coder=operation_def.cache_coder),
+            tuple()).outputs
+      else:
+        value_node = fine_grained_view[dataset_key]
+        (op_output,) = nodes.OperationNode(
+            operation_def._replace(
+                label='{}[{}]'.format(operation_def.label, dataset_key)),
+            (value_node,)).outputs
+        if operation_def.cache_coder:
+          encoded_cache = nodes.apply_operation(
+              analyzer_nodes.EncodeCache,
+              op_output,
+              coder=operation_def.cache_coder,
+              label='EncodeCache[{}][{}]'.format(operation_def.label,
+                                                 dataset_key))
+          self.cache_output_nodes[(dataset_key,
+                                   cache_entry_key)] = encoded_cache
+      result_fine_grained_view[dataset_key] = op_output
+
+    return result_fine_grained_view
 
   def _visit_apply_savedmodel_operation(self, operation_def, upstream_views):
     (upstream_view,) = upstream_views
@@ -295,18 +308,27 @@ class _OptimizeVisitor(nodes.Visitor):
               value.fine_grained_view.keys(), self._dataset_keys))
 
 
-def _perform_cache_optimization(saved_model_future, cache_location,
-                                dataset_keys):
-  optimize_visitor = _OptimizeVisitor(dataset_keys or {}, cache_location)
+def _perform_cache_optimization(saved_model_future, dataset_keys, cache_dict):
+  """Performs cache optimization on the given graph."""
+  cache_output_nodes = {}
+  optimize_visitor = _OptimizeVisitor(dataset_keys or {}, cache_dict,
+                                      cache_output_nodes)
   optimize_traverser = nodes.Traverser(optimize_visitor)
-  return optimize_traverser.visit_value_node(saved_model_future).flattened_view
+  optimized = optimize_traverser.visit_value_node(
+      saved_model_future).flattened_view
+
+  if cache_dict is None:
+    assert not cache_output_nodes
+    cache_output_nodes = None
+
+  return optimized, cache_output_nodes
 
 
 def build(graph,
           input_signature,
           output_signature,
           dataset_keys=None,
-          cache_location=None):
+          cache_dict=None):
   """Returns a list of `Phase`s describing how to execute the pipeline.
 
   The default graph is assumed to contain some `Analyzer`s which must be
@@ -346,10 +368,12 @@ def build(graph,
       `SparseTensor`s.
     dataset_keys: (Optional) A set of strings which are dataset keys, they
       uniquely identify these datasets across analysis runs.
-    cache_location: (Optional): A `CacheLocation` object.
+    cache_dict: (Optional): A cache dictionary.
 
   Returns:
-    A list of `Phase`s.
+    A pair of:
+      * list of `Phase`s
+      * A dictionary of output cache `ValueNode`s.
 
   Raises:
     ValueError: if the graph cannot be analyzed.
@@ -430,5 +454,9 @@ def build(graph,
       output_signature=output_signature,
       label='CreateSavedModel')
 
-  return _perform_cache_optimization(saved_model_future, cache_location,
-                                     dataset_keys)
+  (optimized_saved_model_future,
+   output_cache_value_nodes) = _perform_cache_optimization(
+       saved_model_future, dataset_keys, cache_dict)
+  global _ANALYSIS_GRAPH
+  _ANALYSIS_GRAPH = optimized_saved_model_future
+  return optimized_saved_model_future, output_cache_value_nodes

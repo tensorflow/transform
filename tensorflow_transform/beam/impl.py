@@ -93,11 +93,11 @@ from apache_beam.typehints import with_output_types
 import numpy as np
 import six
 import tensorflow as tf
-from tensorflow_transform import analyzer_cache
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
 from tensorflow_transform import schema_inference
 from tensorflow_transform.beam import analysis_graph_builder
+from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import beam_nodes
 from tensorflow_transform.beam import common
 from tensorflow_transform.beam import deep_copy
@@ -656,24 +656,21 @@ def _infer_metadata_from_saved_model(saved_model_dir):
           schema=schema_inference.infer_feature_schema(outputs, graph, session))
 
 
-class CacheLocation(
-    collections.namedtuple('CacheLocation',
-                           ['input_cache_dir', 'output_cache_dir'])):
-  pass
-
-
 class _AnalyzeDatasetCommon(beam.PTransform):
   """Common implementation for AnalyzeDataset, with or without cache."""
 
-  def __init__(self, preprocessing_fn, cache_location=None):
+  def __init__(self, preprocessing_fn):
     self._preprocessing_fn = preprocessing_fn
-    self._cache_location = cache_location
     _assert_tensorflow_version()
 
   def _extract_input_pvalues(self, dataset):
     # This method returns all nested pvalues to inform beam of nested pvalues.
-    flat_data, data_dict, metadata = dataset
+    flat_data, data_dict, dataset_cache_dict, metadata = dataset
     pvalues = [flat_data] + [data_dict[k] for k in data_dict]
+    if dataset_cache_dict is not None:
+      for cache_dict in dataset_cache_dict.values():
+        for cache_pcoll in cache_dict.values():
+          pvalues.append(cache_pcoll)
     if isinstance(metadata, beam_metadata_io.BeamDatasetMetadata):
       pvalues.append(metadata.deferred_metadata)
     return dataset, pvalues
@@ -690,7 +687,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     Raises:
       ValueError: If preprocessing_fn has no outputs.
     """
-    flattened_pcoll, input_values_pcoll_dict, input_metadata = dataset
+    (flattened_pcoll, input_values_pcoll_dict, dataset_cache_dict,
+     input_metadata) = dataset
     input_schema = input_metadata.schema
 
     input_values_pcoll_dict = input_values_pcoll_dict or dict()
@@ -740,15 +738,28 @@ class _AnalyzeDatasetCommon(beam.PTransform):
         graph=graph,
         input_signature=input_signature,
         input_schema=input_schema,
-        cache_location=self._cache_location)
+        cache_pcoll_dict=dataset_cache_dict)
 
-    transform_fn_future = analysis_graph_builder.build(
-        graph, input_signature, output_signature,
-        input_values_pcoll_dict.keys(), self._cache_location)
+    transform_fn_future, cache_value_nodes = analysis_graph_builder.build(
+        graph,
+        input_signature,
+        output_signature,
+        input_values_pcoll_dict.keys(),
+        cache_dict=dataset_cache_dict)
 
-    transform_fn_pcoll = nodes.Traverser(
-        common.ConstructBeamPipelineVisitor(extra_args)).visit_value_node(
-            transform_fn_future)
+    traverser = nodes.Traverser(common.ConstructBeamPipelineVisitor(extra_args))
+    transform_fn_pcoll = traverser.visit_value_node(transform_fn_future)
+
+    if cache_value_nodes is not None:
+      output_cache_pcoll_dict = {}
+      for (dataset_key,
+           cache_key), value_node in six.iteritems(cache_value_nodes):
+        if dataset_key not in output_cache_pcoll_dict:
+          output_cache_pcoll_dict[dataset_key] = {}
+        output_cache_pcoll_dict[dataset_key][cache_key] = (
+            traverser.visit_value_node(value_node))
+    else:
+      output_cache_pcoll_dict = None
 
     # Infer metadata.  We take the inferred metadata and apply overrides that
     # refer to values of tensors in the graph.  The override tensors must
@@ -770,7 +781,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
 
     _clear_shared_state_after_barrier(pipeline, transform_fn_pcoll)
 
-    return transform_fn_pcoll, full_metadata
+    return (transform_fn_pcoll, full_metadata), output_cache_pcoll_dict
 
 
 class AnalyzeDatasetWithCache(_AnalyzeDatasetCommon):
@@ -785,13 +796,9 @@ class AnalyzeDatasetWithCache(_AnalyzeDatasetCommon):
   Args:
     preprocessing_fn: A function that accepts and returns a dictionary from
       strings to `Tensor` or `SparseTensor`s.
-    cache_location: A `CacheLocation` used to determine where cache should
-      written to and read from.
   """
 
-  def __init__(self, preprocessing_fn, cache_location):
-    super(AnalyzeDatasetWithCache, self).__init__(preprocessing_fn,
-                                                  cache_location)
+  pass
 
 
 class AnalyzeDataset(_AnalyzeDatasetCommon):
@@ -808,9 +815,6 @@ class AnalyzeDataset(_AnalyzeDatasetCommon):
       strings to `Tensor` or `SparseTensor`s.
   """
 
-  def __init__(self, preprocessing_fn):
-    super(AnalyzeDataset, self).__init__(preprocessing_fn)
-
   def _extract_input_pvalues(self, dataset):
     # This method returns all nested pvalues to inform beam of nested pvalues.
     data, metadata = dataset
@@ -821,8 +825,10 @@ class AnalyzeDataset(_AnalyzeDatasetCommon):
 
   def expand(self, dataset):
     input_values, input_metadata = dataset
-    return super(AnalyzeDataset, self).expand((input_values, None,
-                                               input_metadata))
+    result, cache = super(AnalyzeDataset, self).expand((input_values, None,
+                                                        None, input_metadata))
+    assert not cache
+    return result
 
 
 class AnalyzeAndTransformDataset(beam.PTransform):

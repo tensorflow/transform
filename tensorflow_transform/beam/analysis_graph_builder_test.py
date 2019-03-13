@@ -234,7 +234,7 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
       input_signature = impl_helper.feature_spec_as_batched_placeholders(
           feature_spec)
     output_signature = preprocessing_fn(input_signature)
-    transform_fn_future = analysis_graph_builder.build(
+    transform_fn_future, unused_cache = analysis_graph_builder.build(
         tf.get_default_graph(), input_signature, output_signature)
 
     dot_string = nodes.get_dot_graph([transform_fn_future]).to_string()

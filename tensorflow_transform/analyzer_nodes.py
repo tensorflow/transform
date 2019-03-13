@@ -368,13 +368,12 @@ class _VocabularyAccumulatorCoder(CacheCoder):
   def encode_cache(self, accumulator):
     # Need to wrap in np.array and call tolist to make it JSON serializable.
     word, count = accumulator
-    accumulator = (word.decode('utf-8'), count)
+    accumulator = (tf.compat.as_text(word), count)
     return tf.compat.as_bytes(
         json.dumps(np.array(accumulator, dtype=object).tolist()))
 
   def decode_cache(self, encoded_accumulator):
-    return np.array(
-        json.loads(tf.compat.as_text(encoded_accumulator)), dtype=object)
+    return json.loads(tf.compat.as_text(encoded_accumulator))
 
 
 class VocabularyMerge(
@@ -509,14 +508,13 @@ class PTransform(
     return self.output_tensor_info_list
 
 
-class WriteCache(
-    collections.namedtuple('WriteCache', ['path', 'coder', 'label']),
+class EncodeCache(
+    collections.namedtuple('EncodeCache', ['coder', 'label']),
     nodes.OperationDef):
-  """OperationDef for writing a cache object to a file system.
+  """OperationDef for encoding a cache instance.
 
   Fields:
-    path: A path to write the cache to.
-    encode_cache_fn: A map function that will be used to encode a cache object.
+    coder: An instance of CacheCoder used to encode cache.
     label: A unique label for this operation.
   """
 
@@ -525,16 +523,26 @@ class WriteCache(
     return True
 
 
-class ReadCache(
-    collections.namedtuple('ReadCache', ['path', 'coder', 'label']),
+class DecodeCache(
+    collections.namedtuple('DecodeCache',
+                           ['dataset_key', 'cache_key', 'coder', 'label']),
     nodes.OperationDef):
-  """OperationDef for reading a cache object from a file system.
+  """OperationDef for decoding a cache instance.
 
   Fields:
-    path: A path to read the cache from.
-    decode_cache_fn: A map function that will be used to decode a cache object.
+    coder: An instance of CacheCoder used to decode cache.
     label: A unique label for this operation.
   """
+
+  def __new__(cls, dataset_key, cache_key, coder, label=None):
+    if label is None:
+      label = '{}[{}][{}]'.format(cls.__name__, dataset_key, cache_key)
+    return super(DecodeCache, cls).__new__(
+        cls,
+        dataset_key=dataset_key,
+        cache_key=cache_key,
+        coder=coder,
+        label=label)
 
   @property
   def is_partitionable(self):
