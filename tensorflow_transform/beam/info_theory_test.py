@@ -22,6 +22,7 @@ from __future__ import print_function
 from tensorflow_transform.beam import info_theory
 from tensorflow_transform.beam import tft_unit
 
+
 import unittest
 
 
@@ -74,6 +75,49 @@ class InfoTheoryTest(tft_unit.TransformTestCase):
     self.assertNear(
         info_theory.calculate_partial_expected_mutual_information(10, 2, 4),
         0.524209, EPSILON)
+
+  @tft_unit.named_parameters(
+      dict(
+          testcase_name='strongly_positive_mi',
+          cell_count=2,
+          row_count=10,
+          col_count=2,
+          total_count=14,
+          expected_mi=0.970854),
+      dict(
+          testcase_name='weakly_positive_mi',
+          cell_count=4,
+          row_count=15,
+          col_count=6,
+          total_count=25,
+          expected_mi=0.608012),
+      dict(
+          testcase_name='strongly_negative_mi',
+          cell_count=2,
+          row_count=10,
+          col_count=6,
+          total_count=25,
+          expected_mi=-0.526069),
+      dict(
+          testcase_name='weakly_negative_mi',
+          cell_count=3,
+          row_count=31,
+          col_count=4,
+          total_count=41,
+          expected_mi=-0.0350454),
+      dict(
+          testcase_name='zero_mi',
+          cell_count=4,
+          row_count=8,
+          col_count=8,
+          total_count=16,
+          expected_mi=0),
+  )
+  def test_mutual_information(self, cell_count, row_count, col_count,
+                              total_count, expected_mi):
+    per_cell_mi = info_theory.calculate_partial_mutual_information(
+        cell_count, row_count, col_count, total_count)
+    self.assertNear(per_cell_mi, expected_mi, EPSILON)
 
 
 if __name__ == '__main__':

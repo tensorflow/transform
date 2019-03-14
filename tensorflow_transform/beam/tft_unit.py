@@ -34,6 +34,8 @@ from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform import test_case
 from tensorflow_transform.beam import test_helpers
+from tensorflow_transform.tf_metadata import dataset_metadata
+from tensorflow_transform.tf_metadata import dataset_schema
 
 parameters = test_case.parameters
 named_parameters = test_case.named_parameters
@@ -41,11 +43,102 @@ named_parameters = test_case.named_parameters
 main = test_case.main
 
 
+# TODO(b/77351671): Remove this function once DatasetMetadata is replaced by a
+# schema proto.
+def metadata_from_feature_spec(feature_spec, domains=None):
+  """Construct a DatasetMetadata from a feature spec.
+
+  Args:
+    feature_spec: A feature spec
+    domains: A dict containing domains of features
+
+  Returns:
+    A `tft.tf_metadata.dataset_metadata.DatasetMetadata` object.
+  """
+  schema = dataset_schema.from_feature_spec(feature_spec, domains)
+  return dataset_metadata.DatasetMetadata(schema)
+
+
 class TransformTestCase(test_case.TransformTestCase):
   """Base test class for testing tf-transform preprocessing functions."""
 
   def _makeTestPipeline(self):
     return beam.Pipeline(**test_helpers.make_test_beam_pipeline_kwargs())
+
+  def assertAnalyzerOutputs(self,
+                            input_data,
+                            input_metadata,
+                            analyzer_fn,
+                            expected_outputs,
+                            desired_batch_size=None):
+    """Assert that input data and metadata is transformed as expected.
+
+    This methods asserts transformed data and transformed metadata match
+    with expected_data and expected_metadata.
+
+    Args:
+      input_data: A sequence of dicts whose values are either strings, lists of
+        strings, numeric types or a pair of those. Must have at least one key so
+        that we can infer the batch size.
+      input_metadata: DatasetMetadata describing input_data.
+      analyzer_fn: A function taking a dict of tensors and returning a dict of
+        tensors.  Unlike a preprocessing_fn, this should emit the results of a
+        call to an analyzer, while a preprocessing_fn must typically add a batch
+        dimension and broadcast across this batch dimension.
+      expected_outputs: A dict whose keys are the same as those of the output of
+        `analyzer_fn` and whose values are convertible to an ndarrays.
+      desired_batch_size: (Optional) A batch size to batch elements by. If not
+        provided, a batch size will be computed automatically.
+
+    Raises:
+      AssertionError: If the expected output does not match the results of
+          the analyzer_fn.
+    """
+
+    def preprocessing_fn(inputs):
+      """A helper function for validating analyzer outputs."""
+      # Get tensors representing the outputs of the analyzers
+      analyzer_outputs = analyzer_fn(inputs)
+
+      # Check that keys of analyzer_outputs match expected_output.
+      six.assertCountEqual(self, analyzer_outputs.keys(),
+                           expected_outputs.keys())
+
+      # Get batch size from any input tensor.
+      an_input = next(six.itervalues(inputs))
+      batch_size = tf.shape(an_input)[0]
+
+      # Add a batch dimension and broadcast the analyzer outputs.
+      result = {}
+      for key, output_tensor in six.iteritems(analyzer_outputs):
+        # Get the expected shape, and set it.
+        output_shape = list(expected_outputs[key].shape)
+        output_tensor.set_shape(output_shape)
+        # Add a batch dimension
+        output_tensor = tf.expand_dims(output_tensor, 0)
+        # Broadcast along the batch dimension
+        result[key] = tf.tile(
+            output_tensor, multiples=[batch_size] + [1] * len(output_shape))
+
+      return result
+
+    # Create test dataset by repeating the first instance a number of times.
+    num_test_instances = 3
+    test_data = [input_data[0]] * num_test_instances
+    expected_data = [expected_outputs] * num_test_instances
+    expected_metadata = metadata_from_feature_spec({
+        key: tf.FixedLenFeature(value.shape, tf.as_dtype(value.dtype))
+        for key, value in six.iteritems(expected_outputs)
+    })
+
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata,
+        test_data=test_data,
+        desired_batch_size=desired_batch_size)
 
   def assertAnalyzeAndTransformResults(self,
                                        input_data,
