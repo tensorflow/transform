@@ -149,9 +149,9 @@ def set_tensor_schema_override(tensor, min_value, max_value):
         'Range can only be set for feature of type tf.int64, got {}'.format(
             tensor.dtype))
   if not isinstance(min_value, tf.Tensor):
-    raise ValueError('min_vaue {} was not a Tensor'.format(min_value))
+    raise ValueError('min_value {} was not a Tensor'.format(min_value))
   if not isinstance(max_value, tf.Tensor):
-    raise ValueError('max_vaue {} was not a Tensor'.format(min_value))
+    raise ValueError('max_value {} was not a Tensor'.format(max_value))
   tf.add_to_collection(_TF_METADATA_TENSOR_COLLECTION, tensor)
   tf.add_to_collection(_TF_METADATA_TENSOR_MIN_COLLECTION, min_value)
   tf.add_to_collection(_TF_METADATA_TENSOR_MAX_COLLECTION, max_value)
