@@ -579,10 +579,10 @@ class CachedImplTest(test_case.TransformTestCase):
 
       expected_accumulators = {
           '__v0__VocabularyAccumulate--vocabulary--': [
-              b'["a", [1.0, 2, 1.0]]', b'["b", [0.5, 2, 1.0]]'
+              b'["a", [2, 1.0, 1.0]]', b'["b", [2, 0.5, 1.0]]'
           ],
           '__v0__VocabularyAccumulate--vocabulary_1--': [
-              b'["a", [1.0, 2, 1.0]]', b'["b", [0.5, 2, 1.0]]'
+              b'["a", [2, 1.0, 1.0]]', b'["b", [2, 0.5, 1.0]]'
           ],
           '__v0__VocabularyAccumulate--vocabulary_2--': [
               b'["a", 1.5]', b'["b", 1.75]'

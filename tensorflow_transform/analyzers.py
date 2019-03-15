@@ -569,6 +569,10 @@ class MeanAndVarCombiner(analyzer_nodes.Combiner):
                                   False)
     ] * 2
 
+  def compute_running_update(self, total_count, current_count, update):
+    """Numerically stable way of computing a streaming batched update."""
+    return (current_count / total_count) * update
+
   def _combine_mean_and_var_accumulators(self, a, b):
     """Combines two mean and var accumulators.
 
@@ -594,11 +598,15 @@ class MeanAndVarCombiner(analyzer_nodes.Combiner):
 
     # Mean and variance update formulas which are more numerically stable when
     # a and b vary in magnitude.
-    combined_mean = a.mean + (b.count / combined_total) * (b.mean - a.mean)
-
-    combined_variance = (
-        a.variance + (b.count / combined_total) * (b.variance + (
-            (b.mean - combined_mean) * (b.mean - a.mean)) - a.variance))
+    combined_mean = a.mean + self.compute_running_update(
+        total_count=combined_total,
+        current_count=b.count,
+        update=b.mean - a.mean)
+    combined_variance = a.variance + self.compute_running_update(
+        total_count=combined_total,
+        current_count=b.count,
+        update=(b.variance - a.variance + ((b.mean - combined_mean) *
+                                           (b.mean - a.mean))))
 
     return _MeanAndVarAccumulator(combined_total, combined_mean,
                                   combined_variance)

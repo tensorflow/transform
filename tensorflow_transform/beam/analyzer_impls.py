@@ -323,8 +323,8 @@ def _flatten_value_and_weights_to_list_of_tuples(batch_values):
 def _make_count_and_weights_means_accumulator(sum_positive, weights_sum_total,
                                               count):
   return _CountAndWeightsMeansAccumulator(
-      weighted_mean=(sum_positive / weights_sum_total),
       count=count,
+      weighted_mean=(sum_positive / weights_sum_total),
       weights_mean=(weights_sum_total / count))
 
 
@@ -442,13 +442,13 @@ def _calculate_mutual_information_for_binary_feature(
 
 class _CountAndWeightsMeansAccumulator(
     collections.namedtuple('CountAndWeightsMeansAccumulator',
-                           ['weighted_mean', 'count', 'weights_mean'])):
+                           ['count', 'weighted_mean', 'weights_mean'])):
   """Container for CountAndWeightsMeansCombiner intermediate values."""
 
   @classmethod
-  def make_nan_to_num(cls, weighted_means, counts, weights_mean):
-    return cls(
-        np.nan_to_num(weighted_means), counts, np.nan_to_num(weights_mean))
+  def make_nan_to_num(cls, counts, weighted_means, weights_mean):
+    return cls(counts, np.nan_to_num(weighted_means),
+               np.nan_to_num(weights_mean))
 
   def __reduce__(self):
     return self.__class__, tuple(self)
@@ -493,10 +493,13 @@ class _CountAndWeightsMeansCombineFn(beam.CombineFn):
 
   """
 
+  def __init__(self):
+    self._combiner = analyzers.MeanAndVarCombiner(np.float32)
+
   def create_accumulator(self):
     """Create an accumulator with all zero entries."""
     return _CountAndWeightsMeansAccumulator(
-        weighted_mean=0., count=0, weights_mean=0.)
+        count=0, weighted_mean=0., weights_mean=0.)
 
   def add_input(self, accumulator, batch_values):
     """Composes an accumulator from batch_values and calls merge_accumulators.
@@ -545,15 +548,6 @@ class _CountAndWeightsMeansCombineFn(beam.CombineFn):
     """
     return accumulator
 
-  # Mean update formulas which are more numerically stable when a and b vary in
-  # magnitude.
-  def _compute_running_weighted_mean(self, total_count, total_weights_mean,
-                                     previous_weighted_mean, new_weighted_mean,
-                                     new_weights_mean):
-    return (
-        previous_weighted_mean + (new_weighted_mean - previous_weighted_mean) *
-        (new_weights_mean / (total_count * total_weights_mean)))
-
   def _combine_counts_and_means_accumulators(self, a, b):
     # NaNs get preserved through division by a.count + b.count.
     a = _CountAndWeightsMeansAccumulator.make_nan_to_num(*a)
@@ -570,21 +564,20 @@ class _CountAndWeightsMeansCombineFn(beam.CombineFn):
 
     # We use the mean of the weights because it is more numerically stable than
     # summing all of the weights.
-    combined_weights_mean = self._compute_running_weighted_mean(
-        total_count=combined_count,
-        total_weights_mean=1.,
-        previous_weighted_mean=a.weights_mean,
-        new_weighted_mean=b.weights_mean,
-        new_weights_mean=b.count)
-    combined_weighted_mean = self._compute_running_weighted_mean(
-        total_count=combined_count,
-        total_weights_mean=combined_weights_mean,
-        previous_weighted_mean=a.weighted_mean,
-        new_weighted_mean=b.weighted_mean,
-        new_weights_mean=(b.count * b.weights_mean))
+    combined_weights_mean = (
+        a.weights_mean + self._combiner.compute_running_update(
+            total_count=combined_count,
+            current_count=b.count,
+            update=b.weights_mean - a.weights_mean))
+    combined_weighted_mean = (
+        a.weighted_mean + self._combiner.compute_running_update(
+            total_count=combined_count * combined_weights_mean,
+            current_count=(b.count * b.weights_mean),
+            update=b.weighted_mean - a.weighted_mean))
+
     return _CountAndWeightsMeansAccumulator(
-        weighted_mean=combined_weighted_mean,
         count=combined_count,
+        weighted_mean=combined_weighted_mean,
         weights_mean=combined_weights_mean)
 
 
