@@ -116,6 +116,30 @@ _DATASET_ELEMENT_TYPE = Dict[Any,  # Any -> six.text_type?
 # TODO(b/68154497): pylint: disable=no-value-for-parameter
 
 
+# TODO(b/64956765): Remove this once either the keepalive issue (b/30837990), or
+# the mentioned bug above is resolved.
+# TODO(zoyahav): Make this a PTransform.
+def _clear_shared_state_after_barrier(pipeline, input_barrier):
+  """Clears any shared state from within a pipeline context.
+
+  This will only be cleared once input_barrier becomes available.
+
+  Args:
+    pipeline: A `beam.Pipeline` object.
+    input_barrier: A `PCollection` which the pipeline should wait for.
+
+  Returns:
+    An empty `PCollection`.
+  """
+  empty_pcoll = input_barrier | 'MakeCheapBarrier' >> beam.FlatMap(
+      lambda x: None)
+  return (pipeline
+          | 'PrepareToClearSharedKeepAlives' >> beam.Create([None])
+          | 'WaitAndClearSharedKeepAlives' >> beam.Map(
+              lambda x, empty_side_input: shared.Shared().acquire(lambda: None),
+              beam.pvalue.AsIter(empty_pcoll)))
+
+
 class Context(object):
   """Context manager for tensorflow-transform.
 
@@ -755,6 +779,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     full_metadata = beam_metadata_io.BeamDatasetMetadata(
         metadata, deferred_metadata)
 
+    _clear_shared_state_after_barrier(pipeline, transform_fn_pcoll)
+
     return (transform_fn_pcoll, full_metadata), output_cache_pcoll_dict
 
 
@@ -949,5 +975,7 @@ class TransformDataset(beam.PTransform):
             _convert_and_unbatch_to_instance_dicts,
             schema=output_metadata.schema,
             passthrough_keys=Context.get_passthrough_keys()))
+
+    _clear_shared_state_after_barrier(self.pipeline, output_instances)
 
     return (output_instances, output_metadata)
