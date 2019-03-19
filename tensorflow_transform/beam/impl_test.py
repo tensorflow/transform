@@ -1867,11 +1867,29 @@ class BeamImplTest(tft_unit.TransformTestCase):
               (b'weak_predictor_of_1', 1),
               (b'weak_predictor_of_1', 0),
           ],
-          # The weak predictor will be adjusted to 0.
           expected_vocab=[
-              (b'good_predictor_of_0', 1.8322128),
-              (b'good_predictor_of_1', 1.7554416),
-              (b'weak_predictor_of_1', 0.0),
+              (b'good_predictor_of_0', 241.0221732),
+              (b'good_predictor_of_1', 212.8802011),
+              (b'weak_predictor_of_1', 5.2623185),
+          ],
+          # TODO(b/128908831): Restore weights to 1 when numerical instability
+          # is resolved.
+          weights=[
+              100,
+              100,
+              100,
+              100,
+              100,
+              100,
+              100,
+              100,
+              100,
+              100,
+              100,
+              100,
+              100,
+              100,
+              100,
           ],
           use_adjusted_mutual_info=True,
           min_diff_from_avg=1),
