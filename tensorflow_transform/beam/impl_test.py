@@ -1720,8 +1720,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     expected_data = input_data
     expected_vocab_file_contents = {
-        'my_vocab': [(b'goodbye', 1.975322), (b'aaaaa', 1.6600708),
-                     (b'hello', 1.2450531)]
+        'my_vocab': [
+            (b'goodbye', 1.975322),
+            (b'aaaaa', 1.6600708),
+            (b'hello', 1.2450531),
+        ]
     }
 
     self.assertAnalyzeAndTransformResults(
@@ -1732,129 +1735,183 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_metadata,
         expected_vocab_file_contents=expected_vocab_file_contents)
 
-  def testVocabularyAnalyzerWithLabelsAndFrequencyAndMinDiffFromAvg(self):
-    input_data = [{
-        'a': b'hello',
-        'labels': 1
-    }, {
-        'a': b'hello',
-        'labels': 1
-    }, {
-        'a': b'hello',
-        'labels': 1
-    }, {
-        'a': b'goodbye',
-        'labels': 1
-    }, {
-        'a': b'aaaaa',
-        'labels': 1
-    }, {
-        'a': b'aaaaa',
-        'labels': 1
-    }, {
-        'a': b'goodbye',
-        'labels': 0
-    }, {
-        'a': b'goodbye',
-        'labels': 0
-    }, {
-        'a': b'aaaaa',
-        'labels': 1
-    }, {
-        'a': b'aaaaa',
-        'labels': 1
-    }, {
-        'a': b'goodbye',
-        'labels': 1
-    }, {
-        'a': b'goodbye',
-        'labels': 0
-    }]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a': tf.FixedLenFeature([], tf.string),
-        'labels': tf.FixedLenFeature([], tf.int64)
-    })
-    expected_metadata = input_metadata
-
-    def preprocessing_fn(inputs):
-      tft.vocabulary(
-          inputs['a'],
-          labels=inputs['labels'],
-          store_frequency=True,
-          vocab_filename='my_vocab',
-          min_diff_from_avg=2.0)
-      return inputs
-
-    expected_data = input_data
-    expected_vocab_file_contents = {
-        'my_vocab': [(b'hello', 0.0), (b'goodbye', 0.0), (b'aaaaa', 0.0)]
+  @tft_unit.named_parameters(
+      dict(
+          testcase_name='unadjusted_mi_binary_label',
+          feature_label_pairs=[
+              (b'informative', 1),
+              (b'informative', 1),
+              (b'informative', 1),
+              (b'uninformative', 0),
+              (b'uninformative', 1),
+              (b'uninformative', 1),
+              (b'uninformative', 0),
+              (b'uninformative_rare', 0),
+              (b'uninformative_rare', 1),
+          ],
+          expected_vocab=[
+              (b'informative', 1.7548264),
+              (b'uninformative', 0.33985),
+              (b'uninformative_rare', 0.169925),
+          ],
+          use_adjusted_mutual_info=False),
+      dict(
+          testcase_name='unadjusted_mi_binary_label_with_weights',
+          feature_label_pairs=[
+              (b'informative_1', 1),
+              (b'informative_1', 1),
+              (b'informative_0', 0),
+              (b'informative_0', 0),
+              (b'uninformative', 0),
+              (b'uninformative', 1),
+              (b'informative_by_weight', 0),
+              (b'informative_by_weight', 1),
+          ],
+          # uninformative and informative_by_weight have the same co-occurrence
+          # relationship with the label but will have different importance
+          # values due to the weighting.
+          expected_vocab=[
+              (b'informative_0', 0.316988),
+              (b'informative_1', 0.1169884),
+              (b'informative_by_weight', 0.060964),
+              (b'uninformative', 0.0169925),
+          ],
+          weights=[.1, .1, .1, .1, .1, .1, .1, .5],
+          use_adjusted_mutual_info=False),
+      dict(
+          testcase_name='unadjusted_mi_binary_label_min_diff_from_avg',
+          feature_label_pairs=[
+              (b'hello', 1),
+              (b'hello', 1),
+              (b'hello', 1),
+              (b'goodbye', 1),
+              (b'aaaaa', 1),
+              (b'aaaaa', 1),
+              (b'goodbye', 0),
+              (b'goodbye', 0),
+              (b'aaaaa', 1),
+              (b'aaaaa', 1),
+              (b'goodbye', 1),
+              (b'goodbye', 0),
+          ],
+          # All features are weak predictors, so all are adjusted to zero.
+          expected_vocab=[
+              (b'hello', 0.0),
+              (b'goodbye', 0.0),
+              (b'aaaaa', 0.0),
+          ],
+          use_adjusted_mutual_info=False,
+          min_diff_from_avg=2),
+      dict(
+          testcase_name='adjusted_mi_binary_label',
+          feature_label_pairs=[
+              (b'hello', 1),
+              (b'hello', 1),
+              (b'hello', 1),
+              (b'goodbye', 1),
+              (b'aaaaa', 1),
+              (b'aaaaa', 1),
+              (b'goodbye', 0),
+              (b'goodbye', 0),
+              (b'aaaaa', 1),
+              (b'aaaaa', 1),
+              (b'goodbye', 1),
+              (b'goodbye', 0),
+          ],
+          expected_vocab=[
+              (b'goodbye', 1.4070791),
+              (b'aaaaa', 0.9987449),
+              (b'hello', 0.5017179),
+          ],
+          use_adjusted_mutual_info=True),
+      # TODO(b/128831096): Determine correct interaction between AMI and weights
+      dict(
+          testcase_name='adjusted_mi_binary_label_with_weights',
+          feature_label_pairs=[
+              (b'informative_1', 1),
+              (b'informative_1', 1),
+              (b'informative_0', 0),
+              (b'informative_0', 0),
+              (b'uninformative', 0),
+              (b'uninformative', 1),
+              (b'informative_by_weight', 0),
+              (b'informative_by_weight', 1),
+          ],
+          # uninformative and informative_by_weight have the same co-occurrence
+          # relationship with the label but will have different importance
+          # values due to the weighting.
+          expected_vocab=[
+              (b'informative_0', 31.075017),
+              (b'informative_1', 11.075057),
+              (b'informative_by_weight', 5.7303535),
+              (b'uninformative', 1.0754644),
+          ],
+          weights=[10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 50.0],
+          use_adjusted_mutual_info=True),
+      dict(
+          testcase_name='adjusted_mi_min_diff_from_avg',
+          feature_label_pairs=[
+              (b'good_predictor_of_0', 0),
+              (b'good_predictor_of_0', 0),
+              (b'good_predictor_of_0', 0),
+              (b'good_predictor_of_1', 1),
+              (b'good_predictor_of_0', 0),
+              (b'good_predictor_of_1', 1),
+              (b'good_predictor_of_1', 1),
+              (b'good_predictor_of_1', 1),
+              (b'good_predictor_of_1', 0),
+              (b'good_predictor_of_0', 1),
+              (b'good_predictor_of_1', 1),
+              (b'good_predictor_of_1', 1),
+              (b'good_predictor_of_1', 1),
+              (b'weak_predictor_of_1', 1),
+              (b'weak_predictor_of_1', 0),
+          ],
+          # The weak predictor will be adjusted to 0.
+          expected_vocab=[
+              (b'good_predictor_of_0', 1.8322128),
+              (b'good_predictor_of_1', 1.7554416),
+              (b'weak_predictor_of_1', 0.0),
+          ],
+          use_adjusted_mutual_info=True,
+          min_diff_from_avg=1),
+  )
+  def testVocabularyWithMutualInformation(self,
+                                          feature_label_pairs,
+                                          expected_vocab,
+                                          weights=None,
+                                          use_adjusted_mutual_info=False,
+                                          min_diff_from_avg=0.0):
+    input_data = []
+    for (value, label) in feature_label_pairs:
+      input_data.append({'x': value, 'label': label})
+    feature_spec = {
+        'x': tf.FixedLenFeature([], tf.string),
+        'label': tf.FixedLenFeature([], tf.int64)
     }
+    if weights is not None:
+      feature_spec['weight'] = tf.FixedLenFeature([], tf.float32)
+      assert len(weights) == len(input_data)
+      for data, weight in zip(input_data, weights):
+        data['weight'] = weight
 
-    self.assertAnalyzeAndTransformResults(
-        input_data,
-        input_metadata,
-        preprocessing_fn,
-        expected_data,
-        expected_metadata,
-        expected_vocab_file_contents=expected_vocab_file_contents)
-
-  def testVocabularyAnalyzerWithLabelsAndFrequencyAndAdjustedMutualInfo(self):
-    input_data = [{
-        'a': b'hello',
-        'labels': 1
-    }, {
-        'a': b'hello',
-        'labels': 1
-    }, {
-        'a': b'hello',
-        'labels': 1
-    }, {
-        'a': b'goodbye',
-        'labels': 1
-    }, {
-        'a': b'aaaaa',
-        'labels': 1
-    }, {
-        'a': b'aaaaa',
-        'labels': 1
-    }, {
-        'a': b'goodbye',
-        'labels': 0
-    }, {
-        'a': b'goodbye',
-        'labels': 0
-    }, {
-        'a': b'aaaaa',
-        'labels': 1
-    }, {
-        'a': b'aaaaa',
-        'labels': 1
-    }, {
-        'a': b'goodbye',
-        'labels': 1
-    }, {
-        'a': b'goodbye',
-        'labels': 0
-    }]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a': tf.FixedLenFeature([], tf.string),
-        'labels': tf.FixedLenFeature([], tf.int64)
-    })
+    input_metadata = tft_unit.metadata_from_feature_spec(feature_spec)
     expected_metadata = input_metadata
 
     def preprocessing_fn(inputs):
       tft.vocabulary(
-          inputs['a'],
-          labels=inputs['labels'],
+          inputs['x'],
+          labels=inputs['label'],
+          weights=inputs.get('weight'),
           store_frequency=True,
           vocab_filename='my_vocab',
-          use_adjusted_mutual_info=True)
+          use_adjusted_mutual_info=use_adjusted_mutual_info,
+          min_diff_from_avg=min_diff_from_avg)
       return inputs
 
     expected_data = input_data
     expected_vocab_file_contents = {
-        'my_vocab': [(b'goodbye', 1.4070791), (b'aaaaa', 0.9987449),
-                     (b'hello', 0.5017179)]
+        'my_vocab': expected_vocab,
     }
 
     self.assertAnalyzeAndTransformResults(
