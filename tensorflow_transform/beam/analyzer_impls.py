@@ -421,8 +421,8 @@ def _calculate_mutual_information_for_binary_feature(
   if abs(diff_from_avg) < min_diff_from_avg:
     return (feature, 0)
   mutual_information = (
-      n_1 * (np.log2(n_1) + np.log2(n) - np.log2(y_1) - np.log2(x)) +
-      n_0 * (np.log2(n_0) + np.log2(n) - np.log2(y_0) - np.log2(x)))
+      info_theory.calculate_partial_mutual_information(n_1, x, y_1, n) +
+      info_theory.calculate_partial_mutual_information(n_0, x, y_0, n))
 
   if use_adjusted_mutual_info:
     # Note: Expected mutual information is calculated by summing over all values

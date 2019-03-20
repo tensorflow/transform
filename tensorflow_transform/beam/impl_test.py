@@ -1841,12 +1841,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
           # relationship with the label but will have different importance
           # values due to the weighting.
           expected_vocab=[
-              (b'informative_0', 31.075017),
-              (b'informative_1', 11.075057),
-              (b'informative_by_weight', 5.7303535),
-              (b'uninformative', 1.0754644),
+              (b'informative_0', 2.3029856),
+              (b'informative_1', 0.3029896),
+              (b'informative_by_weight', 0.1713041),
+              (b'uninformative', -0.6969697),
           ],
-          weights=[10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 50.0],
+          weights=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 5.0],
           use_adjusted_mutual_info=True),
       dict(
           testcase_name='adjusted_mi_min_diff_from_avg',
@@ -1867,29 +1867,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
               (b'weak_predictor_of_1', 1),
               (b'weak_predictor_of_1', 0),
           ],
+          # With min_diff_from_avg, the small AMI value is regularized to 0
           expected_vocab=[
-              (b'good_predictor_of_0', 241.0221732),
-              (b'good_predictor_of_1', 212.8802011),
-              (b'weak_predictor_of_1', 5.2623185),
-          ],
-          # TODO(b/128908831): Restore weights to 1 when numerical instability
-          # is resolved.
-          weights=[
-              100,
-              100,
-              100,
-              100,
-              100,
-              100,
-              100,
-              100,
-              100,
-              100,
-              100,
-              100,
-              100,
-              100,
-              100,
+              (b'good_predictor_of_0', 1.8322128),
+              (b'good_predictor_of_1', 1.7554416),
+              (b'weak_predictor_of_1', 0),
           ],
           use_adjusted_mutual_info=True,
           min_diff_from_avg=1),

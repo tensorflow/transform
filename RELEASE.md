@@ -10,6 +10,7 @@
   `fingerprint_shuffle` to sort the vocabularies by fingerprint instead of
   counts. This is useful for load balancing the training parameter servers.
   This is an experimental feature.
+* Fix numerical instability in `tft.vocabulary` mutual information calculations
 
 ## Breaking changes
 

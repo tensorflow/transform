@@ -57,19 +57,22 @@ def calculate_partial_expected_mutual_information(n, x_i, y_j):
     if n_j != 0:
       partial_result += n_j * (coefficient + np.log2(n_j)) * p_j
     sum_probability += p_j
-  # With approximate calculations for log2(x) and exp2(x) with large x, we need
-  # a correction to the probablity approximation, so we divide by the sum of the
-  # probabilities.
+  # The values of p_j should sum to 1, but given approximate calculations for
+  # log2(x) and exp2(x) with large x, the full pmf might not sum to exactly 1.
+  # We correct for this by dividing by the sum of the probabilities.
   return partial_result / sum_probability
 
 
 def calculate_partial_mutual_information(n_ij, x_i, y_j, n):
-  """Calculates Mutual Information from sample counts.
+  """Calculates Mutual Information for x=i, y=j from sample counts.
 
-  Given the formula for mutual information,
-  MI(X,Y) = log2(N) + 1/N Sum_i,j {n_ij * (log2(n_ij / (x_ * y_j)))}
-  this function returns the argument to the summation, the mutual information
-  for a particular pair of values x_i, y_j.
+  The standard formulation of mutual information is:
+  MI(X,Y) = Sum_i,j {p_ij * log2(p_ij / p_i * p_j)}
+  We are operating over counts (p_ij = n_ij / n), so this is transformed into
+  MI(X,Y) = Sum_i,j {n_ij * (log2(n_ij) + log2(n) - log2(x_i) - log2(y_j))} / n
+  This function returns the argument to the summation, the mutual information
+  for a particular pair of values x_i, y_j (the caller is expected to divide
+  the summation by n to compute the final mutual information result).
 
   Args:
     n_ij: The co-occurrence of x=i and y=j
@@ -94,11 +97,10 @@ def _hypergeometric_pmf(n, x_i, y_j):
     y_j: The sum of weights for the second variable taking on value j
 
   Yields:
-    Calculated coefficient, numerator and denominator for hypergeometric
-    distribution.
+    The probability p_j at point n_j in the hypergeometric distribution.
   """
-  start = int(max(0, n - (n - x_i) - (n - y_j)))
-  end = int(min(x_i, y_j))
+  start = int(round(max(0, x_i + y_j - n)))
+  end = int(round(min(x_i, y_j)))
   # Use log factorial to preserve calculation precision.
   # Note: because the factorials are expensive to compute, we compute the
   # denominator incrementally, at the cost of some readability.
