@@ -337,6 +337,93 @@ class MappersTest(test_case.TransformTestCase):
       output = sess.run(buckets)
       self.assertAllEqual([0, 0, 1, 3, 2, 3, 0, 0, 2, 1, 3, 3], output)
 
+  @test_case.named_parameters(
+      dict(
+          testcase_name='single_input_value',
+          x=1,
+          boundaries=[0, 2],
+          expected_results=.5),
+      dict(
+          testcase_name='single_boundary',
+          x=[-1, 9, 10, 11],
+          boundaries=[10],
+          expected_results=[0, 0, 1, 1]),
+      dict(
+          testcase_name='out_of_bounds',
+          x=[-1111, 0, 5, 9, 10, 11, 15, 19, 20, 21, 1111],
+          boundaries=[10, 20],
+          expected_results=[0, 0, 0, 0, 0, .1, 0.5, .9, 1, 1, 1]),
+      dict(
+          testcase_name='2d_input',
+          x=[[15, 10], [20, 17], [-1111, 21]],
+          boundaries=[10, 20],
+          expected_results=[[0.5, 0], [1, .7], [0, 1]]),
+      dict(
+          testcase_name='integer_input',
+          x=[15, 20, 25],
+          boundaries=[10, 20],
+          expected_results=[.5, 1, 1],
+          input_dtype=tf.int64),
+      dict(
+          testcase_name='float_input',
+          x=[-10, 0, 0.1, 2.3, 4.5, 6.7, 8.9, 10, 100],
+          boundaries=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+          expected_results=[0, 0, 0.01, 0.23, 0.45, 0.67, 0.89, 1, 1]),
+      dict(
+          testcase_name='integer_boundaries',
+          x=[15, 20, 25],
+          boundaries=[10, 20],
+          expected_results=[.5, 1, 1],
+          boundaries_dtype=tf.int64),
+      dict(
+          testcase_name='negative_boundaries',
+          x=[-10, -5, -3, 0, 2, 4, 8, 12, 18],
+          boundaries=[-20, -4, 1, 4, 20],
+          expected_results=[
+              0.15625, 0.234375, .3, .45, 0.583333, .75, 0.8125, .875, 0.96875
+          ]),
+      dict(
+          testcase_name='interpolates_properly',
+          x=[-1111, 10, 50, 100, 1000, 9000, 10000, 1293817391],
+          boundaries=[10, 100, 1000, 10000],
+          expected_results=[
+              0, 0, (4.0 / 9 / 3), (1.0 / 3), (2.0 / 3), ((2 + 8.0 / 9) / 3), 1,
+              1
+          ],
+          boundaries_dtype=tf.int64),
+  )
+  def testApplyBucketsWithInterpolation(self,
+                                        x,
+                                        boundaries,
+                                        expected_results,
+                                        input_dtype=tf.float32,
+                                        boundaries_dtype=tf.float32):
+    with self.test_session() as sess:
+      x = tf.constant(x, dtype=input_dtype)
+      boundaries = tf.constant([boundaries], dtype=boundaries_dtype)
+      output = mappers.apply_buckets_with_interpolation(x, boundaries)
+      self.assertAllClose(sess.run(output), expected_results, 1e-6)
+
+  def testBucketsWithInterpolationUnknownShapeBoundary(self):
+    with self.test_session() as sess:
+      x = tf.constant([0, 1, 5, 12], dtype=tf.float32)
+      # The shape used to generate the boundaries is random, and therefore
+      # the size of the boundaries tensor is not known.
+      num_boundaries = tf.random.uniform([1], 1, 2, dtype=tf.int64)[0]
+      boundaries = tf.random.uniform([1, num_boundaries], 0, 10)
+      # We don't assert anything about the outcome because we are intentionally
+      # using randomized boundaries, but we ensure the operations succeed.
+      _ = sess.run(mappers.apply_buckets_with_interpolation(x, boundaries))
+
+  def testBucketsWithInterpolationUnsortedBoundaries(self):
+    with self.test_session() as sess:
+      x = tf.constant([1, 2, 3, 5], dtype=tf.float32)
+      boundaries = tf.constant([[4, 2]], dtype=tf.float32)
+      output = mappers.apply_buckets_with_interpolation(x, boundaries)
+      # Boundaries must be sorted, so an exception is raised.
+      with self.assertRaises(tf.errors.InvalidArgumentError):
+        sess.run(output)
+
   def testSparseTensorToDenseWithShape(self):
     with tf.Graph().as_default():
       sparse = tf.sparse_placeholder(tf.int64, shape=[None, None])

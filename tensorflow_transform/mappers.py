@@ -61,9 +61,12 @@ import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import schema_inference
 
+# pylint: disable=g-direct-tensorflow-import
 from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
+from tensorflow.python.ops import check_ops
 from tensorflow.python.ops import lookup_ops
 from tensorflow.python.util import deprecation
+# pylint: enable=g-direct-tensorflow-import
 
 
 def sparse_tensor_to_dense_with_shape(x, shape, default_value=0):
@@ -1014,6 +1017,90 @@ def _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries, name=None):
       result = bucketized_values
 
     return result
+
+
+# TODO(b/127971746): Consider if/how SparseTensor input should be handled.
+def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
+  """Interpolates within the provided buckets and then normalizes to 0 to 1.
+
+  A method for normalizing continuous numeric data to the range [0, 1].
+  Numeric values are first bucketized according to the provided boundaries, then
+  linearly interpolated within their respective bucket ranges. Finally, the
+  interpolated values are normalized to the range [0, 1]. Values that are
+  less than or equal to the lowest boundary, or greater than or equal to the
+  highest boundary, will be mapped to 0 and 1 respectively.
+
+  Args:
+    x: A numeric input `Tensor` (tf.float32, tf.float64, tf.int32, tf.int64).
+    bucket_boundaries: Sorted bucket boundaries as a rank-2 `Tensor`.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    A `Tensor` of the same shape as `x`, normalized to the range [0, 1]. If the
+      input x is tf.float64, the returned values will be tf.float64.
+      Otherwise, returned values are tf.float32.
+
+  """
+  with tf.name_scope(name, 'buckets_with_interpolation'):
+    tf.assert_rank(bucket_boundaries, 2)
+    if not check_ops.is_numeric_tensor(x):
+      raise tf.errors.InvalidArgumentError(
+          'Input tensor to be normalized must be numeric.')
+    return_type = tf.float64 if x.dtype == tf.float64 else tf.float32
+    num_boundaries = tf.to_int64(tf.shape(bucket_boundaries)[1])
+
+    # The TF BucketizeWithInputBoundaries Op expects boundaries as tf.float32.
+    bucket_boundaries = tf.cast(bucket_boundaries, tf.float32)
+    bucket_indices = tf.cast(
+        quantile_ops.bucketize_with_input_boundaries(
+            x, boundaries=bucket_boundaries, name='assign_buckets'), tf.int64)
+
+    # Get max, min, and width of the corresponding bucket for each element.
+    bucket_max = tf.dtypes.cast(
+        tf.gather(
+            tf.concat([bucket_boundaries[0], bucket_boundaries[:, -1]], axis=0),
+            bucket_indices), return_type)
+    bucket_min = tf.dtypes.cast(
+        tf.gather(
+            tf.concat([bucket_boundaries[:, 0], bucket_boundaries[0]], axis=0),
+            bucket_indices), return_type)
+    bucket_width = bucket_max - bucket_min
+    zeros = tf.zeros_like(x, dtype=return_type)
+    ones = tf.ones_like(x, dtype=return_type)
+
+    # Linearly interpolate each value within its respective bucket range.
+    interpolation_value = ((tf.dtypes.cast(x, return_type) - bucket_min) /
+                           bucket_width)
+    bucket_interpolation = tf.verify_tensor_all_finite(
+        tf.where(
+            # If bucket index is first or last, which represents "less than
+            # min" and "greater than max" respectively, the bucket logically
+            # has an infinite width and we can't meaningfully interpolate.
+            tf.logical_or(
+                tf.equal(bucket_indices, 0),
+                tf.equal(bucket_indices, num_boundaries)),
+            zeros,
+            tf.where(
+                # If the bucket width is zero due to numerical imprecision,
+                # there is no point in interpolating
+                tf.equal(bucket_width, 0.0),
+                ones / 2.0,
+                # Finally, for a bucket with a valid width, we can interpolate.
+                interpolation_value)),
+        'bucket_interpolation')
+    bucket_indices_with_interpolation = tf.dtypes.cast(
+        tf.maximum(bucket_indices - 1, 0), return_type) + bucket_interpolation
+
+    # Normalize the interpolated values to the range [0, 1].
+    denominator = tf.dtypes.cast(tf.maximum(num_boundaries - 1, 1), return_type)
+    normalized_values = tf.div(bucket_indices_with_interpolation, denominator)
+    # If there is only one boundary, all values < the boundary are 0, all values
+    # >= the boundary are 1.
+    single_boundary_values = lambda: tf.where(  # pylint: disable=g-long-lambda
+        tf.equal(bucket_indices, 0), zeros, ones)
+    return tf.cond(
+        tf.equal(num_boundaries, 1),
+        single_boundary_values, lambda: normalized_values)
 
 
 def apply_buckets(x, bucket_boundaries, name=None):

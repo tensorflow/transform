@@ -13,6 +13,8 @@
 * Fix numerical instability in `tft.vocabulary` mutual information calculations
 * `tft.vocabulary` and `tft.compute_and_apply_vocabulary` now support computing
   vocabularies over integer categoricals
+* New numeric normalization method available:
+  `tft.apply_buckets_with_interpolation`
 
 ## Breaking changes
 
