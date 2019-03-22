@@ -53,6 +53,12 @@ class _OrderElementsFn(beam.DoFn):
     self._vocab_size = beam.metrics.Metrics.distribution(
         common.METRICS_NAMESPACE, 'vocabulary_size')
 
+  @staticmethod
+  def _fingerprint_sort_fn(v):
+    # hashlib.sha1 expects bytes
+    v = tf.compat.as_bytes(tf.compat.as_str_any(v))
+    return hashlib.sha1(v).digest()
+
   def process(self, element, counts_iter):
     del element
     counts = list(counts_iter)
@@ -66,7 +72,7 @@ class _OrderElementsFn(beam.DoFn):
       counts = [(1, '49d0cd50-04bb-48c0-bc6f-5b575dce351a')]
 
     if self._fingerprint_shuffle:
-      counts.sort(key=lambda kv: hashlib.sha1(kv[1]).digest())
+      counts.sort(key=lambda kv: self._fingerprint_sort_fn(kv[1]))
     else:
       counts.sort(reverse=True)  # Largest first.
 
@@ -78,7 +84,7 @@ class _OrderElementsFn(beam.DoFn):
           yield '{} {}'.format(count, entry)
         else:
           yield tf.compat.as_bytes('{} {}'.format(count,
-                                                  tf.compat.as_text(entry)))
+                                                  tf.compat.as_str_any(entry)))
       else:
         yield entry
 
@@ -136,6 +142,7 @@ class VocabularyAccumulateImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     self._vocab_ordering_type = operation.vocab_ordering_type
+    self._input_dtype = tf.dtypes.as_dtype(operation.input_dtype)
 
   def expand(self, inputs):
     pcoll, = inputs
@@ -144,12 +151,6 @@ class VocabularyAccumulateImpl(beam.PTransform):
     # this to create a single element PCollection containing this list of
     # pairs in sorted order by decreasing counts (and by values for equal
     # counts).
-
-    # TODO(b/62379925) Filter empty strings or strings containing the \n or \r
-    # tokens since index_table_from_file doesn't allow empty rows.
-    def is_problematic_string(kv):
-      string, _ = kv  # Ignore counts.
-      return string and b'\n' not in string and b'\r' not in string
 
     # TODO(b/112916494): Unify the graph in both cases once possible.
     if (self._vocab_ordering_type ==
@@ -166,9 +167,19 @@ class VocabularyAccumulateImpl(beam.PTransform):
 
     raw_counts = (
         pcoll
-        | 'FlattenStringsAndMaybeWeightsLabels' >> beam.FlatMap(flatten_map_fn)
-        | 'CountPerString' >> combine_transform
-        | 'FilterProblematicStrings' >> beam.Filter(is_problematic_string))
+        | 'FlattenTokensAndMaybeWeightsLabels' >> beam.FlatMap(flatten_map_fn)
+        | 'CountPerToken' >> combine_transform)
+
+    if self._input_dtype == tf.string:
+      # TODO(b/62379925) Filter empty strings or strings containing the \n or \r
+      # tokens since index_table_from_file doesn't allow empty rows.
+      def is_problematic_string(kv):
+        string, _ = kv  # Ignore counts.
+        return string and b'\n' not in string and b'\r' not in string
+
+      raw_counts = (
+          raw_counts
+          | 'FilterProblematicStrings' >> beam.Filter(is_problematic_string))
 
     return raw_counts
 
@@ -178,7 +189,7 @@ class VocabularyAccumulateImpl(beam.PTransform):
 # TODO(b/123325923): Constrain the value type here to the right string type.
 @beam.typehints.with_output_types(KV[Union[int, float], Any])  # Any -> np.str?
 class VocabularyMergeImpl(beam.PTransform):
-  """Merges vocabulary accumulators of (word, num) pairs."""
+  """Merges vocabulary accumulators of (token, num) pairs."""
 
   def __init__(self, operation, extra_args):
     self._vocab_ordering_type = operation.vocab_ordering_type
@@ -197,8 +208,8 @@ class VocabularyMergeImpl(beam.PTransform):
 
     raw_counts = (
         pcoll
-        | 'CountPerString' >> combine_transform
-        | 'SwapStringsAndCounts' >> beam.KvSwap())
+        | 'CountPerToken' >> combine_transform
+        | 'SwapTokensAndCounts' >> beam.KvSwap())
 
     return raw_counts
 
@@ -384,8 +395,8 @@ def _calculate_mutual_information_for_binary_feature(
 
   Args:
     feature_and_accumulator: A tuple of the form:
-      (feature, _CountAndWeightsMeansAccumulator) where: `feature` is a single
-        string, which is the word in the vocabulary whose mutual information
+      (feature, _CountAndWeightsMeansAccumulator) where: `feature` is the single
+        token in the vocabulary for which (possibly adjusted) mutual information
         with the label is being computed. `weighted_mean` is the weighted mean
         positive given x. `count` is the count of weights for a feature.
         `weights_mean` is the mean of the weights for a feature.
@@ -459,7 +470,7 @@ class _CountAndWeightsMeansAccumulator(
 @beam.typehints.with_output_types(KV[str, _CountAndWeightsMeansAccumulator])
 def _MutualInformationTransformAccumulate(pcol):  # pylint: disable=invalid-name
   """Accumulates information needed for mutual information computation."""
-  return (pcol | 'VocabCountPerLabelPerStringAccumulate' >> beam.CombinePerKey(
+  return (pcol | 'VocabCountPerLabelPerTokenAccumulate' >> beam.CombinePerKey(
       _CountAndWeightsMeansCombineFn()))
 
 
@@ -470,7 +481,7 @@ def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
     pcol, use_adjusted_mutual_info, min_diff_from_avg):
   """Computes mutual information for each key using the given accumulators."""
   feature_accumulator_pcol = (
-      pcol | 'VocabCountPerLabelPerStringMerge' >> beam.CombinePerKey(
+      pcol | 'VocabCountPerLabelPerTokenMerge' >> beam.CombinePerKey(
           _CountAndWeightsMeansCombineFn()))
 
   global_accumulator = (
@@ -480,7 +491,7 @@ def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
           _CountAndWeightsMeansCombineFn()))
 
   return (feature_accumulator_pcol
-          | 'CalculateMutualInformationPerString' >> beam.Map(
+          | 'CalculateMutualInformationPerToken' >> beam.Map(
               _calculate_mutual_information_for_binary_feature,
               beam.pvalue.AsSingleton(global_accumulator),
               use_adjusted_mutual_info=use_adjusted_mutual_info,
@@ -660,7 +671,7 @@ def _split_inputs_by_key(batch_values):
     batch_values: A list of ndarrays representing the input from a batch.
 
   Yields:
-    (key, args) pairs where key is a string and args is a list of ndarrays.
+    (key, args) pairs where args is a list of ndarrays.
 
   Raises:
     ValueError: if inputs do not have correct sizes.

@@ -66,13 +66,13 @@ node [shape=Mrecord];
 "CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0][span-0]";
 "TensorSource[vocabulary][span-0]" [label="{ExtractFromDict|keys: ('vocabulary/Reshape',)|label: TensorSource[vocabulary][span-0]|partitionable: True}"];
 "ApplySavedModel[0][span-0]" -> "TensorSource[vocabulary][span-0]";
-"VocabularyAccumulate[vocabulary][span-0]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|label: VocabularyAccumulate[vocabulary][span-0]|partitionable: True}"];
+"VocabularyAccumulate[vocabulary][span-0]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|input_dtype: string|label: VocabularyAccumulate[vocabulary][span-0]|partitionable: True}"];
 "TensorSource[vocabulary][span-0]" -> "VocabularyAccumulate[vocabulary][span-0]";
 "ApplySavedModel[0][span-1]" [label="{ApplySavedModel|dataset_key: span-1|phase: 0|label: ApplySavedModel[0][span-1]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0][span-1]";
 "TensorSource[vocabulary][span-1]" [label="{ExtractFromDict|keys: ('vocabulary/Reshape',)|label: TensorSource[vocabulary][span-1]|partitionable: True}"];
 "ApplySavedModel[0][span-1]" -> "TensorSource[vocabulary][span-1]";
-"VocabularyAccumulate[vocabulary][span-1]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|label: VocabularyAccumulate[vocabulary][span-1]|partitionable: True}"];
+"VocabularyAccumulate[vocabulary][span-1]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|input_dtype: string|label: VocabularyAccumulate[vocabulary][span-1]|partitionable: True}"];
 "TensorSource[vocabulary][span-1]" -> "VocabularyAccumulate[vocabulary][span-1]";
 "FlattenCache[VocabularyMerge[vocabulary]]" [label="{Flatten|label: FlattenCache[VocabularyMerge[vocabulary]]|partitionable: True}"];
 "VocabularyAccumulate[vocabulary][span-0]" -> "FlattenCache[VocabularyMerge[vocabulary]]";
@@ -517,6 +517,85 @@ class CachedImplTest(test_case.TransformTestCase):
         label='second')
 
     self.assertFalse(second_output_cache)
+
+  def test_caching_vocab_for_integer_categorical(self):
+
+    span_0_key = 'span-0'
+    span_1_key = 'span-1'
+
+    def preprocessing_fn(inputs):
+      return {
+          'x_vocab':
+              tft.compute_and_apply_vocabulary(
+                  inputs['x'], frequency_threshold=2)
+      }
+
+    input_metadata = dataset_metadata.DatasetMetadata(
+        dataset_schema.from_feature_spec({
+            'x': tf.FixedLenFeature([], tf.int64),
+        }))
+    input_data_dict = {
+        span_0_key: [{
+            'x': -2,
+        }, {
+            'x': -4,
+        }, {
+            'x': -1,
+        }, {
+            'x': 4,
+        }],
+        span_1_key: [{
+            'x': -2,
+        }, {
+            'x': -1,
+        }, {
+            'x': 6,
+        }, {
+            'x': 7,
+        }],
+    }
+    expected_transformed_data = [{
+        'x_vocab': 0,
+    }, {
+        'x_vocab': 1,
+    }, {
+        'x_vocab': -1,
+    }, {
+        'x_vocab': -1,
+    }]
+    with beam_impl.Context(temp_dir=self.get_temp_dir()):
+      with beam.Pipeline() as p:
+
+        flat_data = p | 'CreateInputData' >> beam.Create(
+            list(itertools.chain(*input_data_dict.values())))
+
+        # TODO(b/37788560): Get these names programmatically.
+        cache_dict = {
+            span_0_key: {
+                '__v0__VocabularyAccumulate--compute_and_apply_vocabulary-vocabulary--':
+                    p | 'CreateB' >> beam.Create(
+                        [b'[-2, 2]', b'[-4, 1]', b'[-1, 1]', b'[4, 1]']),
+            },
+            span_1_key: {},
+        }
+
+        transform_fn, cache_output = (
+            (flat_data, input_data_dict, cache_dict, input_metadata)
+            | 'Analyze' >>
+            (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
+        _ = cache_output | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
+            self._cache_dir)
+
+        transformed_dataset = (((input_data_dict[span_1_key], input_metadata),
+                                transform_fn)
+                               | 'Transform' >> beam_impl.TransformDataset())
+
+        transformed_data, _ = transformed_dataset
+
+        beam_test_util.assert_that(
+            transformed_data,
+            beam_test_util.equal_to(expected_transformed_data),
+            label='first')
 
   def test_non_frequency_vocabulary_merge(self):
     """This test compares vocabularies produced with and without cache."""

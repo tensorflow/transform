@@ -99,7 +99,7 @@ node [shape=Mrecord];
 "CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0]";
 "TensorSource[x]" [label="{ExtractFromDict|keys: ('x/Reshape',)|label: TensorSource[x]|partitionable: True}"];
 "ApplySavedModel[0]" -> "TensorSource[x]";
-"VocabularyAccumulate[x]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|label: VocabularyAccumulate[x]|partitionable: True}"];
+"VocabularyAccumulate[x]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|input_dtype: string|label: VocabularyAccumulate[x]|partitionable: True}"];
 "TensorSource[x]" -> "VocabularyAccumulate[x]";
 "VocabularyMerge[x]" [label="{VocabularyMerge|vocab_ordering_type: 1|use_adjusted_mutual_info: False|min_diff_from_avg: 0.0|label: VocabularyMerge[x]}"];
 "VocabularyAccumulate[x]" -> "VocabularyMerge[x]";

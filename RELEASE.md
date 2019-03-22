@@ -11,6 +11,8 @@
   counts. This is useful for load balancing the training parameter servers.
   This is an experimental feature.
 * Fix numerical instability in `tft.vocabulary` mutual information calculations
+* `tft.vocabulary` and `tft.compute_and_apply_vocabulary` now support computing
+  vocabularies over integer categoricals
 
 ## Breaking changes
 

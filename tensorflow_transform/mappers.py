@@ -444,7 +444,7 @@ def compute_and_apply_vocabulary(
   operation.
 
   Args:
-    x: A `Tensor` or `SparseTensor` of type tf.string.
+    x: A `Tensor` or `SparseTensor` of type tf.string or tf.int[8|16|32|64].
     default_value: The value to use for out-of-vocabulary values, unless
       'num_oov_buckets' is greater than zero.
     top_k: Limit the generated vocabulary to the first `top_k` elements. If set
@@ -556,9 +556,9 @@ def apply_vocabulary(x,
   files. This behavior will likely be fixed/improved in the future.
 
   Args:
-    x: A `Tensor` or `SparseTensor` of type tf.string to which the vocabulary
-      transformation should be applied.
-      The column names are those intended for the transformed tensors.
+    x: A categorical `Tensor` or `SparseTensor` of type tf.string or
+      tf.int[8|16|32|64] to which the vocabulary transformation should be
+      applied. The column names are those intended for the transformed tensors.
     deferred_vocab_filename_tensor: The deferred vocab filename tensor as
       returned by `tft.vocabulary`.
     default_value: The value to use for out-of-vocabulary values, unless
@@ -580,13 +580,18 @@ def apply_vocabulary(x,
     assigned default_value.
   """
   with tf.name_scope(name, 'apply_vocab'):
+    if x.dtype != tf.string and not x.dtype.is_integer:
+      raise tf.errors.InvalidArgumentError(
+          'expected tf.string or tf.int[8|16|32|64] but got %r' % x.dtype)
+
     if lookup_fn:
       result, table_size = lookup_fn(x, deferred_vocab_filename_tensor)
     else:
       table = lookup_ops.index_table_from_file(
           deferred_vocab_filename_tensor,
           num_oov_buckets=num_oov_buckets,
-          default_value=default_value)
+          default_value=default_value,
+          key_dtype=x.dtype)
       table_size = table.size()
       result = table.lookup(x)
 

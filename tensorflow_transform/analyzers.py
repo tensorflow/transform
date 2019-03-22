@@ -723,6 +723,10 @@ def vocabulary(x,
   will be discarded since we are currently writing the vocabularies as text
   files. This behavior will likely be fixed/improved in the future.
 
+  If an integer `Tensor` is provided, its semantic type should be categorical
+  not a continuous/numeric, since computing a vocabulary over a continuous
+  feature is not appropriate.
+
   The unique values are sorted by decreasing frequency and then reverse
   lexicographical order (e.g. [('a', 5), ('c', 3), ('b', 3)]).
 
@@ -753,7 +757,8 @@ def vocabulary(x,
   within each vocabulary entry (b/117796748).
 
   Args:
-    x: An input `Tensor` or `SparseTensor` with dtype tf.string.
+    x: A categorical/discrete input `Tensor` or `SparseTensor` with dtype
+      tf.string or tf.int[8|16|32|64].
     top_k: Limit the generated vocabulary to the first `top_k` elements. If set
       to None, the full vocabulary is generated.
     frequency_threshold: Limit the generated vocabulary only to elements whose
@@ -823,8 +828,8 @@ def vocabulary(x,
   if isinstance(x, tf.SparseTensor):
     x = x.values
 
-  if x.dtype != tf.string:
-    raise ValueError('expected tf.string but got %r' % x.dtype)
+  if x.dtype != tf.string and not x.dtype.is_integer:
+    raise ValueError('expected tf.string or integer but got %r' % x.dtype)
 
   with tf.name_scope(name, 'vocabulary'):
     vocab_filename = _get_vocab_filename(vocab_filename, store_frequency)
@@ -858,8 +863,10 @@ def vocabulary(x,
         analyzer_inputs)
 
     accumulate_output_value_node = nodes.apply_operation(
-        analyzer_nodes.VocabularyAccumulate, input_values_node,
-        vocab_ordering_type=vocab_ordering_type)
+        analyzer_nodes.VocabularyAccumulate,
+        input_values_node,
+        vocab_ordering_type=vocab_ordering_type,
+        input_dtype=x.dtype.name)
 
     merge_output_value_node = nodes.apply_operation(
         analyzer_nodes.VocabularyMerge, accumulate_output_value_node,

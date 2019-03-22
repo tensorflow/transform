@@ -334,7 +334,7 @@ class CacheableCombinePerKeyMerge(CacheableCombineMerge):
 
 class VocabularyAccumulate(
     collections.namedtuple('VocabularyAccumulate',
-                           ['vocab_ordering_type', 'label']),
+                           ['vocab_ordering_type', 'input_dtype', 'label']),
     nodes.OperationDef):
   """An operation that accumulates unique words with their frequency or weight.
 
@@ -342,12 +342,15 @@ class VocabularyAccumulate(
   `tensorflow_transform.beam.analyzer_impls.VocabularyAccumulateImpl`.
   """
 
-  def __new__(cls, vocab_ordering_type, label=None):
+  def __new__(cls, vocab_ordering_type, input_dtype=tf.string.name, label=None):
     if label is None:
       scope = tf.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(VocabularyAccumulate, cls).__new__(
-        cls, vocab_ordering_type=vocab_ordering_type, label=label)
+        cls,
+        vocab_ordering_type=vocab_ordering_type,
+        input_dtype=input_dtype,
+        label=label)
 
   @property
   def num_outputs(self):
@@ -359,16 +362,21 @@ class VocabularyAccumulate(
 
   @property
   def cache_coder(self):
-    return _VocabularyAccumulatorCoder()
+    return _VocabularyAccumulatorCoder(input_dtype=self.input_dtype)
 
 
 class _VocabularyAccumulatorCoder(CacheCoder):
   """Coder for vocabulary accumulators."""
 
+  def __init__(self, input_dtype=tf.string.name):
+    self._input_dtype = tf.dtypes.as_dtype(input_dtype)
+
   def encode_cache(self, accumulator):
     # Need to wrap in np.array and call tolist to make it JSON serializable.
     word, count = accumulator
-    accumulator = (tf.compat.as_text(word), count)
+    if self._input_dtype == tf.string:
+      word = tf.compat.as_text(word)
+    accumulator = (word, count)
     return tf.compat.as_bytes(
         json.dumps(np.array(accumulator, dtype=object).tolist()))
 
