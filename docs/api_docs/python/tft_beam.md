@@ -7,6 +7,12 @@
 
 Module level imports for tensorflow_transform.beam.
 
+## Modules
+
+[`analyzer_cache`](./tft_beam/analyzer_cache.md) module: Module which allows a pipeilne to define and utilize cached analyzers.
+
+[`info_theory`](./tft_beam/info_theory.md) module: Utilities for information-theoretic preprocessing algorithms.
+
 ## Classes
 
 [`class AnalyzeAndTransformDataset`](./tft_beam/AnalyzeAndTransformDataset.md): Combination of AnalyzeDataset and TransformDataset.

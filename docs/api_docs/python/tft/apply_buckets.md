@@ -20,7 +20,7 @@ Returns a bucketized column, with a bucket index assigned to each input.
 * <b>`x`</b>: A numeric input `Tensor` or `SparseTensor` whose values should be mapped
       to buckets.  For `SparseTensor`s, the non-missing values will be mapped
       to buckets and missing value left missing.
-* <b>`bucket_boundaries`</b>: The bucket boundaries represented as a rank 1 `Tensor`.
+* <b>`bucket_boundaries`</b>: The bucket boundaries represented as a rank 2 `Tensor`.
 * <b>`name`</b>: (Optional) A name for this operation.
 
 

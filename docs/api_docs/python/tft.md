@@ -33,6 +33,8 @@ Init module for TF.Transform.
 
 [`apply_buckets(...)`](./tft/apply_buckets.md): Returns a bucketized column, with a bucket index assigned to each input.
 
+[`apply_buckets_with_interpolation(...)`](./tft/apply_buckets_with_interpolation.md): Interpolates within the provided buckets and then normalizes to 0 to 1.
+
 [`apply_function(...)`](./tft/apply_function.md): Deprecated function, equivalent to fn(*args). (deprecated)
 
 [`apply_function_with_checkpoint(...)`](./tft/apply_function_with_checkpoint.md): Applies a tensor-in-tensor-out function with variables to some `Tensor`s.

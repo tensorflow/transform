@@ -20,6 +20,7 @@ tft.compute_and_apply_vocabulary(
     coverage_top_k=None,
     coverage_frequency_threshold=None,
     key_fn=None,
+    fingerprint_shuffle=False,
     name=None
 )
 ```
@@ -37,7 +38,7 @@ operation.
 
 #### Args:
 
-* <b>`x`</b>: A `Tensor` or `SparseTensor` of type tf.string.
+* <b>`x`</b>: A `Tensor` or `SparseTensor` of type tf.string or tf.int[8|16|32|64].
 * <b>`default_value`</b>: The value to use for out-of-vocabulary values, unless
     'num_oov_buckets' is greater than zero.
 * <b>`top_k`</b>: Limit the generated vocabulary to the first `top_k` elements. If set
@@ -73,6 +74,10 @@ operation.
 * <b>`key_fn`</b>: (Optional), (Experimental) A fn that takes in a single entry of `x`
     and returns the corresponding key for coverage calculation. If this is
     `None`, no coverage arm is added to the vocabulary.
+* <b>`fingerprint_shuffle`</b>: (Optional), (Experimental) Whether to sort the
+    vocabularies by fingerprint instead of counts. This is useful for load
+    balancing on the training parameter servers. Shuffle only happens while
+    writing the files, so all the filters above will still take effect.
 * <b>`name`</b>: (Optional) A name for this operation.
 
 

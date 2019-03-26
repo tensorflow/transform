@@ -28,9 +28,9 @@ files. This behavior will likely be fixed/improved in the future.
 
 #### Args:
 
-* <b>`x`</b>: A `Tensor` or `SparseTensor` of type tf.string to which the vocabulary
-    transformation should be applied.
-    The column names are those intended for the transformed tensors.
+* <b>`x`</b>: A categorical `Tensor` or `SparseTensor` of type tf.string or
+    tf.int[8|16|32|64] to which the vocabulary transformation should be
+    applied. The column names are those intended for the transformed tensors.
 * <b>`deferred_vocab_filename_tensor`</b>: The deferred vocab filename tensor as
     returned by <a href="../tft/vocabulary.md"><code>tft.vocabulary</code></a>.
 * <b>`default_value`</b>: The value to use for out-of-vocabulary values, unless

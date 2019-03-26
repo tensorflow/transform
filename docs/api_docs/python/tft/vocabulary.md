@@ -19,6 +19,7 @@ tft.vocabulary(
     coverage_top_k=None,
     coverage_frequency_threshold=None,
     key_fn=None,
+    fingerprint_shuffle=False,
     name=None
 )
 ```
@@ -32,6 +33,10 @@ dimensions of `x` and all instances.
 In case one of the tokens contains the '\n' or '\r' characters or is empty it
 will be discarded since we are currently writing the vocabularies as text
 files. This behavior will likely be fixed/improved in the future.
+
+If an integer `Tensor` is provided, its semantic type should be categorical
+not a continuous/numeric, since computing a vocabulary over a continuous
+feature is not appropriate.
 
 The unique values are sorted by decreasing frequency and then reverse
 lexicographical order (e.g. [('a', 5), ('c', 3), ('b', 3)]).
@@ -64,7 +69,8 @@ within each vocabulary entry (b/117796748).
 
 #### Args:
 
-* <b>`x`</b>: An input `Tensor` or `SparseTensor` with dtype tf.string.
+* <b>`x`</b>: A categorical/discrete input `Tensor` or `SparseTensor` with dtype
+    tf.string or tf.int[8|16|32|64].
 * <b>`top_k`</b>: Limit the generated vocabulary to the first `top_k` elements. If set
     to None, the full vocabulary is generated.
 * <b>`frequency_threshold`</b>: Limit the generated vocabulary only to elements whose
@@ -98,6 +104,11 @@ within each vocabulary entry (b/117796748).
 * <b>`key_fn`</b>: (Optional), (Experimental) A fn that takes in a single entry of `x`
     and returns the corresponding key for coverage calculation. If this is
     `None`, no coverage arm is added to the vocabulary.
+* <b>`fingerprint_shuffle`</b>: (Optional), (Experimental) Whether to sort the
+    vocabularies by fingerprint instead of counts. This is useful for load
+    balancing on the training parameter servers. Shuffle only happens while
+    writing the files, so all the filters above (top_k, frequency_threshold,
+    etc) will still take effect.
 * <b>`name`</b>: (Optional) A name for this operation.
 
 

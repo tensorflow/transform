@@ -4,6 +4,7 @@
 <meta itemprop="property" content="accumulator_coder"/>
 <meta itemprop="property" content="__init__"/>
 <meta itemprop="property" content="add_input"/>
+<meta itemprop="property" content="compute_running_update"/>
 <meta itemprop="property" content="create_accumulator"/>
 <meta itemprop="property" content="extract_output"/>
 <meta itemprop="property" content="merge_accumulators"/>
@@ -61,6 +62,18 @@ Composes an accumulator from batch_values and calls merge_accumulators.
 #### Returns:
 
 A `_MeanAndVarAccumulator` which is accumulator and batch_values combined.
+
+<h3 id="compute_running_update"><code>compute_running_update</code></h3>
+
+``` python
+compute_running_update(
+    total_count,
+    current_count,
+    update
+)
+```
+
+Numerically stable way of computing a streaming batched update.
 
 <h3 id="create_accumulator"><code>create_accumulator</code></h3>
 
