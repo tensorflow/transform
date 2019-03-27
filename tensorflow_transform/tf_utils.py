@@ -138,21 +138,39 @@ def reduce_batch_count(x, reduce_instance_dims):
     reduce_instance_dims is True, otherwise a `Tensor` of the same shape as `x`.
   """
   if isinstance(x, tf.SparseTensor):
-    if reduce_instance_dims:
-      x = x.values
-    else:
-      ones_like = tf.SparseTensor(
-          indices=x.indices,
-          values=tf.ones_like(x.values, tf.int64),
-          dense_shape=x.dense_shape)
-      return tf.sparse.reduce_sum(ones_like, axis=0)
+    ones_like = tf.SparseTensor(
+      indices=x.indices,
+      values=tf.ones_like(x.values, tf.int64),
+      dense_shape=x.dense_shape
+    )
+  else:
+    ones_like = tf.where(tf.is_nan(tf.cast(x, tf.float32)), tf.zeros_like(x), tf.ones_like(x))
 
-  if reduce_instance_dims:
-    return tf.size(input=x)
+  return reduce_batch_sum(ones_like, reduce_instance_dims)
 
-  # Fill a tensor shaped like x except batch_size=1 with batch_size.
-  x_shape = tf.shape(input=x)
-  return tf.fill(x_shape[1:], x_shape[0])
+
+def reduce_batch_sum(x, reduce_instance_dims):
+  """Sum elements in the given tensor.
+
+  Args:
+    x: A `Tensor` or `SparseTensor`.
+    reduce_instance_dims: A bool, if True - collapses the batch and instance
+        dimensions to arrive at a single scalar output. Otherwise, only
+        collapses the batch dimension and outputs a `Tensor` of the same shape
+        as the input.
+
+  Returns:
+    The element sum of `x`. The result is either a scalar if
+    reduce_instance_dims is True, otherwise a `Tensor` of the same shape as `x`.
+  """
+  axis = None if reduce_instance_dims else 0
+
+  if isinstance(x, tf.SparseTensor):
+    return tf.sparse_reduce_sum(x, axis=axis)
+
+  # If we have a dense tensor with nans, do not include in the sum
+  x = tf.where(tf.is_nan(tf.cast(x, tf.float32)), tf.zeros_like(x), x)
+  return tf.reduce_sum(x, axis=axis)
 
 
 def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
@@ -172,12 +190,7 @@ def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
     x = x.values
 
   x_count = tf.cast(reduce_batch_count(x, reduce_instance_dims), x.dtype)
-
-  reduce_sum_fn = (
-      tf.sparse.reduce_sum if isinstance(x, tf.SparseTensor) else tf.reduce_sum)
-  axis = None if reduce_instance_dims else 0
-
-  x_mean = reduce_sum_fn(x, axis=axis) / x_count
+  x_mean = reduce_batch_sum(x, reduce_instance_dims) / x_count
 
   if isinstance(x, tf.SparseTensor):
     # This means reduce_instance_dims=False.
@@ -190,8 +203,7 @@ def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
     x_minus_mean = x.values - mean_values
   else:
     x_minus_mean = x - x_mean
-  x_variance = tf.reduce_sum(
-      input_tensor=tf.square(x_minus_mean), axis=axis) / x_count
+  x_variance = reduce_batch_sum(tf.square(x_minus_mean), reduce_instance_dims) / x_count
 
   return (x_count, x_mean, x_variance)
 
