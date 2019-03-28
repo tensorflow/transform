@@ -57,7 +57,7 @@ def reduce_batch_vocabulary(x, vocab_ordering_type,
     return (x, None, None, None)
 
   if vocab_ordering_type == VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION:
-    tf.assert_type(labels, tf.int64)
+    tf.compat.v1.assert_type(labels, tf.int64)
     x = assert_same_shape(x, labels)
     if weights is None:
       weights = tf.ones_like(labels)
@@ -85,21 +85,22 @@ def _reduce_vocabulary_inputs(x, weights, labels=None):
   """
   unique = tf.unique_with_counts(x, out_idx=tf.int64)
 
-  summed_weights = tf.unsorted_segment_sum(weights, unique.idx,
-                                           tf.size(unique.y))
+  summed_weights = tf.math.unsorted_segment_sum(weights, unique.idx,
+                                                tf.size(input=unique.y))
   if labels is None:
     summed_positive_weights = None
     counts = None
   else:
-    less_assert = tf.Assert(tf.less_equal(tf.reduce_max(labels), 1), [labels])
-    greater_assert = tf.Assert(tf.greater_equal(
-        tf.reduce_min(labels), 0), [labels])
+    less_assert = tf.Assert(
+        tf.less_equal(tf.reduce_max(input_tensor=labels), 1), [labels])
+    greater_assert = tf.Assert(
+        tf.greater_equal(tf.reduce_min(input_tensor=labels), 0), [labels])
     with tf.control_dependencies([less_assert, greater_assert]):
       labels = tf.identity(labels)
     positive_weights = (
         tf.cast(labels, tf.float32) * tf.cast(weights, tf.float32))
-    summed_positive_weights = tf.unsorted_segment_sum(
-        positive_weights, unique.idx, tf.size(unique.y))
+    summed_positive_weights = tf.math.unsorted_segment_sum(
+        positive_weights, unique.idx, tf.size(input=unique.y))
     counts = unique.count
 
   return (unique.y, summed_weights, summed_positive_weights, counts)
@@ -117,7 +118,7 @@ def assert_same_shape(x, y):
     check is executed.
   """
   x.shape.assert_is_compatible_with(y.shape)
-  assert_eq = tf.assert_equal(tf.shape(x), tf.shape(y))
+  assert_eq = tf.compat.v1.assert_equal(tf.shape(input=x), tf.shape(input=y))
   with tf.control_dependencies([assert_eq]):
     return tf.identity(x)
 
@@ -144,13 +145,13 @@ def reduce_batch_count(x, reduce_instance_dims):
           indices=x.indices,
           values=tf.ones_like(x.values, tf.int64),
           dense_shape=x.dense_shape)
-      return tf.sparse_reduce_sum(ones_like, axis=0)
+      return tf.sparse.reduce_sum(ones_like, axis=0)
 
   if reduce_instance_dims:
-    return tf.size(x)
+    return tf.size(input=x)
 
   # Fill a tensor shaped like x except batch_size=1 with batch_size.
-  x_shape = tf.shape(x)
+  x_shape = tf.shape(input=x)
   return tf.fill(x_shape[1:], x_shape[0])
 
 
@@ -173,7 +174,7 @@ def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
   x_count = tf.cast(reduce_batch_count(x, reduce_instance_dims), x.dtype)
 
   reduce_sum_fn = (
-      tf.sparse_reduce_sum if isinstance(x, tf.SparseTensor) else tf.reduce_sum)
+      tf.sparse.reduce_sum if isinstance(x, tf.SparseTensor) else tf.reduce_sum)
   axis = None if reduce_instance_dims else 0
 
   x_mean = reduce_sum_fn(x, axis=axis) / x_count
@@ -189,7 +190,8 @@ def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
     x_minus_mean = x.values - mean_values
   else:
     x_minus_mean = x - x_mean
-  x_variance = tf.reduce_sum(tf.square(x_minus_mean), axis=axis) / x_count
+  x_variance = tf.reduce_sum(
+      input_tensor=tf.square(x_minus_mean), axis=axis) / x_count
 
   return (x_count, x_mean, x_variance)
 
@@ -211,17 +213,15 @@ def _encode_proto(values_dict, message_type):
   values = []
   for field_name, value in sorted(values_dict.items(), key=lambda x: x[0]):
     if isinstance(value, tf.SparseTensor):
-      size = tf.sparse_reduce_sum(
-          tf.SparseTensor(
-              value.indices,
-              tf.ones_like(value.values, dtype=tf.int32),
-              value.dense_shape),
+      size = tf.sparse.reduce_sum(
+          tf.SparseTensor(value.indices,
+                          tf.ones_like(value.values, dtype=tf.int32),
+                          value.dense_shape),
           axis=1)
-      value = tf.sparse_tensor_to_dense(
-          value, _DEFAULT_VALUE_BY_DTYPE[value.dtype])
+      value = tf.sparse.to_dense(value, _DEFAULT_VALUE_BY_DTYPE[value.dtype])
     else:
-      value = tf.reshape(value, [tf.shape(value)[0], -1])
-      size = tf.fill((tf.shape(value)[0],), tf.shape(value)[1])
+      value = tf.reshape(value, [tf.shape(input=value)[0], -1])
+      size = tf.fill((tf.shape(input=value)[0],), tf.shape(input=value)[1])
     field_names.append(field_name)
     values.append(value)
     sizes.append(size)
@@ -251,7 +251,7 @@ def _serialize_feature(values):
     ValueError: If the dtype is of `values` is not `tf.string`, `tf.float32`
         or `tf.int64`.
   """
-  values = tf.convert_to_tensor_or_sparse_tensor(values)
+  values = tf.compat.v1.convert_to_tensor_or_sparse_tensor(values)
   if values.dtype == tf.string:
     values_dict = {
         'bytes_list': _encode_proto({'value': values}, 'tensorflow.BytesList')
@@ -286,12 +286,11 @@ def serialize_example(features):
   features_dict = []
   for key, value in sorted(features.items(), key=lambda x: x[0]):
     serialized_value = _serialize_feature(value)
-    features_dict.append(_encode_proto(
-        {
-            'key': tf.fill((tf.shape(serialized_value)[0],), key),
+    features_dict.append(
+        _encode_proto({
+            'key': tf.fill((tf.shape(input=serialized_value)[0],), key),
             'value': serialized_value,
-        },
-        'tensorflow.Features.FeatureEntry'))
+        }, 'tensorflow.Features.FeatureEntry'))
   features_dict = tf.stack(features_dict, axis=1)
   features = _encode_proto({'feature': features_dict}, 'tensorflow.Features')
   return _encode_proto({'features': features}, 'tensorflow.Example')
@@ -320,8 +319,8 @@ def _sparse_minus_reduce_min_and_reduce_max(x):
       indices=x.indices, values=0 - x.values, dense_shape=x.dense_shape)
   x_count = reduce_batch_count(x, reduce_instance_dims=False)
   batch_has_no_values = tf.equal(x_count, tf.constant(0, dtype=tf.int64))
-  x_batch_max = tf.sparse_reduce_max(x, axis=0)
-  x_batch_minus_min = tf.sparse_reduce_max(minus_x, axis=0)
+  x_batch_max = tf.sparse.reduce_max(sp_input=x, axis=0)
+  x_batch_minus_min = tf.sparse.reduce_max(sp_input=minus_x, axis=0)
 
   if x.dtype.is_floating:
     missing_value = tf.constant(_FLOATING_NAN, x.dtype)
@@ -329,10 +328,11 @@ def _sparse_minus_reduce_min_and_reduce_max(x):
     missing_value = tf.constant(x.dtype.min + 1, x.dtype)
 
   x_batch_max = tf.where(batch_has_no_values,
-                         tf.fill(tf.shape(x_batch_max), missing_value),
+                         tf.fill(tf.shape(input=x_batch_max), missing_value),
                          x_batch_max)
   x_batch_minus_min = tf.where(
-      batch_has_no_values, tf.fill(tf.shape(x_batch_minus_min), missing_value),
+      batch_has_no_values,
+      tf.fill(tf.shape(input=x_batch_minus_min), missing_value),
       x_batch_minus_min)
   return x_batch_minus_min, x_batch_max
 
@@ -340,7 +340,7 @@ def _sparse_minus_reduce_min_and_reduce_max(x):
 def _inf_to_nan(tensor, output_dtype):
   if tensor.dtype.is_floating:
     nan = tf.constant(_FLOATING_NAN, output_dtype)
-    return tf.where(tf.is_inf(tensor), tensor + nan, tensor)
+    return tf.where(tf.math.is_inf(tensor), tensor + nan, tensor)
   return tensor
 
 
@@ -369,15 +369,15 @@ def reduce_batch_minus_min_and_max(x, reduce_instance_dims):
     if isinstance(x, tf.SparseTensor):
       x = x.values
 
-    x_batch_max = tf.reduce_max(x)
-    x_batch_minus_min = tf.reduce_max(tf.zeros_like(x) - x)
+    x_batch_max = tf.reduce_max(input_tensor=x)
+    x_batch_minus_min = tf.reduce_max(input_tensor=tf.zeros_like(x) - x)
     x_batch_minus_min = assert_same_shape(x_batch_minus_min, x_batch_max)
   elif isinstance(x, tf.SparseTensor):
     x_batch_minus_min, x_batch_max = (
         _sparse_minus_reduce_min_and_reduce_max(x))
   else:
-    x_batch_max = tf.reduce_max(x, axis=0)
-    x_batch_minus_min = tf.reduce_max(0 - x, axis=0)
+    x_batch_max = tf.reduce_max(input_tensor=x, axis=0)
+    x_batch_minus_min = tf.reduce_max(input_tensor=0 - x, axis=0)
 
   # TODO(b/112309021): tf.reduce_max of a tensor of all NaNs produces -inf.
   return (_inf_to_nan(x_batch_minus_min, output_dtype),

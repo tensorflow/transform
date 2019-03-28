@@ -24,8 +24,8 @@ from tensorflow_transform.tf_metadata import dataset_schema
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 _FEATURE_SPEC = {
-    'fixed_column': tf.FixedLenFeature([3], tf.string),
-    'list_columm': tf.VarLenFeature(tf.int64),
+    'fixed_column': tf.io.FixedLenFeature([3], tf.string),
+    'list_columm': tf.io.VarLenFeature(tf.int64),
 }
 
 COMPLETE_METADATA = dataset_metadata.DatasetMetadata(

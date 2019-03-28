@@ -237,7 +237,7 @@ class Context(object):
     base_temp_dir = os.path.join(state.temp_dir, cls._TEMP_SUBDIR)
 
     # TODO(b/35363519): Perhaps use Beam IO eventually?
-    tf.gfile.MakeDirs(base_temp_dir)
+    tf.io.gfile.makedirs(base_temp_dir)
     return base_temp_dir
 
   @classmethod
@@ -245,7 +245,8 @@ class Context(object):
     """Retrieves a user set fixed batch size, None if not set."""
     state = cls._get_topmost_state_frame()
     if state is not None and state.desired_batch_size is not None:
-      tf.logging.info('Using fixed batch size: %d', state.desired_batch_size)
+      tf.compat.v1.logging.info('Using fixed batch size: %d',
+                                state.desired_batch_size)
       return state.desired_batch_size
     return None
 
@@ -280,7 +281,7 @@ def _BatchElements(pcoll):  # pylint: disable=invalid-name
 
 # TODO(b/36223892): Verify that these type hints work and make needed fixes.
 @with_input_types(List[_DATASET_ELEMENT_TYPE], str)
-@with_output_types(Dict[str, Union[np.ndarray, tf.SparseTensorValue]])
+@with_output_types(Dict[str, Union[np.ndarray, tf.compat.v1.SparseTensorValue]])
 class _RunMetaGraphDoFn(beam.DoFn):
   """Maps a PCollection of dicts to a PCollection of dicts via a TF graph.
 
@@ -308,14 +309,14 @@ class _RunMetaGraphDoFn(beam.DoFn):
                  tf_config):
       self.saved_model_dir = saved_model_dir
       graph = tf.Graph()
-      self._session = tf.Session(graph=graph, config=tf_config)
+      self._session = tf.compat.v1.Session(graph=graph, config=tf_config)
       with graph.as_default():
         with self._session.as_default():
           inputs, outputs = (
               saved_transform_io.partially_apply_saved_transform_internal(
                   saved_model_dir, {}))
-        self._session.run(tf.global_variables_initializer())
-        self._session.run(tf.tables_initializer())
+        self._session.run(tf.compat.v1.global_variables_initializer())
+        self._session.run(tf.compat.v1.tables_initializer())
         graph.finalize()
 
         input_schema_keys = input_schema.as_feature_spec().keys()
@@ -389,8 +390,9 @@ class _RunMetaGraphDoFn(beam.DoFn):
     try:
       outputs_list = self._graph_state.callable_get_outputs(*feed_list)
     except Exception as e:
-      tf.logging.error('%s while applying transform function for tensors %s',
-                       e, self._graph_state.outputs_tensor_keys)
+      tf.compat.v1.logging.error(
+          '%s while applying transform function for tensors %s', e,
+          self._graph_state.outputs_tensor_keys)
       raise ValueError('bad inputs: {}'.format(feed_list))
 
     assert len(self._graph_state.outputs_tensor_keys) == len(outputs_list)
@@ -521,16 +523,16 @@ def _replace_tensors_with_constant_values(saved_model_dir, tensor_bindings,
     for value, tensor_name, is_asset_filepath in tensor_bindings:
       replacement_tensor = tf.constant(value)
       if is_asset_filepath:
-        graph.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS,
+        graph.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
                                 replacement_tensor)
       tensor_replacement_map[tensor_name] = replacement_tensor
 
-    with tf.Session(graph=graph) as session:
+    with tf.compat.v1.Session(graph=graph) as session:
       temp_dir = common.get_unique_temp_path(base_temp_dir)
       input_tensors, output_tensors = (
           saved_transform_io.partially_apply_saved_transform_internal(
               saved_model_dir, {}, tensor_replacement_map))
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       saved_transform_io.write_saved_transform_from_session(
           session, input_tensors, output_tensors, temp_dir)
     return temp_dir
@@ -542,14 +544,14 @@ def _create_saved_model_impl(inputs, operation, extra_args):
   unbound_saved_model_dir = common.get_unique_temp_path(
       extra_args.base_temp_dir)
   with extra_args.graph.as_default():
-    with tf.Session(graph=extra_args.graph) as session:
-      table_initializers_ref = tf.get_collection_ref(
-          tf.GraphKeys.TABLE_INITIALIZERS)
+    with tf.compat.v1.Session(graph=extra_args.graph) as session:
+      table_initializers_ref = tf.compat.v1.get_collection_ref(
+          tf.compat.v1.GraphKeys.TABLE_INITIALIZERS)
       original_table_initializers = list(table_initializers_ref)
       del table_initializers_ref[:]
       table_initializers_ref.extend(operation.table_initializers)
       # Initialize all variables so they can be saved.
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       saved_transform_io.write_saved_transform_from_session(
           session, extra_args.input_signature, operation.output_signature,
           unbound_saved_model_dir)
@@ -603,7 +605,8 @@ class _ApplySavedModelImpl(beam.PTransform):
     if self._phase > 0 and Context.get_use_deep_copy_optimization():
       # Obviates unnecessary data materialization when the input data source is
       # safe to read more than once.
-      tf.logging.info('Deep copying inputs for phase: %d', self._phase)
+      tf.compat.v1.logging.info('Deep copying inputs for phase: %d',
+                                self._phase)
       input_values = deep_copy.deep_copy(self._input_values_pcoll)
     else:
       input_values = self._input_values_pcoll
@@ -645,13 +648,13 @@ class _Flatten(beam.PTransform):
 def _infer_metadata_from_saved_model(saved_model_dir):
   """Infers a DatasetMetadata for outputs of a SavedModel."""
   with tf.Graph().as_default() as graph:
-    with tf.Session(graph=graph) as session:
+    with tf.compat.v1.Session(graph=graph) as session:
       _, outputs = (
           saved_transform_io.partially_apply_saved_transform_internal(
               saved_model_dir, {}))
 
-      session.run(tf.global_variables_initializer())
-      session.run(tf.tables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
+      session.run(tf.compat.v1.tables_initializer())
       return dataset_metadata.DatasetMetadata(
           schema=schema_inference.infer_feature_schema(outputs, graph, session))
 
@@ -697,7 +700,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
 
     with tf.Graph().as_default() as graph:
 
-      with tf.name_scope('inputs'):
+      with tf.compat.v1.name_scope('inputs'):
         feature_spec = input_schema.as_feature_spec()
         input_signature = impl_helper.feature_spec_as_batched_placeholders(
             feature_spec)
@@ -720,11 +723,12 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     if not output_signature:
       raise ValueError('The preprocessing function returned an empty dict')
 
-    if graph.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES):
+    if graph.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES):
       raise ValueError(
           'The preprocessing function contained trainable variables '
           '{}'.format(
-              graph.get_collection_ref(tf.GraphKeys.TRAINABLE_VARIABLES)))
+              graph.get_collection_ref(
+                  tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES)))
 
     pipeline = flattened_pcoll.pipeline
     serialized_tf_config = common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
@@ -882,7 +886,8 @@ class AnalyzeAndTransformDataset(beam.PTransform):
 
       # obviates unnecessary data materialization when the input data source is
       # safe to read more than once.
-      tf.logging.info('Deep copying the dataset before applying transformation')
+      tf.compat.v1.logging.info(
+          'Deep copying the dataset before applying transformation')
       dataset = (deep_copy.deep_copy(data), metadata)
 
     transformed_dataset = ((dataset, transform_fn)

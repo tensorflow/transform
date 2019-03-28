@@ -28,19 +28,19 @@ from tensorflow.python.ops import control_flow_ops
 
 
 def _create_graph_with_y_function_of_x():
-  x = tf.placeholder(tf.int64)
+  x = tf.compat.v1.placeholder(tf.int64)
   y = x + 1
   return {'x': x, 'y': y}
 
 
 def _create_graph_with_y_function_of_x_sparse():
-  x = tf.sparse_placeholder(tf.int64)
-  y = tf.sparse_reduce_sum(x) + 1
+  x = tf.compat.v1.sparse_placeholder(tf.int64)
+  y = tf.sparse.reduce_sum(x) + 1
   return {'x': x, 'y': y}
 
 
 def _create_graph_with_y_sparse_function_of_x_sparse():
-  x = tf.sparse_placeholder(tf.int64)
+  x = tf.compat.v1.sparse_placeholder(tf.int64)
   y = tf.SparseTensor(
       indices=x.indices,
       values=x.values + 1,
@@ -49,43 +49,44 @@ def _create_graph_with_y_sparse_function_of_x_sparse():
 
 
 def _create_graph_with_y_function_of_x_and_table():
-  filename = tf.placeholder(tf.string, ())
+  filename = tf.compat.v1.placeholder(tf.string, ())
   table = tf.contrib.lookup.index_table_from_file(filename)
-  x = tf.placeholder(tf.string, (None,))
+  x = tf.compat.v1.placeholder(tf.string, (None,))
   y = table.lookup(x)
   return {'filename': filename, 'x': x, 'y': y}
 
 
 def _create_graph_with_y_function_of_x_and_untracked_table():
-  filename = tf.placeholder(tf.string, ())
+  filename = tf.compat.v1.placeholder(tf.string, ())
   table = tf.contrib.lookup.index_table_from_file(filename)
-  x = tf.placeholder(tf.string, (None,))
+  x = tf.compat.v1.placeholder(tf.string, (None,))
   y = table.lookup(x)
-  del tf.get_collection_ref(tf.GraphKeys.TABLE_INITIALIZERS)[:]
+  del tf.compat.v1.get_collection_ref(
+      tf.compat.v1.GraphKeys.TABLE_INITIALIZERS)[:]
   return {'filename': filename, 'x': x, 'y': y}
 
 
 def _create_graph_with_table_initialized_by_table_output():
-  filename = tf.placeholder(tf.string, ())
+  filename = tf.compat.v1.placeholder(tf.string, ())
   table1 = tf.contrib.lookup.index_table_from_file(filename)
   # Use output from the first table to initialize the second table.
   tensor_keys = tf.as_string(
       table1.lookup(tf.constant(['a', 'b', 'c'], tf.string)))
   table2 = tf.contrib.lookup.index_table_from_tensor(tensor_keys)
-  x = tf.placeholder(tf.string, (None,))
+  x = tf.compat.v1.placeholder(tf.string, (None,))
   y = table2.lookup(x)
   return {'filename': filename, 'x': x, 'y': y}
 
 
 def _create_graph_with_assert_equal():
-  x = tf.placeholder(tf.int64)
-  y = tf.placeholder(tf.int64)
-  z = control_flow_ops.with_dependencies([tf.assert_equal(x, y)], x)
+  x = tf.compat.v1.placeholder(tf.int64)
+  y = tf.compat.v1.placeholder(tf.int64)
+  z = control_flow_ops.with_dependencies([tf.compat.v1.assert_equal(x, y)], x)
   return {'x': x, 'y': y, 'z': z}
 
 
 def _create_graph_with_y_function_of_x_with_tf_while():
-  x = tf.placeholder(tf.int64, ())
+  x = tf.compat.v1.placeholder(tf.int64, ())
 
   # Subtract 10 from x using a tf.while_loop.
   def stop_condition(counter, x_minus_counter):
@@ -94,7 +95,8 @@ def _create_graph_with_y_function_of_x_with_tf_while():
   def iteration(counter, x_minus_counter):
     return tf.add(counter, 1), tf.add(x_minus_counter, -1)
   initial_values = [tf.constant(0), x]
-  final_values = tf.while_loop(stop_condition, iteration, initial_values)
+  final_values = tf.while_loop(
+      cond=stop_condition, body=iteration, loop_vars=initial_values)
 
   y = final_values[1]
   return {'x': x, 'y': y}
@@ -164,7 +166,7 @@ class GraphToolsTest(test_case.TransformTestCase):
                               for name, ready in replaced_tensors_ready.items()}
 
     graph_analyzer = graph_tools.InitializableGraphAnalyzer(
-        tf.get_default_graph(), feeds, replaced_tensors_ready)
+        tf.compat.v1.get_default_graph(), feeds, replaced_tensors_ready)
     self.assertEqual(len(graph_analyzer.ready_table_initializers),
                      num_ready_table_initializers)
 
@@ -212,8 +214,8 @@ class GraphToolsTest(test_case.TransformTestCase):
     replaced_tensors_ready = {tensors[name]: ready
                               for name, ready in replaced_tensors_ready.items()}
     with self.assertRaisesRegexp(ValueError, error_msg_regex):
-      graph_tools.InitializableGraphAnalyzer(
-          tf.get_default_graph(), feeds, replaced_tensors_ready)
+      graph_tools.InitializableGraphAnalyzer(tf.compat.v1.get_default_graph(),
+                                             feeds, replaced_tensors_ready)
 
   @test_case.parameters(
       (_create_graph_with_y_function_of_x, [], {}, 'y',
@@ -244,7 +246,7 @@ class GraphToolsTest(test_case.TransformTestCase):
     replaced_tensors_ready = {tensors[name]: ready
                               for name, ready in replaced_tensors_ready.items()}
     graph_analyzer = graph_tools.InitializableGraphAnalyzer(
-        tf.get_default_graph(), feeds, replaced_tensors_ready)
+        tf.compat.v1.get_default_graph(), feeds, replaced_tensors_ready)
     with self.assertRaisesRegexp(ValueError, error_msg_regex):
       tensor = tensors[fetch]
       graph_analyzer.ready_to_run(tensor)

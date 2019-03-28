@@ -31,12 +31,12 @@ _COLUMNS = [
 ]
 
 _FEATURE_SPEC = {
-    'numeric1': tf.FixedLenFeature([], tf.int64),
-    'numeric2': tf.VarLenFeature(tf.float32),
-    'numeric3': tf.FixedLenFeature([1], tf.int64),
-    'text1': tf.FixedLenFeature([], tf.string),
-    'category1': tf.VarLenFeature(tf.string),
-    'y': tf.SparseFeature('idx', 'value', tf.float32, 10),
+    'numeric1': tf.io.FixedLenFeature([], tf.int64),
+    'numeric2': tf.io.VarLenFeature(tf.float32),
+    'numeric3': tf.io.FixedLenFeature([1], tf.int64),
+    'text1': tf.io.FixedLenFeature([], tf.string),
+    'category1': tf.io.VarLenFeature(tf.string),
+    'y': tf.io.SparseFeature('idx', 'value', tf.float32, 10),
 }
 
 _ENCODE_DECODE_CASES = [
@@ -90,11 +90,11 @@ _ENCODE_DECODE_CASES = [
             'numeric1', 'category1', 'idx', 'numeric2', 'value', 'numeric3'
         ],
         feature_spec={
-            'numeric1': tf.FixedLenFeature([2], tf.int64),
-            'numeric2': tf.VarLenFeature(tf.float32),
-            'numeric3': tf.FixedLenFeature([1], tf.int64),
-            'category1': tf.VarLenFeature(tf.string),
-            'y': tf.SparseFeature('idx', 'value', tf.float32, 10),
+            'numeric1': tf.io.FixedLenFeature([2], tf.int64),
+            'numeric2': tf.io.VarLenFeature(tf.float32),
+            'numeric3': tf.io.FixedLenFeature([1], tf.int64),
+            'category1': tf.io.VarLenFeature(tf.string),
+            'y': tf.io.SparseFeature('idx', 'value', tf.float32, 10),
         },
         csv_line=('11|12,categorical_value|other_value,1|3,89.0|91.0,'
                   '12.0|15.0,20'),
@@ -111,61 +111,67 @@ _ENCODE_DECODE_CASES = [
     dict(
         testcase_name='scalar_int',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([], tf.int64)},
+        feature_spec={'x': tf.io.FixedLenFeature([], tf.int64)},
         csv_line='12',
         instance={'x': 12}),
     dict(
         testcase_name='scalar_float',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([], tf.float32)},
+        feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)},
         csv_line='12',
         instance={'x': 12}),
     dict(
         testcase_name='size_1_vector_int',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([1], tf.int64)},
+        feature_spec={'x': tf.io.FixedLenFeature([1], tf.int64)},
         csv_line='12',
         instance={'x': [12]}),
     dict(
         testcase_name='1x1_matrix_int',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([1, 1], tf.int64)},
+        feature_spec={'x': tf.io.FixedLenFeature([1, 1], tf.int64)},
         csv_line='12',
         instance={'x': [[12]]}),
     dict(
         testcase_name='unquoted_text',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([], tf.string)},
+        feature_spec={'x': tf.io.FixedLenFeature([], tf.string)},
         csv_line='this is unquoted text',
         instance={'x': b'this is unquoted text'}),
     dict(
         testcase_name='quoted_text',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([], tf.string)},
+        feature_spec={'x': tf.io.FixedLenFeature([], tf.string)},
         csv_line='"this is a ,text"',
         instance={'x': b'this is a ,text'}),
     dict(
         testcase_name='var_len_text',
         columns=['x'],
-        feature_spec={'x': tf.VarLenFeature(tf.string)},
+        feature_spec={'x': tf.io.VarLenFeature(tf.string)},
         csv_line='a test',
         instance={'x': [b'a test']}),
     dict(
         testcase_name='sparse_float_one_value',
         columns=['idx', 'value'],
-        feature_spec={'x': tf.SparseFeature('idx', 'value', tf.float32, 10)},
+        feature_spec={'x': tf.io.SparseFeature('idx', 'value', tf.float32, 10)},
         csv_line='5,2.0',
-        instance={'idx': [5], 'value': [2.0]}),
+        instance={
+            'idx': [5],
+            'value': [2.0]
+        }),
     dict(
         testcase_name='sparse_float_no_values',
         columns=['idx', 'value'],
-        feature_spec={'x': tf.SparseFeature('idx', 'value', tf.float32, 10)},
+        feature_spec={'x': tf.io.SparseFeature('idx', 'value', tf.float32, 10)},
         csv_line=',',
-        instance={'idx': [], 'value': []}),
+        instance={
+            'idx': [],
+            'value': []
+        }),
     dict(
         testcase_name='size_2_vector_int_multivalent',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([2], tf.int64)},
+        feature_spec={'x': tf.io.FixedLenFeature([2], tf.int64)},
         csv_line='12|14',
         instance={'x': [12, 14]},
         secondary_delimiter='|',
@@ -173,7 +179,7 @@ _ENCODE_DECODE_CASES = [
     dict(
         testcase_name='2x2_matrix_int_multivalent',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([2, 2], tf.int64)},
+        feature_spec={'x': tf.io.FixedLenFeature([2, 2], tf.int64)},
         csv_line='12|13|14|15',
         instance={'x': [[12, 13], [14, 15]]},
         secondary_delimiter='|',
@@ -184,20 +190,20 @@ _DECODE_ONLY_CASES = [
     dict(
         testcase_name='scalar_float_with_decimal_point',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([], tf.float32)},
+        feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)},
         csv_line='12.0',
         instance={'x': 12}),
     dict(
         testcase_name='scalar_float_with_quoted_value',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([], tf.float32)},
+        feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)},
         csv_line='"12.0"',
         instance={'x': 12}),
     # TODO(b/35847532): Move this once it succeeds a roundtrip decode/encode.
     dict(
         testcase_name='var_len_string_with_missing_value',
         columns=['x'],
-        feature_spec={'x': tf.VarLenFeature(tf.string)},
+        feature_spec={'x': tf.io.VarLenFeature(tf.string)},
         csv_line='',
         instance={'x': []}),
     # TODO(KesterTong): Fix bugs in encoding.
@@ -233,9 +239,9 @@ _DECODE_ONLY_CASES = [
         testcase_name='multiple_missing_var_len_features',
         columns=['a', 'b', 'c'],
         feature_spec={
-            'a': tf.VarLenFeature(tf.float32),
-            'b': tf.VarLenFeature(tf.int64),
-            'c': tf.VarLenFeature(tf.string),
+            'a': tf.io.VarLenFeature(tf.float32),
+            'b': tf.io.VarLenFeature(tf.int64),
+            'c': tf.io.VarLenFeature(tf.string),
         },
         csv_line=',,',
         instance={
@@ -249,12 +255,12 @@ _CONSTRUCTOR_ERROR_CASES = [
     dict(
         testcase_name='size_1_vector_with_missing_value',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([2], tf.int64)},
+        feature_spec={'x': tf.io.FixedLenFeature([2], tf.int64)},
         error_msg=r'FixedLenFeature \"x\" was not multivalent'),
     dict(
         testcase_name='missing_column',
         columns=[],
-        feature_spec={'x': tf.FixedLenFeature([], tf.int64)},
+        feature_spec={'x': tf.io.FixedLenFeature([], tf.int64)},
         error_msg='Column not found: '),
 ]
 
@@ -262,31 +268,31 @@ _DECODE_ERROR_CASES = [
     dict(
         testcase_name='scalar_with_missing_value',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([], tf.int64)},
+        feature_spec={'x': tf.io.FixedLenFeature([], tf.int64)},
         csv_line='',
         error_msg=r'expected a value on column \"x\"'),
     dict(
         testcase_name='size_1_vector_with_missing_value',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([1], tf.int64)},
+        feature_spec={'x': tf.io.FixedLenFeature([1], tf.int64)},
         csv_line='',
         error_msg=r'expected a value on column \"x\"'),
     dict(
         testcase_name='scalar_string_missing_value',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([], tf.string)},
+        feature_spec={'x': tf.io.FixedLenFeature([], tf.string)},
         csv_line='',
         error_msg=r'expected a value on column \"x\"'),
     dict(
         testcase_name='scalar_float_with_non_float_value',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([], tf.float32)},
+        feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)},
         csv_line='test',
         error_msg=r'could not convert string to float*'),
     dict(
         testcase_name='multivalent_scalar_float_too_many_values',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([], tf.float32)},
+        feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)},
         csv_line='1|2',
         error_msg=r'FixedLenFeature \"x\" got wrong number of values',
         secondary_delimiter='|',
@@ -294,7 +300,7 @@ _DECODE_ERROR_CASES = [
     dict(
         testcase_name='multivalent_size_1_vector_float_too_many_values',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([1], tf.float32)},
+        feature_spec={'x': tf.io.FixedLenFeature([1], tf.float32)},
         csv_line='1|2',
         error_msg=r'FixedLenFeature \"x\" got wrong number of values',
         secondary_delimiter='|',
@@ -302,7 +308,7 @@ _DECODE_ERROR_CASES = [
     dict(
         testcase_name='multivalent_size_2_vector_float_too_many_values',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([2], tf.float32)},
+        feature_spec={'x': tf.io.FixedLenFeature([2], tf.float32)},
         csv_line='1',
         error_msg=r'FixedLenFeature \"x\" got wrong number of values',
         secondary_delimiter='|',
@@ -342,7 +348,7 @@ _ENCODE_ERROR_CASES = [
     dict(
         testcase_name='multivalent_size_2_vector_3_values',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([2], tf.string)},
+        feature_spec={'x': tf.io.FixedLenFeature([2], tf.string)},
         instance={'x': [1, 2, 3]},
         error_msg=r'FixedLenFeature \"x\" got wrong number of values',
         secondary_delimiter='|',
@@ -350,7 +356,7 @@ _ENCODE_ERROR_CASES = [
     dict(
         testcase_name='multivalent_size_2_vector_1_value',
         columns=['x'],
-        feature_spec={'x': tf.FixedLenFeature([2], tf.string)},
+        feature_spec={'x': tf.io.FixedLenFeature([2], tf.string)},
         instance={'x': [1]},
         error_msg=r'FixedLenFeature \"x\" got wrong number of values',
         secondary_delimiter='|',

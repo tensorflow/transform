@@ -35,7 +35,7 @@ def _preprocessing_fn_with_no_analyzers(inputs):
 
 _NO_ANALYZERS_CASE = dict(
     testcase_name='with_no_analyzers',
-    feature_spec={'x': tf.FixedLenFeature([], tf.float32)},
+    feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)},
     preprocessing_fn=_preprocessing_fn_with_no_analyzers,
     expected_dot_graph_str=r"""digraph G {
 directed=True;
@@ -54,7 +54,7 @@ def _preprocessing_fn_with_one_analyzer(inputs):
 
 _ONE_ANALYZER_CASE = dict(
     testcase_name='with_one_analyzer',
-    feature_spec={'x': tf.FixedLenFeature([], tf.float32)},
+    feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)},
     preprocessing_fn=_preprocessing_fn_with_one_analyzer,
     expected_dot_graph_str=r"""digraph G {
 directed=True;
@@ -89,7 +89,7 @@ def _preprocessing_fn_with_table(inputs):
 
 _WITH_TABLE_CASE = dict(
     testcase_name='with_table',
-    feature_spec={'x': tf.FixedLenFeature([], tf.string)},
+    feature_spec={'x': tf.io.FixedLenFeature([], tf.string)},
     preprocessing_fn=_preprocessing_fn_with_table,
     expected_dot_graph_str=r"""digraph G {
 directed=True;
@@ -126,7 +126,7 @@ def _preprocessing_fn_with_two_phases(inputs):
 
 _TWO_PHASES_CASE = dict(
     testcase_name='with_two_phases',
-    feature_spec={'x': tf.FixedLenFeature([], tf.float32)},
+    feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)},
     preprocessing_fn=_preprocessing_fn_with_two_phases,
     expected_dot_graph_str=r"""digraph G {
 directed=True;
@@ -175,17 +175,17 @@ def _preprocessing_fn_with_chained_ptransforms(inputs):
 
     def __new__(cls, label=None):
       if label is None:
-        scope = tf.get_default_graph().get_name_scope()
+        scope = tf.compat.v1.get_default_graph().get_name_scope()
         label = '{}[{}]'.format(cls.__name__, scope)
       return super(FakeChainable, cls).__new__(cls, label=label)
 
-  with tf.name_scope('x'):
+  with tf.compat.v1.name_scope('x'):
     input_values_node = nodes.apply_operation(
         analyzer_nodes.TensorSource, tensors=[inputs['x']])
-    with tf.name_scope('ptransform1'):
+    with tf.compat.v1.name_scope('ptransform1'):
       intermediate_value_node = nodes.apply_operation(FakeChainable,
                                                       input_values_node)
-    with tf.name_scope('ptransform2'):
+    with tf.compat.v1.name_scope('ptransform2'):
       output_value_node = nodes.apply_operation(FakeChainable,
                                                 intermediate_value_node)
     x_chained = analyzer_nodes.bind_future_as_tensor(
@@ -196,7 +196,7 @@ def _preprocessing_fn_with_chained_ptransforms(inputs):
 
 _CHAINED_PTRANSFORMS_CASE = dict(
     testcase_name='with_chained_ptransforms',
-    feature_spec={'x': tf.FixedLenFeature([], tf.int64)},
+    feature_spec={'x': tf.io.FixedLenFeature([], tf.int64)},
     preprocessing_fn=_preprocessing_fn_with_chained_ptransforms,
     expected_dot_graph_str=r"""digraph G {
 directed=True;
@@ -230,12 +230,12 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
 
   @test_case.named_parameters(*_ANALYZE_TEST_CASES)
   def test_build(self, feature_spec, preprocessing_fn, expected_dot_graph_str):
-    with tf.name_scope('inputs'):
+    with tf.compat.v1.name_scope('inputs'):
       input_signature = impl_helper.feature_spec_as_batched_placeholders(
           feature_spec)
     output_signature = preprocessing_fn(input_signature)
     transform_fn_future, unused_cache = analysis_graph_builder.build(
-        tf.get_default_graph(), input_signature, output_signature)
+        tf.compat.v1.get_default_graph(), input_signature, output_signature)
 
     dot_string = nodes.get_dot_graph([transform_fn_future]).to_string()
     self.WriteRenderedDotFile(dot_string)

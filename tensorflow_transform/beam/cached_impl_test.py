@@ -51,8 +51,8 @@ def _preprocessing_fn_for_common_optimize_traversal(inputs):
 _OPTIMIZE_TRAVERSAL_COMMON_CASE = dict(
     testcase_name='common',
     feature_spec={
-        'x': tf.FixedLenFeature([], tf.float32),
-        's': tf.FixedLenFeature([], tf.string)
+        'x': tf.io.FixedLenFeature([], tf.float32),
+        's': tf.io.FixedLenFeature([], tf.string)
     },
     preprocessing_fn=_preprocessing_fn_for_common_optimize_traversal,
     dataset_input_cache_dict={
@@ -139,7 +139,7 @@ def _preprocessing_fn_for_generalized_chained_ptransforms(inputs):
 
     def __new__(cls, label=None):
       if label is None:
-        scope = tf.get_default_graph().get_name_scope()
+        scope = tf.compat.v1.get_default_graph().get_name_scope()
         label = '{}[{}]'.format(cls.__name__, scope)
       return super(FakeChainablePartitionable, cls).__new__(cls, label=label)
 
@@ -157,7 +157,7 @@ def _preprocessing_fn_for_generalized_chained_ptransforms(inputs):
 
     def __new__(cls, label=None):
       if label is None:
-        scope = tf.get_default_graph().get_name_scope()
+        scope = tf.compat.v1.get_default_graph().get_name_scope()
         label = '{}[{}]'.format(cls.__name__, scope)
       return super(FakeChainableCacheable, cls).__new__(cls, label=label)
 
@@ -178,7 +178,7 @@ def _preprocessing_fn_for_generalized_chained_ptransforms(inputs):
 
     def __new__(cls, label=None):
       if label is None:
-        scope = tf.get_default_graph().get_name_scope()
+        scope = tf.compat.v1.get_default_graph().get_name_scope()
         label = '{}[{}]'.format(cls.__name__, scope)
       return super(FakeChainable, cls).__new__(cls, label=label)
 
@@ -190,28 +190,28 @@ def _preprocessing_fn_for_generalized_chained_ptransforms(inputs):
     def is_partitionable(self):
       return False
 
-  with tf.name_scope('x'):
+  with tf.compat.v1.name_scope('x'):
     input_values_node = nodes.apply_operation(
         analyzer_nodes.TensorSource, tensors=[inputs['x']])
-    with tf.name_scope('partitionable1'):
+    with tf.compat.v1.name_scope('partitionable1'):
       partitionable_outputs = nodes.apply_multi_output_operation(
           FakeChainablePartitionable, input_values_node)
-    with tf.name_scope('cacheable1'):
+    with tf.compat.v1.name_scope('cacheable1'):
       intermediate_cached_value_node = nodes.apply_multi_output_operation(
           FakeChainableCacheable, *partitionable_outputs)
-    with tf.name_scope('partitionable2'):
+    with tf.compat.v1.name_scope('partitionable2'):
       partitionable_outputs = nodes.apply_multi_output_operation(
           FakeChainablePartitionable, *intermediate_cached_value_node)
-    with tf.name_scope('cacheable2'):
+    with tf.compat.v1.name_scope('cacheable2'):
       cached_value_node = nodes.apply_multi_output_operation(
           FakeChainableCacheable, *partitionable_outputs)
-    with tf.name_scope('partitionable3'):
+    with tf.compat.v1.name_scope('partitionable3'):
       output_value_node = nodes.apply_multi_output_operation(
           FakeChainablePartitionable, *cached_value_node)
-    with tf.name_scope('merge'):
+    with tf.compat.v1.name_scope('merge'):
       output_value_node = nodes.apply_operation(FakeChainable,
                                                 *output_value_node)
-    with tf.name_scope('not-cacheable'):
+    with tf.compat.v1.name_scope('not-cacheable'):
       non_cached_output = nodes.apply_operation(FakeChainable,
                                                 input_values_node)
     x_chained = analyzer_nodes.bind_future_as_tensor(
@@ -224,7 +224,7 @@ def _preprocessing_fn_for_generalized_chained_ptransforms(inputs):
 
 _OPTIMIZE_TRAVERSAL_GENERALIZED_CHAINED_PTRANSFORMS_CASE = dict(
     testcase_name='generalized_chained_ptransforms',
-    feature_spec={'x': tf.FixedLenFeature([], tf.float32)},
+    feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)},
     preprocessing_fn=_preprocessing_fn_for_generalized_chained_ptransforms,
     dataset_input_cache_dict=None,
     expected_dot_graph_str=r"""digraph G {
@@ -331,9 +331,9 @@ class CachedImplTest(test_case.TransformTestCase):
     input_data = [{'x': 12, 'y': 1, 's': 'c'}, {'x': 10, 'y': 1, 's': 'c'}]
     input_metadata = dataset_metadata.DatasetMetadata(
         dataset_schema.from_feature_spec({
-            'x': tf.FixedLenFeature([], tf.float32),
-            'y': tf.FixedLenFeature([], tf.float32),
-            's': tf.FixedLenFeature([], tf.string),
+            'x': tf.io.FixedLenFeature([], tf.float32),
+            'y': tf.io.FixedLenFeature([], tf.float32),
+            's': tf.io.FixedLenFeature([], tf.string),
         }))
     input_data_dict = {
         span_0_key: [{
@@ -433,9 +433,9 @@ class CachedImplTest(test_case.TransformTestCase):
     input_data = [{'x': 12, 'y': 1, 's': 'b'}, {'x': 10, 'y': 1, 's': 'c'}]
     input_metadata = dataset_metadata.DatasetMetadata(
         dataset_schema.from_feature_spec({
-            'x': tf.FixedLenFeature([], tf.float32),
-            'y': tf.FixedLenFeature([], tf.float32),
-            's': tf.FixedLenFeature([], tf.string),
+            'x': tf.io.FixedLenFeature([], tf.float32),
+            'y': tf.io.FixedLenFeature([], tf.float32),
+            's': tf.io.FixedLenFeature([], tf.string),
         }))
     input_data_dict = {
         span_0_key: [{
@@ -640,9 +640,9 @@ class CachedImplTest(test_case.TransformTestCase):
     ]
     input_metadata = dataset_metadata.DatasetMetadata(
         dataset_schema.from_feature_spec({
-            's': tf.FixedLenFeature([], tf.string),
-            'label': tf.FixedLenFeature([], tf.int64),
-            'weight': tf.FixedLenFeature([], tf.float32),
+            's': tf.io.FixedLenFeature([], tf.string),
+            'label': tf.io.FixedLenFeature([], tf.int64),
+            'weight': tf.io.FixedLenFeature([], tf.float32),
         }))
     input_data_dict = {
         span_0_key: input_data,
@@ -696,7 +696,7 @@ class CachedImplTest(test_case.TransformTestCase):
       cache_path = tft_output_cache.vocabulary_file_by_name(vocab_filename)
       no_cache_path = tft_output_no_cache.vocabulary_file_by_name(
           vocab_filename)
-      with tf.gfile.Open(cache_path, 'rb') as f1, tf.gfile.Open(
+      with tf.io.gfile.GFile(cache_path, 'rb') as f1, tf.io.gfile.GFile(
           no_cache_path, 'rb') as f2:
         self.assertEqual(
             f1.readlines(), f2.readlines(),
@@ -712,12 +712,12 @@ class CachedImplTest(test_case.TransformTestCase):
     else:
       cache = {}
 
-    with tf.name_scope('inputs'):
+    with tf.compat.v1.name_scope('inputs'):
       input_signature = impl_helper.feature_spec_as_batched_placeholders(
           feature_spec)
     output_signature = preprocessing_fn(input_signature)
     transform_fn_future, cache_output_dict = analysis_graph_builder.build(
-        tf.get_default_graph(), input_signature, output_signature,
+        tf.compat.v1.get_default_graph(), input_signature, output_signature,
         {span_0_key, span_1_key}, cache)
 
     leaf_nodes = [transform_fn_future] + sorted(

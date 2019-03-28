@@ -277,13 +277,13 @@ class ExampleProtoCoder(object):
     self._decode_example_cache = tf.train.Example()
     self._feature_handlers = []
     for name, feature_spec in six.iteritems(schema.as_feature_spec()):
-      if isinstance(feature_spec, tf.FixedLenFeature):
+      if isinstance(feature_spec, tf.io.FixedLenFeature):
         self._feature_handlers.append(
             _FixedLenFeatureHandler(name, feature_spec))
-      elif isinstance(feature_spec, tf.VarLenFeature):
+      elif isinstance(feature_spec, tf.io.VarLenFeature):
         self._feature_handlers.append(
             _VarLenFeatureHandler(name, feature_spec.dtype))
-      elif isinstance(feature_spec, tf.SparseFeature):
+      elif isinstance(feature_spec, tf.io.SparseFeature):
         self._feature_handlers.append(
             _VarLenFeatureHandler(feature_spec.index_key, tf.int64))
         self._feature_handlers.append(

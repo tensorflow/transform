@@ -72,8 +72,10 @@ def apply_saved_model(model_dir, inputs, tags, signature_name=None,
     session, meta_graph = (
         bundle_shim.load_session_bundle_or_saved_model_bundle_from_path(
             model_dir, tags=tags))
-    loaded_initializer_op_names = [op.name for op in tf.get_collection(
-        tf.GraphKeys.TABLE_INITIALIZERS)]
+    loaded_initializer_op_names = [
+        op.name for op in tf.compat.v1.get_collection(
+            tf.compat.v1.GraphKeys.TABLE_INITIALIZERS)
+    ]
 
     if signature_name:
       signature = meta_graph.signature_def[signature_name]
@@ -126,9 +128,8 @@ def apply_saved_model(model_dir, inputs, tags, signature_name=None,
   # Convert_variables_to_constants() requires op name.
   output_op_names = [loaded_graph.get_tensor_by_name(tensor_name).op.name
                      for tensor_name in output_tensor_names]
-  constant_graph_def = tf.graph_util.convert_variables_to_constants(
-      session,
-      loaded_graph.as_graph_def(),
+  constant_graph_def = tf.compat.v1.graph_util.convert_variables_to_constants(
+      session, loaded_graph.as_graph_def(),
       output_op_names + loaded_initializer_op_names)
 
   returned_elements = tf.import_graph_def(
@@ -139,9 +140,8 @@ def apply_saved_model(model_dir, inputs, tags, signature_name=None,
   returned_initializer_ops = returned_elements[len(output_tensor_names):]
 
   for initializer_op in returned_initializer_ops:
-    tf.add_to_collection(
-        tf.GraphKeys.TABLE_INITIALIZERS,
-        initializer_op)
+    tf.compat.v1.add_to_collection(tf.compat.v1.GraphKeys.TABLE_INITIALIZERS,
+                                   initializer_op)
 
   if output_single_tensor:
     assert len(output_tensor_names) == 1
@@ -181,9 +181,10 @@ def apply_function_with_checkpoint(fn, inputs, checkpoint, include=None,
   loaded_graph = tf.Graph()
   with loaded_graph.as_default():
     input_placeholders = [
-        tf.placeholder(dtype=tensor.dtype, shape=tensor.shape,
-                       name=tensor.op.name)
-        for tensor in inputs]
+        tf.compat.v1.placeholder(
+            dtype=tensor.dtype, shape=tensor.shape, name=tensor.op.name)
+        for tensor in inputs
+    ]
     output = fn(*input_placeholders)
     if isinstance(output, tf.Tensor):
       output_tensors = [output]
@@ -193,15 +194,15 @@ def apply_function_with_checkpoint(fn, inputs, checkpoint, include=None,
       output_single_tensor = False
 
     # TODO(qimingj/kestert): Copy table initializers to the composed graph.
-    if tf.get_collection(tf.GraphKeys.TABLE_INITIALIZERS):
+    if tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.TABLE_INITIALIZERS):
       raise ValueError('Models with table init ops are not supported.')
 
     vars_to_restore = tf.contrib.slim.get_variables_to_restore(
         include=include, exclude=exclude)
-    saver = tf.train.Saver(vars_to_restore)
-    with tf.Session() as sess:
+    saver = tf.compat.v1.train.Saver(vars_to_restore)
+    with tf.compat.v1.Session() as sess:
       saver.restore(sess, checkpoint)
-      output_graph_def = tf.graph_util.convert_variables_to_constants(
+      output_graph_def = tf.compat.v1.graph_util.convert_variables_to_constants(
           sess, loaded_graph.as_graph_def(),
           [tensor.op.name for tensor in output_tensors])
 

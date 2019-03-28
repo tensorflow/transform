@@ -178,7 +178,7 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
   def test_example_proto_coder_cache(self):
     """Test that the cache remains valid after reading/writing None."""
     schema = dataset_schema.from_feature_spec({
-        'varlen': tf.VarLenFeature(tf.int64),
+        'varlen': tf.io.VarLenFeature(tf.int64),
     })
     coder = example_proto_coder.ExampleProtoCoder(schema)
     ascii_protos = [

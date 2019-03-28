@@ -28,8 +28,8 @@ class MappersTest(test_case.TransformTestCase):
 
   def assertSparseOutput(self, expected_indices, expected_values,
                          expected_shape, actual_sparse_tensor, close_values):
-    with tf.Session() as sess:
-      sess.run(tf.tables_initializer())
+    with tf.compat.v1.Session() as sess:
+      sess.run(tf.compat.v1.tables_initializer())
       actual = actual_sparse_tensor.eval()
       self.assertAllEqual(expected_indices, actual.indices)
       self.assertAllEqual(expected_shape, actual.dense_shape)
@@ -39,7 +39,7 @@ class MappersTest(test_case.TransformTestCase):
         self.assertAllEqual(expected_values, actual.values)
 
   def testSegmentIndices(self):
-    with tf.Session():
+    with tf.compat.v1.Session():
       self.assertAllEqual(
           mappers.segment_indices(tf.constant([0, 0, 1, 2, 2, 2], tf.int64),
                                   name='test_name').eval(),
@@ -50,14 +50,14 @@ class MappersTest(test_case.TransformTestCase):
 
   def testSegmentIndicesSkipOne(self):
     input_tensor = tf.constant([0, 0, 2, 2])
-    with tf.Session():
+    with tf.compat.v1.Session():
       self.assertAllEqual([0, 1, 0, 1],
                           mappers.segment_indices(input_tensor).eval())
 
   def testNGramsEmpty(self):
-    output_tensor = mappers.ngrams(tf.string_split(tf.constant([''])),
-                                   (1, 5), '')
-    with tf.Session():
+    output_tensor = mappers.ngrams(
+        tf.strings.split(source=tf.constant([''])), (1, 5), '')
+    with tf.compat.v1.Session():
       output = output_tensor.eval()
       self.assertEqual((0, 2), output.indices.shape)
       self.assertAllEqual([1, 0], output.dense_shape)
@@ -65,7 +65,7 @@ class MappersTest(test_case.TransformTestCase):
 
   def testNGrams(self):
     string_tensor = tf.constant(['abc', 'def', 'fghijklm', 'z', ''])
-    tokenized_tensor = tf.string_split(string_tensor, delimiter='')
+    tokenized_tensor = tf.compat.v1.string_split(string_tensor, delimiter='')
     output_tensor = mappers.ngrams(
         tokens=tokenized_tensor,
         ngram_range=(1, 5),
@@ -92,7 +92,7 @@ class MappersTest(test_case.TransformTestCase):
 
   def testNGramsMinSizeNotOne(self):
     string_tensor = tf.constant(['abc', 'def', 'fghijklm', 'z', ''])
-    tokenized_tensor = tf.string_split(string_tensor, delimiter='')
+    tokenized_tensor = tf.compat.v1.string_split(string_tensor, delimiter='')
     output_tensor = mappers.ngrams(
         tokens=tokenized_tensor,
         ngram_range=(2, 5),
@@ -116,12 +116,12 @@ class MappersTest(test_case.TransformTestCase):
 
   def testNGramsWithSpaceSeparator(self):
     string_tensor = tf.constant(['One was Johnny', 'Two was a rat'])
-    tokenized_tensor = tf.string_split(string_tensor, delimiter=' ')
+    tokenized_tensor = tf.strings.split(source=string_tensor, sep=' ')
     output_tensor = mappers.ngrams(
         tokens=tokenized_tensor,
         ngram_range=(1, 2),
         separator=' ')
-    with tf.Session():
+    with tf.compat.v1.Session():
       output = output_tensor.eval()
       self.assertAllEqual(
           output.indices,
@@ -135,7 +135,7 @@ class MappersTest(test_case.TransformTestCase):
 
   def testNGramsBadSizes(self):
     string_tensor = tf.constant(['abc', 'def', 'fghijklm', 'z', ''])
-    tokenized_tensor = tf.string_split(string_tensor, delimiter='')
+    tokenized_tensor = tf.compat.v1.string_split(string_tensor, delimiter='')
     with self.assertRaisesRegexp(ValueError, 'Invalid ngram_range'):
       mappers.ngrams(tokenized_tensor, (0, 5), separator='')
     with self.assertRaisesRegexp(ValueError, 'Invalid ngram_range'):
@@ -171,7 +171,7 @@ class MappersTest(test_case.TransformTestCase):
         [(3/5), (1/5), (1/5), (1/2), (1/2)],
         [2, 4])
     output_tensor = mappers._count_docs_with_term(input_tensor)
-    with tf.Session():
+    with tf.compat.v1.Session():
       output = output_tensor.eval()
       self.assertAllEqual([[2, 1, 1, 1]], output)
 
@@ -181,7 +181,7 @@ class MappersTest(test_case.TransformTestCase):
         [(3/5), (1/5), (1/2), (1/2)],
         [2, 4])
     output_tensor = mappers._count_docs_with_term(input_tensor)
-    with tf.Session():
+    with tf.compat.v1.Session():
       output = output_tensor.eval()
       self.assertAllEqual([[2, 0, 1, 1]], output)
 
@@ -307,7 +307,7 @@ class MappersTest(test_case.TransformTestCase):
     key_vocab = tf.constant(['a', 'b'])
     key_indices = mappers._lookup_key(keys, key_vocab)
     with self.test_session() as sess:
-      sess.run(tf.tables_initializer())
+      sess.run(tf.compat.v1.tables_initializer())
       output = sess.run(key_indices)
       self.assertAllEqual([0, 0, 0, 1, 1, 1, 1], output)
 
@@ -333,7 +333,7 @@ class MappersTest(test_case.TransformTestCase):
     buckets = mappers._apply_buckets_with_keys(values, keys, key_vocab,
                                                bucket_boundaries)
     with self.test_session() as sess:
-      sess.run(tf.tables_initializer())
+      sess.run(tf.compat.v1.tables_initializer())
       output = sess.run(buckets)
       self.assertAllEqual([0, 0, 1, 3, 2, 3, 0, 0, 2, 1, 3, 3], output)
 
@@ -426,7 +426,7 @@ class MappersTest(test_case.TransformTestCase):
 
   def testSparseTensorToDenseWithShape(self):
     with tf.Graph().as_default():
-      sparse = tf.sparse_placeholder(tf.int64, shape=[None, None])
+      sparse = tf.compat.v1.sparse_placeholder(tf.int64, shape=[None, None])
       dense = mappers.sparse_tensor_to_dense_with_shape(sparse, [None, 5])
       self.assertAllEqual(dense.get_shape().as_list(), [None, 5])
 

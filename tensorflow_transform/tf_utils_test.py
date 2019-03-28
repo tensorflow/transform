@@ -124,7 +124,7 @@ class AnalyzersTest(test_case.TransformTestCase):
     uniques, sum_weights, sum_positive, counts = (
         tf_utils.reduce_batch_vocabulary(x, vocab_ordering_type, weights,
                                          labels))
-    with tf.Session() as sess:
+    with tf.compat.v1.Session() as sess:
       results = sess.run([
           a for a in [uniques, sum_weights, sum_positive, counts]
           if a is not None
@@ -133,7 +133,7 @@ class AnalyzersTest(test_case.TransformTestCase):
         self.assertAllEqual(result, np.array(expected))
 
   def test_reduce_vocabulary_inputs(self):
-    with tf.Session() as sess:
+    with tf.compat.v1.Session() as sess:
       x = tf.constant(['yes', 'no', 'yes'])
       weights = tf.constant([1, 2, 3])
       labels = tf.constant([1, 1, 0], tf.int64)
@@ -151,17 +151,17 @@ class AnalyzersTest(test_case.TransformTestCase):
   )
   def test_same_shape_exceptions(self, x_input, y_input, x_shape, y_shape,
                                  exception_cls, error_string):
-    x = tf.placeholder(tf.int32, shape=x_shape)
-    y = tf.placeholder(tf.int32, shape=y_shape)
-    with tf.Session() as sess:
+    x = tf.compat.v1.placeholder(tf.int32, shape=x_shape)
+    y = tf.compat.v1.placeholder(tf.int32, shape=y_shape)
+    with tf.compat.v1.Session() as sess:
       with self.assertRaisesRegexp(exception_cls, error_string):
         sess.run(tf_utils.assert_same_shape(x, y), {x: x_input, y: y_input})
 
   def test_same_shape(self):
-    with tf.Session() as sess:
+    with tf.compat.v1.Session() as sess:
       input_list = [[1], [2], [3]]
-      x = tf.placeholder(tf.int32, shape=None)
-      y = tf.placeholder(tf.int32, shape=None)
+      x = tf.compat.v1.placeholder(tf.int32, shape=None)
+      y = tf.compat.v1.placeholder(tf.int32, shape=None)
       x_return = sess.run(
           tf_utils.assert_same_shape(x, y), {
               x: input_list,
@@ -171,13 +171,13 @@ class AnalyzersTest(test_case.TransformTestCase):
 
   def test_reduce_batch_count(self):
     x = tf.constant([[[1], [2]], [[1], [2]]])
-    with tf.Session():
+    with tf.compat.v1.Session():
       self.assertAllEqual(
           tf_utils.reduce_batch_count(x, reduce_instance_dims=True).eval(), 4)
 
   def test_reduce_batch_count_elementwise(self):
     x = tf.constant([[[1], [2]], [[1], [2]]])
-    with tf.Session():
+    with tf.compat.v1.Session():
       self.assertAllEqual(
           tf_utils.reduce_batch_count(x, reduce_instance_dims=False).eval(),
           [[2], [2]])
@@ -187,7 +187,7 @@ class AnalyzersTest(test_case.TransformTestCase):
         indices=[[0, 0, 0], [0, 2, 0], [1, 1, 0], [1, 2, 0]],
         values=[1., 2., 3., 4.],
         dense_shape=[2, 4, 1])
-    with tf.Session():
+    with tf.compat.v1.Session():
       self.assertAllEqual(
           tf_utils.reduce_batch_count(x, reduce_instance_dims=True).eval(), 4)
 
@@ -196,7 +196,7 @@ class AnalyzersTest(test_case.TransformTestCase):
         indices=[[0, 0, 0], [0, 2, 0], [1, 1, 0], [1, 2, 0]],
         values=[1., 2., 3., 4.],
         dense_shape=[2, 4, 1])
-    with tf.Session():
+    with tf.compat.v1.Session():
       self.assertAllEqual(
           tf_utils.reduce_batch_count(x, reduce_instance_dims=False).eval(),
           [[1], [1], [2], [0]])
@@ -205,7 +205,7 @@ class AnalyzersTest(test_case.TransformTestCase):
     x = tf.constant([[[1], [2]], [[3], [4]]], dtype=tf.float32)
     count, mean, var = tf_utils.reduce_batch_count_mean_and_var(
         x, reduce_instance_dims=True)
-    with tf.Session():
+    with tf.compat.v1.Session():
       self.assertAllEqual(count.eval(), 4)
       self.assertAllEqual(mean.eval(), 2.5)
       self.assertAllEqual(var.eval(), 1.25)
@@ -214,7 +214,7 @@ class AnalyzersTest(test_case.TransformTestCase):
     x = tf.constant([[[1], [2]], [[3], [4]]], dtype=tf.float32)
     count, mean, var = tf_utils.reduce_batch_count_mean_and_var(
         x, reduce_instance_dims=False)
-    with tf.Session():
+    with tf.compat.v1.Session():
       self.assertAllEqual(count.eval(), [[2.], [2.]])
       self.assertAllEqual(mean.eval(), [[2.], [3.]])
       self.assertAllEqual(var.eval(), [[1.], [1.]])
@@ -226,7 +226,7 @@ class AnalyzersTest(test_case.TransformTestCase):
         dense_shape=[2, 4])
     count, mean, var = tf_utils.reduce_batch_count_mean_and_var(
         x, reduce_instance_dims=True)
-    with tf.Session():
+    with tf.compat.v1.Session():
       self.assertAllEqual(count.eval(), 4)
       self.assertAllEqual(mean.eval(), 2.5)
       self.assertAllEqual(var.eval(), 1.25)
@@ -240,16 +240,18 @@ class AnalyzersTest(test_case.TransformTestCase):
         x, reduce_instance_dims=False)
     nan = float('nan')
     inf = float('inf')
-    with tf.Session():
+    with tf.compat.v1.Session():
       self.assertAllEqual(count.eval(), [1.0, 1.0, 2.0, 0.0, 0.0])
       self.assertAllEqual(mean.eval(), [1.0, 3.0, 3.0, nan, nan])
       self.assertAllEqual(var.eval(), [2.0, 2.0, 1.0, inf, inf])
 
+  # pylint: disable=g-long-lambda
   @test_case.named_parameters(
       dict(
           testcase_name='sparse',
-          placeholder_fn=lambda: tf.sparse_placeholder(tf.int64, [None, None]),
-          value=tf.SparseTensorValue(
+          placeholder_fn=lambda: tf.compat.v1.sparse_placeholder(
+              tf.int64, [None, None]),
+          value=tf.compat.v1.SparseTensorValue(
               indices=[[0, 0], [0, 1], [0, 2]],
               values=[3, 2, -1],
               dense_shape=[1, 5]),
@@ -257,15 +259,16 @@ class AnalyzersTest(test_case.TransformTestCase):
           expected_result=(1, 3)),
       dict(
           testcase_name='float',
-          placeholder_fn=lambda: tf.placeholder(tf.float32, [None, None]),
+          placeholder_fn=lambda: tf.compat.v1.placeholder(
+              tf.float32, [None, None]),
           value=[[1, 5, 2]],
           reduce_instance_dims=True,
           expected_result=(-1, 5)),
       dict(
           testcase_name='sparse_float_elementwise',
-          placeholder_fn=lambda: tf.sparse_placeholder(tf.float32, [None, None]
-                                                      ),
-          value=tf.SparseTensorValue(
+          placeholder_fn=lambda: tf.compat.v1.sparse_placeholder(
+              tf.float32, [None, None]),
+          value=tf.compat.v1.SparseTensorValue(
               indices=[[0, 0], [0, 1], [1, 0]],
               values=[3, 2, -1],
               dense_shape=[2, 3]),
@@ -273,14 +276,16 @@ class AnalyzersTest(test_case.TransformTestCase):
           expected_result=([[1, -2, np.nan], [3, 2, np.nan]])),
       dict(
           testcase_name='float_elementwise',
-          placeholder_fn=lambda: tf.placeholder(tf.float32, [None, None]),
+          placeholder_fn=lambda: tf.compat.v1.placeholder(
+              tf.float32, [None, None]),
           value=[[1, 5, 2], [2, 3, 4]],
           reduce_instance_dims=False,
           expected_result=([[-1, -3, -2], [2, 5, 4]])),
       dict(
           testcase_name='sparse_int64_elementwise',
-          placeholder_fn=lambda: tf.sparse_placeholder(tf.int64, [None, None]),
-          value=tf.SparseTensorValue(
+          placeholder_fn=lambda: tf.compat.v1.sparse_placeholder(
+              tf.int64, [None, None]),
+          value=tf.compat.v1.SparseTensorValue(
               indices=[[0, 0], [0, 1], [1, 0]],
               values=[3, 2, -1],
               dense_shape=[2, 3]),
@@ -289,8 +294,9 @@ class AnalyzersTest(test_case.TransformTestCase):
                                                         tf.int64.min + 1]])),
       dict(
           testcase_name='sparse_int32_elementwise',
-          placeholder_fn=lambda: tf.sparse_placeholder(tf.int32, [None, None]),
-          value=tf.SparseTensorValue(
+          placeholder_fn=lambda: tf.compat.v1.sparse_placeholder(
+              tf.int32, [None, None]),
+          value=tf.compat.v1.SparseTensorValue(
               indices=[[0, 0], [0, 1], [1, 0]],
               values=[3, 2, -1],
               dense_shape=[2, 3]),
@@ -299,9 +305,9 @@ class AnalyzersTest(test_case.TransformTestCase):
                                                         tf.int32.min + 1]])),
       dict(
           testcase_name='sparse_float32_elementwise',
-          placeholder_fn=lambda: tf.sparse_placeholder(tf.float32, [None, None]
-                                                      ),
-          value=tf.SparseTensorValue(
+          placeholder_fn=lambda: tf.compat.v1.sparse_placeholder(
+              tf.float32, [None, None]),
+          value=tf.compat.v1.SparseTensorValue(
               indices=[[0, 0], [0, 1], [1, 0]],
               values=[3, 2, -1],
               dense_shape=[2, 3]),
@@ -309,71 +315,78 @@ class AnalyzersTest(test_case.TransformTestCase):
           expected_result=([[1, -2, np.nan], [3, 2, np.nan]])),
       dict(
           testcase_name='sparse_float64_elementwise',
-          placeholder_fn=lambda: tf.sparse_placeholder(tf.float64, [None, None]
-                                                      ),
-          value=tf.SparseTensorValue(
+          placeholder_fn=lambda: tf.compat.v1.sparse_placeholder(
+              tf.float64, [None, None]),
+          value=tf.compat.v1.SparseTensorValue(
               indices=[[0, 0], [0, 1], [1, 0]],
               values=[3, 2, -1],
               dense_shape=[2, 3]),
           reduce_instance_dims=False,
           expected_result=([[1, -2, np.nan], [3, 2, np.nan]])),
   )
+  # pylint: enable=g-long-lambda
   def test_reduce_batch_minus_min_and_max(
       self, placeholder_fn, value, reduce_instance_dims, expected_result):
     x = placeholder_fn()
     batch_minus_min, batch_max = tf_utils.reduce_batch_minus_min_and_max(
         x, reduce_instance_dims)
 
-    with tf.Session() as sess:
+    with tf.compat.v1.Session() as sess:
       result = sess.run([batch_minus_min, batch_max], feed_dict={x: value})
     self.assertAllEqual(result, expected_result)
 
   @test_case.named_parameters(
-      dict(testcase_name='sparse_tensor',
-           feature=tf.SparseTensorValue(
-               indices=[[0, 0], [0, 1], [0, 2], [1, 0]],
-               values=[1., 2., 3., 4.],
-               dense_shape=[2, 5]),
-           ascii_protos=[
-               'float_list { value: [1.0, 2.0, 3.0] }',
-               'float_list { value: [4.0] }',
-           ]),
-      dict(testcase_name='dense_scalar_int',
-           feature=np.array([0, 1, 2], np.int64),
-           ascii_protos=[
-               'int64_list { value: [0] }',
-               'int64_list { value: [1] }',
-               'int64_list { value: [2] }',
-           ]),
-      dict(testcase_name='dense_scalar_float',
-           feature=np.array([0.5, 1.5, 2.5], np.float32),
-           ascii_protos=[
-               'float_list { value: [0.5] }',
-               'float_list { value: [1.5] }',
-               'float_list { value: [2.5] }',
-           ]),
-      dict(testcase_name='dense_scalar_string',
-           feature=np.array(['hello', 'world'], np.object),
-           ascii_protos=[
-               'bytes_list { value: "hello" }',
-               'bytes_list { value: "world" }',
-           ]),
-      dict(testcase_name='dense_vector_int',
-           feature=np.array([[0, 1], [2, 3]], np.int64),
-           ascii_protos=[
-               'int64_list { value: [0, 1] }',
-               'int64_list { value: [2, 3] }',
-           ]),
-      dict(testcase_name='dense_matrix_int',
-           feature=np.array([[[0, 1], [2, 3]], [[4, 5], [6, 7]]], np.int64),
-           ascii_protos=[
-               'int64_list { value: [0, 1, 2, 3] }',
-               'int64_list { value: [4, 5, 6, 7] }',
-           ]),
-      )
+      dict(
+          testcase_name='sparse_tensor',
+          feature=tf.compat.v1.SparseTensorValue(
+              indices=[[0, 0], [0, 1], [0, 2], [1, 0]],
+              values=[1., 2., 3., 4.],
+              dense_shape=[2, 5]),
+          ascii_protos=[
+              'float_list { value: [1.0, 2.0, 3.0] }',
+              'float_list { value: [4.0] }',
+          ]),
+      dict(
+          testcase_name='dense_scalar_int',
+          feature=np.array([0, 1, 2], np.int64),
+          ascii_protos=[
+              'int64_list { value: [0] }',
+              'int64_list { value: [1] }',
+              'int64_list { value: [2] }',
+          ]),
+      dict(
+          testcase_name='dense_scalar_float',
+          feature=np.array([0.5, 1.5, 2.5], np.float32),
+          ascii_protos=[
+              'float_list { value: [0.5] }',
+              'float_list { value: [1.5] }',
+              'float_list { value: [2.5] }',
+          ]),
+      dict(
+          testcase_name='dense_scalar_string',
+          feature=np.array(['hello', 'world'], np.object),
+          ascii_protos=[
+              'bytes_list { value: "hello" }',
+              'bytes_list { value: "world" }',
+          ]),
+      dict(
+          testcase_name='dense_vector_int',
+          feature=np.array([[0, 1], [2, 3]], np.int64),
+          ascii_protos=[
+              'int64_list { value: [0, 1] }',
+              'int64_list { value: [2, 3] }',
+          ]),
+      dict(
+          testcase_name='dense_matrix_int',
+          feature=np.array([[[0, 1], [2, 3]], [[4, 5], [6, 7]]], np.int64),
+          ascii_protos=[
+              'int64_list { value: [0, 1, 2, 3] }',
+              'int64_list { value: [4, 5, 6, 7] }',
+          ]),
+  )
   def test_serialize_feature(self, feature, ascii_protos):
     serialized_features_tensor = tf_utils._serialize_feature(feature)
-    with tf.Session():
+    with tf.compat.v1.Session():
       serialized_features = serialized_features_tensor.eval()
       feature_proto = tf.train.Feature()
     self.assertEqual(len(serialized_features), len(ascii_protos))
@@ -383,16 +396,19 @@ class AnalyzersTest(test_case.TransformTestCase):
       self.assertProtoEquals(ascii_proto, feature_proto)
 
   @test_case.named_parameters(
-      dict(testcase_name='multiple_features',
-           examples={
-               'my_value': tf.SparseTensorValue(
-                   indices=[[0, 0], [0, 1], [0, 2], [1, 0]],
-                   values=[1., 2., 3., 4.],
-                   dense_shape=[2, 5]),
-               'my_other_value': np.array([1, 2], np.int64),
-           },
-           ascii_protos=[
-               """
+      dict(
+          testcase_name='multiple_features',
+          examples={
+              'my_value':
+                  tf.compat.v1.SparseTensorValue(
+                      indices=[[0, 0], [0, 1], [0, 2], [1, 0]],
+                      values=[1., 2., 3., 4.],
+                      dense_shape=[2, 5]),
+              'my_other_value':
+                  np.array([1, 2], np.int64),
+          },
+          ascii_protos=[
+              """
                features {
                  feature {
                    key: "my_value"
@@ -403,8 +419,7 @@ class AnalyzersTest(test_case.TransformTestCase):
                     value: { int64_list { value: [1] } }
                  }
                }
-               """,
-               """
+               """, """
                features {
                  feature {
                    key: "my_value"
@@ -416,11 +431,10 @@ class AnalyzersTest(test_case.TransformTestCase):
                  }
                }
                """
-           ])
-      )
+          ]))
   def test_serialize_example(self, examples, ascii_protos):
     serialized_examples_tensor = tf_utils.serialize_example(examples)
-    with tf.Session():
+    with tf.compat.v1.Session():
       serialized_examples = serialized_examples_tensor.eval()
       example_proto = tf.train.Example()
     self.assertEqual(len(serialized_examples), len(ascii_protos))

@@ -450,7 +450,7 @@ def build(graph,
       beam_nodes.CreateSavedModel,
       *tensor_bindings,
       table_initializers=tuple(
-          graph.get_collection(tf.GraphKeys.TABLE_INITIALIZERS)),
+          graph.get_collection(tf.compat.v1.GraphKeys.TABLE_INITIALIZERS)),
       output_signature=output_signature,
       label='CreateSavedModel')
 

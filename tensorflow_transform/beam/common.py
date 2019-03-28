@@ -48,7 +48,7 @@ _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER = {
     # TODO(katsiapis): Perhaps remove this once b/69922446 and b/30837990 are
     # resolved.
     beam.runners.DataflowRunner:
-        tf.ConfigProto(
+        tf.compat.v1.ConfigProto(
             # TODO(b/36091595): use_per_session_threads is deprecated, but the
             # replacement session_inter_op_thread_pool is experimental; using
             # the former for now.
@@ -65,7 +65,7 @@ def _maybe_deserialize_tf_config(serialized_tf_config):
   if serialized_tf_config is None:
     return None
 
-  result = tf.ConfigProto()
+  result = tf.compat.v1.ConfigProto()
   result.ParseFromString(serialized_tf_config)
   return result
 

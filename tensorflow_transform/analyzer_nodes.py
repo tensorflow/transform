@@ -67,7 +67,7 @@ class TensorSource(
         raise TypeError('tensor must be a Tensor, got {} of type {}'.format(
             tensor, type(tensor)))
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(TensorSource, cls).__new__(cls, tensors=tensors, label=label)
 
@@ -82,8 +82,8 @@ TensorSink = collections.namedtuple('TensorSink',
 
 def bind_future_as_tensor(future, tensor_info, name=None):
   """Bind a future value as a tensor."""
-  result = tf.placeholder(tensor_info.dtype, tensor_info.shape, name)
-  tf.add_to_collection(
+  result = tf.compat.v1.placeholder(tensor_info.dtype, tensor_info.shape, name)
+  tf.compat.v1.add_to_collection(
       TENSOR_REPLACEMENTS,
       TensorSink(result, future, tensor_info.is_asset_filepath))
   return result
@@ -234,7 +234,7 @@ class CacheableCombineAccumulate(
 
   def __new__(cls, combiner, label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(CacheableCombineAccumulate, cls).__new__(
         cls, combiner=combiner, label=label)
@@ -268,7 +268,7 @@ class CacheableCombineMerge(
 
   def __new__(cls, combiner, label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(CacheableCombineMerge, cls).__new__(
         cls, combiner=combiner, label=label)
@@ -295,7 +295,7 @@ class CacheableCombinePerKeyAccumulate(CacheableCombineAccumulate):
 
   def __new__(cls, combiner, label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(CacheableCombinePerKeyAccumulate, cls).__new__(
         cls, combiner=combiner, label=label)
@@ -318,7 +318,7 @@ class CacheableCombinePerKeyMerge(CacheableCombineMerge):
 
   def __new__(cls, combiner, label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(CacheableCombinePerKeyMerge, cls).__new__(
         cls, combiner=combiner, label=label)
@@ -344,7 +344,7 @@ class VocabularyAccumulate(
 
   def __new__(cls, vocab_ordering_type, input_dtype=tf.string.name, label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(VocabularyAccumulate, cls).__new__(
         cls,
@@ -403,7 +403,7 @@ class VocabularyMerge(
               min_diff_from_avg,
               label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(VocabularyMerge, cls).__new__(
         cls,
@@ -439,7 +439,7 @@ class VocabularyOrderAndFilter(
       key_fn,
       label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(VocabularyOrderAndFilter, cls).__new__(
         cls,
@@ -471,7 +471,7 @@ class VocabularyWrite(
   def __new__(cls, vocab_filename, store_frequency, fingerprint_shuffle,
               label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(VocabularyWrite, cls).__new__(
         cls,
@@ -503,7 +503,7 @@ class PTransform(
 
   def __new__(cls, ptransform, output_tensor_info_list, label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(PTransform, cls).__new__(
         cls,

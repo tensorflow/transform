@@ -44,8 +44,8 @@ REVIEW_WEIGHT_KEY = 'review_weight'
 LABEL_KEY = 'label'
 
 RAW_DATA_FEATURE_SPEC = {
-    REVIEW_KEY: tf.FixedLenFeature([], tf.string),
-    LABEL_KEY: tf.FixedLenFeature([], tf.int64)
+    REVIEW_KEY: tf.io.FixedLenFeature([], tf.string),
+    LABEL_KEY: tf.io.FixedLenFeature([], tf.int64)
 }
 
 RAW_DATA_METADATA = dataset_metadata.DatasetMetadata(
@@ -180,7 +180,9 @@ def transform_data(working_dir):
         """Preprocess input columns into transformed columns."""
         review = inputs[REVIEW_KEY]
 
-        review_tokens = tf.string_split(review, DELIMITERS)
+        # Here tf.compat.v1.string_split behaves differently from
+        # tf.strings.split.
+        review_tokens = tf.compat.v1.string_split(review, DELIMITERS)
         review_indices = tft.compute_and_apply_vocabulary(
             review_tokens, top_k=VOCAB_SIZE)
         # Add one for the oov bucket created by compute_and_apply_vocabulary.
@@ -241,14 +243,15 @@ def _make_training_input_fn(tf_transform_output, transformed_examples,
   """
   def input_fn():
     """Input function for training and eval."""
-    dataset = tf.contrib.data.make_batched_features_dataset(
+    dataset = tf.data.experimental.make_batched_features_dataset(
         file_pattern=transformed_examples,
         batch_size=batch_size,
         features=tf_transform_output.transformed_feature_spec(),
         reader=tf.data.TFRecordDataset,
         shuffle=True)
 
-    transformed_features = dataset.make_one_shot_iterator().get_next()
+    transformed_features = tf.compat.v1.data.make_one_shot_iterator(
+        dataset).get_next()
 
     # Extract features and label from the transformed tensors.
     # TODO(b/30367437): make transformed_labels a dict.
@@ -335,7 +338,8 @@ def train_and_evaluate(working_dir,
 
   estimator = tf.estimator.LinearClassifier(
       feature_columns=get_feature_columns(tf_transform_output),
-      config=run_config)
+      config=run_config,
+      loss_reduction=tf.compat.v1.losses.Reduction.SUM)
 
   # Fit the model using the default optimizer.
   train_input_fn = _make_training_input_fn(

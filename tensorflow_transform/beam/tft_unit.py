@@ -106,7 +106,7 @@ class TransformTestCase(test_case.TransformTestCase):
 
       # Get batch size from any input tensor.
       an_input = next(six.itervalues(inputs))
-      batch_size = tf.shape(an_input)[0]
+      batch_size = tf.shape(input=an_input)[0]
 
       # Add a batch dimension and broadcast the analyzer outputs.
       result = {}
@@ -127,7 +127,7 @@ class TransformTestCase(test_case.TransformTestCase):
     test_data = [input_data[0]] * num_test_instances
     expected_data = [expected_outputs] * num_test_instances
     expected_metadata = metadata_from_feature_spec({
-        key: tf.FixedLenFeature(value.shape, tf.as_dtype(value.dtype))
+        key: tf.io.FixedLenFeature(value.shape, tf.as_dtype(value.dtype))
         for key, value in six.iteritems(expected_outputs)
     })
 
@@ -196,8 +196,9 @@ class TransformTestCase(test_case.TransformTestCase):
       raise ValueError('only one of expected_asset_file_contents and '
                        'expected_asset_file_contents should be set')
     elif expected_asset_file_contents is not None:
-      tf.logging.warn('expected_asset_file_contents is deprecated, use '
-                      'expected_vocab_file_contents')
+      tf.compat.v1.logging.warn(
+          'expected_asset_file_contents is deprecated, use '
+          'expected_vocab_file_contents')
 
     expected_vocab_file_contents = (
         expected_vocab_file_contents or expected_asset_file_contents or {})
@@ -241,7 +242,8 @@ class TransformTestCase(test_case.TransformTestCase):
 
     # TODO(ebreck) Log transformed_data somewhere.
     if expected_data is not None:
-      examples = tf.python_io.tf_record_iterator(path=transformed_data_path)
+      examples = tf.compat.v1.python_io.tf_record_iterator(
+          path=transformed_data_path)
       transformed_data = [transformed_data_coder.decode(x) for x in examples]
       self.assertDataCloseOrEqual(expected_data, transformed_data)
 
@@ -252,7 +254,7 @@ class TransformTestCase(test_case.TransformTestCase):
 
     for filename, file_contents in six.iteritems(expected_vocab_file_contents):
       full_filename = tf_transform_output.vocabulary_file_by_name(filename)
-      with tf.gfile.Open(full_filename, 'rb') as f:
+      with tf.io.gfile.GFile(full_filename, 'rb') as f:
         file_lines = f.readlines()
 
         # Store frequency case.

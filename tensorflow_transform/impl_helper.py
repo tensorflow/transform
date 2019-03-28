@@ -59,13 +59,15 @@ def feature_spec_as_batched_placeholders(feature_spec):
   for name, spec in six.iteritems(feature_spec):
     if spec.dtype not in (tf.int64, tf.float32, tf.string):
       raise ValueError('{} had invalid dtype'.format(spec))
-    if isinstance(spec, tf.FixedLenFeature):
-      result[name] = tf.placeholder(spec.dtype, [None] + spec.shape, name=name)
-    elif isinstance(spec, tf.VarLenFeature):
-      result[name] = tf.sparse_placeholder(spec.dtype, [None, None], name=name)
-    elif isinstance(spec, tf.SparseFeature):
-      result[name] = tf.sparse_placeholder(spec.dtype, [None, spec.size],
-                                           name=name)
+    if isinstance(spec, tf.io.FixedLenFeature):
+      result[name] = tf.compat.v1.placeholder(
+          spec.dtype, [None] + spec.shape, name=name)
+    elif isinstance(spec, tf.io.VarLenFeature):
+      result[name] = tf.compat.v1.sparse_placeholder(
+          spec.dtype, [None, None], name=name)
+    elif isinstance(spec, tf.io.SparseFeature):
+      result[name] = tf.compat.v1.sparse_placeholder(
+          spec.dtype, [None, spec.size], name=name)
     else:
       raise TypeError('Feature spec {} of type {} is not supported'.format(
           spec, type(spec)))
@@ -131,24 +133,25 @@ def make_feed_list(column_names, schema, instances):
     batch_indices = make_batch_indices(instance_indices)
     batch_values = list(itertools.chain.from_iterable(instance_values))
     batch_shape = (len(instance_indices), max_index)
-    return tf.SparseTensorValue(batch_indices, batch_values, batch_shape)
+    return tf.compat.v1.SparseTensorValue(batch_indices, batch_values,
+                                          batch_shape)
 
   result = []
   feature_spec = schema.as_feature_spec()
   for name in column_names:
     spec = feature_spec[name]
     # TODO(abrao): Validate dtypes, shapes etc.
-    if isinstance(spec, tf.FixedLenFeature):
+    if isinstance(spec, tf.io.FixedLenFeature):
       feed_value = [instance[name] for instance in instances]
 
-    elif isinstance(spec, tf.VarLenFeature):
+    elif isinstance(spec, tf.io.VarLenFeature):
       values = [[] if instance[name] is None else instance[name]
                 for instance in instances]
       indices = [range(len(value)) for value in values]
       max_index = max([len(value) for value in values])
       feed_value = make_sparse_batch(indices, values, max_index)
 
-    elif isinstance(spec, tf.SparseFeature):
+    elif isinstance(spec, tf.io.SparseFeature):
       # TODO(KesterTong): Add support for N-d SparseFeatures.
       max_index = spec.size
       indices, values = [], []
@@ -248,12 +251,12 @@ def to_instance_dicts(schema, fetches):
   feature_spec = schema.as_feature_spec()
   for name, value in six.iteritems(fetches):
     spec = feature_spec[name]
-    if isinstance(spec, tf.FixedLenFeature):
+    if isinstance(spec, tf.io.FixedLenFeature):
       batch_dict[name] = [value[i] for i in range(value.shape[0])]
       batch_sizes[name] = value.shape[0]
 
-    elif isinstance(spec, tf.VarLenFeature):
-      if not isinstance(value, tf.SparseTensorValue):
+    elif isinstance(spec, tf.io.VarLenFeature):
+      if not isinstance(value, tf.compat.v1.SparseTensorValue):
         raise ValueError(
             'Expected a SparseTensorValue, but got {}'.format(value))
       instance_indices, instance_values = decompose_sparse_batch(value)
@@ -264,8 +267,8 @@ def to_instance_dicts(schema, fetches):
       batch_dict[name] = instance_values
       batch_sizes[name] = len(instance_values)
 
-    elif isinstance(spec, tf.SparseFeature):
-      if not isinstance(value, tf.SparseTensorValue):
+    elif isinstance(spec, tf.io.SparseFeature):
+      if not isinstance(value, tf.compat.v1.SparseTensorValue):
         raise ValueError(
             'Expected a SparseTensorValue, but got {}'.format(value))
       # TODO(abrao): Add support for N-d SparseFeatures.

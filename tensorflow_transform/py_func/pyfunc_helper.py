@@ -68,11 +68,12 @@ ops.register_proto_function(_PYFUNC_COLLECTION_KEY,
 
 def insert_pyfunc(func, Tout, stateful, name, *args):  # pylint: disable=invalid-name
   """Calls tf.py_func and inserts the `func` in the internal registry."""
-  result = tf.py_func(func, inp=list(args),
-                      Tout=Tout, stateful=stateful, name=name)
+  result = tf.compat.v1.py_func(
+      func, inp=list(args), Tout=Tout, stateful=stateful, name=name)
 
   token = result.op.node_def.attr['token'].s
-  tf.add_to_collection(_PYFUNC_COLLECTION_KEY, _PyFuncDef(token, func))
+  tf.compat.v1.add_to_collection(_PYFUNC_COLLECTION_KEY, _PyFuncDef(
+      token, func))
   return result
 
 

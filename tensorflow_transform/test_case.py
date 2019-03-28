@@ -117,7 +117,8 @@ class TransformTestCase(parameterized.TestCase, test_util.TensorFlowTestCase):
       raise
 
   def WriteRenderedDotFile(self, dot_string, output_file=None):
-    tf.logging.info('Writing a rendered dot file is not yet supported.')
+    tf.compat.v1.logging.info(
+        'Writing a rendered dot file is not yet supported.')
 
   def _numpy_arrays_to_lists(self, maybe_arrays):
     return [

@@ -104,9 +104,9 @@ def ColumnSchema(domain, axes, representation):  # pylint: disable=invalid-name
     raise TypeError('Invalid domain: {}'.format(domain))
 
   if isinstance(representation, FixedColumnRepresentation):
-    spec = tf.FixedLenFeature(axes, dtype, representation.default_value)
+    spec = tf.io.FixedLenFeature(axes, dtype, representation.default_value)
   elif isinstance(representation, ListColumnRepresentation):
-    spec = tf.VarLenFeature(dtype)
+    spec = tf.io.VarLenFeature(dtype)
   else:
     raise TypeError('Invalid representation: {}'.format(representation))
 

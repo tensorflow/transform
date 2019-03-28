@@ -51,7 +51,7 @@ def _update_legacy_signature(signature):
       match = _MANGLED_TENSOR_NAME_RE.match(original_name)
       if not match:
         continue
-      tf.logging.warn(
+      tf.compat.v1.logging.warn(
           'Converting feature %s from legacy signature.  New models will '
           'be written without name-mangling in the signature', original_name)
       name = match.group(1)
@@ -156,7 +156,7 @@ def _partially_apply_saved_transform_impl(
     RuntimeError: if there is no default graph available to which to apply the
       transform.
   """
-  graph = tf.get_default_graph()
+  graph = tf.compat.v1.get_default_graph()
   if graph is None:
     raise RuntimeError('apply_saved_transform() requires a default graph.')
 
@@ -208,12 +208,12 @@ def _partially_apply_saved_transform_impl(
   pyfunc_helper.register_pyfuncs_from_saved_transform(graph, meta_graph_def)
 
   # Save the ASSET_FILEPATHS before importing the MetaGraphDef
-  current_assets = graph.get_collection(tf.GraphKeys.ASSET_FILEPATHS)
+  current_assets = graph.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)
 
   # Warn user if meta_graph_def has saved variables
-  if tf.GraphKeys.TRAINABLE_VARIABLES in meta_graph_def.collection_def:
+  if tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES in meta_graph_def.collection_def:
     trainable_vars = meta_graph_def.collection_def[
-        tf.GraphKeys.TRAINABLE_VARIABLES].bytes_list.value
+        tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES].bytes_list.value
     if trainable_vars:
       raise ValueError(
           'The SavedModel contained trainable variables {}.  Because this '
@@ -227,30 +227,32 @@ def _partially_apply_saved_transform_impl(
                                      input_map=input_map)
 
   # Wipe out AssetFileDef collection; it is obsolete after loading
-  graph.clear_collection(tf.saved_model.constants.ASSETS_KEY)
+  graph.clear_collection(tf.saved_model.ASSETS_KEY)
 
   # The import may have added Tensors to the ASSET_FILEPATHS collection that
   # were substituted via input_map.  To account for this, wipe out the
   # collection, restore the preexisting collection values, and then write in
   # the new substituted Tensors.
-  graph.clear_collection(tf.GraphKeys.ASSET_FILEPATHS)
+  graph.clear_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)
   for asset_path_tensor in current_assets:
-    graph.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, asset_path_tensor)
+    graph.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
+                            asset_path_tensor)
   for asset_path_tensor in asset_tensor_dict.values():
-    graph.add_to_collection(tf.GraphKeys.ASSET_FILEPATHS, asset_path_tensor)
+    graph.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
+                            asset_path_tensor)
 
   if saver:
     checkpoint_path = os.path.join(
         tf.compat.as_bytes(saved_model_dir),
-        tf.compat.as_bytes(tf.saved_model.constants.VARIABLES_DIRECTORY),
-        tf.compat.as_bytes(tf.saved_model.constants.VARIABLES_FILENAME))
+        tf.compat.as_bytes(tf.saved_model.VARIABLES_DIRECTORY),
+        tf.compat.as_bytes(tf.saved_model.VARIABLES_FILENAME))
 
     # We can't use the scope rename from init_from_checkpoint because it relies
     # on var scopes not rebuilt by import_meta_graph. So we need to construct it
     # explicitly by iterating over the variables.
     # TODO(b/78624684): remove this workaround.
     var_map = {}
-    for var in tf.global_variables():
+    for var in tf.compat.v1.global_variables():
       var_name = var.op.name
       if not var_name.startswith(scope):
         continue
@@ -275,7 +277,7 @@ def _partially_apply_saved_transform_impl(
         var_map[original_var_name] = var
 
     if var_map:
-      tf.train.init_from_checkpoint(checkpoint_path, var_map)
+      tf.compat.v1.train.init_from_checkpoint(checkpoint_path, var_map)
 
   # Add computed output tensors to the output.  There are two cases.  When the
   # output is not in the input_map, then we look up the tensor in the imported
@@ -319,7 +321,7 @@ def _partially_apply_saved_transform_impl(
 def partially_apply_saved_transform(saved_model_dir, logical_input_map,
                                     tensor_replacement_map=None):
   """Deprecated alias for partially_apply_saved_transform_internal."""
-  tf.logging.warn(
+  tf.compat.v1.logging.warn(
       'partially_apply_saved_transform is deprecated.  Use the '
       'transform_raw_features method of the TFTrandformOutput class instead.')
   return partially_apply_saved_transform_internal(
@@ -375,13 +377,13 @@ def write_saved_transform_from_session(
     session, inputs, outputs, export_path, as_text=False):
   """Write the current session as a SavedModel."""
   predict_signature_def = (
-      tf.saved_model.signature_def_utils.predict_signature_def(inputs, outputs))
+      tf.compat.v1.saved_model.signature_def_utils.predict_signature_def(
+          inputs, outputs))
 
-  builder = tf.saved_model.builder.SavedModelBuilder(export_path)
+  builder = tf.compat.v1.saved_model.builder.SavedModelBuilder(export_path)
   builder.add_meta_graph_and_variables(
       session, [constants.TRANSFORM_TAG],
       signature_def_map={'transform_signature': predict_signature_def},
-      assets_collection=tf.get_collection(
-          tf.GraphKeys.ASSET_FILEPATHS))
+      assets_collection=tf.compat.v1.get_collection(
+          tf.compat.v1.GraphKeys.ASSET_FILEPATHS))
   builder.save(as_text)
-

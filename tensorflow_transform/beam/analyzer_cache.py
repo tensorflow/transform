@@ -58,9 +58,9 @@ class WriteAnalysisCacheToFS(beam.PTransform):
             | 'WriteCache[{}][{}]'.format(dataset_key, cache_entry_key) >>
             beam.io.WriteToTFRecord(path, file_name_suffix='.gz'))
 
-      if not tf.gfile.IsDirectory(dataset_key_dir):
-        tf.gfile.MakeDirs(dataset_key_dir)
-      with tf.gfile.GFile(
+      if not tf.io.gfile.isdir(dataset_key_dir):
+        tf.io.gfile.makedirs(dataset_key_dir)
+      with tf.io.gfile.GFile(
           os.path.join(dataset_key_dir, _MANIFEST_FILE_NAME), 'w') as f:
         f.write(json.dumps(manifest))
 
@@ -81,10 +81,10 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
 
       dataset_cache_path = os.path.join(self._cache_base_dir,
                                         make_dataset_key(dataset_key))
-      if not tf.gfile.IsDirectory(dataset_cache_path):
+      if not tf.io.gfile.isdir(dataset_cache_path):
         continue
       cache_dict[dataset_key] = {}
-      with tf.gfile.GFile(
+      with tf.io.gfile.GFile(
           os.path.join(dataset_cache_path, _MANIFEST_FILE_NAME), 'r') as f:
         manifest = json.loads(f.read())
       for key, value in six.iteritems(manifest):

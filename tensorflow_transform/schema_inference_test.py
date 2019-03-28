@@ -29,41 +29,51 @@ from tensorflow_metadata.proto.v0 import schema_pb2
 
 
 def _make_tensors_with_override():
-  x = tf.placeholder(tf.int64, (None,))
+  x = tf.compat.v1.placeholder(tf.int64, (None,))
   schema_inference.set_tensor_schema_override(x, tf.constant(5), tf.constant(6))
   return {'x': x}
 
 
 class SchemaInferenceTest(test_case.TransformTestCase):
 
+  # pylint: disable=g-long-lambda
   @test_case.named_parameters(
-      dict(testcase_name='fixed_len_int',
-           make_tensors_fn=lambda: {'x': tf.placeholder(tf.int64, (None,))},
-           feature_spec={'x': tf.FixedLenFeature([], tf.int64)}),
-      dict(testcase_name='fixed_len_string',
-           make_tensors_fn=lambda: {'x': tf.placeholder(tf.string, (None,))},
-           feature_spec={'x': tf.FixedLenFeature([], tf.string)}),
-      dict(testcase_name='fixed_len_float',
-           make_tensors_fn=lambda: {'x': tf.placeholder(tf.float32, (None,))},
-           feature_spec={'x': tf.FixedLenFeature([], tf.float32)}),
-      dict(testcase_name='override',
-           make_tensors_fn=_make_tensors_with_override,
-           feature_spec={'x': tf.FixedLenFeature([], tf.int64)},
-           domains={'x': schema_pb2.IntDomain(is_categorical=True)}),
-      dict(testcase_name='override_with_session',
-           make_tensors_fn=_make_tensors_with_override,
-           feature_spec={'x': tf.FixedLenFeature([], tf.int64)},
-           domains={'x': schema_pb2.IntDomain(
-               min=5, max=6, is_categorical=True)},
-           create_session=True)
-  )
+      dict(
+          testcase_name='fixed_len_int',
+          make_tensors_fn=lambda:
+          {'x': tf.compat.v1.placeholder(tf.int64, (None,))},
+          feature_spec={'x': tf.io.FixedLenFeature([], tf.int64)}),
+      dict(
+          testcase_name='fixed_len_string',
+          make_tensors_fn=lambda:
+          {'x': tf.compat.v1.placeholder(tf.string, (None,))},
+          feature_spec={'x': tf.io.FixedLenFeature([], tf.string)}),
+      dict(
+          testcase_name='fixed_len_float',
+          make_tensors_fn=lambda:
+          {'x': tf.compat.v1.placeholder(tf.float32, (None,))},
+          feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)}),
+      dict(
+          testcase_name='override',
+          make_tensors_fn=_make_tensors_with_override,
+          feature_spec={'x': tf.io.FixedLenFeature([], tf.int64)},
+          domains={'x': schema_pb2.IntDomain(is_categorical=True)}),
+      dict(
+          testcase_name='override_with_session',
+          make_tensors_fn=_make_tensors_with_override,
+          feature_spec={'x': tf.io.FixedLenFeature([], tf.int64)},
+          domains={
+              'x': schema_pb2.IntDomain(min=5, max=6, is_categorical=True)
+          },
+          create_session=True))
+  # pylint: enable=g-long-lambda
   def test_infer_feature_schema(self, make_tensors_fn, feature_spec,
                                 domains=None, create_session=False):
     with tf.Graph().as_default() as graph:
       tensors = make_tensors_fn()
 
     if create_session:
-      with tf.Session(graph=graph) as session:
+      with tf.compat.v1.Session(graph=graph) as session:
         schema = schema_inference.infer_feature_schema(tensors, graph, session)
     else:
       schema = schema_inference.infer_feature_schema(tensors, graph)
@@ -74,7 +84,7 @@ class SchemaInferenceTest(test_case.TransformTestCase):
   def test_infer_feature_schema_bad_rank(self):
     with tf.Graph().as_default() as graph:
       tensors = {
-          'a': tf.placeholder(tf.float32, ()),
+          'a': tf.compat.v1.placeholder(tf.float32, ()),
       }
     with self.assertRaises(ValueError):
       schema_inference.infer_feature_schema(tensors, graph)

@@ -85,9 +85,9 @@ def _column_schema_from_json(feature_dict):
           pass
     axes = feature_dict['fixedShape'].get('axis', [])
     shape = [int(axis['size']) for axis in axes]
-    return tf.FixedLenFeature(shape, dtype, default_value)
+    return tf.io.FixedLenFeature(shape, dtype, default_value)
   elif tf_options.get('varLenFeature') is not None:
-    return tf.VarLenFeature(dtype)
+    return tf.io.VarLenFeature(dtype)
   else:
     raise ValueError('Could not interpret tfOptions: {}'.format(tf_options))
 

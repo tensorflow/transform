@@ -214,7 +214,8 @@ class InitializableGraphAnalyzer(object):
     graph_analyzer_for_table_init = _GraphAnalyzer(replaced_tensors_ready)
     ready_in_feed = {}
 
-    for table_init_op in graph.get_collection(tf.GraphKeys.TABLE_INITIALIZERS):
+    for table_init_op in graph.get_collection(
+        tf.compat.v1.GraphKeys.TABLE_INITIALIZERS):
       if table_init_op.type not in _TABLE_INIT_OP_TYPES:
         raise ValueError(
             'Table initializer {} did not have expected op type'.format(

@@ -54,9 +54,9 @@ def main():
 
   raw_data_metadata = dataset_metadata.DatasetMetadata(
       dataset_schema.from_feature_spec({
-          's': tf.FixedLenFeature([], tf.string),
-          'y': tf.FixedLenFeature([], tf.float32),
-          'x': tf.FixedLenFeature([], tf.float32),
+          's': tf.io.FixedLenFeature([], tf.string),
+          'y': tf.io.FixedLenFeature([], tf.float32),
+          'x': tf.io.FixedLenFeature([], tf.float32),
       }))
 
   with tft_beam.Context(temp_dir=tempfile.mkdtemp()):

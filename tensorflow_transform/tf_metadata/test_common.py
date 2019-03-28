@@ -24,16 +24,22 @@ from tensorflow_transform.tf_metadata import dataset_schema as sch
 
 test_feature_spec = {
     # FixedLenFeatures
-    'fixed_categorical_int_with_range': tf.FixedLenFeature(
-        shape=[], dtype=tf.int64),
-    'fixed_int': tf.FixedLenFeature(shape=[5], dtype=tf.int64),
-    'fixed_float': tf.FixedLenFeature(shape=[5], dtype=tf.float32),
-    'fixed_string': tf.FixedLenFeature(shape=[5], dtype=tf.string),
+    'fixed_categorical_int_with_range':
+        tf.io.FixedLenFeature(shape=[], dtype=tf.int64),
+    'fixed_int':
+        tf.io.FixedLenFeature(shape=[5], dtype=tf.int64),
+    'fixed_float':
+        tf.io.FixedLenFeature(shape=[5], dtype=tf.float32),
+    'fixed_string':
+        tf.io.FixedLenFeature(shape=[5], dtype=tf.string),
 
     # VarLenFeatures
-    'var_int': tf.VarLenFeature(dtype=tf.int64),
-    'var_float': tf.VarLenFeature(dtype=tf.float32),
-    'var_string': tf.VarLenFeature(dtype=tf.string),
+    'var_int':
+        tf.io.VarLenFeature(dtype=tf.int64),
+    'var_float':
+        tf.io.VarLenFeature(dtype=tf.float32),
+    'var_string':
+        tf.io.VarLenFeature(dtype=tf.string),
 }
 
 

@@ -90,8 +90,8 @@ def sparse_tensor_to_dense_with_shape(x, shape, default_value=0):
       x.dense_shape[i] if size is None else size
       for i, size in enumerate(shape)
   ]
-  dense = tf.sparse_to_dense(x.indices, new_dense_shape, x.values,
-                             default_value)
+  dense = tf.compat.v1.sparse_to_dense(x.indices, new_dense_shape, x.values,
+                                       default_value)
   dense.set_shape(shape)
   return dense
 
@@ -116,15 +116,15 @@ def scale_by_min_max(x,
   Raises:
     ValueError: If output_min, output_max have the wrong order.
   """
-  with tf.name_scope(name, 'scale_by_min_max'):
+  with tf.compat.v1.name_scope(name, 'scale_by_min_max'):
     if output_min >= output_max:
       raise ValueError('output_min must be less than output_max')
 
-    x = tf.to_float(x)
+    x = tf.cast(x, dtype=tf.float32)
     min_x_value, max_x_value = analyzers._min_and_max(  # pylint: disable=protected-access
         x, reduce_instance_dims=not elementwise)
 
-    x_shape = tf.shape(x)
+    x_shape = tf.shape(input=x)
 
     # If min==max, the result will be the mean of the requested range.
     # Note that both the options of tf.where are computed, which means that this
@@ -179,7 +179,7 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
     Note that TFLearn generally permits only tf.int64 and tf.float32, so casting
     this scaler's output may be necessary.
   """
-  with tf.name_scope(name, 'scale_to_z_score'):
+  with tf.compat.v1.name_scope(name, 'scale_to_z_score'):
     # x_mean will be float16, float32, or float64, depending on type of x.
     x_mean, x_var = analyzers._mean_and_var(  # pylint: disable=protected-access
         x, reduce_instance_dims=not elementwise, output_dtype=output_dtype)
@@ -262,14 +262,14 @@ def tfidf(x, vocab_size, smooth=True, name=None):
         values=tf.mod(x.values, vocab_size),
         dense_shape=x.dense_shape)
 
-  with tf.name_scope(name, 'tfidf'):
+  with tf.compat.v1.name_scope(name, 'tfidf'):
     cleaned_input = _to_vocab_range(x)
 
     term_frequencies = _to_term_frequency(cleaned_input, vocab_size)
 
     count_docs_with_term_column = _count_docs_with_term(term_frequencies)
     # Expand dims to get around the min_tensor_rank checks
-    sizes = tf.expand_dims(tf.shape(cleaned_input)[0], 0)
+    sizes = tf.expand_dims(tf.shape(input=cleaned_input)[0], 0)
     # [batch, vocab] - tfidf
     tfidfs = _to_tfidf(term_frequencies,
                        analyzers.sum(count_docs_with_term_column,
@@ -301,7 +301,8 @@ def _split_tfidfs_to_outputs(tfidfs):
       [tf.expand_dims(tfidfs.indices[:, 0], 1),
        tf.expand_dims(dummy_index, 1)], 1)
 
-  out_shape_second_dim = tf.maximum(tf.reduce_max(dummy_index), -1) + 1
+  out_shape_second_dim = tf.maximum(
+      tf.reduce_max(input_tensor=dummy_index), -1) + 1
   out_shape = tf.stack([tfidfs.dense_shape[0], out_shape_second_dim])
   out_shape.set_shape([2])
 
@@ -331,10 +332,10 @@ def _to_term_frequency(x, vocab_size):
   """
   # Construct intermediary sparse tensor with indices
   # [<doc>, <term_index_in_doc>, <vocab_id>] and tf.ones values.
-  vocab_size = tf.convert_to_tensor(vocab_size, dtype=tf.int64)
-  split_indices = tf.to_int64(
-      tf.split(x.indices, axis=1, num_or_size_splits=2))
-  expanded_values = tf.to_int64(tf.expand_dims(x.values, 1))
+  vocab_size = tf.convert_to_tensor(value=vocab_size, dtype=tf.int64)
+  split_indices = tf.cast(
+      tf.split(x.indices, axis=1, num_or_size_splits=2), dtype=tf.int64)
+  expanded_values = tf.cast(tf.expand_dims(x.values, 1), dtype=tf.int64)
   next_index = tf.concat(
       [split_indices[0], split_indices[1], expanded_values], axis=1)
 
@@ -344,25 +345,29 @@ def _to_term_frequency(x, vocab_size):
       [x.dense_shape, expanded_vocab_size], 0)
 
   next_tensor = tf.SparseTensor(
-      indices=tf.to_int64(next_index),
+      indices=tf.cast(next_index, dtype=tf.int64),
       values=next_values,
       dense_shape=next_shape)
 
   # Take the intermediary tensor and reduce over the term_index_in_doc
   # dimension. This produces a tensor with indices [<doc_id>, <term_id>]
   # and values [count_of_term_in_doc] and shape batch x vocab_size
-  term_count_per_doc = tf.sparse_reduce_sum_sparse(next_tensor, 1)
+  term_count_per_doc = tf.compat.v1.sparse_reduce_sum_sparse(next_tensor, 1)
 
-  dense_doc_sizes = tf.to_double(tf.sparse_reduce_sum(tf.SparseTensor(
-      indices=x.indices,
-      values=tf.ones_like(x.values),
-      dense_shape=x.dense_shape), 1))
+  dense_doc_sizes = tf.cast(
+      tf.sparse.reduce_sum(
+          tf.SparseTensor(
+              indices=x.indices,
+              values=tf.ones_like(x.values),
+              dense_shape=x.dense_shape), 1),
+      dtype=tf.float64)
 
   gather_indices = term_count_per_doc.indices[:, 0]
   gathered_doc_sizes = tf.gather(dense_doc_sizes, gather_indices)
 
-  term_frequency = (tf.to_double(term_count_per_doc.values) /
-                    tf.to_double(gathered_doc_sizes))
+  term_frequency = (
+      tf.cast(term_count_per_doc.values, dtype=tf.float64) /
+      tf.cast(gathered_doc_sizes, dtype=tf.float64))
   return tf.SparseTensor(
       indices=term_count_per_doc.indices,
       values=term_frequency,
@@ -387,14 +392,17 @@ def _to_tfidf(term_frequency, reduced_term_freq, corpus_size, smooth):
   """
   # The idf tensor has shape (vocab_size,)
   if smooth:
-    idf = tf.log((tf.to_double(corpus_size) + 1.0) / (
-        1.0 + tf.to_double(reduced_term_freq))) + 1
+    idf = tf.math.log((tf.cast(corpus_size, dtype=tf.float64) + 1.0) /
+                      (1.0 + tf.cast(reduced_term_freq, dtype=tf.float64))) + 1
   else:
-    idf = tf.log(tf.to_double(corpus_size) / (
-        tf.to_double(reduced_term_freq))) + 1
+    idf = tf.math.log(
+        tf.cast(corpus_size, dtype=tf.float64) /
+        (tf.cast(reduced_term_freq, dtype=tf.float64))) + 1
 
   gathered_idfs = tf.gather(tf.squeeze(idf), term_frequency.indices[:, 1])
-  tfidf_values = tf.to_float(term_frequency.values) * tf.to_float(gathered_idfs)
+  tfidf_values = tf.cast(
+      term_frequency.values, dtype=tf.float32) * tf.cast(
+          gathered_idfs, dtype=tf.float32)
 
   return tf.SparseTensor(
       indices=term_frequency.indices,
@@ -415,7 +423,7 @@ def _count_docs_with_term(term_frequency):
       indices=term_frequency.indices,
       values=tf.ones_like(term_frequency.values),
       dense_shape=term_frequency.dense_shape)
-  out = tf.sparse_reduce_sum(count_of_doc_inter, axis=0)
+  out = tf.sparse.reduce_sum(count_of_doc_inter, axis=0)
   return tf.expand_dims(out, 0)
 
 
@@ -499,7 +507,7 @@ def compute_and_apply_vocabulary(
     ValueError: If `top_k` or `frequency_threshold` is negative.
       If `coverage_top_k` or `coverage_frequency_threshold` is negative.
   """
-  with tf.name_scope(name, 'compute_and_apply_vocabulary'):
+  with tf.compat.v1.name_scope(name, 'compute_and_apply_vocabulary'):
     deferred_vocab_and_filename = analyzers.vocabulary(
         x=x,
         top_k=top_k,
@@ -582,7 +590,7 @@ def apply_vocabulary(x,
     starting from zero, and string value not in the vocabulary is
     assigned default_value.
   """
-  with tf.name_scope(name, 'apply_vocab'):
+  with tf.compat.v1.name_scope(name, 'apply_vocab'):
     if x.dtype != tf.string and not x.dtype.is_integer:
       raise tf.errors.InvalidArgumentError(
           'expected tf.string or tf.int[8|16|32|64] but got %r' % x.dtype)
@@ -652,14 +660,15 @@ def segment_indices(segment_ids, name=None):
   Returns:
     A `Tensor` containing the indices within each segment.
   """
-  with tf.name_scope(name, 'segment_indices'):
+  with tf.compat.v1.name_scope(name, 'segment_indices'):
     # TODO(KesterTong): This is a fundamental operation for segments, write a C++
     # op to do this.
     # TODO(KesterTong): Add a check that segment_ids are increasing.
-    segment_lengths = tf.segment_sum(tf.ones_like(segment_ids), segment_ids)
+    segment_lengths = tf.math.segment_sum(
+        tf.ones_like(segment_ids), segment_ids)
     segment_starts = tf.gather(tf.concat([[0], tf.cumsum(segment_lengths)], 0),
                                segment_ids)
-    return (tf.range(tf.size(segment_ids, out_type=segment_ids.dtype)) -
+    return (tf.range(tf.size(input=segment_ids, out_type=segment_ids.dtype)) -
             segment_starts)
 
 
@@ -737,15 +746,17 @@ def ngrams(tokens, ngram_range, separator, name=None):
   #
   # This results in tensors of ngrams, their batch indices and a boolean mask,
   # which we then use to construct the output SparseTensor.
-  with tf.name_scope(name, 'ngrams'):
+  with tf.compat.v1.name_scope(name, 'ngrams'):
     if ngram_range[0] < 1 or ngram_range[1] < ngram_range[0]:
       raise ValueError('Invalid ngram_range: %r' % (ngram_range,))
 
     def _sliding_windows(values, num_shifts, fill_value):
       buffered_values = tf.concat(
           [values, tf.fill([num_shifts - 1], fill_value)], 0)
-      return [tf.slice(buffered_values, [i], tf.shape(values))
-              for i in range(num_shifts)]
+      return [
+          tf.slice(buffered_values, [i], tf.shape(input=values))
+          for i in range(num_shifts)
+      ]
 
     shifted_batch_indices = _sliding_windows(
         tokens.indices[:, 0], ngram_range[1] + 1,
@@ -756,7 +767,7 @@ def ngrams(tokens, ngram_range, separator, name=None):
     # [['a', 'ab, 'abc'], ['b', 'bcd', cde'], ...]
     def _string_join(tensors):
       if tensors:
-        return tf.string_join(tensors, separator=separator)
+        return tf.strings.join(tensors, separator=separator)
       else:
         return
 
@@ -766,10 +777,14 @@ def ngrams(tokens, ngram_range, separator, name=None):
 
     # Construct a boolean mask for whether each ngram in ngram_tensor is valid,
     # in that each character cam from the same batch.
-    valid_ngram = tf.equal(tf.cumprod(
-        tf.to_int32(tf.equal(tf.stack(shifted_batch_indices, 1),
-                             tf.expand_dims(shifted_batch_indices[0], 1))),
-        axis=1), 1)
+    valid_ngram = tf.equal(
+        tf.math.cumprod(
+            tf.cast(
+                tf.equal(
+                    tf.stack(shifted_batch_indices, 1),
+                    tf.expand_dims(shifted_batch_indices[0], 1)),
+                dtype=tf.int32),
+            axis=1), 1)
     valid_ngram = valid_ngram[:, (ngram_range[0] - 1):ngram_range[1]]
 
     # Construct a tensor with the batch that each ngram in ngram_tensor belongs
@@ -780,10 +795,11 @@ def ngrams(tokens, ngram_range, separator, name=None):
     # Apply the boolean mask and construct a SparseTensor with the given indices
     # and values, where another index is added to give the position within a
     # batch.
-    batch_indices = tf.boolean_mask(batch_indices, valid_ngram)
-    ngrams_tensor = tf.boolean_mask(ngrams_tensor, valid_ngram)
+    batch_indices = tf.boolean_mask(tensor=batch_indices, mask=valid_ngram)
+    ngrams_tensor = tf.boolean_mask(tensor=ngrams_tensor, mask=valid_ngram)
     instance_indices = segment_indices(batch_indices)
-    dense_shape_second_dim = tf.maximum(tf.reduce_max(instance_indices), -1) + 1
+    dense_shape_second_dim = tf.maximum(
+        tf.reduce_max(input_tensor=instance_indices), -1) + 1
     return tf.SparseTensor(
         indices=tf.stack([batch_indices, instance_indices], 1),
         values=ngrams_tensor,
@@ -824,8 +840,8 @@ def hash_strings(strings, hash_buckets, key=None, name=None):
   if name is None:
     name = 'hash_strings'
   if key is None:
-    return tf.string_to_hash_bucket_fast(strings, hash_buckets, name=name)
-  return tf.string_to_hash_bucket_strong(strings, hash_buckets, key, name=name)
+    return tf.strings.to_hash_bucket_fast(strings, hash_buckets, name=name)
+  return tf.strings.to_hash_bucket_strong(strings, hash_buckets, key, name=name)
 
 
 def bucketize(x, num_buckets, epsilon=None, weights=None, name=None):
@@ -865,7 +881,7 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, name=None):
   Raises:
     ValueError: If value of num_buckets is not > 1.
   """
-  with tf.name_scope(name, 'bucketize'):
+  with tf.compat.v1.name_scope(name, 'bucketize'):
     if not isinstance(num_buckets, int):
       raise TypeError('num_buckets must be an int, got %s' % type(num_buckets))
 
@@ -905,7 +921,7 @@ def bucketize_per_key(x, key, num_buckets, epsilon=None, name=None):
   Raises:
     ValueError: If value of num_buckets is not > 1.
   """
-  with tf.name_scope(name, 'bucketize_per_key'):
+  with tf.compat.v1.name_scope(name, 'bucketize_per_key'):
     if not isinstance(num_buckets, int):
       raise TypeError(
           'num_buckets must be an int, got {}'.format(type(num_buckets)))
@@ -927,7 +943,7 @@ def bucketize_per_key(x, key, num_buckets, epsilon=None, name=None):
 def _lookup_key(key, key_vocab):
   table = lookup_ops.index_table_from_tensor(key_vocab, default_value=-1)
   key_indices = table.lookup(key)
-  with tf.control_dependencies([tf.assert_non_negative(key_indices)]):
+  with tf.control_dependencies([tf.compat.v1.assert_non_negative(key_indices)]):
     return tf.identity(key_indices)
 
 
@@ -983,11 +999,11 @@ def _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries, name=None):
   Returns:
     A tensor with the same shape as `x` and dtype tf.int64
   """
-  with tf.name_scope(name, 'apply_buckets_with_keys'):
+  with tf.compat.v1.name_scope(name, 'apply_buckets_with_keys'):
     x_values = x.values if isinstance(x, tf.SparseTensor) else x
     key_values = key.values if isinstance(key, tf.SparseTensor) else key
 
-    x_values = tf.to_float(x_values)
+    x_values = tf.cast(x_values, dtype=tf.float32)
     # Convert `key_values` to indices in key_vocab.  We must use apply_function
     # since this uses a Table.
     key_indices = _lookup_key(key_values, key_vocab)
@@ -998,9 +1014,11 @@ def _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries, name=None):
     # bucket offset is an integer offset).  Then remove this offset to get the
     # actual per-key buckets for x.
     offset_x = x_values + tf.gather(offsets, key_indices)
-    offset_buckets = tf.to_int64(quantile_ops.bucketize_with_input_boundaries(
-        offset_x, combined_boundaries))
-    num_buckets = tf.to_int64(tf.shape(bucket_boundaries)[1])
+    offset_buckets = tf.cast(
+        quantile_ops.bucketize_with_input_boundaries(offset_x,
+                                                     combined_boundaries),
+        dtype=tf.int64)
+    num_buckets = tf.cast(tf.shape(input=bucket_boundaries)[1], dtype=tf.int64)
     bucketized_values = tf.clip_by_value(
         offset_buckets - key_indices * num_buckets, 0, num_buckets)
 
@@ -1118,20 +1136,20 @@ def apply_buckets(x, bucket_boundaries, name=None):
     returned tensor representing the bucketized value. Bucketized value is
     in the range [0, len(bucket_boundaries)].
   """
-  tf.assert_rank(bucket_boundaries, 2)
-  with tf.name_scope(name, 'apply_buckets'):
+  tf.compat.v1.assert_rank(bucket_boundaries, 2)
+  with tf.compat.v1.name_scope(name, 'apply_buckets'):
     x_values = x.values if isinstance(x, tf.SparseTensor) else x
     buckets = quantile_ops.bucketize_with_input_boundaries(
         x_values, boundaries=bucket_boundaries, name='assign_buckets')
     # Convert to int64 because int32 is not compatible with tf.Example parser.
     # See _TF_EXAMPLE_ALLOWED_TYPES in FixedColumnRepresentation()
     # in tf_metadata/dataset_schema.py
-    bucketized_values = tf.to_int64(buckets)
+    bucketized_values = tf.cast(buckets, dtype=tf.int64)
 
     # Attach the relevant metadata to result, so that the corresponding
     # output feature will have this metadata set.
     min_value = tf.constant(0, tf.int64)
-    max_value = tf.shape(bucket_boundaries)[1]
+    max_value = tf.shape(input=bucket_boundaries)[1]
     schema_inference.set_tensor_schema_override(
         bucketized_values, min_value, max_value)
 

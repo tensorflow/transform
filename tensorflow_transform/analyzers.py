@@ -271,7 +271,7 @@ def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Raises:
     TypeError: If the type of `x` is not supported.
   """
-  with tf.name_scope(name, 'min'):
+  with tf.compat.v1.name_scope(name, 'min'):
     return _min_and_max(x, reduce_instance_dims, name)[0]
 
 
@@ -293,7 +293,7 @@ def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Raises:
     TypeError: If the type of `x` is not supported.
   """
-  with tf.name_scope(name, 'max'):
+  with tf.compat.v1.name_scope(name, 'max'):
     return _min_and_max(x, reduce_instance_dims, name)[1]
 
 
@@ -316,7 +316,7 @@ def _min_and_max(x, reduce_instance_dims=True, name=None):
   Raises:
     TypeError: If the type of `x` is not supported.
   """
-  with tf.name_scope(name, 'min_and_max'):
+  with tf.compat.v1.name_scope(name, 'min_and_max'):
     combine_fn = np.max
     if (not reduce_instance_dims and isinstance(x, tf.SparseTensor) and
         x.dtype.is_floating):
@@ -365,19 +365,19 @@ def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
   Raises:
     TypeError: If the type of `x` is not supported.
   """
-  with tf.name_scope(name, 'sum'):
+  with tf.compat.v1.name_scope(name, 'sum'):
     if reduce_instance_dims:
       if isinstance(x, tf.SparseTensor):
         x = x.values
-      x = tf.reduce_sum(x)
+      x = tf.reduce_sum(input_tensor=x)
     elif isinstance(x, tf.SparseTensor):
       if x.dtype == tf.uint8 or x.dtype == tf.uint16:
         x = tf.cast(x, tf.int64)
       elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
         TypeError('Data type %r is not supported' % x.dtype)
-      x = tf.sparse_reduce_sum(x, axis=0)
+      x = tf.sparse.reduce_sum(x, axis=0)
     else:
-      x = tf.reduce_sum(x, axis=0)
+      x = tf.reduce_sum(input_tensor=x, axis=0)
     output_dtype, sum_fn = _sum_combine_fn_and_dtype(x.dtype)
     return _numeric_combine([x], sum_fn, reduce_instance_dims,
                             [output_dtype])[0]
@@ -396,7 +396,7 @@ def size(x, reduce_instance_dims=True, name=None):
   Returns:
     A `Tensor` of type int64.
   """
-  with tf.name_scope(name, 'size'):
+  with tf.compat.v1.name_scope(name, 'size'):
     # Note: Calling `sum` defined in this module, not the builtin.
     if isinstance(x, tf.SparseTensor):
       ones_like_x = tf.SparseTensor(
@@ -427,7 +427,7 @@ def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
   Raises:
     TypeError: If the type of `x` is not supported.
   """
-  with tf.name_scope(name, 'mean'):
+  with tf.compat.v1.name_scope(name, 'mean'):
     return _mean_and_var(x, reduce_instance_dims, output_dtype)[0]
 
 
@@ -454,7 +454,7 @@ def var(x, reduce_instance_dims=True, name=None, output_dtype=None):
   Raises:
     TypeError: If the type of `x` is not supported.
   """
-  with tf.name_scope(name, 'var'):
+  with tf.compat.v1.name_scope(name, 'var'):
     return _mean_and_var(x, reduce_instance_dims, output_dtype)[1]
 
 
@@ -465,7 +465,7 @@ def _mean_and_var(x, reduce_instance_dims=True, output_dtype=None):
     if output_dtype is None:
       raise TypeError('Tensor type %r is not supported' % x.dtype)
 
-  with tf.name_scope('mean_and_var'):
+  with tf.compat.v1.name_scope('mean_and_var'):
 
     x = tf.cast(x, output_dtype)
 
@@ -640,7 +640,7 @@ def sanitized_vocab_filename(filename=None, prefix=None):
     raise ValueError('Only one of filename or prefix can be specified.')
 
   if filename is None:
-    filename = prefix + tf.get_default_graph().get_name_scope()
+    filename = prefix + tf.compat.v1.get_default_graph().get_name_scope()
   # Replace non-alpha characters (excluding whitespaces) with '_'.
   filename = re.sub(r'[^\w\s-]', '_', filename).strip()
   # Replace whitespaces with '-'.
@@ -685,7 +685,7 @@ def _get_top_k_and_frequency_threshold(top_k, frequency_threshold):
           'frequency_threshold must be non-negative, but got: %r' %
           frequency_threshold)
     elif frequency_threshold <= 1:
-      tf.logging.warn(
+      tf.compat.v1.logging.warn(
           'frequency_threshold %d <= 1 is a no-op, use None instead.',
           frequency_threshold)
   return top_k, frequency_threshold
@@ -831,7 +831,7 @@ def vocabulary(x,
   if x.dtype != tf.string and not x.dtype.is_integer:
     raise ValueError('expected tf.string or integer but got %r' % x.dtype)
 
-  with tf.name_scope(name, 'vocabulary'):
+  with tf.compat.v1.name_scope(name, 'vocabulary'):
     vocab_filename = _get_vocab_filename(vocab_filename, store_frequency)
 
     if labels is not None:
@@ -971,7 +971,7 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
       # the timestamp mechanism to signify progress in the qaccumulator state.
       stamp_token = 0
 
-      self._session = tf.Session(graph=graph)
+      self._session = tf.compat.v1.Session(graph=graph)
 
       qaccumulator = quantile_ops.QuantileAccumulator(
           init_stamp_token=stamp_token,
@@ -1017,11 +1017,12 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     # QuantileAccumulator.
     # inputs and weights need to have shapes (1, None) as this is what the
     # QuantileAccumulator accepts.
-    prebuilt_summary = tf.placeholder(dtype=tf.string, shape=[])
-    inputs = tf.placeholder(dtype=self._bucket_numpy_dtype, shape=[1, None])
+    prebuilt_summary = tf.compat.v1.placeholder(dtype=tf.string, shape=[])
+    inputs = tf.compat.v1.placeholder(
+        dtype=self._bucket_numpy_dtype, shape=[1, None])
     feed_list = [prebuilt_summary, inputs]
     if self._has_weights:
-      weights = tf.placeholder(dtype=tf.float32, shape=[1, None])
+      weights = tf.compat.v1.placeholder(dtype=tf.float32, shape=[1, None])
       feed_list.append(weights)
     else:
       weights = tf.ones_like(inputs)
@@ -1048,7 +1049,7 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     return self._session.make_callable(fetches=summary, feed_list=feed_list)
 
   def _make_add_summary_callable(self, qaccumulator, stamp_token):
-    merge_prebuilt_summary = tf.placeholder(dtype=tf.string, shape=[])
+    merge_prebuilt_summary = tf.compat.v1.placeholder(dtype=tf.string, shape=[])
 
     add_merge_prebuilt_summary_op = qaccumulator.add_prebuilt_summary(
         stamp_token=stamp_token, summary=merge_prebuilt_summary)
@@ -1058,7 +1059,7 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
         feed_list=[merge_prebuilt_summary])
 
   def _make_get_buckets_callable(self, qaccumulator, stamp_token):
-    final_summary = tf.placeholder(dtype=tf.string, shape=[])
+    final_summary = tf.compat.v1.placeholder(dtype=tf.string, shape=[])
 
     add_final_summary_op = qaccumulator.add_prebuilt_summary(
         stamp_token=stamp_token, summary=final_summary)
@@ -1202,7 +1203,7 @@ def quantiles(x, num_buckets, epsilon, weights=None, name=None):
   # The restriction does not apply to inputs, which can be of any integral
   # dtype including tf.int32, tf.int64, tf.flost64 and tf.double.
   bucket_dtype = tf.float32
-  with tf.name_scope(name, 'quantiles'):
+  with tf.compat.v1.name_scope(name, 'quantiles'):
     if weights is None:
       analyzer_inputs = [x]
       has_weights = False
@@ -1254,7 +1255,7 @@ def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
   # The restriction does not apply to inputs, which can be of any integral
   # dtype including tf.int32, tf.int64, tf.flost64 and tf.double.
   bucket_dtype = tf.float32
-  with tf.name_scope(name, 'quantiles_by_key'):
+  with tf.compat.v1.name_scope(name, 'quantiles_by_key'):
     combiner = QuantilesCombiner(
         num_buckets,
         epsilon,
@@ -1391,7 +1392,7 @@ def covariance(x, dtype, name=None):
   if not isinstance(x, tf.Tensor):
     raise TypeError('Expected a Tensor, but got %r' % x)
 
-  with tf.name_scope(name, 'covariance'):
+  with tf.compat.v1.name_scope(name, 'covariance'):
     x.shape.assert_has_rank(2)
 
     input_dim = x.shape.as_list()[1]
@@ -1513,7 +1514,7 @@ def pca(x, output_dim, dtype, name=None):
   if not isinstance(x, tf.Tensor):
     raise TypeError('Expected a Tensor, but got %r' % x)
 
-  with tf.name_scope(name, 'pca'):
+  with tf.compat.v1.name_scope(name, 'pca'):
     x.shape.assert_has_rank(2)
 
     input_dim = x.shape.as_list()[1]
@@ -1557,7 +1558,7 @@ def ptransform_analyzer(inputs, output_dtypes, output_shapes, ptransform,
   if len(output_dtypes) != len(output_shapes):
     raise ValueError('output_dtypes ({}) and output_shapes ({}) had different'
                      ' lengths'.format(output_dtypes, output_shapes))
-  with tf.name_scope(name, 'ptransform'):
+  with tf.compat.v1.name_scope(name, 'ptransform'):
     output_tensor_infos = [
         analyzer_nodes.TensorInfo(dtype, shape, False)
         for dtype, shape in zip(output_dtypes, output_shapes)

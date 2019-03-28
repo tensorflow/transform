@@ -82,17 +82,16 @@ class TFTransformOutput(object):
       vocab_filename: The relative filename to lookup.
     """
     return os.path.join(self.transform_savedmodel_dir,
-                        tf.saved_model.constants.ASSETS_DIRECTORY,
-                        vocab_filename)
+                        tf.saved_model.ASSETS_DIRECTORY, vocab_filename)
 
   def vocabulary_size_by_name(self, vocab_filename):
     """Like vocabulary_file_by_name, but returns the size of vocabulary."""
-    with tf.gfile.GFile(self.vocabulary_file_by_name(vocab_filename)) as f:
+    with tf.io.gfile.GFile(self.vocabulary_file_by_name(vocab_filename)) as f:
       return sum(1 for _ in f)
 
   def vocabulary_by_name(self, vocab_filename):
     """Like vocabulary_file_by_name but returns a list."""
-    with tf.gfile.GFile(self.vocabulary_file_by_name(vocab_filename)) as f:
+    with tf.io.gfile.GFile(self.vocabulary_file_by_name(vocab_filename)) as f:
       return [l.rstrip() for l in f]
 
   # TODO(KesterTong): Add test for this in output_wrapper_test.py

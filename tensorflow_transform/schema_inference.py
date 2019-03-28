@@ -59,7 +59,7 @@ def _feature_spec_from_batched_tensors(tensors):
         raise ValueError(
             '{} had invalid shape {} for VarLenFeature: must have rank '
             '2'.format(tensor, shape))
-      result[name] = tf.VarLenFeature(tensor.dtype)
+      result[name] = tf.io.VarLenFeature(tensor.dtype)
     elif isinstance(tensor, tf.Tensor):
       if shape.ndims in [None, 0]:
         raise ValueError(
@@ -70,7 +70,7 @@ def _feature_spec_from_batched_tensors(tensors):
             '{} had invalid shape {} for FixedLenFeature: apart from the batch '
             'dimension, all dimensions must have known size'.format(
                 tensor, shape))
-      result[name] = tf.FixedLenFeature(shape.as_list()[1:], tensor.dtype)
+      result[name] = tf.io.FixedLenFeature(shape.as_list()[1:], tensor.dtype)
     else:
       raise TypeError(
           'Expected a Tensor or SparseTensor, got {} of type {}'.format(
@@ -152,9 +152,9 @@ def set_tensor_schema_override(tensor, min_value, max_value):
     raise ValueError('min_value {} was not a Tensor'.format(min_value))
   if not isinstance(max_value, tf.Tensor):
     raise ValueError('max_value {} was not a Tensor'.format(max_value))
-  tf.add_to_collection(_TF_METADATA_TENSOR_COLLECTION, tensor)
-  tf.add_to_collection(_TF_METADATA_TENSOR_MIN_COLLECTION, min_value)
-  tf.add_to_collection(_TF_METADATA_TENSOR_MAX_COLLECTION, max_value)
+  tf.compat.v1.add_to_collection(_TF_METADATA_TENSOR_COLLECTION, tensor)
+  tf.compat.v1.add_to_collection(_TF_METADATA_TENSOR_MIN_COLLECTION, min_value)
+  tf.compat.v1.add_to_collection(_TF_METADATA_TENSOR_MAX_COLLECTION, max_value)
 
 
 def _get_tensor_schema_overrides(graph):
