@@ -120,7 +120,8 @@ def scale_by_min_max(x,
     if output_min >= output_max:
       raise ValueError('output_min must be less than output_max')
 
-    x = tf.to_float(x)
+    x = tf.dtypes.cast(x, 'float64', name='Cast_Float')
+
     min_x_value, max_x_value = analyzers._min_and_max(  # pylint: disable=protected-access
         x, reduce_instance_dims=not elementwise)
 
@@ -394,7 +395,8 @@ def _to_tfidf(term_frequency, reduced_term_freq, corpus_size, smooth):
         tf.to_double(reduced_term_freq))) + 1
 
   gathered_idfs = tf.gather(tf.squeeze(idf), term_frequency.indices[:, 1])
-  tfidf_values = tf.to_float(term_frequency.values) * tf.to_float(gathered_idfs)
+  tfidf_values = tf.dtypes.cast(term_frequency.values, 'float64', name='Calc_tfidf1') *\
+    tf.dtypes.cast(gathered_idfs, 'float64', name='Calc_tfidf2')
 
   return tf.SparseTensor(
       indices=term_frequency.indices,
@@ -987,7 +989,7 @@ def _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries, name=None):
     x_values = x.values if isinstance(x, tf.SparseTensor) else x
     key_values = key.values if isinstance(key, tf.SparseTensor) else key
 
-    x_values = tf.to_float(x_values)
+    x_values = tf.dtypes.cast(x_values, 'float64', name='Cast_float0')
     # Convert `key_values` to indices in key_vocab.  We must use apply_function
     # since this uses a Table.
     key_indices = _lookup_key(key_values, key_vocab)
