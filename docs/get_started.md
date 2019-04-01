@@ -41,6 +41,7 @@ features:
 ```python
 import tensorflow as tf
 import tensorflow_transform as tft
+import tensorflow_transform.beam as tft_beam
 
 def preprocessing_fn(inputs):
   x = inputs['x']
@@ -123,7 +124,7 @@ raw_data = [
 
 raw_data_metadata = ...
 transformed_dataset, transform_fn = (
-    (raw_data, raw_data_metadata) | beam_impl.AnalyzeAndTransformDataset(
+    (raw_data, raw_data_metadata) | tft_beam.AnalyzeAndTransformDataset(
         preprocessing_fn))
 transformed_data, transformed_metadata = transformed_dataset
 ```
@@ -162,12 +163,12 @@ transforms provided by the implementation `AnalyzeDataset` and
 
 ```python
 transformed_data, transform_fn = (
-    my_data | AnalyzeAndTransformDataset(preprocessing_fn))
+    my_data | tft_beam.AnalyzeAndTransformDataset(preprocessing_fn))
 ```
 
 ```python
-transform_fn = my_data | AnalyzeDataset(preprocessing_fn)
-transformed_data = (my_data, transform_fn) | TransformDataset()
+transform_fn = my_data | tft_beam.AnalyzeDataset(preprocessing_fn)
+transformed_data = (my_data, transform_fn) | tft_beam.TransformDataset()
 ```
 
 `transform_fn` is a pure function that represents an operation that is applied
@@ -354,9 +355,8 @@ metadata:
 ```python
 _ = (
     transform_fn
-    | 'WriteTransformFn' >>
-    transform_fn_io.WriteTransformFn(working_dir))
-transformed_metadata | 'WriteMetadata' >> beam_metadata_io.WriteMetadata(
+    | 'WriteTransformFn' >> tft_beam.WriteTransformFn(working_dir))
+transformed_metadata | 'WriteMetadata' >> tft_beam.WriteMetadata(
     transformed_metadata_file, pipeline=p)
 ```
 
