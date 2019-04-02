@@ -455,21 +455,24 @@ class CachedImplTest(test_case.TransformTestCase):
         flat_data = p | 'CreateInputData' >> beam.Create(
             list(itertools.chain(*input_data_dict.values())))
 
-        # This is needed due to b/123895600.
+        # wrap each value in input_data_dict as a pcoll.
+        input_data_pcoll_dict = {}
         for a, b in six.iteritems(input_data_dict):
-          input_data_dict[a] = p | a >> beam.Create(b)
+          input_data_pcoll_dict[a] = p | a >> beam.Create(b)
 
-        transform_fn, cache_output = (
-            (flat_data, input_data_dict, {}, input_metadata)
+        transform_fn_1, cache_output = (
+            (flat_data, input_data_pcoll_dict, {}, input_metadata)
             | 'Analyze' >>
             (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
-        _ = cache_output | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
-            self._cache_dir)
+        _ = (
+            cache_output | 'WriteCache' >>
+            analyzer_cache.WriteAnalysisCacheToFS(self._cache_dir))
 
-        transformed_dataset = (((input_data_dict[span_1_key], input_metadata),
-                                transform_fn)
+        transformed_dataset = (((input_data_pcoll_dict[span_1_key],
+                                 input_metadata), transform_fn_1)
                                | 'Transform' >> beam_impl.TransformDataset())
 
+        del input_data_pcoll_dict
         transformed_data, unused_transformed_metadata = transformed_dataset
 
         expected_transformed_data = [
@@ -491,15 +494,29 @@ class CachedImplTest(test_case.TransformTestCase):
             beam_test_util.equal_to(expected_transformed_data),
             label='first')
 
-        transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn')
-        _ = transform_fn | tft_beam.WriteTransformFn(transform_fn_dir)
+        transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_1')
+        _ = transform_fn_1 | tft_beam.WriteTransformFn(transform_fn_dir)
 
         for key in input_data_dict:
           self.assertIn(key, cache_output)
           self.assertEqual(6, len(cache_output[key]))
 
-        transform_fn, second_output_cache = (
-            (flat_data, input_data_dict, cache_output, input_metadata)
+    with beam_impl.Context(temp_dir=self.get_temp_dir()):
+      with beam.Pipeline() as p:
+
+        flat_data = p | 'CreateInputData' >> beam.Create(
+            list(itertools.chain(*input_data_dict.values())))
+
+        # wrap each value in input_data_dict as a pcoll.
+        input_data_pcoll_dict = {}
+        for a, b in six.iteritems(input_data_dict):
+          input_data_pcoll_dict[a] = p | a >> beam.Create(b)
+
+        input_cache = p | analyzer_cache.ReadAnalysisCacheFromFS(
+            self._cache_dir, list(input_data_dict.keys()))
+
+        transform_fn_2, second_output_cache = (
+            (flat_data, input_data_pcoll_dict, input_cache, input_metadata)
             | 'AnalyzeAgain' >>
             (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
 
@@ -508,7 +525,7 @@ class CachedImplTest(test_case.TransformTestCase):
         self.WriteRenderedDotFile(dot_string)
 
         transformed_dataset = (
-            ((input_data_dict[span_1_key], input_metadata), transform_fn)
+            ((input_data_dict[span_1_key], input_metadata), transform_fn_2)
             | 'TransformAgain' >> beam_impl.TransformDataset())
     transformed_data, unused_transformed_metadata = transformed_dataset
     beam_test_util.assert_that(

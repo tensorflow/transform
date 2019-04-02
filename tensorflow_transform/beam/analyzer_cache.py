@@ -48,9 +48,9 @@ class WriteAnalysisCacheToFS(beam.PTransform):
     for dataset_key, cache_dict in six.iteritems(dataset_cache_dict):
       manifest = {}
       dataset_key_dir = os.path.join(self._cache_base_dir,
-                                     make_dataset_key(dataset_key))
+                                     _make_dataset_key(dataset_key))
       for cache_entry_key, cache_pcoll in six.iteritems(cache_dict):
-        cache_entry = make_cache_entry_key(cache_entry_key)
+        cache_entry = _make_valid_cache_component(cache_entry_key)
         path = os.path.join(dataset_key_dir, cache_entry)
         manifest[cache_entry] = cache_entry
         cache_is_written.append(
@@ -80,7 +80,7 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
     for dataset_key in self._dataset_keys:
 
       dataset_cache_path = os.path.join(self._cache_base_dir,
-                                        make_dataset_key(dataset_key))
+                                        _make_dataset_key(dataset_key))
       if not tf.io.gfile.isdir(dataset_cache_path):
         continue
       cache_dict[dataset_key] = {}
@@ -109,7 +109,7 @@ def make_cache_entry_key(cache_key):
   return '{}{}'.format(_CACHE_VERSION, _make_valid_cache_component(cache_key))
 
 
-def make_dataset_key(dataset_key):
+def _make_dataset_key(dataset_key):
   return _make_valid_cache_component(dataset_key)
 
 

@@ -86,15 +86,15 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
         return _assert_equal
 
       beam_test_util.assert_that(
-          read_cache['dataset_key_0'][analyzer_cache.make_cache_entry_key('a')],
+          read_cache['dataset_key_0']['a'],
           beam_test_util.equal_to([b'[1, 2, 3]']),
           label='AssertA')
       beam_test_util.assert_that(
-          read_cache['dataset_key_0'][analyzer_cache.make_cache_entry_key('b')],
+          read_cache['dataset_key_0']['b'],
           assert_equal_matcher(b'[5]'),
           label='AssertB')
       beam_test_util.assert_that(
-          read_cache['dataset_key_1'][analyzer_cache.make_cache_entry_key('c')],
+          read_cache['dataset_key_1']['c'],
           assert_equal_matcher(b'[9, 5, 2, 1]'),
           label='AssertC')
 
