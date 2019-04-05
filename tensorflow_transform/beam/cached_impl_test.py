@@ -61,7 +61,7 @@ _OPTIMIZE_TRAVERSAL_COMMON_CASE = dict(
     expected_dot_graph_str=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('vocabulary/Reshape', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\"), ('x/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[0]}"];
+"CreateSavedModelForAnalyzerInputs[0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('vocabulary/Reshape', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\"), ('x/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[0]}"];
 "ApplySavedModel[0][span-0]" [label="{ApplySavedModel|dataset_key: span-0|phase: 0|label: ApplySavedModel[0][span-0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0][span-0]";
 "TensorSource[vocabulary][span-0]" [label="{ExtractFromDict|keys: ('vocabulary/Reshape',)|label: TensorSource[vocabulary][span-0]|partitionable: True}"];
@@ -86,30 +86,30 @@ node [shape=Mrecord];
 "CreateTensorBinding[vocabulary/Placeholder]" [label="{CreateTensorBinding|tensor: vocabulary/Placeholder:0|is_asset_filepath: True|label: CreateTensorBinding[vocabulary/Placeholder]}"];
 "VocabularyWrite[vocabulary]" -> "CreateTensorBinding[vocabulary/Placeholder]";
 "DecodeCache[span-0][__v0__CacheableCombineAccumulate--x-mean_and_var--]" [label="{DecodeCache|dataset_key: span-0|cache_key: __v0__CacheableCombineAccumulate--x-mean_and_var--|coder: \<JsonNumpyCacheCoder\>|label: DecodeCache[span-0][__v0__CacheableCombineAccumulate--x-mean_and_var--]|partitionable: True}"];
-"TensorSource[x/mean_and_var][span-1]" [label="{ExtractFromDict|keys: ('x/mean_and_var/Cast', 'x/mean_and_var/truediv', 'x/mean_and_var/truediv_1')|label: TensorSource[x/mean_and_var][span-1]|partitionable: True}"];
+"TensorSource[x/mean_and_var][span-1]" [label="{ExtractFromDict|keys: ('x/mean_and_var/Cast', 'x/mean_and_var/truediv', 'x/mean_and_var/truediv_1', 'x/mean_and_var/zeros')|label: TensorSource[x/mean_and_var][span-1]|partitionable: True}"];
 "ApplySavedModel[0][span-1]" -> "TensorSource[x/mean_and_var][span-1]";
-"CacheableCombineAccumulate[x/mean_and_var][span-1]" [label="{CacheableCombineAccumulate|combiner: \<MeanAndVarCombiner\>|label: CacheableCombineAccumulate[x/mean_and_var][span-1]|partitionable: True}"];
+"CacheableCombineAccumulate[x/mean_and_var][span-1]" [label="{CacheableCombineAccumulate|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineAccumulate[x/mean_and_var][span-1]|partitionable: True}"];
 "TensorSource[x/mean_and_var][span-1]" -> "CacheableCombineAccumulate[x/mean_and_var][span-1]";
 "FlattenCache[CacheableCombineMerge[x/mean_and_var]]" [label="{Flatten|label: FlattenCache[CacheableCombineMerge[x/mean_and_var]]|partitionable: True}"];
 "DecodeCache[span-0][__v0__CacheableCombineAccumulate--x-mean_and_var--]" -> "FlattenCache[CacheableCombineMerge[x/mean_and_var]]";
 "CacheableCombineAccumulate[x/mean_and_var][span-1]" -> "FlattenCache[CacheableCombineMerge[x/mean_and_var]]";
-"CacheableCombineMerge[x/mean_and_var]" [label="{CacheableCombineMerge|combiner: \<MeanAndVarCombiner\>|label: CacheableCombineMerge[x/mean_and_var]|{<0>0|<1>1}}"];
+"CacheableCombineMerge[x/mean_and_var]" [label="{CacheableCombineMerge|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineMerge[x/mean_and_var]|{<0>0|<1>1}}"];
 "FlattenCache[CacheableCombineMerge[x/mean_and_var]]" -> "CacheableCombineMerge[x/mean_and_var]";
 "CreateTensorBinding[x/mean_and_var/Placeholder]" [label="{CreateTensorBinding|tensor: x/mean_and_var/Placeholder:0|is_asset_filepath: False|label: CreateTensorBinding[x/mean_and_var/Placeholder]}"];
 "CacheableCombineMerge[x/mean_and_var]":0 -> "CreateTensorBinding[x/mean_and_var/Placeholder]";
 "CreateTensorBinding[x/mean_and_var/Placeholder_1]" [label="{CreateTensorBinding|tensor: x/mean_and_var/Placeholder_1:0|is_asset_filepath: False|label: CreateTensorBinding[x/mean_and_var/Placeholder_1]}"];
 "CacheableCombineMerge[x/mean_and_var]":1 -> "CreateTensorBinding[x/mean_and_var/Placeholder_1]";
-"CreateSavedModelForAnalyzerInputs[1]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_square_deviations/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[1]}"];
+"CreateSavedModelForAnalyzerInputs[1]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_square_deviations/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[1]}"];
 "CreateTensorBinding[vocabulary/Placeholder]" -> "CreateSavedModelForAnalyzerInputs[1]";
 "CreateTensorBinding[x/mean_and_var/Placeholder]" -> "CreateSavedModelForAnalyzerInputs[1]";
 "CreateTensorBinding[x/mean_and_var/Placeholder_1]" -> "CreateSavedModelForAnalyzerInputs[1]";
 "ApplySavedModel[1]" [label="{ApplySavedModel|dataset_key: None|phase: 1|label: ApplySavedModel[1]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[1]" -> "ApplySavedModel[1]";
-"TensorSource[x_square_deviations/mean_and_var]" [label="{ExtractFromDict|keys: ('x_square_deviations/mean_and_var/Cast', 'x_square_deviations/mean_and_var/truediv', 'x_square_deviations/mean_and_var/truediv_1')|label: TensorSource[x_square_deviations/mean_and_var]|partitionable: True}"];
+"TensorSource[x_square_deviations/mean_and_var]" [label="{ExtractFromDict|keys: ('x_square_deviations/mean_and_var/Cast', 'x_square_deviations/mean_and_var/truediv', 'x_square_deviations/mean_and_var/truediv_1', 'x_square_deviations/mean_and_var/zeros')|label: TensorSource[x_square_deviations/mean_and_var]|partitionable: True}"];
 "ApplySavedModel[1]" -> "TensorSource[x_square_deviations/mean_and_var]";
-"CacheableCombineAccumulate[x_square_deviations/mean_and_var]" [label="{CacheableCombineAccumulate|combiner: \<MeanAndVarCombiner\>|label: CacheableCombineAccumulate[x_square_deviations/mean_and_var]|partitionable: True}"];
+"CacheableCombineAccumulate[x_square_deviations/mean_and_var]" [label="{CacheableCombineAccumulate|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineAccumulate[x_square_deviations/mean_and_var]|partitionable: True}"];
 "TensorSource[x_square_deviations/mean_and_var]" -> "CacheableCombineAccumulate[x_square_deviations/mean_and_var]";
-"CacheableCombineMerge[x_square_deviations/mean_and_var]" [label="{CacheableCombineMerge|combiner: \<MeanAndVarCombiner\>|label: CacheableCombineMerge[x_square_deviations/mean_and_var]|{<0>0|<1>1}}"];
+"CacheableCombineMerge[x_square_deviations/mean_and_var]" [label="{CacheableCombineMerge|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineMerge[x_square_deviations/mean_and_var]|{<0>0|<1>1}}"];
 "CacheableCombineAccumulate[x_square_deviations/mean_and_var]" -> "CacheableCombineMerge[x_square_deviations/mean_and_var]";
 "CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder]" [label="{CreateTensorBinding|tensor: x_square_deviations/mean_and_var/Placeholder:0|is_asset_filepath: False|label: CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder]}"];
 "CacheableCombineMerge[x_square_deviations/mean_and_var]":0 -> "CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder]";
@@ -358,11 +358,11 @@ class CachedImplTest(test_case.TransformTestCase):
         cache_dict = {
             span_0_key: {
                 '__v0__CacheableCombineAccumulate--x_1-mean_and_var--':
-                    p | 'CreateA' >> beam.Create([b'[2.0, 1.0, 9.0]']),
+                    p | 'CreateA' >> beam.Create([b'[2.0, 1.0, 9.0, 0.0]']),
                 '__v0__CacheableCombineAccumulate--x-x--':
                     p | 'CreateB' >> beam.Create([b'[2.0, 4.0]']),
                 '__v0__CacheableCombineAccumulate--y_1-mean_and_var--':
-                    p | 'CreateC' >> beam.Create([b'[2.0, -1.5, 6.25]']),
+                    p | 'CreateC' >> beam.Create([b'[2.0, -1.5, 6.25, 0.0]']),
                 '__v0__CacheableCombineAccumulate--y-y--':
                     p | 'CreateD' >> beam.Create([b'[4.0, 1.0]']),
             },
@@ -675,10 +675,10 @@ class CachedImplTest(test_case.TransformTestCase):
 
       expected_accumulators = {
           '__v0__VocabularyAccumulate--vocabulary--': [
-              b'["a", [2, 1.0, 1.0]]', b'["b", [2, 0.5, 1.0]]'
+              b'["a", [2, 1.0, 0.0, 1.0]]', b'["b", [2, 0.5, 0.0, 1.0]]'
           ],
           '__v0__VocabularyAccumulate--vocabulary_1--': [
-              b'["a", [2, 1.0, 1.0]]', b'["b", [2, 0.5, 1.0]]'
+              b'["a", [2, 1.0, 0.0, 1.0]]', b'["b", [2, 0.5, 0.0, 1.0]]'
           ],
           '__v0__VocabularyAccumulate--vocabulary_2--': [
               b'["a", 1.5]', b'["b", 1.75]'

@@ -110,20 +110,21 @@ _PCA_WITH_DEGENERATE_COVARIANCE_MATRIX_TEST = dict(
 
 
 def _make_mean_and_var_accumulator_from_instance(instance, axis=None):
-  return analyzers._MeanAndVarAccumulator(
+  return analyzers._WeightedMeanAndVarAccumulator(
       count=np.sum(np.ones_like(instance), axis=axis),
       mean=np.mean(instance, axis=axis),
+      weight=1.,
       variance=np.var(instance, axis=axis))
 
 
 _MEAN_AND_VAR_TEST = dict(
-    testcase_name='MeanAndVar',
-    combiner=analyzers.MeanAndVarCombiner(np.float32),
+    testcase_name='WeightedMeanAndVar',
+    combiner=analyzers.WeightedMeanAndVarCombiner(np.float32),
     batches=[
         _make_mean_and_var_accumulator_from_instance([[1, 2, 3, 4, 5, 6, 7]]),
         # Count is 5*0xFFFF=327675 for this accumulator.
-        _make_mean_and_var_accumulator_from_instance(
-            [[8, 9, 10, 11, 12]] * 0xFFFF),
+        _make_mean_and_var_accumulator_from_instance([[8, 9, 10, 11, 12]] *
+                                                     0xFFFF),
         _make_mean_and_var_accumulator_from_instance([[100, 200, 3000]]),
     ],
     expected_outputs=[
@@ -133,8 +134,8 @@ _MEAN_AND_VAR_TEST = dict(
 )
 
 _MEAN_AND_VAR_BIG_TEST = dict(
-    testcase_name='MeanAndVarBig',
-    combiner=analyzers.MeanAndVarCombiner(np.float32),
+    testcase_name='WeightedMeanAndVarBig',
+    combiner=analyzers.WeightedMeanAndVarCombiner(np.float32),
     batches=[
         _make_mean_and_var_accumulator_from_instance([[1, 2, 3, 4, 5, 6, 7]]),
         _make_mean_and_var_accumulator_from_instance([[1e15, 2e15, 3000]]),
@@ -147,14 +148,14 @@ _MEAN_AND_VAR_BIG_TEST = dict(
 )
 
 _MEAN_AND_VAR_VECTORS_TEST = dict(
-    testcase_name='MeanAndVarForVectors',
-    combiner=analyzers.MeanAndVarCombiner(np.float32),
+    testcase_name='WeightedMeanAndVarForVectors',
+    combiner=analyzers.WeightedMeanAndVarCombiner(np.float32),
     # Note: each vector has to be of the same size for this to work.
     batches=[
-        _make_mean_and_var_accumulator_from_instance(
-            [[1, 2, 3, 4, 5, 6]], axis=0),
-        _make_mean_and_var_accumulator_from_instance(
-            [[7, 8, 9, 10, 11, 12]], axis=0),
+        _make_mean_and_var_accumulator_from_instance([[1, 2, 3, 4, 5, 6]],
+                                                     axis=0),
+        _make_mean_and_var_accumulator_from_instance([[7, 8, 9, 10, 11, 12]],
+                                                     axis=0),
         _make_mean_and_var_accumulator_from_instance(
             [[100, 200, 3000, 17, 27, 53]], axis=0),
     ],

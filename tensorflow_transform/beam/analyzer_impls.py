@@ -17,7 +17,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
 import hashlib
 import os
 
@@ -333,10 +332,11 @@ def _flatten_value_and_weights_to_list_of_tuples(batch_values):
 
 def _make_count_and_weights_means_accumulator(sum_positive, weights_sum_total,
                                               count):
-  return _CountAndWeightsMeansAccumulator(
+  return analyzers.WeightedMeanAndVarCombiner.accumulator_class(
       count=count,
-      weighted_mean=(sum_positive / weights_sum_total),
-      weights_mean=(weights_sum_total / count))
+      mean=(sum_positive / weights_sum_total),
+      variance=0.,
+      weight=(weights_sum_total / count))
 
 
 def _flatten_to_key_and_means_accumulator_list(batch_values):
@@ -395,15 +395,16 @@ def _calculate_mutual_information_for_binary_feature(
 
   Args:
     feature_and_accumulator: A tuple of the form:
-      (feature, _CountAndWeightsMeansAccumulator) where: `feature` is the single
-        token in the vocabulary for which (possibly adjusted) mutual information
-        with the label is being computed. `weighted_mean` is the weighted mean
-        positive given x. `count` is the count of weights for a feature.
-        `weights_mean` is the mean of the weights for a feature.
-    global_accumulator: A _CountAndWeightsMeansAccumulator where:
-      `weighted_mean` is the weighted mean of positive labels for all features.
-      `count` is the count for all features. `mean` is the mean of the weights
-      for all features.
+      (feature, WeightedMeanAndVarCombiner.accumulator_class) where:
+        `feature` is the single token in the vocabulary for which (possibly
+          adjusted) mutual information with the label is being computed.
+        `mean` is the weighted mean positive given x.
+        `count` is the count of weights for a feature.
+        `weight` is the mean of the weights for a feature.
+    global_accumulator: A WeightedMeanAndVarCombiner.accumulator_class where:
+      `mean` is the weighted mean of positive labels for all features.
+      `count` is the count for all features.
+      `weight` is the mean of the weights for all features.
     use_adjusted_mutual_info: If set to True, use adjusted mutual information.
     min_diff_from_avg: Mutual information of a feature will be adjusted to zero
       whenever the absolute difference between count of the feature with any
@@ -413,19 +414,18 @@ def _calculate_mutual_information_for_binary_feature(
     The feature and its mutual information.
   """
   feature, current_accumulator = feature_and_accumulator
-  x = (current_accumulator.count * current_accumulator.weights_mean)
-  n = (global_accumulator.count * global_accumulator.weights_mean)
+  x = (current_accumulator.count * current_accumulator.weight)
+  n = (global_accumulator.count * global_accumulator.weight)
   if n == 0:
     return (feature, float('NaN'))
 
   n_1, n_0 = [
-      weighted_mean * current_accumulator.weights_mean *
-      current_accumulator.count
-      for weighted_mean in _clip_probability(current_accumulator.weighted_mean)
+      weighted_mean * current_accumulator.weight * current_accumulator.count
+      for weighted_mean in _clip_probability(current_accumulator.mean)
   ]
   y_1, y_0 = [
-      weighted_mean * global_accumulator.weights_mean * global_accumulator.count
-      for weighted_mean in _clip_probability(global_accumulator.weighted_mean)
+      weighted_mean * global_accumulator.weight * global_accumulator.count
+      for weighted_mean in _clip_probability(global_accumulator.mean)
   ]
 
   diff_from_avg = x * y_1 / n - n_1
@@ -451,44 +451,33 @@ def _calculate_mutual_information_for_binary_feature(
     return (feature, mutual_information)
 
 
-class _CountAndWeightsMeansAccumulator(
-    collections.namedtuple('CountAndWeightsMeansAccumulator',
-                           ['count', 'weighted_mean', 'weights_mean'])):
-  """Container for CountAndWeightsMeansCombiner intermediate values."""
-
-  @classmethod
-  def make_nan_to_num(cls, counts, weighted_means, weights_mean):
-    return cls(counts, np.nan_to_num(weighted_means),
-               np.nan_to_num(weights_mean))
-
-  def __reduce__(self):
-    return self.__class__, tuple(self)
-
-
 @ptransform_fn
-@beam.typehints.with_input_types(KV[str, _CountAndWeightsMeansAccumulator])
-@beam.typehints.with_output_types(KV[str, _CountAndWeightsMeansAccumulator])
+@beam.typehints.with_input_types(
+    KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
+@beam.typehints.with_output_types(
+    KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
 def _MutualInformationTransformAccumulate(pcol):  # pylint: disable=invalid-name
   """Accumulates information needed for mutual information computation."""
   return (pcol | 'VocabCountPerLabelPerTokenAccumulate' >> beam.CombinePerKey(
-      _CountAndWeightsMeansCombineFn()))
+      _WeightedMeanCombineFn()))
 
 
 @ptransform_fn
-@beam.typehints.with_input_types(KV[str, _CountAndWeightsMeansAccumulator])
+@beam.typehints.with_input_types(
+    KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
 @beam.typehints.with_output_types(KV[str, float])
 def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
     pcol, use_adjusted_mutual_info, min_diff_from_avg):
   """Computes mutual information for each key using the given accumulators."""
   feature_accumulator_pcol = (
       pcol | 'VocabCountPerLabelPerTokenMerge' >> beam.CombinePerKey(
-          _CountAndWeightsMeansCombineFn()))
+          _WeightedMeanCombineFn()))
 
   global_accumulator = (
       feature_accumulator_pcol
       | 'DropKeys' >> beam.Values()
       | 'VocabCountPerLabelGlobally' >> beam.CombineGlobally(
-          _CountAndWeightsMeansCombineFn()))
+          _WeightedMeanCombineFn()))
 
   return (feature_accumulator_pcol
           | 'CalculateMutualInformationPerToken' >> beam.Map(
@@ -498,98 +487,56 @@ def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
               min_diff_from_avg=min_diff_from_avg))
 
 
-# TODO(b/116698987): Share logic with MeanAndVarCombiner.
-class _CountAndWeightsMeansCombineFn(beam.CombineFn):
-  """_CountAndWeightsMeansCombineFn calculates total count and weighted means.
-
-  """
+class _WeightedMeanCombineFn(beam.CombineFn):
+  """_WeightedMeanCombineFn calculates total count and weighted means."""
 
   def __init__(self):
-    self._combiner = analyzers.MeanAndVarCombiner(np.float32)
+    self._combiner = analyzers.WeightedMeanAndVarCombiner(
+        np.float32, compute_variance=False, compute_weighted=True)
 
   def create_accumulator(self):
     """Create an accumulator with all zero entries."""
-    return _CountAndWeightsMeansAccumulator(
-        count=0, weighted_mean=0., weights_mean=0.)
+    return self._combiner.create_accumulator()
 
   def add_input(self, accumulator, batch_values):
     """Composes an accumulator from batch_values and calls merge_accumulators.
 
     Args:
-      accumulator: The `_CountAndWeightsMeansAccumulator` computed so far.
-      batch_values: A `_CountAndWeightsMeansAccumulator` for the current batch.
+      accumulator: The `WeightedMeanAndVarCombiner.accumulator_class` computed
+        so far.
+      batch_values: A `WeightedMeanAndVarCombiner.accumulator_class` for the
+        current batch.
 
     Returns:
-      A `_CountAndWeightsMeansAccumulator` which is accumulator and batch_values
+      A `WeightedMeanAndVarCombiner.accumulator_class` which is accumulator and
+      batch_values
       combined.
     """
-    return self._combine_counts_and_means_accumulators(accumulator,
-                                                       batch_values)
+    return self._combiner.add_input(accumulator, batch_values)
 
   def merge_accumulators(self, accumulators):
-    """Merges several `_CountAndWeightsMeansAccumulator`s.
+    """Merges several `WeightedMeanAndVarCombiner.accumulator_class`s.
 
     Args:
-      accumulators: A list of `_CountAndWeightsMeansAccumulator`s and/or Nones.
+      accumulators: A list of `WeightedMeanAndVarCombiner.accumulator_class`s
+        and/or Nones.
 
     Returns:
-      The sole merged `_CountAndWeightsMeansAccumulator`.
+      The sole merged `WeightedMeanAndVarCombiner.accumulator_class`.
     """
-    non_empty_accumulators = [
-        accumulator for accumulator in accumulators if accumulator is not None
-    ]
-    if not non_empty_accumulators:
-      return self.create_accumulator()
-
-    result = non_empty_accumulators[0]
-
-    for accumulator in non_empty_accumulators[1:]:
-      result = self._combine_counts_and_means_accumulators(result, accumulator)
-
-    return result
+    return self._combiner.merge_accumulators(accumulators)
 
   def extract_output(self, accumulator):
     """Returns the accumulator as the output.
 
     Args:
-      accumulator: the final `_CountAndWeightsMeansAccumulator` value.
+      accumulator: the final `WeightedMeanAndVarCombiner.accumulator_class`
+        value.
 
     Returns:
      The accumulator which could be None.
     """
-    return accumulator
-
-  def _combine_counts_and_means_accumulators(self, a, b):
-    # NaNs get preserved through division by a.count + b.count.
-    a = _CountAndWeightsMeansAccumulator.make_nan_to_num(*a)
-    b = _CountAndWeightsMeansAccumulator.make_nan_to_num(*b)
-
-    # a.count >= b.count following this logic.
-    if np.sum(a.count) < np.sum(b.count):
-      a, b = b, a
-
-    if np.sum(a.count) == 0:
-      return b
-
-    combined_count = a.count + b.count
-
-    # We use the mean of the weights because it is more numerically stable than
-    # summing all of the weights.
-    combined_weights_mean = (
-        a.weights_mean + self._combiner.compute_running_update(
-            total_count=combined_count,
-            current_count=b.count,
-            update=b.weights_mean - a.weights_mean))
-    combined_weighted_mean = (
-        a.weighted_mean + self._combiner.compute_running_update(
-            total_count=combined_count * combined_weights_mean,
-            current_count=(b.count * b.weights_mean),
-            update=b.weighted_mean - a.weighted_mean))
-
-    return _CountAndWeightsMeansAccumulator(
-        count=combined_count,
-        weighted_mean=combined_weighted_mean,
-        weights_mean=combined_weights_mean)
+    return self._combiner.extract_output(accumulator)
 
 
 @with_input_types(Tuple[np.ndarray, ...])

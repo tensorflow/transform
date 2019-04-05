@@ -472,8 +472,11 @@ def _mean_and_var(x, reduce_instance_dims=True, output_dtype=None):
     x_count, x_mean, x_variance = (
         tf_utils.reduce_batch_count_mean_and_var(x, reduce_instance_dims))
 
-    combine_inputs = _MeanAndVarAccumulator(
-        count=x_count, mean=x_mean, variance=x_variance)
+    combine_inputs = _WeightedMeanAndVarAccumulator(
+        count=x_count,
+        mean=x_mean,
+        variance=x_variance,
+        weight=tf.zeros([], tf.float32))
 
     output_shape = ()
     if not reduce_instance_dims:
@@ -482,57 +485,81 @@ def _mean_and_var(x, reduce_instance_dims=True, output_dtype=None):
           tf.expand_dims(x_count, axis=0))
 
     x_mean, x_var = _apply_cacheable_combiner(
-        MeanAndVarCombiner(output_dtype.as_numpy_dtype, output_shape),
+        WeightedMeanAndVarCombiner(output_dtype.as_numpy_dtype, output_shape),
         *combine_inputs)
 
   return x_mean, x_var
 
 
-class _MeanAndVarAccumulator(
-    collections.namedtuple('MeanAndVarAccumulator',
-                           ['count', 'mean', 'variance'])):
-  """Container for MeanAndVarCombiner intermediate values."""
+class _WeightedMeanAndVarAccumulator(
+    collections.namedtuple('WeightedMeanAndVarAccumulator',
+                           ['count', 'mean', 'variance', 'weight'])):
+  """Container for WeightedMeanAndVarCombiner intermediate values."""
 
   @classmethod
-  def make_nan_to_num(cls, counts, means, variances):
-    return cls(counts, np.nan_to_num(means), np.nan_to_num(variances))
+  def make_nan_to_num(cls, counts, means, variances, weights):
+    return cls(counts, np.nan_to_num(means), np.nan_to_num(variances),
+               np.nan_to_num(weights))
 
   def __reduce__(self):
     return self.__class__, tuple(self)
 
 
-class MeanAndVarCombiner(analyzer_nodes.Combiner):
+class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
   """Combines a PCollection of accumulators to compute mean and variance."""
 
-  def __init__(self, output_numpy_dtype, output_shape=None):
+  accumulator_class = _WeightedMeanAndVarAccumulator
+
+  def __init__(self,
+               output_numpy_dtype,
+               output_shape=None,
+               compute_variance=True,
+               compute_weighted=False):
+    """Init method for WeightedMeanAndVarCombiner.
+
+    Args:
+      output_numpy_dtype: A numpy dtype that the outputs are cast to.
+      output_shape: The shape of the resulting Tensors.
+      compute_variance: A bool indicating whether or not a variance should be
+        calculated and returned.
+      compute_weighted: A bool indicating whether or not weights are provided
+        and all calculations should be weighted.
+    """
     self._output_numpy_dtype = output_numpy_dtype
     self._output_shape = output_shape
+    self._compute_variance = compute_variance
+    self._compute_weighted = compute_weighted
+
+    if self._compute_variance and self._compute_weighted:
+      raise ValueError(
+          'WeightedMeanAndVarCombiner does not yet support weighted variance')
 
   def create_accumulator(self):
     """Create an accumulator with all zero entries."""
-    return _MeanAndVarAccumulator(0, 0., 0.)
+    return _WeightedMeanAndVarAccumulator(0, 0., 0., 0.)
 
   def add_input(self, accumulator, batch_values):
     """Composes an accumulator from batch_values and calls merge_accumulators.
 
     Args:
-      accumulator: The `_MeanAndVarAccumulator` computed so far.
-      batch_values: A `_MeanAndVarAccumulator` for the current batch.
+      accumulator: The `_WeightedMeanAndVarAccumulator` computed so far.
+      batch_values: A `_WeightedMeanAndVarAccumulator` for the current batch.
 
     Returns:
-      A `_MeanAndVarAccumulator` which is accumulator and batch_values combined.
+      A `_WeightedMeanAndVarAccumulator` which is accumulator and batch_values
+        combined.
     """
-    new_accumulator = _MeanAndVarAccumulator(*batch_values)
+    new_accumulator = _WeightedMeanAndVarAccumulator(*batch_values)
     return self._combine_mean_and_var_accumulators(accumulator, new_accumulator)
 
   def merge_accumulators(self, accumulators):
-    """Merges several `_MeanAndVarAccumulator`s to a single accumulator.
+    """Merges several `_WeightedMeanAndVarAccumulator`s to a single accumulator.
 
     Args:
-      accumulators: A list of `_MeanAndVarAccumulator`s and/or Nones.
+      accumulators: A list of `_WeightedMeanAndVarAccumulator`s and/or Nones.
 
     Returns:
-      The sole merged `_MeanAndVarAccumulator`.
+      The sole merged `_WeightedMeanAndVarAccumulator`.
     """
     non_empty_accumulators = [
         accumulator for accumulator in accumulators if accumulator is not None
@@ -551,16 +578,18 @@ class MeanAndVarCombiner(analyzer_nodes.Combiner):
     """Converts an accumulator into the output (mean, var) tuple.
 
     Args:
-      accumulator: the final `_MeanAndVarAccumulator` value.
+      accumulator: the final `_WeightedMeanAndVarAccumulator` value.
 
     Returns:
       A 2-tuple composed of (mean, var) or None if accumulator is None.
     """
     if accumulator is None:
       return None
-    else:
+    elif self._compute_variance and not self._compute_weighted:
       return (self._output_numpy_dtype(accumulator.mean),
               self._output_numpy_dtype(accumulator.variance))
+    else:
+      return accumulator
 
   def output_tensor_infos(self):
     # The output is (mean, var).
@@ -577,15 +606,15 @@ class MeanAndVarCombiner(analyzer_nodes.Combiner):
     """Combines two mean and var accumulators.
 
     Args:
-      a: A _MeanAndVarAccumulator.
-      b: A _MeanAndVarAccumulator.
+      a: A _WeightedMeanAndVarAccumulator.
+      b: A _WeightedMeanAndVarAccumulator.
 
     Returns:
-      A _MeanAndVarAccumulator computed as the combination of a and b.
+      A _WeightedMeanAndVarAccumulator computed as the combination of a and b.
     """
     # NaNs get preserved through division by a.count + b.count.
-    a = _MeanAndVarAccumulator.make_nan_to_num(*a)
-    b = _MeanAndVarAccumulator.make_nan_to_num(*b)
+    a = _WeightedMeanAndVarAccumulator.make_nan_to_num(*a)
+    b = _WeightedMeanAndVarAccumulator.make_nan_to_num(*b)
 
     # a.count >= b.count following this logic.
     if np.sum(a.count) < np.sum(b.count):
@@ -598,18 +627,29 @@ class MeanAndVarCombiner(analyzer_nodes.Combiner):
 
     # Mean and variance update formulas which are more numerically stable when
     # a and b vary in magnitude.
-    combined_mean = a.mean + self.compute_running_update(
-        total_count=combined_total,
-        current_count=b.count,
-        update=b.mean - a.mean)
-    combined_variance = a.variance + self.compute_running_update(
-        total_count=combined_total,
-        current_count=b.count,
-        update=(b.variance - a.variance + ((b.mean - combined_mean) *
-                                           (b.mean - a.mean))))
+    if self._compute_weighted:
+      combined_weights_mean = (
+          a.weight + (b.count / combined_total) * (b.weight - a.weight))
+      combined_mean = (
+          a.mean + ((b.count * b.weight) /
+                    (combined_total * combined_weights_mean)) *
+          (b.mean - a.mean))
+    else:
+      combined_weights_mean = 1.
+      combined_mean = a.mean + (b.count / combined_total) * (b.mean - a.mean)
+    if self._compute_variance:
+      # TODO(zoyahav): Add an option for weighted variance if needed.
+      assert not self._compute_weighted
+      combined_variance = (
+          a.variance + (b.count / combined_total) * (b.variance - a.variance +
+                                                     ((b.mean - combined_mean) *
+                                                      (b.mean - a.mean))))
+    else:
+      combined_variance = 0.
 
-    return _MeanAndVarAccumulator(combined_total, combined_mean,
-                                  combined_variance)
+    return _WeightedMeanAndVarAccumulator(combined_total, combined_mean,
+                                          combined_variance,
+                                          combined_weights_mean)
 
 
 def sanitized_vocab_filename(filename=None, prefix=None):
