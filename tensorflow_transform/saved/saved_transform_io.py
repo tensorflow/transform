@@ -374,3 +374,4 @@ def write_saved_transform_from_session(
       assets_collection=tf.get_collection(
           tf.GraphKeys.ASSET_FILEPATHS))
   builder.save(as_text)
+
