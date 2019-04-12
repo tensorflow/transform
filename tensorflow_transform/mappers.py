@@ -807,6 +807,41 @@ def ngrams(tokens, ngram_range, separator, name=None):
             [tokens.dense_shape[0], dense_shape_second_dim]))
 
 
+def word_count(tokens, name=None):
+  """Find the token count of each document/row.
+
+  `tokens` is either a `RaggedTensor` or `SparseTensor`, representing tokenized
+  strings. This function simply returns size of each row, so the dtype is not
+  constrained to string.
+
+  Args:
+    tokens: either
+      (1) a two-dimensional `SparseTensor`, or
+      (2) a `RaggedTensor` with ragged rank of 1, non-ragged rank of 1
+      of dtype `tf.string` containing tokens to be counted
+    name: (Optional) A name for this operation.
+
+  Returns:
+    A one-dimensional `Tensor` the token counts of each row.
+
+  Raises:
+    ValueError: if tokens is neither sparse nor ragged
+  """
+  with tf.compat.v1.name_scope(name, 'word_count'):
+    if isinstance(tokens, tf.RaggedTensor):
+      return tokens.row_lengths()
+    elif isinstance(tokens, tf.SparseTensor):
+      result = tf.sparse.reduce_sum(
+          tf.SparseTensor(indices=tokens.indices,
+                          values=tf.ones_like(tokens.values, dtype=tf.int64),
+                          dense_shape=tokens.dense_shape),
+          axis=1)
+      result.set_shape([tokens.shape[0]])
+      return result
+    else:
+      raise ValueError('Invalid token tensor')
+
+
 def hash_strings(strings, hash_buckets, key=None, name=None):
   """Hash strings into buckets.
 

@@ -141,6 +141,35 @@ class MappersTest(test_case.TransformTestCase):
     with self.assertRaisesRegexp(ValueError, 'Invalid ngram_range'):
       mappers.ngrams(tokenized_tensor, (6, 5), separator='')
 
+  def testWordCountEmpty(self):
+    output_tensor = mappers.word_count(
+        tf.compat.v1.string_split(tf.constant([''])))
+    with tf.compat.v1.Session():
+      output = output_tensor.eval()
+      self.assertEqual(1, len(output))
+      self.assertEqual(0, sum(output))
+
+  def testWordCount(self):
+    string_tensor = tf.constant(['abc', 'def', 'fghijklm', 'z', ''])
+    tokenized_tensor = tf.compat.v1.string_split(string_tensor, delimiter='')
+    output_tensor = mappers.word_count(tokenized_tensor)
+    with tf.compat.v1.Session():
+      output = output_tensor.eval()
+      self.assertEqual(5, len(output))
+      self.assertEqual(15, sum(output))
+      self.assertAllEqual(output, [3, 3, 8, 1, 0])
+
+  def testWordCountRagged(self):
+    string_tensor = tf.constant(['abc', 'def', 'fghijklm', 'z', ''])
+    tokenized_tensor = tf.RaggedTensor.from_sparse(
+        tf.compat.v1.string_split(string_tensor, delimiter=''))
+    output_tensor = mappers.word_count(tokenized_tensor)
+    with tf.compat.v1.Session():
+      output = output_tensor.eval()
+      self.assertEqual(5, len(output))
+      self.assertEqual(15, sum(output))
+      self.assertAllEqual(output, [3, 3, 8, 1, 0])
+
   def testTermFrequency(self):
     input_tensor = tf.SparseTensor(
         [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4], [1, 0], [1, 1]],
