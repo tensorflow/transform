@@ -2,6 +2,8 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
+* New `tft.word_count` mapper to identify the number of tokens for each row
+  (for pre-tokenized strings).
 
 ## Bug Fixes and Other Changes
 * `sparse_tensor_to_dense_with_shape` now accepts an optional `default_value`
