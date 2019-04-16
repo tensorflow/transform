@@ -22,6 +22,7 @@ import os
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
+from tensorflow_transform.analyzers import sanitized_vocab_filename
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import metadata_io
 
@@ -82,7 +83,8 @@ class TFTransformOutput(object):
       vocab_filename: The relative filename to lookup.
     """
     return os.path.join(self.transform_savedmodel_dir,
-                        tf.saved_model.ASSETS_DIRECTORY, vocab_filename)
+                        tf.saved_model.ASSETS_DIRECTORY,
+                        sanitized_vocab_filename(filename=vocab_filename))
 
   def vocabulary_size_by_name(self, vocab_filename):
     """Like vocabulary_file_by_name, but returns the size of vocabulary."""
