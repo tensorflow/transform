@@ -393,7 +393,7 @@ def build(graph,
     # Determine which keys of pending_tensor_replacements are ready to run
     # in this phase, based in whether their dependencies are ready.
     graph_analyzer = graph_tools.InitializableGraphAnalyzer(
-        graph, input_signature.values(), sink_tensors_ready)
+        graph, input_signature, sink_tensors_ready)
     ready_traverser = nodes.Traverser(_ReadyVisitor(graph_analyzer))
 
     # Now create and apply a SavedModel with all tensors in tensor_bindings

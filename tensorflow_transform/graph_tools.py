@@ -27,6 +27,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import itertools
 
 # GOOGLE-INITIALIZATION
@@ -79,29 +80,48 @@ class _UnexpectedTableError(Exception):
     self.op = op
 
 
+class _AnalysisResult(
+    collections.namedtuple('_AnalysisResult', ['is_ready_to_run', 'path'])):
+  pass
+
+
+class _SourceInfo(
+    collections.namedtuple('_SourceInfo', ['is_ready_to_run', 'name'])):
+  pass
+
+
 class _GraphAnalyzer(object):
   """Class that analyzes a graph to determine readiness of tensors.
 
   Args:
-    known_ready: A dict from `Tensor` or `SparseTensor` or `Operation` to
-        bool, indicating if this tensor is known to be ready or not ready.
+    source_info_dict: A dict from `Tensor` or `Operation` to `_SourceInfo`.
+    translate_path_fn: A function with the signature:
+        (identifier, parents) -> Any which will be used to construct a unique
+        path for a given `Tensor`.
   """
 
-  def __init__(self, known_ready):
-    self._memoized_ready_to_run = {}
-    # Set the value of ready_to_run for each component of the tensors in
-    # `known_ready`.
-    for tensor, is_ready in six.iteritems(known_ready):
-      for component in _decompose_tensor_or_sparse_tensor(tensor):
-        self._memoized_ready_to_run[component] = is_ready
+  def __init__(self, source_info_dict, translate_path_fn):
+    self._memoized_analyze_tensor_result = {}
+    self._source_info_dict = source_info_dict
+    self._translate_path_fn = translate_path_fn
 
-  def _ready_to_run_internal(self, tensor_or_op, stack=None):
+  def _maybe_analyze_tensor(self, tensor_or_op, stack=None):
+    """Implements memoization for graph analysis."""
+    if tensor_or_op in self._memoized_analyze_tensor_result:
+      return self._memoized_analyze_tensor_result[tensor_or_op]
+
+    result = self._analyze_tensor_internal(tensor_or_op, stack)
+    self._memoized_analyze_tensor_result[tensor_or_op] = result
+    return result
+
+  def _analyze_tensor_internal(self, tensor_or_op, stack):
     """Returns whether a given  `Tensor` or `Operation` is ready to run.
 
     Recursively computes whether a tensor or operation is ready to run, using
-    `known_ready` as terminal nodes.  An error is thrown if a table or
-    placeholder is reached: they must be set using known_ready.  This function
-    is memoized using self._memoized_ready_to_run to cache computed values.
+    `source_info_dict` as terminal nodes.  An error is thrown if a table or
+    placeholder is reached: they must be set using source_info_dict.
+    This function is memoized using the _maybe_analyze_tensor method to cache
+    computed values, therefore it should not be called directly.
     Cycles are ignored (so a cycle is considered ready to run) and cycles are
     detected using `stack`.
 
@@ -111,14 +131,20 @@ class _GraphAnalyzer(object):
           avoid cycles).
 
     Returns:
-      Whether this op or tensor is ready to run.
+      An _AnalysisResult which includes whether this op or tensor is ready to
+      run, and a path from it to it's sources.
 
     Raises:
       _UnexpectedTableError: If an initializable table op is encountered.
       _UnexpectedPlaceholderError: If a placeholder is encountered.
     """
-    if tensor_or_op in self._memoized_ready_to_run:
-      return self._memoized_ready_to_run[tensor_or_op]
+    if tensor_or_op in self._source_info_dict:
+      source_info = self._source_info_dict[tensor_or_op]
+      # source_info.name may be None but that just means that it relies on an
+      # output of a previous analyzer, so that's ok.
+      return _AnalysisResult(
+          is_ready_to_run=source_info.is_ready_to_run,
+          path=self._translate_path_fn(source_info.name))
 
     if isinstance(tensor_or_op, tf.Operation):
       if tensor_or_op.type in _INITIALIZABLE_TABLE_OP_TYPES:
@@ -139,11 +165,17 @@ class _GraphAnalyzer(object):
     if stack is None:
       stack = []
     stack.append(tensor_or_op)
-    result = all(self._ready_to_run_internal(parent, stack)
-                 for parent in parents if parent not in stack)
+    parent_results = [
+        self._maybe_analyze_tensor(parent, stack)
+        for parent in parents
+        if parent not in stack
+    ]
+    result = _AnalysisResult(
+        all(res.is_ready_to_run for res in parent_results),
+        self._translate_path_fn(
+            tensor_or_op, parents=[res.path for res in parent_results]))
     assert tensor_or_op is stack.pop()
 
-    self._memoized_ready_to_run[tensor_or_op] = result
     return result
 
   def ready_to_run(self, tensor_or_op):
@@ -175,8 +207,35 @@ class _GraphAnalyzer(object):
           'Expected Tensor, SparseTensor or Operation got {} of type {}'.format(
               tensor_or_op, type(tensor_or_op)))
     return all(
-        self._ready_to_run_internal(component)
+        self._maybe_analyze_tensor(component).is_ready_to_run
         for component in _decompose_tensor_or_sparse_tensor(tensor_or_op))
+
+  def get_unique_path(self, tensor):
+    """Gets the analyzed path from the tensor or op to its root(s).
+
+    This path is defined recursively as:
+      Path(root) := translate_path_fn(root)
+      Path(x)    := translate_path_fn(
+                            x,
+                            [translate_path_fn(p) for p in parents(x)])
+
+    When root is defined as a tensor that has no parents.
+
+    Args:
+      tensor: A `Tensor` for which a path should be computed.
+
+    Returns:
+      The result of translate_path_fn on the computed path as described above.
+    """
+    if not isinstance(tensor, tf.Tensor):
+      raise TypeError('Expected Tensor got {} of type {}'.format(
+          tensor, type(tensor)))
+    return self._maybe_analyze_tensor(tensor).path
+
+
+def _set_unique_value_in_dict(input_dict, key, value):
+  assert value not in input_dict.values(), value
+  input_dict[key] = value
 
 
 class InitializableGraphAnalyzer(object):
@@ -196,59 +255,125 @@ class InitializableGraphAnalyzer(object):
 
   Args:
     graph: a `Graph`.
-    feeds: a list of `Tensor` or `SparseTensor`s
+    input_signature: A dict whose keys are strings and values are `Tensor`s or
+      `SparseTensor`s.
     replaced_tensors_ready: a dict from `Tensor` to bool indicating whether a
         `Tensor` is ready in this phase.
+    translate_path_fn: (Optional) A function with the signature:
+        (identifier, optional(parents)) -> Any
+        which will be used to construct a unique path for a given `Tensor`.
 
   Raises:
     ValueError: If unexpected placeholders or tables are encountered, or table
         initializers do not have the expected structure in the graph.
   """
 
-  def __init__(self, graph, feeds, replaced_tensors_ready):
+  def __init__(self,
+               graph,
+               input_signature,
+               replaced_tensors_ready,
+               translate_path_fn=None):
+
+    if translate_path_fn is None:
+      translate_path_fn = lambda x, parents=None: None
+
     self._ready_table_initializers = []
+
+    initial_source_infos_dict = self._make_source_infos_dict(
+        {}, replaced_tensors_ready)
 
     # Determine which table initializers are ready, based on the replaced
     # tensors. Since no input tensors are fed during table initialization, we do
-    # not set the value of any tensors in `feeds`.
-    graph_analyzer_for_table_init = _GraphAnalyzer(replaced_tensors_ready)
-    ready_in_feed = {}
+    # not set the value of any tensors in `input_signature`.
+    graph_analyzer_for_table_init = _GraphAnalyzer(initial_source_infos_dict,
+                                                   translate_path_fn)
+    complete_source_info_dict = self._make_source_infos_dict(
+        input_signature, replaced_tensors_ready)
 
     for table_init_op in graph.get_collection(
         tf.compat.v1.GraphKeys.TABLE_INITIALIZERS):
-      if table_init_op.type not in _TABLE_INIT_OP_TYPES:
-        raise ValueError(
-            'Table initializer {} did not have expected op type'.format(
-                table_init_op))
-      if not table_init_op.inputs:
-        raise ValueError(
-            'Table initializer {} did not have expected number if inputs '
-            '(expected >= 1 inputs, got 0)'.format(table_init_op))
-      table_op = table_init_op.inputs[0].op
-      try:
-        ready = all(map(graph_analyzer_for_table_init.ready_to_run,
-                        table_init_op.inputs[1:]))
-      except _UnexpectedPlaceholderError as e:
-        raise ValueError(
-            'The table initializer {} depended on a placeholder ({}).  Note '
-            'placeholders will not be fed during table initialization'.format(
-                table_init_op, e.tensor))
-      except _UnexpectedTableError as e:
-        raise ValueError(
-            'The table initializer {} depended on an initializable table ({}). '
-            'Note tables are initialized in one pass so a table initializer '
-            'cannot depend on the output of an initializeable table'.format(
-                table_init_op, e.op))
+      source_info = self._get_table_init_op_source_info(
+          table_init_op, graph_analyzer_for_table_init, translate_path_fn)
 
-      ready_in_feed[table_op] = ready
-      if ready:
+      # We are using the table init op information and the table op information,
+      # since that is a unique description of the table op.
+      table_op = table_init_op.inputs[0].op
+      complete_source_info_dict[table_op] = source_info
+      if source_info.is_ready_to_run:
         self._ready_table_initializers.append(table_init_op)
 
     # Now determine which tensors are ready to run once the table has been
     # initialized.
-    ready_in_feed.update(replaced_tensors_ready)
-    ready_in_feed.update({tensor: True for tensor in feeds})
-    self._graph_analyzer = _GraphAnalyzer(ready_in_feed)
+    self._graph_analyzer = _GraphAnalyzer(complete_source_info_dict,
+                                          translate_path_fn)
+
+  def _make_source_infos_dict(self, input_signature, replaced_tensors_ready):
+    """Builds a dictionary from source tensors to _SourceInfos.
+
+    This dictionary stores information about the sources of the graph.
+    Each tensor in replaced_tensors_ready is a source whose readiness is known
+    and has no name.  Each tensor (or component of a tensor) in input_signature
+    is ready to run and has a name determined by the signature.
+
+    Args:
+      input_signature: A dict whose keys are strings and values are `Tensor`s or
+        `SparseTensor`s.
+      replaced_tensors_ready: a dict from `Tensor` to bool indicating whether a
+        `Tensor` is ready in this phase.
+
+    Returns:
+      a dictionary from source tensors to _SourceInfos.
+    """
+    result = {}
+    for tensor_or_op, is_ready in six.iteritems(replaced_tensors_ready):
+      for component in _decompose_tensor_or_sparse_tensor(tensor_or_op):
+        result[component] = _SourceInfo(is_ready, None)
+
+    for name, tensor in input_signature.items():
+      if isinstance(tensor, tf.SparseTensor):
+        _set_unique_value_in_dict(result, tensor.indices,
+                                  _SourceInfo(True, '{}$indices'.format(name)))
+        _set_unique_value_in_dict(result, tensor.values,
+                                  _SourceInfo(True, '{}$values'.format(name)))
+        _set_unique_value_in_dict(
+            result, tensor.dense_shape,
+            _SourceInfo(True, '{}$dense_shape'.format(name)))
+      else:
+        _set_unique_value_in_dict(result, tensor,
+                                  _SourceInfo(True, '{}$tensor'.format(name)))
+    return result
+
+  def _get_table_init_op_source_info(self, table_init_op, graph_analyzer,
+                                     translate_path_fn):
+    """Gets a _SourceInfo for a given table init op."""
+
+    if table_init_op.type not in _TABLE_INIT_OP_TYPES:
+      raise ValueError(
+          'Table initializer {} did not have expected op type'.format(
+              table_init_op))
+    if not table_init_op.inputs:
+      raise ValueError(
+          'Table initializer {} did not have expected number if inputs '
+          '(expected >= 1 inputs, got 0)'.format(table_init_op))
+    table_op = table_init_op.inputs[0].op
+    table_init_inputs = table_init_op.inputs[1:]
+    try:
+      ready = all(map(graph_analyzer.ready_to_run, table_init_inputs))
+      path = translate_path_fn(
+          table_op,
+          parents=list(map(graph_analyzer.get_unique_path, table_init_inputs)))
+    except _UnexpectedPlaceholderError as e:
+      raise ValueError(
+          'The table initializer {} depended on a placeholder ({}).  Note '
+          'placeholders will not be fed during table initialization'.format(
+              table_init_op, e.tensor))
+    except _UnexpectedTableError as e:
+      raise ValueError(
+          'The table initializer {} depended on an initializable table ({}). '
+          'Note tables are initialized in one pass so a table initializer '
+          'cannot depend on the output of an initializeable table'.format(
+              table_init_op, e.op))
+    return _SourceInfo(ready, path)
 
   @property
   def ready_table_initializers(self):
@@ -261,7 +386,7 @@ class InitializableGraphAnalyzer(object):
     except _UnexpectedPlaceholderError as e:
       raise ValueError(
           'The tensor {} depended on a placeholder ({}) that was not in the '
-          'feed dict.  This may have be caused by manually adding a '
+          'input_signature.  This may have be caused by manually adding a '
           'placeholder to the graph'.format(tensor, e.tensor))
     except _UnexpectedTableError as e:
       raise ValueError(
@@ -269,3 +394,25 @@ class InitializableGraphAnalyzer(object):
           'tracked by the graph analysis.  This may be caused by adding an '
           'initializable table without adding its initializer to the '
           'collection tf.GraphKeys.TABLE_INITIALIZERS'.format(tensor, e.op))
+
+  def get_unique_path(self, tensor):
+    """Gets the analyzed path from the tensor or op to its root(s).
+
+    This path is defined recursively as:
+      Path(source)          := translate_path_fn(name)
+      Path(op)              := translate_path_fn(
+                                    op,
+                                    [translate_path_fn(p) for p in parents(op)])
+      Path(internal_tensor) := translate_path_fn(
+                                    internal_tensor,
+                                    [translate_path_fn(parent_op)])
+
+    When root is defined as a tensor that has no parents.
+
+    Args:
+      tensor: A `Tensor` for which a path should be computed.
+
+    Returns:
+      The result of translate_path_fn on the computed path as described above.
+    """
+    return self._graph_analyzer.get_unique_path(tensor)
