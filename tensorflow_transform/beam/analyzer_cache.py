@@ -39,8 +39,19 @@ _MANIFEST_FILE_NAME = 'MANIFEST.txt'
 class WriteAnalysisCacheToFS(beam.PTransform):
   """Writes a cache object that can be read by ReadAnalysisCacheFromFS."""
 
-  def __init__(self, cache_base_dir):
+  def __init__(self, cache_base_dir, sink=None):
+    """Init method.
+
+    Args:
+      cache_base_dir: A str, the path that the cache should be stored in.
+      sink: (Optional) A PTransform class that takes a path, and optional
+        file_name_suffix arguments in its constructor, and is used to write the
+        cache.
+    """
     self._cache_base_dir = cache_base_dir
+    # TODO(b/37788560): Possibly use Riegeli as a default file format once
+    # possible.
+    self._sink = sink if sink is not None else beam.io.WriteToTFRecord
 
   def expand(self, dataset_cache_dict):
 
@@ -56,7 +67,7 @@ class WriteAnalysisCacheToFS(beam.PTransform):
         cache_is_written.append(
             cache_pcoll
             | 'WriteCache[{}][{}]'.format(dataset_key, cache_entry_key) >>
-            beam.io.WriteToTFRecord(path, file_name_suffix='.gz'))
+            self._sink(path, file_name_suffix='.gz'))
 
       if not tf.io.gfile.isdir(dataset_key_dir):
         tf.io.gfile.makedirs(dataset_key_dir)
@@ -70,9 +81,20 @@ class WriteAnalysisCacheToFS(beam.PTransform):
 class ReadAnalysisCacheFromFS(beam.PTransform):
   """Reads cache from the FS written by WriteAnalysisCacheToFS."""
 
-  def __init__(self, cache_base_dir, dataset_keys):
+  def __init__(self, cache_base_dir, dataset_keys, source=None):
+    """Init method.
+
+    Args:
+      cache_base_dir: A string, the path that the cache should be stored in.
+      dataset_keys: An iterable of strings.
+      source: (Optional) A PTransform class that takes a path argument in its
+        constructor, and is used to read the cache.
+    """
     self._cache_base_dir = cache_base_dir
     self._dataset_keys = dataset_keys
+    # TODO(b/37788560): Possibly use Riegeli as a default file format once
+    # possible.
+    self._source = source if source is not None else beam.io.ReadFromTFRecord
 
   def expand(self, pvalue):
     cache_dict = {}
@@ -91,7 +113,7 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
         cache_dict[dataset_key][key] = (
             pvalue.pipeline
             | 'ReadCache[{}][{}]'.format(dataset_key, key) >>
-            beam.io.ReadFromTFRecord('{}{}'.format(
+            self._source('{}{}'.format(
                 os.path.join(dataset_cache_path, value), '-*-of-*')))
     return cache_dict
 

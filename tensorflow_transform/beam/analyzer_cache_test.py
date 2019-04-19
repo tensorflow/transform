@@ -24,6 +24,8 @@ import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
 import numpy as np
 
+import tensorflow as tf
+
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform import test_case
@@ -97,6 +99,48 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
           read_cache['dataset_key_1']['c'],
           assert_equal_matcher(b'[9, 5, 2, 1]'),
           label='AssertC')
+
+  def test_cache_helpers_with_alternative_io(self):
+
+    class LocalSink(beam.PTransform):
+
+      def __init__(self, path, file_name_suffix):
+        del file_name_suffix
+        self._path = path
+
+      def expand(self, pcoll):
+
+        def write_to_file(value):
+          tf.io.gfile.makedirs(self._path)
+          with open(os.path.join(self._path, 'cache'), 'w') as f:
+            f.write(value)
+
+        return pcoll | beam.Map(write_to_file)
+
+    test_cache_dict = {'a': {'b': [str([17, 19, 27, 31])]}}
+
+    class LocalSource(beam.PTransform):
+
+      def __init__(self, path):
+        del path
+
+      def expand(self, pbegin):
+        return pbegin | beam.Create([test_cache_dict['a']['b']])
+
+    cache_dir = self.get_temp_dir()
+    with beam.Pipeline() as p:
+      _ = test_cache_dict | analyzer_cache.WriteAnalysisCacheToFS(
+          cache_dir, sink=LocalSink)
+
+      read_cache = p | analyzer_cache.ReadAnalysisCacheFromFS(
+          cache_dir, list(test_cache_dict.keys()), source=LocalSource)
+
+      self.assertItemsEqual(read_cache.keys(), ['a'])
+      self.assertItemsEqual(read_cache['a'].keys(), ['b'])
+
+      beam_test_util.assert_that(
+          read_cache['a']['b'],
+          beam_test_util.equal_to([test_cache_dict['a']['b']]))
 
 
 if __name__ == '__main__':
