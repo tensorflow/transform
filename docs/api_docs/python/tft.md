@@ -17,8 +17,6 @@ Init module for TF.Transform.
 
 [`class CovarianceCombiner`](./tft/CovarianceCombiner.md): Combines the PCollection to compute the biased covariance matrix.
 
-[`class MeanAndVarCombiner`](./tft/MeanAndVarCombiner.md): Combines a PCollection of accumulators to compute mean and variance.
-
 [`class NumPyCombiner`](./tft/NumPyCombiner.md): Combines the PCollection only on the 0th dimension using nparray.
 
 [`class PCACombiner`](./tft/PCACombiner.md): Compute PCA of accumulated data using the biased covariance matrix.
@@ -26,6 +24,8 @@ Init module for TF.Transform.
 [`class QuantilesCombiner`](./tft/QuantilesCombiner.md): Computes quantiles on the PCollection.
 
 [`class TFTransformOutput`](./tft/TFTransformOutput.md): A wrapper around the output of the tf.Transform.
+
+[`class WeightedMeanAndVarCombiner`](./tft/WeightedMeanAndVarCombiner.md): Combines a PCollection of accumulators to compute mean and variance.
 
 ## Functions
 
@@ -100,6 +100,8 @@ Init module for TF.Transform.
 [`var(...)`](./tft/var.md): Computes the variance of the values of a `Tensor` over the whole dataset.
 
 [`vocabulary(...)`](./tft/vocabulary.md): Computes the unique values of a `Tensor` over the whole dataset.
+
+[`word_count(...)`](./tft/word_count.md): Find the token count of each document/row.
 
 ## Other Members
 

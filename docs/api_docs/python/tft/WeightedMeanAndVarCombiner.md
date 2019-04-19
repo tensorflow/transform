@@ -1,6 +1,7 @@
 <div itemscope itemtype="http://developers.google.com/ReferenceObject">
-<meta itemprop="name" content="tft.MeanAndVarCombiner" />
+<meta itemprop="name" content="tft.WeightedMeanAndVarCombiner" />
 <meta itemprop="path" content="Stable" />
+<meta itemprop="property" content="accumulator_class"/>
 <meta itemprop="property" content="accumulator_coder"/>
 <meta itemprop="property" content="__init__"/>
 <meta itemprop="property" content="add_input"/>
@@ -11,9 +12,9 @@
 <meta itemprop="property" content="output_tensor_infos"/>
 </div>
 
-# tft.MeanAndVarCombiner
+# tft.WeightedMeanAndVarCombiner
 
-## Class `MeanAndVarCombiner`
+## Class `WeightedMeanAndVarCombiner`
 
 
 
@@ -24,13 +25,27 @@ Combines a PCollection of accumulators to compute mean and variance.
 ``` python
 __init__(
     output_numpy_dtype,
-    output_shape=None
+    output_shape=None,
+    compute_variance=True,
+    compute_weighted=False
 )
 ```
 
+Init method for WeightedMeanAndVarCombiner.
+
+#### Args:
+
+* <b>`output_numpy_dtype`</b>: A numpy dtype that the outputs are cast to.
+* <b>`output_shape`</b>: The shape of the resulting Tensors.
+* <b>`compute_variance`</b>: A bool indicating whether or not a variance should be
+    calculated and returned.
+* <b>`compute_weighted`</b>: A bool indicating whether or not weights are provided
+    and all calculations should be weighted.
 
 
 
+## Child Classes
+[`class accumulator_class`](../tft/WeightedMeanAndVarCombiner/accumulator_class.md)
 
 ## Properties
 
@@ -55,13 +70,14 @@ Composes an accumulator from batch_values and calls merge_accumulators.
 
 #### Args:
 
-* <b>`accumulator`</b>: The `_MeanAndVarAccumulator` computed so far.
-* <b>`batch_values`</b>: A `_MeanAndVarAccumulator` for the current batch.
+* <b>`accumulator`</b>: The `_WeightedMeanAndVarAccumulator` computed so far.
+* <b>`batch_values`</b>: A `_WeightedMeanAndVarAccumulator` for the current batch.
 
 
 #### Returns:
 
-A `_MeanAndVarAccumulator` which is accumulator and batch_values combined.
+A `_WeightedMeanAndVarAccumulator` which is accumulator and batch_values
+  combined.
 
 <h3 id="compute_running_update"><code>compute_running_update</code></h3>
 
@@ -93,7 +109,7 @@ Converts an accumulator into the output (mean, var) tuple.
 
 #### Args:
 
-* <b>`accumulator`</b>: the final `_MeanAndVarAccumulator` value.
+* <b>`accumulator`</b>: the final `_WeightedMeanAndVarAccumulator` value.
 
 
 #### Returns:
@@ -106,16 +122,16 @@ A 2-tuple composed of (mean, var) or None if accumulator is None.
 merge_accumulators(accumulators)
 ```
 
-Merges several `_MeanAndVarAccumulator`s to a single accumulator.
+Merges several `_WeightedMeanAndVarAccumulator`s to a single accumulator.
 
 #### Args:
 
-* <b>`accumulators`</b>: A list of `_MeanAndVarAccumulator`s and/or Nones.
+* <b>`accumulators`</b>: A list of `_WeightedMeanAndVarAccumulator`s and/or Nones.
 
 
 #### Returns:
 
-The sole merged `_MeanAndVarAccumulator`.
+The sole merged `_WeightedMeanAndVarAccumulator`.
 
 <h3 id="output_tensor_infos"><code>output_tensor_infos</code></h3>
 
