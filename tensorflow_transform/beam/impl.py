@@ -221,7 +221,7 @@ class Context(object):
 
   @classmethod
   def _get_topmost_state_frame(cls):
-    if cls._thread_local.state.frames:
+    if hasattr(cls._thread_local, 'state') and cls._thread_local.state.frames:
       return cls._thread_local.state.frames[-1]
     return None
 

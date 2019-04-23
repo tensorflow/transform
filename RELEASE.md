@@ -19,6 +19,7 @@
   `tft.apply_buckets_with_interpolation`.
 * Changes to make this library more compatible with TensorFlow 2.0.
 * Fix santitation of vocabulary filenames
+* Emit a friendly error message when context isn't set.
 
 ## Breaking changes
 
