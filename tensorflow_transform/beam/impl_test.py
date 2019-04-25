@@ -1363,6 +1363,32 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
+  def testNumericAnalyzersWithShape1NDInputsAndAxis(self):
+
+    def analyzer_fn(inputs):
+      return {
+          'min': tft.min(inputs['a'], reduce_instance_dims=False),
+          'max': tft.max(inputs['a'], reduce_instance_dims=False),
+          'sum': tft.sum(inputs['a'], reduce_instance_dims=False),
+          'size': tft.size(inputs['a'], reduce_instance_dims=False),
+          'mean': tft.mean(inputs['a'], reduce_instance_dims=False),
+          'var': tft.var(inputs['a'], reduce_instance_dims=False),
+      }
+
+    input_data = [{'a': [[8, 9]]}, {'a': [[1, 2]]}]
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'a': tf.io.FixedLenFeature([1, 2], tf.int64)})
+    expected_outputs = {
+        'min': np.array([[1, 2]], np.int64),
+        'max': np.array([[8, 9]], np.int64),
+        'sum': np.array([[9, 11]], np.int64),
+        'size': np.array([[2, 2]], np.int64),
+        'mean': np.array([[4.5, 5.5]], np.float32),
+        'var': np.array([[12.25, 12.25]], np.float32),
+    }
+    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
+                               expected_outputs)
+
   def testNumericAnalyzersWithNDInputs(self):
     def analyzer_fn(inputs):
       return {
@@ -1833,6 +1859,32 @@ class BeamImplTest(tft_unit.TransformTestCase):
           ],
           use_adjusted_mutual_info=False),
       dict(
+          testcase_name='unadjusted_mi_multi_class_label',
+          feature_label_pairs=[
+              (b'good_predictor_of_0', 0),
+              (b'good_predictor_of_0', 0),
+              (b'good_predictor_of_0', 0),
+              (b'good_predictor_of_1', 1),
+              (b'good_predictor_of_2', 2),
+              (b'good_predictor_of_2', 2),
+              (b'good_predictor_of_2', 2),
+              (b'good_predictor_of_1', 1),
+              (b'good_predictor_of_1', 1),
+              (b'weak_predictor_of_1', 1),
+              (b'good_predictor_of_0', 0),
+              (b'good_predictor_of_1', 1),
+              (b'good_predictor_of_1', 1),
+              (b'good_predictor_of_1', 1),
+              (b'weak_predictor_of_1', 0),
+          ],
+          expected_vocab=[
+              (b'good_predictor_of_2', 6.9656615),
+              (b'good_predictor_of_1', 6.5969831),
+              (b'good_predictor_of_0', 6.3396921),
+              (b'weak_predictor_of_1', 0.684463),
+          ],
+          use_adjusted_mutual_info=False),
+      dict(
           testcase_name='unadjusted_mi_binary_label_with_weights',
           feature_label_pairs=[
               (b'informative_1', 1),
@@ -1923,6 +1975,32 @@ class BeamImplTest(tft_unit.TransformTestCase):
               (b'3', 0.5017179),
           ],
           feature_dtype=tf.int64,
+          use_adjusted_mutual_info=True),
+      dict(
+          testcase_name='adjusted_mi_multi_class_label',
+          feature_label_pairs=[
+              (b'good_predictor_of_0', 0),
+              (b'good_predictor_of_0', 0),
+              (b'good_predictor_of_0', 0),
+              (b'good_predictor_of_1', 1),
+              (b'good_predictor_of_2', 2),
+              (b'good_predictor_of_2', 2),
+              (b'good_predictor_of_2', 2),
+              (b'good_predictor_of_1', 1),
+              (b'good_predictor_of_1', 1),
+              (b'weak_predictor_of_1', 1),
+              (b'good_predictor_of_0', 0),
+              (b'good_predictor_of_1', 1),
+              (b'good_predictor_of_1', 1),
+              (b'good_predictor_of_1', 1),
+              (b'weak_predictor_of_1', 0),
+          ],
+          expected_vocab=[
+              (b'good_predictor_of_1', 5.4800903),
+              (b'good_predictor_of_2', 5.386102),
+              (b'good_predictor_of_0', 4.9054723),
+              (b'weak_predictor_of_1', -0.9748023),
+          ],
           use_adjusted_mutual_info=True),
       # TODO(b/128831096): Determine correct interaction between AMI and weights
       dict(

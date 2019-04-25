@@ -27,6 +27,7 @@ import numpy as np
 import tensorflow as tf
 
 from tensorflow_transform import analyzer_nodes
+from tensorflow_transform import analyzers
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform import test_case
 
@@ -48,9 +49,21 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
           coder_cls=analyzer_nodes.JsonNumpyCacheCoder,
           value=[1, 2.5, 3, '4']),
       dict(
-          testcase_name='_VocabularyAccumulatorCoder',
+          testcase_name='_VocabularyAccumulatorCoderIntAccumulator',
           coder_cls=analyzer_nodes._VocabularyAccumulatorCoder,
           value=['A', 17]),
+      dict(
+          testcase_name='_VocabularyAccumulatorCoderClassAccumulator',
+          coder_cls=analyzer_nodes._VocabularyAccumulatorCoder,
+          value=[
+              'A',
+              analyzers._WeightedMeanAndVarAccumulator(
+                  count=np.array(5),
+                  mean=np.array([.4, .9, 1.5]),
+                  variance=np.array([.1, .4, .5]),
+                  weight=np.array(0.),
+              )
+          ]),
   )
   def test_coders_round_trip(self, coder_cls, value):
     coder = coder_cls()

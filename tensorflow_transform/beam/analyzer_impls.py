@@ -333,9 +333,9 @@ def _flatten_value_and_weights_to_list_of_tuples(batch_values):
 def _make_count_and_weights_means_accumulator(sum_positive, weights_sum_total,
                                               count):
   return analyzers.WeightedMeanAndVarCombiner.accumulator_class(
-      count=count,
-      mean=(sum_positive / weights_sum_total),
-      variance=0.,
+      count=np.array(count),
+      mean=np.array(sum_positive) / weights_sum_total,
+      variance=np.array(0.),  # Variance is not used for vocabularies.
       weight=(weights_sum_total / count))
 
 
@@ -357,18 +357,17 @@ def _flatten_to_key_and_means_accumulator_list(batch_values):
   ])
 
 
-def _clip_probability(p):
-  epsilon = 1e-6
-  p = np.clip(p, epsilon, 1 - epsilon)
-  return p, 1 - p
+def _clip_probability(p, epsilon=1e-6):
+  return np.clip(p, epsilon, 1 - epsilon)
 
 
-def _calculate_mutual_information_for_binary_feature(
-    feature_and_accumulator, global_accumulator, use_adjusted_mutual_info,
-    min_diff_from_avg):
-  """Calculates the (possibly adjusted) mutual information of a binary feature.
+def _calculate_mutual_information_for_feature_value(feature_and_accumulator,
+                                                    global_accumulator,
+                                                    use_adjusted_mutual_info,
+                                                    min_diff_from_avg):
+  """Calculates the (possibly adjusted) mutual information of a feature value.
 
-  Used as a measure of relatedness between a binary feature and binary label.
+  Used as a measure of relatedness between a single feature value and a label.
 
   Mutual information is calculated as:
   H(x, y) = (sum(weights) *
@@ -395,60 +394,62 @@ def _calculate_mutual_information_for_binary_feature(
 
   Args:
     feature_and_accumulator: A tuple of the form:
-      (feature, WeightedMeanAndVarCombiner.accumulator_class) where:
-        `feature` is the single token in the vocabulary for which (possibly
-          adjusted) mutual information with the label is being computed.
-        `mean` is the weighted mean positive given x.
-        `count` is the count of weights for a feature.
-        `weight` is the mean of the weights for a feature.
+      (feature, WeightedMeanAndVarCombiner.accumulator_class) where: `feature`
+        is the single token in the vocabulary for which (possibly adjusted)
+        mutual information with the label is being computed. `mean` is the
+        weighted mean positive for each label value given x. `count` is the
+        count of weights for a feature. `weight` is the mean of the weights for
+        a feature.
     global_accumulator: A WeightedMeanAndVarCombiner.accumulator_class where:
-      `mean` is the weighted mean of positive labels for all features.
-      `count` is the count for all features.
-      `weight` is the mean of the weights for all features.
+      `mean` is the weighted mean positive for each label value for all
+      features. `count` is the count for all features. `weight` is the mean of
+      the weights for all features.
     use_adjusted_mutual_info: If set to True, use adjusted mutual information.
-    min_diff_from_avg: Mutual information of a feature will be adjusted to zero
-      whenever the absolute difference between count of the feature with any
-      label and its expected count is lower than min_diff_from_average.
+    min_diff_from_avg: A regularization parameter that pushes low MI/AMI towards
+      zero. The Mutual information of a feature x label pair will be adjusted to
+      zero whenever the absolute difference the weight and the expected
+      (average) weight is lower than min_diff_from_average.
 
   Returns:
-    The feature and its mutual information.
+    The feature value and its mutual information with the label
   """
-  feature, current_accumulator = feature_and_accumulator
-  x = (current_accumulator.count * current_accumulator.weight)
+  feature_value, current_accumulator = feature_and_accumulator
+  x_i = (current_accumulator.count * current_accumulator.weight)
   n = (global_accumulator.count * global_accumulator.weight)
   if n == 0:
-    return (feature, float('NaN'))
+    return (feature_value, float('NaN'))
 
-  n_1, n_0 = [
-      weighted_mean * current_accumulator.weight * current_accumulator.count
-      for weighted_mean in _clip_probability(current_accumulator.mean)
-  ]
-  y_1, y_0 = [
-      weighted_mean * global_accumulator.weight * global_accumulator.count
-      for weighted_mean in _clip_probability(global_accumulator.mean)
-  ]
-
-  diff_from_avg = x * y_1 / n - n_1
-  if abs(diff_from_avg) < min_diff_from_avg:
-    return (feature, 0)
-  mutual_information = (
-      info_theory.calculate_partial_mutual_information(n_1, x, y_1, n) +
-      info_theory.calculate_partial_mutual_information(n_0, x, y_0, n))
+  mutual_information = 0
+  expected_mutual_information = 0 if use_adjusted_mutual_info else None
+  for label_ix in range(len(global_accumulator.mean)):
+    global_mean = global_accumulator.mean[label_ix]
+    if global_mean == 0:
+      continue
+    local_mean = 0
+    if label_ix < len(current_accumulator.mean):
+      local_mean = current_accumulator.mean[label_ix]
+    n_i = (
+        _clip_probability(local_mean) * current_accumulator.weight *
+        current_accumulator.count)
+    y_i = (
+        _clip_probability(global_mean) * global_accumulator.weight *
+        global_accumulator.count)
+    diff_from_avg = (x_i * y_i / n) - n_i
+    if abs(diff_from_avg) < min_diff_from_avg:
+      continue
+    mutual_information += (
+        info_theory.calculate_partial_mutual_information(n_i, x_i, y_i, n))
+    if use_adjusted_mutual_info:
+      expected_mutual_information += (
+          info_theory.calculate_partial_expected_mutual_information(
+              n, x_i, y_i))
 
   if use_adjusted_mutual_info:
-    # Note: Expected mutual information is calculated by summing over all values
-    # of x and all values of y,  but here we don't count the contribution of the
-    # case where the feature is not present, and this is consistent with
-    # how mutual information is computed.
-    expected_mutual_information = (
-        info_theory.calculate_partial_expected_mutual_information(n, x, y_1) +
-        info_theory.calculate_partial_expected_mutual_information(n, x, y_0))
-
     # TODO(b/127366670): Consider implementing the normalization step as per
     # AMI(x, y) = MI(x, y) - EMI(x, y) / (max(H(x), H(y)) - EMI(x, y))
-    return (feature, mutual_information - expected_mutual_information)
+    return (feature_value, mutual_information - expected_mutual_information)
   else:
-    return (feature, mutual_information)
+    return (feature_value, mutual_information)
 
 
 @ptransform_fn
@@ -459,7 +460,7 @@ def _calculate_mutual_information_for_binary_feature(
 def _MutualInformationTransformAccumulate(pcol):  # pylint: disable=invalid-name
   """Accumulates information needed for mutual information computation."""
   return (pcol | 'VocabCountPerLabelPerTokenAccumulate' >> beam.CombinePerKey(
-      _WeightedMeanCombineFn()))
+      _WeightedMeanCombineFn(output_shape=(None,))))
 
 
 @ptransform_fn
@@ -471,17 +472,17 @@ def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
   """Computes mutual information for each key using the given accumulators."""
   feature_accumulator_pcol = (
       pcol | 'VocabCountPerLabelPerTokenMerge' >> beam.CombinePerKey(
-          _WeightedMeanCombineFn()))
+          _WeightedMeanCombineFn(output_shape=(None,))))
 
   global_accumulator = (
       feature_accumulator_pcol
       | 'DropKeys' >> beam.Values()
       | 'VocabCountPerLabelGlobally' >> beam.CombineGlobally(
-          _WeightedMeanCombineFn()))
+          _WeightedMeanCombineFn(output_shape=(None,))))
 
   return (feature_accumulator_pcol
           | 'CalculateMutualInformationPerToken' >> beam.Map(
-              _calculate_mutual_information_for_binary_feature,
+              _calculate_mutual_information_for_feature_value,
               beam.pvalue.AsSingleton(global_accumulator),
               use_adjusted_mutual_info=use_adjusted_mutual_info,
               min_diff_from_avg=min_diff_from_avg))
@@ -490,9 +491,12 @@ def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
 class _WeightedMeanCombineFn(beam.CombineFn):
   """_WeightedMeanCombineFn calculates total count and weighted means."""
 
-  def __init__(self):
+  def __init__(self, output_shape):
     self._combiner = analyzers.WeightedMeanAndVarCombiner(
-        np.float32, compute_variance=False, compute_weighted=True)
+        np.float32,
+        output_shape=output_shape,
+        compute_variance=False,
+        compute_weighted=True)
 
   def create_accumulator(self):
     """Create an accumulator with all zero entries."""

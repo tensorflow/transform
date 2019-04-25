@@ -428,24 +428,42 @@ class CachedImplTest(test_case.TransformTestCase):
               tft.min(inputs['y'], name='y') + tf.zeros_like(inputs['y']),
           'y_mean':
               tft.mean(inputs['y'], name='y') + tf.zeros_like(inputs['y']),
+          's_integerized':
+              tft.compute_and_apply_vocabulary(
+                  inputs['s'],
+                  labels=inputs['label'],
+                  use_adjusted_mutual_info=True),
       }
 
-    input_data = [{'x': 12, 'y': 1, 's': 'b'}, {'x': 10, 'y': 1, 's': 'c'}]
+    input_data = [{
+        'x': 12,
+        'y': 1,
+        's': 'b',
+        'label': 0
+    }, {
+        'x': 10,
+        'y': 1,
+        's': 'c',
+        'label': 1
+    }]
     input_metadata = dataset_metadata.DatasetMetadata(
         dataset_schema.from_feature_spec({
             'x': tf.io.FixedLenFeature([], tf.float32),
             'y': tf.io.FixedLenFeature([], tf.float32),
             's': tf.io.FixedLenFeature([], tf.string),
+            'label': tf.io.FixedLenFeature([], tf.int64),
         }))
     input_data_dict = {
         span_0_key: [{
             'x': -2,
             'y': 1,
             's': 'a',
+            'label': 0,
         }, {
             'x': 4,
             'y': -4,
             's': 'a',
+            'label': 1,
         }],
         span_1_key: input_data,
     }
@@ -481,12 +499,14 @@ class CachedImplTest(test_case.TransformTestCase):
                 'x_min': -2.0,
                 'y_mean': -0.25,
                 'y_min': -4.0,
+                's_integerized': 0,
             },
             {
                 'x_mean': 6.0,
                 'x_min': -2.0,
                 'y_mean': -0.25,
                 'y_min': -4.0,
+                's_integerized': 1,
             },
         ]
         beam_test_util.assert_that(
@@ -499,7 +519,7 @@ class CachedImplTest(test_case.TransformTestCase):
 
         for key in input_data_dict:
           self.assertIn(key, cache_output)
-          self.assertEqual(6, len(cache_output[key]))
+          self.assertEqual(7, len(cache_output[key]))
 
     with beam_impl.Context(temp_dir=self.get_temp_dir()):
       with beam.Pipeline() as p:
@@ -675,10 +695,12 @@ class CachedImplTest(test_case.TransformTestCase):
 
       expected_accumulators = {
           '__v0__VocabularyAccumulate--vocabulary--': [
-              b'["a", [2, 1.0, 0.0, 1.0]]', b'["b", [2, 0.5, 0.0, 1.0]]'
+              b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
+              b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]'
           ],
           '__v0__VocabularyAccumulate--vocabulary_1--': [
-              b'["a", [2, 1.0, 0.0, 1.0]]', b'["b", [2, 0.5, 0.0, 1.0]]'
+              b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
+              b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]'
           ],
           '__v0__VocabularyAccumulate--vocabulary_2--': [
               b'["a", 1.5]', b'["b", 1.75]'

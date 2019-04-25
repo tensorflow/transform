@@ -392,15 +392,36 @@ class _VocabularyAccumulatorCoder(CacheCoder):
 
   def encode_cache(self, accumulator):
     # Need to wrap in np.array and call tolist to make it JSON serializable.
-    word, count = accumulator
+    token, value = accumulator
     if self._input_dtype == tf.string:
-      word = tf.compat.as_text(word)
-    accumulator = (word, count)
+      token = tf.compat.as_text(token)
+    # If the value is a _WeightedMeanAndVarAccumulator, cast each field to a
+    # list for serialization.
+    try:
+      value = value._replace(
+          count=value.count.tolist(),
+          mean=value.mean.tolist(),
+          variance=value.variance.tolist(),
+          weight=value.weight.tolist())
+    except AttributeError:
+      pass
+    accumulator = (token, value)
     return tf.compat.as_bytes(
         json.dumps(np.array(accumulator, dtype=object).tolist()))
 
   def decode_cache(self, encoded_accumulator):
-    return json.loads(tf.compat.as_text(encoded_accumulator))
+
+    accumulator = json.loads(tf.compat.as_text(encoded_accumulator))
+    token, value = accumulator
+    try:
+      # If the value is a _WeightedMeanAndVarAccumulator (serialized to tuple),
+      # cast each field back to a np.array.
+      count, mean, variance, weight = value
+      value = (np.array(count), np.array(mean), np.array(variance),
+               np.array(weight))
+    except TypeError:
+      pass
+    return token, value
 
 
 class VocabularyMerge(

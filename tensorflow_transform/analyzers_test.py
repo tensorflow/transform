@@ -113,13 +113,13 @@ def _make_mean_and_var_accumulator_from_instance(instance, axis=None):
   return analyzers._WeightedMeanAndVarAccumulator(
       count=np.sum(np.ones_like(instance), axis=axis),
       mean=np.mean(instance, axis=axis),
-      weight=1.,
+      weight=np.sum(np.ones_like(instance), axis=axis),
       variance=np.var(instance, axis=axis))
 
 
 _MEAN_AND_VAR_TEST = dict(
     testcase_name='WeightedMeanAndVar',
-    combiner=analyzers.WeightedMeanAndVarCombiner(np.float32),
+    combiner=analyzers.WeightedMeanAndVarCombiner(np.float32, output_shape=()),
     batches=[
         _make_mean_and_var_accumulator_from_instance([[1, 2, 3, 4, 5, 6, 7]]),
         # Count is 5*0xFFFF=327675 for this accumulator.
@@ -135,7 +135,7 @@ _MEAN_AND_VAR_TEST = dict(
 
 _MEAN_AND_VAR_BIG_TEST = dict(
     testcase_name='WeightedMeanAndVarBig',
-    combiner=analyzers.WeightedMeanAndVarCombiner(np.float32),
+    combiner=analyzers.WeightedMeanAndVarCombiner(np.float32, output_shape=()),
     batches=[
         _make_mean_and_var_accumulator_from_instance([[1, 2, 3, 4, 5, 6, 7]]),
         _make_mean_and_var_accumulator_from_instance([[1e15, 2e15, 3000]]),
@@ -149,8 +149,8 @@ _MEAN_AND_VAR_BIG_TEST = dict(
 
 _MEAN_AND_VAR_VECTORS_TEST = dict(
     testcase_name='WeightedMeanAndVarForVectors',
-    combiner=analyzers.WeightedMeanAndVarCombiner(np.float32),
-    # Note: each vector has to be of the same size for this to work.
+    combiner=analyzers.WeightedMeanAndVarCombiner(
+        np.float32, output_shape=(None,)),
     batches=[
         _make_mean_and_var_accumulator_from_instance([[1, 2, 3, 4, 5, 6]],
                                                      axis=0),
@@ -163,6 +163,21 @@ _MEAN_AND_VAR_VECTORS_TEST = dict(
         np.float32([36., 70., 1004., 10.33333333, 14.33333333, 23.66666667]),
         np.float32(
             [2054., 8456., 1992014., 28.22222222, 86.22222222, 436.22222222]),
+    ],
+)
+
+_MEAN_AND_VAR_ND_TEST = dict(
+    testcase_name='WeightedMeanAndVarForNDVectors',
+    combiner=analyzers.WeightedMeanAndVarCombiner(
+        np.float32, output_shape=(None, None)),
+    batches=[
+        _make_mean_and_var_accumulator_from_instance([[[1], [1], [2]]], axis=2),
+        _make_mean_and_var_accumulator_from_instance([[[1], [2], [2]]], axis=2),
+        _make_mean_and_var_accumulator_from_instance([[[2], [2], [2]]], axis=2),
+    ],
+    expected_outputs=[
+        np.float32([[1.333333333, 1.666666666, 2]]),
+        np.float32([[.222222222, .222222222, 0]]),
     ],
 )
 
@@ -267,6 +282,7 @@ class AnalyzersTest(test_case.TransformTestCase):
       _MEAN_AND_VAR_TEST,
       _MEAN_AND_VAR_BIG_TEST,
       _MEAN_AND_VAR_VECTORS_TEST,
+      _MEAN_AND_VAR_ND_TEST,
       _QUANTILES_NO_ELEMENTS_TEST,
       _QUANTILES_NO_TRIM_TEST,
       _QUANTILES_EXACT_NO_ELEMENTS_TEST,
@@ -309,6 +325,48 @@ class AnalyzersTest(test_case.TransformTestCase):
       self.assertEqual(tensor_info.dtype,
                        tf.as_dtype(expected_output.dtype))
       self.assertAllEqual(output, expected_output)
+
+  @test_case.named_parameters(
+      {
+          'testcase_name': '1d',
+          'a': np.array([1]),
+          'b': np.array([1, 1]),
+          'expected_a': np.array([1, 0]),
+          'expected_b': np.array([1, 1]),
+      },
+      {
+          'testcase_name': '2d_1different',
+          'a': np.array([[1], [1]]),
+          'b': np.array([[1], [1], [2]]),
+          'expected_a': np.array([[1], [1], [0]]),
+          'expected_b': np.array([[1], [1], [2]]),
+      },
+      {
+          'testcase_name': '2d_2different',
+          'a': np.array([[1, 3], [1, 3]]),
+          'b': np.array([[1], [1], [2]]),
+          'expected_a': np.array([[1, 3], [1, 3], [0, 0]]),
+          'expected_b': np.array([[1, 0], [1, 0], [2, 0]]),
+      },
+      {
+          'testcase_name': '3d_1different',
+          'a': np.array([[[1], [1]], [[1], [1]]]),
+          'b': np.array([[[1], [1]]]),
+          'expected_a': np.array([[[1], [1]], [[1], [1]]]),
+          'expected_b': np.array([[[1], [1]], [[0], [0]]]),
+      },
+      {
+          'testcase_name': '3d_2different',
+          'a': np.array([[[1], [1]], [[1], [1]]]),
+          'b': np.array([[[1, 1], [1, 1]]]),
+          'expected_a': np.array([[[1, 0], [1, 0]], [[1, 0], [1, 0]]]),
+          'expected_b': np.array([[[1, 1], [1, 1]], [[0, 0], [0, 0]]]),
+      },
+  )
+  def test_pad_arrays_to_match(self, a, b, expected_a, expected_b):
+    a2, b2 = analyzers._pad_arrays_to_match(a, b)
+    self.assertAllClose(a2, expected_a)
+    self.assertAllClose(b2, expected_b)
 
 
 if __name__ == '__main__':

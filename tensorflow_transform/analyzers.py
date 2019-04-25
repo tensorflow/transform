@@ -206,9 +206,10 @@ def _get_output_shape_from_input(x):
     return x.get_shape()[1:]
 
   # When reducing over batch dimensions, with known shape, the result will be
-  # the same shape as the input, but without the batch.  If reducing over batch
-  # dimensions, with unknown shape, the result will also have unknown shape.
-  return x.shape.as_list()[1:] if x.shape.dims is not None else None
+  # the same shape as the input, but without the batch.
+  if x.shape.dims is not None:
+    return x.shape.as_list()[1:]
+  return (None,)
 
 
 # TODO(b/112414577): Go back to accepting only a single input.
@@ -498,8 +499,9 @@ class _WeightedMeanAndVarAccumulator(
 
   @classmethod
   def make_nan_to_num(cls, counts, means, variances, weights):
-    return cls(counts, np.nan_to_num(means), np.nan_to_num(variances),
-               np.nan_to_num(weights))
+    return cls(
+        np.array(counts), np.nan_to_num(means), np.nan_to_num(variances),
+        np.nan_to_num(weights))
 
   def __reduce__(self):
     return self.__class__, tuple(self)
@@ -533,10 +535,20 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
     if self._compute_variance and self._compute_weighted:
       raise ValueError(
           'WeightedMeanAndVarCombiner does not yet support weighted variance')
+    if self._output_shape is None:
+      raise ValueError('An output_shape must be provided.')
 
   def create_accumulator(self):
     """Create an accumulator with all zero entries."""
-    return _WeightedMeanAndVarAccumulator(0, 0., 0., 0.)
+    # TODO(b/131325061): Determine whether counts/weights should always be
+    # scalars or if we want to continue supporting multi-dimensional arrays.
+    initial_count, initial_weight = np.array(0), np.array(0.)
+    # If we know the exact shape, initialize accumulator values with zeros of
+    # the exact shape. For unknown dimensions, initialize with a 1D 0 array.
+    output_shape = [dim if dim is not None else 0 for dim in self._output_shape]
+    initial_mean, initial_var = np.zeros(output_shape), np.zeros(output_shape)
+    return _WeightedMeanAndVarAccumulator(initial_count, initial_mean,
+                                          initial_var, initial_weight)
 
   def add_input(self, accumulator, batch_values):
     """Composes an accumulator from batch_values and calls merge_accumulators.
@@ -556,22 +568,14 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
     """Merges several `_WeightedMeanAndVarAccumulator`s to a single accumulator.
 
     Args:
-      accumulators: A list of `_WeightedMeanAndVarAccumulator`s and/or Nones.
+      accumulators: A list of `_WeightedMeanAndVarAccumulator`s.
 
     Returns:
       The sole merged `_WeightedMeanAndVarAccumulator`.
     """
-    non_empty_accumulators = [
-        accumulator for accumulator in accumulators if accumulator is not None
-    ]
-    if not non_empty_accumulators:
-      return self.create_accumulator()
-
-    result = non_empty_accumulators[0]
-
-    for accumulator in non_empty_accumulators[1:]:
+    result = self.create_accumulator()
+    for accumulator in accumulators:
       result = self._combine_mean_and_var_accumulators(result, accumulator)
-
     return result
 
   def extract_output(self, accumulator):
@@ -581,11 +585,9 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
       accumulator: the final `_WeightedMeanAndVarAccumulator` value.
 
     Returns:
-      A 2-tuple composed of (mean, var) or None if accumulator is None.
+      A 2-tuple composed of (mean, var).
     """
-    if accumulator is None:
-      return None
-    elif self._compute_variance and not self._compute_weighted:
+    if self._compute_variance and not self._compute_weighted:
       return (self._output_numpy_dtype(accumulator.mean),
               self._output_numpy_dtype(accumulator.variance))
     else:
@@ -624,33 +626,75 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
     if np.sum(a.count) == 0:
       return b
 
-    combined_total = a.count + b.count
+    a_count, b_count = _pad_arrays_to_match(a.count, b.count)
+    a_mean, b_mean = _pad_arrays_to_match(a.mean, b.mean)
+    if self._compute_variance:
+      a_variance, b_variance = _pad_arrays_to_match(a.variance, b.variance)
+    if self._compute_weighted:
+      a_weight, b_weight = _pad_arrays_to_match(a.weight, b.weight)
+
+    combined_total = a_count + b_count
 
     # Mean and variance update formulas which are more numerically stable when
     # a and b vary in magnitude.
     if self._compute_weighted:
       combined_weights_mean = (
-          a.weight + (b.count / combined_total) * (b.weight - a.weight))
-      combined_mean = (
-          a.mean + ((b.count * b.weight) /
-                    (combined_total * combined_weights_mean)) *
-          (b.mean - a.mean))
+          a_weight + (b_count / combined_total) * (b_weight - a_weight))
     else:
-      combined_weights_mean = 1.
-      combined_mean = a.mean + (b.count / combined_total) * (b.mean - a.mean)
+      combined_weights_mean = np.ones(shape=combined_total.shape)
+      b_weight = np.ones(shape=b_mean.shape)
+
+    combined_mean = a_mean + (b_count * b_weight /
+                              (combined_total * combined_weights_mean)) * (
+                                  b_mean - a_mean)
     if self._compute_variance:
       # TODO(zoyahav): Add an option for weighted variance if needed.
       assert not self._compute_weighted
       combined_variance = (
-          a.variance + (b.count / combined_total) * (b.variance - a.variance +
-                                                     ((b.mean - combined_mean) *
-                                                      (b.mean - a.mean))))
+          a_variance + (b_count / combined_total) * (b_variance - a_variance +
+                                                     ((b_mean - combined_mean) *
+                                                      (b_mean - a_mean))))
     else:
-      combined_variance = 0.
+      combined_variance = np.zeros(combined_mean.shape)
 
     return _WeightedMeanAndVarAccumulator(combined_total, combined_mean,
                                           combined_variance,
                                           combined_weights_mean)
+
+
+def _pad_arrays_to_match(a, b):
+  """Pad the ndarray values to match dimensions as needed.
+
+  If the dimensions of the ndarrays values differ, we pad the smaller of the
+  two arrays with zeros to be the same shape as the larger. In other words,
+  the missing accumulator indices are assumed to be zero, and combining
+  a = [1, 2, 3] with b = [1, 2] is equivalent t combining with b = [1, 2, 0].
+
+  Args:
+    a: NDarray to be matched in shaped with b
+    b: NDarray to be matched in shaped with a
+
+  Returns:
+    a: a padded to same dimensions as b
+    b: b padded to same dimensions as a
+  """
+  if a.shape == b.shape:
+    return a, b
+  padding_a, padding_b = [], []
+  for a_dim, b_dim in zip(a.shape, b.shape):
+    a_pad = b_pad = (0, 0)
+    delta = a_dim - b_dim
+    if delta > 0:
+      b_pad = (0, abs(delta))
+    elif delta < 0:
+      a_pad = (0, abs(delta))
+    padding_a.append(a_pad)
+    padding_b.append(b_pad)
+  if padding_a:
+    a = np.pad(a, padding_a, mode='constant')
+  if padding_b:
+    b = np.pad(b, padding_b, mode='constant')
+  return a, b
 
 
 def sanitized_vocab_filename(filename=None, prefix=None):
@@ -819,12 +863,16 @@ def vocabulary(x,
       will be of the form 'frequency word'.
     weights: (Optional) Weights `Tensor` for the vocabulary. It must have the
       same shape as x.
-    labels: (Optional) Labels `Tensor` for the vocabulary. It must have dtype
-      int64, have values 0 or 1, and have the same shape as x.
-    use_adjusted_mutual_info: If true, use adjusted mutual information.
-    min_diff_from_avg: Mutual information of a feature will be adjusted to zero
-      whenever the difference between count of the feature with any label and
-      its expected count is lower than min_diff_from_average.
+    labels: (Optional) Labels `Tensor` for the vocabulary. It must have the same
+      shape as x and be a discrete integerized tensor (If the label is numeric,
+      it should first be bucketized; If the label is a string, an integer
+      vocabulary should first be applied).
+    use_adjusted_mutual_info: If true, and labels are provided, calculate
+      vocabulary using adjusted rather than raw mutual information.
+    min_diff_from_avg: MI (or AMI) of a feature x label will be adjusted to zero
+      whenever the difference between count and the expected (average) count is
+      lower than min_diff_from_average. This can be thought of as a regularizing
+      parameter that pushes small MI/AMI values to zero.
     coverage_top_k: (Optional), (Experimental) The minimum number of elements
       per key to be included in the vocabulary.
     coverage_frequency_threshold: (Optional), (Experimental) Limit the coverage
@@ -872,33 +920,38 @@ def vocabulary(x,
   if x.dtype != tf.string and not x.dtype.is_integer:
     raise ValueError('expected tf.string or integer but got %r' % x.dtype)
 
+  if labels is not None and not labels.dtype.is_integer:
+    raise ValueError('expected integer labels but got %r' % labels.dtype)
+
   with tf.compat.v1.name_scope(name, 'vocabulary'):
     vocab_filename = _get_vocab_filename(vocab_filename, store_frequency)
 
     if labels is not None:
       vocab_ordering_type = (
           tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION)
-      (unique_inputs, sum_total,
-       sum_positive, counts) = tf_utils.reduce_batch_vocabulary(
-           x, vocab_ordering_type, weights, labels)
-      analyzer_inputs = [unique_inputs, sum_total, sum_positive, counts]
-
+      reduced_batch = tf_utils.reduce_batch_vocabulary(x, vocab_ordering_type,
+                                                       weights, labels)
+      analyzer_inputs = [
+          reduced_batch.unique_values, reduced_batch.summed_weights_per_value,
+          reduced_batch.summed_positive_per_value_and_label,
+          reduced_batch.counts_per_value
+      ]
     elif weights is not None:
       vocab_ordering_type = tf_utils.VocabOrderingType.WEIGHTED_FREQUENCY
-      (unique_inputs, sum_weights,
-       none_sum, none_counts) = tf_utils.reduce_batch_vocabulary(
-           x, vocab_ordering_type, weights)
-      assert none_sum is None
-      assert none_counts is None
-      analyzer_inputs = [unique_inputs, sum_weights]
+      reduced_batch = tf_utils.reduce_batch_vocabulary(x, vocab_ordering_type,
+                                                       weights)
+      assert reduced_batch.summed_positive_per_value_and_label is None
+      assert reduced_batch.counts_per_value is None
+      analyzer_inputs = [
+          reduced_batch.unique_values, reduced_batch.summed_weights_per_value
+      ]
     else:
       vocab_ordering_type = tf_utils.VocabOrderingType.FREQUENCY
-      (unique_inputs, none_weights, none_sum,
-       none_counts) = tf_utils.reduce_batch_vocabulary(x, vocab_ordering_type)
-      assert none_sum is None
-      assert none_weights is None
-      assert none_counts is None
-      analyzer_inputs = [unique_inputs]
+      reduced_batch = tf_utils.reduce_batch_vocabulary(x, vocab_ordering_type)
+      assert reduced_batch.summed_weights_per_value is None
+      assert reduced_batch.summed_positive_per_value_and_label is None
+      assert reduced_batch.counts_per_value is None
+      analyzer_inputs = [reduced_batch.unique_values]
 
     input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
         analyzer_inputs)

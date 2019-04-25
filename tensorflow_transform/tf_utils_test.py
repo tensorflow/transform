@@ -45,13 +45,28 @@ class AnalyzersTest(test_case.TransformTestCase):
           x=['a', 'b', 'a'],
           weights=None,
           labels=[0, 1, 1],
-          expected_results=[[b'a', b'b'], [2, 1], [1, 1], [2, 1]]),
+          expected_results=[[b'a', b'b'], [2, 1], [[1, 1], [0, 1]], [2, 1]]),
       dict(
           testcase_name='rank1_with_weights_and_labels',
           x=['a', 'b', 'a'],
           weights=[1, 1, 2],
           labels=[0, 1, 1],
-          expected_results=[[b'a', b'b'], [3, 1], [2, 1], [2, 1]]),
+          expected_results=[[b'a', b'b'], [3, 1], [[1, 2], [0, 1]], [2, 1]]),
+      dict(
+          testcase_name='rank1_with_weights_and_labels_multi_class',
+          x=['a', 'b', 'a', 'a'],
+          weights=[1, 1, 2, 2],
+          labels=[0, 2, 1, 1],
+          expected_results=[[b'a', b'b'], [5, 1], [[1, 4, 0], [0, 0, 1]],
+                            [3, 1]]),
+      dict(
+          testcase_name='rank1_with_weights_and_labels_missing_labels',
+          x=['a', 'b', 'a', 'a'],
+          weights=[1, 1, 2, 2],
+          labels=[3, 5, 6, 6],
+          expected_results=[[b'a', b'b'], [5, 1],
+                            [[0, 0, 0, 1, 0, 0, 4], [0, 0, 0, 0, 0, 1, 0]],
+                            [3, 1]]),
       dict(
           testcase_name='rank2_without_weights_or_labels',
           x=[['a', 'b', 'a'], ['b', 'a', 'b']],
@@ -69,13 +84,29 @@ class AnalyzersTest(test_case.TransformTestCase):
           x=[['a', 'b', 'a'], ['b', 'a', 'b']],
           weights=None,
           labels=[[1, 0, 1], [1, 0, 0]],
-          expected_results=[[b'a', b'b'], [3, 3], [2, 1], [3, 3]]),
+          expected_results=[[b'a', b'b'], [3, 3], [[1, 2], [2, 1]], [3, 3]]),
+      dict(
+          testcase_name='rank2_with_labels_missing_values',
+          x=[['a', 'b', 'a'], ['b', 'a', 'b']],
+          weights=None,
+          labels=[[2, 0, 2], [2, 0, 0]],
+          # The label 1 isn't in the batch but it will have a position (with
+          # weights of 0) in the resulting array.
+          expected_results=[[b'a', b'b'], [3, 3], [[1, 0, 2], [2, 0, 1]],
+                            [3, 3]]),
       dict(
           testcase_name='rank2_with_weights_and_labels',
           x=[['a', 'b', 'a'], ['b', 'a', 'b']],
           weights=[[1, 2, 1], [1, 2, 2]],
           labels=[[1, 0, 1], [1, 0, 0]],
-          expected_results=[[b'a', b'b'], [4, 5], [2, 1], [3, 3]]),
+          expected_results=[[b'a', b'b'], [4, 5], [[2, 2], [4, 1]], [3, 3]]),
+      dict(
+          testcase_name='rank2_multi_class_with_labels',
+          x=[['a', 'b', 'a'], ['b', 'a', 'b']],
+          weights=None,
+          labels=[[1, 0, 1], [1, 0, 2]],
+          expected_results=[[b'a', b'b'], [3, 3], [[1, 2, 0], [1, 1, 1]],
+                            [3, 3]]),
       dict(
           testcase_name='rank3_without_weights_or_labels',
           x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
@@ -99,14 +130,14 @@ class AnalyzersTest(test_case.TransformTestCase):
              [['a', 'b', 'a'], ['b', 'a', 'b']]],
           weights=None,
           labels=[[[1, 1, 0], [1, 0, 1]], [[1, 0, 1], [1, 0, 1]]],
-          expected_results=[[b'a', b'b'], [6, 6], [3, 5], [6, 6]]),
+          expected_results=[[b'a', b'b'], [6, 6], [[3, 3], [1, 5]], [6, 6]]),
       dict(
           testcase_name='rank3_with_weights_and_labels',
           x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
              [['a', 'b', 'a'], ['b', 'a', 'b']]],
           weights=[[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]],
           labels=[[[1, 1, 0], [1, 0, 1]], [[1, 0, 1], [1, 0, 1]]],
-          expected_results=[[b'a', b'b'], [9, 7], [3, 5], [6, 6]]),
+          expected_results=[[b'a', b'b'], [9, 7], [[6, 3], [2, 5]], [6, 6]]),
   )
   def test_reduce_batch_vocabulary(self, x, weights, labels, expected_results):
     x = tf.constant(x)
@@ -137,9 +168,35 @@ class AnalyzersTest(test_case.TransformTestCase):
       x = tf.constant(['yes', 'no', 'yes'])
       weights = tf.constant([1, 2, 3])
       labels = tf.constant([1, 1, 0], tf.int64)
-      results = sess.run(
-          tf_utils._reduce_vocabulary_inputs(x, weights, labels))
-      expected_results = [[b'yes', b'no'], [4, 2], [1, 2], [2, 1]]
+      results = sess.run(tf_utils._reduce_vocabulary_inputs(x, weights, labels))
+      expected_results = [[b'yes', b'no'], [4, 2], [[3, 1], [0, 2]], [2, 1]]
+      for result, expected in zip(results, expected_results):
+        self.assertAllEqual(result, np.array(expected))
+
+  def test_reduce_vocabulary_multi_class_inputs(self):
+    with tf.Session() as sess:
+      x = tf.constant(['yes', 'no', 'yes', 'maybe', 'yes'])
+      weights = tf.constant([1, 2, 1, 1, 1])
+      labels = tf.constant([1, 1, 0, 2, 3], tf.int64)
+      results = sess.run(tf_utils._reduce_vocabulary_inputs(x, weights, labels))
+      expected_results = [[b'yes', b'no', b'maybe'], [3, 2, 1],
+                          [[1, 1, 0, 1], [0, 2, 0, 0], [0, 0, 1, 0]], [3, 1, 1]]
+      for result, expected in zip(results, expected_results):
+        self.assertAllEqual(result, np.array(expected))
+
+  def test_reduce_vocabulary_multi_class_inputs_batch_missing_labels(self):
+    with tf.Session() as sess:
+      x = tf.constant(['yes', 'no', 'yes', 'maybe', 'yes'])
+      weights = tf.constant([1, 2, 1, 1, 1])
+      labels = tf.constant([4, 0, 0, 4, 3], tf.int64)
+      results = sess.run(tf_utils._reduce_vocabulary_inputs(x, weights, labels))
+      expected_results = [
+          [b'yes', b'no', b'maybe'],
+          [3, 2, 1],
+          # Indices correspond to labels based on the largest observed label (4)
+          [[1, 0, 0, 1, 1], [2, 0, 0, 0, 0], [0, 0, 0, 0, 1]],
+          [3, 1, 1]
+      ]
       for result, expected in zip(results, expected_results):
         self.assertAllEqual(result, np.array(expected))
 
