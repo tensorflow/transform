@@ -594,7 +594,8 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
   def output_tensor_infos(self):
     # The output is (mean, var).
     return [
-        analyzer_nodes.TensorInfo(self._output_numpy_dtype, self._output_shape,
+        analyzer_nodes.TensorInfo(tf.as_dtype(self._output_numpy_dtype),
+                                  self._output_shape,
                                   False)
     ] * 2
 
@@ -1256,7 +1257,7 @@ def quantiles(x, num_buckets, epsilon, weights=None, name=None):
     combiner = QuantilesCombiner(
         num_buckets,
         epsilon,
-        bucket_dtype.as_numpy_dtype,
+        bucket_dtype,
         always_return_num_quantiles=always_return_num_quantiles,
         has_weights=has_weights,
         output_shape=(None,))
@@ -1299,7 +1300,7 @@ def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
     combiner = QuantilesCombiner(
         num_buckets,
         epsilon,
-        bucket_dtype.as_numpy_dtype,
+        bucket_dtype,
         always_return_num_quantiles=True,
         output_shape=(None,))
     key, bucket_boundaries = _apply_cacheable_combiner_per_key(combiner, key, x)
@@ -1577,7 +1578,7 @@ def ptransform_analyzer(inputs, output_dtypes, output_shapes, ptransform,
 
   Args:
     inputs: A list of input `Tensor`s.
-    output_dtypes: The list of dtypes of the output of the analyzer.
+    output_dtypes: The list of TensorFlow dtypes of the output of the analyzer.
     output_shapes: The list of shapes of the output of the analyzer.  Must have
       the same length as output_dtypes.
     ptransform: A Beam PTransform that accepts a Beam PCollection where each

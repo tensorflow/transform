@@ -37,8 +37,24 @@ from tensorflow_transform import nodes
 
 TENSOR_REPLACEMENTS = 'tft_tensor_replacements'
 
-TensorInfo = collections.namedtuple('TensorInfo',
-                                    ['dtype', 'shape', 'is_asset_filepath'])
+
+class TensorInfo(collections.namedtuple(
+    'TensorInfo', ['dtype', 'shape', 'is_asset_filepath'])):
+  """A container for attributes of output tensors from analyzers.
+
+  Fields:
+    dtype: The TensorFlow dtype.
+    shape: The shape of the tensor.
+    is_asset_filepath: Whether it should be part of the filepath assets.
+  """
+
+  def __init__(self, dtype, shape, is_asset_filepath):
+    del shape, is_asset_filepath
+
+    if not isinstance(dtype, tf.DType):
+      raise TypeError('dtype must be a TensorFlow dtype, got {}'.format(dtype))
+
+    super(TensorInfo, self).__init__()
 
 
 class TensorSource(
@@ -147,9 +163,12 @@ class Combiner(object):
     raise NotImplementedError
 
   def output_tensor_infos(self):
-    """Return the number of outputs that are produced by extract_output.
+    """Return the number / types of outputs that are produced by extract_output.
 
-    Returns: The number of outputs extract_output will produce.
+    Returns: An iterable of `TensorInfo` describing how the outputs that
+      extract_output will produce should be wrapped as `Tensor`s.
+
+    Types are required to be TensorFlow dtypes.
     """
     raise NotImplementedError
 
