@@ -18,6 +18,8 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import copy
+import hashlib
 
 # GOOGLE-INITIALIZATION
 
@@ -31,6 +33,61 @@ from tensorflow_transform.beam import beam_nodes
 
 # Used for debugging only. This will point to the most recent graph built.
 _ANALYSIS_GRAPH = None
+
+
+def _serialize_op_attr(op_attr):
+  """Deterministicly serializes tf.Operation attrs since it is a map."""
+  sorted_attributes = sorted(op_attr.items(), key=lambda kv: kv[0])
+  result = []
+  for key, attr_value in sorted_attributes:
+    attr_value = copy.deepcopy(attr_value)
+    if attr_value.HasField('func') or attr_value.list.func:
+      raise ValueError(
+          'Unable to serialize op attributes that contain a `func` field')
+    result.extend([key, attr_value.SerializeToString()])
+  return result
+
+
+def _describe_path_as_analyzer_cache_hash(x, parents=None):
+  """Constructs a hash to describe a unique TF graph path.
+
+  Note: We do not rely on names for hashing since it can be fragile.
+
+  Args:
+    x: One of (None, tf.Operation, tf.Tensor, str), the current TF graph node.
+    parents: (Optional) a list of bytes, results of previous calls to this
+      function, where x was an ancestor to the current node x.
+
+  Returns:
+    A bytes hash of the path from x to its sources. None if x is None.
+  """
+  # This may happen in cases where tensors are outputs of previous analyzers,
+  # we don't need to describe a path for those.
+  if x is None:
+    assert parents is None
+    return None
+  parents = parents or []
+  if any(p is None for p in parents):
+    return None
+
+  if isinstance(x, tf.Operation):
+    values = _serialize_op_attr(x.node_def.attr)
+  elif isinstance(x, tf.Tensor):
+    # No need to add x.op to the hash since that should be included in parents.
+    values = [tf.compat.as_str_any(x.value_index)]
+  else:
+    assert isinstance(x, (str, bytes))
+    values = [x]
+
+  h = hashlib.sha1()
+  for value in values:
+    encoded = tf.compat.as_bytes(value)
+    h.update(encoded)
+
+  for p in parents:
+    h.update(p)
+
+  return h.digest()
 
 
 def _tensor_name(tensor):
@@ -91,9 +148,10 @@ class _TranslateVisitor(nodes.Visitor):
 
 
 class _OptimizationView(
-    collections.namedtuple(
-        '_OptimizationView',
-        ['prefer_fine_grained_view', 'flattened_view', 'fine_grained_view'])):
+    collections.namedtuple('_OptimizationView', [
+        'prefer_fine_grained_view', 'flattened_view', 'fine_grained_view',
+        'hashed_path'
+    ])):
   """A container for operation outputs during _OptimizeVisitor traversal.
 
   This is used in order to maintain both a flattened view, and a fine grained
@@ -105,10 +163,11 @@ class _OptimizationView(
   """
 
   def __init__(self, prefer_fine_grained_view, flattened_view,
-               fine_grained_view):
+               fine_grained_view, hashed_path):
     if prefer_fine_grained_view and not fine_grained_view:
       raise ValueError(
           'Cannot prefer fine_grained_view when one is not provided')
+    del hashed_path
     self._validate_flattened_view(flattened_view)
     self._validate_fine_grained_view(fine_grained_view)
     super(_OptimizationView, self).__init__()
@@ -143,9 +202,25 @@ class _OptimizeVisitor(nodes.Visitor):
   input data, according to the `is_partitionable` annotation.
   """
 
-  def __init__(self, dataset_keys, cache_dict, cache_output_nodes):
+  def __init__(self, dataset_keys, cache_dict, tensor_keys_to_paths,
+               cache_output_nodes):
+    """Init method for _OptimizeVisitor.
+
+    Args:
+      dataset_keys: An iterable of strings which are keys for a partitioned
+        dataset.
+      cache_dict: A dictionary of input cache that can be used in place of a
+        cacheable accumulate operation. A dictionary from dataset_keys to
+        dictionaries of cache keys to PCollections. This can be None if there is
+        no cache.
+      tensor_keys_to_paths: A dictionary from a tensor key to a unique TF graph
+        path hash.
+      cache_output_nodes: A dictionary from (dataset_key, cache_key) to encoded
+        cache ValueNode. This is the output cache for this graph.
+    """
     self._dataset_keys = sorted(dataset_keys)
     self._cache_dict = cache_dict
+    self._tensor_keys_to_paths = tensor_keys_to_paths
     self.cache_output_nodes = cache_output_nodes
 
   def _validate_operation_def(self, operation_def):
@@ -155,6 +230,34 @@ class _OptimizeVisitor(nodes.Visitor):
     if operation_def.is_partitionable or operation_def.cache_coder is not None:
       if operation_def.num_outputs != 1:
         raise ValueError('Cacheable OperationDefs must have exactly 1 output')
+
+  def _make_next_hashed_path(self, parent_hashed_paths, operation_def):
+    # Making a copy of parent_hashed_paths.
+    paths_to_hash = list(parent_hashed_paths)
+    paths_to_hash.append(tf.compat.as_bytes(operation_def.__class__.__name__))
+
+    if isinstance(operation_def, beam_nodes.ExtractFromDict):
+      for key in operation_def.keys:
+        path = self._tensor_keys_to_paths[key]
+        paths_to_hash.append(path)
+    else:
+      for attr in sorted(
+          [x for x in dir(operation_def) if x not in operation_def._fields]):
+        if attr.startswith('_') or callable(getattr(operation_def, attr)):
+          continue
+        paths_to_hash.append(
+            tf.compat.as_bytes(str((attr, getattr(operation_def, attr)))))
+      for field in operation_def._fields:
+        paths_to_hash.append(
+            tf.compat.as_bytes(
+                str((field, operation_def.get_field_str(field)))))
+
+    hash_container = hashlib.sha1()
+    for path in paths_to_hash:
+      if path is None:
+        return None
+      hash_container.update(path)
+    return hash_container.digest()
 
   def visit(self, operation_def, input_values):
     self._validate_operation_def(operation_def)
@@ -197,7 +300,8 @@ class _OptimizeVisitor(nodes.Visitor):
         _OptimizationView(  # pylint: disable=g-complex-comprehension
             prefer_fine_grained_view=False,
             flattened_view=flat,
-            fine_grained_view=None) for flat in flattened_view)
+            fine_grained_view=None,
+            hashed_path=None) for flat in flattened_view)
 
   def _visit_partitionable_operation(self, operation_def, upstream_views):
     # TODO(b/37788560) Possibly support partitionable operations with multiple
@@ -213,9 +317,11 @@ class _OptimizeVisitor(nodes.Visitor):
         upstream_view.fine_grained_view and
         operation_def.cache_coder is not None)
 
+    next_hashed_path = self._make_next_hashed_path(
+        [v.hashed_path for v in upstream_views], operation_def)
     if upstream_view.fine_grained_view:
       fine_grained_views = (self._apply_operation_on_fine_grained_view(
-          operation_def, upstream_view.fine_grained_view),)
+          operation_def, upstream_view.fine_grained_view, next_hashed_path),)
     else:
       fine_grained_views = (None,) * operation_def.num_outputs
 
@@ -227,11 +333,13 @@ class _OptimizeVisitor(nodes.Visitor):
         _OptimizationView(  # pylint: disable=g-complex-comprehension
             prefer_fine_grained_view=prefer_fine_grained_view,
             flattened_view=flat,
-            fine_grained_view=fine)
+            fine_grained_view=fine,
+            hashed_path=next_hashed_path)
         for flat, fine in zip(flattened_views, fine_grained_views))
 
   def _apply_operation_on_fine_grained_view(self, operation_def,
-                                            fine_grained_view):
+                                            fine_grained_view,
+                                            next_hashed_path):
     """Applies a shardable operation on a fine grained view.
 
     This also updates `cache_output_nodes` when necessary.
@@ -239,25 +347,29 @@ class _OptimizeVisitor(nodes.Visitor):
     Args:
       operation_def: A shardable `OperationDef`.
       fine_grained_view: A `_OptimizationView.fine_grained_view`.
+      next_hashed_path: The hashed path for the currently processed
+        operation_def.
 
     Returns:
       The resulting list of `_OptimizationView.fine_grained_view`s.
     """
     result_fine_grained_view = collections.OrderedDict()
 
-    # TODO(b/37788560): Use a better cache key than label. A good alternative is
-    # to reuse graph_tools logic to compose names that include properties and
-    # fingerprint it.
-    cache_entry_key = analyzer_cache.make_cache_entry_key(operation_def.label)
+    cache_entry_key = analyzer_cache.make_cache_entry_key(
+        tf.compat.as_bytes(operation_def.label) + b'-' + next_hashed_path)
+
     for dataset_key in self._dataset_keys:
 
       # TODO(b/37788560): Add instrumentation.
 
-      if self._cache_dict.get(dataset_key, {}).get(cache_entry_key) is not None:
+      if (operation_def.cache_coder and self._cache_dict.get(
+          dataset_key, {}).get(cache_entry_key) is not None):
         (op_output,) = nodes.OperationNode(
             analyzer_nodes.DecodeCache(
-                dataset_key, cache_entry_key, coder=operation_def.cache_coder),
-            tuple()).outputs
+                dataset_key,
+                cache_entry_key,
+                operation_def.label,
+                coder=operation_def.cache_coder), tuple()).outputs
       else:
         value_node = fine_grained_view[dataset_key]
         (op_output,) = nodes.OperationNode(
@@ -298,7 +410,8 @@ class _OptimizeVisitor(nodes.Visitor):
     return (_OptimizationView(
         prefer_fine_grained_view=False,
         flattened_view=flattened_view,
-        fine_grained_view=fine_grained_view),)
+        fine_grained_view=fine_grained_view,
+        hashed_path=b'APPLY_SAVEDMODEL'),)
 
   def validate_value(self, value):
     assert isinstance(value, _OptimizationView), value
@@ -308,11 +421,12 @@ class _OptimizeVisitor(nodes.Visitor):
               value.fine_grained_view.keys(), self._dataset_keys))
 
 
-def _perform_cache_optimization(saved_model_future, dataset_keys, cache_dict):
+def _perform_cache_optimization(saved_model_future, dataset_keys,
+                                tensor_keys_to_paths, cache_dict):
   """Performs cache optimization on the given graph."""
   cache_output_nodes = {}
   optimize_visitor = _OptimizeVisitor(dataset_keys or {}, cache_dict,
-                                      cache_output_nodes)
+                                      tensor_keys_to_paths, cache_output_nodes)
   optimize_traverser = nodes.Traverser(optimize_visitor)
   optimized = optimize_traverser.visit_value_node(
       saved_model_future).flattened_view
@@ -388,12 +502,15 @@ def build(graph,
   translate_visitor = _TranslateVisitor()
   translate_traverser = nodes.Traverser(translate_visitor)
 
+  analyzers_input_signature = {}
+  graph_analyzer = None
   while not all(sink_tensors_ready.values()):
     # Determine which table init ops are ready to run in this phase
     # Determine which keys of pending_tensor_replacements are ready to run
     # in this phase, based in whether their dependencies are ready.
     graph_analyzer = graph_tools.InitializableGraphAnalyzer(
-        graph, input_signature, sink_tensors_ready)
+        graph, input_signature, sink_tensors_ready,
+        _describe_path_as_analyzer_cache_hash)
     ready_traverser = nodes.Traverser(_ReadyVisitor(graph_analyzer))
 
     # Now create and apply a SavedModel with all tensors in tensor_bindings
@@ -437,6 +554,7 @@ def build(graph,
               label='CreateTensorBinding[{}]'.format(name)))
       sink_tensors_ready[tensor] = True
 
+    analyzers_input_signature.update(intermediate_output_signature)
     phase += 1
 
   # We need to make sure that the representation of this output_signature is
@@ -454,9 +572,14 @@ def build(graph,
       output_signature=output_signature,
       label='CreateSavedModel')
 
+  tensor_keys_to_paths = {
+      tensor_key:
+      graph_analyzer.get_unique_path(analyzers_input_signature[tensor_key])
+      for tensor_key in analyzers_input_signature
+  }
   (optimized_saved_model_future,
    output_cache_value_nodes) = _perform_cache_optimization(
-       saved_model_future, dataset_keys, cache_dict)
+       saved_model_future, dataset_keys, tensor_keys_to_paths, cache_dict)
   global _ANALYSIS_GRAPH
   _ANALYSIS_GRAPH = optimized_saved_model_future
   return optimized_saved_model_future, output_cache_value_nodes

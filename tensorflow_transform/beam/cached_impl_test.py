@@ -43,6 +43,8 @@ def _preprocessing_fn_for_common_optimize_traversal(inputs):
   x = inputs['x']
   x_mean = tft.mean(x, name='x')
   x_square_deviations = tf.square(x - x_mean)
+
+  # 2nd analysis phase defined here.
   x_var = tft.mean(x_square_deviations, name='x_square_deviations')
   x_normalized = (x - x_mean) / tf.sqrt(x_var)
   return {'x_normalized': x_normalized}
@@ -56,7 +58,8 @@ _OPTIMIZE_TRAVERSAL_COMMON_CASE = dict(
     },
     preprocessing_fn=_preprocessing_fn_for_common_optimize_traversal,
     dataset_input_cache_dict={
-        '__v0__CacheableCombineAccumulate--x-mean_and_var--': 'cache hit',
+        b'__v0__CacheableCombineAccumulate[x/mean_and_var]-/Y\xe8\xd6\x1a\xb8OxZ_\xb4\xbes\x17AK&mXg':
+            'cache hit',
     },
     expected_dot_graph_str=r"""digraph G {
 directed=True;
@@ -85,13 +88,13 @@ node [shape=Mrecord];
 "VocabularyOrderAndFilter[vocabulary]" -> "VocabularyWrite[vocabulary]";
 "CreateTensorBinding[vocabulary/Placeholder]" [label="{CreateTensorBinding|tensor: vocabulary/Placeholder:0|is_asset_filepath: True|label: CreateTensorBinding[vocabulary/Placeholder]}"];
 "VocabularyWrite[vocabulary]" -> "CreateTensorBinding[vocabulary/Placeholder]";
-"DecodeCache[span-0][__v0__CacheableCombineAccumulate--x-mean_and_var--]" [label="{DecodeCache|dataset_key: span-0|cache_key: __v0__CacheableCombineAccumulate--x-mean_and_var--|coder: \<JsonNumpyCacheCoder\>|label: DecodeCache[span-0][__v0__CacheableCombineAccumulate--x-mean_and_var--]|partitionable: True}"];
+"DecodeCache[span-0][CacheableCombineAccumulate[x/mean_and_var]]" [label="{DecodeCache|dataset_key: span-0|cache_key: \<bytes\>|cache_entry_identifier: CacheableCombineAccumulate[x/mean_and_var]|coder: \<JsonNumpyCacheCoder\>|label: DecodeCache[span-0][CacheableCombineAccumulate[x/mean_and_var]]|partitionable: True}"];
 "TensorSource[x/mean_and_var][span-1]" [label="{ExtractFromDict|keys: ('x/mean_and_var/Cast', 'x/mean_and_var/truediv', 'x/mean_and_var/truediv_1', 'x/mean_and_var/zeros')|label: TensorSource[x/mean_and_var][span-1]|partitionable: True}"];
 "ApplySavedModel[0][span-1]" -> "TensorSource[x/mean_and_var][span-1]";
 "CacheableCombineAccumulate[x/mean_and_var][span-1]" [label="{CacheableCombineAccumulate|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineAccumulate[x/mean_and_var][span-1]|partitionable: True}"];
 "TensorSource[x/mean_and_var][span-1]" -> "CacheableCombineAccumulate[x/mean_and_var][span-1]";
 "FlattenCache[CacheableCombineMerge[x/mean_and_var]]" [label="{Flatten|label: FlattenCache[CacheableCombineMerge[x/mean_and_var]]|partitionable: True}"];
-"DecodeCache[span-0][__v0__CacheableCombineAccumulate--x-mean_and_var--]" -> "FlattenCache[CacheableCombineMerge[x/mean_and_var]]";
+"DecodeCache[span-0][CacheableCombineAccumulate[x/mean_and_var]]" -> "FlattenCache[CacheableCombineMerge[x/mean_and_var]]";
 "CacheableCombineAccumulate[x/mean_and_var][span-1]" -> "FlattenCache[CacheableCombineMerge[x/mean_and_var]]";
 "CacheableCombineMerge[x/mean_and_var]" [label="{CacheableCombineMerge|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineMerge[x/mean_and_var]|{<0>0|<1>1}}"];
 "FlattenCache[CacheableCombineMerge[x/mean_and_var]]" -> "CacheableCombineMerge[x/mean_and_var]";
@@ -353,17 +356,16 @@ class CachedImplTest(test_case.TransformTestCase):
 
         flat_data = p | 'CreateInputData' >> beam.Create(
             list(itertools.chain(*input_data_dict.values())))
-
-        # TODO(b/37788560): Get these names programmatically.
         cache_dict = {
             span_0_key: {
-                '__v0__CacheableCombineAccumulate--x_1-mean_and_var--':
+                b'__v0__CacheableCombineAccumulate[x_1/mean_and_var]-.\xc4t>ZBv\xea\xa5SU\xf4\x065\xc6\x1c\x81W\xf9\x1b':
                     p | 'CreateA' >> beam.Create([b'[2.0, 1.0, 9.0, 0.0]']),
-                '__v0__CacheableCombineAccumulate--x-x--':
+                b'__v0__CacheableCombineAccumulate[x/x]-\x95\xc5w\x88\x85\x8b5V\xc9\x00\xe0\x0f\x03\x1a\xdaL\x9d\xd5\xb3\xe3':
                     p | 'CreateB' >> beam.Create([b'[2.0, 4.0]']),
-                '__v0__CacheableCombineAccumulate--y_1-mean_and_var--':
+                b'__v0__CacheableCombineAccumulate[y_1/mean_and_var]-E^\xb7VZ\xeew4rm\xab\xa3\xa4k|J\x80ck\x16':
                     p | 'CreateC' >> beam.Create([b'[2.0, -1.5, 6.25, 0.0]']),
-                '__v0__CacheableCombineAccumulate--y-y--':
+                b'__v0__CacheableCombineAccumulate[y/y]-\xdf\x1ey\x03\x1c\x96\xd5'
+                b' e\x9bJ\xa1\xd2\xfc\x9c\x03\x0fM \xdb':
                     p | 'CreateD' >> beam.Create([b'[4.0, 1.0]']),
             },
             span_1_key: {},
@@ -383,6 +385,12 @@ class CachedImplTest(test_case.TransformTestCase):
         dot_string = nodes.get_dot_graph(
             [analysis_graph_builder._ANALYSIS_GRAPH]).to_string()
         self.WriteRenderedDotFile(dot_string)
+
+        # The output cache should not have entries for the cache that is present
+        # in the input cache.
+        self.assertEqual(
+            len(cache_output[span_0_key]),
+            len(cache_output[span_1_key]) - 4)
 
         transformed_data, unused_transformed_metadata = transformed_dataset
 
@@ -606,10 +614,9 @@ class CachedImplTest(test_case.TransformTestCase):
         flat_data = p | 'CreateInputData' >> beam.Create(
             list(itertools.chain(*input_data_dict.values())))
 
-        # TODO(b/37788560): Get these names programmatically.
         cache_dict = {
             span_0_key: {
-                '__v0__VocabularyAccumulate--compute_and_apply_vocabulary-vocabulary--':
+                b'__v0__VocabularyAccumulate[compute_and_apply_vocabulary/vocabulary]-\x05e\xfe4\x03H.P\xb5\xcb\xd22\xe3\x16\x15\xf8\xf5\xe38\xd9':
                     p | 'CreateB' >> beam.Create(
                         [b'[-2, 2]', b'[-4, 1]', b'[-1, 1]', b'[4, 1]']),
             },
@@ -620,6 +627,13 @@ class CachedImplTest(test_case.TransformTestCase):
             (flat_data, input_data_dict, cache_dict, input_metadata)
             | 'Analyze' >>
             (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
+
+        dot_string = nodes.get_dot_graph(
+            [analysis_graph_builder._ANALYSIS_GRAPH]).to_string()
+        self.WriteRenderedDotFile(dot_string)
+
+        self.assertNotIn(span_0_key, cache_output)
+
         _ = cache_output | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
             self._cache_dir)
 
@@ -692,19 +706,19 @@ class CachedImplTest(test_case.TransformTestCase):
       transform_fn_with_cache, output_cache = (
           (flat_data, input_data_dict, {}, input_metadata) |
           (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
-
       expected_accumulators = {
-          '__v0__VocabularyAccumulate--vocabulary--': [
-              b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
-              b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]'
-          ],
-          '__v0__VocabularyAccumulate--vocabulary_1--': [
-              b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
-              b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]'
-          ],
-          '__v0__VocabularyAccumulate--vocabulary_2--': [
-              b'["a", 1.5]', b'["b", 1.75]'
-          ],
+          b'__v0__VocabularyAccumulate[vocabulary]-\xd3\xe0p\x82\xb1\xa0z\xa3S\xd7N8@\x8f\xa2\xd7\xa1\x9e\xac;':
+              [
+                  b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
+                  b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]'
+              ],
+          b'__v0__VocabularyAccumulate[vocabulary_1]-A\xc7_0\xee\xff\x88@E<\xde\xcb\x8d\xff5\xebyZZ\x8d':
+              [
+                  b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
+                  b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]'
+              ],
+          b"__v0__VocabularyAccumulate[vocabulary_2]-\x97\x1c>\x851\x94'\xdc\xdf\xfd\xcc\x86\xb7\xb8\xe1\xe8*\x89B\t":
+              [b'["a", 1.5]', b'["b", 1.75]'],
       }
       spans = [span_0_key, span_1_key]
       self.assertCountEqual(output_cache.keys(), spans)
@@ -767,7 +781,8 @@ class CachedImplTest(test_case.TransformTestCase):
     self.assertSameElements(
         dot_string.split('\n'),
         expected_dot_graph_str.split('\n'),
-        msg='Result dot graph is:\n{}'.format(dot_string))
+        msg='Result dot graph is:\n{}\nCache output dict keys are: {}'.format(
+            dot_string, cache_output_dict.keys()))
 
 
 if __name__ == '__main__':

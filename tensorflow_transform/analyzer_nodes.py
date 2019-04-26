@@ -572,9 +572,9 @@ class EncodeCache(
 
 
 class DecodeCache(
-    collections.namedtuple('DecodeCache',
-                           ['dataset_key', 'cache_key', 'coder', 'label']),
-    nodes.OperationDef):
+    collections.namedtuple('DecodeCache', [
+        'dataset_key', 'cache_key', 'cache_entry_identifier', 'coder', 'label'
+    ]), nodes.OperationDef):
   """OperationDef for decoding a cache instance.
 
   Fields:
@@ -582,15 +582,27 @@ class DecodeCache(
     label: A unique label for this operation.
   """
 
-  def __new__(cls, dataset_key, cache_key, coder, label=None):
+  def __new__(cls,
+              dataset_key,
+              cache_key,
+              cache_entry_identifier,
+              coder,
+              label=None):
     if label is None:
-      label = '{}[{}][{}]'.format(cls.__name__, dataset_key, cache_key)
+      label = '{}[{}][{}]'.format(cls.__name__, dataset_key,
+                                  cache_entry_identifier)
     return super(DecodeCache, cls).__new__(
         cls,
         dataset_key=dataset_key,
         cache_key=cache_key,
+        cache_entry_identifier=cache_entry_identifier,
         coder=coder,
         label=label)
+
+  def get_field_str(self, field_name):
+    if field_name == 'cache_key':
+      return '<bytes>'
+    return super(DecodeCache, self).get_field_str(field_name)
 
   @property
   def is_partitionable(self):

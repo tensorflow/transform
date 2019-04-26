@@ -17,23 +17,23 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import json
 import os
 import re
 
 # GOOGLE-INITIALIZATION
 
 import apache_beam as beam
+from apache_beam.internal import pickler
 import six
 import tensorflow as tf
 
 # This should be advanced whenever a non-backwards compatible change is made
 # that affects analyzer cache. For example, changing accumulator format.
-_CACHE_VERSION = '__v0__'
+_CACHE_VERSION = b'__v0__'
 
 
 # TODO(b/37788560): Use artifacts instead.
-_MANIFEST_FILE_NAME = 'MANIFEST.txt'
+_MANIFEST_FILE_NAME = 'MANIFEST'
 
 
 class WriteAnalysisCacheToFS(beam.PTransform):
@@ -53,6 +53,8 @@ class WriteAnalysisCacheToFS(beam.PTransform):
     # possible.
     self._sink = sink if sink is not None else beam.io.WriteToTFRecord
 
+  # TODO(b/37788560): Allow merging of 2 manifests in case there is already
+  # partial cache.
   def expand(self, dataset_cache_dict):
 
     cache_is_written = []
@@ -60,20 +62,20 @@ class WriteAnalysisCacheToFS(beam.PTransform):
       manifest = {}
       dataset_key_dir = os.path.join(self._cache_base_dir,
                                      _make_dataset_key(dataset_key))
-      for cache_entry_key, cache_pcoll in six.iteritems(cache_dict):
-        cache_entry = _make_valid_cache_component(cache_entry_key)
-        path = os.path.join(dataset_key_dir, cache_entry)
-        manifest[cache_entry] = cache_entry
+      for cache_key_idx, (cache_entry_key,
+                          cache_pcoll) in enumerate(six.iteritems(cache_dict)):
+        path = os.path.join(dataset_key_dir, str(cache_key_idx))
+        manifest[cache_entry_key] = cache_key_idx
         cache_is_written.append(
             cache_pcoll
-            | 'WriteCache[{}][{}]'.format(dataset_key, cache_entry_key) >>
+            | 'WriteCache[{}][{}]'.format(dataset_key, cache_key_idx) >>
             self._sink(path, file_name_suffix='.gz'))
 
       if not tf.io.gfile.isdir(dataset_key_dir):
         tf.io.gfile.makedirs(dataset_key_dir)
       with tf.io.gfile.GFile(
           os.path.join(dataset_key_dir, _MANIFEST_FILE_NAME), 'w') as f:
-        f.write(json.dumps(manifest))
+        f.write(pickler.dumps(manifest))
 
     return cache_is_written
 
@@ -108,13 +110,13 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
       cache_dict[dataset_key] = {}
       with tf.io.gfile.GFile(
           os.path.join(dataset_cache_path, _MANIFEST_FILE_NAME), 'r') as f:
-        manifest = json.loads(f.read())
+        manifest = pickler.loads(f.read())
       for key, value in six.iteritems(manifest):
         cache_dict[dataset_key][key] = (
             pvalue.pipeline
-            | 'ReadCache[{}][{}]'.format(dataset_key, key) >>
+            | 'ReadCache[{}][{}]'.format(dataset_key, value) >>
             self._source('{}{}'.format(
-                os.path.join(dataset_cache_path, value), '-*-of-*')))
+                os.path.join(dataset_cache_path, str(value)), '-*-of-*')))
     return cache_dict
 
 
@@ -128,7 +130,7 @@ def validate_dataset_keys(keys):
 
 
 def make_cache_entry_key(cache_key):
-  return '{}{}'.format(_CACHE_VERSION, _make_valid_cache_component(cache_key))
+  return _CACHE_VERSION + tf.compat.as_bytes(cache_key)
 
 
 def _make_dataset_key(dataset_key):
