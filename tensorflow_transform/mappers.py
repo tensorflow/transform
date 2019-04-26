@@ -1072,7 +1072,6 @@ def _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries, name=None):
     return result
 
 
-# TODO(b/127971746): Consider if/how SparseTensor input should be handled.
 def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
   """Interpolates within the provided buckets and then normalizes to 0 to 1.
 
@@ -1083,20 +1082,37 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
   less than or equal to the lowest boundary, or greater than or equal to the
   highest boundary, will be mapped to 0 and 1 respectively.
 
+  This is a non-linear approach to normalization that is less sensitive to
+  outliers than min-max or z-score scaling. When outliers are present, standard
+  forms of normalization can leave the majority of the data compressed into a
+  very small segment of the output range, whereas this approach tends to spread
+  out the more frequent values (if quantile buckets are used). Note that
+  distance relationships in the raw data are not necessarily preserved (data
+  points that close to each other in the raw feature space may not be equally
+  close in the transformed feature space). This means that unlike linear
+  normalization methods, correlations between features may be distorted by the
+  transformation.
+
   Args:
-    x: A numeric input `Tensor` (tf.float32, tf.float64, tf.int32, tf.int64).
+    x: A numeric input `Tensor`/`SparseTensor` (tf.float[32|64], tf.int[32|64])
     bucket_boundaries: Sorted bucket boundaries as a rank-2 `Tensor`.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` of the same shape as `x`, normalized to the range [0, 1]. If the
-      input x is tf.float64, the returned values will be tf.float64.
-      Otherwise, returned values are tf.float32.
+    A `Tensor` or `SparseTensor` of the same shape as `x`, normalized to the
+      range [0, 1]. If the input x is tf.float64, the returned values will be
+      tf.float64. Otherwise, returned values are tf.float32.
 
   """
   with tf.name_scope(name, 'buckets_with_interpolation'):
     tf.assert_rank(bucket_boundaries, 2)
-    if not check_ops.is_numeric_tensor(x):
+    x_values = x
+    compose_result_fn = lambda values: values
+    if isinstance(x, tf.SparseTensor):
+      x_values = x.values
+      compose_result_fn = (lambda values: tf.SparseTensor(  # pylint: disable=g-long-lambda
+          indices=x.indices, values=values, dense_shape=x.dense_shape))
+    if not check_ops.is_numeric_tensor(x_values):
       raise tf.errors.InvalidArgumentError(
           'Input tensor to be normalized must be numeric.')
     return_type = tf.float64 if x.dtype == tf.float64 else tf.float32
@@ -1106,7 +1122,8 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
     bucket_boundaries = tf.cast(bucket_boundaries, tf.float32)
     bucket_indices = tf.cast(
         quantile_ops.bucketize_with_input_boundaries(
-            x, boundaries=bucket_boundaries, name='assign_buckets'), tf.int64)
+            x_values, boundaries=bucket_boundaries, name='assign_buckets'),
+        tf.int64)
 
     # Get max, min, and width of the corresponding bucket for each element.
     bucket_max = tf.dtypes.cast(
@@ -1118,12 +1135,12 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
             tf.concat([bucket_boundaries[:, 0], bucket_boundaries[0]], axis=0),
             bucket_indices), return_type)
     bucket_width = bucket_max - bucket_min
-    zeros = tf.zeros_like(x, dtype=return_type)
-    ones = tf.ones_like(x, dtype=return_type)
+    zeros = tf.zeros_like(x_values, dtype=return_type)
+    ones = tf.ones_like(x_values, dtype=return_type)
 
     # Linearly interpolate each value within its respective bucket range.
-    interpolation_value = ((tf.dtypes.cast(x, return_type) - bucket_min) /
-                           bucket_width)
+    interpolation_value = (
+        (tf.dtypes.cast(x_values, return_type) - bucket_min) / bucket_width)
     bucket_interpolation = tf.verify_tensor_all_finite(
         tf.where(
             # If bucket index is first or last, which represents "less than
@@ -1151,9 +1168,10 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
     # >= the boundary are 1.
     single_boundary_values = lambda: tf.where(  # pylint: disable=g-long-lambda
         tf.equal(bucket_indices, 0), zeros, ones)
-    return tf.cond(
+    normalized_result = tf.cond(
         tf.equal(num_boundaries, 1),
         single_boundary_values, lambda: normalized_values)
+    return compose_result_fn(normalized_result)
 
 
 def apply_buckets(x, bucket_boundaries, name=None):

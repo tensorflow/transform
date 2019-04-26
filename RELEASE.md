@@ -24,6 +24,7 @@
 * Analyzer output dtypes are enforced to be TensorFlow dtypes, and by extension
   `ptransform_analyzer`'s `output_dtypes` is enforced to be a list of TensorFlow
   dtypes.
+* Make `tft.apply_buckets_with_interpolation` support SparseTensors.
 
 ## Breaking changes
 

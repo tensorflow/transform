@@ -433,6 +433,23 @@ class MappersTest(test_case.TransformTestCase):
       output = mappers.apply_buckets_with_interpolation(x, boundaries)
       self.assertAllClose(sess.run(output), expected_results, 1e-6)
 
+  def testApplyBucketsWithInterpolationSparseTensor(self):
+    with self.test_session() as sess:
+      x = tf.SparseTensor(
+          indices=[[0, 0], [1, 2], [3, 4], [1, 4], [6, 1], [3, 2]],
+          values=[15, 10, 20, 17, -1111, 21],
+          dense_shape=[7, 5])
+      boundaries = tf.constant([[10, 20]], dtype=tf.int64)
+      output = mappers.apply_buckets_with_interpolation(x, boundaries)
+      expected_results = tf.SparseTensor(
+          indices=[[0, 0], [1, 2], [3, 4], [1, 4], [6, 1], [3, 2]],
+          values=[.5, 0, 1, .7, 0, 1],
+          dense_shape=[7, 5])
+      actual_results = sess.run(output)
+      self.assertAllClose(actual_results.values, expected_results.values, 1e-6)
+      self.assertAllClose(
+          actual_results.indices, expected_results.indices, 1e-6)
+
   def testBucketsWithInterpolationUnknownShapeBoundary(self):
     with self.test_session() as sess:
       x = tf.constant([0, 1, 5, 12], dtype=tf.float32)
