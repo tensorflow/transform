@@ -181,3 +181,27 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
     if not isinstance(value, beam.pvalue.PCollection):
       raise TypeError('Expected a PCollection, got {} of type {}'.format(
           value, type(value)))
+
+
+class IncrementCounter(beam.PTransform):
+  """A PTransform that increments a counter once per PCollection.
+
+  The output PCollection is the same as the input PCollection.
+  """
+
+  def __init__(self, counter_name):
+    self._counter = beam.metrics.Metrics.counter(METRICS_NAMESPACE,
+                                                 counter_name)
+
+  def expand(self, pcoll):
+
+    # This branching is needed in order to avoid incrementing the counter by the
+    # size of pcoll.
+    empty_pcoll = pcoll | 'Branch' >> beam.FlatMap(lambda x: None)
+    _ = (
+        empty_pcoll.pipeline
+        | 'CreateUpdate' >> beam.Create([None])
+        | 'IncrementCounter' >> beam.Map(lambda _, unused: self._counter.inc(),
+                                         beam.pvalue.AsIter(empty_pcoll)))
+
+    return pcoll

@@ -360,8 +360,6 @@ class _OptimizeVisitor(nodes.Visitor):
 
     for dataset_key in self._dataset_keys:
 
-      # TODO(b/37788560): Add instrumentation.
-
       if (operation_def.cache_coder and self._cache_dict.get(
           dataset_key, {}).get(cache_entry_key) is not None):
         (op_output,) = nodes.OperationNode(

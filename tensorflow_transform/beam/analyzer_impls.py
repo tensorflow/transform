@@ -835,7 +835,9 @@ class _EncodeCacheImpl(beam.PTransform):
 
     return (pcoll
             | 'EncodeCache[%s]' %
-            (self._label) >> beam.Map(self._coder.encode_cache))
+            (self._label) >> beam.Map(self._coder.encode_cache)
+            | 'ProfileEncodeCache[%s]' % self._label >>
+            common.IncrementCounter('cache_entries_encoded'))
 
 
 @common.register_ptransform(analyzer_nodes.DecodeCache)
@@ -848,4 +850,6 @@ def _decode_cache_impl(inputs, operation, extra_args):
   return (
       extra_args.cache_pcoll_dict[operation.dataset_key][operation.cache_key]
       | 'DecodeCache[%s]' %
-      (operation.label) >> beam.Map(operation.coder.decode_cache))
+      (operation.label) >> beam.Map(operation.coder.decode_cache)
+      | 'ProfileDecodeCache[%s]' % operation.label >>
+      common.IncrementCounter('cache_entries_decoded'))

@@ -58,7 +58,7 @@ graph and mark it as the default.  This is achieved by identifying the
 entrypoints into our code where this happens and creating a
 "with ... .as_default()" block.  There are four places this happens.
 
-1) In AnalyzeDatset.expand() which is typically called from the main thread
+1) In AnalyzeDataset.expand() which is typically called from the main thread
 2) In _GraphState.__init__ which is called from the worker running
    _RunMetaGraphDoFn
 3) In _replace_tensors_with_constant_values, which is called in a beam.Map.
@@ -557,8 +557,10 @@ def _create_saved_model_impl(inputs, operation, extra_args):
           unbound_saved_model_dir)
       del table_initializers_ref[:]
       table_initializers_ref.extend(original_table_initializers)
-  return inputs | operation.label >> _BindTensors(
+  return (inputs | operation.label >> _BindTensors(
       extra_args.base_temp_dir, unbound_saved_model_dir, extra_args.pipeline)
+          | 'Count[%s]' % operation.label >>
+          common.IncrementCounter('saved_models_created'))
 
 
 class _BindTensors(beam.PTransform):
