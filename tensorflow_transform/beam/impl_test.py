@@ -1437,7 +1437,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testStringToTFIDF(self):
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.compute_and_apply_vocabulary(
-          tf.strings.split(source=inputs['a']))
+          tf.strings.split(inputs['a']))
       out_index, out_values = tft.tfidf(inputs_as_ints, 6)
       return {
           'tf_idf': out_values,
@@ -1479,7 +1479,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testTFIDFNoData(self):
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.compute_and_apply_vocabulary(
-          tf.strings.split(source=inputs['a']))
+          tf.strings.split(inputs['a']))
       out_index, out_values = tft.tfidf(inputs_as_ints, 6)
       return {
           'tf_idf': out_values,
@@ -1500,7 +1500,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testStringToTFIDFEmptyDoc(self):
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.compute_and_apply_vocabulary(
-          tf.strings.split(source=inputs['a']))
+          tf.strings.split(inputs['a']))
       out_index, out_values = tft.tfidf(inputs_as_ints, 6)
       return {
           'tf_idf': out_values,
@@ -1600,7 +1600,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     test_vocab_size = 3
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.compute_and_apply_vocabulary(
-          tf.strings.split(source=inputs['a']), top_k=test_vocab_size)
+          tf.strings.split(inputs['a']), top_k=test_vocab_size)
       out_index, out_values = tft.tfidf(inputs_as_ints,
                                         test_vocab_size+1)
       return {
@@ -2656,8 +2656,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def preprocessing_fn(inputs):
       return {
           'index':
-              tft.compute_and_apply_vocabulary(
-                  tf.strings.split(source=inputs['a']))
+              tft.compute_and_apply_vocabulary(tf.strings.split(inputs['a']))
       }
 
     input_data = [{'a': 'hello hello world'}, {'a': 'hello goodbye world'}]
@@ -2679,17 +2678,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {
           'index1':
               tft.compute_and_apply_vocabulary(
-                  tf.strings.split(source=inputs['a']),
-                  default_value=-99,
-                  top_k=2),
+                  tf.strings.split(inputs['a']), default_value=-99, top_k=2),
 
           # As above but using a string for top_k (and changing the
           # default_value to showcase things).
           'index2':
               tft.compute_and_apply_vocabulary(
-                  tf.strings.split(source=inputs['a']),
-                  default_value=-9,
-                  top_k='2')
+                  tf.strings.split(inputs['a']), default_value=-9, top_k='2')
       }
 
     input_data = [
@@ -2724,7 +2719,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {
           'index1':
               tft.compute_and_apply_vocabulary(
-                  tf.strings.split(source=inputs['a']),
+                  tf.strings.split(inputs['a']),
                   default_value=-99,
                   frequency_threshold=2),
 
@@ -2732,7 +2727,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           # the default_value to showcase things).
           'index2':
               tft.compute_and_apply_vocabulary(
-                  tf.strings.split(source=inputs['a']),
+                  tf.strings.split(inputs['a']),
                   default_value=-9,
                   frequency_threshold='2')
       }
@@ -2770,7 +2765,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {
           'index1':
               tft.compute_and_apply_vocabulary(
-                  tf.strings.split(source=inputs['a']),
+                  tf.strings.split(inputs['a']),
                   default_value=-99,
                   frequency_threshold=77),
 
@@ -2778,7 +2773,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           # the default_value to showcase things).
           'index2':
               tft.compute_and_apply_vocabulary(
-                  tf.strings.split(source=inputs['a']),
+                  tf.strings.split(inputs['a']),
                   default_value=-9,
                   frequency_threshold='77')
       }
@@ -2815,7 +2810,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {
           'index1':
               tft.compute_and_apply_vocabulary(
-                  tf.strings.split(source=inputs['a']),
+                  tf.strings.split(inputs['a']),
                   default_value=-99,
                   top_k=1,
                   num_oov_buckets=3)
@@ -3600,7 +3595,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {
           'index1':
               tft.compute_and_apply_vocabulary(
-                  tf.strings.split(source=inputs['a']),
+                  tf.strings.split(inputs['a']),
                   coverage_top_k=1,
                   default_value=-99,
                   key_fn=key_fn,
@@ -3637,7 +3632,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {
           'index1':
               tft.compute_and_apply_vocabulary(
-                  tf.strings.split(source=inputs['a']),
+                  tf.strings.split(inputs['a']),
                   coverage_top_k=2,
                   default_value=-99,
                   key_fn=key_fn,
@@ -3674,7 +3669,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {
           'index1':
               tft.compute_and_apply_vocabulary(
-                  tf.strings.split(source=inputs['a']),
+                  tf.strings.split(inputs['a']),
                   coverage_top_k=1,
                   default_value=-99,
                   key_fn=key_fn,
@@ -3711,7 +3706,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {
           'index1':
               tft.compute_and_apply_vocabulary(
-                  tf.strings.split(source=inputs['a']),
+                  tf.strings.split(inputs['a']),
                   coverage_top_k=2,
                   default_value=-99,
                   key_fn=key_fn,
@@ -3752,7 +3747,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       # side-effect.
 
       _ = tft.vocabulary(
-          tf.strings.split(source=inputs['a']),
+          tf.strings.split(inputs['a']),
           coverage_top_k=1,
           key_fn=key_fn,
           frequency_threshold=4,
@@ -3760,14 +3755,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
           store_frequency=True)
 
       _ = tft.vocabulary(
-          tf.strings.split(source=inputs['a']),
+          tf.strings.split(inputs['a']),
           coverage_top_k=1,
           key_fn=key_fn,
           frequency_threshold=4,
           store_frequency=True)
 
       a_int = tft.compute_and_apply_vocabulary(
-          tf.strings.split(source=inputs['a']),
+          tf.strings.split(inputs['a']),
           coverage_top_k=1,
           key_fn=key_fn,
           frequency_threshold=4)
