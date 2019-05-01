@@ -38,13 +38,17 @@ class Schema(object):
   """
 
   def __init__(self, column_schemas):
-    feature_spec = {name: spec
-                    for name, (_, spec) in column_schemas.items()}
-    domains = {name: domain
-               for name, (domain, _) in column_schemas.items()
-               if domain is not None}
-    self._schema_proto = schema_utils.schema_from_feature_spec(
-        feature_spec, domains)
+    if isinstance(column_schemas, schema_pb2.Schema):
+      # NOTE: users should not rely on this, for internal use only.
+      self._schema_proto = column_schemas
+    else:
+      feature_spec = {name: spec
+                      for name, (_, spec) in column_schemas.items()}
+      domains = {name: domain
+                 for name, (domain, _) in column_schemas.items()
+                 if domain is not None}
+      self._schema_proto = schema_utils.schema_from_feature_spec(
+          feature_spec, domains)
 
   def __eq__(self, other):
     if isinstance(other, self.__class__):
@@ -146,8 +150,4 @@ def from_feature_spec(feature_spec, domains=None):
   Returns:
     A Schema representing the provided set of columns.
   """
-  if domains is None:
-    domains = {}
-  column_schemas = {name: (domains.get(name), spec)
-                    for name, spec in feature_spec.items()}
-  return Schema(column_schemas)
+  return Schema(schema_utils.schema_from_feature_spec(feature_spec, domains))

@@ -28,6 +28,7 @@ from __future__ import print_function
 import six
 import tensorflow as tf
 from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import schema_utils
 
 from tensorflow_metadata.proto.v0 import schema_pb2
 
@@ -120,7 +121,8 @@ def infer_feature_schema(features, graph, session=None):
 
   feature_spec = _feature_spec_from_batched_tensors(features)
 
-  return dataset_schema.from_feature_spec(feature_spec, domains)
+  schema_proto = schema_utils.schema_from_feature_spec(feature_spec, domains)
+  return dataset_schema.Schema(schema_proto)
 
 
 # Names of collections, which should all be the same length and contain tensors.
