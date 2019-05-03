@@ -163,7 +163,10 @@ class _FixedLenFeatureHandler(object):
     """Non-Mutating Decode of a feature into its TF.Transform representation."""
     if self._name in feature_map:
       feature = feature_map[self._name]
-      values = self._value_fn(feature)
+      if feature.WhichOneof('kind') is None:
+        values = self._default_value
+      else:
+        values = self._value_fn(feature)
     elif self._default_value is not None:
       values = self._default_value
     else:
