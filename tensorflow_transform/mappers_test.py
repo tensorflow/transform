@@ -433,6 +433,14 @@ class MappersTest(test_case.TransformTestCase):
       output = mappers.apply_buckets_with_interpolation(x, boundaries)
       self.assertAllClose(sess.run(output), expected_results, 1e-6)
 
+  def testApplyBucketsWithInterpolationRaises(self):
+    # We should raise an exception if you try to scale a non-numeric tensor.
+    with self.test_session():
+      x = tf.constant(['a', 'b', 'c'], dtype=tf.string)
+      boundaries = tf.constant([.2, .4], dtype=tf.float32)
+      with self.assertRaises(ValueError):
+        mappers.apply_buckets_with_interpolation(x, boundaries)
+
   def testApplyBucketsWithInterpolationSparseTensor(self):
     with self.test_session() as sess:
       x = tf.SparseTensor(

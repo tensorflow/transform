@@ -1113,8 +1113,9 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
       compose_result_fn = (lambda values: tf.SparseTensor(  # pylint: disable=g-long-lambda
           indices=x.indices, values=values, dense_shape=x.dense_shape))
     if not check_ops.is_numeric_tensor(x_values):
-      raise tf.errors.InvalidArgumentError(
-          'Input tensor to be normalized must be numeric.')
+      raise ValueError(
+          'Input tensor to be normalized must be numeric, got {}.'.format(
+              x_values.dtype))
     return_type = tf.float64 if x.dtype == tf.float64 else tf.float32
     num_boundaries = tf.to_int64(tf.shape(bucket_boundaries)[1])
 
