@@ -28,10 +28,7 @@ from tensorflow_transform.tf_metadata import schema_utils_legacy
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 
-def schema_from_feature_spec(feature_spec,
-                             domains=None,
-                             feature_annotations=None,
-                             global_annotations=None):
+def schema_from_feature_spec(feature_spec, domains=None):
   """Convert a feature spec to a Schema proto.
 
   Args:
@@ -39,10 +36,6 @@ def schema_from_feature_spec(feature_spec,
     domains: (optional) a dict whose keys are feature names and values are one
         of schema_pb2.IntDomain, schema_pb2.StringDomain or
         schema_pb2.FloatDomain.
-    feature_annotations: (optional): a dict whose keys are feature names and
-        values are protos to be added to the extra_metadata for the feature.
-    global_annotations: (optional): a list of protos to be added to the global
-        extra_metadata field on the schema.
 
   Returns:
     A Schema proto
@@ -52,14 +45,8 @@ def schema_from_feature_spec(feature_spec,
   """
   if domains is None:
     domains = {}
-  if feature_annotations is None:
-    feature_annotations = {}
-  if global_annotations is None:
-    global_annotations = []
 
   result = schema_pb2.Schema()
-  for annotation in global_annotations:
-    result.annotation.extra_metadata.add().CopyFrom(annotation)
 
   # Some feature specs can only be represented with the legacy schema, in
   # particular feature specs where any FixedLenFeature has default_value set.
@@ -73,20 +60,15 @@ def schema_from_feature_spec(feature_spec,
 
   # Add the features to the schema.
   for name, spec in sorted(feature_spec.items()):
-    annotations = feature_annotations.get(name, [])
     if isinstance(spec, tf.io.SparseFeature):
       (index_feature, value_feature, sparse_feature) = (
           _sparse_feature_from_feature_spec(spec, name, domains))
-      for annotation in annotations:
-        value_feature.annotation.extra_metadata.add().CopyFrom(annotation)
       result.feature.add().CopyFrom(index_feature)
       result.feature.add().CopyFrom(value_feature)
       result.sparse_feature.add().CopyFrom(sparse_feature)
     else:
-      feature = _feature_from_feature_spec(spec, name, domains)
-      for annotation in annotations:
-        feature.annotation.extra_metadata.add().CopyFrom(annotation)
-      result.feature.add().CopyFrom(feature)
+      result.feature.add().CopyFrom(
+          _feature_from_feature_spec(spec, name, domains))
   return result
 
 

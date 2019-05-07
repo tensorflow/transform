@@ -131,14 +131,31 @@ def infer_feature_schema(features, graph, session=None):
       min_value, max_value = tensor_ranges[values]
       domains[name] = schema_pb2.IntDomain(
           min=min_value, max=max_value, is_categorical=True)
-    annotation = tensor_annotations.get(values)
-    if annotation is not None:
-      feature_annotations[name] = annotation
+    # tensor_annotations is a defaultdict(list) so always returns a list.
+    feature_annotations[name] = tensor_annotations.get(values, [])
   feature_spec = _feature_spec_from_batched_tensors(features)
 
-  schema_proto = schema_utils.schema_from_feature_spec(feature_spec, domains,
-                                                       feature_annotations,
-                                                       global_annotations)
+  schema_proto = schema_utils.schema_from_feature_spec(feature_spec, domains)
+
+  # Add the annotations to the schema.
+  for annotation in global_annotations:
+    schema_proto.annotation.extra_metadata.add().CopyFrom(annotation)
+  # Build a map from logical feature names to Feature protos
+  feature_protos_by_name = {}
+  for feature in schema_proto.feature:
+    feature_protos_by_name[feature.name] = feature
+  for sparse_feature in schema_proto.sparse_feature:
+    for index_feature in sparse_feature.index_feature:
+      feature_protos_by_name.pop(index_feature.name)
+    value_feature = feature_protos_by_name.pop(
+        sparse_feature.value_feature.name)
+    feature_protos_by_name[sparse_feature.name] = value_feature
+  # Update annotations
+  for feature_name, annotations in feature_annotations.items():
+    feature_proto = feature_protos_by_name[feature_name]
+    for annotation in annotations:
+      feature_proto.annotation.extra_metadata.add().CopyFrom(annotation)
+
   return dataset_schema.Schema(schema_proto)
 
 
