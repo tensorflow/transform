@@ -492,6 +492,41 @@ def _mean_and_var(x, reduce_instance_dims=True, output_dtype=None):
   return x_mean, x_var
 
 
+def _mean_and_var_per_key(x, key, reduce_instance_dims=True, output_dtype=None):
+  """`mean_and_var` by group, specified by key."""
+  if output_dtype is None:
+    output_dtype = _MEAN_OUTPUT_DTYPE_MAP.get(x.dtype)
+    if output_dtype is None:
+      raise TypeError('Tensor type %r is not supported' % x.dtype)
+
+  if key is None:
+    raise ValueError('A non-None key is required for _mean_and_var_per_key')
+
+  if not reduce_instance_dims:
+    raise NotImplementedError('Per-key elementwise reduction not supported')
+
+  with tf.compat.v1.name_scope('mean_and_var_per_key'):
+    x = tf.cast(x, output_dtype)
+
+    key_vocab, key_counts, key_means, key_variances = (
+        tf_utils.reduce_batch_count_mean_and_var_per_key(
+            x, key, reduce_instance_dims=reduce_instance_dims))
+    output_shape = ()
+
+    combine_inputs = _WeightedMeanAndVarAccumulator(
+        count=key_counts,
+        mean=key_means,
+        variance=key_variances,
+        weight=tf.zeros_like(key_means, tf.float32))
+
+    key, key_mean, key_var = _apply_cacheable_combiner_per_key(
+        WeightedMeanAndVarCombiner(output_dtype.as_numpy_dtype, output_shape),
+        key_vocab,
+        *combine_inputs)
+
+  return key, key_mean, key_var
+
+
 class _WeightedMeanAndVarAccumulator(
     collections.namedtuple('WeightedMeanAndVarAccumulator',
                            ['count', 'mean', 'variance', 'weight'])):

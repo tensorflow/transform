@@ -211,6 +211,59 @@ def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
   return (x_count, x_mean, x_variance)
 
 
+def reduce_batch_count_mean_and_var_per_key(x, key, reduce_instance_dims):
+  """Computes per-key element count, mean and var for the given tensor.
+
+  Args:
+    x: A `Tensor` or `SparseTensor`.
+    key: A `Tensor` or `SparseTensor`, must be either sparse and correspond
+        one-to-one with x, or both x and key are dense.
+    reduce_instance_dims: A bool, if True - collapses the batch and instance
+        dimensions to arrive at a single scalar output. Otherwise, only
+        collapses the batch dimension and outputs a `Tensor` of the same shape
+        as the input. Not supported for `SparseTensor`s.
+
+  Returns:
+    A 4-tuple containing the `Tensor`s (key_vocab, count, mean, var).
+  """
+
+  if isinstance(x, tf.SparseTensor):
+    if not reduce_instance_dims:
+      raise NotImplementedError(
+          'Mean and var per key only support reduced dims for SparseTensors')
+    if not isinstance(key, tf.SparseTensor):
+      # TODO(b/132071166): Allow for sparse values, dense keys.
+      raise NotImplementedError(
+          'Mean and var per key require sparse key if x is sparse')
+
+    # TODO(b/131920907): Validate that x and key have the same indices.
+    key = key.values
+    x = x.values
+
+  unique = tf.unique_with_counts(key, out_idx=tf.int64)
+  x_count = unique.count
+  x_count = tf.cast(x_count, x.dtype)
+  if not reduce_instance_dims:
+    x_count = tf.tile(tf.expand_dims(x_count, axis=-1), [1, x.shape[1]])
+
+  if reduce_instance_dims:
+    sums = tf.reduce_sum(x, axis=1) if x.get_shape().ndims != 1 else x
+    sums = tf.unsorted_segment_sum(sums, unique.idx, tf.size(input=unique.y))
+  else:
+    sums = tf.unsorted_segment_sum(x, unique.idx, tf.size(input=unique.y))
+
+  means = tf.cast(sums, x.dtype) / x_count
+  sum_sqs = tf.unsorted_segment_sum(tf.square(x),
+                                    unique.idx,
+                                    tf.size(input=unique.y))
+  if sum_sqs.get_shape().ndims != 1 and reduce_instance_dims:
+    sum_sqs = tf.reduce_sum(sum_sqs, axis=1)
+
+  variances = sum_sqs / x_count - tf.square(means)
+
+  return unique.y, x_count, means, variances
+
+
 # Code for serializing and example proto
 
 

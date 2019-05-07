@@ -1158,6 +1158,302 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
 
+  @tft_unit.parameters(*itertools.product([
+      tf.int16,
+      tf.int32,
+      tf.int64,
+      tf.float32,
+      tf.float64,
+  ]))
+  def testScaleToZScorePerSparseKey(self, input_dtype):
+    # TODO(b/131852830) Add elementwise tests.
+    def preprocessing_fn(inputs):
+
+      def scale_to_z_score_per_key(tensor, key):
+        z_score = tft.scale_to_z_score_per_key(
+            tf.cast(tensor, input_dtype), key=key, elementwise=False)
+        self.assertEqual(z_score.dtype, _mean_output_dtype(input_dtype))
+        return tf.cast(z_score, tf.float32)
+
+      return {
+          'x_scaled': scale_to_z_score_per_key(inputs['x'], inputs['key']),
+          'y_scaled': scale_to_z_score_per_key(inputs['y'], inputs['key']),
+      }
+    input_data = [{
+        'x': [-4., 2.],
+        'y': [0., 0],
+        'key': ['a', 'a'],
+    }, {
+        'x': [10., 4.],
+        'y': [0., 0],
+        'key': ['a', 'a'],
+    }, {
+        'x': [1., -1.],
+        'y': [0., 0],
+        'key': ['b', 'b'],
+    }]
+    # Mean(x) = 3, Mean(y) = 0
+    # Var(x) = (-7^2 + -1^2 + 7^2 + 1^2) / 4 = 25, Var(y) = 0
+    # StdDev(x) = 5, StdDev(y) = 0
+    # 'b':
+    # Mean(x) = 0, Mean(y) = 0
+    # Var(x) = 1, Var(y) = 0
+    # StdDev(x) = 1, StdDev(y) = 0
+    expected_data = [
+        {
+            'x_scaled': [-1.4, -.2],  # [(-4 - 3) / 5, (2 - 3) / 5]
+            'y_scaled': [0., 0.],
+        },
+        {
+            'x_scaled': [1.4, .2],  # [(10 - 3) / 5, (4 - 3) / 5]
+            'y_scaled': [0., 0.],
+        },
+        {
+            'x_scaled': [1., -1.],  # [(1 - 0) / 1, (-1 - 0) / 1]
+            'y_scaled': [0., 0.],
+        }
+    ]
+
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.VarLenFeature(_canonical_dtype(input_dtype)),
+        'y': tf.io.VarLenFeature(_canonical_dtype(input_dtype)),
+        'key': tf.io.VarLenFeature(tf.string),
+    })
+    expected_metadata = tft_unit.metadata_from_feature_spec({
+        'x_scaled': tf.io.VarLenFeature(tf.float32),
+        'y_scaled': tf.io.VarLenFeature(tf.float32),
+    })
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
+  @tft_unit.parameters(*itertools.product([
+      tf.int16,
+      tf.int32,
+      tf.int64,
+      tf.float32,
+      tf.float64,
+  ]))
+  def testScaleToZScorePerKey(self, input_dtype):
+    # TODO(b/131852830) Add elementwise tests.
+    def preprocessing_fn(inputs):
+
+      def scale_to_z_score_per_key(tensor, key):
+        z_score = tft.scale_to_z_score_per_key(
+            tf.cast(tensor, input_dtype), key=key, elementwise=False)
+        self.assertEqual(z_score.dtype, _mean_output_dtype(input_dtype))
+        return tf.cast(z_score, tf.float32)
+
+      return {
+          'x_scaled': scale_to_z_score_per_key(inputs['x'], inputs['key']),
+          'y_scaled': scale_to_z_score_per_key(inputs['y'], inputs['key']),
+          's_scaled': scale_to_z_score_per_key(inputs['s'], inputs['key']),
+      }
+    input_data = [{
+        'x': [-4.],
+        'y': [0.],
+        's': 3.,
+        'key': 'a',
+    }, {
+        'x': [10.],
+        'y': [0.],
+        's': -3.,
+        'key': 'a',
+    }, {
+        'x': [1.],
+        'y': [0.],
+        's': 3.,
+        'key': 'b',
+    }, {
+        'x': [2.],
+        'y': [0.],
+        's': 3.,
+        'key': 'a',
+    }, {
+        'x': [4.],
+        'y': [0.],
+        's': -3.,
+        'key': 'a',
+    }, {
+        'x': [-1.],
+        'y': [0.],
+        's': -3.,
+        'key': 'b',
+    }]
+    # 'a':
+    # Mean(x) = 3, Mean(y) = 0
+    # Var(x) = (-7^2 + -1^2 + 7^2 + 1^2) / 4 = 25, Var(y) = 0
+    # StdDev(x) = 5, StdDev(y) = 0
+    # 'b':
+    # Mean(x) = 0, Mean(y) = 0
+    # Var(x) = 1, Var(y) = 0
+    # StdDev(x) = 1, StdDev(y) = 0
+    expected_data = [
+        {
+            'x_scaled': [-1.4],  # [(-4 - 3) / 5, (2 - 3) / 5]
+            'y_scaled': [0.],
+            's_scaled': 1.,
+        },
+        {
+            'x_scaled': [1.4],  # [(10 - 3) / 5, (4 - 3) / 5]
+            'y_scaled': [0.],
+            's_scaled': -1.,
+        },
+        {
+            'x_scaled': [1.],  # [(1 - 0) / 1, (-1 - 0) / 1]
+            'y_scaled': [0.],
+            's_scaled': 1.,
+        },
+        {
+            'x_scaled': [-.2],  # [(-4 - 3) / 5, (2 - 3) / 5]
+            'y_scaled': [0.],
+            's_scaled': 1.,
+        },
+        {
+            'x_scaled': [.2],  # [(10 - 3) / 5, (4 - 3) / 5]
+            'y_scaled': [0.],
+            's_scaled': -1.,
+        },
+        {
+            'x_scaled': [-1.],  # [(1 - 0) / 1, (-1 - 0) / 1]
+            'y_scaled': [0.],
+            's_scaled': -1.,
+        }
+    ]
+
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([1], _canonical_dtype(input_dtype)),
+        'y': tf.io.FixedLenFeature([1], _canonical_dtype(input_dtype)),
+        's': tf.io.FixedLenFeature([], _canonical_dtype(input_dtype)),
+        'key': tf.io.FixedLenFeature([], tf.string),
+    })
+    expected_metadata = tft_unit.metadata_from_feature_spec({
+        'x_scaled': tf.io.FixedLenFeature([1], tf.float32),
+        'y_scaled': tf.io.FixedLenFeature([1], tf.float32),
+        's_scaled': tf.io.FixedLenFeature([], tf.float32),
+    })
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
+  @tft_unit.parameters(*itertools.product([
+      tf.int16,
+      tf.int32,
+      tf.int64,
+      tf.float32,
+      tf.float64,
+  ]))
+  def testScaleToZScoreSparsePerKey(self, input_dtype):
+    # TODO(b/131852830) Add elementwise tests.
+    def preprocessing_fn(inputs):
+      z_score = tf.sparse.to_dense(
+          tft.scale_to_z_score_per_key(
+              tf.cast(inputs['x'], input_dtype),
+              inputs['key'],
+              elementwise=False),
+          default_value=np.nan)
+      z_score.set_shape([None, 4])
+      self.assertEqual(z_score.dtype, _mean_output_dtype(input_dtype))
+      return {
+          'x_scaled': tf.cast(z_score, tf.float32)
+      }
+
+    input_data = [
+        {'idx': [0, 1], 'val': [-4, 10], 'key_idx': [0, 1], 'key': ['a', 'a']},
+        {'idx': [0, 1], 'val': [2, 1], 'key_idx': [0, 1], 'key': ['a', 'b']},
+        {'idx': [0, 1], 'val': [-1, 4], 'key_idx': [0, 1], 'key': ['b', 'a']},
+    ]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'key': tf.io.SparseFeature('key_idx', 'key', tf.string, 4),
+        'x': tf.io.SparseFeature('idx', 'val', _canonical_dtype(input_dtype), 4)
+    })
+    # 'a':
+    # Mean = 3
+    # Var = 25
+    # Std Dev = 5
+    # 'b':
+    # Mean = 0
+    # Var = 1
+    # Std Dev = 1
+    expected_data = [
+        {
+            'x_scaled': [-1.4, 1.4, float('nan'),
+                         float('nan')]  # [(-4 - 3) / 5, (10 - 3) / 5]
+        },
+        {
+            'x_scaled': [-.2, 1., float('nan'),
+                         float('nan')]  # [(2 - 3) / 5, (1 - 0) / 1]
+        },
+        {
+            'x_scaled': [-1., .2,
+                         float('nan'),
+                         float('nan')]  # [(-1 - 0) / 1, (4 - 3) / 5]
+        }
+    ]
+    expected_metadata = tft_unit.metadata_from_feature_spec(
+        {'x_scaled': tf.io.FixedLenFeature([4], tf.float32)})
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
+  def testMeanAndVar(self):
+    def analyzer_fn(inputs):
+      mean, var = analyzers._mean_and_var(inputs['x'])
+      return {
+          'mean': mean,
+          'var': var
+      }
+
+    # NOTE: We force 10 batches: data has 100 elements and we request a batch
+    # size of 10.
+    input_data = [{'x': [x]}
+                  for x in range(1, 101)]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([1], tf.int64)
+    })
+    # The expected data has 2 boundaries that divides the data into 3 buckets.
+    expected_outputs = {
+        'mean': np.float32(50.5),
+        'var': np.float32(833.25)
+    }
+    self.assertAnalyzerOutputs(
+        input_data,
+        input_metadata,
+        analyzer_fn,
+        expected_outputs,
+        desired_batch_size=10)
+
+  def testMeanAndVarPerKey(self):
+    def analyzer_fn(inputs):
+      key_vocab, mean, var = analyzers._mean_and_var_per_key(
+          inputs['x'], inputs['key'])
+      return {
+          'key_vocab': key_vocab,
+          'mean': mean,
+          'var': var
+      }
+
+    # NOTE: We force 10 batches: data has 100 elements and we request a batch
+    # size of 10.
+    input_data = [{'x': [x], 'key': 'a' if x < 50 else 'b'}
+                  for x in range(1, 101)]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([1], tf.int64),
+        'key': tf.io.FixedLenFeature([], tf.string)
+    })
+    # The expected data has 2 boundaries that divides the data into 3 buckets.
+    expected_outputs = {
+        'key_vocab': np.array([b'a', b'b'], np.object),
+        'mean': np.array([25, 75], np.float32),
+        'var': np.array([200, 216.666666], np.float32)
+    }
+    self.assertAnalyzerOutputs(
+        input_data,
+        input_metadata,
+        analyzer_fn,
+        expected_outputs,
+        desired_batch_size=10)
+
   @tft_unit.named_parameters(('Int64In', tf.int64, {
       'min': tf.int64,
       'max': tf.int64,

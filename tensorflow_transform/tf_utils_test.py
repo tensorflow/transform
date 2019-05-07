@@ -302,6 +302,45 @@ class AnalyzersTest(test_case.TransformTestCase):
       self.assertAllEqual(mean.eval(), [1.0, 3.0, 3.0, nan, nan])
       self.assertAllEqual(var.eval(), [2.0, 2.0, 1.0, inf, inf])
 
+  def test_reduce_batch_count_mean_and_var_per_key(self):
+    x = tf.constant([[1], [2], [3], [4], [4]], dtype=tf.float32)
+    key = tf.constant(['a', 'a', 'a', 'b', 'a'], dtype=tf.string)
+    key_vocab, count, mean, var = (
+        tf_utils.reduce_batch_count_mean_and_var_per_key(x, key, True))
+    with tf.compat.v1.Session():
+      self.assertAllEqual(key_vocab.eval(), tf.constant(['a', 'b']))
+      self.assertAllEqual(count.eval(), tf.constant([4, 1]))
+      self.assertAllEqual(mean.eval(), tf.constant([2.5, 4]))
+      self.assertAllEqual(var.eval(), tf.constant([1.25, 0]))
+
+  def test_reduce_batch_count_mean_and_var_per_key_elementwise(self):
+    x = tf.constant([[1, 2], [3, 4], [1, 2]], dtype=tf.float32)
+    key = tf.constant(['a', 'a', 'b'], dtype=tf.string)
+    key_vocab, count, mean, var = (
+        tf_utils.reduce_batch_count_mean_and_var_per_key(x, key, False))
+    with tf.compat.v1.Session():
+      self.assertAllEqual(key_vocab.eval(), tf.constant(['a', 'b']))
+      self.assertAllEqual(count.eval(), [[2., 2.], [1., 1.]])
+      self.assertAllEqual(mean.eval(), [[2., 3.], [1., 2.]])
+      self.assertAllEqual(var.eval(), [[1., 1.], [0., 0.]])
+
+  def test_reduce_batch_count_mean_and_var_per_key_sparse(self):
+    x = tf.SparseTensor(
+        indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 3]],
+        values=[1., 2., 3., 4., 4.],
+        dense_shape=[3, 4])
+    key = tf.SparseTensor(
+        indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 3]],
+        values=['a', 'a', 'a', 'a', 'b'],
+        dense_shape=[3, 4])
+    key_vocab, count, mean, var = (
+        tf_utils.reduce_batch_count_mean_and_var_per_key(x, key, True))
+    with tf.compat.v1.Session():
+      self.assertAllEqual(key_vocab.eval(), tf.constant(['a', 'b']))
+      self.assertAllEqual(count.eval(), tf.constant([4, 1]))
+      self.assertAllEqual(mean.eval(), tf.constant([2.5, 4]))
+      self.assertAllEqual(var.eval(), tf.constant([1.25, 0]))
+
   # pylint: disable=g-long-lambda
   @test_case.named_parameters(
       dict(

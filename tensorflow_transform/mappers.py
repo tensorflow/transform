@@ -191,14 +191,73 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
     this scaler's output may be necessary.
   """
   with tf.compat.v1.name_scope(name, 'scale_to_z_score'):
-    # x_mean will be float16, float32, or float64, depending on type of x.
-    x_mean, x_var = analyzers._mean_and_var(  # pylint: disable=protected-access
-        x, reduce_instance_dims=not elementwise, output_dtype=output_dtype)
+    return scale_to_z_score_per_key(x=x,
+                                    key=None,
+                                    elementwise=elementwise,
+                                    name=name,
+                                    output_dtype=output_dtype)
+
+
+def scale_to_z_score_per_key(x, key=None, elementwise=False, name=None,
+                             output_dtype=None):
+  """Returns a standardized column with mean 0 and variance 1, grouped per key.
+
+  Scaling to z-score subtracts out the mean and divides by standard deviation.
+  Note that the standard deviation computed here is based on the biased variance
+  (0 delta degrees of freedom), as computed by analyzers.var.
+
+  Args:
+    x: A numeric `Tensor` or `SparseTensor`.
+    key: A Tensor or `SparseTensor` of dtype tf.string.  If `x` is a
+        `SparseTensor`, `key` must exactly match `x` in everything except
+        values.
+    elementwise: If true, scales each element of the tensor independently;
+        otherwise uses the mean and variance of the whole tensor.
+        Currently, not supported for per-key operations.
+    name: (Optional) A name for this operation.
+    output_dtype: (Optional) If not None, casts the output tensor to this type.
+
+  Returns:
+    A `Tensor` or `SparseTensor` containing the input column scaled to mean 0
+    and variance 1 (standard deviation 1), grouped per key.
+    That is, for all keys k: (x - mean(x)) / std_dev(x) for all x with key k.
+    If `x` is floating point, the mean will have the same type as `x`. If `x` is
+    integral, the output is cast to tf.float32.
+
+    Note that TFLearn generally permits only tf.int64 and tf.float32, so casting
+    this scaler's output may be necessary.
+  """
+  with tf.name_scope(name, 'scale_to_z_score_per_key'):
+    # x_mean will be float16, float32, or float64, depending on type of x
+
+    if key is None:
+      x_mean, x_var = analyzers._mean_and_var(  # pylint: disable=protected-access
+          x, reduce_instance_dims=not elementwise, output_dtype=output_dtype)
+    else:
+      if elementwise:
+        raise NotImplementedError('Per-key elementwise reduction not supported')
+
+      key_vocab, key_means, key_vars = analyzers._mean_and_var_per_key(  # pylint: disable=protected-access
+          x, key, output_dtype=output_dtype)
+
+      key_indices = _lookup_key(
+          key.values if isinstance(key, tf.SparseTensor) else key, key_vocab)
+
+      x_mean = tf.gather(key_means, key_indices, axis=-1)
+      x_var = tf.gather(key_vars, key_indices, axis=-1)
+      if not isinstance(x, tf.SparseTensor):
+        # Non-elementwise per-key reduce returns a tensor with rank 1 (batch).
+        # The dimension count needs to match with x to finish the z-score
+        # mapping, because we want to broadcast x_mean and x_var with x.
+        # To do so we need to add singleton dimensions, otherwise TF will try to
+        # broadcast along the wrong dimensions.
+        for _ in range(x.get_shape().ndims - x_mean.get_shape().ndims):
+          x_mean = tf.expand_dims(x_mean, -1)
+          x_var = tf.expand_dims(x_var, -1)
     compose_result_fn = lambda values: values
     x_values = x
 
     if isinstance(x, tf.SparseTensor):
-
       x_values = x.values
       compose_result_fn = (lambda values: tf.SparseTensor(  # pylint: disable=g-long-lambda
           indices=x.indices, values=values, dense_shape=x.dense_shape))
@@ -951,9 +1010,9 @@ def bucketize_per_key(x, key, num_buckets, epsilon=None, name=None):
     x: A numeric input `Tensor` or `SparseTensor` with rank 1, whose values
       should be mapped to buckets.  `SparseTensor`s will have their non-missing
       values mapped and missing values left as missing.
-    key: A Tensor with the same shape as `x` and dtype tf.string.  If `x` is
-      a `SparseTensor`, `key` must exactly match `x` in everything except
-      values, i.e. indices and dense_shape must be identical.
+    key: A Tensor or `SparseTensor` with the same shape as `x` and dtype
+      tf.string.  If `x` is a `SparseTensor`, `key` must exactly match `x` in
+      everything except values, i.e. indices and dense_shape must be identical.
     num_buckets: Values in the input `x` are divided into approximately
       equal-sized buckets, where the number of buckets is num_buckets.
     epsilon: (Optional) see `bucketize`

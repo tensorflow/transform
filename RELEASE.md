@@ -4,6 +4,7 @@
 ## Major Features and Improvements
 * New `tft.word_count` mapper to identify the number of tokens for each row
   (for pre-tokenized strings).
+* Add `scale_to_z_score_per_key` mapper and `mean_and_var_per_key` analyzer.
 
 ## Bug Fixes and Other Changes
 * `sparse_tensor_to_dense_with_shape` now accepts an optional `default_value`
