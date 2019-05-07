@@ -19,12 +19,13 @@
 * New numeric normalization method available:
   `tft.apply_buckets_with_interpolation`.
 * Changes to make this library more compatible with TensorFlow 2.0.
-* Fix santitation of vocabulary filenames
+* Fix santitation of vocabulary filenames.
 * Emit a friendly error message when context isn't set.
 * Analyzer output dtypes are enforced to be TensorFlow dtypes, and by extension
   `ptransform_analyzer`'s `output_dtypes` is enforced to be a list of TensorFlow
   dtypes.
 * Make `tft.apply_buckets_with_interpolation` support SparseTensors.
+* Adds an experimental api for analyzers to annotate the post-transform schema.
 
 ## Breaking changes
 

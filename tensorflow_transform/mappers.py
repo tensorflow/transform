@@ -55,6 +55,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
+
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
@@ -63,10 +65,19 @@ from tensorflow_transform import schema_inference
 
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
+from tensorflow.contrib.proto.python.ops import encode_proto_op
 from tensorflow.python.ops import check_ops
 from tensorflow.python.ops import lookup_ops
 from tensorflow.python.util import deprecation
 # pylint: enable=g-direct-tensorflow-import
+
+# TODO(b/132098015): Schema annotations aren't yet supported in OSS builds.
+# pylint: disable=g-import-not-at-top
+try:
+  from tensorflow_transform import annotations_pb2
+except ImportError:
+  pass
+# pylint: enable=g-import-not-at-top
 
 
 def sparse_tensor_to_dense_with_shape(x, shape, default_value=0):
@@ -1211,5 +1222,33 @@ def apply_buckets(x, bucket_boundaries, name=None):
       result = tf.SparseTensor(x.indices, bucketized_values, x.dense_shape)
     else:
       result = bucketized_values
-
+    _annotate_buckets(result, bucket_boundaries)
     return result
+
+
+def _annotate_buckets(x, bucket_boundaries):
+  """Annotates a bucketized tensor with the boundaries that were applied.
+
+  Creates a deferred annotation for the specified tensor.
+
+  Args:
+    x: The tensor to annotate.
+    bucket_boundaries: A tensor of boundaries that were used to bucketize x.
+  """
+  # The annotations proto currently isn't available in OSS builds, so schema
+  # annotations are not supported.
+  try:
+    message_type = annotations_pb2.BucketBoundaries.DESCRIPTOR.full_name
+  except NameError:
+    return
+  # The BucketBoundaries annotation expects a float field.
+  bucket_boundaries = tf.cast(bucket_boundaries, tf.float32)
+  # Some callers provide rank 2 boundaries like [[.25], [.5], [.75], [1.]],
+  # whereas we expect rank 2 boundaries like [[.25, .5, .75, 1.]]
+  bucket_boundaries = tf.reshape(bucket_boundaries, [-1])
+  bucket_boundaries = tf.expand_dims(bucket_boundaries, 0)
+  size = (tf.shape(bucket_boundaries)[1],)
+  message_proto = encode_proto_op.encode_proto(
+      [size], [bucket_boundaries], ['boundaries'], message_type)[0]
+  type_url = os.path.join(schema_inference.ANNOTATION_PREFIX_URL, message_type)
+  schema_inference.annotate(type_url, message_proto, tensor=x)

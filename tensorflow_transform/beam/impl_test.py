@@ -34,11 +34,12 @@ from six.moves import range
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import analyzers
+from tensorflow_transform import schema_inference
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
-
 from google.protobuf import text_format
+from tensorflow.contrib.proto.python.ops import encode_proto_op
 from tensorflow.core.example import example_pb2
 from tensorflow.python.ops import lookup_ops
 from tensorflow_metadata.proto.v0 import schema_pb2
@@ -3903,6 +3904,87 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
+
+  def testSavedModelWithAnnotations(self):
+    """Test serialization/deserialization as a saved model with annotations."""
+    # TODO(b/132098015): Schema annotations aren't yet supported in OSS builds.
+    # pylint: disable=g-import-not-at-top
+    try:
+      from tensorflow_transform import annotations_pb2
+    except ImportError:
+      return
+    # pylint: enable=g-import-not-at-top
+    def preprocessing_fn(inputs):
+      # Bucketization applies annotations to the output schema
+      return {
+          'x_bucketized': tft.bucketize(inputs['x'], num_buckets=4),
+      }
+
+    input_data = [{'x': 1}, {'x': 2}, {'x': 3}, {'x': 4}]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([], tf.float32),
+    })
+    temp_dir = self.get_temp_dir()
+    with beam_impl.Context(temp_dir=temp_dir):
+      transform_fn = ((input_data, input_metadata)
+                      | beam_impl.AnalyzeDataset(preprocessing_fn))
+      #  Write transform_fn to serialize annotation collections to SavedModel
+      _ = transform_fn | transform_fn_io.WriteTransformFn(temp_dir)
+
+    # Ensure that the annotations survive the round trip to SavedModel.
+    tf_transform_output = tft.TFTransformOutput(temp_dir)
+    savedmodel_dir = tf_transform_output.transform_savedmodel_dir
+    schema = beam_impl._infer_metadata_from_saved_model(savedmodel_dir)._schema
+    self.assertLen(schema._schema_proto.feature, 1)
+    for feature in schema._schema_proto.feature:
+      self.assertLen(feature.annotation.extra_metadata, 1)
+      for annotation in feature.annotation.extra_metadata:
+        message = annotations_pb2.BucketBoundaries()
+        annotation.Unpack(message)
+        self.assertAllClose(list(message.boundaries), [2, 3, 4])
+
+  def testSavedModelWithGlobalAnnotations(self):
+    # TODO(b/132098015): Schema annotations aren't yet supported in OSS builds.
+    # pylint: disable=g-import-not-at-top
+    try:
+      from tensorflow_transform import annotations_pb2
+    except ImportError:
+      return
+    # pylint: enable=g-import-not-at-top
+    def preprocessing_fn(inputs):
+      # Add some arbitrary annotation data at the global schema level.
+      boundaries = tf.constant([[1.0]])
+      message_type = annotations_pb2.BucketBoundaries.DESCRIPTOR.full_name
+      sizes = tf.expand_dims([tf.size(boundaries)], axis=0)
+      message_proto = encode_proto_op.encode_proto(
+          sizes, [tf.cast(boundaries, tf.float32)], ['boundaries'],
+          message_type)[0]
+      type_url = os.path.join('type.googleapis.com', message_type)
+      schema_inference.annotate(type_url, message_proto)
+      return {
+          'x_scaled': tft.scale_by_min_max(inputs['x']),
+      }
+
+    input_data = [{'x': 1}, {'x': 2}, {'x': 3}, {'x': 4}]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([], tf.float32),
+    })
+    temp_dir = self.get_temp_dir()
+    with beam_impl.Context(temp_dir=temp_dir):
+      transform_fn = ((input_data, input_metadata)
+                      | beam_impl.AnalyzeDataset(preprocessing_fn))
+      #  Write transform_fn to serialize annotation collections to SavedModel
+      _ = transform_fn | transform_fn_io.WriteTransformFn(temp_dir)
+
+    # Ensure that global annotations survive the round trip to SavedModel.
+    tf_transform_output = tft.TFTransformOutput(temp_dir)
+    savedmodel_dir = tf_transform_output.transform_savedmodel_dir
+    schema = beam_impl._infer_metadata_from_saved_model(savedmodel_dir)._schema
+    self.assertLen(schema._schema_proto.annotation.extra_metadata, 1)
+    for annotation in schema._schema_proto.annotation.extra_metadata:
+      message = annotations_pb2.BucketBoundaries()
+      annotation.Unpack(message)
+      self.assertAllClose(list(message.boundaries), [1])
 
 
 if __name__ == '__main__':

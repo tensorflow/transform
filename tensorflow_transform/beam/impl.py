@@ -771,8 +771,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     # refer to values of tensors in the graph.  The override tensors must
     # be "constant" in that they don't depend on input data.  The tensors can
     # depend on analyzer outputs though.  This allows us to set metadata that
-    # depends on analyzer outputs. _augment_metadata will use the analyzer
-    # outputs stored in `transform_fn` to compute the metadata in a
+    # depends on analyzer outputs. _infer_metadata_from_saved_model will use the
+    # analyzer outputs stored in `transform_fn` to compute the metadata in a
     # deferred manner, once the analyzer outputs are known.
     metadata = dataset_metadata.DatasetMetadata(
         schema=schema_inference.infer_feature_schema(output_signature, graph))
