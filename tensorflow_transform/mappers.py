@@ -1276,12 +1276,12 @@ def apply_buckets(x, bucket_boundaries, name=None):
     max_value = tf.shape(input=bucket_boundaries)[1]
     schema_inference.set_tensor_schema_override(
         bucketized_values, min_value, max_value)
+    _annotate_buckets(bucketized_values, bucket_boundaries)
 
     if isinstance(x, tf.SparseTensor):
       result = tf.SparseTensor(x.indices, bucketized_values, x.dense_shape)
     else:
       result = bucketized_values
-    _annotate_buckets(result, bucket_boundaries)
     return result
 
 

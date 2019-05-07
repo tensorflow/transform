@@ -222,11 +222,11 @@ def annotate(type_url, proto_message, tensor=None):
   https://github.com/tensorflow/metadata/blob/master/tensorflow_metadata/proto/v0/schema.proto#L193
 
   Args:
-    type_url: Uniquely identifies the type of the serialized proto message. See
+    type_url: A string or string `Tensor` containing the type url which uniquely
+      identifies the type of the serialized proto message. See
       https://github.com/protocolbuffers/protobuf/blob/master/src/google/protobuf/any.proto#L151
-    proto_message: The proto value to add to the schema. Can be either a real
-      serialized proto value or a deferred tensor containing the serialized
-      proto to write. If the proto value is empty, this will be a no-op.
+    proto_message: A deferred string tensor containing the serialized proto to
+      write to the feature schema.
     tensor: (optional) If provided, the annotation will be written to the
       Feature proto that is created for this tensor in the schema. If None,
       the annotation is assumed to be global. Note: if the tensor is not present
@@ -234,6 +234,15 @@ def annotate(type_url, proto_message, tensor=None):
   """
   if tensor is None:
     tensor = tf.constant('unused', name=_TF_METADATA_EXTRA_ANNOTATION_GLOBAL)
+
+  if not isinstance(tensor, tf.Tensor):
+    raise ValueError('tensor {} was not a Tensor'.format(tensor))
+  if not isinstance(proto_message, tf.Tensor):
+    raise ValueError('proto_message {} was not a Tensor'.format(proto_message))
+
+  # If the type_url is passed as a plain string, create a string tensor.
+  if not isinstance(type_url, tf.Tensor):
+    type_url = tf.constant(type_url, dtype=tf.string)
   # Note: The tensors, types, and messages are stored in separate collections
   # because SavedModel only supports primitive types in collections.
   tf.compat.v1.add_to_collection(_TF_METADATA_EXTRA_ANNOTATION, tensor)
@@ -267,10 +276,8 @@ def _get_schema_annotations(graph, session):
       graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION),
       graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION_TYPE_URL),
       graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION_PROTO)):
-    if isinstance(proto_value, tf.Tensor):
-      proto_value = session.run(proto_value)
-    if not proto_value:
-      continue
+    proto_value = session.run(proto_value)
+    type_url = session.run(type_url)
     annotation = any_pb2.Any(type_url=type_url, value=proto_value)
     # Entries meant for the global schema annotation will have names like
     # tft_schema_override_global_sentinel:0 or
