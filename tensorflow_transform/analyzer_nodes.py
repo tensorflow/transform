@@ -496,10 +496,13 @@ class VocabularyOrderAndFilter(
 
 
 class VocabularyWrite(
-    collections.namedtuple('VocabularyWrite',
-                           ['vocab_filename', 'store_frequency', 'label',
-                            'fingerprint_shuffle']),
-    AnalyzerDef):
+    collections.namedtuple('VocabularyWrite', [
+        'vocab_filename',
+        'store_frequency',
+        'input_dtype',
+        'label',
+        'fingerprint_shuffle',
+    ]), AnalyzerDef):
   """An analyzer that writes vocabulary files from an accumulator.
 
   This operation operates on the output of VocabularyOrderAndFilter and is
@@ -508,7 +511,11 @@ class VocabularyWrite(
   See `tft.vocabulary` for a description of the parameters.
   """
 
-  def __new__(cls, vocab_filename, store_frequency, fingerprint_shuffle,
+  def __new__(cls,
+              vocab_filename,
+              store_frequency,
+              fingerprint_shuffle,
+              input_dtype=tf.string.name,
               label=None):
     if label is None:
       scope = tf.compat.v1.get_default_graph().get_name_scope()
@@ -518,6 +525,7 @@ class VocabularyWrite(
         vocab_filename=vocab_filename,
         store_frequency=store_frequency,
         fingerprint_shuffle=fingerprint_shuffle,
+        input_dtype=input_dtype,
         label=label)
 
   @property

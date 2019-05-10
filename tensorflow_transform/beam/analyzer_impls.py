@@ -44,9 +44,10 @@ from tensorflow_transform.beam import info_theory
 class _OrderElementsFn(beam.DoFn):
   """Sort the vocabulary by either descending frequency count or hash order."""
 
-  def __init__(self, store_frequency, fingerprint_shuffle):
+  def __init__(self, store_frequency, fingerprint_shuffle, input_dtype):
     self._store_frequency = store_frequency
     self._fingerprint_shuffle = fingerprint_shuffle
+    self._input_dtype = input_dtype
 
     # Metrics.
     self._vocab_size = beam.metrics.Metrics.distribution(
@@ -68,7 +69,10 @@ class _OrderElementsFn(beam.DoFn):
       # If the vocabulary is empty add a dummy value with count one so
       # the tensorflow index operations don't fail to initialize with empty
       # tensors downstream.
-      counts = [(1, '49d0cd50-04bb-48c0-bc6f-5b575dce351a')]
+      dummy_value = (
+          '49d0cd50-04bb-48c0-bc6f-5b575dce351a'
+          if tf.dtypes.as_dtype(self._input_dtype) == tf.string else -1)
+      counts = [(1, dummy_value)]
 
     if self._fingerprint_shuffle:
       counts.sort(key=lambda kv: self._fingerprint_sort_fn(kv[1]))
@@ -276,6 +280,7 @@ class VocabularyWriteImpl(beam.PTransform):
     self._store_frequency = operation.store_frequency
     self._vocab_filename = operation.vocab_filename
     self._fingerprint_shuffle = operation.fingerprint_shuffle
+    self._input_dtype = operation.input_dtype
 
   def expand(self, inputs):
     counts, = inputs
@@ -287,7 +292,8 @@ class VocabularyWriteImpl(beam.PTransform):
         # Using AsIter instead of AsList at the callsite below in order to
         # reduce max memory usage.
         | 'OrderElements' >> beam.ParDo(
-            _OrderElementsFn(self._store_frequency, self._fingerprint_shuffle),
+            _OrderElementsFn(self._store_frequency, self._fingerprint_shuffle,
+                             self._input_dtype),
             counts_iter=beam.pvalue.AsIter(counts))
         # TODO(b/62379925) For now force a single file. Should
         # `InitializeTableFromTextFile` operate on a @N set of files?

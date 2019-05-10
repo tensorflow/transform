@@ -1017,7 +1017,8 @@ def vocabulary(x,
         filtered_value_node,
         vocab_filename=vocab_filename,
         store_frequency=store_frequency,
-        fingerprint_shuffle=fingerprint_shuffle)
+        fingerprint_shuffle=fingerprint_shuffle,
+        input_dtype=x.dtype.name)
 
     vocab_filename = analyzer_nodes.wrap_as_tensor(vocab_filename_node)
     return vocab_filename

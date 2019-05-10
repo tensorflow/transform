@@ -2624,6 +2624,38 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
+  def testVocabularyAnalyzerEmptyVocab(self):
+    input_data = [
+        {
+            'a': 1
+        },
+        {
+            'a': 2
+        },
+    ]
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'a': tf.io.FixedLenFeature([], tf.int64)})
+
+    # No tokens meet the frequency_threshold, so we should create an empty
+    # vocabulary. All tokens will be treated as OOV.
+    def preprocessing_fn(inputs):
+      return {
+          'index':
+              tft.compute_and_apply_vocabulary(
+                  inputs['a'], frequency_threshold=5)
+      }
+
+    expected_data = [
+        {
+            'index': -1
+        },
+        {
+            'index': -1
+        },
+    ]
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data)
+
   def testVocabularyAnalyzerOOV(self):
     input_data = [
         {'a': 'hello'},
