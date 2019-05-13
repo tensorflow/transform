@@ -811,6 +811,15 @@ def _get_top_k_and_frequency_threshold(top_k, frequency_threshold):
   return top_k, frequency_threshold
 
 
+class VocabOrderingType(object):
+  # Orders vocabulary based on the simple frequency of the token
+  FREQUENCY = 1
+  # Orders vocabulary based on the weighted frequency of the token
+  WEIGHTED_FREQUENCY = 2
+  # Orders vocabulary based on the mutual information of token with the label
+  WEIGHTED_MUTUAL_INFORMATION = 3
+
+
 # TODO(KesterTong): Once multiple outputs are supported, return indices too.
 # TODO(b/117796748): Add coverage key feature input as alternative to `key_fn`.
 # TODO(b/116308354): rename store_frequency to store_importance because it now
@@ -884,7 +893,7 @@ def vocabulary(x,
     frequency_threshold: Limit the generated vocabulary only to elements whose
       absolute frequency is >= to the supplied threshold. If set to None, the
       full vocabulary is generated.  Absolute frequency means the number of
-      occurences of the element in the dataset, as opposed to the proportion of
+      occurrences of the element in the dataset, as opposed to the proportion of
       instances that contain that element.
     vocab_filename: The file name for the vocabulary file. If none, the
       "uniques" scope name in the context of this graph will be used as the file
@@ -962,31 +971,28 @@ def vocabulary(x,
     vocab_filename = _get_vocab_filename(vocab_filename, store_frequency)
 
     if labels is not None:
-      vocab_ordering_type = (
-          tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION)
-      reduced_batch = tf_utils.reduce_batch_vocabulary(x, vocab_ordering_type,
-                                                       weights, labels)
+      vocab_ordering_type = VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION
+      reduced_batch = tf_utils.reduce_batch_weighted_cooccurrences(
+          x, labels, weights)
       analyzer_inputs = [
-          reduced_batch.unique_values, reduced_batch.summed_weights_per_value,
-          reduced_batch.summed_positive_per_value_and_label,
-          reduced_batch.counts_per_value
+          reduced_batch.unique_x, reduced_batch.summed_weights_per_x,
+          reduced_batch.summed_positive_per_x_and_y, reduced_batch.counts_per_x
       ]
     elif weights is not None:
-      vocab_ordering_type = tf_utils.VocabOrderingType.WEIGHTED_FREQUENCY
-      reduced_batch = tf_utils.reduce_batch_vocabulary(x, vocab_ordering_type,
-                                                       weights)
-      assert reduced_batch.summed_positive_per_value_and_label is None
-      assert reduced_batch.counts_per_value is None
+      vocab_ordering_type = VocabOrderingType.WEIGHTED_FREQUENCY
+      reduced_batch = tf_utils.reduce_batch_weighted_counts(x, weights)
+      assert reduced_batch.summed_positive_per_x_and_y is None
+      assert reduced_batch.counts_per_x is None
       analyzer_inputs = [
-          reduced_batch.unique_values, reduced_batch.summed_weights_per_value
+          reduced_batch.unique_x, reduced_batch.summed_weights_per_x
       ]
     else:
-      vocab_ordering_type = tf_utils.VocabOrderingType.FREQUENCY
-      reduced_batch = tf_utils.reduce_batch_vocabulary(x, vocab_ordering_type)
-      assert reduced_batch.summed_weights_per_value is None
-      assert reduced_batch.summed_positive_per_value_and_label is None
-      assert reduced_batch.counts_per_value is None
-      analyzer_inputs = [reduced_batch.unique_values]
+      vocab_ordering_type = VocabOrderingType.FREQUENCY
+      reduced_batch = tf_utils.reduce_batch_weighted_counts(x)
+      assert reduced_batch.summed_weights_per_x is None
+      assert reduced_batch.summed_positive_per_x_and_y is None
+      assert reduced_batch.counts_per_x is None
+      analyzer_inputs = [reduced_batch.unique_x]
 
     input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
         analyzer_inputs)

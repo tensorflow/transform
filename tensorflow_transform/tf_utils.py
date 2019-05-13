@@ -26,99 +26,90 @@ from tensorflow.contrib.proto.python.ops import encode_proto_op
 
 _FLOATING_NAN = float('nan')
 
-
-class VocabOrderingType(object):
-  FREQUENCY = 1
-  WEIGHTED_FREQUENCY = 2
-  WEIGHTED_MUTUAL_INFORMATION = 3
-
-
-ReducedVocabBatch = collections.namedtuple('ReducedVocabBatch', [
-    'unique_values', 'summed_weights_per_value',
-    'summed_positive_per_value_and_label', 'counts_per_value'
+ReducedBatchWeightedCounts = collections.namedtuple('ReducedBatchCounts', [
+    'unique_x', 'summed_weights_per_x', 'summed_positive_per_x_and_y',
+    'counts_per_x'
 ])
 
 
-def reduce_batch_vocabulary(x, vocab_ordering_type,
-                            weights=None, labels=None):
-  """Performs batch-wise reduction of vocabulary.
+def reduce_batch_weighted_counts(x, weights=None):
+  """Performs batch-wise reduction to produce (possibly weighted) counts.
 
   Args:
-    x: Input `Tensor` to compute a vocabulary over.
-    vocab_ordering_type: VocabOrderingType enum.
+    x: Input `Tensor`.
     weights: (Optional) Weights input `Tensor`.
-    labels: (Optional) Integer labels input `Tensor`.
+
+  Returns:
+    a named tuple of...
+      The unique values in x
+      The sum of the weights for each unique value in x if weights are provided,
+        else None
+  """
+  if weights is None:
+    # TODO(b/112916494): Always do batch wise reduction once possible.
+
+    return ReducedBatchWeightedCounts(tf.reshape(x, [-1]), None, None, None)
+  x = assert_same_shape(x, weights)
+  weights = tf.reshape(weights, [-1])
+  x = tf.reshape(x, [-1])
+  unique_x_values, unique_idx, _ = tf.unique_with_counts(x, out_idx=tf.int64)
+  summed_weights_per_x = tf.math.unsorted_segment_sum(
+      weights, unique_idx, tf.size(input=unique_x_values))
+  return ReducedBatchWeightedCounts(unique_x_values, summed_weights_per_x, None,
+                                    None)
+
+
+def reduce_batch_weighted_cooccurrences(x, y, weights=None):
+  """Performs batch-wise reduction to produce weighted co-occurrences.
+
+  Somputes the weighted co-occurrence of each feature value in x, for each value
+  in the range [0, max(y)).
+
+  Args:
+    x: Input `Tensor`.
+    y: Integer `Tensor` with which to compute co-occurrence.
+    weights: (Optional) Weights input `Tensor`.
 
   Returns:
     a namedtuple of...
     unique_x_values: the unique values in x
-    summed_weights_per_value: sum of the weights for each unique value in x
-    summed_positive_per_value_and_label: If labels are provided, the sum of
-      positive weights for each unique label, for each unique value in x.
-      If labels are not provided, value is None.
-    counts_per_value: counts of each of the unique values in x when labels is
-      provided, otherwise, None.
+    summed_weights_per_x: sum of the weights for each unique value in x
+    summed_positive_per_x_and_y: If tensor y is provided, the sum of
+      positive weights for each unique y value, for each unique value in x.
+      If y tensor is not provided, value is None.
+    counts_per_x: if y is provided, counts of each of the unique values in x,
+      otherwise, None.
   """
-  if vocab_ordering_type == VocabOrderingType.FREQUENCY:
-    # TODO(b/112916494): Always do batch wise reduction once possible.
-    x = tf.reshape(x, [-1])
-    return ReducedVocabBatch(
-        unique_values=x,
-        summed_weights_per_value=None,
-        summed_positive_per_value_and_label=None,
-        counts_per_value=None)
-
-  if vocab_ordering_type == VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION:
-    tf.compat.v1.assert_type(labels, tf.int64)
-    x = assert_same_shape(x, labels)
-    if weights is None:
-      weights = tf.ones_like(labels, dtype=tf.float32)
-    labels = tf.reshape(labels, [-1])
+  tf.compat.v1.assert_type(y, tf.int64)
+  x = assert_same_shape(x, y)
+  if weights is None:
+    weights = tf.ones_like(y, dtype=tf.float32)
   x = assert_same_shape(x, weights)
-  weights = tf.reshape(weights, [-1])
   x = tf.reshape(x, [-1])
-  return _reduce_vocabulary_inputs(x, weights, labels)
+  y = tf.reshape(y, [-1])
+  weights = tf.reshape(weights, [-1])
 
-
-def _reduce_vocabulary_inputs(x, weights, labels=None):
-  """Reduces vocabulary inputs to a weighted sums of counts.
-
-  Args:
-    x: Input `Tensor` for vocabulary analyzer.
-    weights: Weights `Tensor` for vocabulary analyzer.
-    labels: (optional) Integer labels `Tensor` for vocabulary analyzer.
-
-  Returns:
-    See documentation for reduce_vocabulary_inputs
-  """
   unique_x_values, unique_idx, unique_count = tf.unique_with_counts(
       x, out_idx=tf.int64)
   num_x_values = tf.shape(unique_x_values)[0]
 
-  summed_weights_per_value = tf.math.unsorted_segment_sum(
+  summed_weights_per_x = tf.math.unsorted_segment_sum(
       weights, unique_idx, tf.size(input=unique_x_values))
-  if labels is None:
-    return ReducedVocabBatch(
-        unique_values=unique_x_values,
-        summed_weights_per_value=summed_weights_per_value,
-        summed_positive_per_value_and_label=None,
-        counts_per_value=None)
-  else:
-    # For each feature value in x, computed the weighted sum positive for each
-    # unique label value
-    max_label_value = tf.cast(tf.reduce_max(input_tensor=labels), tf.int32)
-    one_hot_labels = tf.one_hot(labels, max_label_value + 1)
-    broadcast_weights = tf.cast(
-        tf.broadcast_to(tf.reshape(weights, (-1, 1)), tf.shape(one_hot_labels)),
-        dtype=tf.float32)
-    positive_weights = (tf.cast(one_hot_labels, tf.float32) * broadcast_weights)
-    summed_positive_per_value_and_label = tf.math.unsorted_segment_sum(
-        positive_weights, unique_idx, num_x_values)
-  return ReducedVocabBatch(
-      unique_values=unique_x_values,
-      summed_weights_per_value=summed_weights_per_value,
-      summed_positive_per_value_and_label=summed_positive_per_value_and_label,
-      counts_per_value=unique_count)
+  # For each feature value in x, computed the weighted sum positive for each
+  # unique value in y
+  max_y_value = tf.cast(tf.reduce_max(input_tensor=y), tf.int32)
+  one_hot_y = tf.one_hot(y, max_y_value + 1)
+  broadcast_weights = tf.cast(
+      tf.broadcast_to(tf.reshape(weights, (-1, 1)), tf.shape(one_hot_y)),
+      dtype=tf.float32)
+  positive_weights = (tf.cast(one_hot_y, tf.float32) * broadcast_weights)
+  summed_positive_per_x_and_y = tf.math.unsorted_segment_sum(
+      positive_weights, unique_idx, num_x_values)
+  return ReducedBatchWeightedCounts(
+      unique_x=unique_x_values,
+      summed_weights_per_x=summed_weights_per_x,
+      summed_positive_per_x_and_y=summed_positive_per_x_and_y,
+      counts_per_x=unique_count)
 
 
 def assert_same_shape(x, y):

@@ -36,7 +36,6 @@ import six
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import analyzers
-from tensorflow_transform import tf_utils
 from tensorflow_transform.beam import common
 from tensorflow_transform.beam import info_theory
 
@@ -157,11 +156,11 @@ class VocabularyAccumulateImpl(beam.PTransform):
 
     # TODO(b/112916494): Unify the graph in both cases once possible.
     if (self._vocab_ordering_type ==
-        tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION):
+        analyzers.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION):
       flatten_map_fn = _flatten_to_key_and_means_accumulator_list
       combine_transform = _MutualInformationTransformAccumulate()  # pylint: disable=no-value-for-parameter
     elif (self._vocab_ordering_type ==
-          tf_utils.VocabOrderingType.WEIGHTED_FREQUENCY):
+          analyzers.VocabOrderingType.WEIGHTED_FREQUENCY):
       flatten_map_fn = _flatten_value_and_weights_to_list_of_tuples
       combine_transform = beam.CombinePerKey(sum)
     else:
@@ -201,7 +200,7 @@ class VocabularyMergeImpl(beam.PTransform):
 
   def expand(self, inputs):
     if (self._vocab_ordering_type ==
-        tf_utils.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION):
+        analyzers.VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION):
       combine_transform = _MutualInformationTransformMerge(  # pylint: disable=no-value-for-parameter
           self._use_adjusted_mutual_info, self._min_diff_from_avg)
     else:
