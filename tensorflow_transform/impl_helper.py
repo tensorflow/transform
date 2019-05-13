@@ -263,7 +263,8 @@ def to_instance_dicts(schema, fetches):
       for indices in instance_indices:
         if len(indices.shape) > 1 or np.any(indices != np.arange(len(indices))):
           raise ValueError('Encountered a SparseTensorValue that cannot be '
-                           'decoded by ListColumnRepresentation.')
+                           'decoded by ListColumnRepresentation.\n'
+                           '"{}" : {}'.format(name, value))
       batch_dict[name] = instance_values
       batch_sizes[name] = len(instance_values)
 
