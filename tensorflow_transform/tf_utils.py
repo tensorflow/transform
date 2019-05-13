@@ -438,6 +438,51 @@ def reduce_batch_minus_min_and_max(x, reduce_instance_dims):
     x_batch_max = tf.reduce_max(input_tensor=x, axis=0)
     x_batch_minus_min = tf.reduce_max(input_tensor=0 - x, axis=0)
 
-  # TODO(b/112309021): tf.reduce_max of a tensor of all NaNs produces -inf.
+  # TODO(b/112309021): Remove workaround once tf.reduce_max of a tensor of all
+  # NaNs produces -inf.
   return (_inf_to_nan(x_batch_minus_min, output_dtype),
           _inf_to_nan(x_batch_max, output_dtype))
+
+
+def reduce_batch_minus_min_and_max_per_key(x, key):
+  """Computes the -min and max of a tensor x.
+
+  Args:
+    x: A `tf.Tensor`.
+    key: A `Tensor` of rank 1.
+
+  Returns:
+    A 3-tuple containing the `Tensor`s (key_vocab, min_per_key, max_per_key).
+  """
+  output_dtype = x.dtype
+
+  if x.dtype == tf.uint8 or x.dtype == tf.uint16:
+    x = tf.cast(x, tf.int32)
+
+  elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
+    raise TypeError('Tensor type %r is not supported' % x.dtype)
+
+  if isinstance(x, tf.SparseTensor):
+    key = tf.gather(key, x.indices[:, 0])
+    x = x.values
+
+  def get_batch_max_per_key(tensor, key_uniques, dtype):  # pylint: disable=missing-docstring
+    if tensor.get_shape().ndims < 2:
+      row_maxes = tensor
+    else:
+      row_maxes = tf.reduce_max(
+          tensor, axis=tf.range(1, tensor.get_shape().ndims))
+    batch_max = tf.unsorted_segment_max(
+        row_maxes, key_uniques.idx, tf.size(input=key_uniques.y))
+
+    # TODO(b/112309021): Remove workaround once tf.reduce_max of a tensor of all
+    # NaNs produces -inf.
+    return _inf_to_nan(batch_max, dtype)
+
+  unique = tf.unique_with_counts(key, out_idx=tf.int64)
+  x_batch_maxes = get_batch_max_per_key(x, unique, output_dtype)
+  x_batch_minus_mins = get_batch_max_per_key(-x, unique, output_dtype)
+
+  x_batch_minus_mins = assert_same_shape(x_batch_minus_mins, x_batch_maxes)
+
+  return (unique.y, x_batch_minus_mins, x_batch_maxes)

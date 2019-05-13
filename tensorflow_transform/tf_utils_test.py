@@ -398,6 +398,46 @@ class AnalyzersTest(test_case.TransformTestCase):
       result = sess.run([batch_minus_min, batch_max], feed_dict={x: value})
     self.assertAllEqual(result, expected_result)
 
+  # pylint: disable=g-long-lambda
+  @test_case.named_parameters(
+      dict(
+          testcase_name='sparse',
+          placeholder_fn=lambda: tf.compat.v1.sparse_placeholder(
+              tf.int64, [None, None]),
+          value=tf.compat.v1.SparseTensorValue(
+              indices=[[0, 0], [1, 1], [2, 2], [3, 1]],
+              values=[3, 2, -1, 3],
+              dense_shape=[4, 5]),
+          expected_result=(np.array([b'a', b'b'], np.object), [1, -3], [3, 3])),
+      dict(
+          testcase_name='float',
+          placeholder_fn=lambda: tf.compat.v1.placeholder(
+              tf.float32, [None, None]),
+          value=[[1], [5], [2], [3]],
+          expected_result=(np.array([b'a', b'b'], np.object),
+                           [-1, -3], [5, 3])),
+      dict(
+          testcase_name='float3dims',
+          placeholder_fn=lambda: tf.compat.v1.placeholder(
+              tf.float32, [None, None, None]),
+          value=[[[1, 5], [1, 1]], [[5, 1], [5, 5]],
+                 [[2, 2], [2, 5]], [[3, -3], [3, 3]]],
+          expected_result=(np.array([b'a', b'b'], np.object),
+                           [-1, 3], [5, 3]))
+  )
+  # pylint: enable=g-long-lambda
+  def test_reduce_batch_minus_min_and_max_per_key(
+      self, placeholder_fn, value, expected_result):
+    x = placeholder_fn()
+    key = tf.constant(['a', 'a', 'a', 'b'])
+    batch_keys, batch_minus_min, batch_max = (
+        tf_utils.reduce_batch_minus_min_and_max_per_key(x, key))
+    with tf.compat.v1.Session() as sess:
+      result = sess.run([batch_keys, batch_minus_min, batch_max],
+                        feed_dict={x: value})
+    self.assertAllEqual(result[0], expected_result[0])
+    self.assertAllEqual(result[1:], expected_result[1:])
+
   @test_case.named_parameters(
       dict(
           testcase_name='sparse_tensor',

@@ -218,7 +218,8 @@ def _get_output_shape_from_input(x):
 def _numeric_combine(inputs,
                      fn,
                      reduce_instance_dims=True,
-                     output_dtypes=None):
+                     output_dtypes=None,
+                     key=None):
   """Apply a reduction, defined by a numpy function to multiple inputs.
 
   Args:
@@ -230,6 +231,7 @@ def _numeric_combine(inputs,
         dimension and outputs a vector of the same shape as the input.
     output_dtypes: (Optional) A list of dtypes of the output tensors. If None,
         the output tensor has the same type as the input one.
+    key: (Optional) Apply the same operation, but on a per-key basis.
 
   Returns:
      A list of tensors with the same length as `inputs`, representing the
@@ -250,7 +252,9 @@ def _numeric_combine(inputs,
     output_shapes = [x.get_shape() for x in inputs]
   combiner = NumPyCombiner(
       fn, [dtype.as_numpy_dtype for dtype in output_dtypes], output_shapes)
-  return _apply_cacheable_combiner(combiner, *inputs)
+  if key is None:
+    return _apply_cacheable_combiner(combiner, *inputs)
+  return _apply_cacheable_combiner_per_key(combiner, key, *inputs)
 
 
 def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
@@ -331,6 +335,50 @@ def _min_and_max(x, reduce_instance_dims=True, name=None):
     minus_x_min, x_max = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
         [x_batch_minus_min, x_batch_max], combine_fn, reduce_instance_dims)
     return tf.cast(0 - minus_x_min, output_dtype), tf.cast(x_max, output_dtype)
+
+
+def _min_and_max_per_key(x, key, reduce_instance_dims=True, name=None):
+  """Computes the min and max of the values of a `Tensor` or `SparseTensor`.
+
+  In the case of a `SparseTensor` missing values will be used in return value:
+  for float, NaN is used and for other dtypes the min is used.
+
+  Args:
+    x: A `Tensor` or `SparseTensor`.
+    key: A Tensor or `SparseTensor` of dtype tf.string.  If `x` is
+      a `SparseTensor`, `key` must exactly match `x` in everything except
+      values.
+    reduce_instance_dims: By default collapses the batch and instance dimensions
+        to arrive at a single scalar output. If False, only collapses the batch
+        dimension and outputs a vector of the same shape as the input.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    Two `Tensor`s. Both have the same type as `x`.
+
+  Raises:
+    TypeError: If the type of `x` is not supported.
+  """
+  with tf.compat.v1.name_scope(name, 'min_and_max'):
+    combine_fn = np.max
+    if (not reduce_instance_dims and isinstance(x, tf.SparseTensor) and
+        x.dtype.is_floating):
+      combine_fn = np.nanmax
+
+    output_dtype = x.dtype
+
+    key_vocab, x_batch_minus_min, x_batch_max = (
+        tf_utils.reduce_batch_minus_min_and_max_per_key(x, key))
+
+    key, minus_x_min, x_max = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
+        [x_batch_minus_min, x_batch_max],
+        combine_fn,
+        reduce_instance_dims,
+        key=key_vocab)
+    return (
+        key,
+        tf.cast(0 - minus_x_min, output_dtype),
+        tf.cast(x_max, output_dtype))
 
 
 def _sum_combine_fn_and_dtype(input_dtype):

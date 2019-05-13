@@ -824,6 +824,80 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
 
+  @tft_unit.parameters((False,))
+  def testScaleUnitIntervalPerKey(self, elementwise):
+
+    def preprocessing_fn(inputs):
+      outputs = {}
+      cols = ('x', 'y')
+      for col, scaled_t in zip(
+          cols,
+          tf.unstack(
+              tft.scale_to_0_1_per_key(
+                  tf.stack([inputs[col] for col in cols], axis=1),
+                  inputs['key'],
+                  elementwise=False),
+              axis=1)):
+        outputs[col + '_scaled'] = scaled_t
+      return outputs
+
+    input_data = [{
+        'x': 4,
+        'y': 5,
+        'key': 'a'
+    }, {
+        'x': 1,
+        'y': 2,
+        'key': 'a'
+    }, {
+        'x': 5,
+        'y': 6,
+        'key': 'a'
+    }, {
+        'x': 2,
+        'y': 3,
+        'key': 'a'
+    }, {
+        'x': 25,
+        'y': -25,
+        'key': 'b'
+    }, {
+        'x': 5,
+        'y': 0,
+        'key': 'b'
+    }]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([], tf.float32),
+        'y': tf.io.FixedLenFeature([], tf.float32),
+        'key': tf.io.FixedLenFeature([], tf.string)
+    })
+    expected_data = [{
+        'x_scaled': 0.6,
+        'y_scaled': 0.8
+    }, {
+        'x_scaled': 0.0,
+        'y_scaled': 0.2
+    }, {
+        'x_scaled': 0.8,
+        'y_scaled': 1.0
+    }, {
+        'x_scaled': 0.2,
+        'y_scaled': 0.4
+    }, {
+        'x_scaled': 1.0,
+        'y_scaled': 0.0
+    }, {
+        'x_scaled': 0.6,
+        'y_scaled': 0.5
+    }]
+    expected_metadata = tft_unit.metadata_from_feature_spec({
+        'x_scaled': tf.io.FixedLenFeature([], tf.float32),
+        'y_scaled': tf.io.FixedLenFeature([], tf.float32)
+    })
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
   @tft_unit.parameters((True,), (False,))
   def testScaleMinMax(self, elementwise):
 
@@ -887,6 +961,83 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'x_scaled': -0.75,
           'y_scaled': 0.25
       }]
+    expected_metadata = tft_unit.metadata_from_feature_spec({
+        'x_scaled': tf.io.FixedLenFeature([], tf.float32),
+        'y_scaled': tf.io.FixedLenFeature([], tf.float32)
+    })
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
+  @tft_unit.parameters((False,))
+  def testScaleMinMaxPerKey(self, elementwise=False):
+
+    def preprocessing_fn(inputs):
+      outputs = {}
+      cols = ('x', 'y')
+      for col, scaled_t in zip(
+          cols,
+          tf.unstack(
+              tft.scale_by_min_max_per_key(
+                  tf.stack([inputs[col] for col in cols], axis=1),
+                  inputs['key'],
+                  output_min=-1,
+                  output_max=1,
+                  elementwise=False),
+              axis=1)):
+        outputs[col + '_scaled'] = scaled_t
+      return outputs
+
+    input_data = [{
+        'x': 4,
+        'y': 8,
+        'key': 'a'
+    }, {
+        'x': 1,
+        'y': 5,
+        'key': 'a'
+    }, {
+        'x': 5,
+        'y': 9,
+        'key': 'a'
+    }, {
+        'x': 2,
+        'y': 6,
+        'key': 'a'
+    }, {
+        'x': -2,
+        'y': 0,
+        'key': 'b'
+    }, {
+        'x': 0,
+        'y': 2,
+        'key': 'b'
+    }]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([], tf.float32),
+        'y': tf.io.FixedLenFeature([], tf.float32),
+        'key': tf.io.FixedLenFeature([], tf.string)
+    })
+
+    expected_data = [{
+        'x_scaled': -0.25,
+        'y_scaled': 0.75
+    }, {
+        'x_scaled': -1.0,
+        'y_scaled': 0.0
+    }, {
+        'x_scaled': 0.0,
+        'y_scaled': 1.0
+    }, {
+        'x_scaled': -0.75,
+        'y_scaled': 0.25
+    }, {
+        'x_scaled': -1.0,
+        'y_scaled': 0.0
+    }, {
+        'x_scaled': 0.0,
+        'y_scaled': 1.0
+    }]
     expected_metadata = tft_unit.metadata_from_feature_spec({
         'x_scaled': tf.io.FixedLenFeature([], tf.float32),
         'y_scaled': tf.io.FixedLenFeature([], tf.float32)

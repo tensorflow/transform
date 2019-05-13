@@ -128,12 +128,63 @@ def scale_by_min_max(x,
     ValueError: If output_min, output_max have the wrong order.
   """
   with tf.compat.v1.name_scope(name, 'scale_by_min_max'):
+    return scale_by_min_max_per_key(x,
+                                    key=None,
+                                    output_min=output_min,
+                                    output_max=output_max,
+                                    elementwise=elementwise,
+                                    name=name)
+
+
+def scale_by_min_max_per_key(x,
+                             key=None,
+                             output_min=0.0,
+                             output_max=1.0,
+                             elementwise=False,
+                             name=None):
+  """Scale a numerical column into a predefined range on a per-key basis.
+
+  Args:
+    x: A numeric `Tensor`.
+    key: A string `Tensor`.
+    output_min: The minimum of the range of output values.
+    output_max: The maximum of the range of output values.
+    elementwise: If true, scale each element of the tensor independently.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    A `Tensor` containing the input column scaled to [output_min, output_max]
+    on a per-key basis.
+
+  Raises:
+    ValueError: If output_min, output_max have the wrong order.
+    NotImplementedError: If elementwise is True and key is not None.
+  """
+  with tf.compat.v1.name_scope(name, 'scale_by_min_max_per_key'):
     if output_min >= output_max:
       raise ValueError('output_min must be less than output_max')
 
     x = tf.cast(x, dtype=tf.float32)
-    min_x_value, max_x_value = analyzers._min_and_max(  # pylint: disable=protected-access
-        x, reduce_instance_dims=not elementwise)
+    if key is None:
+      min_x_value, max_x_value = analyzers._min_and_max(  # pylint: disable=protected-access
+          x, reduce_instance_dims=not elementwise)
+    else:
+      if elementwise:
+        raise NotImplementedError('Per-key elementwise reduction not supported')
+      key_vocab, min_x_value, max_x_value = analyzers._min_and_max_per_key(  # pylint: disable=protected-access
+          x, key, reduce_instance_dims=not elementwise)
+
+      key_indices = _lookup_key(key.values if isinstance(key, tf.SparseTensor)
+                                else key, key_vocab)
+
+      min_x_value = tf.gather(min_x_value, key_indices, axis=-1)
+      max_x_value = tf.gather(max_x_value, key_indices, axis=-1)
+      if min_x_value.get_shape().ndims < x.get_shape().ndims and not isinstance(
+          x, tf.SparseTensor):
+        # Non-elementwise per-key reduction returns a tensor with rank 1.
+        # The shapes need to match with x to finish the 0-1 mapping.
+        min_x_value = tf.expand_dims(min_x_value, -1)
+        max_x_value = tf.expand_dims(max_x_value, -1)
 
     x_shape = tf.shape(input=x)
 
@@ -145,7 +196,12 @@ def scale_by_min_max(x,
           tf.expand_dims(min_x_value < max_x_value, 0),
           tf.concat([[x_shape[0]], tf.ones_like(x_shape[1:])], axis=0))
     else:
-      where_cond = tf.fill(x_shape, min_x_value < max_x_value)
+      if key is None:
+        where_cond = tf.fill(x_shape, min_x_value < max_x_value)
+      else:
+        where_cond = tf.tile(
+            min_x_value < max_x_value,
+            tf.squeeze(tf.stack([tf.constant([1]), tf.shape(x)[1:]])))
     scaled_result = tf.where(where_cond,
                              (x - min_x_value) / (max_x_value - min_x_value),
                              tf.fill(x_shape, 0.5))
@@ -165,6 +221,21 @@ def scale_to_0_1(x, elementwise=False, name=None):
     A `Tensor` containing the input column scaled to [0, 1].
   """
   return scale_by_min_max(x, 0, 1, elementwise=elementwise, name=name)
+
+
+def scale_to_0_1_per_key(x, key, elementwise=False, name=None):
+  """Returns a column which is the input column scaled to have range [0,1].
+
+  Args:
+    x: A numeric `Tensor`.
+    key: A `Tensor` of type string.
+    elementwise: If true, scale each element of the tensor independently.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    A `Tensor` containing the input column scaled to [0, 1], per key.
+  """
+  return scale_by_min_max_per_key(x, key, 0, 1, elementwise, name=name)
 
 
 def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
