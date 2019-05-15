@@ -1446,8 +1446,29 @@ def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
         bucket_dtype,
         always_return_num_quantiles=True,
         output_shape=(None,))
-    key, bucket_boundaries = _apply_cacheable_combiner_per_key(combiner, key, x)
-    return key, bucket_boundaries
+
+    input_values_node = analyzer_nodes.get_input_tensors_value_nodes((key, x))
+
+    accumulate_outputs_value_nodes = nodes.apply_multi_output_operation(
+        analyzer_nodes.CacheableCombinePerKeyAccumulate,
+        input_values_node,
+        combiner=combiner)
+
+    key_value_node, bucket_boundaries = nodes.apply_multi_output_operation(
+        analyzer_nodes.CacheableCombinePerKeyMerge,
+        *accumulate_outputs_value_nodes,
+        combiner=combiner)
+
+    boundaries, scale_factor, shift, num_buckets_node = (
+        nodes.apply_multi_output_operation(
+            analyzer_nodes.ScaleAndFlattenPerKeyBucketBouandaries,
+            bucket_boundaries,
+            output_tensor_dtype=bucket_dtype))
+
+    return tuple(
+        map(analyzer_nodes.wrap_as_tensor,
+            [key_value_node, boundaries, scale_factor, shift, num_buckets_node
+            ]))
 
 
 class CovarianceCombiner(analyzer_nodes.Combiner):

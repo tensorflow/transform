@@ -113,7 +113,10 @@ class TransformTestCase(test_case.TransformTestCase):
       for key, output_tensor in six.iteritems(analyzer_outputs):
         # Get the expected shape, and set it.
         output_shape = list(expected_outputs[key].shape)
-        output_tensor.set_shape(output_shape)
+        try:
+          output_tensor.set_shape(output_shape)
+        except ValueError as e:
+          raise ValueError('Error for key {}: {}'.format(key, str(e)))
         # Add a batch dimension
         output_tensor = tf.expand_dims(output_tensor, 0)
         # Broadcast along the batch dimension
@@ -207,7 +210,7 @@ class TransformTestCase(test_case.TransformTestCase):
     # Note: we don't separately test AnalyzeDataset and TransformDataset as
     # AnalyzeAndTransformDataset currently simply composes these two
     # transforms.  If in future versions of the code, the implementation
-    # differs, we should also run AnalyzeDataset and TransformDatset composed.
+    # differs, we should also run AnalyzeDataset and TransformDataset composed.
     temp_dir = temp_dir or tempfile.mkdtemp(
         prefix=self._testMethodName, dir=self.get_temp_dir())
     with beam_pipeline or self._makeTestPipeline() as pipeline:

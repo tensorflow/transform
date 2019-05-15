@@ -3530,11 +3530,15 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testQuantilesPerKey(self):
     def analyzer_fn(inputs):
-      key_vocab, q_b = analyzers._quantiles_per_key(
-          inputs['x'], inputs['key'], num_buckets=3, epsilon=0.00001)
+      key_vocab, q_b, scale_factor_per_key, shift_per_key, num_buckets = (
+          analyzers._quantiles_per_key(
+              inputs['x'], inputs['key'], num_buckets=3, epsilon=0.00001))
       return {
           'key_vocab': key_vocab,
-          'q_b': q_b
+          'q_b': q_b,
+          'scale_factor_per_key': scale_factor_per_key,
+          'shift_per_key': shift_per_key,
+          'num_buckets': num_buckets,
       }
 
     # NOTE: We force 10 batches: data has 100 elements and we request a batch
@@ -3548,7 +3552,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # The expected data has 2 boundaries that divides the data into 3 buckets.
     expected_outputs = {
         'key_vocab': np.array([b'a', b'b'], np.object),
-        'q_b': np.array([[17, 33], [66, 83]], np.float32)
+        'q_b': np.array([0., 1., 2.], np.float32),
+        'scale_factor_per_key': np.array([0.0625, 0.05882353], np.float32),
+        'shift_per_key': np.array([-1.0625, -2.88235283], np.float32),
+        'num_buckets': np.array(3, np.int64),
     }
     self.assertAnalyzerOutputs(
         input_data,
@@ -3562,6 +3569,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       x_bucketized = tft.bucketize_per_key(
           inputs['x'], inputs['key'], num_buckets=3, epsilon=0.00001)
       return {
+          'x': inputs['x'],
           'x_bucketized': x_bucketized
       }
 
@@ -3590,9 +3598,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
         else:
           return 2
 
-    expected_data = [{'x_bucketized': compute_quantile(instance)}
+    expected_data = [{'x_bucketized': compute_quantile(instance),
+                      'x': instance['x']}
                      for instance in input_data]
     expected_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([], tf.float32),
         'x_bucketized': tf.io.FixedLenFeature([], tf.int64),
     }, {
         'x_bucketized': schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
@@ -3610,6 +3620,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       x_bucketized = tft.bucketize_per_key(
           inputs['x'], inputs['key'], num_buckets=4, epsilon=0.00001)
       return {
+          'x': inputs['x'],
           'x_bucketized': x_bucketized
       }
 
@@ -3639,26 +3650,27 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
 
     expected_data = [
-        {'x_bucketized': []},
-        {'x_bucketized': [1, 2]},
-        {'x_bucketized': [3]},
-        {'x_bucketized': [1]},
-        {'x_bucketized': [3]},
-        {'x_bucketized': [3]},
-        {'x_bucketized': [0]},
-        {'x_bucketized': [1]},
-        {'x_bucketized': [2]},
-        {'x_bucketized': [3]},
-        {'x_bucketized': [0]},
-        {'x_bucketized': [0]},
-        {'x_bucketized': [1]},
-        {'x_bucketized': [1]},
-        {'x_bucketized': [2]},
-        {'x_bucketized': [2]},
-        {'x_bucketized': [3]},
-        {'x_bucketized': [3]}
+        {'x': [], 'x_bucketized': []},
+        {'x': [5, 6], 'x_bucketized': [1, 2]},
+        {'x': [7], 'x_bucketized': [3]},
+        {'x': [12], 'x_bucketized': [1]},
+        {'x': [13], 'x_bucketized': [3]},
+        {'x': [15], 'x_bucketized': [1]},
+        {'x': [2], 'x_bucketized': [0]},
+        {'x': [4], 'x_bucketized': [1]},
+        {'x': [6], 'x_bucketized': [2]},
+        {'x': [8], 'x_bucketized': [3]},
+        {'x': [2], 'x_bucketized': [0]},
+        {'x': [4], 'x_bucketized': [0]},
+        {'x': [6], 'x_bucketized': [1]},
+        {'x': [8], 'x_bucketized': [1]},
+        {'x': [10], 'x_bucketized': [2]},
+        {'x': [11], 'x_bucketized': [2]},
+        {'x': [12], 'x_bucketized': [3]},
+        {'x': [13], 'x_bucketized': [2]}
     ]
     expected_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.VarLenFeature(tf.float32),
         'x_bucketized': tf.io.VarLenFeature(tf.int64),
     }, {
         'x_bucketized': schema_pb2.IntDomain(min=0, max=3, is_categorical=True),

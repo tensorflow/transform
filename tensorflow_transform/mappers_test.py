@@ -357,10 +357,16 @@ class MappersTest(test_case.TransformTestCase):
     keys = tf.constant(
         ['a', 'a', 'a', 'a', 'a', 'a', 'b', 'b', 'b', 'b', 'b', 'b'])
     key_vocab = tf.constant(['a', 'b'])
-    bucket_boundaries = tf.constant([[0, .1, .2], [4.33, 4.43, 4.53]],
-                                    dtype=tf.float32)
+    # Pre-normalization boundaries: [[0, 0.1, 0.2], [4.33, 4.43, 4.53]]
+    bucket_boundaries = tf.constant([0.0, 0.5, 1.0, 1.5, 2.0], dtype=tf.float32)
+    scales = 1.0 / (
+        tf.constant([0.2, 4.53], dtype=tf.float32) -
+        tf.constant([0, 4.33], dtype=tf.float32))
+    shifts = tf.constant([0, 1.0 - (4.33 * 5)], dtype=tf.float32)
+    num_buckets = tf.constant(4, dtype=tf.int64)
     buckets = mappers._apply_buckets_with_keys(values, keys, key_vocab,
-                                               bucket_boundaries)
+                                               bucket_boundaries, scales,
+                                               shifts, num_buckets)
     with self.test_session() as sess:
       sess.run(tf.compat.v1.tables_initializer())
       output = sess.run(buckets)

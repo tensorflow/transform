@@ -351,6 +351,43 @@ class CacheableCombinePerKeyMerge(CacheableCombineMerge):
     ]
 
 
+class ScaleAndFlattenPerKeyBucketBouandaries(
+    collections.namedtuple('PostProcessPerKeyBucketBoundaries',
+                           ['output_tensor_dtype', 'label']), AnalyzerDef):
+  """An analyzer which takes quantile boundaries per key and combines them.
+
+  It receives a 2-d array of boundaries, computes scales and shifts to each
+  row separately, a new boundaries 1-d array which is a combination of
+  boundaries for all the keys, and the number of buckets defined for each key.
+
+  This outputs boundaries, scale_factor_per_key, shift_per_key, num_buckets.
+
+  For example, for an input boundaries matrix, [[0, 1, 2], [0, 1, 2]] it will
+  return:
+  boundaires: [0, 0.5, 1, 1.5, 2]
+  scale_factor_per_key: [0.5, 0.5]
+  shift_per_key: [0, 1]
+  num_buckets: 4
+
+  So the transformation of each input x before computing its bucket should be:
+  F(x, key) = x * scale_factor_per_key[key] + shift_per_key[key]
+  """
+
+  def __new__(cls, output_tensor_dtype, label=None):
+    if label is None:
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
+      label = '{}[{}]'.format(cls.__name__, scope)
+    return super(ScaleAndFlattenPerKeyBucketBouandaries, cls).__new__(
+        cls, output_tensor_dtype=output_tensor_dtype, label=label)
+
+  @property
+  def output_tensor_infos(self):
+    # Boundaries, scale_factor_per_key, shift_per_key, num_buckets.
+    return [
+        TensorInfo(self.output_tensor_dtype, (None,), is_asset_filepath=False)
+    ] * 3 + [TensorInfo(tf.int64, (), is_asset_filepath=False)]
+
+
 class VocabularyAccumulate(
     collections.namedtuple('VocabularyAccumulate',
                            ['vocab_ordering_type', 'input_dtype', 'label']),

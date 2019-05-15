@@ -1109,11 +1109,15 @@ def bucketize_per_key(x, key, num_buckets, epsilon=None, name=None):
       # See explanation in args documentation for epsilon.
       epsilon = min(1.0 / num_buckets, 0.01)
 
-    key_vocab, bucket_boundaries = analyzers._quantiles_per_key(  # pylint: disable=protected-access
-        x.values if isinstance(x, tf.SparseTensor) else x,
-        key.values if isinstance(key, tf.SparseTensor) else key,
-        num_buckets, epsilon)
-    return _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries)
+    (key_vocab, bucket_boundaries, scale_factor_per_key, shift_per_key,
+     actual_num_buckets) = (
+         analyzers._quantiles_per_key(  # pylint: disable=protected-access
+             x.values if isinstance(x, tf.SparseTensor) else x,
+             key.values if isinstance(key, tf.SparseTensor) else key,
+             num_buckets, epsilon))
+    return _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries,
+                                    scale_factor_per_key, shift_per_key,
+                                    actual_num_buckets)
 
 
 def _lookup_key(key, key_vocab):
@@ -1161,7 +1165,14 @@ def _combine_bucket_boundaries(bucket_boundaries, epsilon=0.1):
   return combined_boundaries, offsets
 
 
-def _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries, name=None):
+def _apply_buckets_with_keys(x,
+                             key,
+                             key_vocab,
+                             bucket_boundaries,
+                             scale_factor_per_key,
+                             shift_per_key,
+                             num_buckets,
+                             name=None):
   """Bucketize a Tensor or SparseTensor where boundaries depend on the index.
 
   Args:
@@ -1169,7 +1180,10 @@ def _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries, name=None):
     key: A 1-d Tensor or SparseTensor with the same size as x.
     key_vocab: A vocab containing all keys.  Must be exhaustive, an
         out-of-vocab entry in `key` will cause a crash.
-    bucket_boundaries: A rank-2 Tensor of shape (key_size, num_buckets)
+    bucket_boundaries: A rank-1 Tensor.
+    scale_factor_per_key: A rank-1 Tensor of shape (key_size,).
+    shift_per_key: A rank-1 Tensor of shape (key_size,).
+    num_buckets: A scalar.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1184,26 +1198,30 @@ def _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries, name=None):
     # since this uses a Table.
     key_indices = _lookup_key(key_values, key_vocab)
 
-    combined_boundaries, offsets = _combine_bucket_boundaries(bucket_boundaries)
-
     # Apply the per-key offsets to x, which produces offset buckets (where the
     # bucket offset is an integer offset).  Then remove this offset to get the
     # actual per-key buckets for x.
-    offset_x = x_values + tf.gather(offsets, key_indices)
+    scale_factors = tf.gather(scale_factor_per_key, key_indices)
+    shifts = tf.gather(shift_per_key, key_indices)
+
+    transformed_x = x_values * scale_factors + shifts
     offset_buckets = tf.cast(
-        quantile_ops.bucketize_with_input_boundaries(offset_x,
-                                                     combined_boundaries),
+        quantile_ops.bucketize_with_input_boundaries(
+            transformed_x, tf.cast(bucket_boundaries, tf.float32)),
         dtype=tf.int64)
-    num_buckets = tf.cast(tf.shape(input=bucket_boundaries)[1], dtype=tf.int64)
-    bucketized_values = tf.clip_by_value(
-        offset_buckets - key_indices * num_buckets, 0, num_buckets)
+
+    max_bucket = num_buckets - 1
+
+    # Shift the bucket numbers back to the correct range [0, num_buckets].
+    # We use max_bucket-1 due to different keys sharing 1 boundary.
+    corrected_buckets = offset_buckets - ((max_bucket - 1) * key_indices)
+    bucketized_values = tf.clip_by_value(corrected_buckets, 0, max_bucket)
 
     # Attach the relevant metadata to result, so that the corresponding
     # output feature will have this metadata set.
     min_value = tf.constant(0, tf.int64)
-    max_value = num_buckets
     schema_inference.set_tensor_schema_override(
-        bucketized_values, min_value, max_value)
+        bucketized_values, min_value, max_bucket)
 
     if isinstance(x, tf.SparseTensor):
       result = tf.SparseTensor(x.indices, bucketized_values, x.dense_shape)

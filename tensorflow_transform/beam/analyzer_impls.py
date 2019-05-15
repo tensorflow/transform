@@ -710,6 +710,107 @@ def _merge_outputs_by_key(keys_and_outputs, outputs_dtype):
                                                     dtype=dtype.as_numpy_dtype))
 
 
+def _make_strictly_increasing_boundaries_rows(boundary_matrix):
+  """Converts a 2-d array of increasing rows to strictly increasing rows.
+
+  Args:
+    boundary_matrix: A 2-d np.array where each row is increasing.
+
+  Returns:
+    A 2-d np.array of the same size as `boundary_matrix` where each row is
+    strictly increasing.
+  """
+  epsilon = (1e-6 *
+             np.expand_dims(boundary_matrix[:, -1] - boundary_matrix[:, 0], 1))
+
+  # Make sure every value in epsilon is positive.
+  epsilon[epsilon <= 0] = 1e-6
+
+  deltas = np.diff(boundary_matrix, axis=1)
+  corrected_deltas = np.maximum(deltas, epsilon)
+
+  # Reconstruct the matrix with corrected deltas without the 1st column.
+  corrected_boundaries = (
+      np.cumsum(corrected_deltas, axis=1) +
+      np.expand_dims(boundary_matrix[:, 0], 1))
+
+  # Reinsert the 1st column.
+  return np.insert(corrected_boundaries, 0, boundary_matrix[:, 0], axis=1)
+
+
+def _join_boundary_rows(boundary_matrix):
+  """Joins boundaries per key, by scaling and shifting them.
+
+  This returns a new list of boundaries which is composed from the given 2-d
+  array. For each row we compute a scale factor, and a shift value which are
+  used to compute the transformed boundaries, and should be used to transform
+  a value before its bucket is computed.
+
+  Neighboring key bucket boundaries have their adjacent boundaries merged into
+  one.
+
+  Args:
+    boundary_matrix: A 2-d np.array where each row is a list of boundaries for a
+      certain key.
+
+  Returns:
+    A 4-touple of (boundaries, scale, shift, num_buckets).
+    The returned boundaries is a 1-d np.array of size:
+    ((num_buckets - 2) * num_keys) + 1
+  """
+  boundary_matrix = _make_strictly_increasing_boundaries_rows(boundary_matrix)
+
+  num_buckets = np.array(boundary_matrix.shape[1] + 1, dtype=np.int64)
+
+  # Min boundary for each row.
+  min_boundary = np.min(boundary_matrix, axis=1)
+
+  # Max boundary for each row.
+  max_boundary = np.max(boundary_matrix, axis=1)
+
+  scale = 1.0 / (max_boundary - min_boundary)
+
+  # Shifts what would shift values so that when applied to min[key_id] we
+  # get: min[key_id] * scale[key_id] + shift[key_id] = key_id
+  # Therefore shift is defined as:
+  # shift[key_id] = key_id -  min[key_id] * scale[key_id]
+  shift = np.arange(scale.size, dtype=np.float32) - min_boundary * scale
+
+  scaled_buckets = (
+      boundary_matrix[:, 1:] * np.expand_dims(scale, axis=1) +
+      np.expand_dims(shift, axis=1))
+  boundaries = np.insert(scaled_buckets.flatten(), 0, 0.)
+
+  return boundaries, scale, shift, num_buckets
+
+
+@common.register_ptransform(
+    analyzer_nodes.ScaleAndFlattenPerKeyBucketBouandaries)
+class _ScaleAndFlattenPerKeyBucketBouandariesImpl(beam.PTransform):
+  """Combines boundaries per-key to a single list of boundaries."""
+
+  _OUTPUT_TAGS = ('boundaries', 'scale_factor_per_key', 'shift_per_key',
+                  'num_buckets')
+
+  def __init__(self, operation, extra_args):
+    self._dtype = operation.output_tensor_dtype
+    self._name = operation.label
+
+  def _transform_boundaries(self, boundary_matrix):
+    results = _join_boundary_rows(boundary_matrix)
+    assert len(self._OUTPUT_TAGS) == len(results)
+    return [
+        beam.pvalue.TaggedOutput(tag, value)
+        for tag, value in zip(self._OUTPUT_TAGS, results)
+    ]
+
+  def expand(self, inputs):
+    pcoll, = inputs
+    output_dict = pcoll | beam.FlatMap(
+        self._transform_boundaries).with_outputs(*self._OUTPUT_TAGS)
+    return tuple(output_dict[key] for key in self._OUTPUT_TAGS)
+
+
 @common.register_ptransform(analyzer_nodes.CacheableCombineAccumulate)
 class _IntermediateAccumulateCombineImpl(beam.PTransform):
   """Implement an analyzer based on a Combine."""
