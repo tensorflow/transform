@@ -66,6 +66,8 @@ toc:
       path: /tfx/transform/api_docs/python/tft/scale_to_0_1
     - title: scale_to_z_score
       path: /tfx/transform/api_docs/python/tft/scale_to_z_score
+    - title: scale_to_z_score_per_key
+      path: /tfx/transform/api_docs/python/tft/scale_to_z_score_per_key
     - title: segment_indices
       path: /tfx/transform/api_docs/python/tft/segment_indices
     - title: size

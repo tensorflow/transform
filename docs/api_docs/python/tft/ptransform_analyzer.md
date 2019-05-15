@@ -26,7 +26,7 @@ collection by the caller.
 #### Args:
 
 * <b>`inputs`</b>: A list of input `Tensor`s.
-* <b>`output_dtypes`</b>: The list of dtypes of the output of the analyzer.
+* <b>`output_dtypes`</b>: The list of TensorFlow dtypes of the output of the analyzer.
 * <b>`output_shapes`</b>: The list of shapes of the output of the analyzer.  Must have
     the same length as output_dtypes.
 * <b>`ptransform`</b>: A Beam PTransform that accepts a Beam PCollection where each

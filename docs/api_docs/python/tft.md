@@ -83,6 +83,8 @@ Init module for TF.Transform.
 
 [`scale_to_z_score(...)`](./tft/scale_to_z_score.md): Returns a standardized column with mean 0 and variance 1.
 
+[`scale_to_z_score_per_key(...)`](./tft/scale_to_z_score_per_key.md): Returns a standardized column with mean 0 and variance 1, grouped per key.
+
 [`segment_indices(...)`](./tft/segment_indices.md): Returns a `Tensor` of indices within each segment.
 
 [`size(...)`](./tft/size.md): Computes the total size of instances in a `Tensor` over the whole dataset.

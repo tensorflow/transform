@@ -38,6 +38,7 @@
 *  <a href="./tft/scale_by_min_max.md"><code>tft.scale_by_min_max</code></a>
 *  <a href="./tft/scale_to_0_1.md"><code>tft.scale_to_0_1</code></a>
 *  <a href="./tft/scale_to_z_score.md"><code>tft.scale_to_z_score</code></a>
+*  <a href="./tft/scale_to_z_score_per_key.md"><code>tft.scale_to_z_score_per_key</code></a>
 *  <a href="./tft/segment_indices.md"><code>tft.segment_indices</code></a>
 *  <a href="./tft/size.md"><code>tft.size</code></a>
 *  <a href="./tft/sparse_tensor_to_dense_with_shape.md"><code>tft.sparse_tensor_to_dense_with_shape</code></a>

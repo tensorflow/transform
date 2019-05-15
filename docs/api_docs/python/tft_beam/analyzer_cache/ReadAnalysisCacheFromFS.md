@@ -46,11 +46,19 @@ Reads cache from the FS written by WriteAnalysisCacheToFS.
 ``` python
 __init__(
     cache_base_dir,
-    dataset_keys
+    dataset_keys,
+    source=None
 )
 ```
 
+Init method.
 
+#### Args:
+
+* <b>`cache_base_dir`</b>: A string, the path that the cache should be stored in.
+* <b>`dataset_keys`</b>: An iterable of strings.
+* <b>`source`</b>: (Optional) A PTransform class that takes a path argument in its
+    constructor, and is used to read the cache.
 
 
 

@@ -41,13 +41,17 @@
 
 Combination of AnalyzeDataset and TransformDataset.
 
+```python
 transformed, transform_fn = AnalyzeAndTransformDataset(
     preprocessing_fn).expand(dataset)
+```
 
 should be equivalent to
 
+```python
 transform_fn = AnalyzeDataset(preprocessing_fn).expand(dataset)
 transformed = TransformDataset().expand((dataset, transform_fn))
+```
 
 but may be more efficient since it avoids multiple passes over the data.
 

@@ -114,7 +114,7 @@ Converts an accumulator into the output (mean, var) tuple.
 
 #### Returns:
 
-A 2-tuple composed of (mean, var) or None if accumulator is None.
+A 2-tuple composed of (mean, var).
 
 <h3 id="merge_accumulators"><code>merge_accumulators</code></h3>
 
@@ -126,7 +126,7 @@ Merges several `_WeightedMeanAndVarAccumulator`s to a single accumulator.
 
 #### Args:
 
-* <b>`accumulators`</b>: A list of `_WeightedMeanAndVarAccumulator`s and/or Nones.
+* <b>`accumulators`</b>: A list of `_WeightedMeanAndVarAccumulator`s.
 
 
 #### Returns:
