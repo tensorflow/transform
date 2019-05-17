@@ -340,16 +340,6 @@ class MappersTest(test_case.TransformTestCase):
       output = sess.run(key_indices)
       self.assertAllEqual([0, 0, 0, 1, 1, 1, 1], output)
 
-  def testStackBucketBoundaries(self):
-    bucket_boundaries = tf.constant([[0, .1, .2], [.1, .2, .3]],
-                                    dtype=tf.float32)
-    combined_boundaries, offsets = mappers._combine_bucket_boundaries(
-        bucket_boundaries, epsilon=0.03)
-    with self.test_session() as sess:
-      self.assertAllClose([0, 0.1, 0.2, 0.23, 0.33, 0.43],
-                          sess.run(combined_boundaries))
-      self.assertAllClose([0, 0.13], sess.run(offsets))
-
   def testApplyBucketsWithKeys(self):
     values = tf.constant(
         [-100, -0.05, 0.05, 0.25, 0.15, 100, -100, 4.3, 4.5, 4.4, 4.6, 100],

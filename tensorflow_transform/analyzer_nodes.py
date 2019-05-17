@@ -364,7 +364,7 @@ class ScaleAndFlattenPerKeyBucketBouandaries(
 
   For example, for an input boundaries matrix, [[0, 1, 2], [0, 1, 2]] it will
   return:
-  boundaires: [0, 0.5, 1, 1.5, 2]
+  boundaries: [0, 0.5, 1, 1.5, 2]
   scale_factor_per_key: [0.5, 0.5]
   shift_per_key: [0, 1]
   num_buckets: 4

@@ -754,7 +754,7 @@ def _join_boundary_rows(boundary_matrix):
       certain key.
 
   Returns:
-    A 4-touple of (boundaries, scale, shift, num_buckets).
+    A 4-tuple of (boundaries, scale, shift, num_buckets).
     The returned boundaries is a 1-d np.array of size:
     ((num_buckets - 2) * num_keys) + 1
   """

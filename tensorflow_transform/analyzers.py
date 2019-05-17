@@ -1412,7 +1412,7 @@ def quantiles(x, num_buckets, epsilon, weights=None, name=None):
 def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
   """Like quantiles but per-key.
 
-  For private use in tf.Transform implemenation only.
+  For private use in tf.Transform implementation only.
 
   Args:
     x: An input `Tensor`.
@@ -1424,10 +1424,21 @@ def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
     name: (Optional) A name for this operation.
 
   Returns:
-    A pair (key_vocab, quantiles) where `key_vocab` is a sorted vocabulary of
-    all elements in the input `key` and `quantiles` is a rank 2 tensor
-    containing quantile boundaries for each key, where boundaries are for the
-    corresponding element of `key_vocab`.
+    A 4-tuple of (boundaries, scale, shift, num_buckets).
+    The returned boundaries is a 1-d Tensor of size:
+    ((num_buckets - 2) * num_keys) + 1
+
+    And the returned scale and shift 1-d Tensors can be used to transform a
+    value before applying bucketization and shift the resulting bucket.
+    So the transformation of each input x before computing its bucket should be:
+    F(x, key) = x * scale_factor_per_key[key] + shift_per_key[key]
+
+    For example, if there are 2 keys, and the following boundaries are computed
+    for them: [[0, 1, 2], [0, 1, 2]], this will return:
+    boundaries: [0, 0.5, 1, 1.5, 2]
+    scale_factor_per_key: [0.5, 0.5]
+    shift_per_key: [0, 1]
+    num_buckets: 4
 
   Raises:
     ValueError: If key has wrong dtype.

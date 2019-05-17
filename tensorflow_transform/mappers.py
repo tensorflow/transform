@@ -1127,44 +1127,6 @@ def _lookup_key(key, key_vocab):
     return tf.identity(key_indices)
 
 
-def _combine_bucket_boundaries(bucket_boundaries, epsilon=0.1):
-  """Combine all boundaries into a single vector with offsets.
-
-  We offset boundaries so that this vector is increasing, and store the offsets.
-  In order to make the vector strictly increasing, we use an arbitrary epsilon
-  value.  E.g. if
-
-  bucket_boundaries = [[0, 5, 7], [2, 3, 4]]
-
-  then the second row will be offset to move the first bucket boundary from
-  2 to 7 + epsilon = 7.1.  Thus we will have:
-
-  combined_boundaries = [0, 5, 7, 7.1, 8.1, 9.1]
-  offsets = [0, 5.1]
-
-  Args:
-    bucket_boundaries: A Tensor with shape (num_keys, num_buckets) where each
-        row is increasing.
-    epsilon: The distance between values to use when stacking rows of
-        `bucket_boundaries` into a single vector.
-
-  Returns:
-    A pair (combined_boundaries, offsets) where combined_boundaries has shape
-        (num_keys * num_buckets,) and offsets has shape (num_keys,)
-  """
-  # For each row of bucket_boundaries, compute where that row should start in
-  # combined_boundaries.  This is given by taking the cumulative sum of the
-  # size of the segment in the number-line taken up by each row (including the
-  # extra padding of epsilon).
-  row_starts = tf.cumsum(
-      epsilon + bucket_boundaries[:, -1] - bucket_boundaries[:, 0],
-      exclusive=True)
-  offsets = row_starts - bucket_boundaries[:, 0]
-  combined_boundaries = tf.reshape(
-      bucket_boundaries + tf.expand_dims(offsets, axis=1), [-1])
-  return combined_boundaries, offsets
-
-
 def _apply_buckets_with_keys(x,
                              key,
                              key_vocab,
