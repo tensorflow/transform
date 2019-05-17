@@ -839,20 +839,24 @@ def _get_vocab_filename(vocab_filename, store_frequency):
   return sanitized_vocab_filename(vocab_filename, prefix=prefix)
 
 
+# TODO(b/116308354): frequency_threshold is misleading since this threshold can
+# be applied to mutual information rather than frequency.
 def _get_top_k_and_frequency_threshold(top_k, frequency_threshold):
-  """Validate `top_k` and `frequency_threshold` values and convert to int."""
+  """Validate `top_k` and `frequency_threshold` values and convert to number."""
   if top_k is not None:
     top_k = int(top_k)
     if top_k < 0:
       raise ValueError('top_k must be non-negative, but got: %r' % top_k)
 
   if frequency_threshold is not None:
-    frequency_threshold = int(frequency_threshold)
+    frequency_threshold = float(frequency_threshold)
     if frequency_threshold < 0:
       raise ValueError(
           'frequency_threshold must be non-negative, but got: %r' %
           frequency_threshold)
     elif frequency_threshold <= 1:
+      # Note: this warning is misleading in the context where tokens are ranked
+      # based on mutual information rather than frequency.
       tf.compat.v1.logging.warn(
           'frequency_threshold %d <= 1 is a no-op, use None instead.',
           frequency_threshold)
