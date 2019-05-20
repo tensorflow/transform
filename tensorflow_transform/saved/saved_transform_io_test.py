@@ -26,9 +26,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow_transform.saved import saved_transform_io
 
-import unittest
 from tensorflow.python.framework import ops
-from tensorflow.python.framework import test_util
 from tensorflow.python.lib.io import file_io
 from tensorflow.python.ops import lookup_ops
 from tensorflow.python.platform import test
@@ -52,7 +50,7 @@ def _create_test_saved_model():
   return export_path
 
 
-class SavedTransformIOTest(test_util.TensorFlowTestCase):
+class SavedTransformIOTest(tf.test.TestCase):
 
   @classmethod
   def setUpClass(cls):
@@ -264,4 +262,4 @@ class SavedTransformIOTest(test_util.TensorFlowTestCase):
               session, inputs, outputs, export_path)
 
 if __name__ == '__main__':
-  unittest.main()
+  tf.test.main()

@@ -23,11 +23,9 @@ import os
 
 import tensorflow as tf
 from tensorflow_transform import pretrained_models
-import unittest
-from tensorflow.python.framework import test_util
 
 
-class PretrainedModelsTest(test_util.TensorFlowTestCase):
+class PretrainedModelsTest(tf.test.TestCase):
 
   def save_model_with_single_input(self, export_dir):
     builder = tf.compat.v1.saved_model.builder.SavedModelBuilder(export_dir)
@@ -157,4 +155,4 @@ class PretrainedModelsTest(test_util.TensorFlowTestCase):
 
 
 if __name__ == '__main__':
-  unittest.main()
+  tf.test.main()
