@@ -93,6 +93,7 @@ from apache_beam.typehints import with_output_types
 import numpy as np
 import six
 import tensorflow as tf
+from tensorflow_transform import graph_tools
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
 from tensorflow_transform import schema_inference
@@ -329,7 +330,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
         non_excluded_output_keys = sorted(
             set(outputs.keys()).difference(exclude_outputs))
         fetches = [outputs[key] for key in non_excluded_output_keys]
-        tensor_inputs = impl_helper.filter_input_tensors(inputs, fetches)
+        tensor_inputs = graph_tools.get_dependent_inputs(graph, inputs, fetches)
         self.inputs_tensor_keys = sorted(tensor_inputs.keys())
         self.outputs_tensor_keys = non_excluded_output_keys
 

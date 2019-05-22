@@ -39,6 +39,15 @@ def _create_graph_with_y_function_of_x():
   return {'x': x, 'y': y}
 
 
+def _create_graph_with_y_function_of_x_with_unused_inputs():
+  x = tf.compat.v1.placeholder(tf.int64)
+  x2 = tf.compat.v1.placeholder(tf.int64)
+  x_unused = tf.compat.v1.placeholder(tf.int64)
+  y = x + 1
+  z = x2 + 2
+  return {'x': x, 'x2': x2, 'x_unused': x_unused, 'y': y, 'z': z}
+
+
 def _create_graph_with_y_function_of_x_sparse():
   x = tf.compat.v1.sparse_placeholder(tf.int64)
   y = tf.sparse.reduce_sum(x) + 1
@@ -215,6 +224,20 @@ class GraphToolsTest(test_case.TransformTestCase):
           feeds=[],
           replaced_tensors_ready={'x': False},
           should_be_ready={'y': False},
+          num_ready_table_initializers=0),
+      dict(
+          testcase_name='y_function_of_x_unused_input_ready',
+          create_graph_fn=_create_graph_with_y_function_of_x_with_unused_inputs,
+          feeds=[],
+          replaced_tensors_ready={
+              'x': False,
+              'x2': True,
+              'x_unused': True
+          },
+          should_be_ready={
+              'y': False,
+              'z': True
+          },
           num_ready_table_initializers=0),
       dict(
           testcase_name='y_function_of_x_no_feeds_y_is_ready',
@@ -465,6 +488,54 @@ class GraphToolsTest(test_case.TransformTestCase):
       tensor = tensors[fetch]
       graph_analyzer.ready_to_run(tensor)
 
+  @test_case.named_parameters(
+      dict(
+          testcase_name='y_function_of_x',
+          create_graph_fn=_create_graph_with_y_function_of_x,
+          feeds=['x'],
+          fetches=['y'],
+          expected_dependent_inputs=['x']),
+      dict(
+          testcase_name='y_function_of_x_with_unused_inputs',
+          create_graph_fn=_create_graph_with_y_function_of_x_with_unused_inputs,
+          feeds=['x', 'x2', 'x_unused'],
+          fetches=['y', 'z'],
+          expected_dependent_inputs=['x', 'x2']),
+      dict(
+          testcase_name='y_function_of_sparse_x',
+          create_graph_fn=_create_graph_with_y_function_of_x_sparse,
+          feeds=['x'],
+          fetches=['y'],
+          expected_dependent_inputs=['x']),
+      dict(
+          testcase_name='y_sparse_function_of_sparse_x',
+          create_graph_fn=_create_graph_with_y_sparse_function_of_x_sparse,
+          feeds=['x'],
+          fetches=['y'],
+          expected_dependent_inputs=['x']),
+      dict(
+          testcase_name='z_function_of_x_y_with_control_dependencies',
+          create_graph_fn=_create_graph_with_assert_equal,
+          feeds=['x', 'y'],
+          fetches=['z'],
+          expected_dependent_inputs=['x', 'y']),
+      dict(
+          testcase_name='y_function_of_x_with_tf_while',
+          create_graph_fn=_create_graph_with_y_function_of_x_with_tf_while,
+          feeds=['x'],
+          fetches=['y'],
+          expected_dependent_inputs=['x']),
+  )
+  def testGetDependentInputs(self, create_graph_fn, feeds, fetches,
+                             expected_dependent_inputs):
+    tensors = create_graph_fn()
+    got = graph_tools.get_dependent_inputs(tf.compat.v1.get_default_graph(),
+                                           {x: tensors[x] for x in feeds},
+                                           {y: tensors[y] for y in fetches})
+    self.assertCountEqual(expected_dependent_inputs, got.keys())
+    for input_name in expected_dependent_inputs:
+      self.assertEqual(tensors[input_name], got[input_name])
+
 
 class GraphToolsTestUniquePath(test_case.TransformTestCase):
 
@@ -477,9 +548,9 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           expected_calls_dict={
               'x': [mock.call('x$tensor'),],
               'y': [
-                  mock.call('x$tensor'),
                   mock.call(_OpMatcher('add/y'), parents=[]),
                   mock.call(_TensorMatcher('add/y:0'), parents=[u'add/y']),
+                  mock.call('x$tensor'),
                   mock.call(
                       _OpMatcher('add'), parents=['x$tensor', u'add/y:0']),
                   mock.call(_TensorMatcher('add:0'), parents=[u'add']),
@@ -492,23 +563,25 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           replaced_tensors_ready={'x': False},
           expected_calls_dict={
               'y': [
-                  mock.call('x$indices'),
-                  mock.call('x$values'),
-                  mock.call('x$dense_shape'),
-                  mock.call(_OpMatcher('range/start'), parents=[]),
-                  mock.call(
-                      _TensorMatcher('range/start:0'),
-                      parents=[u'range/start']),
-                  mock.call(_OpMatcher('Rank'), parents=['x$dense_shape']),
-                  mock.call(_TensorMatcher('Rank:0'), parents=[u'Rank']),
+                  mock.call(_OpMatcher('add/y'), parents=[]),
+                  mock.call(_TensorMatcher('add/y:0'), parents=[u'add/y']),
                   mock.call(_OpMatcher('range/delta'), parents=[]),
                   mock.call(
                       _TensorMatcher('range/delta:0'),
                       parents=[u'range/delta']),
+                  mock.call('x$dense_shape'),
+                  mock.call(_OpMatcher('Rank'), parents=['x$dense_shape']),
+                  mock.call(_TensorMatcher('Rank:0'), parents=[u'Rank']),
+                  mock.call(_OpMatcher('range/start'), parents=[]),
+                  mock.call(
+                      _TensorMatcher('range/start:0'),
+                      parents=[u'range/start']),
                   mock.call(
                       _OpMatcher('range'),
                       parents=[u'range/start:0', u'Rank:0', u'range/delta:0']),
                   mock.call(_TensorMatcher('range:0'), parents=[u'range']),
+                  mock.call('x$values'),
+                  mock.call('x$indices'),
                   mock.call(
                       _OpMatcher('SparseReduceSum'),
                       parents=[
@@ -517,8 +590,6 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                   mock.call(
                       _TensorMatcher('SparseReduceSum:0'),
                       parents=[u'SparseReduceSum']),
-                  mock.call(_OpMatcher('add/y'), parents=[]),
-                  mock.call(_TensorMatcher('add/y:0'), parents=[u'add/y']),
                   mock.call(
                       _OpMatcher('add'),
                       parents=[u'SparseReduceSum:0', u'add/y:0']),
@@ -532,21 +603,21 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           replaced_tensors_ready={'x': False},
           expected_calls_dict={
               'z': [
-                  mock.call('x$indices'),
-                  mock.call('x$values'),
-                  mock.call(_OpMatcher('add/y'), parents=[]),
-                  mock.call(_TensorMatcher('add/y:0'), parents=[u'add/y']),
-                  mock.call(
-                      _OpMatcher('add'), parents=['x$values', u'add/y:0']),
-                  mock.call(_TensorMatcher('add:0'), parents=[u'add']),
-                  mock.call('x$dense_shape'),
                   mock.call(_OpMatcher('ones/Const'), parents=[]),
                   mock.call(
                       _TensorMatcher('ones/Const:0'), parents=[u'ones/Const']),
+                  mock.call('x$dense_shape'),
                   mock.call(
                       _OpMatcher('ones'),
                       parents=['x$dense_shape', u'ones/Const:0']),
                   mock.call(_TensorMatcher('ones:0'), parents=[u'ones']),
+                  mock.call(_OpMatcher('add/y'), parents=[]),
+                  mock.call(_TensorMatcher('add/y:0'), parents=[u'add/y']),
+                  mock.call('x$values'),
+                  mock.call(
+                      _OpMatcher('add'), parents=['x$values', u'add/y:0']),
+                  mock.call(_TensorMatcher('add:0'), parents=[u'add']),
+                  mock.call('x$indices'),
                   mock.call(
                       _OpMatcher('SparseTensorDenseAdd'),
                       parents=[
@@ -564,29 +635,25 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           replaced_tensors_ready={'x': False},
           expected_calls_dict={
               'y': [
-                  mock.call('x$tensor'),
-                  mock.call(_OpMatcher('while/Enter_1'), parents=['x$tensor']),
+                  mock.call(_TensorMatcher('while/Merge:0'), parents=[]),
                   mock.call(
-                      _TensorMatcher('while/Enter_1:0'),
-                      parents=[u'while/Enter_1']),
-                  mock.call(_TensorMatcher('while/Switch_1:1'), parents=[]),
+                      _OpMatcher('while/Switch'), parents=[
+                          u'while/Merge:0',
+                      ]),
                   mock.call(
-                      _OpMatcher('while/Identity_1'),
-                      parents=[u'while/Switch_1:1']),
+                      _TensorMatcher('while/Switch:1'),
+                      parents=[u'while/Switch']),
                   mock.call(
-                      _TensorMatcher('while/Identity_1:0'),
-                      parents=[u'while/Identity_1']),
-                  mock.call(_OpMatcher('Const'), parents=[]),
-                  mock.call(_TensorMatcher('Const:0'), parents=[u'Const']),
-                  mock.call(_OpMatcher('while/Enter'), parents=[u'Const:0']),
+                      _OpMatcher('while/Identity'),
+                      parents=[u'while/Switch:1']),
                   mock.call(
-                      _TensorMatcher('while/Enter:0'),
-                      parents=[u'while/Enter']),
-                  mock.call(_TensorMatcher('while/Identity:0'), parents=[]),
-                  mock.call(_OpMatcher('while/Add/y'), parents=[]),
+                      _OpMatcher('while/Add/y'), parents=[u'while/Identity']),
                   mock.call(
                       _TensorMatcher('while/Add/y:0'),
                       parents=[u'while/Add/y']),
+                  mock.call(
+                      _TensorMatcher('while/Identity:0'),
+                      parents=[u'while/Identity']),
                   mock.call(
                       _OpMatcher('while/Add'),
                       parents=[u'while/Identity:0', u'while/Add/y:0']),
@@ -598,12 +665,15 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                   mock.call(
                       _TensorMatcher('while/NextIteration:0'),
                       parents=[u'while/NextIteration']),
+                  mock.call(_OpMatcher('Const'), parents=[]),
+                  mock.call(_TensorMatcher('Const:0'), parents=[u'Const']),
+                  mock.call(_OpMatcher('while/Enter'), parents=[u'Const:0']),
+                  mock.call(
+                      _TensorMatcher('while/Enter:0'),
+                      parents=[u'while/Enter']),
                   mock.call(
                       _OpMatcher('while/Merge'),
                       parents=[u'while/Enter:0', u'while/NextIteration:0']),
-                  mock.call(
-                      _TensorMatcher('while/Merge:0'),
-                      parents=[u'while/Merge']),
                   mock.call(
                       _OpMatcher('while/Less/y'), parents=[u'while/Merge']),
                   mock.call(
@@ -620,19 +690,17 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                       _TensorMatcher('while/LoopCond:0'),
                       parents=[u'while/LoopCond']),
                   mock.call(
-                      _OpMatcher('while/Switch'),
-                      parents=[u'while/Merge:0', u'while/LoopCond:0']),
-                  mock.call(
-                      _TensorMatcher('while/Switch:1'),
-                      parents=[u'while/Switch']),
-                  mock.call(
-                      _OpMatcher('while/Identity'),
-                      parents=[u'while/Switch:1']),
-                  mock.call(
                       _OpMatcher('while/Add_1/y'), parents=[u'while/Identity']),
                   mock.call(
                       _TensorMatcher('while/Add_1/y:0'),
                       parents=[u'while/Add_1/y']),
+                  mock.call(_TensorMatcher('while/Switch_1:1'), parents=[]),
+                  mock.call(
+                      _OpMatcher('while/Identity_1'),
+                      parents=[u'while/Switch_1:1']),
+                  mock.call(
+                      _TensorMatcher('while/Identity_1:0'),
+                      parents=[u'while/Identity_1']),
                   mock.call(
                       _OpMatcher('while/Add_1'),
                       parents=[u'while/Identity_1:0', u'while/Add_1/y:0']),
@@ -645,6 +713,11 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                   mock.call(
                       _TensorMatcher('while/NextIteration_1:0'),
                       parents=[u'while/NextIteration_1']),
+                  mock.call('x$tensor'),
+                  mock.call(_OpMatcher('while/Enter_1'), parents=['x$tensor']),
+                  mock.call(
+                      _TensorMatcher('while/Enter_1:0'),
+                      parents=[u'while/Enter_1']),
                   mock.call(
                       _OpMatcher('while/Merge_1'),
                       parents=[u'while/Enter_1:0', u'while/NextIteration_1:0']),
@@ -669,9 +742,7 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           testcase_name='y_function_of_x_and_table',
           create_graph_fn=_create_graph_with_y_function_of_x_and_table_in_first_phase,
           feeds=['x'],
-          replaced_tensors_ready={
-              'x': False,
-          },
+          replaced_tensors_ready={'x': False},
           # NOTE: This can't be automatically copied from the test output due to
           # the strings that have to be backwards compatible using
           # _SubStrMatcher.
@@ -698,17 +769,17 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                   mock.call(
                       _OpMatcher('string_to_index/hash_table/hash_table'),
                       parents=[_SubStrMatcher('string_to_index/hash_table')]),
-                  mock.call(_SubStrMatcher('string_to_index/hash_table')),
-                  mock.call(
-                      _TensorMatcher('string_to_index/hash_table/hash_table:0'),
-                      parents=[_SubStrMatcher('string_to_index/hash_table')]),
-                  mock.call('x$tensor'),
                   mock.call(
                       _OpMatcher('string_to_index/hash_table/Const'),
                       parents=[]),
                   mock.call(
                       _TensorMatcher('string_to_index/hash_table/Const:0'),
                       parents=[_SubStrMatcher('hash_table/Const')]),
+                  mock.call('x$tensor'),
+                  mock.call(_SubStrMatcher('string_to_index/hash_table')),
+                  mock.call(
+                      _TensorMatcher('string_to_index/hash_table/hash_table:0'),
+                      parents=[_SubStrMatcher('string_to_index/hash_table')]),
                   mock.call(
                       _OpMatcher('hash_table_Lookup/LookupTableFindV2'),
                       parents=[
@@ -732,28 +803,28 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
               'x': [mock.call('x$tensor'),],
               'y': [mock.call('y$tensor'),],
               'z': [
-                  mock.call('x$tensor'),
+                  mock.call(_OpMatcher('assert_equal/range/delta'), parents=[]),
+                  mock.call(
+                      _TensorMatcher('assert_equal/range/delta:0'),
+                      parents=[u'assert_equal/range/delta']),
                   mock.call('y$tensor'),
+                  mock.call('x$tensor'),
                   mock.call(
                       _OpMatcher('assert_equal/Equal'),
                       parents=['x$tensor', 'y$tensor']),
                   mock.call(
                       _TensorMatcher('assert_equal/Equal:0'),
                       parents=[u'assert_equal/Equal']),
-                  mock.call(_OpMatcher('assert_equal/range/start'), parents=[]),
-                  mock.call(
-                      _TensorMatcher('assert_equal/range/start:0'),
-                      parents=[u'assert_equal/range/start']),
                   mock.call(
                       _OpMatcher('assert_equal/Rank'),
                       parents=[u'assert_equal/Equal:0']),
                   mock.call(
                       _TensorMatcher('assert_equal/Rank:0'),
                       parents=[u'assert_equal/Rank']),
-                  mock.call(_OpMatcher('assert_equal/range/delta'), parents=[]),
+                  mock.call(_OpMatcher('assert_equal/range/start'), parents=[]),
                   mock.call(
-                      _TensorMatcher('assert_equal/range/delta:0'),
-                      parents=[u'assert_equal/range/delta']),
+                      _TensorMatcher('assert_equal/range/start:0'),
+                      parents=[u'assert_equal/range/start']),
                   mock.call(
                       _OpMatcher('assert_equal/range'),
                       parents=[
@@ -776,15 +847,32 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                       parents=[u'assert_equal/All:0', u'assert_equal/All:0']),
                   mock.call(
                       _TensorMatcher(
-                          'assert_equal/Assert/AssertGuard/Switch:0'),
+                          'assert_equal/Assert/AssertGuard/Switch:1'),
                       parents=[u'assert_equal/Assert/AssertGuard/Switch']),
                   mock.call(
-                      _OpMatcher('assert_equal/Assert/AssertGuard/switch_f'),
-                      parents=[u'assert_equal/Assert/AssertGuard/Switch:0']),
+                      _OpMatcher('assert_equal/Assert/AssertGuard/switch_t'),
+                      parents=[u'assert_equal/Assert/AssertGuard/Switch:1']),
+                  mock.call(
+                      _OpMatcher('assert_equal/Assert/AssertGuard/NoOp'),
+                      parents=[u'assert_equal/Assert/AssertGuard/switch_t']),
                   mock.call(
                       _TensorMatcher(
-                          'assert_equal/Assert/AssertGuard/switch_f:0'),
-                      parents=[u'assert_equal/Assert/AssertGuard/switch_f']),
+                          'assert_equal/Assert/AssertGuard/switch_t:0'),
+                      parents=[u'assert_equal/Assert/AssertGuard/switch_t']),
+                  mock.call(
+                      _OpMatcher(
+                          'assert_equal/Assert/AssertGuard/control_dependency'),
+                      parents=[
+                          u'assert_equal/Assert/AssertGuard/switch_t:0',
+                          u'assert_equal/Assert/AssertGuard/NoOp'
+                      ]),
+                  mock.call(
+                      _TensorMatcher(
+                          'assert_equal/Assert/AssertGuard/control_dependency:0'
+                      ),
+                      parents=[
+                          u'assert_equal/Assert/AssertGuard/control_dependency'
+                      ]),
                   mock.call(
                       _OpMatcher('assert_equal/Assert/AssertGuard/pred_id'),
                       parents=[u'assert_equal/All:0']),
@@ -794,46 +882,33 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                       parents=[u'assert_equal/Assert/AssertGuard/pred_id']),
                   mock.call(
                       _OpMatcher(
-                          'assert_equal/Assert/AssertGuard/Assert/Switch'),
+                          'assert_equal/Assert/AssertGuard/Assert/Switch_2'),
                       parents=[
-                          u'assert_equal/All:0',
+                          'y$tensor',
                           u'assert_equal/Assert/AssertGuard/pred_id:0'
                       ]),
                   mock.call(
                       _TensorMatcher(
-                          'assert_equal/Assert/AssertGuard/Assert/Switch:0'),
+                          'assert_equal/Assert/AssertGuard/Assert/Switch_2:0'),
                       parents=[
-                          u'assert_equal/Assert/AssertGuard/Assert/Switch'
+                          u'assert_equal/Assert/AssertGuard/Assert/Switch_2'
                       ]),
                   mock.call(
+                      _TensorMatcher(
+                          'assert_equal/Assert/AssertGuard/Switch:0'),
+                      parents=[u'assert_equal/Assert/AssertGuard/Switch']),
+                  mock.call(
+                      _OpMatcher('assert_equal/Assert/AssertGuard/switch_f'),
+                      parents=[u'assert_equal/Assert/AssertGuard/Switch:0']),
+                  mock.call(
                       _OpMatcher(
-                          'assert_equal/Assert/AssertGuard/Assert/data_0'),
+                          'assert_equal/Assert/AssertGuard/Assert/data_4'),
                       parents=[u'assert_equal/Assert/AssertGuard/switch_f']),
                   mock.call(
                       _TensorMatcher(
-                          'assert_equal/Assert/AssertGuard/Assert/data_0:0'),
+                          'assert_equal/Assert/AssertGuard/Assert/data_4:0'),
                       parents=[
-                          u'assert_equal/Assert/AssertGuard/Assert/data_0'
-                      ]),
-                  mock.call(
-                      _OpMatcher(
-                          'assert_equal/Assert/AssertGuard/Assert/data_1'),
-                      parents=[u'assert_equal/Assert/AssertGuard/switch_f']),
-                  mock.call(
-                      _TensorMatcher(
-                          'assert_equal/Assert/AssertGuard/Assert/data_1:0'),
-                      parents=[
-                          u'assert_equal/Assert/AssertGuard/Assert/data_1'
-                      ]),
-                  mock.call(
-                      _OpMatcher(
-                          'assert_equal/Assert/AssertGuard/Assert/data_2'),
-                      parents=[u'assert_equal/Assert/AssertGuard/switch_f']),
-                  mock.call(
-                      _TensorMatcher(
-                          'assert_equal/Assert/AssertGuard/Assert/data_2:0'),
-                      parents=[
-                          u'assert_equal/Assert/AssertGuard/Assert/data_2'
+                          u'assert_equal/Assert/AssertGuard/Assert/data_4'
                       ]),
                   mock.call(
                       _OpMatcher(
@@ -850,26 +925,46 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                       ]),
                   mock.call(
                       _OpMatcher(
-                          'assert_equal/Assert/AssertGuard/Assert/data_4'),
+                          'assert_equal/Assert/AssertGuard/Assert/data_2'),
                       parents=[u'assert_equal/Assert/AssertGuard/switch_f']),
                   mock.call(
                       _TensorMatcher(
-                          'assert_equal/Assert/AssertGuard/Assert/data_4:0'),
+                          'assert_equal/Assert/AssertGuard/Assert/data_2:0'),
                       parents=[
-                          u'assert_equal/Assert/AssertGuard/Assert/data_4'
+                          u'assert_equal/Assert/AssertGuard/Assert/data_2'
                       ]),
                   mock.call(
                       _OpMatcher(
-                          'assert_equal/Assert/AssertGuard/Assert/Switch_2'),
+                          'assert_equal/Assert/AssertGuard/Assert/data_1'),
+                      parents=[u'assert_equal/Assert/AssertGuard/switch_f']),
+                  mock.call(
+                      _TensorMatcher(
+                          'assert_equal/Assert/AssertGuard/Assert/data_1:0'),
                       parents=[
-                          'y$tensor',
+                          u'assert_equal/Assert/AssertGuard/Assert/data_1'
+                      ]),
+                  mock.call(
+                      _OpMatcher(
+                          'assert_equal/Assert/AssertGuard/Assert/data_0'),
+                      parents=[u'assert_equal/Assert/AssertGuard/switch_f']),
+                  mock.call(
+                      _TensorMatcher(
+                          'assert_equal/Assert/AssertGuard/Assert/data_0:0'),
+                      parents=[
+                          u'assert_equal/Assert/AssertGuard/Assert/data_0'
+                      ]),
+                  mock.call(
+                      _OpMatcher(
+                          'assert_equal/Assert/AssertGuard/Assert/Switch'),
+                      parents=[
+                          u'assert_equal/All:0',
                           u'assert_equal/Assert/AssertGuard/pred_id:0'
                       ]),
                   mock.call(
                       _TensorMatcher(
-                          'assert_equal/Assert/AssertGuard/Assert/Switch_2:0'),
+                          'assert_equal/Assert/AssertGuard/Assert/Switch:0'),
                       parents=[
-                          u'assert_equal/Assert/AssertGuard/Assert/Switch_2'
+                          u'assert_equal/Assert/AssertGuard/Assert/Switch'
                       ]),
                   mock.call(
                       _OpMatcher('assert_equal/Assert/AssertGuard/Assert'),
@@ -882,6 +977,10 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                           u'assert_equal/Assert/AssertGuard/Assert/data_4:0',
                           u'assert_equal/Assert/AssertGuard/Assert/Switch_2:0'
                       ]),
+                  mock.call(
+                      _TensorMatcher(
+                          'assert_equal/Assert/AssertGuard/switch_f:0'),
+                      parents=[u'assert_equal/Assert/AssertGuard/switch_f']),
                   mock.call(
                       _OpMatcher(
                           'assert_equal/Assert/AssertGuard/control_dependency_1'
@@ -896,34 +995,6 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                       ),
                       parents=[
                           u'assert_equal/Assert/AssertGuard/control_dependency_1'
-                      ]),
-                  mock.call(
-                      _TensorMatcher(
-                          'assert_equal/Assert/AssertGuard/Switch:1'),
-                      parents=[u'assert_equal/Assert/AssertGuard/Switch']),
-                  mock.call(
-                      _OpMatcher('assert_equal/Assert/AssertGuard/switch_t'),
-                      parents=[u'assert_equal/Assert/AssertGuard/Switch:1']),
-                  mock.call(
-                      _TensorMatcher(
-                          'assert_equal/Assert/AssertGuard/switch_t:0'),
-                      parents=[u'assert_equal/Assert/AssertGuard/switch_t']),
-                  mock.call(
-                      _OpMatcher('assert_equal/Assert/AssertGuard/NoOp'),
-                      parents=[u'assert_equal/Assert/AssertGuard/switch_t']),
-                  mock.call(
-                      _OpMatcher(
-                          'assert_equal/Assert/AssertGuard/control_dependency'),
-                      parents=[
-                          u'assert_equal/Assert/AssertGuard/switch_t:0',
-                          u'assert_equal/Assert/AssertGuard/NoOp'
-                      ]),
-                  mock.call(
-                      _TensorMatcher(
-                          'assert_equal/Assert/AssertGuard/control_dependency:0'
-                      ),
-                      parents=[
-                          u'assert_equal/Assert/AssertGuard/control_dependency'
                       ]),
                   mock.call(
                       _OpMatcher('assert_equal/Assert/AssertGuard/Merge'),

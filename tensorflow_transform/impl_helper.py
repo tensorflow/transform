@@ -24,7 +24,6 @@ import itertools
 
 import numpy as np
 import six
-from six.moves import queue  # pylint: disable=redefined-builtin
 from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 import tensorflow as tf
@@ -346,70 +345,3 @@ def _copy_tensor_or_sparse_tensor(tensor):
     dense_shape = _copy_tensor(tensor.dense_shape)
     return tf.SparseTensor(indices, values, dense_shape)
   return _copy_tensor(tensor)
-
-
-def _find_input_placeholder_ops(output_tensors):
-  """Find all the placeholder ops that (transitively) produce output_tensors."""
-  result = set()
-  enqueued_tensors = set()
-  visit_queue = queue.Queue()
-  for output_tensor in output_tensors:
-    visit_queue.put(output_tensor)
-    enqueued_tensors.add(output_tensor)
-  while not visit_queue.empty():
-    tensor = visit_queue.get()
-    ops = []
-    if isinstance(tensor, tf.Tensor):
-      ops.append(tensor.op)
-    elif isinstance(tensor, tf.SparseTensor):
-      ops.append(tensor.dense_shape.op)
-      ops.append(tensor.indices.op)
-      ops.append(tensor.values.op)
-    else:
-      raise ValueError('Unsupported Tensor type: {}'.format(type(tensor)))
-
-    for op in ops:
-      if op.type == 'Placeholder':  # no inputs and is a Placeholder op.
-        result.add(op)
-        if op.inputs:
-          raise ValueError('Placeholder op {} has non-zero inputs'.format(
-              op.name))
-      for t in op.inputs:
-        if t not in enqueued_tensors:
-          visit_queue.put(t)
-          enqueued_tensors.add(t)
-  return result
-
-
-def filter_input_tensors(input_tensors, output_tensors):
-  """Returns tensors in input_tensors that (transitively) produce output_tensors.
-
-  Args:
-    input_tensors: A dict of logical name to `tf.Tensor` or `tf.SparseTensor`.
-      Logical name doesn't have any implications in this method and can be
-      anything. In some cases it is the feature name corresponding to the input
-      tensor.
-    output_tensors: A list of `tf.Tensor` or `tf.SparseTensor`.
-
-  Returns:
-    A dict of logical name to `tf.Tensor` or `tf.SparseTensor` that are
-    filtered from input_tensors (transitively) producing output_tensors
-
-  Raises:
-    ValueError: If any Placeholder op is found to have non-zero inputs.
-  """
-  input_placeholder_ops = _find_input_placeholder_ops(output_tensors)
-
-  result = {}
-  for name, input_tensor in input_tensors.items():
-    if isinstance(input_tensor, tf.Tensor):
-      if input_tensor.op in input_placeholder_ops:
-        result[name] = input_tensor
-    elif isinstance(input_tensor, tf.SparseTensor):
-      if (input_tensor.dense_shape.op in input_placeholder_ops or
-          input_tensor.indices.op in input_placeholder_ops or
-          input_tensor.values.op in input_placeholder_ops):
-        result[name] = input_tensor
-    else:
-      raise ValueError('Unsupported Tensor type: {}'.format(type(input_tensor)))
-  return result

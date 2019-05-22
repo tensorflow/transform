@@ -28,6 +28,8 @@
   dtypes.
 * Make `tft.apply_buckets_with_interpolation` support SparseTensors.
 * Adds an experimental api for analyzers to annotate the post-transform schema.
+* `TFTransformOutput.transform_raw_features` now accepts an optional
+  `drop_unused_features` parameter to exclude unused features in output.
 
 ## Breaking changes
 

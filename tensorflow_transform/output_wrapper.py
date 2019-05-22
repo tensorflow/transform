@@ -21,7 +21,9 @@ import os
 
 # GOOGLE-INITIALIZATION
 
+import six
 import tensorflow as tf
+from tensorflow_transform import graph_tools
 from tensorflow_transform.analyzers import sanitized_vocab_filename
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import metadata_io
@@ -114,24 +116,45 @@ class TFTransformOutput(object):
           name, domain.min))
     return domain.max + 1
 
-  def transform_raw_features(self, raw_features):
+  def transform_raw_features(self, raw_features, drop_unused_features=False):
     """Takes a dict of tensors representing raw features and transforms them.
 
     Takes a dictionary of `Tensor`s or `SparseTensor`s that represent the raw
     features, and applies the transformation defined by tf.Transform.
 
+    By default it returns all transformed features defined by tf.Transform. To
+    only return features transformed from the given 'raw_features', set
+    `drop_unused_features` to True.
+
     Args:
       raw_features: A dict whose keys are feature names and values are `Tensor`s
-          or `SparseTensor`s.
+        or `SparseTensor`s.
+      drop_unused_features: If True, the result will be filtered. Only the
+        features that are transformed from 'raw_features' will be included in
+        the returned result. If a feature is transformed from multiple raw
+        features (e.g, feature cross), it will only be included if all its base
+        raw features are present in `raw_features`.
 
     Returns:
       A dict whose keys are feature names and values are `Tensor`s or
           `SparseTensor`s representing transformed features.
     """
-    _, transformed_features = (
+    unbounded_raw_features, transformed_features = (
         saved_transform_io.partially_apply_saved_transform_internal(
             self.transform_savedmodel_dir, raw_features))
-    return transformed_features
+    # TODO(b/124051570): Consider making drop_unused_features default to true.
+    if drop_unused_features:
+      graph = tf.compat.v1.get_default_graph()
+      graph_analyzer = graph_tools.InitializableGraphAnalyzer(
+          graph, raw_features,
+          {t: False for t in six.itervalues(unbounded_raw_features)})
+      return {
+          name: feature
+          for name, feature in six.iteritems(transformed_features)
+          if graph_analyzer.ready_to_run(feature)
+      }
+    else:
+      return transformed_features
 
   def load_transform_graph(self):
     """Load the transform graph without replacing any placeholders.

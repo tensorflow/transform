@@ -423,42 +423,6 @@ class ImplHelperTest(test_case.TransformTestCase):
       self.assertAllEqual(sample_tensors['sparse'].dense_shape,
                           sparse_value.dense_shape)
 
-  def test_filter_input_tensors(self):
-    with tf.Graph().as_default():
-      a = tf.compat.v1.placeholder(tf.float32, shape=(10, 10))
-      b = tf.compat.v1.sparse.placeholder(tf.float32)
-      c = tf.compat.v1.sparse.placeholder(tf.float32)
-      d = tf.compat.v1.placeholder(tf.float32)
-      e = tf.compat.v1.placeholder(tf.float32)
-      f = tf.compat.v1.placeholder(tf.float32)
-      input_tensors = {
-          'a': a,
-          'b': b,
-          'c': c,
-          'd': d,
-          'e': e,
-          'f': f,
-          'unused_1': tf.compat.v1.placeholder(tf.float32),
-          'unused_2': tf.compat.v1.sparse.placeholder(tf.float32),
-      }
-
-      matmul_a = tf.matmul(a, a)
-      add_b_c = tf.sparse.add(a=b, b=c)
-      add_d_e = d + e
-      add_d_e_f = add_d_e + f
-      output_tensors = [matmul_a, add_b_c, add_d_e_f]
-
-    filtered_input_tensors = impl_helper.filter_input_tensors(
-        input_tensors, output_tensors)
-    self.assertEqual(filtered_input_tensors, {
-        'a': a,
-        'b': b,
-        'c': c,
-        'd': d,
-        'e': e,
-        'f': f,
-    })
-
 
 def _subtract_ten_with_tf_while(x):
   """Subtracts 10 from x using control flow ops.
