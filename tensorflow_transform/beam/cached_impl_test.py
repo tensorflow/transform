@@ -1,3 +1,5 @@
+# coding=utf-8
+#
 # Copyright 2018 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,6 +24,7 @@ import os
 # GOOGLE-INITIALIZATION
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
+import numpy as np
 
 import six
 import tensorflow as tf
@@ -461,7 +464,7 @@ class CachedImplTest(test_case.TransformTestCase):
 
     def preprocessing_fn(inputs):
 
-      _ = tft.vocabulary(inputs['s'])
+      _ = tft.vocabulary(inputs['s'], vocab_filename='vocab1')
 
       _ = tft.bucketize(inputs['x'], 2, name='bucketize')
 
@@ -481,17 +484,6 @@ class CachedImplTest(test_case.TransformTestCase):
                   use_adjusted_mutual_info=True),
       }
 
-    input_data = [{
-        'x': 12,
-        'y': 1,
-        's': 'b',
-        'label': 0
-    }, {
-        'x': 10,
-        'y': 1,
-        's': 'c',
-        'label': 1
-    }]
     input_metadata = dataset_metadata.DatasetMetadata(
         dataset_schema.from_feature_spec({
             'x': tf.io.FixedLenFeature([], tf.float32),
@@ -510,9 +502,32 @@ class CachedImplTest(test_case.TransformTestCase):
             'y': -4,
             's': 'a',
             'label': 1,
+        }, {
+            'x': 5,
+            'y': 11,
+            's': 'a',
+            'label': 1,
+        }, {
+            'x': 1,
+            'y': -4,
+            's': u'ȟᎥ𝒋ǩľḿꞑȯ𝘱𝑞𝗋𝘴'.encode('utf-8'),
+            'label': 1,
         }],
-        span_1_key: input_data,
+        span_1_key: [{
+            'x': 12,
+            'y': 1,
+            's': u'ȟᎥ𝒋ǩľḿꞑȯ𝘱𝑞𝗋𝘴'.encode('utf-8'),
+            'label': 0
+        }, {
+            'x': 10,
+            'y': 1,
+            's': 'c',
+            'label': 1
+        }],
     }
+    expected_vocabulary_contents = np.array(
+        [b'a', u'ȟᎥ𝒋ǩľḿꞑȯ𝘱𝑞𝗋𝘴'.encode('utf-8'), b'c'],
+        dtype=object)
     with _TestPipeline() as p:
       flat_data = p | 'CreateInputData' >> beam.Create(
           list(itertools.chain(*input_data_dict.values())))
@@ -538,18 +553,18 @@ class CachedImplTest(test_case.TransformTestCase):
 
       expected_transformed_data = [
           {
-              'x_mean': 6.0,
+              'x_mean': 5.0,
               'x_min': -2.0,
-              'y_mean': -0.25,
+              'y_mean': 1.0,
               'y_min': -4.0,
               's_integerized': 0,
           },
           {
-              'x_mean': 6.0,
+              'x_mean': 5.0,
               'x_min': -2.0,
-              'y_mean': -0.25,
+              'y_mean': 1.0,
               'y_min': -4.0,
-              's_integerized': 1,
+              's_integerized': 2,
           },
       ]
       beam_test_util.assert_that(
@@ -564,8 +579,12 @@ class CachedImplTest(test_case.TransformTestCase):
         self.assertIn(key, cache_output)
         self.assertEqual(7, len(cache_output[key]))
 
+    tf_transform_output = tft.TFTransformOutput(transform_fn_dir)
+    vocab1_path = tf_transform_output.vocabulary_file_by_name('vocab1')
+    self.AssertVocabularyContents(vocab1_path, expected_vocabulary_contents)
+
     # 4 from analyzing 2 spans, and 2 from transform.
-    self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 6)
+    self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 8)
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 0)
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 14)
     self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
@@ -594,11 +613,18 @@ class CachedImplTest(test_case.TransformTestCase):
       transformed_dataset = ((
           (input_data_dict[span_1_key], input_metadata), transform_fn_2)
                              | 'TransformAgain' >> beam_impl.TransformDataset())
-    transformed_data, unused_transformed_metadata = transformed_dataset
-    beam_test_util.assert_that(
-        transformed_data,
-        beam_test_util.equal_to(expected_transformed_data),
-        label='second')
+      transformed_data, unused_transformed_metadata = transformed_dataset
+      beam_test_util.assert_that(
+          transformed_data,
+          beam_test_util.equal_to(expected_transformed_data),
+          label='second')
+
+      transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_2')
+      _ = transform_fn_2 | tft_beam.WriteTransformFn(transform_fn_dir)
+
+    tf_transform_output = tft.TFTransformOutput(transform_fn_dir)
+    vocab1_path = tf_transform_output.vocabulary_file_by_name('vocab1')
+    self.AssertVocabularyContents(vocab1_path, expected_vocabulary_contents)
 
     self.assertFalse(second_output_cache)
 

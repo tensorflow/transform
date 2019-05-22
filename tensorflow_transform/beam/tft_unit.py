@@ -23,9 +23,7 @@ import tempfile
 # GOOGLE-INITIALIZATION
 
 import apache_beam as beam
-from builtins import zip  # pylint: disable=redefined-builtin
 
-import numpy as np
 import six
 import tensorflow as tf
 import tensorflow_transform as tft
@@ -257,20 +255,4 @@ class TransformTestCase(test_case.TransformTestCase):
 
     for filename, file_contents in six.iteritems(expected_vocab_file_contents):
       full_filename = tf_transform_output.vocabulary_file_by_name(filename)
-      with tf.io.gfile.GFile(full_filename, 'rb') as f:
-        file_lines = f.readlines()
-
-        # Store frequency case.
-        if isinstance(file_contents[0], tuple):
-          word_and_frequency_list = []
-          for content in file_lines:
-            frequency, word = content.split(b' ', 1)
-            word_and_frequency_list.append((word.strip(b'\n'),
-                                            float(frequency.strip(b'\n'))))
-          expected_words, expected_frequency = zip(*word_and_frequency_list)
-          actual_words, actual_frequency = zip(*file_contents)
-          self.assertAllEqual(expected_words, actual_words)
-          np.testing.assert_almost_equal(expected_frequency, actual_frequency)
-        else:
-          file_lines = [content.strip(b'\n') for content in file_lines]
-          self.assertAllEqual(file_lines, file_contents)
+      self.AssertVocabularyContents(full_filename, file_contents)

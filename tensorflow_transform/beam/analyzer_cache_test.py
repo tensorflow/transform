@@ -1,3 +1,5 @@
+# coding=utf-8
+#
 # Copyright 2018 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -51,12 +53,16 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
       dict(
           testcase_name='_VocabularyAccumulatorCoderIntAccumulator',
           coder_cls=analyzer_nodes._VocabularyAccumulatorCoder,
-          value=['A', 17]),
+          value=[b'A', 17]),
+      dict(
+          testcase_name='_VocabularyAccumulatorCoderIntAccumulatorUnicode',
+          coder_cls=analyzer_nodes._VocabularyAccumulatorCoder,
+          value=[u'ȟᎥ𝒋ǩľḿꞑȯ𝘱𝑞𝗋𝘴'.encode('utf-8'), 29]),
       dict(
           testcase_name='_VocabularyAccumulatorCoderClassAccumulator',
           coder_cls=analyzer_nodes._VocabularyAccumulatorCoder,
           value=[
-              'A',
+              b'A',
               analyzers._WeightedMeanAndVarAccumulator(
                   count=np.array(5),
                   mean=np.array([.4, .9, 1.5]),
@@ -68,7 +74,7 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
   def test_coders_round_trip(self, coder_cls, value):
     coder = coder_cls()
     encoded = coder.encode_cache(value)
-    np.testing.assert_equal(value, coder.decode_cache(encoded))
+    np.testing.assert_equal(coder.decode_cache(encoded), value)
 
   def test_cache_helpers_round_trip(self):
     base_test_dir = os.path.join(

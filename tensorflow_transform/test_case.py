@@ -22,11 +22,11 @@ import inspect
 # GOOGLE-INITIALIZATION
 
 from absl.testing import parameterized
+from builtins import zip  # pylint: disable=redefined-builtin
 
 import numpy as np
 import six
 import tensorflow as tf
-from tensorflow.python.framework import test_util
 
 main = tf.test.main
 
@@ -69,7 +69,7 @@ def parameters(*testcases):
   return wrapper
 
 
-class TransformTestCase(parameterized.TestCase, test_util.TensorFlowTestCase):
+class TransformTestCase(parameterized.TestCase, tf.test.TestCase):
   """Base test class for testing tf-transform code."""
 
   # Display context for failing rows in data assertions.
@@ -87,7 +87,7 @@ class TransformTestCase(parameterized.TestCase, test_util.TensorFlowTestCase):
     Raises:
       AssertionError: if the two datasets are not the same.
     """
-    a_data, b_data = self._sorted_data(a_data), self._sorted_data(b_data)
+    a_data, b_data = self._SortedData(a_data), self._SortedData(b_data)
     self.assertEqual(
         len(a_data), len(b_data), 'len(%r) != len(%r)' % (a_data, b_data))
     for i, (a_row, b_row) in enumerate(zip(a_data, b_data)):
@@ -116,24 +116,43 @@ class TransformTestCase(parameterized.TestCase, test_util.TensorFlowTestCase):
         e.args = ((e.args[0] + ' : ' + msg,) + e.args[1:])
       raise
 
+  def AssertVocabularyContents(self, vocab_file_path, file_contents):
+    with tf.io.gfile.GFile(vocab_file_path, 'rb') as f:
+      file_lines = f.readlines()
+
+      # Store frequency case.
+      if isinstance(file_contents[0], tuple):
+        word_and_frequency_list = []
+        for content in file_lines:
+          frequency, word = content.split(b' ', 1)
+          word_and_frequency_list.append(
+              (word.strip(b'\n'), float(frequency.strip(b'\n'))))
+        expected_words, expected_frequency = zip(*word_and_frequency_list)
+        actual_words, actual_frequency = zip(*file_contents)
+        self.assertAllEqual(expected_words, actual_words)
+        np.testing.assert_almost_equal(expected_frequency, actual_frequency)
+      else:
+        file_lines = [content.strip(b'\n') for content in file_lines]
+        self.assertAllEqual(file_lines, file_contents)
+
   def WriteRenderedDotFile(self, dot_string, output_file=None):
     tf.compat.v1.logging.info(
         'Writing a rendered dot file is not yet supported.')
 
-  def _numpy_arrays_to_lists(self, maybe_arrays):
+  def _NumpyArraysToLists(self, maybe_arrays):
     return [
         x.tolist() if isinstance(x, np.ndarray) else x for x in maybe_arrays]
 
-  def _sorted_dicts(self, list_of_dicts):
+  def _SortedDicts(self, list_of_dicts):
     # Sorts dicts by their unordered (key, value) pairs.
     return sorted(list_of_dicts, key=lambda d: sorted(d.items()))
 
-  def _sorted_data(self, list_of_dicts_of_arrays):
+  def _SortedData(self, list_of_dicts_of_arrays):
     list_of_values = [
-        self._numpy_arrays_to_lists(d.values()) for d in list_of_dicts_of_arrays
+        self._NumpyArraysToLists(d.values()) for d in list_of_dicts_of_arrays
     ]
     list_of_keys = [d.keys() for d in list_of_dicts_of_arrays]
     unsorted_dict_list = [
         dict(zip(a, b)) for a, b in zip(list_of_keys, list_of_values)
     ]
-    return self._sorted_dicts(unsorted_dict_list)
+    return self._SortedDicts(unsorted_dict_list)
