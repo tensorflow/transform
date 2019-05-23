@@ -32,7 +32,6 @@ import json
 # GOOGLE-INITIALIZATION
 
 import numpy as np
-import six
 import tensorflow as tf
 from tensorflow_transform import nodes
 
@@ -459,7 +458,7 @@ class _VocabularyAccumulatorCoder(CacheCoder):
                np.array(weight))
     except TypeError:
       pass
-    if isinstance(token, (six.binary_type, six.text_type)):
+    if self._input_dtype == tf.string:
       token = tf.compat.as_bytes(token)
     return token, value
 
