@@ -22,6 +22,7 @@ import collections
 # GOOGLE-INITIALIZATION
 import tensorflow as tf
 
+from tensorflow.contrib.proto.python.ops import encode_proto_op
 
 _FLOATING_NAN = float('nan')
 
@@ -238,14 +239,14 @@ def reduce_batch_count_mean_and_var_per_key(x, key, reduce_instance_dims):
 
   if reduce_instance_dims:
     sums = tf.reduce_sum(x, axis=1) if x.get_shape().ndims != 1 else x
-    sums = tf.math.unsorted_segment_sum(sums, unique.idx, tf.size(unique.y))
+    sums = tf.unsorted_segment_sum(sums, unique.idx, tf.size(input=unique.y))
   else:
-    sums = tf.math.unsorted_segment_sum(x, unique.idx, tf.size(unique.y))
+    sums = tf.unsorted_segment_sum(x, unique.idx, tf.size(input=unique.y))
 
   means = tf.cast(sums, x.dtype) / x_count
-  sum_sqs = tf.math.unsorted_segment_sum(tf.square(x),
-                                         unique.idx,
-                                         tf.size(input=unique.y))
+  sum_sqs = tf.unsorted_segment_sum(tf.square(x),
+                                    unique.idx,
+                                    tf.size(input=unique.y))
   if sum_sqs.get_shape().ndims != 1 and reduce_instance_dims:
     sum_sqs = tf.reduce_sum(sum_sqs, axis=1)
 
@@ -265,7 +266,7 @@ _DEFAULT_VALUE_BY_DTYPE = {
 
 
 def _encode_proto(values_dict, message_type):
-  """A wrapper around tf.raw_ops.EncodeProto."""
+  """A wrapper around encode_proto_op.encode_proto."""
   field_names = []
   sizes = []
   values = []
@@ -285,10 +286,7 @@ def _encode_proto(values_dict, message_type):
     sizes.append(size)
 
   sizes = tf.stack(sizes, axis=1)
-  return tf.raw_ops.EncodeProto(sizes=sizes,
-                                values=values,
-                                field_names=field_names,
-                                message_type=message_type)
+  return encode_proto_op.encode_proto(sizes, values, field_names, message_type)
 
 
 def _serialize_feature(values):

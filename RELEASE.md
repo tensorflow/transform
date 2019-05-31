@@ -30,7 +30,6 @@
 * Adds an experimental api for analyzers to annotate the post-transform schema.
 * `TFTransformOutput.transform_raw_features` now accepts an optional
   `drop_unused_features` parameter to exclude unused features in output.
-* Convert some tf.contrib functions to be compatible with TF2.0.
 
 ## Breaking changes
 

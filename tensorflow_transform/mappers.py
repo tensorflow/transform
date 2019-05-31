@@ -59,15 +59,15 @@ import os
 
 # GOOGLE-INITIALIZATION
 
-import six
-
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import schema_inference
 
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
+from tensorflow.contrib.proto.python.ops import encode_proto_op
 from tensorflow.python.ops import check_ops
+from tensorflow.python.ops import lookup_ops
 from tensorflow.python.util import deprecation
 # pylint: enable=g-direct-tensorflow-import
 
@@ -720,8 +720,8 @@ def apply_vocabulary(x,
       Otherwise it is assigned the `default_value`.
     lookup_fn: Optional lookup function, if specified it should take a tensor
       and a deferred vocab filename as an input and return a lookup `op` along
-      with the table size, by default `apply_vocab` constructs a StaticHashTable
-      for the table lookup.
+      with the table size, by default `apply_vocab` performs a
+      lookup_ops.index_table_from_file for the table lookup.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -739,26 +739,11 @@ def apply_vocabulary(x,
     if lookup_fn:
       result, table_size = lookup_fn(x, deferred_vocab_filename_tensor)
     else:
-      if (deferred_vocab_filename_tensor is None
-          or (isinstance(deferred_vocab_filename_tensor,
-                         (six.binary_type, six.text_type))
-              and not deferred_vocab_filename_tensor)):
-        raise ValueError('`deferred_vocab_filename_tensor` must not be empty.')
-      initializer = tf.lookup.TextFileInitializer(
+      table = lookup_ops.index_table_from_file(
           deferred_vocab_filename_tensor,
-          key_dtype=x.dtype,
-          key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
-          value_dtype=tf.int64,
-          value_index=tf.lookup.TextFileIndex.LINE_NUMBER,
-          delimiter=' ')
-
-      if num_oov_buckets > 0:
-        table = tf.lookup.StaticVocabularyTable(initializer,
-                                                num_oov_buckets=num_oov_buckets,
-                                                lookup_key_dtype=x.dtype)
-      else:
-        table = tf.lookup.StaticHashTable(initializer,
-                                          default_value=default_value)
+          num_oov_buckets=num_oov_buckets,
+          default_value=default_value,
+          key_dtype=x.dtype)
       table_size = table.size()
       result = table.lookup(x)
 
@@ -1136,12 +1121,7 @@ def bucketize_per_key(x, key, num_buckets, epsilon=None, name=None):
 
 
 def _lookup_key(key, key_vocab):
-  initializer = tf.lookup.KeyValueTensorInitializer(
-      keys=key_vocab,
-      values=tf.cast(tf.range(tf.size(key_vocab)), tf.int64),
-      key_dtype=tf.string,
-      value_dtype=tf.int64)
-  table = tf.lookup.StaticHashTable(initializer, default_value=-1)
+  table = lookup_ops.index_table_from_tensor(key_vocab, default_value=-1)
   key_indices = table.lookup(key)
   with tf.control_dependencies([tf.compat.v1.assert_non_negative(key_indices)]):
     return tf.identity(key_indices)
@@ -1378,12 +1358,7 @@ def _annotate_buckets(x, bucket_boundaries):
   bucket_boundaries = tf.reshape(bucket_boundaries, [-1])
   bucket_boundaries = tf.expand_dims(bucket_boundaries, 0)
   size = (tf.shape(bucket_boundaries)[1],)
-  message_proto = tf.raw_ops.EncodeProto(sizes=[size],
-                                         values=[bucket_boundaries],
-                                         field_names=['boundaries'],
-                                         message_type=message_type)
-  assert message_proto.shape == [1]
-  message_proto = message_proto[0]
-
+  message_proto = encode_proto_op.encode_proto(
+      [size], [bucket_boundaries], ['boundaries'], message_type)[0]
   type_url = os.path.join(schema_inference.ANNOTATION_PREFIX_URL, message_type)
   schema_inference.annotate(type_url, message_proto, tensor=x)

@@ -162,14 +162,8 @@ class SavedTransformIOTest(tf.test.TestCase):
       with tf.compat.v1.Session().as_default() as session:
         input_string = tf.compat.v1.placeholder(tf.string)
         # Map string through a table, in this case based on a constant tensor.
-        table_keys = ['cat', 'dog', 'giraffe']
-        initializer = tf.lookup.KeyValueTensorInitializer(
-            keys=table_keys,
-            values=tf.cast(tf.range(len(table_keys)), tf.int64),
-            key_dtype=tf.string,
-            value_dtype=tf.int64)
-        table = tf.lookup.StaticHashTable(initializer, default_value=-1)
-
+        table = lookup_ops.index_table_from_tensor(
+            tf.constant(['cat', 'dog', 'giraffe']))
         output = table.lookup(input_string)
         inputs = {'input': input_string}
         outputs = {'output': output}
@@ -234,17 +228,8 @@ class SavedTransformIOTest(tf.test.TestCase):
       with tf.compat.v1.Session().as_default() as session:
         input_string = tf.compat.v1.placeholder(tf.string)
         # Map string through a table loaded from an asset file
-        initializer = tf.lookup.TextFileInitializer(
-            vocabulary_file,
-            key_dtype=tf.string,
-            key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
-            value_dtype=tf.int64,
-            value_index=tf.lookup.TextFileIndex.LINE_NUMBER,
-            delimiter=' ')
-        table = tf.lookup.StaticHashTable(initializer, default_value=12)
-        table = lookup_ops.IdTableWithHashBuckets(table,
-                                                  num_oov_buckets=12,
-                                                  key_dtype=tf.string)
+        table = lookup_ops.index_table_from_file(
+            vocabulary_file, num_oov_buckets=12, default_value=12)
         output = table.lookup(input_string)
         inputs = {'input': input_string}
         outputs = {'output': output}

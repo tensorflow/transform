@@ -155,13 +155,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
       tft.vocabulary(inputs[key], vocab_filename=key)
 
     # For the label column we provide the mapping from string to index.
-    table_keys = ['>50K', '<=50K']
-    initializer = tf.lookup.KeyValueTensorInitializer(
-        keys=table_keys,
-        values=tf.cast(tf.range(len(table_keys)), tf.int64),
-        key_dtype=tf.string,
-        value_dtype=tf.int64)
-    table = tf.lookup.StaticHashTable(initializer, default_value=-1)
+    table = tf.contrib.lookup.index_table_from_tensor(['>50K', '<=50K'])
     outputs[LABEL_KEY] = table.lookup(outputs[LABEL_KEY])
 
     return outputs

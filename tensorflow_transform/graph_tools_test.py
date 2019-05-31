@@ -33,17 +33,6 @@ from tensorflow.python.ops import control_flow_ops
 mock = tf.test.mock
 
 
-def _create_lookup_table_from_file(filename):
-  initializer = tf.lookup.TextFileInitializer(
-      filename,
-      key_dtype=tf.string,
-      key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
-      value_dtype=tf.int64,
-      value_index=tf.lookup.TextFileIndex.LINE_NUMBER,
-      delimiter=' ')
-  return tf.lookup.StaticHashTable(initializer, default_value=-1)
-
-
 def _create_graph_with_y_function_of_x():
   x = tf.compat.v1.placeholder(tf.int64)
   y = x + 1
@@ -80,14 +69,14 @@ def _create_graph_with_y_sparse_function_of_x_sparse():
 
 def _create_graph_with_y_function_of_x_and_table():
   filename = tf.compat.v1.placeholder(tf.string, ())
-  table = _create_lookup_table_from_file(filename)
+  table = tf.contrib.lookup.index_table_from_file(filename)
   x = tf.compat.v1.placeholder(tf.string, (None,))
   y = table.lookup(x)
   return {'filename': filename, 'x': x, 'y': y}
 
 
 def _create_graph_with_y_function_of_x_and_table_in_first_phase():
-  table = _create_lookup_table_from_file('not_a_file_name_but_ok')
+  table = tf.contrib.lookup.index_table_from_file('not_a_file_name_but_ok')
   x = tf.compat.v1.placeholder(tf.string, (None,))
   y = table.lookup(x)
   return {'x': x, 'y': y}
@@ -95,8 +84,7 @@ def _create_graph_with_y_function_of_x_and_table_in_first_phase():
 
 def _create_graph_with_y_function_of_x_and_untracked_table():
   filename = tf.compat.v1.placeholder(tf.string, ())
-  table = _create_lookup_table_from_file(filename)
-
+  table = tf.contrib.lookup.index_table_from_file(filename)
   x = tf.compat.v1.placeholder(tf.string, (None,))
   y = table.lookup(x)
   del tf.compat.v1.get_collection_ref(
@@ -106,18 +94,11 @@ def _create_graph_with_y_function_of_x_and_untracked_table():
 
 def _create_graph_with_table_initialized_by_table_output():
   filename = tf.compat.v1.placeholder(tf.string, ())
-  table1 = _create_lookup_table_from_file(filename)
-
+  table1 = tf.contrib.lookup.index_table_from_file(filename)
   # Use output from the first table to initialize the second table.
-  keys = ['a', 'b', 'c']
   tensor_keys = tf.as_string(
-      table1.lookup(tf.constant(keys, tf.string)))
-  initializer2 = tf.lookup.KeyValueTensorInitializer(
-      keys=tensor_keys,
-      values=tf.range(len(keys), dtype=tf.int64),
-      key_dtype=tf.string,
-      value_dtype=tf.int64)
-  table2 = tf.lookup.StaticHashTable(initializer2, default_value=-1)
+      table1.lookup(tf.constant(['a', 'b', 'c'], tf.string)))
+  table2 = tf.contrib.lookup.index_table_from_tensor(tensor_keys)
   x = tf.compat.v1.placeholder(tf.string, (None,))
   y = table2.lookup(x)
   return {'filename': filename, 'x': x, 'y': y}
@@ -161,8 +142,17 @@ class _Matcher(object):
   __metaclass__ = abc.ABCMeta
 
   def _future_proof(self, value):
+    # if isinstance(value, str):
     if isinstance(value, (six.text_type, str, bytes)):
-      new_to_old = {}
+      new_to_old = {
+          # Changed between 1.13 and 1.14.
+          'string_to_index/hash_table/hash_table': 'string_to_index/hash_table',
+          # Changed between 1.13 and 1.14.
+          'string_to_index/hash_table/asset_path':
+              'string_to_index/hash_table/table_init/asset_filepath',
+          # Changed between 1.13 and 1.14.
+          'hash_table_Lookup/LookupTableFindV2': 'hash_table_Lookup',
+      }
       for new, old in new_to_old.items():
         value = value.replace(new, old)
     return value
@@ -753,48 +743,52 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           create_graph_fn=_create_graph_with_y_function_of_x_and_table_in_first_phase,
           feeds=['x'],
           replaced_tensors_ready={'x': False},
+          # NOTE: This can't be automatically copied from the test output due to
+          # the strings that have to be backwards compatible using
+          # _SubStrMatcher.
           expected_calls_dict={
               'x': [
                   mock.call(
-                      _OpMatcher('asset_path'),
+                      _OpMatcher('string_to_index/hash_table/asset_path'),
                       parents=[]),
                   mock.call(
-                      _TensorMatcher('asset_path:0'),
-                      parents=['asset_path']),
+                      _TensorMatcher('string_to_index/hash_table/asset_path:0'),
+                      parents=[_SubStrMatcher('string_to_index/hash_table')]),
                   mock.call(
-                      _OpMatcher('hash_table'),
-                      parents=['asset_path:0']),
+                      _OpMatcher('string_to_index/hash_table/hash_table'),
+                      parents=[_SubStrMatcher('string_to_index/hash_table')]),
                   mock.call('x$tensor'),
               ],
               'y': [
                   mock.call(
-                      _OpMatcher('asset_path'),
+                      _OpMatcher('string_to_index/hash_table/asset_path'),
                       parents=[]),
                   mock.call(
-                      _TensorMatcher('asset_path:0'),
-                      parents=['asset_path']),
+                      _TensorMatcher('string_to_index/hash_table/asset_path:0'),
+                      parents=[_SubStrMatcher('string_to_index/hash_table')]),
                   mock.call(
-                      _OpMatcher('hash_table'),
-                      parents=['asset_path:0']),
+                      _OpMatcher('string_to_index/hash_table/hash_table'),
+                      parents=[_SubStrMatcher('string_to_index/hash_table')]),
                   mock.call(
-                      _OpMatcher('Const'),
+                      _OpMatcher('string_to_index/hash_table/Const'),
                       parents=[]),
                   mock.call(
-                      _TensorMatcher('Const:0'),
-                      parents=['Const']),
+                      _TensorMatcher('string_to_index/hash_table/Const:0'),
+                      parents=[_SubStrMatcher('hash_table/Const')]),
                   mock.call('x$tensor'),
-                  mock.call('hash_table'),
+                  mock.call(_SubStrMatcher('string_to_index/hash_table')),
                   mock.call(
-                      _TensorMatcher('hash_table:0'),
-                      parents=['hash_table']),
+                      _TensorMatcher('string_to_index/hash_table/hash_table:0'),
+                      parents=[_SubStrMatcher('string_to_index/hash_table')]),
                   mock.call(
                       _OpMatcher('hash_table_Lookup/LookupTableFindV2'),
                       parents=[
-                          'hash_table:0', 'x$tensor', 'Const:0'
+                          _SubStrMatcher('hash_table:0'), 'x$tensor',
+                          _SubStrMatcher('hash_table/Const:0')
                       ]),
                   mock.call(
                       _TensorMatcher('hash_table_Lookup/LookupTableFindV2:0'),
-                      parents=['hash_table_Lookup/LookupTableFindV2']),
+                      parents=[_SubStrMatcher('hash_table_Lookup')]),
               ],
           }),
       dict(
