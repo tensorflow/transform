@@ -30,6 +30,9 @@
 * Adds an experimental api for analyzers to annotate the post-transform schema.
 * `TFTransformOutput.transform_raw_features` now accepts an optional
   `drop_unused_features` parameter to exclude unused features in output.
+* If not specified, the min_diff_from_avg parameter of `tft.vocabulary` now
+  defaults to a reasonable value based on the size of the dataset (relevant
+  only if computing vocabularies using mutual information).
 
 ## Breaking changes
 

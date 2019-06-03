@@ -2272,7 +2272,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
           inputs['a'],
           labels=inputs['label'],
           store_frequency=True,
-          vocab_filename='my_vocab')
+          vocab_filename='my_vocab',
+          min_diff_from_avg=0.0)
       return inputs
 
     expected_data = input_data
@@ -2641,7 +2642,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
           weights=inputs['weights'],
           labels=inputs['labels'],
           store_frequency=True,
-          vocab_filename='my_vocab')
+          vocab_filename='my_vocab',
+          min_diff_from_avg=0.0)
       return inputs
 
     expected_data = input_data

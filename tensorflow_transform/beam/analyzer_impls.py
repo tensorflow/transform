@@ -487,6 +487,13 @@ def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
       | 'VocabCountPerLabelGlobally' >> beam.CombineGlobally(
           _WeightedMeanCombineFn(output_shape=(None,))))
 
+  if min_diff_from_avg is None:
+    min_diff_from_avg = (
+        global_accumulator | 'AutoMinDiffFromAvg' >>
+        beam.Map(lambda acc: analyzers.calculate_recommended_min_diff_from_avg(  # pylint: disable=g-long-lambda
+            acc.count * acc.weight)))
+    min_diff_from_avg = beam.pvalue.AsSingleton(min_diff_from_avg)
+
   return (feature_accumulator_pcol
           | 'CalculateMutualInformationPerToken' >> beam.Map(
               _calculate_mutual_information_for_feature_value,

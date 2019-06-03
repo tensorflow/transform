@@ -368,6 +368,18 @@ class AnalyzersTest(test_case.TransformTestCase):
     self.assertAllClose(a2, expected_a)
     self.assertAllClose(b2, expected_b)
 
+  def testMinDiffFromAvg(self):
+    # Small dataset gets the minimum of 2
+    self.assertEqual(
+        analyzers.calculate_recommended_min_diff_from_avg(10000), 2)
+    self.assertEqual(
+        analyzers.calculate_recommended_min_diff_from_avg(100000), 4)
+    self.assertEqual(
+        analyzers.calculate_recommended_min_diff_from_avg(500000), 13)
+    # Large dataset gets the maximum of 25
+    self.assertEqual(
+        analyzers.calculate_recommended_min_diff_from_avg(100000000), 25)
+
 
 if __name__ == '__main__':
   test_case.main()

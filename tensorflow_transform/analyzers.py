@@ -43,6 +43,10 @@ from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
 from tensorflow.python.ops import resources
 from tensorflow.python.util import deprecation
 
+# This module defines max and min functions that override the builtins.
+builtin_max = max
+builtin_min = min
+
 
 VOCAB_FILENAME_PREFIX = 'vocab_'
 VOCAB_FREQUENCY_FILENAME_PREFIX = 'vocab_frequency_'
@@ -888,7 +892,7 @@ def vocabulary(x,
                weights=None,
                labels=None,
                use_adjusted_mutual_info=False,
-               min_diff_from_avg=0.0,
+               min_diff_from_avg=None,
                coverage_top_k=None,
                coverage_frequency_threshold=None,
                key_fn=None,
@@ -968,7 +972,9 @@ def vocabulary(x,
     min_diff_from_avg: MI (or AMI) of a feature x label will be adjusted to zero
       whenever the difference between count and the expected (average) count is
       lower than min_diff_from_average. This can be thought of as a regularizing
-      parameter that pushes small MI/AMI values to zero.
+      parameter that pushes small MI/AMI values to zero. If None, a default
+      parameter will be selected based on the size of the dataset (see
+      calculate_recommended_min_diff_from_avg).
     coverage_top_k: (Optional), (Experimental) The minimum number of elements
       per key to be included in the vocabulary.
     coverage_frequency_threshold: (Optional), (Experimental) Limit the coverage
@@ -1080,6 +1086,37 @@ def vocabulary(x,
 
     vocab_filename = analyzer_nodes.wrap_as_tensor(vocab_filename_node)
     return vocab_filename
+
+
+def calculate_recommended_min_diff_from_avg(dataset_size):
+  """Calculates a recommended min_diff_from_avg argument to tft.vocabulary.
+
+  Computes a default min_diff_from_average parameter based on the size of the
+  dataset. The MI (or AMI) of a token x label will be pushed to zero whenever
+  the difference between the observed and the expected (average) cooccurrence
+  with the label is < min_diff_from_average. This can be thought of as a
+  regularization parameter for mutual information based vocabularies.
+
+  Args:
+    dataset_size: The number of recods in the dataset. The bigger the dataset,
+      the higher the min_diff_from_average will be.
+
+  Returns:
+    An integer that is recomended to use as the min_diff_from_avg parameter of
+    `vocabulary`.
+  """
+  # The minimum and maximum min_diff_from_avg parameter to use.
+  min_value, max_value = 2, 25
+  # Heuristics for a "small" and "large" dataset. The selected parameter will
+  # be between min_value and max_value depending on where the dataset_size falls
+  # relative to these values.
+  small_dataset_size, large_dataset_size = 10000, 1000000
+  return int(
+      builtin_min(
+          max_value,
+          builtin_max(min_value, (dataset_size - small_dataset_size) /
+                      (large_dataset_size - small_dataset_size) *
+                      (max_value - min_value) + min_value)))
 
 
 @deprecation.deprecated(None, 'Use `tft.vocabulary()` instead.')

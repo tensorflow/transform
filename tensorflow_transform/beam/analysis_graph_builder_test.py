@@ -101,7 +101,7 @@ node [shape=Mrecord];
 "ApplySavedModel[0]" -> "TensorSource[x]";
 "VocabularyAccumulate[x]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|input_dtype: string|label: VocabularyAccumulate[x]|partitionable: True}"];
 "TensorSource[x]" -> "VocabularyAccumulate[x]";
-"VocabularyMerge[x]" [label="{VocabularyMerge|vocab_ordering_type: 1|use_adjusted_mutual_info: False|min_diff_from_avg: 0.0|label: VocabularyMerge[x]}"];
+"VocabularyMerge[x]" [label="{VocabularyMerge|vocab_ordering_type: 1|use_adjusted_mutual_info: False|min_diff_from_avg: None|label: VocabularyMerge[x]}"];
 "VocabularyAccumulate[x]" -> "VocabularyMerge[x]";
 "VocabularyOrderAndFilter[x]" [label="{VocabularyOrderAndFilter|top_k: None|frequency_threshold: None|coverage_top_k: None|coverage_frequency_threshold: None|key_fn: None|label: VocabularyOrderAndFilter[x]}"];
 "VocabularyMerge[x]" -> "VocabularyOrderAndFilter[x]";

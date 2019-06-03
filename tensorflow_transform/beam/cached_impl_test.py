@@ -111,7 +111,7 @@ node [shape=Mrecord];
 "FlattenCache[VocabularyMerge[vocabulary]]" [label="{Flatten|label: FlattenCache[VocabularyMerge[vocabulary]]|partitionable: True}"];
 "VocabularyAccumulate[vocabulary][span-0]" -> "FlattenCache[VocabularyMerge[vocabulary]]";
 "VocabularyAccumulate[vocabulary][span-1]" -> "FlattenCache[VocabularyMerge[vocabulary]]";
-"VocabularyMerge[vocabulary]" [label="{VocabularyMerge|vocab_ordering_type: 1|use_adjusted_mutual_info: False|min_diff_from_avg: 0.0|label: VocabularyMerge[vocabulary]}"];
+"VocabularyMerge[vocabulary]" [label="{VocabularyMerge|vocab_ordering_type: 1|use_adjusted_mutual_info: False|min_diff_from_avg: None|label: VocabularyMerge[vocabulary]}"];
 "FlattenCache[VocabularyMerge[vocabulary]]" -> "VocabularyMerge[vocabulary]";
 "VocabularyOrderAndFilter[vocabulary]" [label="{VocabularyOrderAndFilter|top_k: None|frequency_threshold: None|coverage_top_k: None|coverage_frequency_threshold: None|key_fn: None|label: VocabularyOrderAndFilter[vocabulary]}"];
 "VocabularyMerge[vocabulary]" -> "VocabularyOrderAndFilter[vocabulary]";
