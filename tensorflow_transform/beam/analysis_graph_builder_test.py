@@ -247,4 +247,6 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
 
 
 if __name__ == '__main__':
+  # TODO(b/133440043): Remove this once TFT supports eager execution.
+  tf.compat.v1.disable_eager_execution()
   test_case.main()

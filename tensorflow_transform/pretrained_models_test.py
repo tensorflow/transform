@@ -155,4 +155,6 @@ class PretrainedModelsTest(tf.test.TestCase):
 
 
 if __name__ == '__main__':
+  # TODO(b/133440043): Remove this once TFT supports eager execution.
+  tf.compat.v1.disable_eager_execution()
   tf.test.main()

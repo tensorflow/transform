@@ -171,7 +171,7 @@ class AnalyzersTest(test_case.TransformTestCase):
       ([[1], [2]], [[1], [2], [3]], None, None, tf.errors.InvalidArgumentError,
        'Condition x == y did not hold element-wise:'),
       ([[1], [2], [3]], [[1], [2], [3]], [None, None], [None], ValueError,
-       r'Shapes \(\?, \?\) and \(\?,\) are incompatible'),
+       r'Shapes \(None, None\) and \(None,\) are incompatible'),
   )
   def test_same_shape_exceptions(self, x_input, y_input, x_shape, y_shape,
                                  exception_cls, error_string):
@@ -548,4 +548,8 @@ class AnalyzersTest(test_case.TransformTestCase):
 
 
 if __name__ == '__main__':
+  # TODO(b/133440043): Remove this once TFT supports eager execution.
+  tf.compat.v1.disable_eager_execution()
+  # TODO(b/133440043): Remove this once this is enabled by default.
+  tf.compat.v1.enable_v2_tensorshape()
   test_case.main()

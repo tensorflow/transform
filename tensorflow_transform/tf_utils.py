@@ -239,14 +239,14 @@ def reduce_batch_count_mean_and_var_per_key(x, key, reduce_instance_dims):
 
   if reduce_instance_dims:
     sums = tf.reduce_sum(x, axis=1) if x.get_shape().ndims != 1 else x
-    sums = tf.unsorted_segment_sum(sums, unique.idx, tf.size(input=unique.y))
+    sums = tf.math.unsorted_segment_sum(sums, unique.idx, tf.size(unique.y))
   else:
-    sums = tf.unsorted_segment_sum(x, unique.idx, tf.size(input=unique.y))
+    sums = tf.math.unsorted_segment_sum(x, unique.idx, tf.size(unique.y))
 
   means = tf.cast(sums, x.dtype) / x_count
-  sum_sqs = tf.unsorted_segment_sum(tf.square(x),
-                                    unique.idx,
-                                    tf.size(input=unique.y))
+  sum_sqs = tf.math.unsorted_segment_sum(tf.square(x),
+                                         unique.idx,
+                                         tf.size(input=unique.y))
   if sum_sqs.get_shape().ndims != 1 and reduce_instance_dims:
     sum_sqs = tf.reduce_sum(sum_sqs, axis=1)
 
@@ -472,7 +472,7 @@ def reduce_batch_minus_min_and_max_per_key(x, key):
     else:
       row_maxes = tf.reduce_max(
           tensor, axis=tf.range(1, tensor.get_shape().ndims))
-    batch_max = tf.unsorted_segment_max(
+    batch_max = tf.math.unsorted_segment_max(
         row_maxes, key_uniques.idx, tf.size(input=key_uniques.y))
 
     # TODO(b/112309021): Remove workaround once tf.reduce_max of a tensor of all
