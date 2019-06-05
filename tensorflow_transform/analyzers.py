@@ -1016,9 +1016,6 @@ def vocabulary(x,
       _get_top_k_and_frequency_threshold(
           coverage_top_k, coverage_frequency_threshold))
 
-  if isinstance(x, tf.SparseTensor):
-    x = x.values
-
   if x.dtype != tf.string and not x.dtype.is_integer:
     raise ValueError('expected tf.string or integer but got %r' % x.dtype)
 
@@ -1029,6 +1026,7 @@ def vocabulary(x,
     vocab_filename = _get_vocab_filename(vocab_filename, store_frequency)
 
     if labels is not None:
+      labels = tf.reshape(labels, [-1])
       vocab_ordering_type = _VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION
       reduced_batch = tf_utils.reduce_batch_weighted_cooccurrences(
           x, labels, weights)

@@ -36,6 +36,7 @@ import six
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import analyzers
+from tensorflow_transform import tf_utils
 from tensorflow_transform.beam import common
 from tensorflow_transform.beam import info_theory
 
@@ -420,17 +421,21 @@ def _calculate_mutual_information_for_feature_value(feature_and_accumulator,
   Returns:
     The feature value and its mutual information with the label
   """
+  # Compute the frequency of each label value.
+  global_label_counts = (
+      global_accumulator.mean * global_accumulator.weight *
+      global_accumulator.count)
   feature_value, current_accumulator = feature_and_accumulator
-  x_i = (current_accumulator.count * current_accumulator.weight)
-  n = (global_accumulator.count * global_accumulator.weight)
+  n = sum(global_label_counts)
   if n == 0:
     return (feature_value, float('NaN'))
 
   mutual_information = 0
   expected_mutual_information = 0 if use_adjusted_mutual_info else None
-  for label_ix in range(len(global_accumulator.mean)):
-    global_mean = global_accumulator.mean[label_ix]
-    if global_mean == 0:
+  x_i = (current_accumulator.count * current_accumulator.weight)
+  for label_ix in range(len(global_label_counts)):
+    y_i = global_label_counts[label_ix]
+    if y_i == 0:
       continue
     local_mean = 0
     if label_ix < len(current_accumulator.mean):
@@ -438,9 +443,6 @@ def _calculate_mutual_information_for_feature_value(feature_and_accumulator,
     n_i = (
         _clip_probability(local_mean) * current_accumulator.weight *
         current_accumulator.count)
-    y_i = (
-        _clip_probability(global_mean) * global_accumulator.weight *
-        global_accumulator.count)
     diff_from_avg = (x_i * y_i / n) - n_i
     if abs(diff_from_avg) < min_diff_from_avg:
       continue
@@ -470,6 +472,29 @@ def _MutualInformationTransformAccumulate(pcol):  # pylint: disable=invalid-name
       _WeightedMeanCombineFn(output_shape=(None,))))
 
 
+def _extract_sentinels(kv):
+  """Separate out label sentinel accumulators from vocab accumulators.
+
+  To keep track of the frequencies of label values, we store global label
+  frequencies associated with a special sentinel value. These are accumulated
+  just like other vocabulary tokens, but must be separated out before computing
+  mutual information.
+
+  Args:
+    kv: tuple of key, accumulator
+
+  Yields:
+    A Beam TaggedOutout separating the sentinel and regular tokens.
+  """
+  token, _ = kv
+  if (token == tf_utils.GLOBAL_Y_COUNT_SENTINEL_STRING or
+      token == tf_utils.GLOBAL_Y_COUNT_SENTINEL_INT):
+    # Throw away the sentinel token, since it's not needed.
+    yield beam.pvalue.TaggedOutput('global', kv[1])
+  else:
+    yield beam.pvalue.TaggedOutput('feature', kv)
+
+
 @ptransform_fn
 @beam.typehints.with_input_types(
     KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
@@ -481,12 +506,10 @@ def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
       pcol | 'VocabCountPerLabelPerTokenMerge' >> beam.CombinePerKey(
           _WeightedMeanCombineFn(output_shape=(None,))))
 
-  global_accumulator = (
+  accumulators_by_feature, global_accumulator = (
       feature_accumulator_pcol
-      | 'DropKeys' >> beam.Values()
-      | 'VocabCountPerLabelGlobally' >> beam.CombineGlobally(
-          _WeightedMeanCombineFn(output_shape=(None,))))
-
+      | 'ExtractSentinels' >> beam.FlatMap(_extract_sentinels).with_outputs(
+          'feature', 'global'))
   if min_diff_from_avg is None:
     min_diff_from_avg = (
         global_accumulator | 'AutoMinDiffFromAvg' >>
@@ -494,7 +517,7 @@ def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
             acc.count * acc.weight)))
     min_diff_from_avg = beam.pvalue.AsSingleton(min_diff_from_avg)
 
-  return (feature_accumulator_pcol
+  return (accumulators_by_feature
           | 'CalculateMutualInformationPerToken' >> beam.Map(
               _calculate_mutual_information_for_feature_value,
               beam.pvalue.AsSingleton(global_accumulator),

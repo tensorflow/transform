@@ -25,6 +25,9 @@ import tensorflow as tf
 from tensorflow.contrib.proto.python.ops import encode_proto_op
 
 _FLOATING_NAN = float('nan')
+# Global sentinels used to keep track of the total counts of y
+GLOBAL_Y_COUNT_SENTINEL_STRING = b'global_y_count_sentinel'
+GLOBAL_Y_COUNT_SENTINEL_INT = tf.int64.limits[0]
 
 ReducedBatchWeightedCounts = collections.namedtuple('ReducedBatchCounts', [
     'unique_x', 'summed_weights_per_x', 'summed_positive_per_x_and_y',
@@ -45,10 +48,13 @@ def reduce_batch_weighted_counts(x, weights=None):
       The sum of the weights for each unique value in x if weights are provided,
         else None
   """
+  if isinstance(x, tf.SparseTensor):
+    x = x.values
   if weights is None:
     # TODO(b/112916494): Always do batch wise reduction once possible.
 
     return ReducedBatchWeightedCounts(tf.reshape(x, [-1]), None, None, None)
+  # TODO(b/134075780): Revisit expected weights shape when input is sparse.
   x = assert_same_shape(x, weights)
   weights = tf.reshape(weights, [-1])
   x = tf.reshape(x, [-1])
@@ -59,16 +65,25 @@ def reduce_batch_weighted_counts(x, weights=None):
                                     None)
 
 
-def reduce_batch_weighted_cooccurrences(x, y, weights=None):
+def reduce_batch_weighted_cooccurrences(x_input,
+                                        y_input,
+                                        weights_input=None,
+                                        extend_with_sentinel_counts=True):
   """Performs batch-wise reduction to produce weighted co-occurrences.
 
   Somputes the weighted co-occurrence of each feature value in x, for each value
-  in the range [0, max(y)).
+  in the range [0, max(y)). If extend_with_sentinel_counts is true, the return
+  value will include an additional sentinel token (not in the true vocabulary)
+  that is used to accumulate the global distribution of y values.
 
   Args:
-    x: Input `Tensor`.
-    y: Integer `Tensor` with which to compute co-occurrence.
-    weights: (Optional) Weights input `Tensor`.
+    x_input: Input `Tensor` or `SparseTensor`.
+    y_input: Integer `Tensor` or `SparseTensor` with which to compute the
+      co-occurrence with x_input.
+    weights_input: (Optional) Weights input `Tensor`.
+    extend_with_sentinel_counts: If True, the reduced batch will be extended
+      a sentinel value that accumlate the total distribution of y values. Should
+      be True except when called recursively with the sentinel value as input.
 
   Returns:
     a namedtuple of...
@@ -80,36 +95,124 @@ def reduce_batch_weighted_cooccurrences(x, y, weights=None):
     counts_per_x: if y is provided, counts of each of the unique values in x,
       otherwise, None.
   """
-  tf.compat.v1.assert_type(y, tf.int64)
+  tf.compat.v1.assert_type(y_input, tf.int64)
+  # TODO(b/134075780): Revisit expected weights shape when input is sparse.
+  if isinstance(x_input, tf.SparseTensor):
+    batch_indices = x_input.indices[:, 0]
+    y = tf.gather(y_input, batch_indices)
+    x = x_input.values
+  else:
+    y = y_input
+    x = x_input
+  if weights_input is None:
+    weights = tf.ones_like(x, dtype=tf.float32)
+  else:
+    x = assert_same_shape(x, weights_input)
+    weights = weights_input
+  y = _broadcast_to_x_shape(x, y)
   x = assert_same_shape(x, y)
-  if weights is None:
-    weights = tf.ones_like(y, dtype=tf.float32)
-  x = assert_same_shape(x, weights)
   x = tf.reshape(x, [-1])
   y = tf.reshape(y, [-1])
   weights = tf.reshape(weights, [-1])
 
   unique_x_values, unique_idx, unique_count = tf.unique_with_counts(
       x, out_idx=tf.int64)
-  num_x_values = tf.shape(unique_x_values)[0]
 
   summed_weights_per_x = tf.math.unsorted_segment_sum(
       weights, unique_idx, tf.size(input=unique_x_values))
   # For each feature value in x, computed the weighted sum positive for each
-  # unique value in y
-  max_y_value = tf.cast(tf.reduce_max(input_tensor=y), tf.int32)
-  one_hot_y = tf.one_hot(y, max_y_value + 1)
-  broadcast_weights = tf.cast(
-      tf.broadcast_to(tf.reshape(weights, (-1, 1)), tf.shape(one_hot_y)),
+  # unique value in y.
+
+  max_y_value = tf.cast(tf.reduce_max(input_tensor=y), tf.int64)
+  max_x_idx = tf.cast(tf.size(unique_x_values), tf.int64)
+  dummy_index = (max_y_value + 1) * unique_idx + y
+  summed_positive_per_x_and_y = tf.cast(
+      tf.math.unsorted_segment_sum(weights, dummy_index,
+                                   max_x_idx * (max_y_value + 1)),
       dtype=tf.float32)
-  positive_weights = (tf.cast(one_hot_y, tf.float32) * broadcast_weights)
-  summed_positive_per_x_and_y = tf.math.unsorted_segment_sum(
-      positive_weights, unique_idx, num_x_values)
-  return ReducedBatchWeightedCounts(
+  summed_positive_per_x_and_y = tf.reshape(summed_positive_per_x_and_y,
+                                           [max_x_idx, max_y_value + 1])
+
+  reduced_batch = ReducedBatchWeightedCounts(
       unique_x=unique_x_values,
       summed_weights_per_x=summed_weights_per_x,
       summed_positive_per_x_and_y=summed_positive_per_x_and_y,
       counts_per_x=unique_count)
+  # Add a sentinel token tracking the full distribution of y values.
+  if extend_with_sentinel_counts:
+    reduced_batch = extend_reduced_batch_with_y_counts(reduced_batch, y_input,
+                                                       weights_input)
+  return reduced_batch
+
+
+def extend_reduced_batch_with_y_counts(reduced_batch, y, weights=None):
+  """Extend the ReducedBatchWeightedCounts with global counts for y.
+
+  This is used to maintain an accurate count of global frequencies of each value
+  in y. When x is multivalent, the sum over the summed_positive_per_x_and_y
+  will over-count the occurrence of y. To keep track of the true distribution
+  of y values, we add a sentinel value that tracks the global counts of each
+  distinct value in y. This is useful for computing the mutual information
+  between values in x and y.
+
+  Args:
+    reduced_batch: A ReducedBatchWeightedCounts instance.
+    y: A `Tensor` representing a batch of y values.
+    weights: Optional `Tensor` representing a batch of weight values.
+
+  Returns:
+    A new ReducedBatchWeightedCounts instance with sentinel values appended.
+  """
+  # Create a dummy sentinel token that is present in every record.
+  if reduced_batch.unique_x.dtype.is_integer:
+    sentinel_values = tf.cast(
+        tf.fill(tf.shape(y), GLOBAL_Y_COUNT_SENTINEL_INT), tf.int64)
+  else:
+    sentinel_values = tf.fill(tf.shape(y), GLOBAL_Y_COUNT_SENTINEL_STRING)
+  # Computing the batch reduction over this sentinel token will reduce to a
+  # single sentinel value in sentinel_batch.unique_x, with the
+  # summed_positive_per_x_and_y thus capturing the total summed positive per
+  # value in y.
+  sentinel_batch = reduce_batch_weighted_cooccurrences(
+      sentinel_values, y, weights, extend_with_sentinel_counts=False)
+
+  # Concatenate the sentinel counts with the existing reduced batch.
+  return ReducedBatchWeightedCounts(
+      unique_x=tf.concat([reduced_batch.unique_x, sentinel_batch.unique_x],
+                         axis=0),
+      summed_weights_per_x=tf.concat([
+          reduced_batch.summed_weights_per_x,
+          sentinel_batch.summed_weights_per_x
+      ],
+                                     axis=0),
+      summed_positive_per_x_and_y=tf.concat([
+          reduced_batch.summed_positive_per_x_and_y,
+          sentinel_batch.summed_positive_per_x_and_y
+      ],
+                                            axis=0),
+      counts_per_x=tf.concat(
+          [reduced_batch.counts_per_x, sentinel_batch.counts_per_x], axis=0))
+
+
+def _broadcast_to_x_shape(x, y):
+  """Broadcasts y to same shape as x as needed.
+
+  Args:
+    x: An input feature.
+    y: A feature that is either the same shape as x or has the same outer
+      dimensions as x. If the latter, y is broadcast to the same shape as x.
+  """
+  # The batch dimension of x and y must be the same, and y must be 1D.
+  x_shape = tf.shape(input=x)
+  y_shape = tf.shape(input=y)
+  assert_eq = tf.compat.v1.assert_equal(x_shape[0], y_shape[0])
+  with tf.control_dependencies([assert_eq]):
+    y = tf.identity(y)
+  rank_delta = tf.rank(x) - tf.rank(y)
+  target_shape = tf.concat(
+      [tf.shape(y), tf.ones(rank_delta, dtype=tf.int32)], axis=0)
+  matched_rank = tf.reshape(y, target_shape)
+  return tf.broadcast_to(matched_rank, x_shape)
 
 
 def assert_same_shape(x, y):

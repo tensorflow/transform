@@ -2550,6 +2550,154 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_metadata,
         expected_vocab_file_contents=expected_vocab_file_contents)
 
+  @tft_unit.named_parameters(
+      dict(
+          testcase_name='sparse_feature',
+          feature_input=[['world', 'hello', 'hello'], ['hello', 'world', 'foo'],
+                         [], ['hello']],
+          expected_output=[[1, 0, 0], [0, 1, -99], [], [0]],
+          use_labels=False,
+      ),
+      dict(
+          testcase_name='dense_feature',
+          feature_input=[['world', 'hello', 'hello'], ['hello', 'world', 'moo'],
+                         ['hello', 'hello', 'foo'], ['world', 'foo', 'moo']],
+          expected_output=[[1, 0, 0], [0, 1, -99], [0, 0, -99], [1, -99, -99]],
+          use_labels=False,
+      ),
+      dict(
+          testcase_name='dense_feature_with_labels',
+          feature_input=[['world', 'hello', 'hello'], ['hello', 'world', 'moo'],
+                         ['hello', 'hello', 'foo'], ['world', 'foo', 'moo']],
+          expected_output=[[-99, 1, 1], [1, -99, 0], [1, 1, -99], [-99, -99,
+                                                                   0]],
+          use_labels=True,
+      ),
+      dict(
+          testcase_name='sparse_feature_with_labels',
+          feature_input=[['world', 'hello', 'hello'], ['world', 'world', 'foo'],
+                         ['hello', 'foo', 'moo'], ['moo']],
+          expected_output=[[1, 0, 0], [1, 1, -99], [0, -99, -99], [-99]],
+          use_labels=True,
+      ),
+      dict(
+          testcase_name='sparse_feature_with_labels_some_empty',
+          feature_input=[['world', 'hello', 'hello', 'moo'], [],
+                         ['world', 'hello', 'foo'], []],
+          expected_output=[[1, 0, 0, -99], [], [1, 0, -99], []],
+          use_labels=True,
+      ),
+  )
+  def testVocabularyAnalyzerWithMultiDimensionalInputs(self, feature_input,
+                                                       expected_output,
+                                                       use_labels):
+
+    def preprocessing_fn(inputs):
+      if use_labels:
+        vocab = tft.compute_and_apply_vocabulary(
+            inputs['feature'],
+            labels=inputs['label'],
+            default_value=-99,
+            top_k=2)
+      else:
+        vocab = tft.compute_and_apply_vocabulary(
+            inputs['feature'], default_value=-99, top_k=2)
+      return {'vocab_feature': vocab}
+
+    input_data = [
+        {
+            'label': 1
+        },
+        {
+            'label': 0
+        },
+        {
+            'label': 1
+        },
+        {
+            'label': 0
+        },
+    ]
+    counts = []
+    for i, input_entry in enumerate(feature_input):
+      input_data[i]['feature'] = input_entry
+      counts.append(len(input_entry))
+    if min(counts) == max(counts):
+      feature_type = tf.FixedLenFeature([max(counts)], tf.string)
+    else:
+      feature_type = tf.VarLenFeature(tf.string)
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'feature': feature_type,
+        'label': tf.FixedLenFeature([], tf.int64)
+    })
+    expected_data = [{'vocab_feature': output} for output in expected_output]
+
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data)
+
+  def testSparseVocabularyWithMultiClassLabels(self):
+
+    def preprocessing_fn(inputs):
+      vocab_feature = tft.compute_and_apply_vocabulary(
+          inputs['feature'],
+          labels=inputs['label'],
+          vocab_filename='my_vocab',
+          top_k=4)
+      return {'vocab_feature': vocab_feature}
+
+    input_data = [
+        {
+            'feature': [1, 2, 2, 5],
+            'label': 1
+        },
+        {
+            'feature': [1, 4, 5],
+            'label': 0
+        },
+        {
+            'feature': [1, 2, 2],
+            'label': 1
+        },
+        {
+            'feature': [1, 3, 5],
+            'label': 4
+        },
+        {
+            'feature': [1, 4, 3],
+            'label': 5
+        },
+        {
+            'feature': [1, 3],
+            'label': 4
+        },
+    ]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'feature': tf.VarLenFeature(tf.int64),
+        'label': tf.FixedLenFeature([], tf.int64)
+    })
+    expected_data = [
+        {
+            'vocab_feature': [-1, 0, 0, 3],
+        },
+        {
+            'vocab_feature': [-1, 1, 3],
+        },
+        {
+            'vocab_feature': [-1, 0, 0],
+        },
+        {
+            'vocab_feature': [-1, 2, 3],
+        },
+        {
+            'vocab_feature': [-1, 1, 2],
+        },
+        {
+            'vocab_feature': [-1, 2],
+        },
+    ]
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data)
+
   def testVocabularyAnalyzerWithLabelsAndWeights(self):
     input_data = [
         {'a': 'hello', 'weights': .3, 'labels': 1},

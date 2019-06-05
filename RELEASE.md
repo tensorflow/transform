@@ -16,8 +16,8 @@
   This is an experimental feature.
 * Fix numerical instability in `tft.vocabulary` mutual information calculations.
 * `tft.vocabulary` and `tft.compute_and_apply_vocabulary` now support computing
-  vocabularies over integer categoricals, and computing mutual information for
-  non-binary labels.
+  vocabularies over integer categoricals and multivalent input features, and
+  computing mutual information for non-binary labels.
 * New numeric normalization method available:
   `tft.apply_buckets_with_interpolation`.
 * Changes to make this library more compatible with TensorFlow 2.0.

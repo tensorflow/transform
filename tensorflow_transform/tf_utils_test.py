@@ -81,42 +81,47 @@ class AnalyzersTest(test_case.TransformTestCase):
           x=['a', 'b', 'a'],
           weights=None,
           y=[0, 1, 1],
-          expected_results=[[b'a', b'b'], [2, 1], [[1, 1], [0, 1]], [2, 1]]),
+          expected_results=[[b'a', b'b', b'global_y_count_sentinel'], [2, 1, 3],
+                            [[1, 1], [0, 1], [1, 2]], [2, 1, 3]]),
       dict(
           testcase_name='rank1_with_multi_class_y',
           x=['yes', 'no', 'yes', 'maybe', 'yes'],
           weights=None,
           y=[1, 1, 0, 2, 3],
-          expected_results=[[b'yes', b'no', b'maybe'], [3, 1, 1],
-                            [[1, 1, 0, 1], [0, 1, 0, 0], [0, 0, 1, 0]],
-                            [3, 1, 1]]),
+          expected_results=[[
+              b'yes', b'no', b'maybe', b'global_y_count_sentinel'
+          ], [3, 1, 1, 5],
+                            [[1, 1, 0, 1], [0, 1, 0, 0], [0, 0, 1, 0],
+                             [1, 2, 1, 1]], [3, 1, 1, 5]]),
       dict(
           testcase_name='rank1_with_weights_and_binary_y',
           x=['a', 'b', 'a'],
           weights=[1, 1, 2],
           y=[0, 1, 1],
-          expected_results=[[b'a', b'b'], [3, 1], [[1, 2], [0, 1]], [2, 1]]),
+          expected_results=[[b'a', b'b', b'global_y_count_sentinel'], [3, 1, 4],
+                            [[1, 2], [0, 1], [1, 3]], [2, 1, 3]]),
       dict(
           testcase_name='rank1_with_weights_and_multi_class_y',
           x=['a', 'b', 'a', 'a'],
           weights=[1, 1, 2, 2],
           y=[0, 2, 1, 1],
-          expected_results=[[b'a', b'b'], [5, 1], [[1, 4, 0], [0, 0, 1]],
-                            [3, 1]]),
+          expected_results=[[b'a', b'b', b'global_y_count_sentinel'], [5, 1, 6],
+                            [[1, 4, 0], [0, 0, 1], [1, 4, 1]], [3, 1, 4]]),
       dict(
           testcase_name='rank1_with_weights_and_missing_y_values',
           x=['a', 'b', 'a', 'a'],
           weights=[1, 1, 2, 2],
           y=[3, 5, 6, 6],
-          expected_results=[[b'a', b'b'], [5, 1],
-                            [[0, 0, 0, 1, 0, 0, 4], [0, 0, 0, 0, 0, 1, 0]],
-                            [3, 1]]),
+          expected_results=[[b'a', b'b', b'global_y_count_sentinel'], [5, 1, 6],
+                            [[0, 0, 0, 1, 0, 0, 4], [0, 0, 0, 0, 0, 1, 0],
+                             [0, 0, 0, 1, 0, 1, 4]], [3, 1, 4]]),
       dict(
           testcase_name='rank2_with_binary_y',
           x=[['a', 'b', 'a'], ['b', 'a', 'b']],
           weights=None,
           y=[[1, 0, 1], [1, 0, 0]],
-          expected_results=[[b'a', b'b'], [3, 3], [[1, 2], [2, 1]], [3, 3]]),
+          expected_results=[[b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
+                            [[1, 2], [2, 1], [3, 3]], [3, 3, 6]]),
       dict(
           testcase_name='rank2_with_missing_y_values',
           x=[['a', 'b', 'a'], ['b', 'a', 'b']],
@@ -124,35 +129,38 @@ class AnalyzersTest(test_case.TransformTestCase):
           y=[[2, 0, 2], [2, 0, 0]],
           # The label 1 isn't in the batch but it will have a position (with
           # weights of 0) in the resulting array.
-          expected_results=[[b'a', b'b'], [3, 3], [[1, 0, 2], [2, 0, 1]],
-                            [3, 3]]),
+          expected_results=[[b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
+                            [[1, 0, 2], [2, 0, 1], [3, 0, 3]], [3, 3, 6]]),
       dict(
           testcase_name='rank2_with_weights_and_binary_y',
           x=[['a', 'b', 'a'], ['b', 'a', 'b']],
           weights=[[1, 2, 1], [1, 2, 2]],
           y=[[1, 0, 1], [1, 0, 0]],
-          expected_results=[[b'a', b'b'], [4, 5], [[2, 2], [4, 1]], [3, 3]]),
+          expected_results=[[b'a', b'b', b'global_y_count_sentinel'], [4, 5, 9],
+                            [[2, 2], [4, 1], [6, 3]], [3, 3, 6]]),
       dict(
           testcase_name='rank2_with_multi_class_y',
           x=[['a', 'b', 'a'], ['b', 'a', 'b']],
           weights=None,
           y=[[1, 0, 1], [1, 0, 2]],
-          expected_results=[[b'a', b'b'], [3, 3], [[1, 2, 0], [1, 1, 1]],
-                            [3, 3]]),
+          expected_results=[[b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
+                            [[1, 2, 0], [1, 1, 1], [2, 3, 1]], [3, 3, 6]]),
       dict(
           testcase_name='rank3_with_binary_y',
           x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
              [['a', 'b', 'a'], ['b', 'a', 'b']]],
           weights=None,
           y=[[[1, 1, 0], [1, 0, 1]], [[1, 0, 1], [1, 0, 1]]],
-          expected_results=[[b'a', b'b'], [6, 6], [[3, 3], [1, 5]], [6, 6]]),
+          expected_results=[[b'a', b'b', b'global_y_count_sentinel'],
+                            [6, 6, 12], [[3, 3], [1, 5], [4, 8]], [6, 6, 12]]),
       dict(
           testcase_name='rank3_with_weights_and_binary_y',
           x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
              [['a', 'b', 'a'], ['b', 'a', 'b']]],
           weights=[[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]],
           y=[[[1, 1, 0], [1, 0, 1]], [[1, 0, 1], [1, 0, 1]]],
-          expected_results=[[b'a', b'b'], [9, 7], [[6, 3], [2, 5]], [6, 6]]),
+          expected_results=[[b'a', b'b', b'global_y_count_sentinel'],
+                            [9, 7, 16], [[6, 3], [2, 5], [8, 8]], [6, 6, 12]]),
   )
   def test_reduce_batch_coocurrences(self, x, weights, y, expected_results):
     x = tf.constant(x)
@@ -162,6 +170,19 @@ class AnalyzersTest(test_case.TransformTestCase):
 
     returned_tensors = (
         tf_utils.reduce_batch_weighted_cooccurrences(x, y, weights))
+    with tf.compat.v1.Session() as sess:
+      results = sess.run(returned_tensors)
+      for result, expected in zip(results, expected_results):
+        self.assertAllEqual(result, np.array(expected))
+
+  def test_reduce_batch_coocurrences_sparse_tensor(self):
+    x = tf.SparseTensor(
+        indices=[(0, 0), (2, 1)], values=['a', 'b'], dense_shape=[2, 2])
+    y = tf.constant([1, 0, 1, 1], dtype=tf.int64)
+    expected_results = [[b'a', b'b', b'global_y_count_sentinel'], [1, 1, 4],
+                        [[0, 1], [0, 1], [1, 3]], [1, 1, 4]]
+    returned_tensors = (
+        tf_utils.reduce_batch_weighted_cooccurrences(x, y, None))
     with tf.compat.v1.Session() as sess:
       results = sess.run(returned_tensors)
       for result, expected in zip(results, expected_results):
@@ -545,6 +566,26 @@ class AnalyzersTest(test_case.TransformTestCase):
                                                serialized_examples):
       example_proto.ParseFromString(serialized_example)
       self.assertProtoEquals(ascii_proto, example_proto)
+
+  def test_extend_reduced_batch_with_y_counts(self):
+    initial_reduction = tf_utils.ReducedBatchWeightedCounts(
+        unique_x=tf.constant(['foo', 'bar']),
+        summed_weights_per_x=tf.constant([2.0, 4.0]),
+        summed_positive_per_x_and_y=tf.constant([[1.0, 3.0], [1.0, 1.0]]),
+        counts_per_x=tf.constant([2, 4], dtype=tf.int64))
+    y = tf.constant([0, 1, 1, 1, 0, 1, 1], tf.int64)
+    extended_batch = tf_utils.extend_reduced_batch_with_y_counts(
+        initial_reduction, y)
+    with tf.compat.v1.Session():
+      self.assertAllEqual(
+          extended_batch.unique_x.eval(),
+          np.array([b'foo', b'bar', b'global_y_count_sentinel']))
+      self.assertAllClose(extended_batch.summed_weights_per_x.eval(),
+                          np.array([2.0, 4.0, 7.0]))
+      self.assertAllClose(extended_batch.summed_positive_per_x_and_y.eval(),
+                          np.array([[1.0, 3.0], [1.0, 1.0], [2.0, 5.0]]))
+      self.assertAllClose(extended_batch.counts_per_x.eval(),
+                          np.array([2.0, 4.0, 7.0]))
 
 
 if __name__ == '__main__':
