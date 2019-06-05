@@ -419,7 +419,13 @@ def _calculate_mutual_information_for_feature_value(feature_and_accumulator,
       (average) weight is lower than min_diff_from_average.
 
   Returns:
-    The feature value and its mutual information with the label
+    A tuple of:
+      The feature value
+      The mutual information with the label. If use_adjusted_mutual_info, this
+        is the mutual information - the expected mutual information, otherwise
+        it is the raw mutual information.
+      The expected mutual information (EMI) if use_adjusted_mutual_info is
+        True, otherwise NaN.
   """
   # Compute the frequency of each label value.
   global_label_counts = (
@@ -428,7 +434,7 @@ def _calculate_mutual_information_for_feature_value(feature_and_accumulator,
   feature_value, current_accumulator = feature_and_accumulator
   n = sum(global_label_counts)
   if n == 0:
-    return (feature_value, float('NaN'))
+    return (feature_value, float('NaN'), float('NaN'))
 
   mutual_information = 0
   expected_mutual_information = 0 if use_adjusted_mutual_info else None
@@ -456,9 +462,10 @@ def _calculate_mutual_information_for_feature_value(feature_and_accumulator,
   if use_adjusted_mutual_info:
     # TODO(b/127366670): Consider implementing the normalization step as per
     # AMI(x, y) = MI(x, y) - EMI(x, y) / (max(H(x), H(y)) - EMI(x, y))
-    return (feature_value, mutual_information - expected_mutual_information)
+    return (feature_value, mutual_information - expected_mutual_information,
+            expected_mutual_information)
   else:
-    return (feature_value, mutual_information)
+    return (feature_value, mutual_information, float('NaN'))
 
 
 @ptransform_fn
@@ -522,7 +529,9 @@ def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
               _calculate_mutual_information_for_feature_value,
               beam.pvalue.AsSingleton(global_accumulator),
               use_adjusted_mutual_info=use_adjusted_mutual_info,
-              min_diff_from_avg=min_diff_from_avg))
+              min_diff_from_avg=min_diff_from_avg)
+          # Ignore the third return value, which is the Expected Mutual Info.
+          | beam.Map(lambda mi_results: (mi_results[0], mi_results[1])))
 
 
 class _WeightedMeanCombineFn(beam.CombineFn):
