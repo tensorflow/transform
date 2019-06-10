@@ -2581,6 +2581,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
           use_labels=True,
       ),
       dict(
+          testcase_name='sparse_integer_feature_with_labels',
+          feature_input=[[0, 1, 3, 2],
+                         [1, 2, 4], [0, 4, 2],
+                         [2]],
+          expected_output=[[0, -99, 1, -99], [-99, -99, -99], [0, -99, -99],
+                           [-99]],
+          use_labels=True,
+          feature_dtype=tf.int64,
+      ),
+      dict(
           testcase_name='sparse_feature_with_labels_some_empty',
           feature_input=[['world', 'hello', 'hello', 'moo'], [],
                          ['world', 'hello', 'foo'], []],
@@ -2588,9 +2598,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
           use_labels=True,
       ),
   )
-  def testVocabularyAnalyzerWithMultiDimensionalInputs(self, feature_input,
+  def testVocabularyAnalyzerWithMultiDimensionalInputs(self,
+                                                       feature_input,
                                                        expected_output,
-                                                       use_labels):
+                                                       use_labels,
+                                                       feature_dtype=tf.string):
 
     def preprocessing_fn(inputs):
       if use_labels:
@@ -2623,9 +2635,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
       input_data[i]['feature'] = input_entry
       counts.append(len(input_entry))
     if min(counts) == max(counts):
-      feature_type = tf.FixedLenFeature([max(counts)], tf.string)
+      feature_type = tf.FixedLenFeature([max(counts)], feature_dtype)
     else:
-      feature_type = tf.VarLenFeature(tf.string)
+      feature_type = tf.VarLenFeature(feature_dtype)
     input_metadata = tft_unit.metadata_from_feature_spec({
         'feature': feature_type,
         'label': tf.FixedLenFeature([], tf.int64)

@@ -27,7 +27,7 @@ from tensorflow.contrib.proto.python.ops import encode_proto_op
 _FLOATING_NAN = float('nan')
 # Global sentinels used to keep track of the total counts of y
 GLOBAL_Y_COUNT_SENTINEL_STRING = b'global_y_count_sentinel'
-GLOBAL_Y_COUNT_SENTINEL_INT = tf.int64.limits[0]
+GLOBAL_Y_COUNT_SENTINEL_INT = tf.int64.limits[1]
 
 ReducedBatchWeightedCounts = collections.namedtuple('ReducedBatchCounts', [
     'unique_x', 'summed_weights_per_x', 'summed_positive_per_x_and_y',
