@@ -83,15 +83,6 @@ class Schema(object):
     return schema_utils.schema_as_feature_spec(
         self._schema_proto)[1]
 
-  # Implement reduce so that the proto is serialized using proto serialization
-  # instead of the default pickling.
-  def __getstate__(self):
-    return self._schema_proto.SerializeToString()
-
-  def __setstate__(self, state):
-    self._schema_proto = schema_pb2.Schema()
-    self._schema_proto.MergeFromString(state)
-
 
 @deprecation.deprecated(
     None,

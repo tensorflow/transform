@@ -292,8 +292,8 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
   Args:
     input_schema: A `Schema` representing the inputs of this transform phase.
-    serialized_tf_config: A serialized tf.ConfigProto to use in sessions. None
-      implies use Tensorflow defaults.
+    tf_config: A tf.ConfigProto to use in sessions. None implies use Tensorflow
+      defaults.
     shared_graph_state_handle: an instance of shared.Shared() that allows us to
       load the graph once and share it across multiple threads in the current
       process.
@@ -342,7 +342,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
   def __init__(self,
                input_schema,
-               serialized_tf_config,
+               tf_config,
                shared_graph_state_handle,
                passthrough_keys,
                exclude_outputs=None):
@@ -350,7 +350,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
     self._input_schema = input_schema
     self._exclude_outputs = (
         exclude_outputs if exclude_outputs is not None else [])
-    self._serialized_tf_config = serialized_tf_config
+    self._tf_config = tf_config
     self._passthrough_keys = set(passthrough_keys)
     schema_keys = set(input_schema.as_feature_spec().keys())
     if self._passthrough_keys - schema_keys != self._passthrough_keys:
@@ -409,10 +409,8 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
   def _make_graph_state(self, saved_model_dir):
     start = datetime.datetime.now()
-    tf_config = common._maybe_deserialize_tf_config(  # pylint: disable=protected-access
-        self._serialized_tf_config)
     result = self._GraphState(saved_model_dir, self._input_schema,
-                              self._exclude_outputs, tf_config)
+                              self._exclude_outputs, self._tf_config)
     self._graph_load_seconds_distribution.update(
         int((datetime.datetime.now() - start).total_seconds()))
     return result
@@ -593,7 +591,7 @@ class _ApplySavedModelImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     self._input_schema = extra_args.input_schema
-    self._serialized_tf_config = extra_args.serialized_tf_config
+    self._tf_config = extra_args.tf_config
     self._phase = operation.phase
     if operation.dataset_key is None:
       self._input_values_pcoll = extra_args.flat_pcollection
@@ -620,7 +618,7 @@ class _ApplySavedModelImpl(beam.PTransform):
         | 'ApplySavedModel' >> beam.ParDo(
             _RunMetaGraphDoFn(
                 self._input_schema,
-                self._serialized_tf_config,
+                self._tf_config,
                 shared_graph_state_handle=shared.Shared(),
                 passthrough_keys=Context.get_passthrough_keys()),
             saved_model_dir=beam.pvalue.AsSingleton(inputs[0])))
@@ -734,11 +732,11 @@ class _AnalyzeDatasetCommon(beam.PTransform):
                   tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES)))
 
     pipeline = flattened_pcoll.pipeline
-    serialized_tf_config = common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
+    tf_config = common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
         pipeline.runner)
     extra_args = common.ConstructBeamPipelineVisitor.ExtraArgs(
         base_temp_dir=Context.create_base_temp_dir(),
-        serialized_tf_config=serialized_tf_config,
+        tf_config=tf_config,
         pipeline=pipeline,
         flat_pcollection=flattened_pcoll,
         pcollection_dict=input_values_pcoll_dict,
@@ -968,7 +966,7 @@ class TransformDataset(beam.PTransform):
         output_metadata = _remove_columns_from_metadata(
             output_metadata, self._exclude_outputs)
 
-    serialized_tf_config = (
+    tf_config = (
         common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
             self.pipeline.runner))
 
@@ -978,7 +976,7 @@ class TransformDataset(beam.PTransform):
         | 'Transform' >> beam.ParDo(
             _RunMetaGraphDoFn(
                 input_metadata.schema,
-                serialized_tf_config,
+                tf_config,
                 shared_graph_state_handle=shared.Shared(),
                 passthrough_keys=Context.get_passthrough_keys(),
                 exclude_outputs=self._exclude_outputs),

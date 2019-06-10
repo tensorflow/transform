@@ -35,8 +35,6 @@ PRIMITIVE_TYPE = Union[NUMERIC_TYPE, Union[string_types]]
 
 METRICS_NAMESPACE = 'tfx.Transform'
 
-# TODO(b/35133536): Obviate the need for serialization and deserialization of
-# the values in the map.
 _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER = {
     # We rely on Beam to manage concurrency, i.e. we expect it to run one
     # session per CPU--so we don't want to proliferate TF threads.
@@ -54,20 +52,11 @@ _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER = {
             # the former for now.
             use_per_session_threads=True,
             inter_op_parallelism_threads=2,
-            intra_op_parallelism_threads=2).SerializeToString(),
+            intra_op_parallelism_threads=2),
 
     # TODO(katsiapis): Perhaps do the same for DirectRunner once it becomes
     # multi-process (https://issues.apache.org/jira/browse/BEAM-3645).
 }
-
-
-def _maybe_deserialize_tf_config(serialized_tf_config):
-  if serialized_tf_config is None:
-    return None
-
-  result = tf.compat.v1.ConfigProto()
-  result.ParseFromString(serialized_tf_config)
-  return result
 
 
 def get_unique_temp_path(base_temp_dir):
@@ -143,7 +132,7 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
           'pipeline',
           'flat_pcollection',
           'pcollection_dict',
-          'serialized_tf_config',
+          'tf_config',
           'graph',
           'input_signature',
           'input_schema',

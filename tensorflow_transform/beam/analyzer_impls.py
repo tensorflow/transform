@@ -595,15 +595,14 @@ class _CombinerWrapper(beam.CombineFn):
 
   def __init__(self,
                combiner,
-               serialized_tf_config,
+               tf_config,
                is_combining_accumulators,
                should_extract_output=None):
     """Init method for _CombinerWrapper.
 
     Args:
       combiner: A `analyzer_nodes.Combiner` object used to combine.
-      serialized_tf_config: A str which is a serialized form of
-        `tf.ConfigProto`.
+      tf_config: A `tf.ConfigProto`.
       is_combining_accumulators: A bool which indicates whether this is
         combining single or batched inputs, or already accumulated objects.
       should_extract_output: A bool which indicates whether this should call the
@@ -613,18 +612,16 @@ class _CombinerWrapper(beam.CombineFn):
     # TODO(b/69566045): Move initialization to start_bundle(), removing the need
     # for initialize_local_state to be called here.
     if isinstance(combiner, analyzers.QuantilesCombiner):
-      tf_config = common._maybe_deserialize_tf_config(  # pylint: disable=protected-access
-          serialized_tf_config)
       combiner.initialize_local_state(tf_config)
     self._combiner = combiner
-    self._serialized_tf_config = serialized_tf_config
+    self._tf_config = tf_config
     self._is_combining_accumulators = is_combining_accumulators
     if should_extract_output is None:
       should_extract_output = is_combining_accumulators
     self._should_extract_output = should_extract_output
 
   def __reduce__(self):
-    return _CombinerWrapper, (self._combiner, self._serialized_tf_config,
+    return _CombinerWrapper, (self._combiner, self._tf_config,
                               self._is_combining_accumulators,
                               self._should_extract_output)
 
@@ -856,7 +853,7 @@ class _IntermediateAccumulateCombineImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     self._combiner = operation.combiner
-    self._serialized_tf_config = extra_args.serialized_tf_config
+    self._tf_config = extra_args.tf_config
     self._num_outputs = operation.num_outputs
     self._name = operation.label
 
@@ -872,7 +869,7 @@ class _IntermediateAccumulateCombineImpl(beam.PTransform):
         | 'InitialCombineGlobally' >> beam.CombineGlobally(
             _CombinerWrapper(
                 self._combiner,
-                self._serialized_tf_config,
+                self._tf_config,
                 is_combining_accumulators=False)).with_defaults(has_defaults))
 
 
@@ -882,7 +879,7 @@ class _MergeAccumulatorsCombineImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     self._combiner = operation.combiner
-    self._serialized_tf_config = extra_args.serialized_tf_config
+    self._tf_config = extra_args.tf_config
     self._num_outputs = operation.num_outputs
 
     self._name = operation.label
@@ -909,7 +906,7 @@ class _MergeAccumulatorsCombineImpl(beam.PTransform):
         | 'MergeCombinesGlobally' >> beam.CombineGlobally(
             _CombinerWrapper(
                 self._combiner,
-                self._serialized_tf_config,
+                self._tf_config,
                 is_combining_accumulators=True)).with_defaults(has_defaults)
         | 'ExtractOutputs' >> beam.FlatMap(
             extract_outputs, self._num_outputs).with_outputs(*output_keys))
@@ -922,7 +919,7 @@ class _IntermediateAccumulateCombinePerKeyImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     self._combiner = operation.combiner
-    self._serialized_tf_config = extra_args.serialized_tf_config
+    self._tf_config = extra_args.tf_config
 
   def expand(self, inputs):
     pcoll, = inputs
@@ -931,7 +928,7 @@ class _IntermediateAccumulateCombinePerKeyImpl(beam.PTransform):
             | 'CombinePerKey' >> beam.CombinePerKey(
                 _CombinerWrapper(
                     self._combiner,
-                    self._serialized_tf_config,
+                    self._tf_config,
                     is_combining_accumulators=False)))
 
 
@@ -941,7 +938,7 @@ class _MergeAccumulatorsCombinePerKeyImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     self._combiner = operation.combiner
-    self._serialized_tf_config = extra_args.serialized_tf_config
+    self._tf_config = extra_args.tf_config
 
   def expand(self, inputs):
     pcoll, = inputs
@@ -953,7 +950,7 @@ class _MergeAccumulatorsCombinePerKeyImpl(beam.PTransform):
         | 'MergeCombinePerKey' >> beam.CombinePerKey(
             _CombinerWrapper(
                 self._combiner,
-                self._serialized_tf_config,
+                self._tf_config,
                 is_combining_accumulators=True))
         | 'ToList' >> beam.combiners.ToList()
         | 'MergeByKey' >> beam.FlatMap(_merge_outputs_by_key, [
