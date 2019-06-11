@@ -99,7 +99,11 @@ def reduce_batch_weighted_cooccurrences(x_input,
   # TODO(b/134075780): Revisit expected weights shape when input is sparse.
   if isinstance(x_input, tf.SparseTensor):
     batch_indices = x_input.indices[:, 0]
-    y = tf.gather(y_input, batch_indices)
+    # y and densified x should have the same batch dimension.
+    assert_eq = tf.compat.v1.assert_equal(
+        tf.shape(y_input)[0], tf.cast(x_input.dense_shape[0], tf.int32))
+    with tf.control_dependencies([assert_eq]):
+      y = tf.gather(y_input, batch_indices)
     x = x_input.values
   else:
     y = y_input
@@ -123,7 +127,7 @@ def reduce_batch_weighted_cooccurrences(x_input,
   # For each feature value in x, computed the weighted sum positive for each
   # unique value in y.
 
-  max_y_value = tf.cast(tf.reduce_max(input_tensor=y), tf.int64)
+  max_y_value = tf.cast(tf.reduce_max(input_tensor=y_input), tf.int64)
   max_x_idx = tf.cast(tf.size(unique_x_values), tf.int64)
   dummy_index = (max_y_value + 1) * unique_idx + y
   summed_positive_per_x_and_y = tf.cast(

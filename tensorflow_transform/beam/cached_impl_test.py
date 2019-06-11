@@ -796,14 +796,14 @@ class CachedImplTest(test_case.TransformTestCase):
           transform_fn_with_cache_dir)
 
       expected_accumulators = {
-          b'__v0__VocabularyAccumulate[vocabulary]-E\xbdVT\xb2\x10\xe6\xb7:\xbfV\xe7\xcb\x13\x91b\x05R\x0f\x16':
+          b'__v0__VocabularyAccumulate[vocabulary]-<GhZ\xac\xb8\xa9\x8c\xce\x1c\xb2-ck\xca\xe8\xec\t%\x8f':
               [
                   b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
                   b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]',
                   b'["global_y_count_sentinel", [4, [0.25, 0.75], [0.0, 0.0], '
                   b'1.0]]'
               ],
-          b'__v0__VocabularyAccumulate[vocabulary_1]-\xe8\xa7\xb6\xb3\xe9\x88\x91\xd6\xe7K\x90\xfc\xb4\xf0\xac\xbf\xf9<\x04A':
+          b'__v0__VocabularyAccumulate[vocabulary_1]-\xa6\xae\nd\xe3\xd1\x9f\xa0\xe2\xb4\x05j\xa5\xfd\x8c\xfaeN\xd1\x1f':
               [
                   b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
                   b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]',

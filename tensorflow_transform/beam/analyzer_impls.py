@@ -439,6 +439,11 @@ def _calculate_mutual_information_for_feature_value(feature_and_accumulator,
   mutual_information = 0
   expected_mutual_information = 0 if use_adjusted_mutual_info else None
   x_i = (current_accumulator.count * current_accumulator.weight)
+  if x_i > n:
+    raise ValueError(
+        'The frequency of a token higher than the number of records'
+        ' This likely means you have provided tft.vocabulary with input that'
+        ' has repeated tokens per row, rather than a set representation.')
   for label_ix in range(len(global_label_counts)):
     y_i = global_label_counts[label_ix]
     if y_i == 0:

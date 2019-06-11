@@ -2567,17 +2567,19 @@ class BeamImplTest(tft_unit.TransformTestCase):
       ),
       dict(
           testcase_name='dense_feature_with_labels',
-          feature_input=[['world', 'hello', 'hello'], ['hello', 'world', 'moo'],
-                         ['hello', 'hello', 'foo'], ['world', 'foo', 'moo']],
-          expected_output=[[-99, 1, 1], [1, -99, 0], [1, 1, -99], [-99, -99,
-                                                                   0]],
+          feature_input=[['world', 'hello', 'hi'], ['hello', 'world', 'moo'],
+                         ['hello', 'bye', 'foo'], ['world', 'foo', 'moo']],
+          expected_output=[[-99, -99, 1], [-99, -99, 0], [-99, -99, -99],
+                           [-99, -99, 0]],
           use_labels=True,
       ),
       dict(
           testcase_name='sparse_feature_with_labels',
-          feature_input=[['world', 'hello', 'hello'], ['world', 'world', 'foo'],
-                         ['hello', 'foo', 'moo'], ['moo']],
-          expected_output=[[1, 0, 0], [1, 1, -99], [0, -99, -99], [-99]],
+          feature_input=[['hello', 'world', 'bye', 'moo'],
+                         ['world', 'moo', 'foo'], ['hello', 'foo', 'moo'],
+                         ['moo']],
+          expected_output=[[0, -99, 1, -99], [-99, -99, -99], [0, -99, -99],
+                           [-99]],
           use_labels=True,
       ),
       dict(
@@ -2592,9 +2594,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
       ),
       dict(
           testcase_name='sparse_feature_with_labels_some_empty',
-          feature_input=[['world', 'hello', 'hello', 'moo'], [],
+          feature_input=[['world', 'hello', 'hi', 'moo'], [],
                          ['world', 'hello', 'foo'], []],
-          expected_output=[[1, 0, 0, -99], [], [1, 0, -99], []],
+          expected_output=[[0, 1, -99, -99], [], [0, 1, -99], []],
           use_labels=True,
       ),
   )
@@ -2659,7 +2661,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     input_data = [
         {
-            'feature': [1, 2, 2, 5],
+            'feature': [1, 2, 3, 5],
             'label': 1
         },
         {
@@ -2667,7 +2669,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
             'label': 0
         },
         {
-            'feature': [1, 2, 2],
+            'feature': [1, 2],
+            'label': 1
+        },
+        {
+            'feature': [1, 2],
             'label': 1
         },
         {
@@ -2689,13 +2695,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     expected_data = [
         {
-            'vocab_feature': [-1, 0, 0, 3],
+            'vocab_feature': [-1, 0, 2, 3],
         },
         {
             'vocab_feature': [-1, 1, 3],
         },
         {
-            'vocab_feature': [-1, 0, 0],
+            'vocab_feature': [-1, 0],
+        },
+        {
+            'vocab_feature': [-1, 0],
         },
         {
             'vocab_feature': [-1, 2, 3],

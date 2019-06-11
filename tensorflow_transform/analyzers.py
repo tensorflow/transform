@@ -919,9 +919,13 @@ def vocabulary(x,
   or top_k to control the size of the output, and also the run time of this
   operation.
 
-  When labels are provided, we filter the vocabulary based on how correlated the
-  unique value is with a positive label (Mutual Information).
-
+  When labels are provided, we filter the vocabulary based on the relationship
+  between the token's presence in a record and the label for that record, using
+  (possibly adjusted) Mutual Information. Note: If labels are provided, the x
+  input must be a unique set of per record, as the semantics of the mutual
+  information calculation depend on a multi-hot representation of the input.
+  Having unique input tokens per row is advisable but not required for a
+  frequency-based vocabulary.
 
   WARNING: The following is experimental and is still being actively worked on.
 
@@ -943,7 +947,8 @@ def vocabulary(x,
 
   Args:
     x: A categorical/discrete input `Tensor` or `SparseTensor` with dtype
-      tf.string or tf.int[8|16|32|64].
+      tf.string or tf.int[8|16|32|64]. The inputs should generally be unique per
+      row (i.e. a bag of words/ngrams representation).
     top_k: Limit the generated vocabulary to the first `top_k` elements. If set
       to None, the full vocabulary is generated.
     frequency_threshold: Limit the generated vocabulary only to elements whose
@@ -963,10 +968,16 @@ def vocabulary(x,
       will be of the form 'frequency word'.
     weights: (Optional) Weights `Tensor` for the vocabulary. It must have the
       same shape as x.
-    labels: (Optional) Labels `Tensor` for the vocabulary. It must have the same
-      shape as x and be a discrete integerized tensor (If the label is numeric,
+    labels: (Optional) Labels dense `Tensor` for the vocabulary. If provided,
+      the vocabulary is calculated based on mutual information with the label,
+      rather than frequency. The labels must have the same batch dimension as x.
+      If x is sparse, labels should be a 1D tensor reflecting row-wise labels.
+      If x is dense, labels can either be a 1D tensor of row-wise labels, or
+      a dense tensor of the identical shape as x (i.e. element-wise labels).
+      Labels should be a discrete integerized tensor (If the label is numeric,
       it should first be bucketized; If the label is a string, an integer
-      vocabulary should first be applied).
+      vocabulary should first be applied). Note: `SparseTensor` labels are not
+      yet supported (b/134931826).
     use_adjusted_mutual_info: If true, and labels are provided, calculate
       vocabulary using adjusted rather than raw mutual information.
     min_diff_from_avg: MI (or AMI) of a feature x label will be adjusted to zero
