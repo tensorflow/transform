@@ -828,6 +828,109 @@ def segment_indices(segment_ids, name=None):
             segment_starts)
 
 
+def deduplicate_sparse_tensor_per_row(input_tensor, name=None):
+  """Deduplicates each row (0-th dimension) of the provided sparse tensor.
+
+  Args:
+    input_tensor: A two-dimensional `SparseTensor`.
+    name: Optional name for the operation.
+
+  Returns:
+    A `SparseTensor` containing the unique set of values from each row of the
+      input. Note: the original order of the input may not be preserved.
+  """
+  with tf.compat.v1.name_scope(name, 'deduplicate_per_row'):
+
+    # For each input row, compute the unique values and set them in positions
+    # 0 through num_unique - 1 within the row.
+    batch_dim = tf.cast(input_tensor.dense_shape[0], tf.int32)
+    max_unique = tf.constant(0, dtype=tf.int64)
+    values = tf.TensorArray(
+        size=batch_dim,
+        dtype=input_tensor.dtype,
+        element_shape=[None],
+        infer_shape=False)
+    indices = tf.TensorArray(
+        size=batch_dim,
+        dtype=tf.int64,
+        element_shape=[None, 2],
+        infer_shape=False)
+
+    def _deduplicate_row(i, input_tensor, indices, values, max_unique):
+      """Deduplicates the values in the i-th row of the input.
+
+      Args:
+        i: Index representing the row of input_tensor to be processed.
+        input_tensor: The `SparseTensor` input to be deuplicated per row.
+        indices: A `TensorArray` containing the indices of each deduplicated row
+        values: A `TensorArray` containing the values of each deduplicated row.
+        max_unique: Tracks the maximum size of any row.
+
+      Returns:
+        Updated versions of the above for the loop iteration.
+      """
+      row = tf.sparse.slice(input_tensor, [i, 0],
+                            [1, input_tensor.dense_shape[1]])
+      row_values, _ = tf.unique(row.values)
+      # Keep track of the maximum number of unique elements in a row, as this
+      # will determine the resulting dense shape.
+      max_unique = tf.cast(
+          tf.maximum(tf.cast(tf.shape(row_values)[0], tf.int64), max_unique),
+          tf.int64)
+      column_indices = tf.cast(
+          tf.expand_dims(tf.range(tf.shape(row_values)[0]), axis=1), tf.int64)
+      row_indices = tf.fill(tf.shape(column_indices), tf.cast(i, tf.int64))
+      values = values.write(i, row_values)
+      indices = indices.write(i, tf.concat([row_indices, column_indices], 1))
+      return i + 1, input_tensor, indices, values, max_unique
+
+    i = tf.constant(0, tf.int32)
+    _, _, indices, values, max_unique = tf.while_loop(
+        lambda i, *_: i < batch_dim,
+        _deduplicate_row, [i, input_tensor, indices, values, max_unique],
+        back_prop=False)
+
+    dense_shape = tf.convert_to_tensor([
+        tf.cast(input_tensor.dense_shape[0], tf.int64),
+        tf.cast(max_unique, tf.int64)
+    ],
+                                       dtype=tf.int64)
+    # Concatenate the deduped rows back into a single SparseTensor.
+    return tf.SparseTensor(
+        indices=tf.cast(indices.concat(), tf.int64),
+        values=values.concat(),
+        dense_shape=dense_shape)
+
+
+def bag_of_words(tokens, ngram_range, separator, name=None):
+  """Computes a bag of "words" based on the specified ngram configuration.
+
+  A light wrapper around tft.ngrams. First computes ngrams, then transforms the
+  ngram representation (list semantics) into a Bag of Words (set semantics) per
+  row. Each row reflects the set of *unique* ngrams present in an input record.
+
+  See tft.ngrams for more information.
+
+  Args:
+    tokens: a two-dimensional `SparseTensor` of dtype `tf.string` containing
+      tokens that will be used to construct a bag of words.
+    ngram_range: A pair with the range (inclusive) of ngram sizes to compute.
+    separator: a string that will be inserted between tokens when ngrams are
+      constructed.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    A `SparseTensor` containing the unique set of ngrams from each row of the
+      input. Note: the original order of the ngrams may not be preserved.
+  """
+  with tf.compat.v1.name_scope(name, 'bag_of_words'):
+    # First compute the ngram representation, which will contain ordered and
+    # possibly duplicated ngrams per row.
+    all_ngrams = ngrams(tokens, ngram_range, separator)
+    # Then deduplicate the ngrams in each row.
+    return deduplicate_sparse_tensor_per_row(all_ngrams)
+
+
 def ngrams(tokens, ngram_range, separator, name=None):
   """Create a `SparseTensor` of n-grams.
 
@@ -867,7 +970,9 @@ def ngrams(tokens, ngram_range, separator, name=None):
     name: (Optional) A name for this operation.
 
   Returns:
-    A `SparseTensor` containing all ngrams from each row of the input.
+    A `SparseTensor` containing all ngrams from each row of the input. Note:
+    if an ngram appears multiple times in the input row, it will be present the
+    same number of times in the output. For unique ngrams, see tft.bag_of_words.
 
   Raises:
     ValueError: if ngram_range[0] < 1 or ngram_range[1] < ngram_range[0]
@@ -932,7 +1037,7 @@ def ngrams(tokens, ngram_range, separator, name=None):
     ngrams_tensor = tf.stack(ngrams_array, 1)
 
     # Construct a boolean mask for whether each ngram in ngram_tensor is valid,
-    # in that each character cam from the same batch.
+    # in that each character came from the same batch.
     valid_ngram = tf.equal(
         tf.math.cumprod(
             tf.cast(
