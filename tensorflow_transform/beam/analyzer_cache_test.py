@@ -92,7 +92,7 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
           },
       }
       _ = cache_pcoll_dict | analyzer_cache.WriteAnalysisCacheToFS(
-          base_test_dir)
+          p, base_test_dir)
 
     with beam.Pipeline() as p:
       read_cache = p | analyzer_cache.ReadAnalysisCacheFromFS(
@@ -118,6 +118,66 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
           read_cache['dataset_key_1']['c'],
           assert_equal_matcher(b'[9, 5, 2, 1]'),
           label='AssertC')
+
+  def test_cache_merge(self):
+    base_test_dir = os.path.join(
+        os.environ.get('TEST_UNDECLARED_OUTPUTS_DIR', self.get_temp_dir()),
+        self._testMethodName)
+
+    dataset_key_0 = 'dataset_key_0'
+    dataset_key_1 = 'dataset_key_1'
+    dataset_keys = (dataset_key_0, dataset_key_1)
+    cache_keys = list('abcd')
+
+    def read_manifests():
+      return [
+          analyzer_cache._ManifestFile(
+              analyzer_cache._get_dataset_cache_path(base_test_dir, key)).read()
+          for key in dataset_keys
+      ]
+
+    with beam.Pipeline() as p:
+      cache_pcoll_dict = {
+          dataset_key_0: {
+              'a': p | 'CreateA' >> beam.Create([b'a']),
+              'b': p | 'CreateB' >> beam.Create([b'b']),
+          },
+          dataset_key_1: {
+              'c': p | 'CreateC' >> beam.Create([b'c']),
+              'd': p | 'CreateD' >> beam.Create([b'd']),
+          },
+      }
+      _ = cache_pcoll_dict | analyzer_cache.WriteAnalysisCacheToFS(
+          p, base_test_dir)
+
+    first_manifests = read_manifests()
+
+    with beam.Pipeline() as p:
+      cache_pcoll_dict = {
+          dataset_key_0: {
+              'c': p | 'CreateC' >> beam.Create([b'c']),
+              'd': p | 'CreateD' >> beam.Create([b'd']),
+          },
+          dataset_key_1: {
+              'a': p | 'CreateA' >> beam.Create([b'a']),
+              'b': p | 'CreateB' >> beam.Create([b'b']),
+          },
+      }
+      _ = cache_pcoll_dict | analyzer_cache.WriteAnalysisCacheToFS(
+          p, base_test_dir)
+
+    second_manifests = read_manifests()
+    self.assertEqual(len(first_manifests), len(second_manifests))
+    for manifest_a, manifest_b in zip(first_manifests, second_manifests):
+      for key_value_pair in manifest_a.items():
+        self.assertIn(key_value_pair, manifest_b.items())
+
+      self.assertEqual(2, len(manifest_a))
+      self.assertCountEqual(range(len(manifest_a)), manifest_a.values())
+
+      self.assertEqual(4, len(manifest_b))
+      self.assertCountEqual(range(len(manifest_b)), manifest_b.values())
+      self.assertCountEqual(cache_keys, manifest_b.keys())
 
   def test_cache_helpers_with_alternative_io(self):
 
@@ -149,7 +209,7 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
     cache_dir = self.get_temp_dir()
     with beam.Pipeline() as p:
       _ = test_cache_dict | analyzer_cache.WriteAnalysisCacheToFS(
-          cache_dir, sink=LocalSink)
+          p, cache_dir, sink=LocalSink)
 
       read_cache = p | analyzer_cache.ReadAnalysisCacheFromFS(
           cache_dir, list(test_cache_dict.keys()), source=LocalSource)

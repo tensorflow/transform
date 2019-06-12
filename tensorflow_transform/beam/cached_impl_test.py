@@ -410,8 +410,8 @@ class CachedImplTest(test_case.TransformTestCase):
           (flat_data, input_data_dict, cache_dict, input_metadata)
           | 'Analyze' >>
           (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
-      _ = cache_output | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
-          self._cache_dir)
+      _ = (cache_output | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
+          p, self._cache_dir))
 
       transformed_dataset = ((
           (input_data_dict[span_1_key], input_metadata), transform_fn)
@@ -541,8 +541,9 @@ class CachedImplTest(test_case.TransformTestCase):
           (flat_data, input_data_pcoll_dict, {}, input_metadata)
           | 'Analyze' >> (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
       _ = (
-          cache_output | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
-              self._cache_dir))
+          cache_output
+          | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
+              p, self._cache_dir))
 
       transformed_dataset = ((
           (input_data_pcoll_dict[span_1_key], input_metadata), transform_fn_1)
@@ -605,6 +606,10 @@ class CachedImplTest(test_case.TransformTestCase):
           (flat_data, input_data_pcoll_dict, input_cache, input_metadata)
           | 'AnalyzeAgain' >>
           (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
+      _ = (
+          second_output_cache
+          | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
+              p, self._cache_dir))
 
       dot_string = nodes.get_dot_graph([analysis_graph_builder._ANALYSIS_GRAPH
                                        ]).to_string()
@@ -707,7 +712,7 @@ class CachedImplTest(test_case.TransformTestCase):
       self.assertNotIn(span_0_key, cache_output)
 
       _ = cache_output | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
-          self._cache_dir)
+          p, self._cache_dir)
 
       transformed_dataset = ((
           (input_data_dict[span_1_key], input_metadata), transform_fn)
