@@ -35,7 +35,6 @@ from tensorflow_transform import nodes
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.beam import analysis_graph_builder
 from tensorflow_transform.beam import analyzer_cache
-from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform import test_case
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import dataset_schema
@@ -337,7 +336,7 @@ class CachedImplTest(test_case.TransformTestCase):
         self._testMethodName)
     self._cache_dir = os.path.join(self.base_test_dir, 'cache')
 
-    self._context = beam_impl.Context(temp_dir=self.get_temp_dir())
+    self._context = tft_beam.Context(temp_dir=self.get_temp_dir())
     self._context.__enter__()
 
   def tearDown(self):
@@ -408,14 +407,13 @@ class CachedImplTest(test_case.TransformTestCase):
 
       transform_fn, cache_output = (
           (flat_data, input_data_dict, cache_dict, input_metadata)
-          | 'Analyze' >>
-          (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
+          | 'Analyze' >> tft_beam.AnalyzeDatasetWithCache(preprocessing_fn))
       _ = (cache_output | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
           p, self._cache_dir))
 
       transformed_dataset = ((
           (input_data_dict[span_1_key], input_metadata), transform_fn)
-                             | 'Transform' >> beam_impl.TransformDataset())
+                             | 'Transform' >> tft_beam.TransformDataset())
 
       dot_string = nodes.get_dot_graph([analysis_graph_builder._ANALYSIS_GRAPH
                                        ]).to_string()
@@ -539,7 +537,7 @@ class CachedImplTest(test_case.TransformTestCase):
 
       transform_fn_1, cache_output = (
           (flat_data, input_data_pcoll_dict, {}, input_metadata)
-          | 'Analyze' >> (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
+          | 'Analyze' >> tft_beam.AnalyzeDatasetWithCache(preprocessing_fn))
       _ = (
           cache_output
           | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
@@ -547,7 +545,7 @@ class CachedImplTest(test_case.TransformTestCase):
 
       transformed_dataset = ((
           (input_data_pcoll_dict[span_1_key], input_metadata), transform_fn_1)
-                             | 'Transform' >> beam_impl.TransformDataset())
+                             | 'Transform' >> tft_beam.TransformDataset())
 
       del input_data_pcoll_dict
       transformed_data, unused_transformed_metadata = transformed_dataset
@@ -605,7 +603,7 @@ class CachedImplTest(test_case.TransformTestCase):
       transform_fn_2, second_output_cache = (
           (flat_data, input_data_pcoll_dict, input_cache, input_metadata)
           | 'AnalyzeAgain' >>
-          (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
+          (tft_beam.AnalyzeDatasetWithCache(preprocessing_fn)))
       _ = (
           second_output_cache
           | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
@@ -617,7 +615,7 @@ class CachedImplTest(test_case.TransformTestCase):
 
       transformed_dataset = ((
           (input_data_dict[span_1_key], input_metadata), transform_fn_2)
-                             | 'TransformAgain' >> beam_impl.TransformDataset())
+                             | 'TransformAgain' >> tft_beam.TransformDataset())
       transformed_data, unused_transformed_metadata = transformed_dataset
       beam_test_util.assert_that(
           transformed_data,
@@ -702,8 +700,7 @@ class CachedImplTest(test_case.TransformTestCase):
 
       transform_fn, cache_output = (
           (flat_data, input_data_dict, cache_dict, input_metadata)
-          | 'Analyze' >>
-          (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
+          | 'Analyze' >> tft_beam.AnalyzeDatasetWithCache(preprocessing_fn))
 
       dot_string = nodes.get_dot_graph(
           [analysis_graph_builder._ANALYSIS_GRAPH]).to_string()
@@ -716,7 +713,7 @@ class CachedImplTest(test_case.TransformTestCase):
 
       transformed_dataset = ((
           (input_data_dict[span_1_key], input_metadata), transform_fn)
-                             | 'Transform' >> beam_impl.TransformDataset())
+                             | 'Transform' >> tft_beam.TransformDataset())
 
       transformed_data, _ = transformed_dataset
 
@@ -793,8 +790,8 @@ class CachedImplTest(test_case.TransformTestCase):
         input_data_pcoll_dict[a] = p | a >> beam.Create(b)
 
       transform_fn_with_cache, output_cache = (
-          (flat_data, input_data_pcoll_dict, {}, input_metadata) |
-          (beam_impl.AnalyzeDatasetWithCache(preprocessing_fn)))
+          (flat_data, input_data_pcoll_dict, {}, input_metadata)
+          | tft_beam.AnalyzeDatasetWithCache(preprocessing_fn))
       transform_fn_with_cache_dir = os.path.join(self.base_test_dir,
                                                  'transform_fn_with_cache')
       _ = transform_fn_with_cache | tft_beam.WriteTransformFn(
@@ -839,8 +836,8 @@ class CachedImplTest(test_case.TransformTestCase):
     with _TestPipeline() as p:
       flat_data = p | 'CreateInputData' >> beam.Create(input_data * 2)
 
-      transform_fn_no_cache = ((flat_data, input_metadata) |
-                               (beam_impl.AnalyzeDataset(preprocessing_fn)))
+      transform_fn_no_cache = ((flat_data, input_metadata)
+                               | tft_beam.AnalyzeDataset(preprocessing_fn))
 
       transform_fn_no_cache_dir = os.path.join(self.base_test_dir,
                                                'transform_fn_no_cache')

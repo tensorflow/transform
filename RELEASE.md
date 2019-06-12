@@ -6,6 +6,11 @@
   (for pre-tokenized strings).
 * All `tft.scale_to_*` mappers now have per-key variants, along with analyzers
   for `mean_and_var_per_key` and `min_and_max_per_key`.
+* New `tft_beam.AnalyzeDatasetWithCache` allows analyzing ranges of data while
+  producing and utilizing cache.  `tft.analyzer_cache` can help read and write
+  such cache to a filesystem between runs.  This caching feature is worth using
+  when analyzing a rolling range in a continuous pipeline manner.  This is an
+  experimental feature.
 
 ## Bug Fixes and Other Changes
 * `sparse_tensor_to_dense_with_shape` now accepts an optional `default_value`
