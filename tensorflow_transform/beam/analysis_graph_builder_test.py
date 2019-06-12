@@ -82,7 +82,14 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signatur
 def _preprocessing_fn_with_table(inputs):
   x = inputs['x']
   x_vocab = tft.vocabulary(x, name='x')
-  table = tf.contrib.lookup.index_table_from_file(x_vocab)
+  initializer = tf.lookup.TextFileInitializer(
+      x_vocab,
+      key_dtype=tf.string,
+      key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
+      value_dtype=tf.int64,
+      value_index=tf.lookup.TextFileIndex.LINE_NUMBER,
+      delimiter=' ')
+  table = tf.lookup.StaticHashTable(initializer, default_value=-1)
   x_integerized = table.lookup(x)
   return {'x_integerized': x_integerized}
 

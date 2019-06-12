@@ -22,7 +22,6 @@ import collections
 # GOOGLE-INITIALIZATION
 import tensorflow as tf
 
-from tensorflow.contrib.proto.python.ops import encode_proto_op
 
 _FLOATING_NAN = float('nan')
 # Global sentinels used to keep track of the total counts of y
@@ -373,7 +372,7 @@ _DEFAULT_VALUE_BY_DTYPE = {
 
 
 def _encode_proto(values_dict, message_type):
-  """A wrapper around encode_proto_op.encode_proto."""
+  """A wrapper around tf.raw_ops.EncodeProto."""
   field_names = []
   sizes = []
   values = []
@@ -393,7 +392,10 @@ def _encode_proto(values_dict, message_type):
     sizes.append(size)
 
   sizes = tf.stack(sizes, axis=1)
-  return encode_proto_op.encode_proto(sizes, values, field_names, message_type)
+  return tf.raw_ops.EncodeProto(sizes=sizes,
+                                values=values,
+                                field_names=field_names,
+                                message_type=message_type)
 
 
 def _serialize_feature(values):

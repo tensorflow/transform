@@ -313,7 +313,13 @@ def preprocessing_fn(inputs):
     tft.vocabulary(inputs[key], vocab_filename=key)
 
   # For the label column we provide the mapping from string to index.
-  table = tf.contrib.lookup.index_table_from_tensor(['>50K', '<=50K'])
+  initializer = tf.lookup.KeyValueTensorInitializer(
+      keys=['>50K', '<=50K'],
+      values=tf.cast(tf.range(2), tf.int64),
+      key_dtype=tf.string,
+      value_dtype=tf.int64)
+  table = tf.lookup.StaticHashTable(initializer, default_value=-1)
+
   outputs[LABEL_KEY] = table.lookup(outputs[LABEL_KEY])
 
   return outputs
