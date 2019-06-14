@@ -38,9 +38,10 @@
 * If not specified, the min_diff_from_avg parameter of `tft.vocabulary` now
   defaults to a reasonable value based on the size of the dataset (relevant
   only if computing vocabularies using mutual information).
-* Replacing references to tf.contrib
+* Convert some `tf.contrib` functions to be compatible with TF2.0.
 * New `tft.bag_of_words` mapper to compute the unique set of ngrams for each row
   (for pre-tokenized strings).
+
 ## Breaking changes
 
 ## Deprecations
