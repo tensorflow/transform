@@ -292,17 +292,15 @@ class AnalyzersTest(test_case.TransformTestCase):
 
   def test_reduce_batch_count_mean_and_var_sparse_elementwise(self):
     x = tf.SparseTensor(
-        indices=[[0, 0], [0, 2], [1, 1], [1, 2]],
+        indices=[[0, 0], [0, 3], [1, 1], [1, 3]],
         values=[1., 2., 3., 4.],
         dense_shape=[2, 5])
     count, mean, var = tf_utils.reduce_batch_count_mean_and_var(
         x, reduce_instance_dims=False)
-    nan = float('nan')
-    inf = float('inf')
     with tf.compat.v1.Session():
-      self.assertAllEqual(count.eval(), [1.0, 1.0, 2.0, 0.0, 0.0])
-      self.assertAllEqual(mean.eval(), [1.0, 3.0, 3.0, nan, nan])
-      self.assertAllEqual(var.eval(), [2.0, 2.0, 1.0, inf, inf])
+      self.assertAllEqual(count.eval(), [1.0, 1.0, 0.0, 2.0, 0.0])
+      self.assertAllEqual(mean.eval(), [1.0, 3.0, 0.0, 3.0, 0.0])
+      self.assertAllEqual(var.eval(), [0.0, 0.0, 0.0, 1.0, 0.0])
 
   def test_reduce_batch_count_mean_and_var_per_key(self):
     x = tf.constant([[1], [2], [3], [4], [4]], dtype=tf.float32)

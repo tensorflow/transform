@@ -285,11 +285,7 @@ def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
 
   x_count = tf.cast(reduce_batch_count(x, reduce_instance_dims), x.dtype)
 
-  reduce_sum_fn = (
-      tf.sparse.reduce_sum if isinstance(x, tf.SparseTensor) else tf.reduce_sum)
   axis = None if reduce_instance_dims else 0
-
-  x_mean = reduce_sum_fn(x, axis=axis) / x_count
 
   if isinstance(x, tf.SparseTensor):
     # This means reduce_instance_dims=False.
@@ -298,12 +294,26 @@ def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
       raise NotImplementedError(
           'Mean and var only support SparseTensors with rank 2')
 
-    mean_values = tf.gather(x_mean, x.indices[:, 1])
+    col_count, col_indices = x.dense_shape[1], x.indices[:, 1]
+    x_sum = tf.math.unsorted_segment_sum(x.values, col_indices, col_count)
+    x_mean = tf.where(x_count > 0,
+                      x_sum / x_count,
+                      tf.zeros_like(x_count, dtype=x.dtype))
+
+    mean_values = tf.gather(x_mean, col_indices)
     x_minus_mean = x.values - mean_values
+
+    col_sum_of_squares = tf.math.unsorted_segment_sum(
+        tf.square(x_minus_mean), col_indices, col_count)
+    x_variance = tf.where(x_count > 0,
+                          col_sum_of_squares / x_count,
+                          tf.zeros_like(x_count, dtype=x.dtype))
+
   else:
+    x_mean = tf.reduce_sum(x, axis=axis) / x_count
     x_minus_mean = x - x_mean
-  x_variance = tf.reduce_sum(
-      input_tensor=tf.square(x_minus_mean), axis=axis) / x_count
+    x_variance = tf.reduce_sum(
+        input_tensor=tf.square(x_minus_mean), axis=axis) / x_count
 
   return (x_count, x_mean, x_variance)
 

@@ -41,8 +41,14 @@
 * Convert some `tf.contrib` functions to be compatible with TF2.0.
 * New `tft.bag_of_words` mapper to compute the unique set of ngrams for each row
   (for pre-tokenized strings).
+* Fixed a bug in `tf_utils.reduce_batch_count_mean_and_var`, and as a result
+  `mean_and_var` analyzer, was miscalculating variance for the sparse
+  elementwise=True case.
 
 ## Breaking changes
+* `tf_utils.reduce_batch_count_mean_and_var`, which feeds into
+  `tft.mean_and_var`, now returns 0 instead of inf for empty columns of a
+  sparse tensor.
 
 ## Deprecations
 
