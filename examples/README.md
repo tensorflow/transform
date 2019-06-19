@@ -11,7 +11,7 @@ There's a minimal TFX example available in the [GitHub repo](./simple_example.py
 The *Census income* dataset is provided by the
 [UCI Machine Learning Repository](https://archive.ics.uci.edu/ml/datasets/Census+Income).
 This dataset contains both categorical and numeric data. See
-[Get started with TensorFlow Transform](../get_started.md)
+[Get started with TensorFlow Transform](../docs/get_started.md)
 for details.
 
 ## Sentiment analysis example
