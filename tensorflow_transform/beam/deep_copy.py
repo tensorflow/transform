@@ -33,6 +33,7 @@ from __future__ import print_function
 import apache_beam as beam
 from apache_beam import pipeline as beam_pipeline
 from apache_beam import pvalue
+from apache_beam.pvalue import PCollection
 
 from six.moves import queue
 
@@ -79,6 +80,7 @@ def _get_items_to_clone(pcollection):
   Raises:
     ValueError: if the input PCollection is invalid.
   """
+  assert isinstance(pcollection, PCollection)
   # List of items (either PCollection or PTransform, in reverse dependency
   # order (i.e. here, consumers occur before producers).
   reversed_to_clone = []
@@ -105,7 +107,15 @@ def _get_items_to_clone(pcollection):
       raise ValueError(
           'PCollection node has invalid producer: %s' % current_pcollection)
 
-    # Visit the input PCollection(s).
+    # Visit the input PCollection(s), and also add other outputs of that applied
+    # PTransform.
+    if applied_transform in seen:
+      continue
+    for output in applied_transform.outputs.values():
+      assert isinstance(output, PCollection), output
+      if output not in seen:
+        reversed_to_clone.append(output)
+    seen.add(applied_transform)
     reversed_to_clone.append(applied_transform)
     for input_pcollection in applied_transform.inputs:
       if input_pcollection not in seen:

@@ -180,6 +180,35 @@ class DeepCopyTest(unittest.TestCase):
     self.assertEqual(DeepCopyTest._counts['Add2'], 6)
     self.assertEqual(DeepCopyTest._counts['Add3'], 12)
 
+  def testEachPTransformCopiedOnce(self):
+    with beam.Pipeline() as p:
+      created = p | 'Create1' >> beam.Create([(1, 'a'), (2, 'b')])
+      modified1 = (created
+                   | 'Transform1' >> beam.Map(
+                       lambda x: DeepCopyTest._CountingIdentityFn(
+                           'Transform1', x)))
+      partition_fn = lambda element, partitions: element[0] % partitions
+      p1, p2 = (modified1
+                | 'Partition' >> beam.Partition(partition_fn, 2))
+      merged = (p1, p2) | 'Flatten1' >> beam.Flatten()
+      modified2 = (merged
+                   | 'Transform2' >> beam.Map(
+                       lambda x: DeepCopyTest._CountingIdentityFn(
+                           'Transform2', x)))
+
+      copied = deep_copy.deep_copy(modified2)
+
+      # Check that deep copy was performed.
+      self.assertIsNot(copied.producer.inputs[0], modified2.producer.inputs[0])
+      self.assertIsNot(copied.producer.inputs[0].producer.inputs[0],
+                       modified2.producer.inputs[0].producer.inputs[0])
+      self.assertIsNot(copied.producer.inputs[0].producer.inputs[1],
+                       modified2.producer.inputs[0].producer.inputs[1])
+
+    # Check counts of processed items.
+    self.assertEqual(DeepCopyTest._counts['Transform1'], 4)
+    self.assertEqual(DeepCopyTest._counts['Transform2'], 4)
+
   def testCombineGlobally(self):
     with beam.Pipeline() as p:
       combined = (p
