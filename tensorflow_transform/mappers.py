@@ -55,10 +55,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import os
-
 # GOOGLE-INITIALIZATION
-
 import six
 
 import tensorflow as tf
@@ -828,78 +827,162 @@ def segment_indices(segment_ids, name=None):
             segment_starts)
 
 
-def deduplicate_sparse_tensor_per_row(input_tensor, name=None):
-  """Deduplicates each row (0-th dimension) of the provided sparse tensor.
+def deduplicate_tensor_per_row(input_tensor, name=None):
+  """Deduplicates each row (0-th dimension) of the provided tensor.
 
   Args:
-    input_tensor: A two-dimensional `SparseTensor`.
+    input_tensor: A two-dimensional `Tensor` or `SparseTensor`. The first
+      dimension is assumed to be the batch or "row" dimension, and deduplication
+      is done on the 2nd dimension. If the Tensor is 1D it is returned as the
+      equivalent `SparseTensor` since the "row" is a scalar can't be further
+      deduplicated.
     name: Optional name for the operation.
 
   Returns:
-    A `SparseTensor` containing the unique set of values from each row of the
-      input. Note: the original order of the input may not be preserved.
+    A  `SparseTensor` containing the unique set of values from each
+      row of the input. Note: the original order of the input may not be
+      preserved.
   """
   with tf.compat.v1.name_scope(name, 'deduplicate_per_row'):
 
-    # For each input row, compute the unique values and set them in positions
-    # 0 through num_unique - 1 within the row.
-    batch_dim = tf.cast(input_tensor.dense_shape[0], tf.int32)
-    max_unique = tf.constant(0, dtype=tf.int64)
-    values = tf.TensorArray(
-        size=batch_dim,
-        dtype=input_tensor.dtype,
-        element_shape=[None],
-        infer_shape=False)
-    indices = tf.TensorArray(
-        size=batch_dim,
-        dtype=tf.int64,
-        element_shape=[None, 2],
-        infer_shape=False)
+    if isinstance(input_tensor, tf.SparseTensor):
+      batch_dim = tf.cast(input_tensor.dense_shape[0], tf.int32)
+      rank = input_tensor.dense_shape.shape[0]
+    else:
+      batch_dim = tf.cast(tf.shape(input_tensor)[0], tf.int32)
+      rank = input_tensor.shape.rank
 
-    def _deduplicate_row(i, input_tensor, indices, values, max_unique):
-      """Deduplicates the values in the i-th row of the input.
+    def _univalent_dense_to_sparse(batch_dim, input_tensor):
+      """Helper to convert a 1D dense `Tensor` to a `SparseTensor`."""
+      indices = tf.cast(
+          tf.stack([
+              tf.range(batch_dim, dtype=tf.int32),
+              tf.zeros(batch_dim, dtype=tf.int32)
+          ],
+                   axis=1),
+          dtype=tf.int64)
 
-      Args:
-        i: Index representing the row of input_tensor to be processed.
-        input_tensor: The `SparseTensor` input to be deuplicated per row.
-        indices: A `TensorArray` containing the indices of each deduplicated row
-        values: A `TensorArray` containing the values of each deduplicated row.
-        max_unique: Tracks the maximum size of any row.
+      return tf.SparseTensor(
+          indices=indices, values=input_tensor, dense_shape=(batch_dim, 1))
 
-      Returns:
-        Updated versions of the above for the loop iteration.
-      """
-      row = tf.sparse.slice(input_tensor, [i, 0],
+    if rank is not None:
+      # If the rank is known at graph construction time, and it's rank 1, there
+      # is no deduplication to be done so we can return early.
+      if rank <= 1:
+        if isinstance(input_tensor, tf.SparseTensor):
+          return input_tensor
+        # Even though we are just returning as is, we convert to a SparseTensor
+        # to ensure consistent output type.
+        return _univalent_dense_to_sparse(batch_dim, input_tensor)
+      if rank > 2:
+        raise ValueError(
+            'Deduplication assumes a rank 2 tensor, got {}.'.format(rank))
+      return _deduplicate_tensor_per_row(input_tensor, batch_dim)
+
+    if isinstance(input_tensor, tf.SparseTensor):
+      return _deduplicate_tensor_per_row(input_tensor, batch_dim)
+    else:
+      # Again check for rank 1 tensor (that doesn't need deduplication), this
+      # time handling inputs where rank isn't known until execution time.
+      dynamic_rank = tf.rank(input_tensor)
+      return tf.cond(
+          tf.equal(dynamic_rank, 1),
+          lambda: _univalent_dense_to_sparse(batch_dim, input_tensor),
+          lambda: _deduplicate_tensor_per_row(input_tensor, batch_dim),
+      )
+
+
+_DedupRowLoopArgs = collections.namedtuple(
+    'DedupRowLoopArgs',
+    [
+        'index',  # Index representing the row of input_tensor to be processed.
+        'input_tensor',  # `Tensor` or `SparseTensor` to be deuplicated per row.
+        'indices',  # `TensorArray` containing indices of each deduplicated row.
+        'values',  # `TensorArray` containing values of each deduplicated row.
+        'max_unique',  # Tracks the maximum size of any row.
+    ])
+
+
+class _DedupRowLoopVars(_DedupRowLoopArgs):
+  """Loop variables for _deduplicate_per_row."""
+  pass
+
+
+def _deduplicate_tensor_per_row(input_tensor, batch_dim):
+  """Helper function for deduplicating each row of the provided tensor.
+
+  For each input row, computes the unique values and set them in positions 0
+  through num_unique - 1 within the row.
+
+  Args:
+    input_tensor: A `Tensor` or `SparseTensor` to be deuplicated per row.
+    batch_dim: The batch dimension or number of "rows" in the batch.
+
+  Returns:
+    A  `SparseTensor` containing the unique set of values from each
+      row of the input. Note: the original order of the input may not be
+      preserved.
+  """
+  max_unique = tf.constant(0, dtype=tf.int64)
+  values = tf.TensorArray(
+      size=batch_dim,
+      dtype=input_tensor.dtype,
+      element_shape=[None],
+      infer_shape=False)
+  indices = tf.TensorArray(
+      size=batch_dim,
+      dtype=tf.int64,
+      element_shape=[None, 2],
+      infer_shape=False)
+
+  def _deduplicate_row(dedup_row_loop_vars):
+    """Deduplicates the values in the i-th row of the input.
+
+    Args:
+      dedup_row_loop_vars: A _DedupRowLoopVars NamedTuple.
+
+    Returns:
+      Updated version of the _DedupRowLoopVars for the loop iteration.
+    """
+    index, input_tensor, indices, values, max_unique = dedup_row_loop_vars
+    if isinstance(input_tensor, tf.SparseTensor):
+
+      row = tf.sparse.slice(input_tensor, [index, 0],
                             [1, input_tensor.dense_shape[1]])
       row_values, _ = tf.unique(row.values)
-      # Keep track of the maximum number of unique elements in a row, as this
-      # will determine the resulting dense shape.
-      max_unique = tf.cast(
-          tf.maximum(tf.cast(tf.shape(row_values)[0], tf.int64), max_unique),
-          tf.int64)
-      column_indices = tf.cast(
-          tf.expand_dims(tf.range(tf.shape(row_values)[0]), axis=1), tf.int64)
-      row_indices = tf.fill(tf.shape(column_indices), tf.cast(i, tf.int64))
-      values = values.write(i, row_values)
-      indices = indices.write(i, tf.concat([row_indices, column_indices], 1))
-      return i + 1, input_tensor, indices, values, max_unique
+    else:
+      row = input_tensor[index]
+      row_values, _ = tf.unique(row)
 
-    i = tf.constant(0, tf.int32)
-    _, _, indices, values, max_unique = tf.while_loop(
-        lambda i, *_: i < batch_dim,
-        _deduplicate_row, [i, input_tensor, indices, values, max_unique],
-        back_prop=False)
+    # Keep track of the maximum number of unique elements in a row, as this
+    # will determine the resulting dense shape.
+    max_unique = tf.cast(
+        tf.maximum(tf.cast(tf.shape(row_values)[0], tf.int64), max_unique),
+        tf.int64)
+    column_indices = tf.cast(
+        tf.expand_dims(tf.range(tf.shape(row_values)[0]), axis=1), tf.int64)
+    row_indices = tf.fill(tf.shape(column_indices), tf.cast(index, tf.int64))
+    values = values.write(index, row_values)
+    indices = indices.write(index, tf.concat([row_indices, column_indices], 1))
+    return [
+        _DedupRowLoopVars(index + 1, input_tensor, indices, values, max_unique)
+    ]
 
-    dense_shape = tf.convert_to_tensor([
-        tf.cast(input_tensor.dense_shape[0], tf.int64),
-        tf.cast(max_unique, tf.int64)
-    ],
-                                       dtype=tf.int64)
-    # Concatenate the deduped rows back into a single SparseTensor.
-    return tf.SparseTensor(
-        indices=tf.cast(indices.concat(), tf.int64),
-        values=values.concat(),
-        dense_shape=dense_shape)
+  index = tf.constant(0, tf.int32)
+  (loop_output,) = tf.while_loop(
+      lambda loop_args: loop_args.index < batch_dim,
+      _deduplicate_row,
+      [_DedupRowLoopVars(index, input_tensor, indices, values, max_unique)],
+      back_prop=False)
+
+  dense_shape = tf.convert_to_tensor(
+      [tf.cast(batch_dim, tf.int64),
+       tf.cast(loop_output.max_unique, tf.int64)],
+      dtype=tf.int64)
+  return tf.SparseTensor(
+      indices=tf.cast(loop_output.indices.concat(), tf.int64),
+      values=loop_output.values.concat(),
+      dense_shape=dense_shape)
 
 
 def bag_of_words(tokens, ngram_range, separator, name=None):
@@ -928,7 +1011,7 @@ def bag_of_words(tokens, ngram_range, separator, name=None):
     # possibly duplicated ngrams per row.
     all_ngrams = ngrams(tokens, ngram_range, separator)
     # Then deduplicate the ngrams in each row.
-    return deduplicate_sparse_tensor_per_row(all_ngrams)
+    return deduplicate_tensor_per_row(all_ngrams)
 
 
 def ngrams(tokens, ngram_range, separator, name=None):

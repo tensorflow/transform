@@ -365,12 +365,62 @@ class MappersTest(test_case.TransformTestCase):
                                    expected_output_shape):
     sp_input = tf.SparseTensor(
         indices=indices, values=values, dense_shape=dense_shape)
-    output_tensor = mappers.deduplicate_sparse_tensor_per_row(sp_input)
+    output_tensor = mappers.deduplicate_tensor_per_row(sp_input)
     with tf.compat.v1.Session():
       output = output_tensor.eval()
       self.assertAllEqual(output.indices, expected_output_indices)
       self.assertAllEqual(output.values, expected_output_values)
       self.assertAllEqual(output.dense_shape, expected_output_shape)
+
+  @test_case.named_parameters(
+      dict(
+          testcase_name='deduplicate_no_op',
+          values=[[b'a', b'b'], [b'c', b'd']],
+          expected_indices=[[0, 0], [0, 1], [1, 0], [1, 1]],
+          expected_output=[b'a', b'b', b'c', b'd'],
+      ),
+      # Note: because the first dimension is the batch/row dimension, a 1D
+      # tensor is always returned as is (since there's only 1 value per row).
+      dict(
+          testcase_name='deduplicate_1D',
+          values=[b'a', b'b', b'a', b'd'],
+          expected_indices=[[0, 0], [1, 0], [2, 0], [3, 0]],
+          expected_output=[b'a', b'b', b'a', b'd'],
+      ),
+      dict(
+          testcase_name='deduplicate',
+          values=[[b'a', b'b', b'a', b'b'], [b'c', b'c', b'd', b'd']],
+          expected_indices=[[0, 0], [0, 1], [1, 0], [1, 1]],
+          expected_output=[b'a', b'b', b'c', b'd'],
+      ),
+      dict(
+          testcase_name='deduplicate_different_sizes',
+          # 2 uniques in the first row, 3 in the second row.
+          values=[[b'a', b'b', b'a', b'b'], [b'c', b'a', b'd', b'd']],
+          expected_indices=[[0, 0], [0, 1], [1, 0], [1, 1], [1, 2]],
+          expected_output=[b'a', b'b', b'c', b'a', b'd'],
+      ),
+      dict(
+          testcase_name='deduplicate_keeps_dups_across_rows',
+          values=[[b'a', b'b', b'a', b'b'], [b'b', b'a', b'b', b'b']],
+          expected_indices=[[0, 0], [0, 1], [1, 0], [1, 1]],
+          expected_output=[b'a', b'b', b'b', b'a'],
+      ),
+  )
+  def testDedupeDenseTensorPerRow(self, values, expected_indices,
+                                  expected_output):
+    dense_input = tf.constant(values)
+    output_tensor = mappers.deduplicate_tensor_per_row(dense_input)
+    with tf.compat.v1.Session():
+      output = output_tensor.eval()
+      self.assertAllEqual(output.indices, expected_indices)
+      self.assertAllEqual(output.values, expected_output)
+
+  def testDedup3dInputRaises(self):
+    dense_input = tf.constant([[[b'a', b'a'], [b'b', b'b']],
+                               [[b'a', b'a'], [b'd', b'd']]])
+    with self.assertRaises(ValueError):
+      mappers.deduplicate_tensor_per_row(dense_input)
 
   def testWordCountEmpty(self):
     output_tensor = mappers.word_count(
