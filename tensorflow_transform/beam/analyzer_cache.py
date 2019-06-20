@@ -33,7 +33,7 @@ _CACHE_VERSION = b'__v0__'
 
 
 def _get_dataset_cache_path(base_dir, dataset_key):
-  return os.path.join(base_dir, _make_dataset_key(dataset_key))
+  return os.path.join(base_dir, make_dataset_key(dataset_key))
 
 
 class _ManifestFile(object):
@@ -191,7 +191,7 @@ def make_cache_entry_key(cache_key):
   return _CACHE_VERSION + tf.compat.as_bytes(cache_key)
 
 
-def _make_dataset_key(dataset_key):
+def make_dataset_key(dataset_key):
   return _make_valid_cache_component(dataset_key)
 
 

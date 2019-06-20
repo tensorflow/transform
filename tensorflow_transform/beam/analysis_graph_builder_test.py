@@ -26,6 +26,8 @@ from tensorflow_transform import nodes
 from tensorflow_transform.beam import analysis_graph_builder
 from tensorflow_transform import test_case
 
+mock = tf.compat.v1.test.mock
+
 
 def _preprocessing_fn_with_no_analyzers(inputs):
   x = inputs['x']
@@ -251,6 +253,69 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
         msg='Result dot graph is:\n{}'.format(dot_string),
         first=dot_string,
         second=expected_dot_graph_str)
+
+  @test_case.named_parameters(
+      dict(
+          testcase_name='one_dataset_cached_single_phase',
+          preprocessing_fn=_preprocessing_fn_with_one_analyzer,
+          full_dataset_keys=['a', 'b'],
+          cached_dataset_keys=['a'],
+          expected_dataset_keys=['b'],
+          expected_flat_data_required=False,
+      ),
+      dict(
+          testcase_name='all_datasets_cached_single_phase',
+          preprocessing_fn=_preprocessing_fn_with_one_analyzer,
+          full_dataset_keys=['a', 'b'],
+          cached_dataset_keys=['a', 'b'],
+          expected_dataset_keys=[],
+          expected_flat_data_required=False,
+      ),
+      dict(
+          testcase_name='mixed_single_phase',
+          preprocessing_fn=lambda d: dict(  # pylint: disable=g-long-lambda
+              list(_preprocessing_fn_with_chained_ptransforms(d).items()) +
+              list(_preprocessing_fn_with_one_analyzer(d).items())),
+          full_dataset_keys=['a', 'b'],
+          cached_dataset_keys=['a', 'b'],
+          expected_dataset_keys=['a', 'b'],
+          expected_flat_data_required=True,
+      ),
+      dict(
+          testcase_name='multi_phase',
+          preprocessing_fn=_preprocessing_fn_with_two_phases,
+          full_dataset_keys=['a', 'b'],
+          cached_dataset_keys=['a', 'b'],
+          expected_dataset_keys=['a', 'b'],
+          expected_flat_data_required=True,
+      ),
+  )
+  def test_get_analysis_dataset_keys(self, preprocessing_fn, full_dataset_keys,
+                                     cached_dataset_keys, expected_dataset_keys,
+                                     expected_flat_data_required):
+    # We force all dataset keys with entries in the cache dict will have a cache
+    # hit.
+    mocked_cache_entry_key = b'M'
+    input_cache = {
+        key: {
+            mocked_cache_entry_key: 'C'
+        } for key in cached_dataset_keys
+    }
+    feature_spec = {'x': tf.io.FixedLenFeature([], tf.float32)}
+    with mock.patch(
+        'tensorflow_transform.beam.analysis_graph_builder.'
+        'analyzer_cache.make_cache_entry_key',
+        return_value=mocked_cache_entry_key):
+      dataset_keys, flat_data_required = (
+          analysis_graph_builder.get_analysis_dataset_keys(
+              preprocessing_fn, feature_spec, full_dataset_keys, input_cache))
+
+    dot_string = nodes.get_dot_graph([analysis_graph_builder._ANALYSIS_GRAPH
+                                     ]).to_string()
+    self.WriteRenderedDotFile(dot_string)
+
+    self.assertCountEqual(expected_dataset_keys, dataset_keys)
+    self.assertEqual(expected_flat_data_required, flat_data_required)
 
 
 if __name__ == '__main__':

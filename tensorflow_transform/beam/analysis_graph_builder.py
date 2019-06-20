@@ -26,6 +26,7 @@ import hashlib
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import graph_tools
+from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import beam_nodes
@@ -434,6 +435,67 @@ def _perform_cache_optimization(saved_model_future, dataset_keys,
     cache_output_nodes = None
 
   return optimized, cache_output_nodes
+
+
+class _InspectVisitor(nodes.Visitor):
+  """A visitor that inspects the graph and looks for dataset keys in use."""
+
+  def __init__(self, required_dataset_keys_output):
+    self._required_dataset_keys = required_dataset_keys_output
+
+  def visit(self, operation_def, input_values):
+    if isinstance(operation_def, beam_nodes.ApplySavedModel):
+      self._required_dataset_keys.add(operation_def.dataset_key)
+    return nodes.OperationNode(operation_def, input_values).outputs
+
+  def validate_value(self, value):
+    assert isinstance(value, nodes.ValueNode)
+
+
+def get_analysis_dataset_keys(preprocessing_fn, feature_spec, dataset_keys,
+                              input_cache):
+  """Computes the dataset keys that are required in order to perform analysis.
+
+  Args:
+    preprocessing_fn: A tf.transform preprocessing_fn.
+    feature_spec: A dict of feature name to feature specification.
+    dataset_keys: A set of strings which are dataset keys, they uniquely
+      identify these datasets across analysis runs.
+    input_cache: A cache dictionary.
+
+  Returns:
+    A pair of:
+      - A set of dataset keys that are required for analysis.
+      - A boolean indicating whether or not a flattened version of the entire
+        dataset is required. See the `flat_data` input to
+        `AnalyzeDatasetWithCache`.
+  """
+  with tf.Graph().as_default() as graph:
+    with tf.compat.v1.name_scope('inputs'):
+      input_signature = impl_helper.feature_spec_as_batched_placeholders(
+          feature_spec)
+      # TODO(b/34288791): This needs to be exactly the same as in impl.py
+      copied_inputs = impl_helper.copy_tensors(input_signature)
+
+    output_signature = preprocessing_fn(copied_inputs)
+  transform_fn_future, _ = build(
+      graph,
+      input_signature,
+      output_signature,
+      dataset_keys=dataset_keys,
+      cache_dict=input_cache)
+
+  required_dataset_keys_result = set()
+  inspect_visitor = _InspectVisitor(required_dataset_keys_result)
+  inspect_traverser = nodes.Traverser(inspect_visitor)
+  _ = inspect_traverser.visit_value_node(transform_fn_future)
+
+  # If None is present this means that a flattened version of the entire dataset
+  # is required, therefore this will be returning all of the given dataset_keys.
+  flat_data_required = None in required_dataset_keys_result
+  if flat_data_required:
+    required_dataset_keys_result = dataset_keys
+  return required_dataset_keys_result, flat_data_required
 
 
 def build(graph,
