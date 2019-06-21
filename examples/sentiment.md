@@ -10,7 +10,7 @@ directory as an argument to `sentiment_example.py`. The script creates a
 temporary sub-directory to add the preprocessed data.
 
 This example is similar to the
-[Census income example](../get_started.md) but
+[Census income example](../docs/get_started.md) but
 requires more extensive Apache Beam processing before invoking `tf.Transform`.
 Here, the data must be read from multiple files across separate directories for
 positive and negative examples. Then, the correct labels are attached to the
