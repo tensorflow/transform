@@ -45,6 +45,46 @@ from tensorflow.python.ops import lookup_ops
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 
+_SCALE_TO_Z_SCORE_TEST_CASES = [
+    dict(testcase_name='int16',
+         input_data=np.array([[1], [1], [2], [2]], np.int16),
+         output_data=np.array([[-1.0], [-1.0], [1.0], [1.0]], np.float32),
+         elementwise=False),
+    dict(testcase_name='int32',
+         input_data=np.array([[1], [1], [2], [2]], np.int32),
+         output_data=np.array([[-1.0], [-1.0], [1.0], [1.0]], np.float32),
+         elementwise=False),
+    dict(testcase_name='int64',
+         input_data=np.array([[1], [1], [2], [2]], np.int64),
+         output_data=np.array([[-1.0], [-1.0], [1.0], [1.0]], np.float32),
+         elementwise=False),
+    dict(testcase_name='float32',
+         input_data=np.array([[1], [1], [2], [2]], np.float32),
+         output_data=np.array([[-1.0], [-1.0], [1.0], [1.0]], np.float32),
+         elementwise=False),
+    dict(testcase_name='float64',
+         input_data=np.array([[1], [1], [2], [2]], np.float64),
+         output_data=np.array([[-1.0], [-1.0], [1.0], [1.0]], np.float64),
+         elementwise=False),
+    dict(testcase_name='vector',
+         input_data=np.array([[1, 2], [3, 4]], np.float32),
+         output_data=np.array([[-3, -1], [1, 3]] / np.sqrt(5.0), np.float32),
+         elementwise=False),
+    dict(testcase_name='vector_elementwise',
+         input_data=np.array([[1, 2], [3, 4]], np.float32),
+         output_data=np.array([[-1.0, -1.0], [1.0, 1.0]], np.float32),
+         elementwise=True),
+    dict(testcase_name='zero_varance',
+         input_data=np.array([[3], [3], [3], [3]], np.float32),
+         output_data=np.array([[0], [0], [0], [0]], np.float32),
+         elementwise=False),
+    dict(testcase_name='zero_variance_elementwise',
+         input_data=np.array([[3, 4], [3, 4]], np.float32),
+         output_data=np.array([[0, 0], [0, 0]], np.float32),
+         elementwise=True),
+]
+
+
 def _construct_test_bucketization_parameters():
   args_without_dtype = (
       (range(1, 10), [4, 7], False, None, False, False),
@@ -1142,108 +1182,28 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertTrue(
         'output_min must be less than output_max' in str(context.exception))
 
-  @tft_unit.parameters(*itertools.product([
-      tf.int16,
-      tf.int32,
-      tf.int64,
-      tf.float32,
-      tf.float64,
-  ], (True, False)))
-  def testScaleToZScore(self, input_dtype, elementwise):
+  @tft_unit.named_parameters(_SCALE_TO_Z_SCORE_TEST_CASES)
+  def testScaleToZScore(self, input_data, output_data, elementwise):
+
     def preprocessing_fn(inputs):
+      x = inputs['x']
+      x_cast = tf.cast(x, tf.as_dtype(input_data.dtype))
+      x_scaled = tft.scale_to_z_score(x_cast, elementwise=elementwise)
+      self.assertEqual(x_scaled.dtype, tf.as_dtype(output_data.dtype))
+      return {'x_scaled': tf.cast(x_scaled, tf.float32)}
 
-      def scale_to_z_score(tensor):
-        z_score = tft.scale_to_z_score(
-            tf.cast(tensor, input_dtype), elementwise=elementwise)
-        self.assertEqual(z_score.dtype, _mean_output_dtype(input_dtype))
-        return tf.cast(z_score, tf.float32)
-
-      return {
-          'x_scaled': scale_to_z_score(inputs['x']),
-          'y_scaled': scale_to_z_score(inputs['y']),
-          's_scaled': scale_to_z_score(inputs['s']),
-      }
-
-    if elementwise:
-      input_data = [{
-          'x': [-4., 4],
-          'y': [0., 0],
-          's': 3.,
-      }, {
-          'x': [10., -10.],
-          'y': [0., 0],
-          's': 4.,
-      }, {
-          'x': [2., -2.],
-          'y': [0., 0],
-          's': 4.,
-      }, {
-          'x': [4., -4.],
-          'y': [0., 0],
-          's': 5.,
-      }]
-      # Mean(x) = [3, -3], Mean(y) = [0, 0], Mean(s) = 4
-      # Var(x) = (+-7^2 + 7^2 + +-1^2 + 1^2) / 4 = 25, Var(y) = 0, Var(s) = 0.5
-      # StdDev(x) = 5, StdDev(y) = 0, StdDev(s) = sqrt(0.5)
-      expected_data = [
-          {
-              'x_scaled': [-1.4, 1.4],  # [(-4 - 3) / 5, (10 - 3) / 5]
-              'y_scaled': [0., 0.],
-              's_scaled': -1. / 0.5**(0.5),  # (3 - 4) / sqrt(0.5)
-          },
-          {
-              'x_scaled': [-.2, .2],  # [(2 - 3) / 5, (4 - 3) / 5]
-              'y_scaled': [0., 0.],
-              's_scaled': 0.,
-          },
-          {
-              'x_scaled': [1.4, -1.4],  # [(4 + 3) / 5, (-10 + 3) / 5]
-              'y_scaled': [0., 0.],
-              's_scaled': 0.,
-          },
-          {
-              'x_scaled': [.2, -.2],  # [(-2 + 3) / 5, (-4 + 3) / 5]
-              'y_scaled': [0., 0.],
-              's_scaled': 1. / 0.5**(0.5),  # (5 - 4) / sqrt(0.5)
-          }
-      ]
-    else:
-      input_data = [{
-          'x': [-4., 2.],
-          'y': [0., 0],
-          's': 3.,
-      }, {
-          'x': [10., 4.],
-          'y': [0., 0],
-          's': 5.,
-      }]
-      # Mean(x) = 3, Mean(y) = 0, Mean(s) = 4
-      # Var(x) = (-7^2 + -1^2 + 7^2 + 1^2) / 4 = 25, Var(y) = 0, Var(s) = 1
-      # StdDev(x) = 5, StdDev(y) = 0, StdDev(s) = 1
-      expected_data = [
-          {
-              'x_scaled': [-1.4, -.2],  # [(-4 - 3) / 5, (2 - 3) / 5]
-              'y_scaled': [0., 0.],
-              's_scaled': -1.,
-          },
-          {
-              'x_scaled': [1.4, .2],  # [(10 - 3) / 5, (4 - 3) / 5]
-              'y_scaled': [0., 0.],
-              's_scaled': 1.,
-          }
-      ]
+    input_data_dicts = [{'x': x} for x in input_data]
+    expected_data_dicts = [{'x_scaled': x_scaled} for x_scaled in output_data]
     input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature([2], _canonical_dtype(input_dtype)),
-        'y': tf.io.FixedLenFeature([2], _canonical_dtype(input_dtype)),
-        's': tf.io.FixedLenFeature([], _canonical_dtype(input_dtype)),
+        'x': tf.io.FixedLenFeature(
+            input_data.shape[1:],
+            _canonical_dtype(tf.as_dtype(input_data.dtype))),
     })
     expected_metadata = tft_unit.metadata_from_feature_spec({
-        'x_scaled': tf.io.FixedLenFeature([2], tf.float32),
-        'y_scaled': tf.io.FixedLenFeature([2], tf.float32),
-        's_scaled': tf.io.FixedLenFeature([], tf.float32),
+        'x_scaled': tf.io.FixedLenFeature(output_data.shape[1:], tf.float32),
     })
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data,
+    self.assertAnalyzeAndTransformResults(input_data_dicts, input_metadata,
+                                          preprocessing_fn, expected_data_dicts,
                                           expected_metadata)
 
   @tft_unit.parameters(*itertools.product([
