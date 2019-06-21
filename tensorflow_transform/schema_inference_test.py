@@ -28,7 +28,6 @@ from tensorflow_transform import test_case
 from tensorflow_transform.tf_metadata import dataset_schema
 
 import unittest
-from tensorflow.contrib.proto.python.ops import encode_proto_op
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 
@@ -157,9 +156,9 @@ class SchemaInferenceTest(test_case.TransformTestCase):
       boundaries = tf.constant([[1.0]])
       message_type = annotations_pb2.BucketBoundaries.DESCRIPTOR.full_name
       sizes = tf.expand_dims([tf.size(boundaries)], axis=0)
-      message_proto = encode_proto_op.encode_proto(
-          sizes, [tf.cast(boundaries, tf.float32)], ['boundaries'],
-          message_type)[0]
+      message_proto = tf.raw_ops.EncodeProto(
+          sizes=sizes, values=[tf.cast(boundaries, tf.float32)],
+          field_names=['boundaries'], message_type=message_type)[0]
       type_url = os.path.join('type.googleapis.com', message_type)
       schema_inference.annotate(type_url, message_proto)
 

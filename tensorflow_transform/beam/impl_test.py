@@ -39,7 +39,6 @@ from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from google.protobuf import text_format
-from tensorflow.contrib.proto.python.ops import encode_proto_op
 from tensorflow.core.example import example_pb2
 from tensorflow.python.ops import lookup_ops
 from tensorflow_metadata.proto.v0 import schema_pb2
@@ -1541,7 +1540,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {
           'key_vocab': key_vocab,
           'mean': mean,
-          'var': var
+          'var': tf.round(100 * var) / 100.0
       }
 
     # NOTE: We force 10 batches: data has 100 elements and we request a batch
@@ -1556,7 +1555,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_outputs = {
         'key_vocab': np.array([b'a', b'b'], np.object),
         'mean': np.array([25, 75], np.float32),
-        'var': np.array([200, 216.666666], np.float32)
+        'var': np.array([200, 216.67], np.float32)
     }
     self.assertAnalyzerOutputs(
         input_data,
@@ -4578,9 +4577,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
       boundaries = tf.constant([[1.0]])
       message_type = annotations_pb2.BucketBoundaries.DESCRIPTOR.full_name
       sizes = tf.expand_dims([tf.size(boundaries)], axis=0)
-      message_proto = encode_proto_op.encode_proto(
-          sizes, [tf.cast(boundaries, tf.float32)], ['boundaries'],
-          message_type)[0]
+      message_proto = tf.raw_ops.EncodeProto(
+          sizes=sizes, values=[tf.cast(boundaries, tf.float32)],
+          field_names=['boundaries'], message_type=message_type)[0]
       type_url = os.path.join('type.googleapis.com', message_type)
       schema_inference.annotate(type_url, message_proto)
       return {

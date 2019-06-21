@@ -297,7 +297,7 @@ def scale_to_z_score_per_key(x, key=None, elementwise=False, name=None,
     Note that TFLearn generally permits only tf.int64 and tf.float32, so casting
     this scaler's output may be necessary.
   """
-  with tf.name_scope(name, 'scale_to_z_score_per_key'):
+  with tf.compat.v1.name_scope(name, 'scale_to_z_score_per_key'):
     # x_mean will be float16, float32, or float64, depending on type of x
 
     if key is None:
@@ -1433,7 +1433,7 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
       tf.float64. Otherwise, returned values are tf.float32.
 
   """
-  with tf.name_scope(name, 'buckets_with_interpolation'):
+  with tf.compat.v1.name_scope(name, 'buckets_with_interpolation'):
     tf.assert_rank(bucket_boundaries, 2)
     x_values = x
     compose_result_fn = lambda values: values
