@@ -34,6 +34,22 @@ from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform import test_case
 
 
+def _get_quantiles_summary():
+
+  qcombiner = analyzers.QuantilesCombiner(num_quantiles=2,
+                                          epsilon=0.01,
+                                          bucket_numpy_dtype=tf.float32,
+                                          always_return_num_quantiles=False,
+                                          has_weights=False,
+                                          output_shape=None,
+                                          include_max_and_min=False,
+                                          feature_shape=[1])
+  qcombiner.initialize_local_state()
+  add_input_op = qcombiner.add_input(None, [np.array([1.0, 2.0, 3.0])])
+  with tf.Session():
+    return add_input_op[0]
+
+
 class AnalyzerCacheTest(test_case.TransformTestCase):
 
   def test_validate_dataset_keys(self):
@@ -70,6 +86,13 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
                   weight=np.array(0.),
               )
           ]),
+      dict(
+          testcase_name='_QuantilesAccumulatorCoderClassAccumulator',
+          coder_cls=analyzers._QuantilesAccumulatorCacheCoder,
+          value=[
+              '\n\x0f\r\x00\x00 A\x15\x00\x00\x80?%\x00\x00\x80?\n\x14\r\x00\x00@A\x15\x00\x00\x80?\x1d\x00\x00\x80?%\x00\x00\x00@',
+              '', _get_quantiles_summary()]
+          ),
   )
   def test_coders_round_trip(self, coder_cls, value):
     coder = coder_cls()

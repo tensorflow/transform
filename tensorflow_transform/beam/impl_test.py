@@ -3587,6 +3587,89 @@ class BeamImplTest(tft_unit.TransformTestCase):
           beam_pipeline=beam.Pipeline())
 
   @tft_unit.parameters(
+      # Test for all integral types, each type is in a separate testcase to
+      # increase parallelism of test shards (and reduce test time from ~250
+      # seconds to ~80 seconds)
+      *_construct_test_bucketization_parameters())
+  def testBucketizationElementwise(self, test_inputs, expected_boundaries,
+                                   do_shuffle, epsilon, should_apply,
+                                   is_manual_boundaries, input_dtype):
+    test_inputs = list(test_inputs)
+
+    # Shuffle the input to add randomness to input generated with
+    # simple range().
+    if do_shuffle:
+      random.shuffle(test_inputs)
+
+    def preprocessing_fn(inputs):
+      x = tf.cast(inputs['x'], input_dtype)
+
+      num_buckets = len(expected_boundaries) + 1
+      if should_apply:
+        if is_manual_boundaries:
+          bucket_boundaries = [expected_boundaries,
+                               [2 * b for b in expected_boundaries]]
+        else:
+          bucket_boundaries = tft.quantiles(x, num_buckets, epsilon,
+                                            reduce_instance_dims=False)
+          bucket_boundaries = tf.unstack(bucket_boundaries, axis=0)
+
+        result = []
+        for i, boundaries in enumerate(bucket_boundaries):
+          boundaries = tf.cast(boundaries, tf.float32)
+          result.append(tft.apply_buckets(x[:, i],
+                                          tf.expand_dims(boundaries, axis=0)))
+        result = tf.stack(result, axis=1)
+
+      else:
+        result = tft.bucketize(x, num_buckets=num_buckets, epsilon=epsilon,
+                               elementwise=True)
+      return {'q_b': result}
+
+    input_data = [{'x': [x, 2 * x]} for x in test_inputs]
+
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'x': tf.io.FixedLenFeature([2], _canonical_dtype(input_dtype))})
+
+    # Sort the input based on value, index is used to create expected_data.
+    sorted_list = sorted(enumerate(test_inputs), key=lambda p: p[1])
+
+    # Expected data has the same size as input, one bucket per input value.
+    expected_data = [[None, None]] * len(test_inputs)
+    bucket = 0
+
+    for (index, x) in sorted_list:
+      # Increment the bucket number when crossing the boundary
+      if (bucket < len(expected_boundaries) and
+          x >= expected_boundaries[bucket]):
+        bucket += 1
+      expected_data[index] = {'q_b': [bucket, bucket]}
+
+    expected_metadata = tft_unit.metadata_from_feature_spec({
+        'q_b': tf.io.FixedLenFeature([2], tf.int64),
+    }, None)
+
+    @contextlib.contextmanager
+    def no_assert():
+      yield None
+
+    assertion = no_assert()
+    if input_dtype == tf.float16:
+      assertion = self.assertRaisesRegexp(
+          TypeError, '.*DataType float16 not in list of allowed values.*')
+
+    with assertion:
+      self.assertAnalyzeAndTransformResults(
+          input_data,
+          input_metadata,
+          preprocessing_fn,
+          expected_data,
+          expected_metadata,
+          desired_batch_size=1000,
+          # TODO(b/110855155): Remove this explicit use of DirectRunner.
+          beam_pipeline=beam.Pipeline())
+
+  @tft_unit.parameters(
       # Test for all numerical types, each type is in a separate testcase to
       # increase parallelism of test shards and reduce test time.
       (tf.int32,),
@@ -3617,6 +3700,48 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     # The expected data has 2 boundaries that divides the data into 3 buckets.
     expected_outputs = {'q_b': np.array([[1732, 2449]], np.float32)}
+    self.assertAnalyzerOutputs(
+        input_data,
+        input_metadata,
+        analyzer_fn,
+        expected_outputs,
+        desired_batch_size=1000)
+
+  @tft_unit.parameters(
+      # Test for all numerical types, each type is in a separate testcase to
+      # increase parallelism of test shards and reduce test time.
+      (tf.int32,),
+      (tf.int64,),
+      (tf.float32,),
+      (tf.float64,),
+      (tf.double,),
+      # TODO(b/64836936): Enable test after bucket inconsistency is
+      # fixed.
+      # (tf.float16,)
+  )
+  def testElementwiseQuantileBucketsWithWeights(self, input_dtype):
+
+    def analyzer_fn(inputs):
+      return {
+          'q_b':
+              tft.quantiles(
+                  tf.cast(inputs['x'], input_dtype),
+                  num_buckets=3,
+                  epsilon=0.00001,
+                  weights=inputs['weights'],
+                  reduce_instance_dims=False)
+      }
+
+    input_data = [{'x': [[x, 2 * x], [2 * x, x]],
+                   'weights': [x / 100.]} for x in range(1, 3000)]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([2, 2], _canonical_dtype(input_dtype)),
+        'weights': tf.io.FixedLenFeature([1], tf.float32)
+    })
+    # The expected data has 2 boundaries that divides the data into 3 buckets.
+    expected_outputs = {'q_b': np.array([[[1732, 2449], [3464, 4898]],
+                                         [[3464, 4898], [1732, 2449]]],
+                                        np.float32)}
     self.assertAnalyzerOutputs(
         input_data,
         input_metadata,

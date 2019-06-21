@@ -11,6 +11,8 @@
   such cache to a filesystem between runs.  This caching feature is worth using
   when analyzing a rolling range in a continuous pipeline manner.  This is an
   experimental feature.
+* Added `reduce_instance_dims` support to `tft.quantiles` and `elementwise` to
+  `tft.bucketize`, while avoiding separate beam calls for each feature.
 
 ## Bug Fixes and Other Changes
 * `sparse_tensor_to_dense_with_shape` now accepts an optional `default_value`

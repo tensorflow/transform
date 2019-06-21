@@ -1223,7 +1223,8 @@ def hash_strings(strings, hash_buckets, key=None, name=None):
   return tf.strings.to_hash_bucket_strong(strings, hash_buckets, key, name=name)
 
 
-def bucketize(x, num_buckets, epsilon=None, weights=None, name=None):
+def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
+              name=None):
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Args:
@@ -1247,6 +1248,8 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, name=None):
       See analyzers.quantiles() for details.
     weights: (Optional) Weights tensor for the quantiles. Tensor must have the
       same shape as x.
+    elementwise: (Optional) If true, bucketize each element of the tensor
+      independently.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1272,9 +1275,22 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, name=None):
       epsilon = min(1.0 / num_buckets, 0.01)
 
     x_values = x.values if isinstance(x, tf.SparseTensor) else x
-    bucket_boundaries = analyzers.quantiles(x_values, num_buckets, epsilon,
-                                            weights)
-    return apply_buckets(x, bucket_boundaries)
+    bucket_boundaries = analyzers.quantiles(
+        x_values, num_buckets, epsilon, weights,
+        reduce_instance_dims=not elementwise)
+
+    if not elementwise:
+      return apply_buckets(x, bucket_boundaries)
+
+    num_features = tf.math.reduce_prod(x.get_shape()[1:])
+    bucket_boundaries = tf.reshape(bucket_boundaries, [num_features, -1])
+    x_reshaped = tf.reshape(x, [-1, num_features])
+    bucketized = []
+    for idx, boundaries in enumerate(tf.unstack(bucket_boundaries, axis=0)):
+      bucketized.append(apply_buckets(x_reshaped[:, idx],
+                                      tf.expand_dims(boundaries, axis=0)))
+    return tf.reshape(tf.stack(bucketized, axis=1),
+                      [-1] + x.get_shape().as_list()[1:])
 
 
 def bucketize_per_key(x, key, num_buckets, epsilon=None, name=None):
