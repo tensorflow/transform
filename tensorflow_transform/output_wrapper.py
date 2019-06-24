@@ -27,6 +27,7 @@ from tensorflow_transform import graph_tools
 from tensorflow_transform.analyzers import sanitized_vocab_filename
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import metadata_io
+from tensorflow_transform.tf_metadata import schema_utils
 
 from tensorflow_metadata.proto.v0 import schema_pb2
 
@@ -71,7 +72,17 @@ class TFTransformOutput(object):
     Returns:
       A dict from feature names to FixedLenFeature/SparseFeature/VarLenFeature.
     """
-    return self.transformed_metadata.schema.as_feature_spec()
+    return schema_utils.schema_as_feature_spec(
+        self.transformed_metadata.schema).feature_spec
+
+  def transformed_domains(self):
+    """Returns domains for the transformed features.
+
+    Returns:
+      A dict from feature names to schema_pb2.Domain.
+    """
+    return schema_utils.schema_as_feature_spec(
+        self.transformed_metadata.schema).domains
 
   def vocabulary_file_by_name(self, vocab_filename):
     """Returns the vocabulary file path created in the preprocessing function.
@@ -103,7 +114,8 @@ class TFTransformOutput(object):
     """Returns the number of buckets for an integerized transformed feature."""
     # Do checks that this tensor can be wrapped in
     # sparse_column_with_integerized_feature
-    domains = self.transformed_metadata.schema.domains()
+    domains = schema_utils.schema_as_feature_spec(
+        self.transformed_metadata.schema).domains
     try:
       domain = domains[name]
     except KeyError:
@@ -195,7 +207,17 @@ class TFTransformOutput(object):
     Returns:
       A dict from feature names to FixedLenFeature/SparseFeature/VarLenFeature.
     """
-    return self.raw_metadata.schema.as_feature_spec()
+    return schema_utils.schema_as_feature_spec(
+        self.raw_metadata.schema).feature_spec
+
+  def raw_domains(self):
+    """Returns domains for the raw features.
+
+    Returns:
+      A dict from feature names to schema_pb2.Domain.
+    """
+    return schema_utils.schema_as_feature_spec(
+        self.raw_metadata.schema).domains
 
   @property
   def pre_transform_statistics_path(self):

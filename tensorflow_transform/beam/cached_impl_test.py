@@ -37,7 +37,7 @@ from tensorflow_transform.beam import analysis_graph_builder
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform import test_case
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import schema_utils
 
 
 def _get_counter_value(metrics, name):
@@ -369,7 +369,7 @@ class CachedImplTest(test_case.TransformTestCase):
     # output.
     input_data = [{'x': 12, 'y': 1, 's': 'd'}, {'x': 10, 'y': 1, 's': 'c'}]
     input_metadata = dataset_metadata.DatasetMetadata(
-        dataset_schema.from_feature_spec({
+        schema_utils.schema_from_feature_spec({
             'x': tf.io.FixedLenFeature([], tf.float32),
             'y': tf.io.FixedLenFeature([], tf.float32),
             's': tf.io.FixedLenFeature([], tf.string),
@@ -483,7 +483,7 @@ class CachedImplTest(test_case.TransformTestCase):
       }
 
     input_metadata = dataset_metadata.DatasetMetadata(
-        dataset_schema.from_feature_spec({
+        schema_utils.schema_from_feature_spec({
             'x': tf.io.FixedLenFeature([], tf.float32),
             'y': tf.io.FixedLenFeature([], tf.float32),
             's': tf.io.FixedLenFeature([], tf.string),
@@ -653,7 +653,7 @@ class CachedImplTest(test_case.TransformTestCase):
       }
 
     input_metadata = dataset_metadata.DatasetMetadata(
-        dataset_schema.from_feature_spec({
+        schema_utils.schema_from_feature_spec({
             'x': tf.FixedLenFeature([], tf.int64),
         }))
     input_data_dict = {
@@ -770,7 +770,7 @@ class CachedImplTest(test_case.TransformTestCase):
         dict(s='b', weight=1, label=0),
     ]
     input_metadata = dataset_metadata.DatasetMetadata(
-        dataset_schema.from_feature_spec({
+        schema_utils.schema_from_feature_spec({
             's': tf.io.FixedLenFeature([], tf.string),
             'label': tf.io.FixedLenFeature([], tf.int64),
             'weight': tf.io.FixedLenFeature([], tf.float32),

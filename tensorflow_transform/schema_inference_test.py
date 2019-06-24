@@ -25,7 +25,7 @@ import tensorflow as tf
 from tensorflow_transform import mappers
 from tensorflow_transform import schema_inference
 from tensorflow_transform import test_case
-from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import schema_utils
 
 import unittest
 from tensorflow_metadata.proto.v0 import schema_pb2
@@ -84,7 +84,8 @@ class SchemaInferenceTest(test_case.TransformTestCase):
     else:
       schema = schema_inference.infer_feature_schema(tensors, graph)
 
-    expected_schema = dataset_schema.from_feature_spec(feature_spec, domains)
+    expected_schema = schema_utils.schema_from_feature_spec(
+        feature_spec, domains)
     self.assertEqual(schema, expected_schema)
 
   def test_infer_feature_schema_bad_rank(self):
@@ -122,8 +123,8 @@ class SchemaInferenceTest(test_case.TransformTestCase):
       # the output schema with annotations applied.
       with tf.compat.v1.Session(graph=graph) as session:
         schema = schema_inference.infer_feature_schema(outputs, graph, session)
-        self.assertLen(schema._schema_proto.feature, 2)
-        for feature in schema._schema_proto.feature:
+        self.assertLen(schema.feature, 2)
+        for feature in schema.feature:
           self.assertLen(feature.annotation.extra_metadata, 1)
           for annotation in feature.annotation.extra_metadata:
 
@@ -164,8 +165,8 @@ class SchemaInferenceTest(test_case.TransformTestCase):
 
       with tf.compat.v1.Session(graph=graph) as session:
         schema = schema_inference.infer_feature_schema(outputs, graph, session)
-        self.assertLen(schema._schema_proto.annotation.extra_metadata, 1)
-        for annotation in schema._schema_proto.annotation.extra_metadata:
+        self.assertLen(schema.annotation.extra_metadata, 1)
+        for annotation in schema.annotation.extra_metadata:
           # Extract the annotated message and validate its contents
           message = annotations_pb2.BucketBoundaries()
           annotation.Unpack(message)

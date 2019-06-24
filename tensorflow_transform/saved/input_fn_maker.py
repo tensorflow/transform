@@ -22,6 +22,7 @@ import six
 import tensorflow as tf
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
+from tensorflow_transform.tf_metadata import schema_utils
 
 from tensorflow.contrib.learn.python.learn.utils import input_fn_utils
 from tensorflow.python.util import deprecation
@@ -167,7 +168,8 @@ def build_csv_transforming_serving_input_receiver_fn(
   if not raw_keys:
     raise ValueError("raw_keys must be set.")
 
-  feature_spec = raw_metadata.schema.as_feature_spec()
+  feature_spec = schema_utils.schema_as_feature_spec(
+      raw_metadata.schema).feature_spec
 
   # Check for errors.
   for k in raw_keys:
@@ -297,7 +299,8 @@ def build_json_example_transforming_serving_input_receiver_fn(
     tf.Examples.
   """
 
-  raw_feature_spec = raw_metadata.schema.as_feature_spec()
+  raw_feature_spec = schema_utils.schema_as_feature_spec(
+      raw_metadata.schema).feature_spec
   raw_feature_keys = _prepare_feature_keys(raw_metadata,
                                            exclude_raw_keys,
                                            include_raw_keys)
@@ -391,7 +394,8 @@ def build_parsing_transforming_serving_input_receiver_fn(
     An input_fn suitable for serving that applies transforms to raw data in
     tf.Examples.
   """
-  raw_feature_spec = raw_metadata.schema.as_feature_spec()
+  raw_feature_spec = schema_utils.schema_as_feature_spec(
+      raw_metadata.schema).feature_spec
   raw_feature_keys = _prepare_feature_keys(raw_metadata,
                                            exclude_raw_keys,
                                            include_raw_keys)
@@ -493,8 +497,10 @@ def build_default_transforming_serving_input_receiver_fn(
     raise ValueError("exclude_raw_keys must be specified.")
   exclude_raw_keys = set(exclude_raw_keys)
   if include_raw_keys is None:
-    include_raw_keys = (set(six.iterkeys(raw_metadata.schema.as_feature_spec()))
-                        - set(exclude_raw_keys))
+    include_raw_keys = (
+        set(six.iterkeys(schema_utils.schema_as_feature_spec(
+            raw_metadata.schema).feature_spec))
+        - set(exclude_raw_keys))
   include_raw_keys = set(include_raw_keys)
   if include_raw_keys & exclude_raw_keys:
     raise ValueError("include_raw_keys and exclude_raw_keys may not overlap.")
@@ -502,7 +508,8 @@ def build_default_transforming_serving_input_receiver_fn(
   def default_transforming_serving_input_receiver_fn():
     """Serving Input Receiver that applies transforms to raw data in Tensors."""
 
-    feature_spec = raw_metadata.schema.as_feature_spec()
+    feature_spec = schema_utils.schema_as_feature_spec(
+        raw_metadata.schema).feature_spec
     batched_placeholders = impl_helper.feature_spec_as_batched_placeholders(
         feature_spec)
     raw_serving_features = {
@@ -565,7 +572,8 @@ def build_training_input_fn(metadata,
   Returns:
     An input_fn suitable for training that reads training data.
   """
-  feature_spec = metadata.schema.as_feature_spec()
+  feature_spec = schema_utils.schema_as_feature_spec(
+      metadata.schema).feature_spec
   feature_keys = _prepare_feature_keys(metadata, label_keys, feature_keys)
 
   training_feature_spec = {key: feature_spec[key]
@@ -656,7 +664,8 @@ def build_transforming_training_input_fn(raw_metadata,
         "The raw_feature_keys and raw_label_keys arguments to "
         "build_transforming_training_input_fn() are deprecated and "
         "have no effect.")
-  raw_feature_spec = raw_metadata.schema.as_feature_spec()
+  raw_feature_spec = schema_utils.schema_as_feature_spec(
+      raw_metadata.schema).feature_spec
   transformed_feature_keys = _prepare_feature_keys(
       transformed_metadata, transformed_label_keys, transformed_feature_keys)
 
@@ -702,7 +711,8 @@ def build_transforming_training_input_fn(raw_metadata,
 def _prepare_feature_keys(all_keys, label_keys, feature_keys=None):
   """Infer feature keys if needed, and sanity-check label and feature keys."""
   if isinstance(all_keys, dataset_metadata.DatasetMetadata):
-    all_keys = six.iterkeys(all_keys.schema.as_feature_spec())
+    all_keys = six.iterkeys(
+        schema_utils.schema_as_feature_spec(all_keys.schema).feature_spec)
   if label_keys is None:
     raise ValueError("label_keys must be specified.")
   if feature_keys is None:

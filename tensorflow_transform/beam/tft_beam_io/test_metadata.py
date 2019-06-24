@@ -19,7 +19,7 @@ from __future__ import print_function
 
 import tensorflow as tf
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import schema_utils
 
 from tensorflow_metadata.proto.v0 import schema_pb2
 
@@ -29,12 +29,12 @@ _FEATURE_SPEC = {
 }
 
 COMPLETE_METADATA = dataset_metadata.DatasetMetadata(
-    dataset_schema.from_feature_spec(
+    schema_utils.schema_from_feature_spec(
         _FEATURE_SPEC,
         domains={'list_columm': schema_pb2.IntDomain(min=-1, max=5)}))
 
 INCOMPLETE_METADATA = dataset_metadata.DatasetMetadata(
-    dataset_schema.from_feature_spec(
+    schema_utils.schema_from_feature_spec(
         _FEATURE_SPEC,
         # Values will be overridden by those in COMPLETE_METADATA
         domains={'list_columm': schema_pb2.IntDomain(min=0, max=0)}))

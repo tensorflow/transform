@@ -29,7 +29,6 @@ import collections
 
 import six
 import tensorflow as tf
-from tensorflow_transform.tf_metadata import dataset_schema
 from tensorflow_transform.tf_metadata import schema_utils
 
 from google.protobuf import any_pb2
@@ -110,7 +109,7 @@ def infer_feature_schema(features, graph, session=None):
       None, schema overrides will not be computed.
 
   Returns:
-    A `Schema` object.
+    A `Schema` proto.
   """
   tensor_ranges = _get_tensor_schema_overrides(graph)
   if session is None:
@@ -156,7 +155,7 @@ def infer_feature_schema(features, graph, session=None):
     for annotation in annotations:
       feature_proto.annotation.extra_metadata.add().CopyFrom(annotation)
 
-  return dataset_schema.Schema(schema_proto)
+  return schema_proto
 
 
 # Names of collections, which should all be the same length and contain tensors.

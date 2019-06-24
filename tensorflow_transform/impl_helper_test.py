@@ -23,7 +23,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow_transform import impl_helper
 from tensorflow_transform import test_case
-from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import schema_utils
 
 _FEATURE_SPEC = {
     'a': tf.io.FixedLenFeature([], tf.int64),
@@ -344,7 +344,7 @@ class ImplHelperTest(test_case.TransformTestCase):
 
   @test_case.named_parameters(*(_ROUNDTRIP_CASES + _MAKE_FEED_DICT_CASES))
   def test_make_feed_list(self, feature_spec, instances, feed_dict):
-    schema = dataset_schema.from_feature_spec(feature_spec)
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
     feature_names = list(feature_spec.keys())
     expected_feed_list = [feed_dict[key] for key in feature_names]
     np.testing.assert_equal(
@@ -360,13 +360,13 @@ class ImplHelperTest(test_case.TransformTestCase):
     tensors = tf.io.parse_example(
         serialized=tf.compat.v1.placeholder(tf.string, [None]),
         features=feature_spec)
-    schema = dataset_schema.from_feature_spec(feature_spec)
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
     with self.assertRaisesRegexp(error_type, error_msg):
       impl_helper.make_feed_list(tensors, schema, instances)
 
   @test_case.named_parameters(*_ROUNDTRIP_CASES)
   def test_to_instance_dicts(self, feature_spec, instances, feed_dict):
-    schema = dataset_schema.from_feature_spec(feature_spec)
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
     np.testing.assert_equal(
         instances,
         impl_helper.to_instance_dicts(schema, feed_dict))
@@ -374,7 +374,7 @@ class ImplHelperTest(test_case.TransformTestCase):
   @test_case.named_parameters(*_TO_INSTANCE_DICT_ERROR_CASES)
   def test_to_instance_dicts_error(self, feature_spec, feed_dict, error_msg,
                                    error_type=ValueError):
-    schema = dataset_schema.from_feature_spec(feature_spec)
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
     with self.assertRaisesRegexp(error_type, error_msg):
       impl_helper.to_instance_dicts(schema, feed_dict)
 

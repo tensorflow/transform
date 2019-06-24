@@ -23,6 +23,7 @@ import numpy as np
 import six
 from six import moves
 import tensorflow as tf
+from tensorflow_transform.tf_metadata import schema_utils
 
 
 # This is in agreement with Tensorflow conversions for Unicode values for both
@@ -347,7 +348,7 @@ class CsvCoder(object):
 
     Args:
       column_names: Tuple of strings. Order must match the order in the file.
-      schema: A `Schema` object.
+      schema: A `Schema` proto.
       delimiter: A one-character string used to separate fields.
       secondary_delimiter: A one-character string used to separate values within
         the same field.
@@ -393,7 +394,8 @@ class CsvCoder(object):
         return index
 
     self._feature_handlers = []
-    for name, feature_spec in six.iteritems(schema.as_feature_spec()):
+    for name, feature_spec in six.iteritems(
+        schema_utils.schema_as_feature_spec(schema).feature_spec):
       if isinstance(feature_spec, tf.io.FixedLenFeature):
         self._feature_handlers.append(
             _FixedLenFeatureHandler(name, feature_spec, index(name),

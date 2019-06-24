@@ -20,6 +20,7 @@ from __future__ import print_function
 import tensorflow as tf
 
 from tensorflow_transform.tf_metadata import dataset_schema as sch
+from tensorflow_transform.tf_metadata import schema_utils
 
 
 test_feature_spec = {
@@ -44,7 +45,7 @@ test_feature_spec = {
 
 
 def get_test_schema():
-  return sch.from_feature_spec(test_feature_spec)
+  return schema_utils.schema_from_feature_spec(test_feature_spec)
 
 
 _COLUMN_SCHEMAS = {

@@ -36,7 +36,7 @@ import tensorflow as tf
 from tensorflow_transform.coders import example_proto_coder
 from tensorflow_transform import test_case
 from tensorflow_transform.coders import example_proto_coder_test_cases
-from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import schema_utils
 
 from google.protobuf.internal import api_implementation
 from google.protobuf import text_format
@@ -73,7 +73,7 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
       example_proto_coder_test_cases.ENCODE_DECODE_CASES +
       example_proto_coder_test_cases.DECODE_ONLY_CASES))
   def test_decode(self, feature_spec, ascii_proto, instance, **kwargs):
-    schema = dataset_schema.from_feature_spec(feature_spec)
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
     coder = example_proto_coder.ExampleProtoCoder(schema, **kwargs)
     serialized_proto = _ascii_to_binary(ascii_proto)
     np.testing.assert_equal(coder.decode(serialized_proto), instance)
@@ -83,7 +83,7 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
       example_proto_coder_test_cases.DECODE_ONLY_CASES))
   def test_decode_non_serialized(self, feature_spec, ascii_proto, instance,
                                  **kwargs):
-    schema = dataset_schema.from_feature_spec(feature_spec)
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
     coder = example_proto_coder.ExampleProtoCoder(
         schema, serialized=False, **kwargs)
     proto = _ascii_to_example(ascii_proto)
@@ -93,7 +93,7 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
       example_proto_coder_test_cases.ENCODE_DECODE_CASES +
       example_proto_coder_test_cases.ENCODE_ONLY_CASES))
   def test_encode(self, feature_spec, ascii_proto, instance, **kwargs):
-    schema = dataset_schema.from_feature_spec(feature_spec)
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
     coder = example_proto_coder.ExampleProtoCoder(schema, **kwargs)
     serialized_proto = _ascii_to_binary(ascii_proto)
     self.assertSerializedProtosEqual(coder.encode(instance), serialized_proto)
@@ -103,7 +103,7 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
       example_proto_coder_test_cases.ENCODE_ONLY_CASES))
   def test_encode_non_serialized(self, feature_spec, ascii_proto, instance,
                                  **kwargs):
-    schema = dataset_schema.from_feature_spec(feature_spec)
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
     coder = example_proto_coder.ExampleProtoCoder(
         schema, serialized=False, **kwargs)
     proto = _ascii_to_example(ascii_proto)
@@ -117,7 +117,7 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
                         error_msg,
                         error_type=ValueError,
                         **kwargs):
-    schema = dataset_schema.from_feature_spec(feature_spec)
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
     coder = example_proto_coder.ExampleProtoCoder(schema, **kwargs)
     serialized_proto = _ascii_to_binary(ascii_proto)
     with self.assertRaisesRegexp(error_type, error_msg):
@@ -131,13 +131,13 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
                         error_msg,
                         error_type=ValueError,
                         **kwargs):
-    schema = dataset_schema.from_feature_spec(feature_spec)
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
     coder = example_proto_coder.ExampleProtoCoder(schema, **kwargs)
     with self.assertRaisesRegexp(error_type, error_msg):
       coder.encode(instance)
 
   def test_example_proto_coder_picklable(self):
-    schema = dataset_schema.from_feature_spec(
+    schema = schema_utils.schema_from_feature_spec(
         example_proto_coder_test_cases.FEATURE_SPEC)
     coder = example_proto_coder.ExampleProtoCoder(schema)
     ascii_proto = """
@@ -177,7 +177,7 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
 
   def test_example_proto_coder_cache(self):
     """Test that the cache remains valid after reading/writing None."""
-    schema = dataset_schema.from_feature_spec({
+    schema = schema_utils.schema_from_feature_spec({
         'varlen': tf.io.VarLenFeature(tf.int64),
     })
     coder = example_proto_coder.ExampleProtoCoder(schema)

@@ -33,7 +33,9 @@ from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform import test_case
 from tensorflow_transform.beam import test_helpers
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import schema_utils
+
+from tensorflow_metadata.proto.v0 import schema_pb2
 
 parameters = test_case.parameters
 named_parameters = test_case.named_parameters
@@ -53,8 +55,8 @@ def metadata_from_feature_spec(feature_spec, domains=None):
   Returns:
     A `tft.tf_metadata.dataset_metadata.DatasetMetadata` object.
   """
-  schema = dataset_schema.from_feature_spec(feature_spec, domains)
-  return dataset_metadata.DatasetMetadata(schema)
+  return dataset_metadata.DatasetMetadata(
+      schema_utils.schema_from_feature_spec(feature_spec, domains))
 
 
 class TransformTestCase(test_case.TransformTestCase):
@@ -250,8 +252,13 @@ class TransformTestCase(test_case.TransformTestCase):
 
     tf_transform_output = tft.TFTransformOutput(temp_dir)
     if expected_metadata:
-      self.assertEqual(expected_metadata,
-                       tf_transform_output.transformed_metadata)
+      # Make a copy with no annotations.
+      transformed_schema = schema_pb2.Schema()
+      transformed_schema.CopyFrom(
+          tf_transform_output.transformed_metadata.schema)
+      for feature in transformed_schema.feature:
+        feature.ClearField('annotation')
+      self.assertEqual(expected_metadata.schema, transformed_schema)
 
     for filename, file_contents in six.iteritems(expected_vocab_file_contents):
       full_filename = tf_transform_output.vocabulary_file_by_name(filename)

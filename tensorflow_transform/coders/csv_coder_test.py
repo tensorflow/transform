@@ -24,7 +24,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow_transform.coders import csv_coder
 from tensorflow_transform import test_case
-from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import schema_utils
 
 _COLUMNS = [
     'numeric1', 'text1', 'category1', 'idx', 'numeric2', 'value', 'numeric3'
@@ -368,13 +368,13 @@ class TestCSVCoder(test_case.TransformTestCase):
 
   @test_case.named_parameters(*(_ENCODE_DECODE_CASES + _DECODE_ONLY_CASES))
   def test_decode(self, columns, feature_spec, csv_line, instance, **kwargs):
-    schema = dataset_schema.from_feature_spec(feature_spec)
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
     coder = csv_coder.CsvCoder(columns, schema, **kwargs)
     np.testing.assert_equal(coder.decode(csv_line), instance)
 
   @test_case.named_parameters(*_ENCODE_DECODE_CASES)
   def test_encode(self, columns, feature_spec, csv_line, instance, **kwargs):
-    schema = dataset_schema.from_feature_spec(feature_spec)
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
     coder = csv_coder.CsvCoder(columns, schema, **kwargs)
     self.assertEqual(coder.encode(instance), csv_line.encode('utf-8'))
 
@@ -385,7 +385,7 @@ class TestCSVCoder(test_case.TransformTestCase):
                              error_msg,
                              error_type=ValueError,
                              **kwargs):
-    schema = dataset_schema.from_feature_spec(feature_spec)
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
     with self.assertRaisesRegexp(error_type, error_msg):
       csv_coder.CsvCoder(columns, schema, **kwargs)
 
@@ -397,7 +397,7 @@ class TestCSVCoder(test_case.TransformTestCase):
                         error_msg,
                         error_type=ValueError,
                         **kwargs):
-    schema = dataset_schema.from_feature_spec(feature_spec)
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
     coder = csv_coder.CsvCoder(columns, schema, **kwargs)
     with self.assertRaisesRegexp(error_type, error_msg):
       coder.decode(csv_line)
@@ -410,7 +410,7 @@ class TestCSVCoder(test_case.TransformTestCase):
                         error_msg,
                         error_type=ValueError,
                         **kwargs):
-    schema = dataset_schema.from_feature_spec(feature_spec)
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
     coder = csv_coder.CsvCoder(columns, schema, **kwargs)
     with self.assertRaisesRegexp(error_type, error_msg):
       coder.encode(instance)
@@ -426,7 +426,7 @@ class TestCSVCoder(test_case.TransformTestCase):
         'idx': [1],
         'value': [12.0],
     }
-    schema = dataset_schema.from_feature_spec(_FEATURE_SPEC)
+    schema = schema_utils.schema_from_feature_spec(_FEATURE_SPEC)
     coder = csv_coder.CsvCoder(_COLUMNS, schema)
     # Repeat twice to ensure the act of encoding/decoding doesn't break
     # pickling.

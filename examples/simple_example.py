@@ -26,7 +26,7 @@ import tensorflow as tf
 import tensorflow_transform as tft
 import tensorflow_transform.beam.impl as tft_beam
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import schema_utils
 
 
 def main():
@@ -53,7 +53,7 @@ def main():
   ]
 
   raw_data_metadata = dataset_metadata.DatasetMetadata(
-      dataset_schema.from_feature_spec({
+      schema_utils.schema_from_feature_spec({
           's': tf.io.FixedLenFeature([], tf.string),
           'y': tf.io.FixedLenFeature([], tf.float32),
           'x': tf.io.FixedLenFeature([], tf.float32),

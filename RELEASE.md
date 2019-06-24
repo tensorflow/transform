@@ -28,7 +28,7 @@
 * New numeric normalization method available:
   `tft.apply_buckets_with_interpolation`.
 * Changes to make this library more compatible with TensorFlow 2.0.
-* Fix santitation of vocabulary filenames.
+* Fix sanitizing of vocabulary filenames.
 * Emit a friendly error message when context isn't set.
 * Analyzer output dtypes are enforced to be TensorFlow dtypes, and by extension
   `ptransform_analyzer`'s `output_dtypes` is enforced to be a list of TensorFlow
@@ -51,8 +51,18 @@
 * `tf_utils.reduce_batch_count_mean_and_var`, which feeds into
   `tft.mean_and_var`, now returns 0 instead of inf for empty columns of a
   sparse tensor.
+* `tensorflow_transform.tf_metadata.dataset_schema.Schema` class is removed.
+  Wherever a `dataset_schema.Schema` was used, users should now provide a
+  `tensorflow_metadata.proto.v0.schema_pb2.Schema` proto. For backwards
+  compatibility, `dataset_schema.Schema` is now a factory method that produces
+  a `Schema` proto.  Updating code should be straightforward because the
+  `dataset_schema.Schema` class was already a wrapper around the `Schema` proto.
 
 ## Deprecations
+* `DatasetSchema` is now a deprecated factory method (see above).
+* `tft.tf_metadata.dataset_schema.from_feature_spec` is now deprecated.
+  Equivalent functionality is provided by
+  `tft.tf_metadata.schema_utils.schema_from_feature_spec`.
 
 # Release 0.13.0
 

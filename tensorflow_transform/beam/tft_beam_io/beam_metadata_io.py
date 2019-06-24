@@ -40,29 +40,6 @@ class BeamDatasetMetadata(
   def schema(self):
     return self.dataset_metadata.schema
 
-  @schema.setter
-  def schema(self, value):
-    self.dataset_metadata.schema = value
-
-  @property
-  def provenance(self):
-    return self.dataset_metadata.provenance
-
-  @property
-  def statistics(self):
-    return self.dataset_metadata.statistics
-
-  @property
-  def anomalies(self):
-    return self.dataset_metadata.anomalies
-
-  @property
-  def problem_statements(self):
-    return self.dataset_metadata.problem_statements
-
-  def merge(self, other):
-    raise NotImplementedError
-
 
 class WriteMetadata(beam.PTransform):
   """A PTransform to write Metadata to disk.

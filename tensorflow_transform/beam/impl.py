@@ -106,7 +106,7 @@ from tensorflow_transform.beam import shared
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import schema_utils
 
 # TODO(b/123325923): Fix the key type here to agree with the actual keys.
 _DATASET_ELEMENT_TYPE = Dict[Any,  # Any -> six.text_type?
@@ -320,7 +320,8 @@ class _RunMetaGraphDoFn(beam.DoFn):
         self._session.run(tf.compat.v1.tables_initializer())
         graph.finalize()
 
-        input_schema_keys = input_schema.as_feature_spec().keys()
+        input_schema_keys = schema_utils.schema_as_feature_spec(
+            input_schema).feature_spec.keys()
         if set(input_schema_keys).difference(inputs.keys()):
           raise ValueError('Input schema contained keys not in graph: %s' %
                            input_schema_keys)
@@ -352,7 +353,8 @@ class _RunMetaGraphDoFn(beam.DoFn):
         exclude_outputs if exclude_outputs is not None else [])
     self._tf_config = tf_config
     self._passthrough_keys = set(passthrough_keys)
-    schema_keys = set(input_schema.as_feature_spec().keys())
+    schema_keys = set(
+        schema_utils.schema_as_feature_spec(input_schema).feature_spec.keys())
     if self._passthrough_keys - schema_keys != self._passthrough_keys:
       raise ValueError(
           'passthrough_keys overlap with schema keys: {}, {}'.format(
@@ -702,7 +704,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     with tf.Graph().as_default() as graph:
 
       with tf.compat.v1.name_scope('inputs'):
-        feature_spec = input_schema.as_feature_spec()
+        feature_spec = schema_utils.schema_as_feature_spec(
+            input_schema).feature_spec
         input_signature = impl_helper.feature_spec_as_batched_placeholders(
             feature_spec)
         # In order to avoid a bug where import_graph_def fails when the
@@ -902,14 +905,13 @@ class AnalyzeAndTransformDataset(beam.PTransform):
 
 def _remove_columns_from_metadata(metadata, excluded_columns):
   """Remove columns from metadata without mutating original metadata."""
-  feature_spec = metadata.schema.as_feature_spec()
-  domains = metadata.schema.domains()
+  feature_spec, domains = schema_utils.schema_as_feature_spec(metadata.schema)
   new_feature_spec = {name: spec for name, spec in feature_spec.items()
                       if name not in excluded_columns}
   new_domains = {name: spec for name, spec in domains.items()
                  if name not in excluded_columns}
   return dataset_metadata.DatasetMetadata(
-      dataset_schema.from_feature_spec(new_feature_spec, new_domains))
+      schema_utils.schema_from_feature_spec(new_feature_spec, new_domains))
 
 
 class TransformDataset(beam.PTransform):

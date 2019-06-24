@@ -26,7 +26,9 @@ import numpy as np
 import six
 from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
+
 import tensorflow as tf
+from tensorflow_transform.tf_metadata import schema_utils
 
 _CACHED_EMPTY_ARRAY_BY_DTYPE = {}
 
@@ -81,7 +83,7 @@ def make_feed_list(column_names, schema, instances):
 
   Args:
     column_names: A list of column names.
-    schema: A `Schema` object.
+    schema: A `Schema` proto.
     instances: A list of instances, each of which is a map from column name to a
       python primitive, list, or ndarray.
 
@@ -136,7 +138,7 @@ def make_feed_list(column_names, schema, instances):
                                           batch_shape)
 
   result = []
-  feature_spec = schema.as_feature_spec()
+  feature_spec = schema_utils.schema_as_feature_spec(schema).feature_spec
   for name in column_names:
     spec = feature_spec[name]
     # TODO(abrao): Validate dtypes, shapes etc.
@@ -174,7 +176,7 @@ def to_instance_dicts(schema, fetches):
   """Maps the values fetched by `tf.Session.run` to the internal batch format.
 
   Args:
-    schema: A `Schema` object.
+    schema: A `Schema` proto.
     fetches: A dict representing a batch of data, as returned by `Session.run`.
 
   Returns:
@@ -247,7 +249,7 @@ def to_instance_dicts(schema, fetches):
 
   batch_dict = {}
   batch_sizes = {}
-  feature_spec = schema.as_feature_spec()
+  feature_spec = schema_utils.schema_as_feature_spec(schema).feature_spec
   for name, value in six.iteritems(fetches):
     spec = feature_spec[name]
     if isinstance(spec, tf.io.FixedLenFeature):

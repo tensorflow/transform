@@ -30,7 +30,7 @@ import tensorflow as tf
 import tensorflow_transform as tft
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import schema_utils
 
 
 CATEGORICAL_FEATURE_KEYS = [
@@ -91,7 +91,7 @@ RAW_DATA_FEATURE_SPEC = dict([(name, tf.io.FixedLenFeature([], tf.string))
                                tf.io.FixedLenFeature([], tf.string))])
 
 RAW_DATA_METADATA = dataset_metadata.DatasetMetadata(
-    dataset_schema.from_feature_spec(RAW_DATA_FEATURE_SPEC))
+    schema_utils.schema_from_feature_spec(RAW_DATA_FEATURE_SPEC))
 
 # Constants used for training.  Note that the number of instances will be
 # computed by tf.Transform in future versions, in which case it can be read from
@@ -289,7 +289,7 @@ def _make_serving_input_fn(tf_transform_output):
   Returns:
     The serving input function.
   """
-  raw_feature_spec = RAW_DATA_METADATA.schema.as_feature_spec()
+  raw_feature_spec = RAW_DATA_FEATURE_SPEC.copy()
   # Remove label since it is not available during serving.
   raw_feature_spec.pop(LABEL_KEY)
 

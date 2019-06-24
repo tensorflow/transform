@@ -30,6 +30,9 @@ from tensorflow_transform import test_case
 from tensorflow_transform.saved import input_fn_maker
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
+from tensorflow_transform.tf_metadata import schema_utils
+
+mock = tf.compat.v1.test.mock
 
 
 class _MockSchema(object):
@@ -65,6 +68,20 @@ def _make_transformed_schema(shape):
 
 
 class InputFnMakerTest(test_case.TransformTestCase):
+
+  def setUp(self):
+    self.schema_from_feature_spec_patcher = mock.patch(
+        'tensorflow_transform.tf_metadata.schema_utils.schema_as_feature_spec')
+    def side_effect(mock_schema):
+      return schema_utils.SchemaAsFeatureSpecResult(
+          feature_spec=mock_schema.as_feature_spec(),
+          domains=None)
+    mock_schema_from_feature_spec = (
+        self.schema_from_feature_spec_patcher.start())
+    mock_schema_from_feature_spec.side_effect = side_effect
+
+  def tearDown(self):
+    self.schema_from_feature_spec_patcher.stop()
 
   def test_build_csv_transforming_serving_input_fn_with_defaults(self):
     feed_dict = [',,']

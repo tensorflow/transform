@@ -4681,8 +4681,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     tf_transform_output = tft.TFTransformOutput(temp_dir)
     savedmodel_dir = tf_transform_output.transform_savedmodel_dir
     schema = beam_impl._infer_metadata_from_saved_model(savedmodel_dir)._schema
-    self.assertLen(schema._schema_proto.feature, 1)
-    for feature in schema._schema_proto.feature:
+    self.assertLen(schema.feature, 1)
+    for feature in schema.feature:
       self.assertLen(feature.annotation.extra_metadata, 1)
       for annotation in feature.annotation.extra_metadata:
         message = annotations_pb2.BucketBoundaries()
@@ -4726,8 +4726,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     tf_transform_output = tft.TFTransformOutput(temp_dir)
     savedmodel_dir = tf_transform_output.transform_savedmodel_dir
     schema = beam_impl._infer_metadata_from_saved_model(savedmodel_dir)._schema
-    self.assertLen(schema._schema_proto.annotation.extra_metadata, 1)
-    for annotation in schema._schema_proto.annotation.extra_metadata:
+    self.assertLen(schema.annotation.extra_metadata, 1)
+    for annotation in schema.annotation.extra_metadata:
       message = annotations_pb2.BucketBoundaries()
       annotation.Unpack(message)
       self.assertAllClose(list(message.boundaries), [1])

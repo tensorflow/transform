@@ -23,15 +23,11 @@ import tensorflow as tf
 
 from tensorflow_transform.tf_metadata import test_common
 from tensorflow_transform.tf_metadata import dataset_schema as sch
+from tensorflow_transform.tf_metadata import schema_utils
 import unittest
 
 
 class DatasetSchemaTest(unittest.TestCase):
-
-  def test_feature_spec_roundtrip(self):
-    schema = sch.from_feature_spec(test_common.test_feature_spec)
-    generated_feature_spec = schema.as_feature_spec()
-    self.assertEqual(test_common.test_feature_spec, generated_feature_spec)
 
   def test_feature_spec_unsupported_dtype(self):
     with self.assertRaisesRegexp(ValueError, 'invalid dtype'):
@@ -42,7 +38,8 @@ class DatasetSchemaTest(unittest.TestCase):
 
   def test_manually_create_schema(self):
     schema = test_common.get_manually_created_schema()
-    generated_feature_spec = schema.as_feature_spec()
+    generated_feature_spec = schema_utils.schema_as_feature_spec(
+        schema).feature_spec
     self.assertEqual(test_common.test_feature_spec, generated_feature_spec)
 
   def test_schema_equality(self):
