@@ -483,25 +483,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata, desired_batch_size=1)
 
-  def testAnalyzerBeforeMap(self):
-    def preprocessing_fn(inputs):
-      return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
-
-    input_data = [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'x': tf.io.FixedLenFeature([], tf.float32)})
-    expected_data = [
-        {'x_scaled': 0.75},
-        {'x_scaled': 0.0},
-        {'x_scaled': 1.0},
-        {'x_scaled': 0.25}
-    ]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
-        {'x_scaled': tf.io.FixedLenFeature([], tf.float32)})
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
-
   def testTransformWithExcludedOutputs(self):
     def preprocessing_fn(inputs):
       return {
@@ -537,100 +518,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                 expected_transformed_eval_data)
     self.assertEqual(transformed_eval_metadata.dataset_metadata,
                      expected_transformed_eval_metadata)
-
-  def testMapSparseColumns(self):
-    # Define a transform that takes a sparse column and a varlen column, and
-    # returns a combination of dense, sparse, and varlen columns.
-    def preprocessing_fn(inputs):
-      sparse_sum = tf.sparse.reduce_sum(inputs['sparse'], axis=1)
-      sparse_sum.set_shape([None])
-      return {
-          'fixed': sparse_sum,  # Schema should be inferred.
-          'varlen': inputs['varlen'],  # Schema should be inferred.
-      }
-
-    input_data = [
-        {'idx': [0, 1], 'val': [0., 1.], 'varlen': [0., 1.]},
-        {'idx': [2, 3], 'val': [2., 3.], 'varlen': [3., 4., 5.]},
-        {'idx': [4, 5], 'val': [4., 5.], 'varlen': [6., 7.]}
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'sparse': tf.io.SparseFeature('idx', 'val', tf.float32, 10),
-        'varlen': tf.io.VarLenFeature(tf.float32)
-    })
-    expected_data = [
-        {'fixed': 1.0, 'varlen': [0., 1.]},
-        {'fixed': 5.0, 'varlen': [3., 4., 5.]},
-        {'fixed': 9.0, 'varlen': [6., 7.]}
-    ]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'fixed': tf.io.FixedLenFeature([], tf.float32),
-        'varlen': tf.io.VarLenFeature(tf.float32)
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
-
-  def testSingleMap(self):
-    def preprocessing_fn(inputs):
-      return {'ab': tf.multiply(inputs['a'], inputs['b'])}
-
-    input_data = [
-        {'a': 4, 'b': 3},
-        {'a': 1, 'b': 2},
-        {'a': 5, 'b': 6},
-        {'a': 2, 'b': 3}
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a': tf.io.FixedLenFeature([], tf.float32),
-        'b': tf.io.FixedLenFeature([], tf.float32)
-    })
-    expected_data = [
-        {'ab': 12},
-        {'ab': 2},
-        {'ab': 30},
-        {'ab': 6}
-    ]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
-        {'ab': tf.io.FixedLenFeature([], tf.float32)})
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
-
-  def testSingleMapWithOnlyAnalyzerInputs(self):
-    def preprocessing_fn(inputs):
-      ab = tf.multiply(inputs['a'], inputs['b'])
-      return {'ab': ab, 'new_c': inputs['c'] + tft.mean(inputs['c'])}
-
-    test_data = [
-        {'a': 4, 'b': 3, 'c': 1},
-        {'a': 1, 'b': 2, 'c': 2},
-        {'a': 5, 'b': 6, 'c': 3},
-        {'a': 2, 'b': 3, 'c': 4}
-    ]
-    input_data = [
-        {'c': 10},
-        {'c': 20}
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a': tf.io.FixedLenFeature([], tf.float32),
-        'b': tf.io.FixedLenFeature([], tf.float32),
-        'c': tf.io.FixedLenFeature([], tf.float32),
-        'd': tf.io.VarLenFeature(tf.int64)
-    })
-    expected_data = [
-        {'ab': 12, 'new_c': 16},
-        {'ab': 2, 'new_c': 17},
-        {'ab': 30, 'new_c': 18},
-        {'ab': 6, 'new_c': 19}
-    ]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'ab': tf.io.FixedLenFeature([], tf.float32),
-        'new_c': tf.io.FixedLenFeature([], tf.float32)
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata, test_data=test_data)
 
   def testMapWithCond(self):
     def preprocessing_fn(inputs):
@@ -770,26 +657,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = tft_unit.metadata_from_feature_spec(
         {'a b': tf.io.FixedLenFeature([], tf.string)})
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
-
-  def testComposedMaps(self):
-    def preprocessing_fn(inputs):
-      return {
-          'a(b+c)': tf.multiply(
-              inputs['a'], tf.add(inputs['b'], inputs['c']))
-      }
-
-    input_data = [{'a': 4, 'b': 3, 'c': 3}, {'a': 1, 'b': 2, 'c': 1}]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a': tf.io.FixedLenFeature([], tf.float32),
-        'b': tf.io.FixedLenFeature([], tf.float32),
-        'c': tf.io.FixedLenFeature([], tf.float32)
-    })
-    expected_data = [{'a(b+c)': 24}, {'a(b+c)': 3}]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
-        {'a(b+c)': tf.io.FixedLenFeature([], tf.float32)})
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
