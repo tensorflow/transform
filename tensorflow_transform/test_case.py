@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import inspect
+import itertools
 
 # GOOGLE-INITIALIZATION
 
@@ -31,6 +32,34 @@ import tensorflow as tf
 main = tf.test.main
 
 named_parameters = parameterized.named_parameters
+
+
+def cross_named_parameters(*args):
+  """Cross a list of lists of dicts suitable for @named_parameters.
+
+  Takes a list of lists, where each list is suitable as an input to
+  @named_parameters, and crosses them, forming a new name for each crossed test
+  case.
+
+  Args:
+    *args: A list of lists of dicts.
+
+  Returns:
+    A list of dicts.
+  """
+  def _cross_test_cases(parameters_list):
+    """Cross a list of test case parameters."""
+    crossed_parameters = parameters_list[0].copy()
+    for current_parameters in parameters_list[1:]:
+      for name, value in current_parameters.items():
+        if name == 'testcase_name':
+          crossed_parameters[name] = '{}_{}'.format(
+              crossed_parameters[name], value)
+        else:
+          assert name not in crossed_parameters, name
+          crossed_parameters[name] = value
+    return crossed_parameters
+  return list(map(_cross_test_cases, itertools.product(*args)))
 
 
 def parameters(*testcases):

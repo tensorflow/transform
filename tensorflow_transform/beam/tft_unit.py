@@ -39,6 +39,7 @@ from tensorflow_metadata.proto.v0 import schema_pb2
 
 parameters = test_case.parameters
 named_parameters = test_case.named_parameters
+cross_named_parameters = test_case.cross_named_parameters
 
 main = test_case.main
 

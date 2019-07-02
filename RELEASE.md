@@ -46,6 +46,8 @@
 * Fixed a bug in `tf_utils.reduce_batch_count_mean_and_var`, and as a result
   `mean_and_var` analyzer, was miscalculating variance for the sparse
   elementwise=True case.
+* At test utility `tft_unit.cross_named_parameters` for creating parameterized
+  tests that involve the cartesian product of various parameters.
 
 ## Breaking changes
 * `tf_utils.reduce_batch_count_mean_and_var`, which feeds into
