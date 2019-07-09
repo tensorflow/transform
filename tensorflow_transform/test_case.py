@@ -98,6 +98,66 @@ def parameters(*testcases):
   return wrapper
 
 
+def function_handler(input_specs=None):
+  """Run the given function with one of several possible modes and specs.
+
+  We want to test functions in at least these three modes:
+  1. In 1.x graph mode, utilizing placeholders
+  2. In 2.x graph mode
+  3. In 2.x eager mode, utilizing tf.function
+
+  Since placeholders/sessions do not exist in their traditional sense in TF 2.0,
+  we need to break out how we manage the inputs here. In practice, that means we
+  assign placeholders with the same properties as each input_spec in 1.x, set up
+  a tf.function with those input_specs in eager mode.
+
+  Args:
+    input_specs: A list of (str, `tf.TensorSpec`) tuples that specify input to
+      fn, along with the name of each arg. Must be in correct order.
+
+  Returns:
+    A wrapper function that accepts arguments specified by *input_specs.
+
+  Note: using tf.function requires the inputs to be in correct order, as
+  input_signature can only be a list.
+  """
+  def wrapper(fn):
+    """Runs either in eager mode with constants or a graph with placeholders."""
+
+    def _map_tf_constant(*inputs):
+      constant_inputs = []
+      assert len(inputs) == len(input_specs)
+      for value, spec in zip(inputs, input_specs):
+
+        constant_input = tf.constant(value, dtype=spec[1].dtype)
+        constant_input.shape.assert_is_compatible_with(spec[1].shape)
+        constant_inputs.append(constant_input)
+
+      return fn(*constant_inputs)
+
+    if tf.executing_eagerly():
+      return _map_tf_constant
+
+    else:
+      placeholders = {}
+      for input_name, input_spec in input_specs:
+        placeholders[input_name] = tf.compat.v1.placeholder(
+            shape=input_spec.shape, dtype=input_spec.dtype, name=input_name)
+
+      def _session_function(*feed_list):
+        assert len(input_specs) == len(feed_list)
+        result = fn(**placeholders)
+        with tf.compat.v1.Session() as sess:
+          return sess.run(
+              result,
+              feed_dict=dict((placeholders[input_name], value) for (
+                  (input_name, _), value) in zip(input_specs, feed_list)))
+
+      return _session_function
+
+  return wrapper
+
+
 class TransformTestCase(parameterized.TestCase, tf.test.TestCase):
   """Base test class for testing tf-transform code."""
 
