@@ -120,7 +120,7 @@ def scale_by_min_max(x,
     if output_min >= output_max:
       raise ValueError('output_min must be less than output_max')
 
-    x = tf.dtypes.cast(x, 'float64', name='Cast_Float')
+    x = tf.cast(x, tf.float64, name='Cast_Float')
 
     min_x_value, max_x_value = analyzers._min_and_max(  # pylint: disable=protected-access
         x, reduce_instance_dims=not elementwise)
@@ -395,8 +395,10 @@ def _to_tfidf(term_frequency, reduced_term_freq, corpus_size, smooth):
         tf.to_double(reduced_term_freq))) + 1
 
   gathered_idfs = tf.gather(tf.squeeze(idf), term_frequency.indices[:, 1])
-  tfidf_values = tf.dtypes.cast(term_frequency.values, 'float64', name='Calc_tfidf1') *\
-    tf.dtypes.cast(gathered_idfs, 'float64', name='Calc_tfidf2')
+  tfidf_values = (
+    tf.cast(term_frequency.values, tf.float64, name='Calc_tfidf1') *
+    tf.cast(gathered_idfs, tf.float64, name='Calc_tfidf2')
+    )
 
   return tf.SparseTensor(
       indices=term_frequency.indices,
@@ -989,7 +991,7 @@ def _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries, name=None):
     x_values = x.values if isinstance(x, tf.SparseTensor) else x
     key_values = key.values if isinstance(key, tf.SparseTensor) else key
 
-    x_values = tf.dtypes.cast(x_values, 'float64', name='Cast_float0')
+    x_values = tf.cast(x_values, tf.float64, name='Cast_float0')
     # Convert `key_values` to indices in key_vocab.  We must use apply_function
     # since this uses a Table.
     key_indices = _lookup_key(key_values, key_vocab)
@@ -1058,11 +1060,11 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
             x, boundaries=bucket_boundaries, name='assign_buckets'), tf.int64)
 
     # Get max, min, and width of the corresponding bucket for each element.
-    bucket_max = tf.dtypes.cast(
+    bucket_max = tf.cast(
         tf.gather(
             tf.concat([bucket_boundaries[0], bucket_boundaries[:, -1]], axis=0),
             bucket_indices), return_type)
-    bucket_min = tf.dtypes.cast(
+    bucket_min = tf.cast(
         tf.gather(
             tf.concat([bucket_boundaries[:, 0], bucket_boundaries[0]], axis=0),
             bucket_indices), return_type)
@@ -1071,7 +1073,7 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
     ones = tf.ones_like(x, dtype=return_type)
 
     # Linearly interpolate each value within its respective bucket range.
-    interpolation_value = ((tf.dtypes.cast(x, return_type) - bucket_min) /
+    interpolation_value = ((tf.cast(x, return_type) - bucket_min) /
                            bucket_width)
     bucket_interpolation = tf.verify_tensor_all_finite(
         tf.where(
@@ -1090,11 +1092,11 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
                 # Finally, for a bucket with a valid width, we can interpolate.
                 interpolation_value)),
         'bucket_interpolation')
-    bucket_indices_with_interpolation = tf.dtypes.cast(
+    bucket_indices_with_interpolation = tf.cast(
         tf.maximum(bucket_indices - 1, 0), return_type) + bucket_interpolation
 
     # Normalize the interpolated values to the range [0, 1].
-    denominator = tf.dtypes.cast(tf.maximum(num_boundaries - 1, 1), return_type)
+    denominator = tf.cast(tf.maximum(num_boundaries - 1, 1), return_type)
     normalized_values = tf.div(bucket_indices_with_interpolation, denominator)
     # If there is only one boundary, all values < the boundary are 0, all values
     # >= the boundary are 1.
