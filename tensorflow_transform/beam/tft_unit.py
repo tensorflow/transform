@@ -44,8 +44,6 @@ cross_named_parameters = test_case.cross_named_parameters
 main = test_case.main
 
 
-# TODO(b/77351671): Remove this function once DatasetMetadata is replaced by a
-# schema proto.
 def metadata_from_feature_spec(feature_spec, domains=None):
   """Construct a DatasetMetadata from a feature spec.
 
