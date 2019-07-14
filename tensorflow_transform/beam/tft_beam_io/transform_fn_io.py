@@ -36,13 +36,13 @@ def _copy_tree(source, destination):
   # supports recursive copy)?
   import tensorflow as tf  # pylint: disable=g-import-not-at-top
 
-  if tf.gfile.IsDirectory(source):
-    tf.gfile.MakeDirs(destination)
-    for filename in tf.gfile.ListDirectory(source):
+  if tf.io.gfile.isdir(source):
+    tf.io.gfile.makedirs(destination)
+    for filename in tf.io.gfile.listdir(source):
       _copy_tree(
           os.path.join(source, filename), os.path.join(destination, filename))
   else:
-    tf.gfile.Copy(source, destination)
+    tf.io.gfile.copy(source, destination)
 
 
 class WriteTransformFn(beam.PTransform):

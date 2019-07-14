@@ -2,6 +2,17 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
+* New `tft.word_count` mapper to identify the number of tokens for each row
+  (for pre-tokenized strings).
+* All `tft.scale_to_*` mappers now have per-key variants, along with analyzers
+  for `mean_and_var_per_key` and `min_and_max_per_key`.
+* New `tft_beam.AnalyzeDatasetWithCache` allows analyzing ranges of data while
+  producing and utilizing cache.  `tft.analyzer_cache` can help read and write
+  such cache to a filesystem between runs.  This caching feature is worth using
+  when analyzing a rolling range in a continuous pipeline manner.  This is an
+  experimental feature.
+* Added `reduce_instance_dims` support to `tft.quantiles` and `elementwise` to
+  `tft.bucketize`, while avoiding separate beam calls for each feature.
 
 ## Bug Fixes and Other Changes
 * `sparse_tensor_to_dense_with_shape` now accepts an optional `default_value`
@@ -10,15 +21,50 @@
   `fingerprint_shuffle` to sort the vocabularies by fingerprint instead of
   counts. This is useful for load balancing the training parameter servers.
   This is an experimental feature.
-* Fix numerical instability in `tft.vocabulary` mutual information calculations
+* Fix numerical instability in `tft.vocabulary` mutual information calculations.
 * `tft.vocabulary` and `tft.compute_and_apply_vocabulary` now support computing
-  vocabularies over integer categoricals
+  vocabularies over integer categoricals and multivalent input features, and
+  computing mutual information for non-binary labels.
 * New numeric normalization method available:
-  `tft.apply_buckets_with_interpolation`
+  `tft.apply_buckets_with_interpolation`.
+* Changes to make this library more compatible with TensorFlow 2.0.
+* Fix sanitizing of vocabulary filenames.
+* Emit a friendly error message when context isn't set.
+* Analyzer output dtypes are enforced to be TensorFlow dtypes, and by extension
+  `ptransform_analyzer`'s `output_dtypes` is enforced to be a list of TensorFlow
+  dtypes.
+* Make `tft.apply_buckets_with_interpolation` support SparseTensors.
+* Adds an experimental api for analyzers to annotate the post-transform schema.
+* `TFTransformOutput.transform_raw_features` now accepts an optional
+  `drop_unused_features` parameter to exclude unused features in output.
+* If not specified, the min_diff_from_avg parameter of `tft.vocabulary` now
+  defaults to a reasonable value based on the size of the dataset (relevant
+  only if computing vocabularies using mutual information).
+* Convert some `tf.contrib` functions to be compatible with TF2.0.
+* New `tft.bag_of_words` mapper to compute the unique set of ngrams for each row
+  (for pre-tokenized strings).
+* Fixed a bug in `tf_utils.reduce_batch_count_mean_and_var`, and as a result
+  `mean_and_var` analyzer, was miscalculating variance for the sparse
+  elementwise=True case.
+* At test utility `tft_unit.cross_named_parameters` for creating parameterized
+  tests that involve the cartesian product of various parameters.
 
 ## Breaking changes
+* `tf_utils.reduce_batch_count_mean_and_var`, which feeds into
+  `tft.mean_and_var`, now returns 0 instead of inf for empty columns of a
+  sparse tensor.
+* `tensorflow_transform.tf_metadata.dataset_schema.Schema` class is removed.
+  Wherever a `dataset_schema.Schema` was used, users should now provide a
+  `tensorflow_metadata.proto.v0.schema_pb2.Schema` proto. For backwards
+  compatibility, `dataset_schema.Schema` is now a factory method that produces
+  a `Schema` proto.  Updating code should be straightforward because the
+  `dataset_schema.Schema` class was already a wrapper around the `Schema` proto.
 
 ## Deprecations
+* `DatasetSchema` is now a deprecated factory method (see above).
+* `tft.tf_metadata.dataset_schema.from_feature_spec` is now deprecated.
+  Equivalent functionality is provided by
+  `tft.tf_metadata.schema_utils.schema_from_feature_spec`.
 
 # Release 0.13.0
 
@@ -451,3 +497,4 @@ the generated vocab_filename on a downstream component.
 * Update tensorflow_transform to use `tf.saved_model` APIs.
 * Add default values on example proto coder.
 * Various performance and stability improvements.
+

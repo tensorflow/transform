@@ -110,20 +110,21 @@ _PCA_WITH_DEGENERATE_COVARIANCE_MATRIX_TEST = dict(
 
 
 def _make_mean_and_var_accumulator_from_instance(instance, axis=None):
-  return analyzers._MeanAndVarAccumulator(
+  return analyzers._WeightedMeanAndVarAccumulator(
       count=np.sum(np.ones_like(instance), axis=axis),
       mean=np.mean(instance, axis=axis),
+      weight=np.sum(np.ones_like(instance), axis=axis),
       variance=np.var(instance, axis=axis))
 
 
 _MEAN_AND_VAR_TEST = dict(
-    testcase_name='MeanAndVar',
-    combiner=analyzers.MeanAndVarCombiner(np.float32),
+    testcase_name='WeightedMeanAndVar',
+    combiner=analyzers.WeightedMeanAndVarCombiner(np.float32, output_shape=()),
     batches=[
         _make_mean_and_var_accumulator_from_instance([[1, 2, 3, 4, 5, 6, 7]]),
         # Count is 5*0xFFFF=327675 for this accumulator.
-        _make_mean_and_var_accumulator_from_instance(
-            [[8, 9, 10, 11, 12]] * 0xFFFF),
+        _make_mean_and_var_accumulator_from_instance([[8, 9, 10, 11, 12]] *
+                                                     0xFFFF),
         _make_mean_and_var_accumulator_from_instance([[100, 200, 3000]]),
     ],
     expected_outputs=[
@@ -133,8 +134,8 @@ _MEAN_AND_VAR_TEST = dict(
 )
 
 _MEAN_AND_VAR_BIG_TEST = dict(
-    testcase_name='MeanAndVarBig',
-    combiner=analyzers.MeanAndVarCombiner(np.float32),
+    testcase_name='WeightedMeanAndVarBig',
+    combiner=analyzers.WeightedMeanAndVarCombiner(np.float32, output_shape=()),
     batches=[
         _make_mean_and_var_accumulator_from_instance([[1, 2, 3, 4, 5, 6, 7]]),
         _make_mean_and_var_accumulator_from_instance([[1e15, 2e15, 3000]]),
@@ -147,14 +148,14 @@ _MEAN_AND_VAR_BIG_TEST = dict(
 )
 
 _MEAN_AND_VAR_VECTORS_TEST = dict(
-    testcase_name='MeanAndVarForVectors',
-    combiner=analyzers.MeanAndVarCombiner(np.float32),
-    # Note: each vector has to be of the same size for this to work.
+    testcase_name='WeightedMeanAndVarForVectors',
+    combiner=analyzers.WeightedMeanAndVarCombiner(
+        np.float32, output_shape=(None,)),
     batches=[
-        _make_mean_and_var_accumulator_from_instance(
-            [[1, 2, 3, 4, 5, 6]], axis=0),
-        _make_mean_and_var_accumulator_from_instance(
-            [[7, 8, 9, 10, 11, 12]], axis=0),
+        _make_mean_and_var_accumulator_from_instance([[1, 2, 3, 4, 5, 6]],
+                                                     axis=0),
+        _make_mean_and_var_accumulator_from_instance([[7, 8, 9, 10, 11, 12]],
+                                                     axis=0),
         _make_mean_and_var_accumulator_from_instance(
             [[100, 200, 3000, 17, 27, 53]], axis=0),
     ],
@@ -162,6 +163,21 @@ _MEAN_AND_VAR_VECTORS_TEST = dict(
         np.float32([36., 70., 1004., 10.33333333, 14.33333333, 23.66666667]),
         np.float32(
             [2054., 8456., 1992014., 28.22222222, 86.22222222, 436.22222222]),
+    ],
+)
+
+_MEAN_AND_VAR_ND_TEST = dict(
+    testcase_name='WeightedMeanAndVarForNDVectors',
+    combiner=analyzers.WeightedMeanAndVarCombiner(
+        np.float32, output_shape=(None, None)),
+    batches=[
+        _make_mean_and_var_accumulator_from_instance([[[1], [1], [2]]], axis=2),
+        _make_mean_and_var_accumulator_from_instance([[[1], [2], [2]]], axis=2),
+        _make_mean_and_var_accumulator_from_instance([[[2], [2], [2]]], axis=2),
+    ],
+    expected_outputs=[
+        np.float32([[1.333333333, 1.666666666, 2]]),
+        np.float32([[.222222222, .222222222, 0]]),
     ],
 )
 
@@ -205,6 +221,7 @@ _QUANTILES_NO_TRIM_TEST = dict(
     expected_outputs=[np.array([1, 1, 1, 1, 1], dtype=np.float32)],
 )
 
+# pylint: disable=g-complex-comprehension
 _QUANTILES_SINGLE_BATCH_TESTS = [
     dict(
         testcase_name='ComputeQuantilesSingleBatch-{}'.format(np_type),
@@ -217,8 +234,30 @@ _QUANTILES_SINGLE_BATCH_TESTS = [
             (np.linspace(1, 100, 100, dtype=np_type),),
             (np.linspace(101, 200, 100, dtype=np_type),),
             (np.linspace(201, 300, 100, dtype=np_type),),
+            (np.empty((0, 3)),),
         ],
         expected_outputs=[np.array([61, 121, 181, 241], dtype=np.float32)],
+    ) for np_type in _NP_TYPES
+]
+
+_QUANTILES_ELEMENTWISE_TESTS = [
+    dict(
+        testcase_name='ComputeQuantilesElementwise-{}'.format(np_type),
+        combiner=analyzers.QuantilesCombiner(
+            num_quantiles=5,
+            epsilon=0.00001,
+            bucket_numpy_dtype=np.float32,
+            always_return_num_quantiles=False,
+            feature_shape=[3]),
+        batches=[
+            (np.vstack([np.linspace(1, 100, 100, dtype=np_type),
+                        np.linspace(101, 200, 100, dtype=np_type),
+                        np.linspace(201, 300, 100, dtype=np_type)]).T,),
+            (np.empty((0, 3)),),
+        ],
+        expected_outputs=[np.array([[21, 41, 61, 81],
+                                    [121, 141, 161, 181],
+                                    [221, 241, 261, 281]], dtype=np.float32)],
     ) for np_type in _NP_TYPES
 ]
 
@@ -251,6 +290,7 @@ _EXACT_NUM_QUANTILES_TESTS = [
         expected_outputs=[np.array([1, 1, 1], dtype=np.float32)],
     ) for np_type in _NP_TYPES
 ]
+# pylint: enable=g-complex-comprehension
 
 
 class AnalyzersTest(test_case.TransformTestCase):
@@ -266,10 +306,12 @@ class AnalyzersTest(test_case.TransformTestCase):
       _MEAN_AND_VAR_TEST,
       _MEAN_AND_VAR_BIG_TEST,
       _MEAN_AND_VAR_VECTORS_TEST,
+      _MEAN_AND_VAR_ND_TEST,
       _QUANTILES_NO_ELEMENTS_TEST,
       _QUANTILES_NO_TRIM_TEST,
       _QUANTILES_EXACT_NO_ELEMENTS_TEST,
   ] + _QUANTILES_SINGLE_BATCH_TESTS + _QUANTILES_MULTIPLE_BATCH_TESTS +
+                              _QUANTILES_ELEMENTWISE_TESTS +
                               _EXACT_NUM_QUANTILES_TESTS)
   def testCombiner(self, combiner, batches, expected_outputs):
     """Tests the provided combiner.
@@ -308,6 +350,60 @@ class AnalyzersTest(test_case.TransformTestCase):
       self.assertEqual(tensor_info.dtype,
                        tf.as_dtype(expected_output.dtype))
       self.assertAllEqual(output, expected_output)
+
+  @test_case.named_parameters(
+      {
+          'testcase_name': '1d',
+          'a': np.array([1]),
+          'b': np.array([1, 1]),
+          'expected_a': np.array([1, 0]),
+          'expected_b': np.array([1, 1]),
+      },
+      {
+          'testcase_name': '2d_1different',
+          'a': np.array([[1], [1]]),
+          'b': np.array([[1], [1], [2]]),
+          'expected_a': np.array([[1], [1], [0]]),
+          'expected_b': np.array([[1], [1], [2]]),
+      },
+      {
+          'testcase_name': '2d_2different',
+          'a': np.array([[1, 3], [1, 3]]),
+          'b': np.array([[1], [1], [2]]),
+          'expected_a': np.array([[1, 3], [1, 3], [0, 0]]),
+          'expected_b': np.array([[1, 0], [1, 0], [2, 0]]),
+      },
+      {
+          'testcase_name': '3d_1different',
+          'a': np.array([[[1], [1]], [[1], [1]]]),
+          'b': np.array([[[1], [1]]]),
+          'expected_a': np.array([[[1], [1]], [[1], [1]]]),
+          'expected_b': np.array([[[1], [1]], [[0], [0]]]),
+      },
+      {
+          'testcase_name': '3d_2different',
+          'a': np.array([[[1], [1]], [[1], [1]]]),
+          'b': np.array([[[1, 1], [1, 1]]]),
+          'expected_a': np.array([[[1, 0], [1, 0]], [[1, 0], [1, 0]]]),
+          'expected_b': np.array([[[1, 1], [1, 1]], [[0, 0], [0, 0]]]),
+      },
+  )
+  def test_pad_arrays_to_match(self, a, b, expected_a, expected_b):
+    a2, b2 = analyzers._pad_arrays_to_match(a, b)
+    self.assertAllClose(a2, expected_a)
+    self.assertAllClose(b2, expected_b)
+
+  def testMinDiffFromAvg(self):
+    # Small dataset gets the minimum of 2
+    self.assertEqual(
+        analyzers.calculate_recommended_min_diff_from_avg(10000), 2)
+    self.assertEqual(
+        analyzers.calculate_recommended_min_diff_from_avg(100000), 4)
+    self.assertEqual(
+        analyzers.calculate_recommended_min_diff_from_avg(500000), 13)
+    # Large dataset gets the maximum of 25
+    self.assertEqual(
+        analyzers.calculate_recommended_min_diff_from_avg(100000000), 25)
 
 
 if __name__ == '__main__':

@@ -2,11 +2,12 @@
 
 *  <a href="./tft.md"><code>tft</code></a>
 *  <a href="./tft/CovarianceCombiner.md"><code>tft.CovarianceCombiner</code></a>
-*  <a href="./tft/MeanAndVarCombiner.md"><code>tft.MeanAndVarCombiner</code></a>
 *  <a href="./tft/NumPyCombiner.md"><code>tft.NumPyCombiner</code></a>
 *  <a href="./tft/PCACombiner.md"><code>tft.PCACombiner</code></a>
 *  <a href="./tft/QuantilesCombiner.md"><code>tft.QuantilesCombiner</code></a>
 *  <a href="./tft/TFTransformOutput.md"><code>tft.TFTransformOutput</code></a>
+*  <a href="./tft/WeightedMeanAndVarCombiner.md"><code>tft.WeightedMeanAndVarCombiner</code></a>
+*  <a href="./tft/WeightedMeanAndVarCombiner/accumulator_class.md"><code>tft.WeightedMeanAndVarCombiner.accumulator_class</code></a>
 *  <a href="./tft/apply_analyzer.md"><code>tft.apply_analyzer</code></a>
 *  <a href="./tft/apply_buckets.md"><code>tft.apply_buckets</code></a>
 *  <a href="./tft/apply_buckets_with_interpolation.md"><code>tft.apply_buckets_with_interpolation</code></a>
@@ -37,6 +38,7 @@
 *  <a href="./tft/scale_by_min_max.md"><code>tft.scale_by_min_max</code></a>
 *  <a href="./tft/scale_to_0_1.md"><code>tft.scale_to_0_1</code></a>
 *  <a href="./tft/scale_to_z_score.md"><code>tft.scale_to_z_score</code></a>
+*  <a href="./tft/scale_to_z_score_per_key.md"><code>tft.scale_to_z_score_per_key</code></a>
 *  <a href="./tft/segment_indices.md"><code>tft.segment_indices</code></a>
 *  <a href="./tft/size.md"><code>tft.size</code></a>
 *  <a href="./tft/sparse_tensor_to_dense_with_shape.md"><code>tft.sparse_tensor_to_dense_with_shape</code></a>
@@ -46,6 +48,7 @@
 *  <a href="./tft/uniques.md"><code>tft.uniques</code></a>
 *  <a href="./tft/var.md"><code>tft.var</code></a>
 *  <a href="./tft/vocabulary.md"><code>tft.vocabulary</code></a>
+*  <a href="./tft/word_count.md"><code>tft.word_count</code></a>
 *  <a href="./tft_beam.md"><code>tft_beam</code></a>
 *  <a href="./tft_beam/AnalyzeAndTransformDataset.md"><code>tft_beam.AnalyzeAndTransformDataset</code></a>
 *  <a href="./tft_beam/AnalyzeDataset.md"><code>tft_beam.AnalyzeDataset</code></a>
@@ -58,7 +61,6 @@
 *  <a href="./tft_beam/analyzer_cache/ReadAnalysisCacheFromFS.md"><code>tft_beam.analyzer_cache.ReadAnalysisCacheFromFS</code></a>
 *  <a href="./tft_beam/analyzer_cache/WriteAnalysisCacheToFS.md"><code>tft_beam.analyzer_cache.WriteAnalysisCacheToFS</code></a>
 *  <a href="./tft_beam/analyzer_cache/make_cache_entry_key.md"><code>tft_beam.analyzer_cache.make_cache_entry_key</code></a>
-*  <a href="./tft_beam/analyzer_cache/make_dataset_key.md"><code>tft_beam.analyzer_cache.make_dataset_key</code></a>
 *  <a href="./tft_beam/analyzer_cache/validate_dataset_keys.md"><code>tft_beam.analyzer_cache.validate_dataset_keys</code></a>
 *  <a href="./tft_beam/info_theory.md"><code>tft_beam.info_theory</code></a>
 *  <a href="./tft_beam/info_theory/calculate_partial_expected_mutual_information.md"><code>tft_beam.info_theory.calculate_partial_expected_mutual_information</code></a>

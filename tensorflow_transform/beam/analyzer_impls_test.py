@@ -26,8 +26,6 @@ import tensorflow as tf
 from tensorflow_transform.beam import analyzer_impls
 from tensorflow_transform.beam import tft_unit
 
-import unittest
-
 
 class AnalyzerImplsTest(tft_unit.TransformTestCase):
 
@@ -79,6 +77,63 @@ class AnalyzerImplsTest(tft_unit.TransformTestCase):
     self.assertAllEqual(merged_outputs_pcolls[1][0], np.array([]))
     self.assertAllEqual(merged_outputs_pcolls[2][0], np.array([]))
 
+  @tft_unit.named_parameters(
+      dict(
+          testcase_name='Increasing',
+          input_boundaries=np.array([[1, 1.00000001], [1, 2]]),
+          expected_boundaries=np.array([[1, 1.00000001], [1, 2]])),
+      dict(
+          testcase_name='Repeating',
+          input_boundaries=np.array([[1, 1, 1], [4, 4, 4]]),
+          expected_boundaries=np.array([[1, 1.000001, 1.000002],
+                                        [4, 4.000001, 4.000002]])),
+      dict(
+          testcase_name='NonIncreasing',
+          input_boundaries=np.array([[3, 5.1, 5.1], [4.01, 4.01, 4.2]]),
+          expected_boundaries=np.array([[3, 5.1, 5.1000021],
+                                        [4.01, 4.01000019, 4.20000019]]),
+          atol=1e-6),
+  )
+  def testMakeStrictlyIncreasingBoundariesRows(self,
+                                               input_boundaries,
+                                               expected_boundaries,
+                                               atol=None):
+    result = analyzer_impls._make_strictly_increasing_boundaries_rows(
+        input_boundaries)
+    if atol is None:
+      self.assertAllEqual(result, expected_boundaries)
+    else:
+      self.assertAllClose(result, expected_boundaries, atol=atol)
+
+  @tft_unit.named_parameters(
+      dict(
+          testcase_name='Simple',
+          input_boundaries=np.array([[0, 1, 2], [0, 1, 2]]),
+          expected_boundaries=np.array([0, 0.5, 1, 1.5, 2]),
+          expected_scales=np.array([0.5, 0.5]),
+          expected_shifts=np.array([0, 1]),
+          expected_num_buckets=np.array(4)),
+      dict(
+          testcase_name='Complex',
+          input_boundaries=np.array([[0, 1, 2, 3], [3, 3, 3, 3], [2, 4, 6, 8]]),
+          expected_boundaries=np.array([
+              0, 0.33333333, 0.66666667, 1, 1.33333333, 1.66666667, 2,
+              2.33333333, 2.66666667, 3
+          ]),
+          expected_scales=np.array([0.333333333, 333333.333, 0.166666667]),
+          expected_shifts=np.array([0, -999999, 1.66666667]),
+          expected_num_buckets=np.array(5)),
+  )
+  def testJoinBoundarieRows(self, input_boundaries, expected_boundaries,
+                            expected_scales, expected_shifts,
+                            expected_num_buckets):
+    boundaries, scales, shifts, num_buckets = (
+        analyzer_impls._join_boundary_rows(input_boundaries))
+    self.assertAllClose(boundaries, expected_boundaries)
+    self.assertAllClose(scales, expected_scales)
+    self.assertAllClose(shifts, expected_shifts)
+    self.assertAllEqual(num_buckets, expected_num_buckets)
+
 
 if __name__ == '__main__':
-  unittest.main()
+  tft_unit.main()

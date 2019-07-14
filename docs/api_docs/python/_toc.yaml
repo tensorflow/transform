@@ -42,8 +42,6 @@ toc:
       path: /tfx/transform/api_docs/python/tft/max
     - title: mean
       path: /tfx/transform/api_docs/python/tft/mean
-    - title: MeanAndVarCombiner
-      path: /tfx/transform/api_docs/python/tft/MeanAndVarCombiner
     - title: min
       path: /tfx/transform/api_docs/python/tft/min
     - title: ngrams
@@ -68,6 +66,8 @@ toc:
       path: /tfx/transform/api_docs/python/tft/scale_to_0_1
     - title: scale_to_z_score
       path: /tfx/transform/api_docs/python/tft/scale_to_z_score
+    - title: scale_to_z_score_per_key
+      path: /tfx/transform/api_docs/python/tft/scale_to_z_score_per_key
     - title: segment_indices
       path: /tfx/transform/api_docs/python/tft/segment_indices
     - title: size
@@ -88,6 +88,12 @@ toc:
       path: /tfx/transform/api_docs/python/tft/var
     - title: vocabulary
       path: /tfx/transform/api_docs/python/tft/vocabulary
+    - title: WeightedMeanAndVarCombiner
+      path: /tfx/transform/api_docs/python/tft/WeightedMeanAndVarCombiner
+    - title: WeightedMeanAndVarCombiner.accumulator_class
+      path: /tfx/transform/api_docs/python/tft/WeightedMeanAndVarCombiner/accumulator_class
+    - title: word_count
+      path: /tfx/transform/api_docs/python/tft/word_count
   - title: tft.coders
     section:
     - title: Overview
@@ -120,8 +126,6 @@ toc:
       path: /tfx/transform/api_docs/python/tft_beam/analyzer_cache
     - title: make_cache_entry_key
       path: /tfx/transform/api_docs/python/tft_beam/analyzer_cache/make_cache_entry_key
-    - title: make_dataset_key
-      path: /tfx/transform/api_docs/python/tft_beam/analyzer_cache/make_dataset_key
     - title: ReadAnalysisCacheFromFS
       path: /tfx/transform/api_docs/python/tft_beam/analyzer_cache/ReadAnalysisCacheFromFS
     - title: validate_dataset_keys

@@ -76,7 +76,7 @@ within each vocabulary entry (b/117796748).
 * <b>`frequency_threshold`</b>: Limit the generated vocabulary only to elements whose
     absolute frequency is >= to the supplied threshold. If set to None, the
     full vocabulary is generated.  Absolute frequency means the number of
-    occurences of the element in the dataset, as opposed to the proportion of
+    occurrences of the element in the dataset, as opposed to the proportion of
     instances that contain that element.
 * <b>`vocab_filename`</b>: The file name for the vocabulary file. If none, the
     "uniques" scope name in the context of this graph will be used as the file
@@ -90,12 +90,16 @@ within each vocabulary entry (b/117796748).
     will be of the form 'frequency word'.
 * <b>`weights`</b>: (Optional) Weights `Tensor` for the vocabulary. It must have the
     same shape as x.
-* <b>`labels`</b>: (Optional) Labels `Tensor` for the vocabulary. It must have dtype
-    int64, have values 0 or 1, and have the same shape as x.
-* <b>`use_adjusted_mutual_info`</b>: If true, use adjusted mutual information.
-* <b>`min_diff_from_avg`</b>: Mutual information of a feature will be adjusted to zero
-    whenever the difference between count of the feature with any label and
-    its expected count is lower than min_diff_from_average.
+* <b>`labels`</b>: (Optional) Labels `Tensor` for the vocabulary. It must have the same
+    shape as x and be a discrete integerized tensor (If the label is numeric,
+    it should first be bucketized; If the label is a string, an integer
+    vocabulary should first be applied).
+* <b>`use_adjusted_mutual_info`</b>: If true, and labels are provided, calculate
+    vocabulary using adjusted rather than raw mutual information.
+* <b>`min_diff_from_avg`</b>: MI (or AMI) of a feature x label will be adjusted to zero
+    whenever the difference between count and the expected (average) count is
+    lower than min_diff_from_average. This can be thought of as a regularizing
+    parameter that pushes small MI/AMI values to zero.
 * <b>`coverage_top_k`</b>: (Optional), (Experimental) The minimum number of elements
     per key to be included in the vocabulary.
 * <b>`coverage_frequency_threshold`</b>: (Optional), (Experimental) Limit the coverage

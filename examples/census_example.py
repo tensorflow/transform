@@ -30,7 +30,7 @@ import tensorflow as tf
 import tensorflow_transform as tft
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import schema_utils
 
 
 CATEGORICAL_FEATURE_KEYS = [
@@ -80,18 +80,18 @@ class MapAndFilterErrors(beam.PTransform):
   def expand(self, pcoll):
     return pcoll | beam.ParDo(self._MapAndFilterErrorsDoFn(self._fn))
 
-RAW_DATA_FEATURE_SPEC = dict(
-    [(name, tf.FixedLenFeature([], tf.string))
-     for name in CATEGORICAL_FEATURE_KEYS] +
-    [(name, tf.FixedLenFeature([], tf.float32))
-     for name in NUMERIC_FEATURE_KEYS] +
-    [(name, tf.VarLenFeature(tf.float32))
-     for name in OPTIONAL_NUMERIC_FEATURE_KEYS] +
-    [(LABEL_KEY, tf.FixedLenFeature([], tf.string))]
-)
+
+RAW_DATA_FEATURE_SPEC = dict([(name, tf.io.FixedLenFeature([], tf.string))
+                              for name in CATEGORICAL_FEATURE_KEYS] +
+                             [(name, tf.io.FixedLenFeature([], tf.float32))
+                              for name in NUMERIC_FEATURE_KEYS] +
+                             [(name, tf.io.VarLenFeature(tf.float32))
+                              for name in OPTIONAL_NUMERIC_FEATURE_KEYS] +
+                             [(LABEL_KEY,
+                               tf.io.FixedLenFeature([], tf.string))])
 
 RAW_DATA_METADATA = dataset_metadata.DatasetMetadata(
-    dataset_schema.from_feature_spec(RAW_DATA_FEATURE_SPEC))
+    schema_utils.schema_from_feature_spec(RAW_DATA_FEATURE_SPEC))
 
 # Constants used for training.  Note that the number of instances will be
 # computed by tf.Transform in future versions, in which case it can be read from
@@ -139,9 +139,10 @@ def transform_data(train_data_file, test_data_file, working_dir):
     for key in OPTIONAL_NUMERIC_FEATURE_KEYS:
       # This is a SparseTensor because it is optional. Here we fill in a default
       # value when it is missing.
-      dense = tf.sparse_to_dense(outputs[key].indices,
-                                 [outputs[key].dense_shape[0], 1],
-                                 outputs[key].values, default_value=0.)
+      dense = tf.compat.v1.sparse_to_dense(
+          outputs[key].indices, [outputs[key].dense_shape[0], 1],
+          outputs[key].values,
+          default_value=0.)
       # Reshaping from a batch of vectors of size 1 to a batch to scalars.
       dense = tf.squeeze(dense, axis=1)
       outputs[key] = tft.scale_to_0_1(dense)
@@ -154,7 +155,13 @@ def transform_data(train_data_file, test_data_file, working_dir):
       tft.vocabulary(inputs[key], vocab_filename=key)
 
     # For the label column we provide the mapping from string to index.
-    table = tf.contrib.lookup.index_table_from_tensor(['>50K', '<=50K'])
+    table_keys = ['>50K', '<=50K']
+    initializer = tf.lookup.KeyValueTensorInitializer(
+        keys=table_keys,
+        values=tf.cast(tf.range(len(table_keys)), tf.int64),
+        key_dtype=tf.string,
+        value_dtype=tf.int64)
+    table = tf.lookup.StaticHashTable(initializer, default_value=-1)
     outputs[LABEL_KEY] = table.lookup(outputs[LABEL_KEY])
 
     return outputs
@@ -254,14 +261,15 @@ def _make_training_input_fn(tf_transform_output, transformed_examples,
   """
   def input_fn():
     """Input function for training and eval."""
-    dataset = tf.contrib.data.make_batched_features_dataset(
+    dataset = tf.data.experimental.make_batched_features_dataset(
         file_pattern=transformed_examples,
         batch_size=batch_size,
         features=tf_transform_output.transformed_feature_spec(),
         reader=tf.data.TFRecordDataset,
         shuffle=True)
 
-    transformed_features = dataset.make_one_shot_iterator().get_next()
+    transformed_features = tf.compat.v1.data.make_one_shot_iterator(
+        dataset).get_next()
 
     # Extract features and label from the transformed tensors.
     # TODO(b/30367437): make transformed_labels a dict.
@@ -281,7 +289,7 @@ def _make_serving_input_fn(tf_transform_output):
   Returns:
     The serving input function.
   """
-  raw_feature_spec = RAW_DATA_METADATA.schema.as_feature_spec()
+  raw_feature_spec = RAW_DATA_FEATURE_SPEC.copy()
   # Remove label since it is not available during serving.
   raw_feature_spec.pop(LABEL_KEY)
 
@@ -350,7 +358,8 @@ def train_and_evaluate(working_dir, num_train_instances=NUM_TRAIN_INSTANCES,
 
   estimator = tf.estimator.LinearClassifier(
       feature_columns=get_feature_columns(tf_transform_output),
-      config=run_config)
+      config=run_config,
+      loss_reduction=tf.compat.v1.losses.Reduction.SUM)
 
   # Fit the model using the default optimizer.
   train_input_fn = _make_training_input_fn(
@@ -400,4 +409,6 @@ def main():
   pprint.pprint(results)
 
 if __name__ == '__main__':
+  # TODO(b/133440043): Remove this once TFT supports eager execution.
+  tf.compat.v1.disable_eager_execution()
   main()

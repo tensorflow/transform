@@ -23,9 +23,7 @@ import tempfile
 # GOOGLE-INITIALIZATION
 
 import apache_beam as beam
-from builtins import zip  # pylint: disable=redefined-builtin
 
-import numpy as np
 import six
 import tensorflow as tf
 import tensorflow_transform as tft
@@ -35,16 +33,17 @@ from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform import test_case
 from tensorflow_transform.beam import test_helpers
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import schema_utils
+
+from tensorflow_metadata.proto.v0 import schema_pb2
 
 parameters = test_case.parameters
 named_parameters = test_case.named_parameters
+cross_named_parameters = test_case.cross_named_parameters
 
 main = test_case.main
 
 
-# TODO(b/77351671): Remove this function once DatasetMetadata is replaced by a
-# schema proto.
 def metadata_from_feature_spec(feature_spec, domains=None):
   """Construct a DatasetMetadata from a feature spec.
 
@@ -55,8 +54,8 @@ def metadata_from_feature_spec(feature_spec, domains=None):
   Returns:
     A `tft.tf_metadata.dataset_metadata.DatasetMetadata` object.
   """
-  schema = dataset_schema.from_feature_spec(feature_spec, domains)
-  return dataset_metadata.DatasetMetadata(schema)
+  return dataset_metadata.DatasetMetadata(
+      schema_utils.schema_from_feature_spec(feature_spec, domains))
 
 
 class TransformTestCase(test_case.TransformTestCase):
@@ -106,14 +105,17 @@ class TransformTestCase(test_case.TransformTestCase):
 
       # Get batch size from any input tensor.
       an_input = next(six.itervalues(inputs))
-      batch_size = tf.shape(an_input)[0]
+      batch_size = tf.shape(input=an_input)[0]
 
       # Add a batch dimension and broadcast the analyzer outputs.
       result = {}
       for key, output_tensor in six.iteritems(analyzer_outputs):
         # Get the expected shape, and set it.
         output_shape = list(expected_outputs[key].shape)
-        output_tensor.set_shape(output_shape)
+        try:
+          output_tensor.set_shape(output_shape)
+        except ValueError as e:
+          raise ValueError('Error for key {}: {}'.format(key, str(e)))
         # Add a batch dimension
         output_tensor = tf.expand_dims(output_tensor, 0)
         # Broadcast along the batch dimension
@@ -127,7 +129,7 @@ class TransformTestCase(test_case.TransformTestCase):
     test_data = [input_data[0]] * num_test_instances
     expected_data = [expected_outputs] * num_test_instances
     expected_metadata = metadata_from_feature_spec({
-        key: tf.FixedLenFeature(value.shape, tf.as_dtype(value.dtype))
+        key: tf.io.FixedLenFeature(value.shape, tf.as_dtype(value.dtype))
         for key, value in six.iteritems(expected_outputs)
     })
 
@@ -196,8 +198,9 @@ class TransformTestCase(test_case.TransformTestCase):
       raise ValueError('only one of expected_asset_file_contents and '
                        'expected_asset_file_contents should be set')
     elif expected_asset_file_contents is not None:
-      tf.logging.warn('expected_asset_file_contents is deprecated, use '
-                      'expected_vocab_file_contents')
+      tf.compat.v1.logging.warn(
+          'expected_asset_file_contents is deprecated, use '
+          'expected_vocab_file_contents')
 
     expected_vocab_file_contents = (
         expected_vocab_file_contents or expected_asset_file_contents or {})
@@ -206,7 +209,7 @@ class TransformTestCase(test_case.TransformTestCase):
     # Note: we don't separately test AnalyzeDataset and TransformDataset as
     # AnalyzeAndTransformDataset currently simply composes these two
     # transforms.  If in future versions of the code, the implementation
-    # differs, we should also run AnalyzeDataset and TransformDatset composed.
+    # differs, we should also run AnalyzeDataset and TransformDataset composed.
     temp_dir = temp_dir or tempfile.mkdtemp(
         prefix=self._testMethodName, dir=self.get_temp_dir())
     with beam_pipeline or self._makeTestPipeline() as pipeline:
@@ -241,31 +244,21 @@ class TransformTestCase(test_case.TransformTestCase):
 
     # TODO(ebreck) Log transformed_data somewhere.
     if expected_data is not None:
-      examples = tf.python_io.tf_record_iterator(path=transformed_data_path)
+      examples = tf.compat.v1.python_io.tf_record_iterator(
+          path=transformed_data_path)
       transformed_data = [transformed_data_coder.decode(x) for x in examples]
       self.assertDataCloseOrEqual(expected_data, transformed_data)
 
     tf_transform_output = tft.TFTransformOutput(temp_dir)
     if expected_metadata:
-      self.assertEqual(expected_metadata,
-                       tf_transform_output.transformed_metadata)
+      # Make a copy with no annotations.
+      transformed_schema = schema_pb2.Schema()
+      transformed_schema.CopyFrom(
+          tf_transform_output.transformed_metadata.schema)
+      for feature in transformed_schema.feature:
+        feature.ClearField('annotation')
+      self.assertEqual(expected_metadata.schema, transformed_schema)
 
     for filename, file_contents in six.iteritems(expected_vocab_file_contents):
       full_filename = tf_transform_output.vocabulary_file_by_name(filename)
-      with tf.gfile.Open(full_filename, 'rb') as f:
-        file_lines = f.readlines()
-
-        # Store frequency case.
-        if isinstance(file_contents[0], tuple):
-          word_and_frequency_list = []
-          for content in file_lines:
-            frequency, word = content.split(b' ', 1)
-            word_and_frequency_list.append((word.strip(b'\n'),
-                                            float(frequency.strip(b'\n'))))
-          expected_words, expected_frequency = zip(*word_and_frequency_list)
-          actual_words, actual_frequency = zip(*file_contents)
-          self.assertAllEqual(expected_words, actual_words)
-          np.testing.assert_almost_equal(expected_frequency, actual_frequency)
-        else:
-          file_lines = [content.strip(b'\n') for content in file_lines]
-          self.assertAllEqual(file_lines, file_contents)
+      self.AssertVocabularyContents(full_filename, file_contents)

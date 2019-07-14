@@ -28,47 +28,65 @@ EQUIVALENT_FEATURE_SPEC_AND_SCHEMAS = [
     {
         'testcase_name': 'int',
         'ascii_proto': '''feature: {name: "x" type: INT}''',
-        'feature_spec': {'x': tf.VarLenFeature(tf.int64)}
+        'feature_spec': {
+            'x': tf.io.VarLenFeature(tf.int64)
+        }
     },
     {
         'testcase_name': 'string',
         'ascii_proto': '''feature: {name: "x" type: BYTES}''',
-        'feature_spec': {'x': tf.VarLenFeature(tf.string)}
+        'feature_spec': {
+            'x': tf.io.VarLenFeature(tf.string)
+        }
     },
     {
         'testcase_name': 'float',
         'ascii_proto': '''feature: {name: "x" type: FLOAT}''',
-        'feature_spec': {'x': tf.VarLenFeature(tf.float32)}
+        'feature_spec': {
+            'x': tf.io.VarLenFeature(tf.float32)
+        }
     },
     # Test different shapes
     {
-        'testcase_name': 'fixed_len_vector',
-        'ascii_proto': '''
+        'testcase_name':
+            'fixed_len_vector',
+        'ascii_proto':
+            """
           feature: {
             name: "x" type: INT shape: {dim {size: 1}}
             presence: {min_fraction: 1}
           }
-        ''',
-        'feature_spec': {'x': tf.FixedLenFeature([1], tf.int64, None)}
+        """,
+        'feature_spec': {
+            'x': tf.io.FixedLenFeature([1], tf.int64, None)
+        }
     },
     {
-        'testcase_name': 'fixed_len_matrix',
-        'ascii_proto': '''
+        'testcase_name':
+            'fixed_len_matrix',
+        'ascii_proto':
+            """
           feature: {
             name: "x" type: INT shape: {dim {size: 2} dim {size: 2}}
             presence: {min_fraction: 1}
           }
-        ''',
-        'feature_spec': {'x': tf.FixedLenFeature([2, 2], tf.int64, None)}
+        """,
+        'feature_spec': {
+            'x': tf.io.FixedLenFeature([2, 2], tf.int64, None)
+        }
     },
     {
         'testcase_name': 'var_len',
         'ascii_proto': '''feature: {name: "x" type: INT}''',
-        'feature_spec': {'x': tf.VarLenFeature(tf.int64)}
+        'feature_spec': {
+            'x': tf.io.VarLenFeature(tf.int64)
+        }
     },
     {
-        'testcase_name': 'sparse',
-        'ascii_proto': '''
+        'testcase_name':
+            'sparse',
+        'ascii_proto':
+            """
           feature {
             name: "index_key"
             type: INT
@@ -83,14 +101,17 @@ EQUIVALENT_FEATURE_SPEC_AND_SCHEMAS = [
             index_feature {name: "index_key"}
             value_feature {name: "value_key"}
           }
-        ''',
+        """,
         'feature_spec': {
-            'x': tf.SparseFeature('index_key', 'value_key', tf.int64, 10, False)
+            'x':
+                tf.io.SparseFeature('index_key', 'value_key', tf.int64, 10, False)
         }
     },
     {
-        'testcase_name': 'sparse_sorted',
-        'ascii_proto': '''
+        'testcase_name':
+            'sparse_sorted',
+        'ascii_proto':
+            """
           feature {
             name: "index_key"
             type: INT
@@ -106,47 +127,60 @@ EQUIVALENT_FEATURE_SPEC_AND_SCHEMAS = [
             index_feature {name: "index_key"}
             value_feature {name: "value_key"}
           }
-        ''',
+        """,
         'feature_spec': {
-            'x': tf.SparseFeature('index_key', 'value_key', tf.int64, 10, True)
+            'x':
+                tf.io.SparseFeature('index_key', 'value_key', tf.int64, 10, True)
         }
     },
     # Test domains
     {
-        'testcase_name': 'int_domain',
-        'ascii_proto': '''
+        'testcase_name':
+            'int_domain',
+        'ascii_proto':
+            """
           feature: {
             name: "x" type: INT
             int_domain {min: 0 max: 5 is_categorical: true}
           }
-        ''',
-        'feature_spec': {'x': tf.VarLenFeature(tf.int64)},
+        """,
+        'feature_spec': {
+            'x': tf.io.VarLenFeature(tf.int64)
+        },
         'domains': {
             'x': schema_pb2.IntDomain(min=0, max=5, is_categorical=True)
         }
     },
     {
-        'testcase_name': 'string_domain',
-        'ascii_proto': '''
+        'testcase_name':
+            'string_domain',
+        'ascii_proto':
+            """
           feature: {
             name: "x" type: BYTES
             string_domain {value: "a" value: "b"}
           }
-        ''',
-        'feature_spec': {'x': tf.VarLenFeature(tf.string)},
+        """,
+        'feature_spec': {
+            'x': tf.io.VarLenFeature(tf.string)
+        },
         'domains': {
             'x': schema_pb2.StringDomain(value=['a', 'b'])
         }
     },
     {
-        'testcase_name': 'float_domain',
-        'ascii_proto': '''
+        'testcase_name':
+            'float_domain',
+        'ascii_proto':
+            """
           feature: {
             name: "x" type: FLOAT
             float_domain {min: 0.0 max: 0.5}
           }
-        ''',
-        'feature_spec': {'x': tf.VarLenFeature(tf.float32)},
+        """,
+        'feature_spec': {
+            'x': tf.io.VarLenFeature(tf.float32)
+        },
         'domains': {
             'x': schema_pb2.FloatDomain(min=0.0, max=0.5)
         }
@@ -155,29 +189,39 @@ EQUIVALENT_FEATURE_SPEC_AND_SCHEMAS = [
 
 NON_ROUNDTRIP_SCHEMAS = [
     {
-        'testcase_name': 'deprecated_feature',
-        'ascii_proto': '''
+        'testcase_name':
+            'deprecated_feature',
+        'ascii_proto':
+            """
           feature: {name: "x" type: INT lifecycle_stage: DEPRECATED}
-        ''',
+        """,
         'feature_spec': {}
     },
     {
-        'testcase_name': 'schema_level_string_domain',
-        'ascii_proto': '''
+        'testcase_name':
+            'schema_level_string_domain',
+        'ascii_proto':
+            """
           feature: {name: "x" type: BYTES domain: "my_domain"}
           string_domain {name: "my_domain" value: "a" value: "b"}
-        ''',
-        'feature_spec': {'x': tf.VarLenFeature(tf.string)},
+        """,
+        'feature_spec': {
+            'x': tf.io.VarLenFeature(tf.string)
+        },
         'domains': {
             'x': schema_pb2.StringDomain(name='my_domain', value=['a', 'b'])
         }
     },
     {
-        'testcase_name': 'missing_schema_level_string_domain',
-        'ascii_proto': '''
+        'testcase_name':
+            'missing_schema_level_string_domain',
+        'ascii_proto':
+            """
           feature: {name: "x" type: BYTES domain: "my_domain"}
-        ''',
-        'feature_spec': {'x': tf.VarLenFeature(tf.string)}
+        """,
+        'feature_spec': {
+            'x': tf.io.VarLenFeature(tf.string)
+        }
     },
 ]
 
@@ -363,14 +407,17 @@ INVALID_SCHEMA_PROTOS = [
 INVALID_FEATURE_SPECS = [
     {
         'testcase_name': 'bad_type',
-        'feature_spec': {'x': tf.FixedLenFeature([], tf.bool)},
+        'feature_spec': {
+            'x': tf.io.FixedLenFeature([], tf.bool)
+        },
         'error_msg': 'Feature "x" has invalid dtype'
     },
     {
         'testcase_name': 'bad_index_key',
         'feature_spec': {
-            'x': tf.SparseFeature(['index_key'], 'value_key', tf.int64, 10,
-                                  False)
+            'x':
+                tf.io.SparseFeature(['index_key'], 'value_key', tf.int64, 10,
+                                    False)
         },
         'error_msg': r'SparseFeature "x" had index_key \[\'index_key\'\], but '
                      r'size and index_key fields should be single values'
@@ -378,8 +425,9 @@ INVALID_FEATURE_SPECS = [
     {
         'testcase_name': 'bad_size',
         'feature_spec': {
-            'x': tf.SparseFeature('index_key', 'value_key', tf.int64, [10],
-                                  False)
+            'x':
+                tf.io.SparseFeature('index_key', 'value_key', tf.int64, [10],
+                                    False)
         },
         'error_msg': r'SparseFeature "x" had size \[10\], but '
                      r'size and index_key fields should be single values'
@@ -387,7 +435,7 @@ INVALID_FEATURE_SPECS = [
     {
         'testcase_name': 'unsupported_type',
         'feature_spec': {
-            'x': tf.FixedLenSequenceFeature([], tf.int64)
+            'x': tf.io.FixedLenSequenceFeature([], tf.int64)
         },
         'error_msg': r'Spec for feature "x" was .* of type .*, expected a '
                      r'FixedLenFeature, VarLenFeature or SparseFeature',

@@ -24,7 +24,6 @@ import os
 
 import tensorflow as tf
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import dataset_schema
 from tensorflow_transform.tf_metadata import schema_utils
 
 from google.protobuf import text_format
@@ -38,7 +37,8 @@ def read_metadata(path):
   legacy_schema_file = os.path.join(path, 'v1-json', 'schema.json')
   if file_io.file_exists(schema_file):
     text_proto = file_io.FileIO(schema_file, 'r').read()
-    schema_proto = text_format.Parse(text_proto, schema_pb2.Schema())
+    schema_proto = text_format.Parse(text_proto, schema_pb2.Schema(),
+                                     allow_unknown_extension=True)
   elif file_io.file_exists(legacy_schema_file):
     schema_json = file_io.FileIO(legacy_schema_file, 'r').read()
     schema_proto = _parse_schema_json(schema_json)
@@ -46,9 +46,7 @@ def read_metadata(path):
     raise IOError(
         'Schema file {} does not exist and neither did legacy format file '
         '{}'.format(schema_file, legacy_schema_file))
-  features_spec, domains = schema_utils.schema_as_feature_spec(schema_proto)
-  return dataset_metadata.DatasetMetadata(
-      dataset_schema.from_feature_spec(features_spec, domains))
+  return dataset_metadata.DatasetMetadata(schema_proto)
 
 
 def _parse_schema_json(schema_json):
@@ -85,9 +83,9 @@ def _column_schema_from_json(feature_dict):
           pass
     axes = feature_dict['fixedShape'].get('axis', [])
     shape = [int(axis['size']) for axis in axes]
-    return tf.FixedLenFeature(shape, dtype, default_value)
+    return tf.io.FixedLenFeature(shape, dtype, default_value)
   elif tf_options.get('varLenFeature') is not None:
-    return tf.VarLenFeature(dtype)
+    return tf.io.VarLenFeature(dtype)
   else:
     raise ValueError('Could not interpret tfOptions: {}'.format(tf_options))
 
@@ -125,9 +123,7 @@ def write_metadata(metadata, path):
   if not file_io.file_exists(path):
     file_io.recursive_create_dir(path)
   schema_file = os.path.join(path, 'schema.pbtxt')
-  schema_proto = schema_utils.schema_from_feature_spec(
-      metadata.schema.as_feature_spec(), metadata.schema.domains())
-  ascii_proto = text_format.MessageToString(schema_proto)
+  ascii_proto = text_format.MessageToString(metadata.schema)
   file_io.write_string_to_file(schema_file, ascii_proto)
 
 

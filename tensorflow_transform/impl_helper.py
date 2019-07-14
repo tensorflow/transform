@@ -24,10 +24,11 @@ import itertools
 
 import numpy as np
 import six
-from six.moves import queue  # pylint: disable=redefined-builtin
 from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
+
 import tensorflow as tf
+from tensorflow_transform.tf_metadata import schema_utils
 
 _CACHED_EMPTY_ARRAY_BY_DTYPE = {}
 
@@ -59,13 +60,15 @@ def feature_spec_as_batched_placeholders(feature_spec):
   for name, spec in six.iteritems(feature_spec):
     if spec.dtype not in (tf.int64, tf.float32, tf.string):
       raise ValueError('{} had invalid dtype'.format(spec))
-    if isinstance(spec, tf.FixedLenFeature):
-      result[name] = tf.placeholder(spec.dtype, [None] + spec.shape, name=name)
-    elif isinstance(spec, tf.VarLenFeature):
-      result[name] = tf.sparse_placeholder(spec.dtype, [None, None], name=name)
-    elif isinstance(spec, tf.SparseFeature):
-      result[name] = tf.sparse_placeholder(spec.dtype, [None, spec.size],
-                                           name=name)
+    if isinstance(spec, tf.io.FixedLenFeature):
+      result[name] = tf.compat.v1.placeholder(
+          spec.dtype, [None] + spec.shape, name=name)
+    elif isinstance(spec, tf.io.VarLenFeature):
+      result[name] = tf.compat.v1.sparse_placeholder(
+          spec.dtype, [None, None], name=name)
+    elif isinstance(spec, tf.io.SparseFeature):
+      result[name] = tf.compat.v1.sparse_placeholder(
+          spec.dtype, [None, spec.size], name=name)
     else:
       raise TypeError('Feature spec {} of type {} is not supported'.format(
           spec, type(spec)))
@@ -80,7 +83,7 @@ def make_feed_list(column_names, schema, instances):
 
   Args:
     column_names: A list of column names.
-    schema: A `Schema` object.
+    schema: A `Schema` proto.
     instances: A list of instances, each of which is a map from column name to a
       python primitive, list, or ndarray.
 
@@ -131,24 +134,25 @@ def make_feed_list(column_names, schema, instances):
     batch_indices = make_batch_indices(instance_indices)
     batch_values = list(itertools.chain.from_iterable(instance_values))
     batch_shape = (len(instance_indices), max_index)
-    return tf.SparseTensorValue(batch_indices, batch_values, batch_shape)
+    return tf.compat.v1.SparseTensorValue(batch_indices, batch_values,
+                                          batch_shape)
 
   result = []
-  feature_spec = schema.as_feature_spec()
+  feature_spec = schema_utils.schema_as_feature_spec(schema).feature_spec
   for name in column_names:
     spec = feature_spec[name]
     # TODO(abrao): Validate dtypes, shapes etc.
-    if isinstance(spec, tf.FixedLenFeature):
+    if isinstance(spec, tf.io.FixedLenFeature):
       feed_value = [instance[name] for instance in instances]
 
-    elif isinstance(spec, tf.VarLenFeature):
+    elif isinstance(spec, tf.io.VarLenFeature):
       values = [[] if instance[name] is None else instance[name]
                 for instance in instances]
       indices = [range(len(value)) for value in values]
       max_index = max([len(value) for value in values])
       feed_value = make_sparse_batch(indices, values, max_index)
 
-    elif isinstance(spec, tf.SparseFeature):
+    elif isinstance(spec, tf.io.SparseFeature):
       # TODO(KesterTong): Add support for N-d SparseFeatures.
       max_index = spec.size
       indices, values = [], []
@@ -172,7 +176,7 @@ def to_instance_dicts(schema, fetches):
   """Maps the values fetched by `tf.Session.run` to the internal batch format.
 
   Args:
-    schema: A `Schema` object.
+    schema: A `Schema` proto.
     fetches: A dict representing a batch of data, as returned by `Session.run`.
 
   Returns:
@@ -245,27 +249,28 @@ def to_instance_dicts(schema, fetches):
 
   batch_dict = {}
   batch_sizes = {}
-  feature_spec = schema.as_feature_spec()
+  feature_spec = schema_utils.schema_as_feature_spec(schema).feature_spec
   for name, value in six.iteritems(fetches):
     spec = feature_spec[name]
-    if isinstance(spec, tf.FixedLenFeature):
+    if isinstance(spec, tf.io.FixedLenFeature):
       batch_dict[name] = [value[i] for i in range(value.shape[0])]
       batch_sizes[name] = value.shape[0]
 
-    elif isinstance(spec, tf.VarLenFeature):
-      if not isinstance(value, tf.SparseTensorValue):
+    elif isinstance(spec, tf.io.VarLenFeature):
+      if not isinstance(value, tf.compat.v1.SparseTensorValue):
         raise ValueError(
             'Expected a SparseTensorValue, but got {}'.format(value))
       instance_indices, instance_values = decompose_sparse_batch(value)
       for indices in instance_indices:
         if len(indices.shape) > 1 or np.any(indices != np.arange(len(indices))):
           raise ValueError('Encountered a SparseTensorValue that cannot be '
-                           'decoded by ListColumnRepresentation.')
+                           'decoded by ListColumnRepresentation.\n'
+                           '"{}" : {}'.format(name, value))
       batch_dict[name] = instance_values
       batch_sizes[name] = len(instance_values)
 
-    elif isinstance(spec, tf.SparseFeature):
-      if not isinstance(value, tf.SparseTensorValue):
+    elif isinstance(spec, tf.io.SparseFeature):
+      if not isinstance(value, tf.compat.v1.SparseTensorValue):
         raise ValueError(
             'Expected a SparseTensorValue, but got {}'.format(value))
       # TODO(abrao): Add support for N-d SparseFeatures.
@@ -342,70 +347,3 @@ def _copy_tensor_or_sparse_tensor(tensor):
     dense_shape = _copy_tensor(tensor.dense_shape)
     return tf.SparseTensor(indices, values, dense_shape)
   return _copy_tensor(tensor)
-
-
-def _find_input_placeholder_ops(output_tensors):
-  """Find all the placeholder ops that (transitively) produce output_tensors."""
-  result = set()
-  enqueued_tensors = set()
-  visit_queue = queue.Queue()
-  for output_tensor in output_tensors:
-    visit_queue.put(output_tensor)
-    enqueued_tensors.add(output_tensor)
-  while not visit_queue.empty():
-    tensor = visit_queue.get()
-    ops = []
-    if isinstance(tensor, tf.Tensor):
-      ops.append(tensor.op)
-    elif isinstance(tensor, tf.SparseTensor):
-      ops.append(tensor.dense_shape.op)
-      ops.append(tensor.indices.op)
-      ops.append(tensor.values.op)
-    else:
-      raise ValueError('Unsupported Tensor type: {}'.format(type(tensor)))
-
-    for op in ops:
-      if op.type == 'Placeholder':  # no inputs and is a Placeholder op.
-        result.add(op)
-        if op.inputs:
-          raise ValueError('Placeholder op {} has non-zero inputs'.format(
-              op.name))
-      for t in op.inputs:
-        if t not in enqueued_tensors:
-          visit_queue.put(t)
-          enqueued_tensors.add(t)
-  return result
-
-
-def filter_input_tensors(input_tensors, output_tensors):
-  """Returns tensors in input_tensors that (transitively) produce output_tensors.
-
-  Args:
-    input_tensors: A dict of logical name to `tf.Tensor` or `tf.SparseTensor`.
-      Logical name doesn't have any implications in this method and can be
-      anything. In some cases it is the feature name corresponding to the input
-      tensor.
-    output_tensors: A list of `tf.Tensor` or `tf.SparseTensor`.
-
-  Returns:
-    A dict of logical name to `tf.Tensor` or `tf.SparseTensor` that are
-    filtered from input_tensors (transitively) producing output_tensors
-
-  Raises:
-    ValueError: If any Placeholder op is found to have non-zero inputs.
-  """
-  input_placeholder_ops = _find_input_placeholder_ops(output_tensors)
-
-  result = {}
-  for name, input_tensor in input_tensors.items():
-    if isinstance(input_tensor, tf.Tensor):
-      if input_tensor.op in input_placeholder_ops:
-        result[name] = input_tensor
-    elif isinstance(input_tensor, tf.SparseTensor):
-      if (input_tensor.dense_shape.op in input_placeholder_ops or
-          input_tensor.indices.op in input_placeholder_ops or
-          input_tensor.values.op in input_placeholder_ops):
-        result[name] = input_tensor
-    else:
-      raise ValueError('Unsupported Tensor type: {}'.format(type(input_tensor)))
-  return result

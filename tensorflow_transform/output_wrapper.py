@@ -21,9 +21,13 @@ import os
 
 # GOOGLE-INITIALIZATION
 
+import six
 import tensorflow as tf
+from tensorflow_transform import graph_tools
+from tensorflow_transform.analyzers import sanitized_vocab_filename
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import metadata_io
+from tensorflow_transform.tf_metadata import schema_utils
 
 from tensorflow_metadata.proto.v0 import schema_pb2
 
@@ -68,7 +72,17 @@ class TFTransformOutput(object):
     Returns:
       A dict from feature names to FixedLenFeature/SparseFeature/VarLenFeature.
     """
-    return self.transformed_metadata.schema.as_feature_spec()
+    return schema_utils.schema_as_feature_spec(
+        self.transformed_metadata.schema).feature_spec
+
+  def transformed_domains(self):
+    """Returns domains for the transformed features.
+
+    Returns:
+      A dict from feature names to schema_pb2.Domain.
+    """
+    return schema_utils.schema_as_feature_spec(
+        self.transformed_metadata.schema).domains
 
   def vocabulary_file_by_name(self, vocab_filename):
     """Returns the vocabulary file path created in the preprocessing function.
@@ -82,17 +96,17 @@ class TFTransformOutput(object):
       vocab_filename: The relative filename to lookup.
     """
     return os.path.join(self.transform_savedmodel_dir,
-                        tf.saved_model.constants.ASSETS_DIRECTORY,
-                        vocab_filename)
+                        tf.saved_model.ASSETS_DIRECTORY,
+                        sanitized_vocab_filename(filename=vocab_filename))
 
   def vocabulary_size_by_name(self, vocab_filename):
     """Like vocabulary_file_by_name, but returns the size of vocabulary."""
-    with tf.gfile.GFile(self.vocabulary_file_by_name(vocab_filename)) as f:
+    with tf.io.gfile.GFile(self.vocabulary_file_by_name(vocab_filename)) as f:
       return sum(1 for _ in f)
 
   def vocabulary_by_name(self, vocab_filename):
     """Like vocabulary_file_by_name but returns a list."""
-    with tf.gfile.GFile(self.vocabulary_file_by_name(vocab_filename)) as f:
+    with tf.io.gfile.GFile(self.vocabulary_file_by_name(vocab_filename)) as f:
       return [l.rstrip() for l in f]
 
   # TODO(KesterTong): Add test for this in output_wrapper_test.py
@@ -100,7 +114,8 @@ class TFTransformOutput(object):
     """Returns the number of buckets for an integerized transformed feature."""
     # Do checks that this tensor can be wrapped in
     # sparse_column_with_integerized_feature
-    domains = self.transformed_metadata.schema.domains()
+    domains = schema_utils.schema_as_feature_spec(
+        self.transformed_metadata.schema).domains
     try:
       domain = domains[name]
     except KeyError:
@@ -113,24 +128,45 @@ class TFTransformOutput(object):
           name, domain.min))
     return domain.max + 1
 
-  def transform_raw_features(self, raw_features):
+  def transform_raw_features(self, raw_features, drop_unused_features=False):
     """Takes a dict of tensors representing raw features and transforms them.
 
     Takes a dictionary of `Tensor`s or `SparseTensor`s that represent the raw
     features, and applies the transformation defined by tf.Transform.
 
+    By default it returns all transformed features defined by tf.Transform. To
+    only return features transformed from the given 'raw_features', set
+    `drop_unused_features` to True.
+
     Args:
       raw_features: A dict whose keys are feature names and values are `Tensor`s
-          or `SparseTensor`s.
+        or `SparseTensor`s.
+      drop_unused_features: If True, the result will be filtered. Only the
+        features that are transformed from 'raw_features' will be included in
+        the returned result. If a feature is transformed from multiple raw
+        features (e.g, feature cross), it will only be included if all its base
+        raw features are present in `raw_features`.
 
     Returns:
       A dict whose keys are feature names and values are `Tensor`s or
           `SparseTensor`s representing transformed features.
     """
-    _, transformed_features = (
+    unbounded_raw_features, transformed_features = (
         saved_transform_io.partially_apply_saved_transform_internal(
             self.transform_savedmodel_dir, raw_features))
-    return transformed_features
+    # TODO(b/124051570): Consider making drop_unused_features default to true.
+    if drop_unused_features:
+      graph = tf.compat.v1.get_default_graph()
+      graph_analyzer = graph_tools.InitializableGraphAnalyzer(
+          graph, raw_features,
+          {t: False for t in six.itervalues(unbounded_raw_features)})
+      return {
+          name: feature
+          for name, feature in six.iteritems(transformed_features)
+          if graph_analyzer.ready_to_run(feature)
+      }
+    else:
+      return transformed_features
 
   def load_transform_graph(self):
     """Load the transform graph without replacing any placeholders.
@@ -171,7 +207,17 @@ class TFTransformOutput(object):
     Returns:
       A dict from feature names to FixedLenFeature/SparseFeature/VarLenFeature.
     """
-    return self.raw_metadata.schema.as_feature_spec()
+    return schema_utils.schema_as_feature_spec(
+        self.raw_metadata.schema).feature_spec
+
+  def raw_domains(self):
+    """Returns domains for the raw features.
+
+    Returns:
+      A dict from feature names to schema_pb2.Domain.
+    """
+    return schema_utils.schema_as_feature_spec(
+        self.raw_metadata.schema).domains
 
   @property
   def pre_transform_statistics_path(self):

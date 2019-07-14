@@ -24,14 +24,14 @@ import tensorflow as tf
 
 
 FEATURE_SPEC = {
-    'scalar_feature_1': tf.FixedLenFeature([], tf.int64),
-    'scalar_feature_2': tf.FixedLenFeature([], tf.int64),
-    'scalar_feature_3': tf.FixedLenFeature([], tf.float32),
-    'varlen_feature_1': tf.VarLenFeature(tf.float32),
-    'varlen_feature_2': tf.VarLenFeature(tf.string),
-    '1d_vector_feature': tf.FixedLenFeature([1], tf.string),
-    '2d_vector_feature': tf.FixedLenFeature([2, 2], tf.float32),
-    'sparse_feature': tf.SparseFeature('idx', 'value', tf.float32, 10),
+    'scalar_feature_1': tf.io.FixedLenFeature([], tf.int64),
+    'scalar_feature_2': tf.io.FixedLenFeature([], tf.int64),
+    'scalar_feature_3': tf.io.FixedLenFeature([], tf.float32),
+    'varlen_feature_1': tf.io.VarLenFeature(tf.float32),
+    'varlen_feature_2': tf.io.VarLenFeature(tf.string),
+    '1d_vector_feature': tf.io.FixedLenFeature([1], tf.string),
+    '2d_vector_feature': tf.io.FixedLenFeature([2, 2], tf.float32),
+    'sparse_feature': tf.io.SparseFeature('idx', 'value', tf.float32, 10),
 }
 
 ENCODE_DECODE_CASES = [
@@ -99,7 +99,7 @@ features {
         }),
     dict(
         testcase_name='multiple_columns_with_missing',
-        feature_spec={'varlen_feature': tf.VarLenFeature(tf.string)},
+        feature_spec={'varlen_feature': tf.io.VarLenFeature(tf.string)},
         ascii_proto="""\
 features { feature { key: "varlen_feature" value {} } }""",
         instance={'varlen_feature': None}),
@@ -108,7 +108,7 @@ features { feature { key: "varlen_feature" value {} } }""",
 ENCODE_ONLY_CASES = [
     dict(
         testcase_name='unicode',
-        feature_spec={'unicode_feature': tf.FixedLenFeature([], tf.string)},
+        feature_spec={'unicode_feature': tf.io.FixedLenFeature([], tf.string)},
         ascii_proto="""\
 features {
   feature { key: "unicode_feature" value { bytes_list { value: [ "Hello κόσμε" ] } } }
@@ -122,7 +122,7 @@ DECODE_ERROR_CASES = [
     dict(
         testcase_name='to_few_values',
         feature_spec={
-            '2d_vector_feature': tf.FixedLenFeature([2, 2], tf.int64),
+            '2d_vector_feature': tf.io.FixedLenFeature([2, 2], tf.int64),
         },
         ascii_proto="""\
 features {
@@ -138,7 +138,7 @@ ENCODE_ERROR_CASES = [
     dict(
         testcase_name='to_few_values',
         feature_spec={
-            '2d_vector_feature': tf.FixedLenFeature([2, 2], tf.int64),
+            '2d_vector_feature': tf.io.FixedLenFeature([2, 2], tf.int64),
         },
         instance={'2d_vector_feature': [1, 2, 3]},
         error_msg='got wrong number of values'),

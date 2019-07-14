@@ -20,6 +20,7 @@ from __future__ import print_function
 # GOOGLE-INITIALIZATION
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
+from tensorflow_transform import graph_tools
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
 
@@ -60,8 +61,8 @@ def get_analyze_input_columns(preprocessing_fn, feature_spec):
     for tensor_sink in tensor_sinks:
       nodes.Traverser(visitor).visit_value_node(tensor_sink.future)
 
-    analyze_input_tensors = impl_helper.filter_input_tensors(
-        input_signature, visitor.sourced_tensors)
+    analyze_input_tensors = graph_tools.get_dependent_inputs(
+        graph, input_signature, visitor.sourced_tensors)
     return analyze_input_tensors.keys()
 
 
@@ -76,10 +77,10 @@ def get_transform_input_columns(preprocessing_fn, feature_spec):
     A list of columns that are required inputs of the transform `tf.Graph`
     defined by `preprocessing_fn`.
   """
-  with tf.Graph().as_default():
+  with tf.Graph().as_default() as graph:
     input_signature = impl_helper.feature_spec_as_batched_placeholders(
         feature_spec)
     output_signature = preprocessing_fn(input_signature.copy())
-    transform_input_tensors = impl_helper.filter_input_tensors(
-        input_signature, output_signature.values())
+    transform_input_tensors = graph_tools.get_dependent_inputs(
+        graph, input_signature, output_signature)
     return transform_input_tensors.keys()

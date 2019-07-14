@@ -37,8 +37,24 @@ from tensorflow_transform import nodes
 
 TENSOR_REPLACEMENTS = 'tft_tensor_replacements'
 
-TensorInfo = collections.namedtuple('TensorInfo',
-                                    ['dtype', 'shape', 'is_asset_filepath'])
+
+class TensorInfo(collections.namedtuple(
+    'TensorInfo', ['dtype', 'shape', 'is_asset_filepath'])):
+  """A container for attributes of output tensors from analyzers.
+
+  Fields:
+    dtype: The TensorFlow dtype.
+    shape: The shape of the tensor.
+    is_asset_filepath: Whether it should be part of the filepath assets.
+  """
+
+  def __init__(self, dtype, shape, is_asset_filepath):
+    del shape, is_asset_filepath
+
+    if not isinstance(dtype, tf.DType):
+      raise TypeError('dtype must be a TensorFlow dtype, got {}'.format(dtype))
+
+    super(TensorInfo, self).__init__()
 
 
 class TensorSource(
@@ -67,7 +83,7 @@ class TensorSource(
         raise TypeError('tensor must be a Tensor, got {} of type {}'.format(
             tensor, type(tensor)))
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(TensorSource, cls).__new__(cls, tensors=tensors, label=label)
 
@@ -82,8 +98,8 @@ TensorSink = collections.namedtuple('TensorSink',
 
 def bind_future_as_tensor(future, tensor_info, name=None):
   """Bind a future value as a tensor."""
-  result = tf.placeholder(tensor_info.dtype, tensor_info.shape, name)
-  tf.add_to_collection(
+  result = tf.compat.v1.placeholder(tensor_info.dtype, tensor_info.shape, name)
+  tf.compat.v1.add_to_collection(
       TENSOR_REPLACEMENTS,
       TensorSink(result, future, tensor_info.is_asset_filepath))
   return result
@@ -147,9 +163,12 @@ class Combiner(object):
     raise NotImplementedError
 
   def output_tensor_infos(self):
-    """Return the number of outputs that are produced by extract_output.
+    """Return the number / types of outputs that are produced by extract_output.
 
-    Returns: The number of outputs extract_output will produce.
+    Returns: An iterable of `TensorInfo` describing how the outputs that
+      extract_output will produce should be wrapped as `Tensor`s.
+
+    Types are required to be TensorFlow dtypes.
     """
     raise NotImplementedError
 
@@ -234,7 +253,7 @@ class CacheableCombineAccumulate(
 
   def __new__(cls, combiner, label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(CacheableCombineAccumulate, cls).__new__(
         cls, combiner=combiner, label=label)
@@ -268,7 +287,7 @@ class CacheableCombineMerge(
 
   def __new__(cls, combiner, label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(CacheableCombineMerge, cls).__new__(
         cls, combiner=combiner, label=label)
@@ -295,7 +314,7 @@ class CacheableCombinePerKeyAccumulate(CacheableCombineAccumulate):
 
   def __new__(cls, combiner, label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(CacheableCombinePerKeyAccumulate, cls).__new__(
         cls, combiner=combiner, label=label)
@@ -318,7 +337,7 @@ class CacheableCombinePerKeyMerge(CacheableCombineMerge):
 
   def __new__(cls, combiner, label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(CacheableCombinePerKeyMerge, cls).__new__(
         cls, combiner=combiner, label=label)
@@ -330,6 +349,43 @@ class CacheableCombinePerKeyMerge(CacheableCombineMerge):
         TensorInfo(info.dtype, (None,) + info.shape, info.is_asset_filepath)
         for info in self.combiner.output_tensor_infos()
     ]
+
+
+class ScaleAndFlattenPerKeyBucketBouandaries(
+    collections.namedtuple('PostProcessPerKeyBucketBoundaries',
+                           ['output_tensor_dtype', 'label']), AnalyzerDef):
+  """An analyzer which takes quantile boundaries per key and combines them.
+
+  It receives a 2-d array of boundaries, computes scales and shifts to each
+  row separately, a new boundaries 1-d array which is a combination of
+  boundaries for all the keys, and the number of buckets defined for each key.
+
+  This outputs boundaries, scale_factor_per_key, shift_per_key, num_buckets.
+
+  For example, for an input boundaries matrix, [[0, 1, 2], [0, 1, 2]] it will
+  return:
+  boundaries: [0, 0.5, 1, 1.5, 2]
+  scale_factor_per_key: [0.5, 0.5]
+  shift_per_key: [0, 1]
+  num_buckets: 4
+
+  So the transformation of each input x before computing its bucket should be:
+  F(x, key) = x * scale_factor_per_key[key] + shift_per_key[key]
+  """
+
+  def __new__(cls, output_tensor_dtype, label=None):
+    if label is None:
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
+      label = '{}[{}]'.format(cls.__name__, scope)
+    return super(ScaleAndFlattenPerKeyBucketBouandaries, cls).__new__(
+        cls, output_tensor_dtype=output_tensor_dtype, label=label)
+
+  @property
+  def output_tensor_infos(self):
+    # Boundaries, scale_factor_per_key, shift_per_key, num_buckets.
+    return [
+        TensorInfo(self.output_tensor_dtype, (None,), is_asset_filepath=False)
+    ] * 3 + [TensorInfo(tf.int64, (), is_asset_filepath=False)]
 
 
 class VocabularyAccumulate(
@@ -344,7 +400,7 @@ class VocabularyAccumulate(
 
   def __new__(cls, vocab_ordering_type, input_dtype=tf.string.name, label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(VocabularyAccumulate, cls).__new__(
         cls,
@@ -373,15 +429,38 @@ class _VocabularyAccumulatorCoder(CacheCoder):
 
   def encode_cache(self, accumulator):
     # Need to wrap in np.array and call tolist to make it JSON serializable.
-    word, count = accumulator
+    token, value = accumulator
     if self._input_dtype == tf.string:
-      word = tf.compat.as_text(word)
-    accumulator = (word, count)
+      token = tf.compat.as_text(token)
+    # If the value is a _WeightedMeanAndVarAccumulator, cast each field to a
+    # list for serialization.
+    try:
+      value = value._replace(
+          count=value.count.tolist(),
+          mean=value.mean.tolist(),
+          variance=value.variance.tolist(),
+          weight=value.weight.tolist())
+    except AttributeError:
+      pass
+    accumulator = (token, value)
     return tf.compat.as_bytes(
         json.dumps(np.array(accumulator, dtype=object).tolist()))
 
   def decode_cache(self, encoded_accumulator):
-    return json.loads(tf.compat.as_text(encoded_accumulator))
+
+    accumulator = json.loads(tf.compat.as_text(encoded_accumulator))
+    token, value = accumulator
+    try:
+      # If the value is a _WeightedMeanAndVarAccumulator (serialized to tuple),
+      # cast each field back to a np.array.
+      count, mean, variance, weight = value
+      value = (np.array(count), np.array(mean), np.array(variance),
+               np.array(weight))
+    except TypeError:
+      pass
+    if self._input_dtype == tf.string:
+      token = tf.compat.as_bytes(token)
+    return token, value
 
 
 class VocabularyMerge(
@@ -403,7 +482,7 @@ class VocabularyMerge(
               min_diff_from_avg,
               label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(VocabularyMerge, cls).__new__(
         cls,
@@ -439,7 +518,7 @@ class VocabularyOrderAndFilter(
       key_fn,
       label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(VocabularyOrderAndFilter, cls).__new__(
         cls,
@@ -456,10 +535,13 @@ class VocabularyOrderAndFilter(
 
 
 class VocabularyWrite(
-    collections.namedtuple('VocabularyWrite',
-                           ['vocab_filename', 'store_frequency', 'label',
-                            'fingerprint_shuffle']),
-    AnalyzerDef):
+    collections.namedtuple('VocabularyWrite', [
+        'vocab_filename',
+        'store_frequency',
+        'input_dtype',
+        'label',
+        'fingerprint_shuffle',
+    ]), AnalyzerDef):
   """An analyzer that writes vocabulary files from an accumulator.
 
   This operation operates on the output of VocabularyOrderAndFilter and is
@@ -468,16 +550,21 @@ class VocabularyWrite(
   See `tft.vocabulary` for a description of the parameters.
   """
 
-  def __new__(cls, vocab_filename, store_frequency, fingerprint_shuffle,
+  def __new__(cls,
+              vocab_filename,
+              store_frequency,
+              fingerprint_shuffle,
+              input_dtype=tf.string.name,
               label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(VocabularyWrite, cls).__new__(
         cls,
         vocab_filename=vocab_filename,
         store_frequency=store_frequency,
         fingerprint_shuffle=fingerprint_shuffle,
+        input_dtype=input_dtype,
         label=label)
 
   @property
@@ -503,7 +590,7 @@ class PTransform(
 
   def __new__(cls, ptransform, output_tensor_info_list, label=None):
     if label is None:
-      scope = tf.get_default_graph().get_name_scope()
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
     return super(PTransform, cls).__new__(
         cls,
@@ -532,9 +619,9 @@ class EncodeCache(
 
 
 class DecodeCache(
-    collections.namedtuple('DecodeCache',
-                           ['dataset_key', 'cache_key', 'coder', 'label']),
-    nodes.OperationDef):
+    collections.namedtuple('DecodeCache', [
+        'dataset_key', 'cache_key', 'cache_entry_identifier', 'coder', 'label'
+    ]), nodes.OperationDef):
   """OperationDef for decoding a cache instance.
 
   Fields:
@@ -542,15 +629,27 @@ class DecodeCache(
     label: A unique label for this operation.
   """
 
-  def __new__(cls, dataset_key, cache_key, coder, label=None):
+  def __new__(cls,
+              dataset_key,
+              cache_key,
+              cache_entry_identifier,
+              coder,
+              label=None):
     if label is None:
-      label = '{}[{}][{}]'.format(cls.__name__, dataset_key, cache_key)
+      label = '{}[{}][{}]'.format(cls.__name__, dataset_key,
+                                  cache_entry_identifier)
     return super(DecodeCache, cls).__new__(
         cls,
         dataset_key=dataset_key,
         cache_key=cache_key,
+        cache_entry_identifier=cache_entry_identifier,
         coder=coder,
         label=label)
+
+  def get_field_str(self, field_name):
+    if field_name == 'cache_key':
+      return '<bytes>'
+    return super(DecodeCache, self).get_field_str(field_name)
 
   @property
   def is_partitionable(self):

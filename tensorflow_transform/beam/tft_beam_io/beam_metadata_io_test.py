@@ -20,16 +20,14 @@ from __future__ import print_function
 # GOOGLE-INITIALIZATION
 
 import apache_beam as beam
+import tensorflow as tf
 
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import test_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 
-import unittest
-from tensorflow.python.framework import test_util
 
-
-class BeamMetadataIoTest(test_util.TensorFlowTestCase):
+class BeamMetadataIoTest(tf.test.TestCase):
 
   def testWriteMetadataNonDeferred(self):
     # Write metadata to disk using WriteMetadata PTransform.
@@ -59,4 +57,4 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
 
 
 if __name__ == '__main__':
-  unittest.main()
+  tf.test.main()

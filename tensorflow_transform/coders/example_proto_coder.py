@@ -27,6 +27,7 @@ from __future__ import print_function
 import numpy as np
 import six
 import tensorflow as tf
+from tensorflow_transform.tf_metadata import schema_utils
 
 
 # This function needs to be called at pipeline execution time as it depends on
@@ -163,7 +164,10 @@ class _FixedLenFeatureHandler(object):
     """Non-Mutating Decode of a feature into its TF.Transform representation."""
     if self._name in feature_map:
       feature = feature_map[self._name]
-      values = self._value_fn(feature)
+      if feature.WhichOneof('kind') is None:
+        values = self._default_value
+      else:
+        values = self._value_fn(feature)
     elif self._default_value is not None:
       values = self._default_value
     else:
@@ -249,7 +253,7 @@ class ExampleProtoCoder(object):
     """Build an ExampleProtoCoder.
 
     Args:
-      schema: A `Schema` object.
+      schema: A `Schema` proto.
       serialized: Whether to encode / decode serialized Example protos (as
         opposed to in-memory Example protos). The default (True) is used for
         backwards compatibility. Note that the serialized=True option might be
@@ -276,14 +280,15 @@ class ExampleProtoCoder(object):
     self._encode_example_cache = tf.train.Example()
     self._decode_example_cache = tf.train.Example()
     self._feature_handlers = []
-    for name, feature_spec in six.iteritems(schema.as_feature_spec()):
-      if isinstance(feature_spec, tf.FixedLenFeature):
+    for name, feature_spec in six.iteritems(
+        schema_utils.schema_as_feature_spec(schema).feature_spec):
+      if isinstance(feature_spec, tf.io.FixedLenFeature):
         self._feature_handlers.append(
             _FixedLenFeatureHandler(name, feature_spec))
-      elif isinstance(feature_spec, tf.VarLenFeature):
+      elif isinstance(feature_spec, tf.io.VarLenFeature):
         self._feature_handlers.append(
             _VarLenFeatureHandler(name, feature_spec.dtype))
-      elif isinstance(feature_spec, tf.SparseFeature):
+      elif isinstance(feature_spec, tf.io.SparseFeature):
         self._feature_handlers.append(
             _VarLenFeatureHandler(feature_spec.index_key, tf.int64))
         self._feature_handlers.append(

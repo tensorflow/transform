@@ -22,9 +22,9 @@ Returns a bucketized column, with a bucket index assigned to each input.
 * <b>`x`</b>: A numeric input `Tensor` or `SparseTensor` with rank 1, whose values
     should be mapped to buckets.  `SparseTensor`s will have their non-missing
     values mapped and missing values left as missing.
-* <b>`key`</b>: A Tensor with the same shape as `x` and dtype tf.string.  If `x` is
-    a `SparseTensor`, `key` must exactly match `x` in everything except
-    values, i.e. indices and dense_shape must be identical.
+* <b>`key`</b>: A Tensor or `SparseTensor` with the same shape as `x` and dtype
+    tf.string.  If `x` is a `SparseTensor`, `key` must exactly match `x` in
+    everything except values, i.e. indices and dense_shape must be identical.
 * <b>`num_buckets`</b>: Values in the input `x` are divided into approximately
     equal-sized buckets, where the number of buckets is num_buckets.
 * <b>`epsilon`</b>: (Optional) see `bucketize`

@@ -23,6 +23,7 @@ import os
 
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
+import tensorflow as tf
 
 import tensorflow_transform as tft
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
@@ -30,12 +31,10 @@ from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform.beam.tft_beam_io import test_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 
-import unittest
-from tensorflow.python.framework import test_util
 from tensorflow.python.lib.io import file_io
 
 
-class BeamMetadataIoTest(test_util.TensorFlowTestCase):
+class BeamMetadataIoTest(tf.test.TestCase):
 
   def testReadTransformFn(self):
     path = self.get_temp_dir()
@@ -85,4 +84,4 @@ class BeamMetadataIoTest(test_util.TensorFlowTestCase):
     self.assertTrue(file_io.is_directory(transform_fn_dir))
 
 if __name__ == '__main__':
-  unittest.main()
+  tf.test.main()

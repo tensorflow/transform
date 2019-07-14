@@ -30,6 +30,9 @@ from tensorflow_transform import test_case
 from tensorflow_transform.saved import input_fn_maker
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
+from tensorflow_transform.tf_metadata import schema_utils
+
+mock = tf.compat.v1.test.mock
 
 
 class _MockSchema(object):
@@ -46,25 +49,39 @@ def _make_raw_schema(
     shape=None,
     should_add_unused_feature=False):
   feature_spec = {
-      'raw_a': tf.FixedLenFeature(shape, tf.int64, 0),
-      'raw_b': tf.FixedLenFeature(shape, tf.int64, 1),
-      'raw_label': tf.FixedLenFeature(shape, tf.int64, -1),
+      'raw_a': tf.io.FixedLenFeature(shape, tf.int64, 0),
+      'raw_b': tf.io.FixedLenFeature(shape, tf.int64, 1),
+      'raw_label': tf.io.FixedLenFeature(shape, tf.int64, -1),
   }
   if should_add_unused_feature:
-    feature_spec['raw_unused'] = tf.FixedLenFeature(shape, tf.int64, 1)
+    feature_spec['raw_unused'] = tf.io.FixedLenFeature(shape, tf.int64, 1)
   return _MockSchema(feature_spec=feature_spec)
 
 
 def _make_transformed_schema(shape):
   feature_spec = {
-      'transformed_a': tf.FixedLenFeature(shape, tf.int64),
-      'transformed_b': tf.VarLenFeature(tf.int64),
-      'transformed_label': tf.FixedLenFeature(shape, tf.int64),
+      'transformed_a': tf.io.FixedLenFeature(shape, tf.int64),
+      'transformed_b': tf.io.VarLenFeature(tf.int64),
+      'transformed_label': tf.io.FixedLenFeature(shape, tf.int64),
   }
   return _MockSchema(feature_spec=feature_spec)
 
 
 class InputFnMakerTest(test_case.TransformTestCase):
+
+  def setUp(self):
+    self.schema_from_feature_spec_patcher = mock.patch(
+        'tensorflow_transform.tf_metadata.schema_utils.schema_as_feature_spec')
+    def side_effect(mock_schema):
+      return schema_utils.SchemaAsFeatureSpecResult(
+          feature_spec=mock_schema.as_feature_spec(),
+          domains=None)
+    mock_schema_from_feature_spec = (
+        self.schema_from_feature_spec_patcher.start())
+    mock_schema_from_feature_spec.side_effect = side_effect
+
+  def tearDown(self):
+    self.schema_from_feature_spec_patcher.stop()
 
   def test_build_csv_transforming_serving_input_fn_with_defaults(self):
     feed_dict = [',,']
@@ -83,7 +100,7 @@ class InputFnMakerTest(test_case.TransformTestCase):
             transform_savedmodel_dir=transform_savedmodel_dir))
 
     with tf.Graph().as_default():
-      with tf.Session().as_default() as session:
+      with tf.compat.v1.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
 
         self.assertCountEqual(
@@ -131,7 +148,7 @@ class InputFnMakerTest(test_case.TransformTestCase):
             transform_savedmodel_dir=transform_savedmodel_dir))
 
     with tf.Graph().as_default():
-      with tf.Session().as_default() as session:
+      with tf.compat.v1.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
 
         self.assertCountEqual(
@@ -216,7 +233,7 @@ class InputFnMakerTest(test_case.TransformTestCase):
             transform_savedmodel_dir=transform_savedmodel_dir))
 
     with tf.Graph().as_default():
-      with tf.Session().as_default() as session:
+      with tf.compat.v1.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
 
         self.assertCountEqual(
@@ -286,7 +303,7 @@ class InputFnMakerTest(test_case.TransformTestCase):
                     {'raw_a': 12, 'raw_b': 17, 'raw_label': 2}]]
 
     with tf.Graph().as_default():
-      with tf.Session().as_default() as session:
+      with tf.compat.v1.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
 
         self.assertCountEqual(
@@ -351,7 +368,7 @@ class InputFnMakerTest(test_case.TransformTestCase):
                     {'raw_a': 12, 'raw_b': 17}]]
 
     with tf.Graph().as_default():
-      with tf.Session().as_default() as session:
+      with tf.compat.v1.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
 
         self.assertCountEqual(
@@ -423,7 +440,7 @@ class InputFnMakerTest(test_case.TransformTestCase):
             convert_scalars_to_vectors=True))
 
     with tf.Graph().as_default():
-      with tf.Session().as_default() as session:
+      with tf.compat.v1.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
 
         self.assertCountEqual(
@@ -487,7 +504,7 @@ class InputFnMakerTest(test_case.TransformTestCase):
             convert_scalars_to_vectors=True))
 
     with tf.Graph().as_default():
-      with tf.Session().as_default() as session:
+      with tf.compat.v1.Session().as_default() as session:
         outputs, labels, inputs = serving_input_fn()
 
         self.assertCountEqual(
@@ -556,9 +573,9 @@ class InputFnMakerTest(test_case.TransformTestCase):
     with tf.Graph().as_default():
       features, labels = training_input_fn()
 
-      with tf.Session().as_default() as session:
-        session.run(tf.initialize_all_variables())
-        tf.train.start_queue_runners()
+      with tf.compat.v1.Session().as_default() as session:
+        session.run(tf.compat.v1.initialize_all_variables())
+        tf.compat.v1.train.start_queue_runners()
         transformed_a, transformed_b, transformed_label = session.run(
             [features['transformed_a'],
              features['transformed_b'],
@@ -623,9 +640,9 @@ class InputFnMakerTest(test_case.TransformTestCase):
     with tf.Graph().as_default():
       features, labels = training_input_fn()
 
-      with tf.Session().as_default() as session:
-        session.run(tf.initialize_all_variables())
-        tf.train.start_queue_runners()
+      with tf.compat.v1.Session().as_default() as session:
+        session.run(tf.compat.v1.initialize_all_variables())
+        tf.compat.v1.train.start_queue_runners()
         transformed_a, transformed_b, transformed_label = session.run(
             [features['transformed_a'],
              features['transformed_b'],
@@ -658,7 +675,7 @@ class InputFnMakerTest(test_case.TransformTestCase):
 
 
 def _write_tfrecord(data_file, examples, count=1):
-  with tf.python_io.TFRecordWriter(data_file) as writer:
+  with tf.io.TFRecordWriter(data_file) as writer:
     for _ in range(count):
       for e in examples:
         writer.write(e)
@@ -682,18 +699,17 @@ def _write_transform_savedmodel(transform_savedmodel_dir,
       should_add_unused_feature used to invoke _make_raw_schema.
   """
   with tf.Graph().as_default():
-    with tf.Session().as_default() as session:
-      raw_a = tf.placeholder(tf.int64)
-      raw_b = tf.placeholder(tf.int64)
-      raw_label = tf.placeholder(tf.int64)
+    with tf.compat.v1.Session().as_default() as session:
+      raw_a = tf.compat.v1.placeholder(tf.int64)
+      raw_b = tf.compat.v1.placeholder(tf.int64)
+      raw_label = tf.compat.v1.placeholder(tf.int64)
       transformed_a = raw_a + raw_b
       transformed_b_dense = raw_a - raw_b
 
       idx = tf.where(tf.not_equal(transformed_b_dense, 0))
       transformed_b_sparse = tf.SparseTensor(
-          idx,
-          tf.gather_nd(transformed_b_dense, idx),
-          tf.shape(transformed_b_dense, out_type=tf.int64))
+          idx, tf.gather_nd(transformed_b_dense, idx),
+          tf.shape(input=transformed_b_dense, out_type=tf.int64))
 
       # Ensure sparse shape is [batch_size, 1], not [batch_size,]
       # transformed_b_sparse_wide = tf.sparse_reshape(
@@ -704,7 +720,7 @@ def _write_transform_savedmodel(transform_savedmodel_dir,
       inputs = {'raw_a': raw_a, 'raw_b': raw_b, 'raw_label': raw_label}
 
       if should_add_unused_feature:
-        inputs['raw_unused'] = tf.placeholder(tf.int64)
+        inputs['raw_unused'] = tf.compat.v1.placeholder(tf.int64)
 
       outputs = {'transformed_a': transformed_a,
                  'transformed_b': transformed_b_sparse,

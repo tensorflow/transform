@@ -22,6 +22,7 @@ import six
 import tensorflow as tf
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
+from tensorflow_transform.tf_metadata import schema_utils
 
 from tensorflow.contrib.learn.python.learn.utils import input_fn_utils
 from tensorflow.python.util import deprecation
@@ -167,13 +168,14 @@ def build_csv_transforming_serving_input_receiver_fn(
   if not raw_keys:
     raise ValueError("raw_keys must be set.")
 
-  feature_spec = raw_metadata.schema.as_feature_spec()
+  feature_spec = schema_utils.schema_as_feature_spec(
+      raw_metadata.schema).feature_spec
 
   # Check for errors.
   for k in raw_keys:
     if k not in feature_spec:
       raise ValueError("Key %s does not exist in the schema" % k)
-    if not isinstance(feature_spec[k], tf.FixedLenFeature):
+    if not isinstance(feature_spec[k], tf.io.FixedLenFeature):
       raise ValueError(("CSV files can only support tensors of fixed size"
                         "which %s is not.") % k)
     shape = feature_spec[k].shape
@@ -195,10 +197,12 @@ def build_csv_transforming_serving_input_receiver_fn(
         value = tf.constant([], dtype=feature_spec[k].dtype)
       record_defaults.append(value)
 
-    placeholder = tf.placeholder(dtype=tf.string, shape=(None,),
-                                 name="csv_input_placeholder")
-    parsed_tensors = tf.decode_csv(placeholder, record_defaults,
-                                   field_delim=field_delim)
+    placeholder = tf.compat.v1.placeholder(
+        dtype=tf.string, shape=(None,), name="csv_input_placeholder")
+    parsed_tensors = tf.io.decode_csv(
+        records=placeholder,
+        record_defaults=record_defaults,
+        field_delim=field_delim)
 
     raw_serving_features = {k: v for k, v in zip(raw_keys, parsed_tensors)}
 
@@ -295,7 +299,8 @@ def build_json_example_transforming_serving_input_receiver_fn(
     tf.Examples.
   """
 
-  raw_feature_spec = raw_metadata.schema.as_feature_spec()
+  raw_feature_spec = schema_utils.schema_as_feature_spec(
+      raw_metadata.schema).feature_spec
   raw_feature_keys = _prepare_feature_keys(raw_metadata,
                                            exclude_raw_keys,
                                            include_raw_keys)
@@ -305,9 +310,10 @@ def build_json_example_transforming_serving_input_receiver_fn(
   def _serving_input_receiver_fn():
     """Applies transforms to raw data in json-example strings."""
 
-    json_example_placeholder = tf.placeholder(tf.string, shape=[None])
-    example_strings = tf.decode_json_example(json_example_placeholder)
-    raw_features = tf.parse_example(example_strings, raw_serving_feature_spec)
+    json_example_placeholder = tf.compat.v1.placeholder(tf.string, shape=[None])
+    example_strings = tf.io.decode_json_example(json_example_placeholder)
+    raw_features = tf.io.parse_example(
+        serialized=example_strings, features=raw_serving_feature_spec)
     inputs = {"json_example": json_example_placeholder}
 
     _, transformed_features = (
@@ -388,7 +394,8 @@ def build_parsing_transforming_serving_input_receiver_fn(
     An input_fn suitable for serving that applies transforms to raw data in
     tf.Examples.
   """
-  raw_feature_spec = raw_metadata.schema.as_feature_spec()
+  raw_feature_spec = schema_utils.schema_as_feature_spec(
+      raw_metadata.schema).feature_spec
   raw_feature_keys = _prepare_feature_keys(raw_metadata,
                                            exclude_raw_keys,
                                            include_raw_keys)
@@ -490,8 +497,10 @@ def build_default_transforming_serving_input_receiver_fn(
     raise ValueError("exclude_raw_keys must be specified.")
   exclude_raw_keys = set(exclude_raw_keys)
   if include_raw_keys is None:
-    include_raw_keys = (set(six.iterkeys(raw_metadata.schema.as_feature_spec()))
-                        - set(exclude_raw_keys))
+    include_raw_keys = (
+        set(six.iterkeys(schema_utils.schema_as_feature_spec(
+            raw_metadata.schema).feature_spec))
+        - set(exclude_raw_keys))
   include_raw_keys = set(include_raw_keys)
   if include_raw_keys & exclude_raw_keys:
     raise ValueError("include_raw_keys and exclude_raw_keys may not overlap.")
@@ -499,7 +508,8 @@ def build_default_transforming_serving_input_receiver_fn(
   def default_transforming_serving_input_receiver_fn():
     """Serving Input Receiver that applies transforms to raw data in Tensors."""
 
-    feature_spec = raw_metadata.schema.as_feature_spec()
+    feature_spec = schema_utils.schema_as_feature_spec(
+        raw_metadata.schema).feature_spec
     batched_placeholders = impl_helper.feature_spec_as_batched_placeholders(
         feature_spec)
     raw_serving_features = {
@@ -533,7 +543,7 @@ def build_training_input_fn(metadata,
                             training_batch_size,
                             label_keys,
                             feature_keys=None,
-                            reader=tf.TFRecordReader,
+                            reader=tf.compat.v1.TFRecordReader,
                             key_feature_name=None,
                             convert_scalars_to_vectors=True,
                             **read_batch_features_args):
@@ -562,7 +572,8 @@ def build_training_input_fn(metadata,
   Returns:
     An input_fn suitable for training that reads training data.
   """
-  feature_spec = metadata.schema.as_feature_spec()
+  feature_spec = schema_utils.schema_as_feature_spec(
+      metadata.schema).feature_spec
   feature_keys = _prepare_feature_keys(metadata, label_keys, feature_keys)
 
   training_feature_spec = {key: feature_spec[key]
@@ -610,7 +621,7 @@ def build_transforming_training_input_fn(raw_metadata,
                                          raw_label_keys=None,
                                          raw_feature_keys=None,
                                          transformed_feature_keys=None,
-                                         reader=tf.TFRecordReader,
+                                         reader=tf.compat.v1.TFRecordReader,
                                          key_feature_name=None,
                                          convert_scalars_to_vectors=True,
                                          **read_batch_features_args):
@@ -649,10 +660,12 @@ def build_transforming_training_input_fn(raw_metadata,
   """
 
   if raw_feature_keys or raw_label_keys:
-    tf.logging.warn("The raw_feature_keys and raw_label_keys arguments to "
-                    "build_transforming_training_input_fn() are deprecated and "
-                    "have no effect.")
-  raw_feature_spec = raw_metadata.schema.as_feature_spec()
+    tf.compat.v1.logging.warn(
+        "The raw_feature_keys and raw_label_keys arguments to "
+        "build_transforming_training_input_fn() are deprecated and "
+        "have no effect.")
+  raw_feature_spec = schema_utils.schema_as_feature_spec(
+      raw_metadata.schema).feature_spec
   transformed_feature_keys = _prepare_feature_keys(
       transformed_metadata, transformed_label_keys, transformed_feature_keys)
 
@@ -698,7 +711,8 @@ def build_transforming_training_input_fn(raw_metadata,
 def _prepare_feature_keys(all_keys, label_keys, feature_keys=None):
   """Infer feature keys if needed, and sanity-check label and feature keys."""
   if isinstance(all_keys, dataset_metadata.DatasetMetadata):
-    all_keys = six.iterkeys(all_keys.schema.as_feature_spec())
+    all_keys = six.iterkeys(
+        schema_utils.schema_as_feature_spec(all_keys.schema).feature_spec)
   if label_keys is None:
     raise ValueError("label_keys must be specified.")
   if feature_keys is None:

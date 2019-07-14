@@ -35,8 +35,6 @@ PRIMITIVE_TYPE = Union[NUMERIC_TYPE, Union[string_types]]
 
 METRICS_NAMESPACE = 'tfx.Transform'
 
-# TODO(b/35133536): Obviate the need for serialization and deserialization of
-# the values in the map.
 _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER = {
     # We rely on Beam to manage concurrency, i.e. we expect it to run one
     # session per CPU--so we don't want to proliferate TF threads.
@@ -48,26 +46,17 @@ _DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER = {
     # TODO(katsiapis): Perhaps remove this once b/69922446 and b/30837990 are
     # resolved.
     beam.runners.DataflowRunner:
-        tf.ConfigProto(
+        tf.compat.v1.ConfigProto(
             # TODO(b/36091595): use_per_session_threads is deprecated, but the
             # replacement session_inter_op_thread_pool is experimental; using
             # the former for now.
             use_per_session_threads=True,
             inter_op_parallelism_threads=2,
-            intra_op_parallelism_threads=2).SerializeToString(),
+            intra_op_parallelism_threads=2),
 
     # TODO(katsiapis): Perhaps do the same for DirectRunner once it becomes
     # multi-process (https://issues.apache.org/jira/browse/BEAM-3645).
 }
-
-
-def _maybe_deserialize_tf_config(serialized_tf_config):
-  if serialized_tf_config is None:
-    return None
-
-  result = tf.ConfigProto()
-  result.ParseFromString(serialized_tf_config)
-  return result
 
 
 def get_unique_temp_path(base_temp_dir):
@@ -143,7 +132,7 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
           'pipeline',
           'flat_pcollection',
           'pcollection_dict',
-          'serialized_tf_config',
+          'tf_config',
           'graph',
           'input_signature',
           'input_schema',
@@ -181,3 +170,29 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
     if not isinstance(value, beam.pvalue.PCollection):
       raise TypeError('Expected a PCollection, got {} of type {}'.format(
           value, type(value)))
+
+
+class IncrementCounter(beam.PTransform):
+  """A PTransform that increments a counter once per PCollection.
+
+  The output PCollection is the same as the input PCollection.
+  """
+
+  def __init__(self, counter_name):
+    self._counter_name = counter_name
+
+  def _make_and_increment_counter(self, _, unused_side_input):
+    beam.metrics.Metrics.counter(METRICS_NAMESPACE, self._counter_name).inc()
+
+  def expand(self, pcoll):
+
+    # This branching is needed in order to avoid incrementing the counter by the
+    # size of pcoll.
+    empty_pcoll = pcoll | 'Branch' >> beam.FlatMap(lambda _: [])
+    _ = (
+        pcoll.pipeline
+        | 'CreateUpdate' >> beam.Create([None])
+        | 'IncrementCounter' >> beam.Map(self._make_and_increment_counter,
+                                         beam.pvalue.AsIter(empty_pcoll)))
+
+    return pcoll

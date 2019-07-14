@@ -1,0 +1,9 @@
+syntax = "proto2";
+
+// Annotations that can be applied to the output schema by analyzers or mappers.
+package third_party.py.tensorflow_transform.annotations;
+
+// Represents the bucket boundaries that were used to Bucketize a feature.
+message BucketBoundaries {
+  repeated float boundaries = 1;
+}

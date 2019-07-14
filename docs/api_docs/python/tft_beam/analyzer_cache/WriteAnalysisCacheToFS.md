@@ -44,10 +44,20 @@ Writes a cache object that can be read by ReadAnalysisCacheFromFS.
 <h2 id="__init__"><code>__init__</code></h2>
 
 ``` python
-__init__(cache_base_dir)
+__init__(
+    cache_base_dir,
+    sink=None
+)
 ```
 
+Init method.
 
+#### Args:
+
+* <b>`cache_base_dir`</b>: A str, the path that the cache should be stored in.
+* <b>`sink`</b>: (Optional) A PTransform class that takes a path, and optional
+    file_name_suffix arguments in its constructor, and is used to write the
+    cache.
 
 
 

@@ -137,8 +137,7 @@ class SchemaIOv1JsonTest(unittest.TestCase):
     metadata_io.write_metadata(original, basedir)
     reloaded = metadata_io.read_metadata(basedir)
 
-    generated_feature_spec = reloaded.schema.as_feature_spec()
-    self.assertEqual(test_common.test_feature_spec, generated_feature_spec)
+    self.assertEqual(original, reloaded)
 
 
 if __name__ == '__main__':

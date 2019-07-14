@@ -17,8 +17,6 @@ Init module for TF.Transform.
 
 [`class CovarianceCombiner`](./tft/CovarianceCombiner.md): Combines the PCollection to compute the biased covariance matrix.
 
-[`class MeanAndVarCombiner`](./tft/MeanAndVarCombiner.md): Combines a PCollection of accumulators to compute mean and variance.
-
 [`class NumPyCombiner`](./tft/NumPyCombiner.md): Combines the PCollection only on the 0th dimension using nparray.
 
 [`class PCACombiner`](./tft/PCACombiner.md): Compute PCA of accumulated data using the biased covariance matrix.
@@ -26,6 +24,8 @@ Init module for TF.Transform.
 [`class QuantilesCombiner`](./tft/QuantilesCombiner.md): Computes quantiles on the PCollection.
 
 [`class TFTransformOutput`](./tft/TFTransformOutput.md): A wrapper around the output of the tf.Transform.
+
+[`class WeightedMeanAndVarCombiner`](./tft/WeightedMeanAndVarCombiner.md): Combines a PCollection of accumulators to compute mean and variance.
 
 ## Functions
 
@@ -83,6 +83,8 @@ Init module for TF.Transform.
 
 [`scale_to_z_score(...)`](./tft/scale_to_z_score.md): Returns a standardized column with mean 0 and variance 1.
 
+[`scale_to_z_score_per_key(...)`](./tft/scale_to_z_score_per_key.md): Returns a standardized column with mean 0 and variance 1, grouped per key.
+
 [`segment_indices(...)`](./tft/segment_indices.md): Returns a `Tensor` of indices within each segment.
 
 [`size(...)`](./tft/size.md): Computes the total size of instances in a `Tensor` over the whole dataset.
@@ -100,6 +102,8 @@ Init module for TF.Transform.
 [`var(...)`](./tft/var.md): Computes the variance of the values of a `Tensor` over the whole dataset.
 
 [`vocabulary(...)`](./tft/vocabulary.md): Computes the unique values of a `Tensor` over the whole dataset.
+
+[`word_count(...)`](./tft/word_count.md): Find the token count of each document/row.
 
 ## Other Members
 

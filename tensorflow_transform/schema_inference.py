@@ -23,13 +23,19 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
+
 # GOOGLE-INITIALIZATION
 
 import six
 import tensorflow as tf
-from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import schema_utils
+
+from google.protobuf import any_pb2
 
 from tensorflow_metadata.proto.v0 import schema_pb2
+
+ANNOTATION_PREFIX_URL = 'type.googleapis.com'
 
 
 def _feature_spec_from_batched_tensors(tensors):
@@ -37,7 +43,7 @@ def _feature_spec_from_batched_tensors(tensors):
 
   Args:
     tensors: A dict whose keys are strings and values are `Tensor` or
-        `SparseTensor`s.
+      `SparseTensor`s.
 
   Returns:
     A `Schema` proto inferred from the types and shapes of the tensors.
@@ -59,7 +65,7 @@ def _feature_spec_from_batched_tensors(tensors):
         raise ValueError(
             '{} had invalid shape {} for VarLenFeature: must have rank '
             '2'.format(tensor, shape))
-      result[name] = tf.VarLenFeature(tensor.dtype)
+      result[name] = tf.io.VarLenFeature(tensor.dtype)
     elif isinstance(tensor, tf.Tensor):
       if shape.ndims in [None, 0]:
         raise ValueError(
@@ -70,7 +76,7 @@ def _feature_spec_from_batched_tensors(tensors):
             '{} had invalid shape {} for FixedLenFeature: apart from the batch '
             'dimension, all dimensions must have known size'.format(
                 tensor, shape))
-      result[name] = tf.FixedLenFeature(shape.as_list()[1:], tensor.dtype)
+      result[name] = tf.io.FixedLenFeature(shape.as_list()[1:], tensor.dtype)
     else:
       raise TypeError(
           'Expected a Tensor or SparseTensor, got {} of type {}'.format(
@@ -92,24 +98,31 @@ def infer_feature_schema(features, graph, session=None):
   values of the tensors representing the min and max values and set them in the
   schema.
 
+  If annotations have been specified, they are added to the output schema.
+
   Args:
     features: A dict mapping column names to `Tensor` or `SparseTensor`s. The
-        `Tensor` or `SparseTensor`s should have a 0'th dimension which is
-        interpreted as the batch dimension.
+      `Tensor` or `SparseTensor`s should have a 0'th dimension which is
+      interpreted as the batch dimension.
     graph: A `tf.Graph` used to determine schema overrides.
     session: (optional) A `tf.Session` used to compute schema overrides.  If
-        None, schema overrides will not be computed.
+      None, schema overrides will not be computed.
 
   Returns:
-    A `Schema` object.
+    A `Schema` proto.
   """
   tensor_ranges = _get_tensor_schema_overrides(graph)
   if session is None:
     tensor_ranges = {tensor: (None, None) for tensor in tensor_ranges.keys()}
+    tensor_annotations = {}
+    global_annotations = []
   else:
     tensor_ranges = session.run(tensor_ranges)
+    tensor_annotations, global_annotations = _get_schema_annotations(
+        graph, session)
 
   domains = {}
+  feature_annotations = {}
   for name, tensor in six.iteritems(features):
     values = tensor.values if isinstance(tensor, tf.SparseTensor) else tensor
     if values in tensor_ranges:
@@ -117,10 +130,32 @@ def infer_feature_schema(features, graph, session=None):
       min_value, max_value = tensor_ranges[values]
       domains[name] = schema_pb2.IntDomain(
           min=min_value, max=max_value, is_categorical=True)
-
+    # tensor_annotations is a defaultdict(list) so always returns a list.
+    feature_annotations[name] = tensor_annotations.get(values, [])
   feature_spec = _feature_spec_from_batched_tensors(features)
 
-  return dataset_schema.from_feature_spec(feature_spec, domains)
+  schema_proto = schema_utils.schema_from_feature_spec(feature_spec, domains)
+
+  # Add the annotations to the schema.
+  for annotation in global_annotations:
+    schema_proto.annotation.extra_metadata.add().CopyFrom(annotation)
+  # Build a map from logical feature names to Feature protos
+  feature_protos_by_name = {}
+  for feature in schema_proto.feature:
+    feature_protos_by_name[feature.name] = feature
+  for sparse_feature in schema_proto.sparse_feature:
+    for index_feature in sparse_feature.index_feature:
+      feature_protos_by_name.pop(index_feature.name)
+    value_feature = feature_protos_by_name.pop(
+        sparse_feature.value_feature.name)
+    feature_protos_by_name[sparse_feature.name] = value_feature
+  # Update annotations
+  for feature_name, annotations in feature_annotations.items():
+    feature_proto = feature_protos_by_name[feature_name]
+    for annotation in annotations:
+      feature_proto.annotation.extra_metadata.add().CopyFrom(annotation)
+
+  return schema_proto
 
 
 # Names of collections, which should all be the same length and contain tensors.
@@ -129,6 +164,14 @@ def infer_feature_schema(features, graph, session=None):
 _TF_METADATA_TENSOR_COLLECTION = 'tft_schema_override_tensor'
 _TF_METADATA_TENSOR_MIN_COLLECTION = 'tft_schema_override_min'
 _TF_METADATA_TENSOR_MAX_COLLECTION = 'tft_schema_override_max'
+# Collections for adding to annotation.extra_metadata on the schema. Each
+# tensor in the first collection should have a proto type and proto message in
+# the other two collections
+_TF_METADATA_EXTRA_ANNOTATION = 'tft_schema_override_annotation_tensor'
+_TF_METADATA_EXTRA_ANNOTATION_TYPE_URL = 'tft_schema_override_annotation_type'
+_TF_METADATA_EXTRA_ANNOTATION_PROTO = 'tft_schema_override_annotation_proto'
+# Used to indicate that an annotation should be applied at the schema level.
+_TF_METADATA_EXTRA_ANNOTATION_GLOBAL = 'tft_schema_override_global_sentinel'
 
 
 def set_tensor_schema_override(tensor, min_value, max_value):
@@ -152,9 +195,9 @@ def set_tensor_schema_override(tensor, min_value, max_value):
     raise ValueError('min_value {} was not a Tensor'.format(min_value))
   if not isinstance(max_value, tf.Tensor):
     raise ValueError('max_value {} was not a Tensor'.format(max_value))
-  tf.add_to_collection(_TF_METADATA_TENSOR_COLLECTION, tensor)
-  tf.add_to_collection(_TF_METADATA_TENSOR_MIN_COLLECTION, min_value)
-  tf.add_to_collection(_TF_METADATA_TENSOR_MAX_COLLECTION, max_value)
+  tf.compat.v1.add_to_collection(_TF_METADATA_TENSOR_COLLECTION, tensor)
+  tf.compat.v1.add_to_collection(_TF_METADATA_TENSOR_MIN_COLLECTION, min_value)
+  tf.compat.v1.add_to_collection(_TF_METADATA_TENSOR_MAX_COLLECTION, max_value)
 
 
 def _get_tensor_schema_overrides(graph):
@@ -165,3 +208,82 @@ def _get_tensor_schema_overrides(graph):
   assert len(tensors) == len(min_values), '{} != {}'.format(tensors, min_values)
   assert len(tensors) == len(max_values), '{} != {}'.format(tensors, max_values)
   return dict(zip(tensors, zip(min_values, max_values)))
+
+
+def annotate(type_url, proto_message, tensor=None):
+  """Adds a deferred annotation to the schema.
+
+  Experimental: This API is subject to change.
+
+  This function allows analyzers or end users to annotate the post-transform
+  schema with additional information based on analyzer output. These annotations
+  are stored in the annotation.extra_metadata field of the tf.metadata schema:
+  https://github.com/tensorflow/metadata/blob/master/tensorflow_metadata/proto/v0/schema.proto#L193
+
+  Args:
+    type_url: A string or string `Tensor` containing the type url which uniquely
+      identifies the type of the serialized proto message. See
+      https://github.com/protocolbuffers/protobuf/blob/master/src/google/protobuf/any.proto#L151
+    proto_message: A deferred string tensor containing the serialized proto to
+      write to the feature schema.
+    tensor: (optional) If provided, the annotation will be written to the
+      Feature proto that is created for this tensor in the schema. If None,
+      the annotation is assumed to be global. Note: if the tensor is not present
+        in the output signature of `preprocessing_fn`, this will be a no-op.
+  """
+  if tensor is None:
+    tensor = tf.constant('unused', name=_TF_METADATA_EXTRA_ANNOTATION_GLOBAL)
+
+  if not isinstance(tensor, tf.Tensor):
+    raise ValueError('tensor {} was not a Tensor'.format(tensor))
+  if not isinstance(proto_message, tf.Tensor):
+    raise ValueError('proto_message {} was not a Tensor'.format(proto_message))
+
+  # If the type_url is passed as a plain string, create a string tensor.
+  if not isinstance(type_url, tf.Tensor):
+    type_url = tf.constant(type_url, dtype=tf.string)
+  # Note: The tensors, types, and messages are stored in separate collections
+  # because SavedModel only supports primitive types in collections.
+  tf.compat.v1.add_to_collection(_TF_METADATA_EXTRA_ANNOTATION, tensor)
+  tf.compat.v1.add_to_collection(_TF_METADATA_EXTRA_ANNOTATION_TYPE_URL,
+                                 type_url)
+  tf.compat.v1.add_to_collection(_TF_METADATA_EXTRA_ANNOTATION_PROTO,
+                                 proto_message)
+
+
+def _get_schema_annotations(graph, session):
+  """Fetch extra_metadata annotations to be applied to the schema.
+
+  Extracts any deferred annotations that have been added to the graph and
+  evaluates them to obtain any_pb2.Any proto messages.
+
+  Args:
+    graph: A `tf.Graph` used to determine schema overrides.
+    session: (optional) A `tf.Session` used to compute schema annotations.  If
+      None, schema annotations will not be computed.
+
+  Returns:
+    tensor_annotations: dictionary from tensor to list of any_pb2.Any protos to
+      be added as an annotation for that tensor's feature in the schema.
+    global_annotations: list of any_pb2.Any protos to be added at the global
+      schema level.
+  """
+  tensor_annotations = collections.defaultdict(list)
+  global_annotations = []
+
+  for (tensor, type_url, proto_value) in zip(
+      graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION),
+      graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION_TYPE_URL),
+      graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION_PROTO)):
+    proto_value = session.run(proto_value)
+    type_url = session.run(type_url)
+    annotation = any_pb2.Any(type_url=type_url, value=proto_value)
+    # Entries meant for the global schema annotation will have names like
+    # tft_schema_override_global_sentinel:0 or
+    # transform/tft_schema_override_global_sentinel_1:0
+    tensor_name = tensor.name.split('/')[-1]
+    if tensor_name.startswith(_TF_METADATA_EXTRA_ANNOTATION_GLOBAL):
+      global_annotations.append(annotation)
+    else:
+      tensor_annotations[tensor].append(annotation)
+  return tensor_annotations, global_annotations

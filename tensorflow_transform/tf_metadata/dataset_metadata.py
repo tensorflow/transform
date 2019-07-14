@@ -29,18 +29,14 @@ class DatasetMetadata(object):
   may vary in the file formats they write within those directories.
   """
 
-  def __init__(self, schema=None):
-    self.schema = schema or dataset_schema.Schema()
+  def __init__(self, schema):
+    if isinstance(schema, dict):
+      schema = dataset_schema.Schema(schema)
+    self._schema = schema
 
   @property
   def schema(self):
     return self._schema
-
-  @schema.setter
-  def schema(self, value):
-    if isinstance(value, dict):
-      value = dataset_schema.Schema(value)
-    self._schema = value
 
   def __eq__(self, other):
     if isinstance(other, self.__class__):

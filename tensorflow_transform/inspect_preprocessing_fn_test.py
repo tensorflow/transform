@@ -26,9 +26,9 @@ from tensorflow_transform import mappers
 from tensorflow_transform import test_case
 
 _FEATURE_SPEC = {
-    'x': tf.FixedLenFeature([], tf.float32),
-    'y': tf.VarLenFeature(tf.int64),
-    's': tf.FixedLenFeature([], tf.string),
+    'x': tf.io.FixedLenFeature([], tf.float32),
+    'y': tf.io.VarLenFeature(tf.int64),
+    's': tf.io.FixedLenFeature([], tf.string),
 }
 
 

@@ -60,7 +60,7 @@ def schema_from_feature_spec(feature_spec, domains=None):
 
   # Add the features to the schema.
   for name, spec in sorted(feature_spec.items()):
-    if isinstance(spec, tf.SparseFeature):
+    if isinstance(spec, tf.io.SparseFeature):
       (index_feature, value_feature, sparse_feature) = (
           _sparse_feature_from_feature_spec(spec, name, domains))
       result.feature.add().CopyFrom(index_feature)
@@ -107,7 +107,7 @@ def _sparse_feature_from_feature_spec(spec, name, domains):
 
 def _feature_from_feature_spec(spec, name, domains):
   """Returns a representation of a Feature from a feature spec."""
-  if isinstance(spec, tf.FixedLenFeature):
+  if isinstance(spec, tf.io.FixedLenFeature):
     if spec.default_value is not None:
       raise ValueError(
           'feature "{}" had default_value {}, but FixedLenFeature must have '
@@ -117,7 +117,7 @@ def _feature_from_feature_spec(spec, name, domains):
         name=name,
         presence=schema_pb2.FeaturePresence(min_fraction=1.0),
         shape=schema_pb2.FixedShape(dim=dims))
-  elif isinstance(spec, tf.VarLenFeature):
+  elif isinstance(spec, tf.io.VarLenFeature):
     feature = schema_pb2.Feature(name=name)
   else:
     raise TypeError(
@@ -229,7 +229,7 @@ def _get_domain(feature, string_domains):
     try:
       return string_domains[feature.domain]
     except KeyError:
-      tf.logging.warn(
+      tf.compat.v1.logging.warn(
           'Feature "%s" referred to string domain "%s" which did not exist',
           feature.name, feature.domain)
       return None
@@ -292,8 +292,8 @@ def _sparse_feature_as_feature_spec(feature, feature_by_name, string_domains):
     raise ValueError(
         'sparse_feature "{}" had rank {} (shape {}) but {} index keys were'
         ' given'.format(feature.name, len(shape), shape, len(index_keys)))
-  spec = tf.SparseFeature(
-      index_keys[0], value_key, dtype, shape[0], feature.is_sorted)
+  spec = tf.io.SparseFeature(index_keys[0], value_key, dtype, shape[0],
+                             feature.is_sorted)
   domain = _get_domain(value_feature, string_domains)
   return spec, domain
 
@@ -307,10 +307,10 @@ def _feature_as_feature_spec(feature, string_domains):
           'Feature "{}" had shape {} set but min_fraction {} != 1.  Use'
           ' value_count not shape field when min_fraction != 1.'.format(
               feature.name, feature.shape, feature.presence.min_fraction))
-    spec = tf.FixedLenFeature(
+    spec = tf.io.FixedLenFeature(
         _fixed_shape_as_tf_shape(feature.shape), dtype, default_value=None)
   else:
-    spec = tf.VarLenFeature(dtype)
+    spec = tf.io.VarLenFeature(dtype)
   domain = _get_domain(feature, string_domains)
   return spec, domain
 
@@ -373,7 +373,7 @@ def _legacy_schema_from_feature_spec(feature_spec, domains=None):
   result = schema_pb2.Schema()
   result.generate_legacy_feature_spec = True
   for name, spec in sorted(feature_spec.items()):
-    if isinstance(spec, tf.FixedLenFeature):
+    if isinstance(spec, tf.io.FixedLenFeature):
       # Validate shape first as shape governs which default values are valid.
       if len(spec.shape) == 0:  # pylint: disable=g-explicit-length-test
         size = 1
@@ -402,7 +402,7 @@ def _legacy_schema_from_feature_spec(feature_spec, domains=None):
           name=name,
           presence=schema_pb2.FeaturePresence(min_fraction=min_fraction),
           value_count=schema_pb2.ValueCount(min=size, max=size))
-    elif isinstance(spec, tf.VarLenFeature):
+    elif isinstance(spec, tf.io.VarLenFeature):
       feature = result.feature.add(name=name)
     else:
       raise TypeError(
@@ -496,30 +496,31 @@ def _legacy_feature_as_feature_spec(feature):
       and feature.value_count.min == 1):
     # Case 1: value_count.min == value_count.max == 1.  Infer a FixedLenFeature
     # with rank 0 and a default value.
-    tf.logging.info(
+    tf.compat.v1.logging.info(
         'Features %s has value_count.min == value_count.max == 1.  Setting to '
         'fixed length scalar.', feature.name)
     default_value = _legacy_infer_default_value(feature, dtype)
-    return tf.FixedLenFeature([], dtype, default_value)
+    return tf.io.FixedLenFeature([], dtype, default_value)
 
   elif (feature.value_count.min == feature.value_count.max
         and feature.value_count.min > 1):
     # Case 2: value_count.min == value_count.max > 1.  Infer a FixedLenFeature
     # with rank 1 and a default value.
-    tf.logging.info(
+    tf.compat.v1.logging.info(
         'Feature %s has value_count.min == value_count.max > 1.  Setting to '
         'fixed length vector.', feature.name)
     default_value = _legacy_infer_default_value(feature, dtype)
-    return tf.FixedLenFeature([feature.value_count.min], dtype, default_value)
+    return tf.io.FixedLenFeature([feature.value_count.min], dtype,
+                                 default_value)
 
   else:
     # Case 3: Either value_count.min != value_count.max or
     # value_count.min == value_count.max == 0.  Infer a VarLenFeature.
-    tf.logging.info(
+    tf.compat.v1.logging.info(
         'Feature %s has value_count.min != value_count.max or '
         ' value_count.min == value_count.max == 0.  Setting to variable length '
         ' vector.', feature.name)
-    return tf.VarLenFeature(dtype)
+    return tf.io.VarLenFeature(dtype)
 
 
 # For numeric values, set defaults that are less likely to occur in the actual
@@ -531,7 +532,7 @@ def _legacy_infer_default_value(feature_proto, dtype):
   """Returns a canonical default value if min_fraction < 1 or else None."""
   if feature_proto.presence.min_fraction < 1:
     default_value = _LEGACY_DEFAULT_VALUE_FOR_DTYPE[dtype]
-    tf.logging.info(
+    tf.compat.v1.logging.info(
         'Feature %s has min_fraction (%f) != 1.  Setting default value %r',
         feature_proto.name, feature_proto.presence.min_fraction, default_value)
     if feature_proto.value_count.min == 1:

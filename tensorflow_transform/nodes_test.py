@@ -25,7 +25,7 @@ import tensorflow as tf
 from tensorflow_transform import nodes
 from tensorflow_transform import test_case
 
-mock = tf.test.mock
+mock = tf.compat.v1.test.mock
 
 
 class _Concat(collections.namedtuple('_Concat', ['label']), nodes.OperationDef):

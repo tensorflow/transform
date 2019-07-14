@@ -52,6 +52,8 @@ import threading
 import uuid
 import weakref
 
+from typing import Any, Callable
+
 
 class _SharedControlBlock(object):
   """Wrapper class for holding objects in the SharedMap.
