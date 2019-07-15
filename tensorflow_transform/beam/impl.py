@@ -665,20 +665,31 @@ def _infer_metadata_from_saved_model(saved_model_dir):
 class _AnalyzeDatasetCommon(beam.PTransform):
   """Common implementation for AnalyzeDataset, with or without cache."""
 
-  def __init__(self, preprocessing_fn):
+  def __init__(self, preprocessing_fn, pipeline=None):
     self._preprocessing_fn = preprocessing_fn
+    self.pipeline = pipeline
     _assert_tensorflow_version()
 
   def _extract_input_pvalues(self, dataset):
     # This method returns all nested pvalues to inform beam of nested pvalues.
     flat_data, data_dict, dataset_cache_dict, metadata = dataset
-    pvalues = [flat_data] + [data_dict[k] for k in data_dict]
+    pvalues = []
+    # flat_data can be None if it's not going to be needed in the analysis.
+    if flat_data is not None:
+      pvalues.append(flat_data)
+    for value in data_dict.values():
+      # Dataset PCollections can be None if it's fully covered by cache and so
+      # there's no need in reading it.
+      if value is not None:
+        pvalues.append(value)
     if dataset_cache_dict is not None:
       for cache_dict in dataset_cache_dict.values():
         for cache_pcoll in cache_dict.values():
           pvalues.append(cache_pcoll)
     if isinstance(metadata, beam_metadata_io.BeamDatasetMetadata):
       pvalues.append(metadata.deferred_metadata)
+    assert (self.pipeline is not None or
+            pvalues), 'If there is no data, a pipeline must be provided'
     return dataset, pvalues
 
   def expand(self, dataset):
@@ -734,7 +745,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
               graph.get_collection_ref(
                   tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES)))
 
-    pipeline = flattened_pcoll.pipeline
+    pipeline = self.pipeline or (flattened_pcoll or next(
+        v for v in input_values_pcoll_dict.values() if v is not None)).pipeline
     tf_config = common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
         pipeline.runner)
     extra_args = common.ConstructBeamPipelineVisitor.ExtraArgs(

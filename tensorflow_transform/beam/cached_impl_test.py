@@ -893,6 +893,35 @@ class CachedImplTest(test_case.TransformTestCase):
         msg='Result dot graph is:\n{}\nCache output dict keys are: {}'.format(
             dot_string, cache_output_dict.keys()))
 
+  def test_no_data_needed(self):
+    span_0_key = 'span-0'
+    span_1_key = 'span-1'
+
+    def preprocessing_fn(inputs):
+      return {k: tf.identity(v) for k, v in six.iteritems(inputs)}
+
+    input_metadata = dataset_metadata.DatasetMetadata(
+        schema_utils.schema_from_feature_spec({
+            'x': tf.io.FixedLenFeature([], tf.float32),
+        }))
+    input_data_dict = {
+        span_0_key: None,
+        span_1_key: None,
+    }
+
+    with _TestPipeline() as p:
+      flat_data = None
+      cache_dict = {
+          span_0_key: {},
+          span_1_key: {},
+      }
+
+      _, output_cache = (
+          (flat_data, input_data_dict, cache_dict, input_metadata)
+          | 'Analyze' >> tft_beam.AnalyzeDatasetWithCache(
+              preprocessing_fn, pipeline=p))
+      self.assertFalse(output_cache)
+
 
 if __name__ == '__main__':
   # TODO(b/133440043): Remove this once TFT supports eager execution.
