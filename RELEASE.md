@@ -48,6 +48,10 @@
   elementwise=True case.
 * At test utility `tft_unit.cross_named_parameters` for creating parameterized
   tests that involve the cartesian product of various parameters.
+* Depends on `tensorflow-metadata>=0.14,<0.15`.
+* Depends on `apache-beam[gcp]>=2.13,<3`.
+* Depends on `numpy>=1.16,<2`.
+* Depends on `absl-py>=0.7,<2`.
 
 ## Breaking changes
 * `tf_utils.reduce_batch_count_mean_and_var`, which feeds into
