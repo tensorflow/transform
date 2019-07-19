@@ -163,7 +163,7 @@ def scale_by_min_max_per_key(x,
     if output_min >= output_max:
       raise ValueError('output_min must be less than output_max')
 
-    x = tf.cast(x, tf.float32, name='Cast_Float')
+    x = tf.cast(x, tf.float32)
     if key is None:
       min_x_value, max_x_value = analyzers._min_and_max(  # pylint: disable=protected-access
           x, reduce_instance_dims=not elementwise)
@@ -542,8 +542,8 @@ def _to_tfidf(term_frequency, reduced_term_freq, corpus_size, smooth):
   gathered_idfs = tf.gather(tf.squeeze(idf), term_frequency.indices[:, 1])
 
   tfidf_values = (
-    tf.cast(term_frequency.values, tf.float32, name='Calc_tfidf1') *
-    tf.cast(gathered_idfs, tf.float32, name='Calc_tfidf2')
+    tf.cast(term_frequency.values, tf.float32) *
+    tf.cast(gathered_idfs, tf.float32)
     )
 
   return tf.SparseTensor(
@@ -1381,7 +1381,7 @@ def _apply_buckets_with_keys(x,
     x_values = x.values if isinstance(x, tf.SparseTensor) else x
     key_values = key.values if isinstance(key, tf.SparseTensor) else key
 
-    x_values = tf.cast(x_values, tf.float32, name='Cast_float0')
+    x_values = tf.cast(x_values, tf.float32)
 
     # Convert `key_values` to indices in key_vocab.  We must use apply_function
     # since this uses a Table.
