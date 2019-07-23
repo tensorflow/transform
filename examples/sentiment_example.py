@@ -58,6 +58,7 @@ SHUFFLED_TRAIN_DATA_FILEBASE = 'train_shuffled'
 SHUFFLED_TEST_DATA_FILEBASE = 'test_shuffled'
 TRANSFORMED_TRAIN_DATA_FILEBASE = 'train_transformed'
 TRANSFORMED_TEST_DATA_FILEBASE = 'test_transformed'
+TRANSFORM_TEMP_DIR = 'tft_temp'
 EXPORTED_MODEL_DIR = 'exported_model_dir'
 
 # Functions for preprocessing
@@ -162,7 +163,8 @@ def transform_data(working_dir):
   """
 
   with beam.Pipeline() as pipeline:
-    with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
+    with tft_beam.Context(
+        temp_dir=os.path.join(working_dir, TRANSFORM_TEMP_DIR)):
       coder = tft.coders.ExampleProtoCoder(RAW_DATA_METADATA.schema)
       train_data = (
           pipeline

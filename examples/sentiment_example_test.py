@@ -23,6 +23,7 @@ import shutil
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
+import tensorflow_transform as tft
 import sentiment_example
 import local_model_server
 
@@ -42,6 +43,15 @@ class SentimentExampleTest(tf.test.TestCase):
     results = sentiment_example.train_and_evaluate(
         working_dir, num_train_instances=1000, num_test_instances=1000)
     self.assertGreaterEqual(results['accuracy'], 0.7)
+
+    # Delete temp directory and transform_fn directory.  This ensures that the
+    # test of serving the model below will only pass if the SavedModel saved
+    # to sentiment_example.EXPORTED_MODEL_DIR is hermetic, i.e does not contain
+    # references to tft_temp and transform_fn.
+    shutil.rmtree(os.path.join(working_dir,
+                               sentiment_example.TRANSFORM_TEMP_DIR))
+    shutil.rmtree(os.path.join(working_dir,
+                               tft.TFTransformOutput.TRANSFORM_FN_DIR))
 
     if local_model_server.local_model_server_supported():
       model_name = 'my_model'
