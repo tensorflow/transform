@@ -39,7 +39,7 @@ def _make_required_install_packages():
       # between CPU and GPU installation.
       # 'tensorflow>=1.14,<2',
 
-      'pydot>=1.2.0,<1.3',
+      'pydot>=1.2.0,<2',
   ]
 
 # TODO(b/121329572): Remove the following comment after we can guarantee the
