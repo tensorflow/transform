@@ -54,7 +54,7 @@ def reduce_batch_weighted_counts(x, weights=None):
 
     return ReducedBatchWeightedCounts(tf.reshape(x, [-1]), None, None, None)
   # TODO(b/134075780): Revisit expected weights shape when input is sparse.
-  x = assert_same_shape(x, weights)
+  x, weights = assert_same_shape(x, weights)
   weights = tf.reshape(weights, [-1])
   x = tf.reshape(x, [-1])
   unique_x_values, unique_idx, _ = tf.unique_with_counts(x, out_idx=tf.int64)
@@ -110,10 +110,10 @@ def reduce_batch_weighted_cooccurrences(x_input,
   if weights_input is None:
     weights = tf.ones_like(x, dtype=tf.float32)
   else:
-    x = assert_same_shape(x, weights_input)
+    x, weights_input = assert_same_shape(x, weights_input)
     weights = weights_input
   y = _broadcast_to_x_shape(x, y)
-  x = assert_same_shape(x, y)
+  x, y = assert_same_shape(x, y)
   x = tf.reshape(x, [-1])
   y = tf.reshape(y, [-1])
   weights = tf.reshape(weights, [-1])
@@ -226,13 +226,13 @@ def assert_same_shape(x, y):
     y: A `Tensor`
 
   Returns:
-    The element `x`, the result must be used in order to ensure that the dynamic
-    check is executed.
+    The elements `x` and `y`, the results must be used in order to ensure that
+    the dynamic check is executed.
   """
   x.shape.assert_is_compatible_with(y.shape)
   assert_eq = tf.compat.v1.assert_equal(tf.shape(input=x), tf.shape(input=y))
   with tf.control_dependencies([assert_eq]):
-    return tf.identity(x)
+    return tf.identity(x), tf.identity(y)
 
 
 def reduce_batch_count(x, reduce_instance_dims):
@@ -318,13 +318,120 @@ def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
   return (x_count, x_mean, x_variance)
 
 
+def _get_dense_value_key_inputs(x, key):
+  """Validate x and key and returns dense representations if feasible.
+
+  Check if sparse x and sparse key have identical indices, map key if dense.
+
+  Args:
+    x: A `Tensor` or `SparseTensor`.
+    key: A `Tensor` or `SparseTensor`. Must be `Tensor` if x is `SparseTensor`.
+
+  Returns:
+    The values of x and key if both are sparse, the values of x and a mapped key
+    if only x is sparse, or the original x and key if both are dense.
+  """
+
+  if isinstance(x, tf.Tensor) and isinstance(key, tf.Tensor):
+    return x, key
+  elif isinstance(x, tf.Tensor) and isinstance(key, tf.SparseTensor):
+    raise ValueError('A dense key is required if x is dense')
+  elif isinstance(x, tf.SparseTensor) and isinstance(key, tf.Tensor):
+    # In this case, the row of x corresponds to the key at that row.
+    x_row_indices = x.indices[:, 0]
+    assert_compatible = tf.compat.v1.assert_greater_equal(
+        tf.size(key, out_type=tf.int64), x.dense_shape[0])
+    with tf.control_dependencies([assert_compatible]):
+      return x.values, tf.gather(key, x_row_indices)
+
+  assert_shape = tf.compat.v1.assert_equal(x.dense_shape, key.dense_shape)
+  assert_eq = tf.compat.v1.assert_equal(x.indices, key.indices)
+  with tf.control_dependencies([assert_eq, assert_shape]):
+    return tf.identity(x.values), tf.identity(key.values)
+
+
+def lookup_key(key, key_vocab):
+  """Look up the index of a key.
+
+  Args:
+    key: A `Tensor`.
+    key_vocab: A `Tensor` of unique keys that can be converted to a hash table.
+
+  Returns:
+    The indices of the keys in key, determined by position in key_vocab.
+  """
+  initializer = tf.lookup.KeyValueTensorInitializer(
+      keys=key_vocab,
+      values=tf.cast(tf.range(tf.size(key_vocab)), tf.int64),
+      key_dtype=tf.string,
+      value_dtype=tf.int64)
+  table = tf.lookup.StaticHashTable(initializer, default_value=-1)
+  key_indices = table.lookup(key)
+  with tf.control_dependencies([tf.compat.v1.assert_non_negative(key_indices)]):
+    return tf.identity(key_indices)
+
+
+def _align_dims(tensor, target_ndims):
+  """Expand the rank of input tensor until it matches the target rank.
+
+  Non-elementwise per-key reduce returns a tensor with rank 1 (batch).
+  The dimension count needs to match with x to finish the final mapping, because
+  we want to broadcast each reduction with x. To do so we need to add singleton
+  dimensions, otherwise TF will try to broadcast along the wrong dimensions.
+
+  Args:
+    tensor: A `Tensor`.
+    target_ndims: The count of dims we want the output to meet or exceed.
+
+  Returns:
+    The original input, with dimension count >= target_ndims.
+  """
+  if target_ndims is None or target_ndims <= tensor.get_shape().ndims:
+    return tensor
+  for _ in range(target_ndims - tensor.get_shape().ndims):
+    tensor = tf.expand_dims(tensor, -1)
+  return tensor
+
+
+def map_per_key_reductions(tensors_to_map, key, key_vocab, original_input):
+  """Rearrange the reduced per-key result to correspond to the original keys.
+
+  Args:
+    tensors_to_map: A tuple of 1-D `Tensor`s that are same shape as key_vocab,
+        to be mapped to respective key.
+    key: A `Tensor` or `SparseTensor`.
+    key_vocab: A 1-D `Tensor`.
+    original_input: A `Tensor` or `SparseTensor`.
+
+  Returns:
+    A tuple same length as tensors_to_map, of `Tensor`s the same dimension as
+    original_input. We are mapping using the key for each original_input,
+    but output rank needs to match original_input in the dense case.
+    For the sparse case, it is enough for output to match original_input.values.
+  """
+
+  _, key = _get_dense_value_key_inputs(original_input, key)
+  key_indices = lookup_key(key, key_vocab)
+
+  ndims = None if isinstance(
+      original_input, tf.SparseTensor) else original_input.get_shape().ndims
+  mapped_result = [_align_dims(tf.gather(t, key_indices, axis=-1), ndims)
+                   for t in tensors_to_map]
+
+  return tuple(mapped_result)
+
+
 def reduce_batch_count_mean_and_var_per_key(x, key, reduce_instance_dims):
   """Computes per-key element count, mean and var for the given tensor.
 
   Args:
     x: A `Tensor` or `SparseTensor`.
-    key: A `Tensor` or `SparseTensor`, must be either sparse and correspond
-        one-to-one with x, or both x and key are dense.
+    key: A `Tensor` or `SparseTensor` (cannot be None).
+        Must meet one of the following conditions:
+        1. Both x and key are dense,
+        2. Both x and key are sparse and `key` must exactly match `x` in
+        everything except values,
+        3. The axis=1 index of each x matches its index of dense key.
     reduce_instance_dims: A bool, if True - collapses the batch and instance
         dimensions to arrive at a single scalar output. Otherwise, only
         collapses the batch dimension and outputs a `Tensor` of the same shape
@@ -338,14 +445,8 @@ def reduce_batch_count_mean_and_var_per_key(x, key, reduce_instance_dims):
     if not reduce_instance_dims:
       raise NotImplementedError(
           'Mean and var per key only support reduced dims for SparseTensors')
-    if not isinstance(key, tf.SparseTensor):
-      # TODO(b/132071166): Allow for sparse values, dense keys.
-      raise NotImplementedError(
-          'Mean and var per key require sparse key if x is sparse')
 
-    # TODO(b/131920907): Validate that x and key have the same indices.
-    key = key.values
-    x = x.values
+  x, key = _get_dense_value_key_inputs(x, key)
 
   unique = tf.unique_with_counts(key, out_idx=tf.int64)
   x_count = unique.count
@@ -549,7 +650,8 @@ def reduce_batch_minus_min_and_max(x, reduce_instance_dims):
 
     x_batch_max = tf.reduce_max(input_tensor=x)
     x_batch_minus_min = tf.reduce_max(input_tensor=tf.zeros_like(x) - x)
-    x_batch_minus_min = assert_same_shape(x_batch_minus_min, x_batch_max)
+    x_batch_minus_min, x_batch_max = assert_same_shape(x_batch_minus_min,
+                                                       x_batch_max)
   elif isinstance(x, tf.SparseTensor):
     x_batch_minus_min, x_batch_max = (
         _sparse_minus_reduce_min_and_reduce_max(x))
@@ -567,9 +669,13 @@ def reduce_batch_minus_min_and_max_per_key(x, key):
   """Computes the -min and max of a tensor x.
 
   Args:
-    x: A `tf.Tensor`.
-    key: A `Tensor` of rank 1.
-
+    x: A `tf.Tensor` or `SparseTensor`.
+    key: A `Tensor` or `SparseTensor`.
+        Must meet one of the following conditions:
+        1. Both x and key are dense,
+        2. Both x and key are sparse and `key` must exactly match `x` in
+        everything except values,
+        3. The axis=1 index of each x matches its index of dense key.
   Returns:
     A 3-tuple containing the `Tensor`s (key_vocab, min_per_key, max_per_key).
   """
@@ -581,9 +687,7 @@ def reduce_batch_minus_min_and_max_per_key(x, key):
   elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
     raise TypeError('Tensor type %r is not supported' % x.dtype)
 
-  if isinstance(x, tf.SparseTensor):
-    key = tf.gather(key, x.indices[:, 0])
-    x = x.values
+  x, key = _get_dense_value_key_inputs(x, key)
 
   def get_batch_max_per_key(tensor, key_uniques, dtype):  # pylint: disable=missing-docstring
     if tensor.get_shape().ndims < 2:
@@ -602,6 +706,7 @@ def reduce_batch_minus_min_and_max_per_key(x, key):
   x_batch_maxes = get_batch_max_per_key(x, unique, output_dtype)
   x_batch_minus_mins = get_batch_max_per_key(-x, unique, output_dtype)
 
-  x_batch_minus_mins = assert_same_shape(x_batch_minus_mins, x_batch_maxes)
+  x_batch_minus_mins, x_batch_maxes = assert_same_shape(x_batch_minus_mins,
+                                                        x_batch_maxes)
 
   return (unique.y, x_batch_minus_mins, x_batch_maxes)

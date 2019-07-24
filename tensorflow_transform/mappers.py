@@ -63,6 +63,7 @@ import six
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import schema_inference
+from tensorflow_transform import tf_utils
 
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
@@ -144,20 +145,27 @@ def scale_by_min_max_per_key(x,
   """Scale a numerical column into a predefined range on a per-key basis.
 
   Args:
-    x: A numeric `Tensor`.
-    key: A string `Tensor`.
+    x: A numeric `Tensor` or `SparseTensor`.
+    key: A `Tensor` or `SparseTensor` of dtype tf.string.
+        Must meet one of the following conditions:
+        0. key is None
+        1. Both x and key are dense,
+        2. Both x and key are sparse and `key` must exactly match `x` in
+           everything except values,
+        3. The axis=1 index of each x matches its index of dense key.
     output_min: The minimum of the range of output values.
     output_max: The maximum of the range of output values.
     elementwise: If true, scale each element of the tensor independently.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` containing the input column scaled to [output_min, output_max]
-    on a per-key basis.
+    A `Tensor`  or `SparseTensor` containing the input column scaled to
+    [output_min, output_max] on a per-key basis if a key is provided.
 
   Raises:
     ValueError: If output_min, output_max have the wrong order.
     NotImplementedError: If elementwise is True and key is not None.
+    InvalidArgumentError: If indices of sparse x and key do not match.
   """
   with tf.compat.v1.name_scope(name, 'scale_by_min_max_per_key'):
     if output_min >= output_max:
@@ -173,39 +181,35 @@ def scale_by_min_max_per_key(x,
       key_vocab, min_x_value, max_x_value = analyzers._min_and_max_per_key(  # pylint: disable=protected-access
           x, key, reduce_instance_dims=not elementwise)
 
-      key_indices = _lookup_key(key.values if isinstance(key, tf.SparseTensor)
-                                else key, key_vocab)
+      min_x_value, max_x_value = tf_utils.map_per_key_reductions(
+          (min_x_value, max_x_value), key, key_vocab, x)
 
-      min_x_value = tf.gather(min_x_value, key_indices, axis=-1)
-      max_x_value = tf.gather(max_x_value, key_indices, axis=-1)
-      if min_x_value.get_shape().ndims < x.get_shape().ndims and not isinstance(
-          x, tf.SparseTensor):
-        # Non-elementwise per-key reduction returns a tensor with rank 1.
-        # The shapes need to match with x to finish the 0-1 mapping.
-        min_x_value = tf.expand_dims(min_x_value, -1)
-        max_x_value = tf.expand_dims(max_x_value, -1)
+    compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
+    x_values = x
+    if isinstance(x, tf.SparseTensor):
+      if elementwise:
+        # Only supports SparseTensors with rank 2.
+        x.get_shape().assert_has_rank(2)
+        min_x_value = tf.gather(min_x_value, x.indices[:, 1])
+        max_x_value = tf.gather(max_x_value, x.indices[:, 1])
+      x_values = x.values
 
-    x_shape = tf.shape(input=x)
+    x_shape = tf.shape(input=x_values)
 
     # If min==max, the result will be the mean of the requested range.
     # Note that both the options of tf.where are computed, which means that this
     # will compute unused NaNs.
-    if elementwise:
-      where_cond = tf.tile(
-          tf.expand_dims(min_x_value < max_x_value, 0),
-          tf.concat([[x_shape[0]], tf.ones_like(x_shape[1:])], axis=0))
-    else:
-      if key is None:
-        where_cond = tf.fill(x_shape, min_x_value < max_x_value)
-      else:
-        where_cond = tf.tile(
-            min_x_value < max_x_value,
-            tf.squeeze(tf.stack([tf.constant([1]), tf.shape(x)[1:]])))
+    numerator = tf.cast(x_values, min_x_value.dtype) - min_x_value
+    where_cond = min_x_value < max_x_value
+    where_cond = tf.cast(
+        tf.zeros_like(numerator) + tf.cast(where_cond, numerator.dtype),
+        dtype=tf.bool)
     scaled_result = tf.where(where_cond,
-                             (x - min_x_value) / (max_x_value - min_x_value),
+                             numerator / (max_x_value - min_x_value),
                              tf.fill(x_shape, 0.5))
 
-    return (scaled_result * (output_max - output_min)) + output_min
+    return compose_result_fn(
+        (scaled_result * (output_max - output_min)) + output_min)
 
 
 def scale_to_0_1(x, elementwise=False, name=None):
@@ -278,9 +282,13 @@ def scale_to_z_score_per_key(x, key=None, elementwise=False, name=None,
 
   Args:
     x: A numeric `Tensor` or `SparseTensor`.
-    key: A Tensor or `SparseTensor` of dtype tf.string.  If `x` is a
-        `SparseTensor`, `key` must exactly match `x` in everything except
-        values.
+    key: A Tensor or `SparseTensor` of dtype tf.string.
+        Must meet one of the following conditions:
+        0. key is None
+        1. Both x and key are dense,
+        2. Both x and key are sparse and `key` must exactly match `x` in
+        everything except values,
+        3. The axis=1 index of each x matches its index of dense key.
     elementwise: If true, scales each element of the tensor independently;
         otherwise uses the mean and variance of the whole tensor.
         Currently, not supported for per-key operations.
@@ -289,7 +297,8 @@ def scale_to_z_score_per_key(x, key=None, elementwise=False, name=None,
 
   Returns:
     A `Tensor` or `SparseTensor` containing the input column scaled to mean 0
-    and variance 1 (standard deviation 1), grouped per key.
+    and variance 1 (standard deviation 1), grouped per key if a key is provided.
+
     That is, for all keys k: (x - mean(x)) / std_dev(x) for all x with key k.
     If `x` is floating point, the mean will have the same type as `x`. If `x` is
     integral, the output is cast to tf.float32.
@@ -310,27 +319,14 @@ def scale_to_z_score_per_key(x, key=None, elementwise=False, name=None,
       key_vocab, key_means, key_vars = analyzers._mean_and_var_per_key(  # pylint: disable=protected-access
           x, key, output_dtype=output_dtype)
 
-      key_indices = _lookup_key(
-          key.values if isinstance(key, tf.SparseTensor) else key, key_vocab)
+      x_mean, x_var = tf_utils.map_per_key_reductions(
+          (key_means, key_vars), key, key_vocab, x)
 
-      x_mean = tf.gather(key_means, key_indices, axis=-1)
-      x_var = tf.gather(key_vars, key_indices, axis=-1)
-      if not isinstance(x, tf.SparseTensor):
-        # Non-elementwise per-key reduce returns a tensor with rank 1 (batch).
-        # The dimension count needs to match with x to finish the z-score
-        # mapping, because we want to broadcast x_mean and x_var with x.
-        # To do so we need to add singleton dimensions, otherwise TF will try to
-        # broadcast along the wrong dimensions.
-        for _ in range(x.get_shape().ndims - x_mean.get_shape().ndims):
-          x_mean = tf.expand_dims(x_mean, -1)
-          x_var = tf.expand_dims(x_var, -1)
-    compose_result_fn = lambda values: values
+    compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
     x_values = x
 
     if isinstance(x, tf.SparseTensor):
       x_values = x.values
-      compose_result_fn = (lambda values: tf.SparseTensor(  # pylint: disable=g-long-lambda
-          indices=x.indices, values=values, dense_shape=x.dense_shape))
       if elementwise:
         # Only supports SparseTensors with rank 2.
         x.get_shape().assert_has_rank(2)
@@ -342,7 +338,7 @@ def scale_to_z_score_per_key(x, key=None, elementwise=False, name=None,
     denominator = tf.sqrt(x_var)
     cond = tf.not_equal(denominator, 0)
 
-    if elementwise and isinstance(x, tf.Tensor):
+    if cond.shape.as_list() != x_values.shape.as_list():
       # Repeats cond when necessary across the batch dimension for it to be
       # compatible with the shape of numerator.
       cond = tf.cast(
@@ -1339,16 +1335,11 @@ def bucketize_per_key(x, key, num_buckets, epsilon=None, name=None):
                                     actual_num_buckets)
 
 
-def _lookup_key(key, key_vocab):
-  initializer = tf.lookup.KeyValueTensorInitializer(
-      keys=key_vocab,
-      values=tf.cast(tf.range(tf.size(key_vocab)), tf.int64),
-      key_dtype=tf.string,
-      value_dtype=tf.int64)
-  table = tf.lookup.StaticHashTable(initializer, default_value=-1)
-  key_indices = table.lookup(key)
-  with tf.control_dependencies([tf.compat.v1.assert_non_negative(key_indices)]):
-    return tf.identity(key_indices)
+def _make_sparse_tensor_wrapper_if_sparse(x):
+  if not isinstance(x, tf.SparseTensor):
+    return lambda values: values
+  return (lambda values: tf.SparseTensor(  # pylint: disable=g-long-lambda
+      indices=x.indices, values=values, dense_shape=x.dense_shape))
 
 
 def _apply_buckets_with_keys(x,
@@ -1382,7 +1373,7 @@ def _apply_buckets_with_keys(x,
     x_values = tf.cast(x_values, dtype=tf.float32)
     # Convert `key_values` to indices in key_vocab.  We must use apply_function
     # since this uses a Table.
-    key_indices = _lookup_key(key_values, key_vocab)
+    key_indices = tf_utils.lookup_key(key_values, key_vocab)
 
     # Apply the per-key offsets to x, which produces offset buckets (where the
     # bucket offset is an integer offset).  Then remove this offset to get the
@@ -1452,11 +1443,9 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
   with tf.compat.v1.name_scope(name, 'buckets_with_interpolation'):
     tf.assert_rank(bucket_boundaries, 2)
     x_values = x
-    compose_result_fn = lambda values: values
+    compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
     if isinstance(x, tf.SparseTensor):
       x_values = x.values
-      compose_result_fn = (lambda values: tf.SparseTensor(  # pylint: disable=g-long-lambda
-          indices=x.indices, values=values, dense_shape=x.dense_shape))
     if not check_ops.is_numeric_tensor(x_values):
       raise ValueError(
           'Input tensor to be normalized must be numeric, got {}.'.format(

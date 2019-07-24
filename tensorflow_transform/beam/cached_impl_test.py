@@ -394,12 +394,11 @@ class CachedImplTest(test_case.TransformTestCase):
           span_0_key: {
               b'__v0__CacheableCombineAccumulate[x_1/mean_and_var]-.\xc4t>ZBv\xea\xa5SU\xf4\x065\xc6\x1c\x81W\xf9\x1b':
                   p | 'CreateA' >> beam.Create([b'[2.0, 1.0, 9.0, 0.0]']),
-              b'__v0__CacheableCombineAccumulate[x/x]-\x95\xc5w\x88\x85\x8b5V\xc9\x00\xe0\x0f\x03\x1a\xdaL\x9d\xd5\xb3\xe3':
+              b'__v0__CacheableCombineAccumulate[x/x]-~\xa7\\\xcc\x16\xcd\xcd\x8b\x1c\xf2V\xa9\xfa\xb1\xbf\xeb\x07j\x7f\x83':
                   p | 'CreateB' >> beam.Create([b'[2.0, 4.0]']),
               b'__v0__CacheableCombineAccumulate[y_1/mean_and_var]-E^\xb7VZ\xeew4rm\xab\xa3\xa4k|J\x80ck\x16':
                   p | 'CreateC' >> beam.Create([b'[2.0, -1.5, 6.25, 0.0]']),
-              b'__v0__CacheableCombineAccumulate[y/y]-\xdf\x1ey\x03\x1c\x96\xd5'
-              b' e\x9bJ\xa1\xd2\xfc\x9c\x03\x0fM \xdb':
+              b'__v0__CacheableCombineAccumulate[y/y]-i4\xf9\xf4\x00\x02G\x9ccy@\x7f\x0eu\x8eb\x0f\xf7\xdf\xf5':
                   p | 'CreateD' >> beam.Create([b'[4.0, 1.0]']),
           },
           span_1_key: {},
@@ -798,21 +797,21 @@ class CachedImplTest(test_case.TransformTestCase):
           transform_fn_with_cache_dir)
 
       expected_accumulators = {
-          b'__v0__VocabularyAccumulate[vocabulary]-<GhZ\xac\xb8\xa9\x8c\xce\x1c\xb2-ck\xca\xe8\xec\t%\x8f':
+          b'__v0__VocabularyAccumulate[vocabulary]-LM\xf9/\xdb\xa9e\x82\xa9F\x8e\xab\xbe\xd7}\x9d\xd1Ln\xe9':
               [
                   b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
                   b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]',
                   b'["global_y_count_sentinel", [4, [0.25, 0.75], [0.0, 0.0], '
                   b'1.0]]'
               ],
-          b'__v0__VocabularyAccumulate[vocabulary_1]-\xa6\xae\nd\xe3\xd1\x9f\xa0\xe2\xb4\x05j\xa5\xfd\x8c\xfaeN\xd1\x1f':
+          b'__v0__VocabularyAccumulate[vocabulary_1]-\xd1{\tU\xb8\x95\x0c\x01\x1c:\xceD\xb1h\xe7\xd9`\t\xc1\xfc':
               [
                   b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
                   b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]',
                   b'["global_y_count_sentinel", [4, [0.25, 0.75], [0.0, 0.0], '
                   b'1.0]]'
               ],
-          b"__v0__VocabularyAccumulate[vocabulary_2]-\x97\x1c>\x851\x94'\xdc\xdf\xfd\xcc\x86\xb7\xb8\xe1\xe8*\x89B\t":
+          b'__v0__VocabularyAccumulate[vocabulary_2]-\xef\x13\x90\xeaj\x15fB\x17\xab^\xb08O\x1a+C\xf8"s':
               [b'["a", 1.5]', b'["b", 1.75]'],
       }
       spans = [span_0_key, span_1_key]

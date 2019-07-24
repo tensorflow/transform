@@ -612,15 +612,6 @@ class MappersTest(test_case.TransformTestCase):
         actual_sparse_tensor=hashed_strings,
         close_values=False)
 
-  def testLookupKey(self):
-    keys = tf.constant(['a', 'a', 'a', 'b', 'b', 'b', 'b'])
-    key_vocab = tf.constant(['a', 'b'])
-    key_indices = mappers._lookup_key(keys, key_vocab)
-    with self.test_session() as sess:
-      sess.run(tf.compat.v1.tables_initializer())
-      output = sess.run(key_indices)
-      self.assertAllEqual([0, 0, 0, 1, 1, 1, 1], output)
-
   def testApplyBucketsWithKeys(self):
     values = tf.constant(
         [-100, -0.05, 0.05, 0.25, 0.15, 100, -100, 4.3, 4.5, 4.4, 4.6, 100],

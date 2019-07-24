@@ -242,7 +242,7 @@ class TFUtilsTest(test_case.TransformTestCase):
       return tf_utils.assert_same_shape(x, y)
 
     input_list = [[1], [2], [3]]
-    x_return = _assert_shape(input_list, input_list)
+    x_return, _ = _assert_shape(input_list, input_list)
     self.assertAllEqual(x_return, input_list)
 
   @test_util.run_in_graph_and_eager_modes
@@ -255,6 +255,15 @@ class TFUtilsTest(test_case.TransformTestCase):
       return tf_utils.reduce_batch_count(x, reduce_instance_dims=True)
 
     self.assertAllEqual(_reduce_batch_count(x), 4)
+
+  def test_lookup_key(self):
+    keys = tf.constant(['a', 'a', 'a', 'b', 'b', 'b', 'b'])
+    key_vocab = tf.constant(['a', 'b'])
+    key_indices = tf_utils.lookup_key(keys, key_vocab)
+    with self.test_session() as sess:
+      sess.run(tf.compat.v1.tables_initializer())
+      output = sess.run(key_indices)
+      self.assertAllEqual([0, 0, 0, 1, 1, 1, 1], output)
 
   @test_util.run_in_graph_and_eager_modes
   def test_reduce_batch_count_elementwise(self):
@@ -397,6 +406,20 @@ class TFUtilsTest(test_case.TransformTestCase):
       self.assertAllEqual(mean.eval(), tf.constant([2.5, 4]))
       self.assertAllEqual(var.eval(), tf.constant([1.25, 0]))
 
+  def test_reduce_batch_count_mean_and_var_per_key_sparse_x_dense_key(self):
+    x = tf.SparseTensor(
+        indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 3]],
+        values=[1., 2., 3., 4., 4.],
+        dense_shape=[3, 4])
+    key = tf.constant(['a', 'a', 'b'], dtype=tf.string)
+    key_vocab, count, mean, var = (
+        tf_utils.reduce_batch_count_mean_and_var_per_key(x, key, True))
+    with tf.compat.v1.Session():
+      self.assertAllEqual(key_vocab.eval(), tf.constant(['a', 'b']))
+      self.assertAllEqual(count.eval(), tf.constant([4, 1]))
+      self.assertAllEqual(mean.eval(), tf.constant([2.5, 4]))
+      self.assertAllEqual(var.eval(), tf.constant([1.25, 0]))
+
   # pylint: disable=g-long-lambda
   @test_case.named_parameters(
       dict(
@@ -525,6 +548,113 @@ class TFUtilsTest(test_case.TransformTestCase):
                         feed_dict={x: value})
     self.assertAllEqual(result[0], expected_result[0])
     self.assertAllEqual(result[1:], expected_result[1:])
+
+  def test_sparse_indices(self):
+    exception_cls = tf.errors.InvalidArgumentError
+    error_string = 'Condition x == y did not hold element-wise:'
+    x = tf.compat.v1.sparse_placeholder(tf.int64, shape=[None, None])
+    key = tf.compat.v1.sparse_placeholder(tf.string, shape=[None, None])
+    value = tf.compat.v1.SparseTensorValue(
+        indices=[[0, 0], [1, 1], [2, 2], [3, 1]],
+        values=[3, 2, -1, 3],
+        dense_shape=[4, 5])
+    key_value = tf.compat.v1.SparseTensorValue(
+        indices=[[0, 0], [1, 2], [2, 2], [3, 1]],
+        values=['a', 'a', 'a', 'b'],
+        dense_shape=[4, 5])
+    with tf.compat.v1.Session() as sess:
+      with self.assertRaisesRegexp(exception_cls, error_string):
+        sess.run(tf_utils.reduce_batch_minus_min_and_max_per_key(x, key),
+                 feed_dict={x: value, key: key_value})
+
+  def test_convert_sparse_indices(self):
+    exception_cls = tf.errors.InvalidArgumentError
+    error_string = 'Condition x == y did not hold element-wise:'
+    sparse = tf.SparseTensor(
+        indices=[[0, 0], [1, 1], [2, 2], [3, 1]],
+        values=[3, 2, -1, 3],
+        dense_shape=[4, 5])
+    dense = tf.constant(['a', 'b', 'c', 'd'])
+    with tf.compat.v1.Session() as sess:
+      x, key = tf_utils._get_dense_value_key_inputs(sparse, sparse)
+      self.assertAllEqual(x.eval(session=sess), sparse.values)
+      self.assertAllEqual(key.eval(session=sess), sparse.values)
+
+    with tf.compat.v1.Session() as sess:
+      x, key = tf_utils._get_dense_value_key_inputs(sparse, dense)
+      self.assertAllEqual(x.eval(session=sess), sparse.values)
+      self.assertAllEqual(key.eval(session=sess), dense)
+
+    sparse1 = tf.compat.v1.sparse_placeholder(tf.int64, shape=[None, None])
+    sparse2 = tf.compat.v1.sparse_placeholder(tf.int64, shape=[None, None])
+    sparse_value1 = tf.compat.v1.SparseTensorValue(
+        indices=[[0, 0], [1, 1], [2, 2], [3, 1]],
+        values=[3, 2, -1, 3],
+        dense_shape=[4, 5])
+    sparse_value2 = tf.compat.v1.SparseTensorValue(
+        indices=[[0, 0], [1, 2], [2, 2], [3, 1]],
+        values=[3, 2, -1, 3],
+        dense_shape=[4, 5])
+
+    with tf.compat.v1.Session() as sess:
+      with self.assertRaisesRegexp(exception_cls, error_string):
+        sess.run(tf_utils._get_dense_value_key_inputs(sparse1, sparse2),
+                 feed_dict={sparse1: sparse_value1, sparse2: sparse_value2})
+
+  @test_case.named_parameters(
+      dict(
+          testcase_name='dense_tensor',
+          key=['b', 'a', 'b'],
+          key_vocab=['a', 'b'],
+          reductions=([1, 2], [3, 4]),
+          x=[5, 6, 7],
+          expected_results=([2, 1, 2], [4, 3, 4])
+          ),
+      dict(
+          testcase_name='sparse_tensor',
+          key=['b', 'a', 'b'],
+          key_vocab=['a', 'b'],
+          reductions=([1, 2], [3, 4]),
+          x=tf.compat.v1.SparseTensorValue(
+              indices=[[0, 0], [1, 2], [2, 2], [2, 3]],
+              values=[3, 2, -1, 3],
+              dense_shape=[3, 5]),
+          expected_results=([2, 1, 2, 2], [4, 3, 4, 4])
+          ),
+      dict(
+          testcase_name='sparse_tensor_sparse_key',
+          key=tf.compat.v1.SparseTensorValue(
+              indices=[[0, 0], [1, 2], [2, 2], [2, 3]],
+              values=['b', 'a', 'b', 'b'],
+              dense_shape=[3, 5]),
+          key_vocab=['a', 'b'],
+          reductions=([1, 2], [3, 4]),
+          x=tf.compat.v1.SparseTensorValue(
+              indices=[[0, 0], [1, 2], [2, 2], [2, 3]],
+              values=[3, 2, -1, 3],
+              dense_shape=[3, 5]),
+          expected_results=([2, 1, 2, 2], [4, 3, 4, 4])
+          ),
+  )
+  def test_map_per_key_reductions(
+      self, key, key_vocab, reductions, x, expected_results):
+    if isinstance(key, tf.compat.v1.SparseTensorValue):
+      key = tf.convert_to_tensor_or_sparse_tensor(key)
+    else:
+      key = tf.constant(key)
+    key_vocab = tf.constant(key_vocab)
+    reductions = tuple([tf.constant(t) for t in reductions])
+    if isinstance(x, tf.compat.v1.SparseTensorValue):
+      x = tf.convert_to_tensor_or_sparse_tensor(x)
+    else:
+      x = tf.constant(x)
+    expected_results = tuple(tf.constant(t) for t in expected_results)
+    results = tf_utils.map_per_key_reductions(reductions, key, key_vocab, x)
+    with tf.compat.v1.Session() as sess:
+      sess.run(tf.compat.v1.tables_initializer())
+      output = sess.run(results)
+      for result, expected_result in zip(output, expected_results):
+        self.assertAllEqual(result, expected_result)
 
   @test_case.named_parameters(
       dict(

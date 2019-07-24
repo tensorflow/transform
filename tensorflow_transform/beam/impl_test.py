@@ -952,6 +952,59 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
 
+  @tft_unit.named_parameters(
+      dict(
+          testcase_name='sparse_key',
+          input_data=[
+              {'idx': [0, 1], 'val': [-4, 4],
+               'key_idx': [0, 1], 'key': ['a', 'a']},
+              {'idx': [0, 1], 'val': [2, 1],
+               'key_idx': [0, 1], 'key': ['a', 'b']},
+              {'idx': [0, 1], 'val': [-1, 4],
+               'key_idx': [0, 1], 'key': ['b', 'a']}
+          ],
+          input_metadata=tft_unit.metadata_from_feature_spec(
+              {'x': tf.SparseFeature('idx', 'val',
+                                     _canonical_dtype(tf.float32), 4),
+               'key': tf.SparseFeature('key_idx', 'key', tf.string, 4)}),
+          expected_data=[
+              {'x_scaled': [0., 1., 0, 0]},
+              {'x_scaled': [.75, 1., 0, 0]},
+              {'x_scaled': [0., 1., 0, 0]}]
+      ),
+      dict(
+          testcase_name='dense_key',
+          input_data=[
+              {'idx': [0, 1], 'val': [-4, 4], 'key': 'a'},
+              {'idx': [0, 1], 'val': [2, 1], 'key': 'a'},
+              {'idx': [0, 1], 'val': [-1, 4], 'key': 'b'}
+          ],
+          input_metadata=tft_unit.metadata_from_feature_spec(
+              {'x': tf.SparseFeature('idx', 'val',
+                                     _canonical_dtype(tf.float32), 4),
+               'key': tf.FixedLenFeature([], tf.string)}),
+          expected_data=[
+              {'x_scaled': [0., 1., 0, 0]},
+              {'x_scaled': [.75, .625, 0, 0]},
+              {'x_scaled': [0., 1., 0, 0]}]
+      ),
+      )
+  def testScaleMinMaxSparsePerKey(
+      self, input_data, input_metadata, expected_data):
+
+    def preprocessing_fn(inputs):
+      x_scaled = tf.sparse.to_dense(
+          tft.scale_to_0_1_per_key(inputs['x'], inputs['key']))
+      x_scaled.set_shape([None, 4])
+      return {'x_scaled': x_scaled}
+
+    expected_metadata = tft_unit.metadata_from_feature_spec(
+        {'x_scaled': tf.io.FixedLenFeature([4], tf.float32)})
+
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
   def testScaleMinMaxConstant(self):
 
     def preprocessing_fn(inputs):
@@ -1142,7 +1195,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       tf.float32,
       tf.float64,
   ]))
-  def testScaleToZScorePerSparseKey(self, input_dtype):
+  def testScaleToZScoreSparsePerDenseKey(self, input_dtype):
     # TODO(b/131852830) Add elementwise tests.
     def preprocessing_fn(inputs):
 
@@ -1159,15 +1212,15 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [{
         'x': [-4., 2.],
         'y': [0., 0],
-        'key': ['a', 'a'],
+        'key': 'a',
     }, {
         'x': [10., 4.],
         'y': [0., 0],
-        'key': ['a', 'a'],
+        'key': 'a',
     }, {
         'x': [1., -1.],
         'y': [0., 0],
-        'key': ['b', 'b'],
+        'key': 'b',
     }]
     # Mean(x) = 3, Mean(y) = 0
     # Var(x) = (-7^2 + -1^2 + 7^2 + 1^2) / 4 = 25, Var(y) = 0
@@ -1194,7 +1247,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_metadata = tft_unit.metadata_from_feature_spec({
         'x': tf.io.VarLenFeature(_canonical_dtype(input_dtype)),
         'y': tf.io.VarLenFeature(_canonical_dtype(input_dtype)),
-        'key': tf.io.VarLenFeature(tf.string),
+        'key': tf.io.FixedLenFeature([], tf.string),
     })
     expected_metadata = tft_unit.metadata_from_feature_spec({
         'x_scaled': tf.io.VarLenFeature(tf.float32),
