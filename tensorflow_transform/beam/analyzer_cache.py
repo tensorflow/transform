@@ -197,4 +197,4 @@ def make_dataset_key(dataset_key):
 
 def _make_valid_cache_component(name):
   return name.replace('/', '-').replace('*', 'STAR').replace('@', 'AT').replace(
-      '[', '--').replace(']', '--')
+      '[', '--').replace(']', '--').replace(':', 'P').replace('=', 'E')

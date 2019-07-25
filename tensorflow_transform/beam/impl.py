@@ -710,8 +710,6 @@ class _AnalyzeDatasetCommon(beam.PTransform):
 
     input_values_pcoll_dict = input_values_pcoll_dict or dict()
 
-    analyzer_cache.validate_dataset_keys(input_values_pcoll_dict.keys())
-
     with tf.Graph().as_default() as graph:
 
       with tf.compat.v1.name_scope('inputs'):
@@ -818,7 +816,10 @@ class AnalyzeDatasetWithCache(_AnalyzeDatasetCommon):
       strings to `Tensor` or `SparseTensor`s.
   """
 
-  pass
+  def expand(self, dataset):
+    input_values_pcoll_dict = dataset[1] or dict()
+    analyzer_cache.validate_dataset_keys(input_values_pcoll_dict.keys())
+    return super(AnalyzeDatasetWithCache, self).expand(dataset)
 
 
 class AnalyzeDataset(_AnalyzeDatasetCommon):
