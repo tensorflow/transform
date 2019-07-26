@@ -59,7 +59,7 @@ def feature_spec_as_batched_placeholders(feature_spec):
   result = {}
   for name, spec in six.iteritems(feature_spec):
     if spec.dtype not in (tf.int64, tf.float32, tf.string):
-      raise ValueError('{} had invalid dtype'.format(spec))
+      raise ValueError('Feature {} ({}) had invalid dtype'.format(name, spec))
     if isinstance(spec, tf.io.FixedLenFeature):
       result[name] = tf.compat.v1.placeholder(
           spec.dtype, [None] + spec.shape, name=name)
@@ -70,8 +70,8 @@ def feature_spec_as_batched_placeholders(feature_spec):
       result[name] = tf.compat.v1.sparse_placeholder(
           spec.dtype, [None, spec.size], name=name)
     else:
-      raise TypeError('Feature spec {} of type {} is not supported'.format(
-          spec, type(spec)))
+      raise TypeError('Feature spec {} of type {} is not supported for feature '
+                      '{}'.format(spec, type(spec), name))
   return result
 
 

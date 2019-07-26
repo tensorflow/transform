@@ -58,29 +58,29 @@ def _feature_spec_from_batched_tensors(tensors):
     tensor = tensors[name]
     shape = tensor.get_shape()
     if tensor.dtype not in (tf.string, tf.int64, tf.float32):
-      raise ValueError('{} had invalid dtype {} for feature spec'.format(
-          tensor, tensor.dtype))
+      raise ValueError('Feature {} ({}) had invalid dtype {} for feature spec'
+                       .format(name, tensor, tensor.dtype))
     if isinstance(tensor, tf.SparseTensor):
       if shape.ndims != 2:
         raise ValueError(
-            '{} had invalid shape {} for VarLenFeature: must have rank '
-            '2'.format(tensor, shape))
+            'Feature {} ({}) had invalid shape {} for VarLenFeature: must have '
+            'rank 2'.format(name, tensor, shape))
       result[name] = tf.io.VarLenFeature(tensor.dtype)
     elif isinstance(tensor, tf.Tensor):
       if shape.ndims in [None, 0]:
         raise ValueError(
-            '{} had invalid shape {} for FixedLenFeature: must have rank '
-            'at least 1'.format(tensor, shape))
+            'Feature {} ({}) had invalid shape {} for FixedLenFeature: must '
+            'have rank at least 1'.format(name, tensor, shape))
       if any(dim is None for dim in shape.as_list()[1:]):
         raise ValueError(
-            '{} had invalid shape {} for FixedLenFeature: apart from the batch '
-            'dimension, all dimensions must have known size'.format(
-                tensor, shape))
+            'Feature {} ({}) had invalid shape {} for FixedLenFeature: apart '
+            'from the batch dimension, all dimensions must have known size'
+            .format(name, tensor, shape))
       result[name] = tf.io.FixedLenFeature(shape.as_list()[1:], tensor.dtype)
     else:
       raise TypeError(
-          'Expected a Tensor or SparseTensor, got {} of type {}'.format(
-              tensor, type(tensor)))
+          'Expected a Tensor or SparseTensor, got {} of type {} for feature {}'
+          .format(tensor, type(tensor), name))
 
   return result
 
