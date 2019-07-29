@@ -707,7 +707,7 @@ def apply_vocabulary(x,
       tf.int[8|16|32|64] to which the vocabulary transformation should be
       applied. The column names are those intended for the transformed tensors.
     deferred_vocab_filename_tensor: The deferred vocab filename tensor as
-      returned by `tft.vocabulary`.
+      returned by `tft.vocabulary`, as long as the frequencies were not stored.
     default_value: The value to use for out-of-vocabulary values, unless
       'num_oov_buckets' is greater than zero.
     num_oov_buckets:  Any lookup of an out-of-vocabulary token will return a
@@ -744,8 +744,7 @@ def apply_vocabulary(x,
           key_dtype=x.dtype,
           key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
           value_dtype=tf.int64,
-          value_index=tf.lookup.TextFileIndex.LINE_NUMBER,
-          delimiter=' ')
+          value_index=tf.lookup.TextFileIndex.LINE_NUMBER)
 
       if num_oov_buckets > 0:
         table = tf.lookup.StaticVocabularyTable(initializer,

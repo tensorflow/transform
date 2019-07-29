@@ -968,7 +968,10 @@ def vocabulary(x,
     store_frequency: If True, frequency of the words is stored in the
       vocabulary file. In the case labels are provided, the mutual
       information is stored in the file instead. Each line in the file
-      will be of the form 'frequency word'.
+      will be of the form 'frequency word'. NOTE: if this is True then the
+      computed vocabulary cannot be used with `tft.apply_vocabulary` directly,
+      since frequencies are added to the beginning of each row of the
+      vocabulary, which the mapper will not ignore.
     weights: (Optional) Weights `Tensor` for the vocabulary. It must have the
       same shape as x.
     labels: (Optional) Labels dense `Tensor` for the vocabulary. If provided,

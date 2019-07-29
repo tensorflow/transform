@@ -239,8 +239,7 @@ class SavedTransformIOTest(tf.test.TestCase):
             key_dtype=tf.string,
             key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
             value_dtype=tf.int64,
-            value_index=tf.lookup.TextFileIndex.LINE_NUMBER,
-            delimiter=' ')
+            value_index=tf.lookup.TextFileIndex.LINE_NUMBER)
         table = tf.lookup.StaticHashTable(initializer, default_value=12)
         table = lookup_ops.IdTableWithHashBuckets(table,
                                                   num_oov_buckets=12,

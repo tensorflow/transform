@@ -89,8 +89,7 @@ def _preprocessing_fn_with_table(inputs):
       key_dtype=tf.string,
       key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
       value_dtype=tf.int64,
-      value_index=tf.lookup.TextFileIndex.LINE_NUMBER,
-      delimiter=' ')
+      value_index=tf.lookup.TextFileIndex.LINE_NUMBER)
   table = tf.lookup.StaticHashTable(initializer, default_value=-1)
   x_integerized = table.lookup(x)
   return {'x_integerized': x_integerized}

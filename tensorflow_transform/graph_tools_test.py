@@ -39,8 +39,7 @@ def _create_lookup_table_from_file(filename):
       key_dtype=tf.string,
       key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
       value_dtype=tf.int64,
-      value_index=tf.lookup.TextFileIndex.LINE_NUMBER,
-      delimiter=' ')
+      value_index=tf.lookup.TextFileIndex.LINE_NUMBER)
   return tf.lookup.StaticHashTable(initializer, default_value=-1)
 
 
