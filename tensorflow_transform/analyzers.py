@@ -46,6 +46,21 @@ from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
 from tensorflow.python.ops import resources
 from tensorflow.python.util import deprecation
 
+__all__ = [
+    'covariance',
+    'max',
+    'mean',
+    'min',
+    'pca',
+    'ptransform_analyzer',
+    'quantiles',
+    'size',
+    'sum',
+    'uniques',
+    'var',
+    'vocabulary',
+]
+
 # This module defines max and min functions that override the builtins.
 builtin_max = max
 builtin_min = min
@@ -1426,7 +1441,7 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
       # of duplicates. Below, the min and/or max quantile boundaries are trimmed
       # depending on the actual boundaries returned by the library.
       elif buckets.size >= (self._num_quantiles + 1):
-      # Trim min/max.
+        # Trim min/max.
         return buckets[1:-1]
       elif buckets.size == self._num_quantiles:
         return buckets[1:]

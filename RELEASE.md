@@ -66,6 +66,9 @@
   compatibility, `dataset_schema.Schema` is now a factory method that produces
   a `Schema` proto.  Updating code should be straightforward because the
   `dataset_schema.Schema` class was already a wrapper around the `Schema` proto.
+* Only explicitly public analyzers are exported to the `tft` module, e.g.
+  combiners are no longer exported and have to be accessed directly through
+  `tft.analyzers`.
 
 ## Deprecations
 * `DatasetSchema` is now a deprecated factory method (see above).
