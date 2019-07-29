@@ -52,6 +52,9 @@
 * Depends on `apache-beam[gcp]>=2.13,<3`.
 * Depends on `numpy>=1.16,<2`.
 * Depends on `absl-py>=0.7,<2`.
+* Allow `preprocessing_fn` to emit a `tf.RaggedTensor`.  In this case, the
+  output `Schema` proto will not be able to be converted to a feature spec,
+  and so the output data will not be able to be materialized with `tft.coders`.
 
 ## Breaking changes
 * `tf_utils.reduce_batch_count_mean_and_var`, which feeds into

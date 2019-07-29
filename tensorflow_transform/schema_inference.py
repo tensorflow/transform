@@ -39,34 +39,35 @@ ANNOTATION_PREFIX_URL = 'type.googleapis.com'
 
 
 def _feature_spec_from_batched_tensors(tensors):
-  """Infer `Schema` proto from a dict of tensors.
+  """Infer a feature spec from a dict of tensors.
 
   Args:
     tensors: A dict whose keys are strings and values are `Tensor` or
       `SparseTensor`s.
 
   Returns:
-    A `Schema` proto inferred from the types and shapes of the tensors.
+    A feature spec inferred from the types and shapes of the tensors.
 
   Raises:
     ValueError: If the feature spec cannot be inferred.
     TypeError: If any of the values of `tensors` are not a `Tensor` or
         `SparseTensor`.
   """
-  result = {}
+  feature_spec = {}
   for name, tensor in six.iteritems(tensors):
     tensor = tensors[name]
-    shape = tensor.get_shape()
     if tensor.dtype not in (tf.string, tf.int64, tf.float32):
       raise ValueError('Feature {} ({}) had invalid dtype {} for feature spec'
                        .format(name, tensor, tensor.dtype))
     if isinstance(tensor, tf.SparseTensor):
+      shape = tensor.get_shape()
       if shape.ndims != 2:
         raise ValueError(
             'Feature {} ({}) had invalid shape {} for VarLenFeature: must have '
             'rank 2'.format(name, tensor, shape))
-      result[name] = tf.io.VarLenFeature(tensor.dtype)
+      feature_spec[name] = tf.io.VarLenFeature(tensor.dtype)
     elif isinstance(tensor, tf.Tensor):
+      shape = tensor.get_shape()
       if shape.ndims in [None, 0]:
         raise ValueError(
             'Feature {} ({}) had invalid shape {} for FixedLenFeature: must '
@@ -76,13 +77,21 @@ def _feature_spec_from_batched_tensors(tensors):
             'Feature {} ({}) had invalid shape {} for FixedLenFeature: apart '
             'from the batch dimension, all dimensions must have known size'
             .format(name, tensor, shape))
-      result[name] = tf.io.FixedLenFeature(shape.as_list()[1:], tensor.dtype)
+      feature_spec[name] = tf.io.FixedLenFeature(shape.as_list()[1:],
+                                                 tensor.dtype)
+    elif isinstance(tensor, tf.RaggedTensor):
+      tf.logging.warn(
+          'Feature %s was a RaggedTensor.  A Schema will be generated but the '
+          'Schema cannot be used with a coder (e.g. to materialize output '
+          'data) or to generated a feature spec.')
+      # Arbitrarily select VarLenFeature.
+      feature_spec[name] = tf.io.VarLenFeature(tensor.dtype)
     else:
       raise TypeError(
           'Expected a Tensor or SparseTensor, got {} of type {} for feature {}'
           .format(tensor, type(tensor), name))
 
-  return result
+  return feature_spec
 
 
 def infer_feature_schema(features, graph, session=None):
@@ -123,7 +132,18 @@ def infer_feature_schema(features, graph, session=None):
 
   domains = {}
   feature_annotations = {}
+  feature_tags = collections.defaultdict(list)
   for name, tensor in six.iteritems(features):
+    if isinstance(tensor, tf.SparseTensor):
+      values = tensor.values
+    elif isinstance(tensor, tf.RaggedTensor):
+      values = tensor.flat_values
+      # Add the 'ragged_tensor' tag which will cause coder and
+      # schema_as_feature_spec to raise an error, as currently there is no
+      # feature spec for ragged tensors.
+      feature_tags[name].append(schema_utils.RAGGED_TENSOR_TAG)
+    else:
+      values = tensor
     values = tensor.values if isinstance(tensor, tf.SparseTensor) else tensor
     if values in tensor_ranges:
       assert values.dtype == tf.int64
@@ -154,6 +174,10 @@ def infer_feature_schema(features, graph, session=None):
     feature_proto = feature_protos_by_name[feature_name]
     for annotation in annotations:
       feature_proto.annotation.extra_metadata.add().CopyFrom(annotation)
+  for feature_name, tags in feature_tags.items():
+    feature_proto = feature_protos_by_name[feature_name]
+    for tag in tags:
+      feature_proto.annotation.tag.append(tag)
 
   return schema_proto
 

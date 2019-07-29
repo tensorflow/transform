@@ -163,6 +163,12 @@ SchemaAsFeatureSpecResult = collections.namedtuple(
     'SchemaAsFeatureSpecResult', ['feature_spec', 'domains'])
 
 
+# A tag used to indicate that a feature was inferred from a RaggedTensor.  A
+# Schema containing such a feature cannot be conerted to a feature spec,
+# because there is no feature spec for a RaggedTensor.
+RAGGED_TENSOR_TAG = 'ragged_tensor'
+
+
 def schema_as_feature_spec(schema_proto):
   """Generates a feature spec from a Schema proto.
 
@@ -182,6 +188,14 @@ def schema_as_feature_spec(schema_proto):
   Raises:
     ValueError: If the schema proto is invalid.
   """
+  for feature in schema_proto.feature:
+    if RAGGED_TENSOR_TAG in feature.annotation.tag:
+      raise ValueError(
+          'Feature "{}" had tag "{}".  Features represented by a '
+          'RaggedTensor cannot be serialized/deserialized to Example proto or '
+          'other formats, and cannot have a feature spec generated for '
+          'them.'.format(feature.name, RAGGED_TENSOR_TAG))
+
   if schema_utils_legacy.get_generate_legacy_feature_spec(schema_proto):
     return _legacy_schema_as_feature_spec(schema_proto)
   feature_spec = {}

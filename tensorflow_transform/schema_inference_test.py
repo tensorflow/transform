@@ -25,8 +25,10 @@ import tensorflow as tf
 from tensorflow_transform import mappers
 from tensorflow_transform import schema_inference
 from tensorflow_transform import test_case
+from tensorflow_transform.tf_metadata import schema_utils_legacy
 from tensorflow_transform.tf_metadata import schema_utils
 
+from google.protobuf import text_format
 import unittest
 from tensorflow_metadata.proto.v0 import schema_pb2
 
@@ -171,6 +173,32 @@ class SchemaInferenceTest(test_case.TransformTestCase):
           message = annotations_pb2.BucketBoundaries()
           annotation.Unpack(message)
           self.assertAllClose(list(message.boundaries), [1])
+
+  def test_infer_feature_schema_with_ragged_tensor(self):
+    with tf.Graph().as_default() as graph:
+      outputs = {
+          'foo': tf.RaggedTensor.from_row_splits(
+              values=tf.constant([3, 1, 4, 1, 5, 9, 2, 6], tf.int64),
+              row_splits=[0, 4, 4, 7, 8, 8]),
+      }
+      with tf.compat.v1.Session(graph=graph) as session:
+        schema = schema_inference.infer_feature_schema(outputs, graph, session)
+        expected_schema_ascii = """feature {
+  name: "foo"
+  type: INT
+  annotation {
+    tag: "ragged_tensor"
+  }
+}
+"""
+        expected_schema = text_format.Parse(expected_schema_ascii,
+                                            schema_pb2.Schema())
+        schema_utils_legacy.set_generate_legacy_feature_spec(expected_schema,
+                                                             False)
+        self.assertProtoEquals(expected_schema, schema)
+        with self.assertRaisesRegexp(ValueError,
+                                     'Feature "foo" had tag "ragged_tensor"'):
+          schema_utils.schema_as_feature_spec(schema)
 
 
 if __name__ == '__main__':
