@@ -536,11 +536,8 @@ def _to_tfidf(term_frequency, reduced_term_freq, corpus_size, smooth):
         (tf.cast(reduced_term_freq, dtype=tf.float64))) + 1
 
   gathered_idfs = tf.gather(tf.squeeze(idf), term_frequency.indices[:, 1])
-
-  tfidf_values = (
-    tf.cast(term_frequency.values, tf.float32) *
-    tf.cast(gathered_idfs, tf.float32)
-    )
+  tfidf_values = (tf.cast(term_frequency.values, tf.float32)
+                  * tf.cast(gathered_idfs, tf.float32))
 
   return tf.SparseTensor(
       indices=term_frequency.indices,
@@ -1372,7 +1369,6 @@ def _apply_buckets_with_keys(x,
     key_values = key.values if isinstance(key, tf.SparseTensor) else key
 
     x_values = tf.cast(x_values, tf.float32)
-
     # Convert `key_values` to indices in key_vocab.  We must use apply_function
     # since this uses a Table.
     key_indices = tf_utils.lookup_key(key_values, key_vocab)
@@ -1476,7 +1472,6 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
     ones = tf.ones_like(x_values, dtype=return_type)
 
     # Linearly interpolate each value within its respective bucket range.
-
     interpolation_value = (
         (tf.cast(x_values, return_type) - bucket_min) / bucket_width)
     bucket_interpolation = tf.verify_tensor_all_finite(
