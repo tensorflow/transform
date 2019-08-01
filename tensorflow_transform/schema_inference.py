@@ -178,7 +178,6 @@ def infer_feature_schema(features, graph, session=None):
     feature_proto = feature_protos_by_name[feature_name]
     for tag in tags:
       feature_proto.annotation.tag.append(tag)
-
   return schema_proto
 
 
@@ -294,13 +293,12 @@ def _get_schema_annotations(graph, session):
   """
   tensor_annotations = collections.defaultdict(list)
   global_annotations = []
-
-  for (tensor, type_url, proto_value) in zip(
-      graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION),
-      graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION_TYPE_URL),
-      graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION_PROTO)):
-    proto_value = session.run(proto_value)
-    type_url = session.run(type_url)
+  tensors = graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION)
+  type_urls = session.run(
+      graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION_TYPE_URL))
+  proto_values = session.run(
+      graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION_PROTO))
+  for (tensor, type_url, proto_value) in zip(tensors, type_urls, proto_values):
     annotation = any_pb2.Any(type_url=type_url, value=proto_value)
     # Entries meant for the global schema annotation will have names like
     # tft_schema_override_global_sentinel:0 or
