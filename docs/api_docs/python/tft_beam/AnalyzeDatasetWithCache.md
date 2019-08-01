@@ -1,5 +1,5 @@
 <div itemscope itemtype="http://developers.google.com/ReferenceObject">
-<meta itemprop="name" content="tft_beam.analyzer_cache.WriteAnalysisCacheToFS" />
+<meta itemprop="name" content="tft_beam.AnalyzeDatasetWithCache" />
 <meta itemprop="path" content="Stable" />
 <meta itemprop="property" content="label"/>
 <meta itemprop="property" content="__init__"/>
@@ -33,39 +33,35 @@
 <meta itemprop="property" content="side_inputs"/>
 </div>
 
-# tft_beam.analyzer_cache.WriteAnalysisCacheToFS
+# tft_beam.AnalyzeDatasetWithCache
 
-## Class `WriteAnalysisCacheToFS`
+## Class `AnalyzeDatasetWithCache`
 
 
 
-Writes a cache object that can be read by ReadAnalysisCacheFromFS.
+Takes a preprocessing_fn and computes the relevant statistics.
 
-Given a cache collection, this writes it to the configured directory.
-If the configured directory already contains cache, this will merge the new
-cache with the old.
-NOTE: This merging of cache is determined at beam graph construction time,
-so the cache must already exist there when constructing this.
+WARNING: This is experimental.
+
+Operates similarly to AnalyzeDataset, by computing the required statistics
+except this will not re-compute statistics when they are already cached, and
+will write out cache for statistics that it does compute whenever possible.
+
+#### Args:
+
+* <b>`preprocessing_fn`</b>: A function that accepts and returns a dictionary from
+    strings to `Tensor` or `SparseTensor`s.
 
 <h2 id="__init__"><code>__init__</code></h2>
 
 ``` python
 __init__(
-    pipeline,
-    cache_base_dir,
-    sink=None
+    preprocessing_fn,
+    pipeline=None
 )
 ```
 
-Init method.
 
-#### Args:
-
-* <b>`pipeline`</b>: A beam Pipeline.
-* <b>`cache_base_dir`</b>: A str, the path that the cache should be stored in.
-* <b>`sink`</b>: (Optional) A PTransform class that takes a path, and optional
-    file_name_suffix arguments in its constructor, and is used to write the
-    cache.
 
 
 
@@ -184,7 +180,7 @@ that has more display data that should be picked up. For example::
 <h3 id="expand"><code>expand</code></h3>
 
 ``` python
-expand(dataset_cache_dict)
+expand(dataset)
 ```
 
 

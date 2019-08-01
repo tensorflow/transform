@@ -55,7 +55,10 @@ the preprocessing_fn.
 <h2 id="__init__"><code>__init__</code></h2>
 
 ``` python
-__init__(preprocessing_fn)
+__init__(
+    preprocessing_fn,
+    pipeline=None
+)
 ```
 
 

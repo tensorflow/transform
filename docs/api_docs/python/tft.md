@@ -1,8 +1,6 @@
 <div itemscope itemtype="http://developers.google.com/ReferenceObject">
 <meta itemprop="name" content="tft" />
 <meta itemprop="path" content="Stable" />
-<meta itemprop="property" content="VOCAB_FILENAME_PREFIX"/>
-<meta itemprop="property" content="VOCAB_FREQUENCY_FILENAME_PREFIX"/>
 </div>
 
 # Module: tft
@@ -15,21 +13,9 @@ Init module for TF.Transform.
 
 ## Classes
 
-[`class CovarianceCombiner`](./tft/CovarianceCombiner.md): Combines the PCollection to compute the biased covariance matrix.
-
-[`class NumPyCombiner`](./tft/NumPyCombiner.md): Combines the PCollection only on the 0th dimension using nparray.
-
-[`class PCACombiner`](./tft/PCACombiner.md): Compute PCA of accumulated data using the biased covariance matrix.
-
-[`class QuantilesCombiner`](./tft/QuantilesCombiner.md): Computes quantiles on the PCollection.
-
 [`class TFTransformOutput`](./tft/TFTransformOutput.md): A wrapper around the output of the tf.Transform.
 
-[`class WeightedMeanAndVarCombiner`](./tft/WeightedMeanAndVarCombiner.md): Combines a PCollection of accumulators to compute mean and variance.
-
 ## Functions
-
-[`apply_analyzer(...)`](./tft/apply_analyzer.md): Applies the analyzer over the whole dataset.
 
 [`apply_buckets(...)`](./tft/apply_buckets.md): Returns a bucketized column, with a bucket index assigned to each input.
 
@@ -47,6 +33,8 @@ Init module for TF.Transform.
 
 [`apply_vocabulary(...)`](./tft/apply_vocabulary.md): Maps `x` to a vocabulary specified by the deferred tensor.
 
+[`bag_of_words(...)`](./tft/bag_of_words.md): Computes a bag of "words" based on the specified ngram configuration.
+
 [`bucketize(...)`](./tft/bucketize.md): Returns a bucketized column, with a bucket index assigned to each input.
 
 [`bucketize_per_key(...)`](./tft/bucketize_per_key.md): Returns a bucketized column, with a bucket index assigned to each input.
@@ -54,6 +42,8 @@ Init module for TF.Transform.
 [`compute_and_apply_vocabulary(...)`](./tft/compute_and_apply_vocabulary.md): Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
 [`covariance(...)`](./tft/covariance.md): Computes the covariance matrix over the whole dataset.
+
+[`deduplicate_tensor_per_row(...)`](./tft/deduplicate_tensor_per_row.md): Deduplicates each row (0-th dimension) of the provided tensor.
 
 [`get_analyze_input_columns(...)`](./tft/get_analyze_input_columns.md): Return columns that are required inputs of `AnalyzeDataset`.
 
@@ -75,11 +65,13 @@ Init module for TF.Transform.
 
 [`quantiles(...)`](./tft/quantiles.md): Computes the quantile boundaries of a `Tensor` over the whole dataset.
 
-[`sanitized_vocab_filename(...)`](./tft/sanitized_vocab_filename.md): Generates a sanitized filename either from the given filename or the scope.
-
 [`scale_by_min_max(...)`](./tft/scale_by_min_max.md): Scale a numerical column into the range [output_min, output_max].
 
+[`scale_by_min_max_per_key(...)`](./tft/scale_by_min_max_per_key.md): Scale a numerical column into a predefined range on a per-key basis.
+
 [`scale_to_0_1(...)`](./tft/scale_to_0_1.md): Returns a column which is the input column scaled to have range [0,1].
+
+[`scale_to_0_1_per_key(...)`](./tft/scale_to_0_1_per_key.md): Returns a column which is the input column scaled to have range [0,1].
 
 [`scale_to_z_score(...)`](./tft/scale_to_z_score.md): Returns a standardized column with mean 0 and variance 1.
 
@@ -104,10 +96,4 @@ Init module for TF.Transform.
 [`vocabulary(...)`](./tft/vocabulary.md): Computes the unique values of a `Tensor` over the whole dataset.
 
 [`word_count(...)`](./tft/word_count.md): Find the token count of each document/row.
-
-## Other Members
-
-<h3 id="VOCAB_FILENAME_PREFIX"><code>VOCAB_FILENAME_PREFIX</code></h3>
-
-<h3 id="VOCAB_FREQUENCY_FILENAME_PREFIX"><code>VOCAB_FREQUENCY_FILENAME_PREFIX</code></h3>
 

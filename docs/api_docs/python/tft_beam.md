@@ -19,6 +19,8 @@ Module level imports for tensorflow_transform.beam.
 
 [`class AnalyzeDataset`](./tft_beam/AnalyzeDataset.md): Takes a preprocessing_fn and computes the relevant statistics.
 
+[`class AnalyzeDatasetWithCache`](./tft_beam/AnalyzeDatasetWithCache.md): Takes a preprocessing_fn and computes the relevant statistics.
+
 [`class Context`](./tft_beam/Context.md): Context manager for tensorflow-transform.
 
 [`class ReadTransformFn`](./tft_beam/ReadTransformFn.md): Reads a TransformFn written by WriteTransformFn.

@@ -27,7 +27,7 @@ Build an ExampleProtoCoder.
 
 #### Args:
 
-* <b>`schema`</b>: A `Schema` object.
+* <b>`schema`</b>: A `Schema` proto.
 * <b>`serialized`</b>: Whether to encode / decode serialized Example protos (as
     opposed to in-memory Example protos). The default (True) is used for
     backwards compatibility. Note that the serialized=True option might be

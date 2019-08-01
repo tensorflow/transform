@@ -55,7 +55,9 @@ dense_shape = [2, 9]
 
 #### Returns:
 
-A `SparseTensor` containing all ngrams from each row of the input.
+A `SparseTensor` containing all ngrams from each row of the input. Note:
+if an ngram appears multiple times in the input row, it will be present the
+same number of times in the output. For unique ngrams, see tft.bag_of_words.
 
 
 #### Raises:

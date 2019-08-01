@@ -24,9 +24,13 @@ Note that the standard deviation computed here is based on the biased variance
 #### Args:
 
 * <b>`x`</b>: A numeric `Tensor` or `SparseTensor`.
-* <b>`key`</b>: A Tensor or `SparseTensor` of dtype tf.string.  If `x` is a
-      `SparseTensor`, `key` must exactly match `x` in everything except
-      values.
+* <b>`key`</b>: A Tensor or `SparseTensor` of dtype tf.string.
+      Must meet one of the following conditions:
+      0. key is None
+      1. Both x and key are dense,
+      2. Both x and key are sparse and `key` must exactly match `x` in
+      everything except values,
+      3. The axis=1 index of each x matches its index of dense key.
 * <b>`elementwise`</b>: If true, scales each element of the tensor independently;
       otherwise uses the mean and variance of the whole tensor.
       Currently, not supported for per-key operations.
@@ -37,7 +41,8 @@ Note that the standard deviation computed here is based on the biased variance
 #### Returns:
 
 A `Tensor` or `SparseTensor` containing the input column scaled to mean 0
-and variance 1 (standard deviation 1), grouped per key.
+and variance 1 (standard deviation 1), grouped per key if a key is provided.
+
 That is, for all keys k: (x - mean(x)) / std_dev(x) for all x with key k.
 If `x` is floating point, the mean will have the same type as `x`. If `x` is
 integral, the output is cast to tf.float32.

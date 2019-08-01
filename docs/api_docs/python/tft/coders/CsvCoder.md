@@ -31,7 +31,7 @@ Initializes CsvCoder.
 #### Args:
 
 * <b>`column_names`</b>: Tuple of strings. Order must match the order in the file.
-* <b>`schema`</b>: A `Schema` object.
+* <b>`schema`</b>: A `Schema` proto.
 * <b>`delimiter`</b>: A one-character string used to separate fields.
 * <b>`secondary_delimiter`</b>: A one-character string used to separate values within
     the same field.

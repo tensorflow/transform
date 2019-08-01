@@ -4,8 +4,6 @@ toc:
     section:
     - title: Overview
       path: /tfx/transform/api_docs/python/tft
-    - title: apply_analyzer
-      path: /tfx/transform/api_docs/python/tft/apply_analyzer
     - title: apply_buckets
       path: /tfx/transform/api_docs/python/tft/apply_buckets
     - title: apply_buckets_with_interpolation
@@ -22,6 +20,8 @@ toc:
       path: /tfx/transform/api_docs/python/tft/apply_vocab
     - title: apply_vocabulary
       path: /tfx/transform/api_docs/python/tft/apply_vocabulary
+    - title: bag_of_words
+      path: /tfx/transform/api_docs/python/tft/bag_of_words
     - title: bucketize
       path: /tfx/transform/api_docs/python/tft/bucketize
     - title: bucketize_per_key
@@ -30,8 +30,8 @@ toc:
       path: /tfx/transform/api_docs/python/tft/compute_and_apply_vocabulary
     - title: covariance
       path: /tfx/transform/api_docs/python/tft/covariance
-    - title: CovarianceCombiner
-      path: /tfx/transform/api_docs/python/tft/CovarianceCombiner
+    - title: deduplicate_tensor_per_row
+      path: /tfx/transform/api_docs/python/tft/deduplicate_tensor_per_row
     - title: get_analyze_input_columns
       path: /tfx/transform/api_docs/python/tft/get_analyze_input_columns
     - title: get_transform_input_columns
@@ -46,24 +46,20 @@ toc:
       path: /tfx/transform/api_docs/python/tft/min
     - title: ngrams
       path: /tfx/transform/api_docs/python/tft/ngrams
-    - title: NumPyCombiner
-      path: /tfx/transform/api_docs/python/tft/NumPyCombiner
     - title: pca
       path: /tfx/transform/api_docs/python/tft/pca
-    - title: PCACombiner
-      path: /tfx/transform/api_docs/python/tft/PCACombiner
     - title: ptransform_analyzer
       path: /tfx/transform/api_docs/python/tft/ptransform_analyzer
     - title: quantiles
       path: /tfx/transform/api_docs/python/tft/quantiles
-    - title: QuantilesCombiner
-      path: /tfx/transform/api_docs/python/tft/QuantilesCombiner
-    - title: sanitized_vocab_filename
-      path: /tfx/transform/api_docs/python/tft/sanitized_vocab_filename
     - title: scale_by_min_max
       path: /tfx/transform/api_docs/python/tft/scale_by_min_max
+    - title: scale_by_min_max_per_key
+      path: /tfx/transform/api_docs/python/tft/scale_by_min_max_per_key
     - title: scale_to_0_1
       path: /tfx/transform/api_docs/python/tft/scale_to_0_1
+    - title: scale_to_0_1_per_key
+      path: /tfx/transform/api_docs/python/tft/scale_to_0_1_per_key
     - title: scale_to_z_score
       path: /tfx/transform/api_docs/python/tft/scale_to_z_score
     - title: scale_to_z_score_per_key
@@ -88,10 +84,6 @@ toc:
       path: /tfx/transform/api_docs/python/tft/var
     - title: vocabulary
       path: /tfx/transform/api_docs/python/tft/vocabulary
-    - title: WeightedMeanAndVarCombiner
-      path: /tfx/transform/api_docs/python/tft/WeightedMeanAndVarCombiner
-    - title: WeightedMeanAndVarCombiner.accumulator_class
-      path: /tfx/transform/api_docs/python/tft/WeightedMeanAndVarCombiner/accumulator_class
     - title: word_count
       path: /tfx/transform/api_docs/python/tft/word_count
   - title: tft.coders
@@ -110,6 +102,8 @@ toc:
       path: /tfx/transform/api_docs/python/tft_beam/AnalyzeAndTransformDataset
     - title: AnalyzeDataset
       path: /tfx/transform/api_docs/python/tft_beam/AnalyzeDataset
+    - title: AnalyzeDatasetWithCache
+      path: /tfx/transform/api_docs/python/tft_beam/AnalyzeDatasetWithCache
     - title: Context
       path: /tfx/transform/api_docs/python/tft_beam/Context
     - title: ReadTransformFn
@@ -126,6 +120,8 @@ toc:
       path: /tfx/transform/api_docs/python/tft_beam/analyzer_cache
     - title: make_cache_entry_key
       path: /tfx/transform/api_docs/python/tft_beam/analyzer_cache/make_cache_entry_key
+    - title: make_dataset_key
+      path: /tfx/transform/api_docs/python/tft_beam/analyzer_cache/make_dataset_key
     - title: ReadAnalysisCacheFromFS
       path: /tfx/transform/api_docs/python/tft_beam/analyzer_cache/ReadAnalysisCacheFromFS
     - title: validate_dataset_keys

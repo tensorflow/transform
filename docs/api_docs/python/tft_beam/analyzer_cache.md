@@ -17,5 +17,7 @@ Module which allows a pipeilne to define and utilize cached analyzers.
 
 [`make_cache_entry_key(...)`](../tft_beam/analyzer_cache/make_cache_entry_key.md)
 
+[`make_dataset_key(...)`](../tft_beam/analyzer_cache/make_dataset_key.md)
+
 [`validate_dataset_keys(...)`](../tft_beam/analyzer_cache/validate_dataset_keys.md)
 

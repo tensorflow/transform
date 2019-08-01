@@ -11,6 +11,7 @@ tft.bucketize(
     num_buckets,
     epsilon=None,
     weights=None,
+    elementwise=False,
     name=None
 )
 ```
@@ -39,6 +40,8 @@ Returns a bucketized column, with a bucket index assigned to each input.
     See analyzers.quantiles() for details.
 * <b>`weights`</b>: (Optional) Weights tensor for the quantiles. Tensor must have the
     same shape as x.
+* <b>`elementwise`</b>: (Optional) If true, bucketize each element of the tensor
+    independently.
 * <b>`name`</b>: (Optional) A name for this operation.
 
 

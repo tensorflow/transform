@@ -11,6 +11,7 @@ tft.quantiles(
     num_buckets,
     epsilon,
     weights=None,
+    reduce_instance_dims=True,
     name=None
 )
 ```
@@ -45,11 +46,16 @@ See go/squawd for details, and how to control the error due to approximation.
       time. For more performance
       trade-offs see also http://web.cs.ucla.edu/~weiwang/paper/SSDBM07_2.pdf
 * <b>`weights`</b>: (Optional) Weights tensor for the quantiles. Tensor must have the
-    same shape as x.
+    same batch size as x.
+* <b>`reduce_instance_dims`</b>: By default collapses the batch and instance dimensions
+      to arrive at a single output vector. If False, only collapses the batch
+      dimension and outputs a vector of the same shape as the input.
 * <b>`name`</b>: (Optional) A name for this operation.
 
 
 #### Returns:
 
-The bucket boundaries represented as a list, with num_bucket-1 elements
+The bucket boundaries represented as a list, with num_bucket-1 elements,
+unless reduce_instance_dims is False, which results in a Tensor of
+shape x.shape + [num_bucket-1].
 See code below for discussion on the type of bucket boundaries.

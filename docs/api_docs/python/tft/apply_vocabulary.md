@@ -32,7 +32,7 @@ files. This behavior will likely be fixed/improved in the future.
     tf.int[8|16|32|64] to which the vocabulary transformation should be
     applied. The column names are those intended for the transformed tensors.
 * <b>`deferred_vocab_filename_tensor`</b>: The deferred vocab filename tensor as
-    returned by <a href="../tft/vocabulary.md"><code>tft.vocabulary</code></a>.
+    returned by <a href="../tft/vocabulary.md"><code>tft.vocabulary</code></a>, as long as the frequencies were not stored.
 * <b>`default_value`</b>: The value to use for out-of-vocabulary values, unless
     'num_oov_buckets' is greater than zero.
 * <b>`num_oov_buckets`</b>:  Any lookup of an out-of-vocabulary token will return a
@@ -40,8 +40,8 @@ files. This behavior will likely be fixed/improved in the future.
     Otherwise it is assigned the `default_value`.
 * <b>`lookup_fn`</b>: Optional lookup function, if specified it should take a tensor
     and a deferred vocab filename as an input and return a lookup `op` along
-    with the table size, by default `apply_vocab` performs a
-    lookup_ops.index_table_from_file for the table lookup.
+    with the table size, by default `apply_vocab` constructs a StaticHashTable
+    for the table lookup.
 * <b>`name`</b>: (Optional) A name for this operation.
 
 
