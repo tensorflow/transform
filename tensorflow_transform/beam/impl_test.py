@@ -2228,12 +2228,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
           # relationship with the label but will have different importance
           # values due to the weighting.
           expected_vocab=[
-              (b'informative_0', 0.316988),
-              (b'informative_1', 0.1169884),
-              (b'informative_by_weight', 0.060964),
-              (b'uninformative', 0.0169925),
+              (b'informative_0', 3.1698803),
+              (b'informative_1', 1.1698843),
+              (b'informative_by_weight', 0.6096405),
+              (b'uninformative', 0.169925),
           ],
-          weights=[.1, .1, .1, .1, .1, .1, .1, .5],
+          weights=[1, 1, 1, 1, 1, 1, 1, 5],
           use_adjusted_mutual_info=False),
       dict(
           testcase_name='unadjusted_mi_binary_label_min_diff_from_avg',

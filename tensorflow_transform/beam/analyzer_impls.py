@@ -440,7 +440,7 @@ def _calculate_mutual_information_for_feature_value(feature_and_accumulator,
   expected_mutual_information = 0 if use_adjusted_mutual_info else None
   x_i = (current_accumulator.count * current_accumulator.weight)
   # If x_i == n, the feature is a constant and thus has no information.
-  if int(x_i) == int(n):
+  if round(x_i) == round(n):
     return feature_value, 0, 0
   if x_i > n:
     raise ValueError(
