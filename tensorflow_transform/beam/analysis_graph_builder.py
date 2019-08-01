@@ -20,6 +20,7 @@ from __future__ import print_function
 import collections
 import copy
 import hashlib
+import uuid
 
 # GOOGLE-INITIALIZATION
 
@@ -41,11 +42,16 @@ def _serialize_op_attr(op_attr):
   sorted_attributes = sorted(op_attr.items(), key=lambda kv: kv[0])
   result = []
   for key, attr_value in sorted_attributes:
+    result.append(key)
     attr_value = copy.deepcopy(attr_value)
-    if attr_value.HasField('func') or attr_value.list.func:
+    if attr_value.list.func:
       raise ValueError(
-          'Unable to serialize op attributes that contain a `func` field')
-    result.extend([key, attr_value.SerializeToString()])
+          'Unable to serialize op attributes that contain a `list.func` field')
+    if attr_value.HasField('func'):
+      # TODO(b/138796127): Support tf.function fingerprint.
+      result.append(uuid.uuid4().hex)
+      attr_value.ClearField('func')
+    result.append(attr_value.SerializeToString())
   return result
 
 

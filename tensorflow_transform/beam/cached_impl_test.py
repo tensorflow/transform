@@ -921,6 +921,87 @@ class CachedImplTest(test_case.TransformTestCase):
               preprocessing_fn, pipeline=p))
       self.assertFalse(output_cache)
 
+  def test_tf_function_fails_cache(self):
+
+    def preprocessing_fn(inputs):
+
+      @tf.function
+      def identity(x):
+        return x
+
+      return {
+          'x_mean':
+              tft.mean(identity(inputs['x']), name='x') +
+              tf.zeros_like(inputs['x'])
+      }
+
+    input_metadata = dataset_metadata.DatasetMetadata(
+        schema_utils.schema_from_feature_spec({
+            'x': tf.io.FixedLenFeature([], tf.float32),
+        }))
+    input_data_dict = {
+        'span-0': [dict(x=-2), dict(x=4)],
+    }
+    with _TestPipeline() as p:
+      flat_data = p | 'CreateInputData' >> beam.Create(
+          list(itertools.chain(*input_data_dict.values())))
+
+      # wrap each value in input_data_dict as a pcoll.
+      input_data_pcoll_dict = {}
+      for a, b in six.iteritems(input_data_dict):
+        input_data_pcoll_dict[a] = p | a >> beam.Create(b)
+
+      _, cache_output = (
+          (flat_data, input_data_pcoll_dict, {}, input_metadata)
+          | 'Analyze' >> tft_beam.AnalyzeDatasetWithCache(preprocessing_fn))
+      _ = (
+          cache_output
+          | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
+              p, self._cache_dir))
+
+      del input_data_pcoll_dict
+
+      for key in input_data_dict:
+        self.assertIn(key, cache_output)
+        self.assertEqual(1, len(cache_output[key]))
+
+    self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 2)
+    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 0)
+    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 1)
+    self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
+
+    with _TestPipeline() as p:
+      flat_data = p | 'CreateInputData' >> beam.Create(
+          list(itertools.chain(*input_data_dict.values())))
+
+      # wrap each value in input_data_dict as a pcoll.
+      input_data_pcoll_dict = {}
+      for a, b in six.iteritems(input_data_dict):
+        input_data_pcoll_dict[a] = p | a >> beam.Create(b)
+
+      input_cache = p | analyzer_cache.ReadAnalysisCacheFromFS(
+          self._cache_dir, list(input_data_dict.keys()))
+
+      _, second_output_cache = (
+          (flat_data, input_data_pcoll_dict, input_cache, input_metadata)
+          | 'AnalyzeAgain' >>
+          (tft_beam.AnalyzeDatasetWithCache(preprocessing_fn)))
+      _ = (
+          second_output_cache
+          | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
+              p, self._cache_dir))
+
+      # We expect a full output cache again because tf.function in the
+      # preprocessing_fn broke that cache entry.
+      for key in input_data_dict:
+        self.assertIn(key, cache_output)
+        self.assertEqual(1, len(cache_output[key]))
+
+    self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 2)
+    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 0)
+    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 1)
+    self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
+
 
 if __name__ == '__main__':
   # TODO(b/133440043): Remove this once TFT supports eager execution.
