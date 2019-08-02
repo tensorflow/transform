@@ -12,6 +12,7 @@ tft.bucketize(
     epsilon=None,
     weights=None,
     elementwise=False,
+    always_return_num_quantiles=False,
     name=None
 )
 ```
@@ -42,6 +43,9 @@ Returns a bucketized column, with a bucket index assigned to each input.
     same shape as x.
 * <b>`elementwise`</b>: (Optional) If true, bucketize each element of the tensor
     independently.
+* <b>`always_return_num_quantiles`</b>: (Optional) A bool that determines whether the
+    exact num_buckets should be returned (defaults to False for now, but will
+    be changed to True in an imminent update).
 * <b>`name`</b>: (Optional) A name for this operation.
 
 

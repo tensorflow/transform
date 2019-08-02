@@ -12,6 +12,7 @@ tft.quantiles(
     epsilon,
     weights=None,
     reduce_instance_dims=True,
+    always_return_num_quantiles=False,
     name=None
 )
 ```
@@ -50,6 +51,9 @@ See go/squawd for details, and how to control the error due to approximation.
 * <b>`reduce_instance_dims`</b>: By default collapses the batch and instance dimensions
       to arrive at a single output vector. If False, only collapses the batch
       dimension and outputs a vector of the same shape as the input.
+* <b>`always_return_num_quantiles`</b>: (Optional) A bool that determines whether the
+    exact num_buckets should be returned (defaults to False for now, but will
+    be changed to True in an imminent update).
 * <b>`name`</b>: (Optional) A name for this operation.
 
 
