@@ -28,7 +28,8 @@ import tensorflow as tf
 from tensorflow_transform import graph_tools
 from tensorflow_transform import test_case
 
-from tensorflow.python.ops import control_flow_ops
+from tensorflow.python.ops import control_flow_ops  # pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.ops import control_flow_util  # pylint: disable=g-direct-tensorflow-import
 
 mock = tf.test.mock
 
@@ -1088,4 +1089,7 @@ def _value_to_matcher(value, add_quotes=False):
 if __name__ == '__main__':
   # TODO(b/133440043): Remove this once TFT supports eager execution.
   tf.compat.v1.disable_eager_execution()
+  # TODO(b/138856464): Enable this with v2 control flow.
+  # TODO(b/138848475): Replace this with tf.compat.v1.disable_control_flow_v2()
+  control_flow_util.ENABLE_CONTROL_FLOW_V2 = False
   test_case.main()
