@@ -1207,6 +1207,9 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     if isinstance(self._feature_shape, int):
       self._feature_shape = [self._feature_shape]
     self._num_features = np.prod(self._feature_shape, dtype=np.int64)
+    if not self._always_return_num_quantiles and self._num_features > 1:
+      raise NotImplementedError(
+          'Elementwise quantiles requires same boundary count.')
 
   # TODO(b/69566045): Move initialization to start_bundle() or follow the
   # _start_bundle() approach that TFMA has taken and get rid of the __reduce__
@@ -1478,7 +1481,7 @@ class _QuantilesAccumulatorCacheCoder(analyzer_nodes.CacheCoder):
 
 
 def quantiles(x, num_buckets, epsilon, weights=None, reduce_instance_dims=True,
-              name=None):
+              always_return_num_quantiles=False, name=None):
   """Computes the quantile boundaries of a `Tensor` over the whole dataset.
 
   quantile boundaries are computed using approximate quantiles,
@@ -1512,6 +1515,9 @@ def quantiles(x, num_buckets, epsilon, weights=None, reduce_instance_dims=True,
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single output vector. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
+    always_return_num_quantiles: (Optional) A bool that determines whether the
+      exact num_buckets should be returned (defaults to False for now, but will
+      be changed to True in an imminent update).
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1520,6 +1526,7 @@ def quantiles(x, num_buckets, epsilon, weights=None, reduce_instance_dims=True,
     shape x.shape + [num_bucket-1].
     See code below for discussion on the type of bucket boundaries.
   """
+  # TODO(b/137963802): Make always_return_num_quantiles default to True
   # TODO(b/64039847): quantile ops only support float bucket boundaries as this
   # triggers an assertion in MakeQuantileSummaries().
   # The restriction does not apply to inputs, which can be of any integral
@@ -1529,16 +1536,15 @@ def quantiles(x, num_buckets, epsilon, weights=None, reduce_instance_dims=True,
     if weights is None:
       analyzer_inputs = [x]
       has_weights = False
-      always_return_num_quantiles = False
     else:
       analyzer_inputs = [x, weights]
       has_weights = True
-      always_return_num_quantiles = True
     combiner = QuantilesCombiner(
         num_buckets,
         epsilon,
         bucket_dtype,
-        always_return_num_quantiles=always_return_num_quantiles,
+        always_return_num_quantiles=(
+            not reduce_instance_dims or always_return_num_quantiles),
         has_weights=has_weights,
         output_shape=(None,) if reduce_instance_dims else tuple(
             x.get_shape().as_list()[1:] + [None]),

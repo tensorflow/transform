@@ -55,6 +55,10 @@
 * Allow `preprocessing_fn` to emit a `tf.RaggedTensor`.  In this case, the
   output `Schema` proto will not be able to be converted to a feature spec,
   and so the output data will not be able to be materialized with `tft.coders`.
+* Ability to directly set exact `num_buckets` with new parameter
+  `always_return_num_quantiles` for `analyzers.quantiles` and 
+  `mappers.bucketize`, defaulting to False in general but True when
+  `reduce_instance_dims` is False
 
 ## Breaking changes
 * `tf_utils.reduce_batch_count_mean_and_var`, which feeds into

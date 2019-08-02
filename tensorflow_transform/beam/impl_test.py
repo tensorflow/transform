@@ -87,47 +87,47 @@ _SCALE_TO_Z_SCORE_TEST_CASES = [
 def _construct_test_bucketization_parameters():
   args_without_dtype = (
       (range(1, 10), [4, 7], False, None, False, False),
-      (range(1, 100), [26, 51, 76], False, None, False, False),
+      (range(1, 100), [25, 50, 75], False, None, False, False),
 
       # The following is similar to range(1, 100) test above, except that
       # only odd numbers are in the input; so boundaries differ (26 -> 27 and
       # 76 -> 77).
-      (range(1, 100, 2), [27, 51, 77], False, None, False, False),
+      (range(1, 100, 2), [24, 50, 75], False, None, False, False),
 
       # Test some inversely sorted inputs, and with different strides, and
       # boundaries/buckets.
       (range(9, 0, -1), [4, 7], False, None, False, False),
-      (range(19, 0, -1), [11], False, None, False, False),
-      (range(99, 0, -1), [51], False, None, False, False),
+      (range(19, 0, -1), [10], False, None, False, False),
+      (range(99, 0, -1), [50], False, None, False, False),
       (range(99, 0, -1), [34, 67], False, None, False, False),
-      (range(99, 0, -2), [34, 68], False, None, False, False),
-      (range(99, 0, -1), range(11, 100, 10), False, None, False, False),
+      (range(99, 0, -2), [33, 67], False, None, False, False),
+      (range(99, 0, -1), range(10, 100, 10), False, None, False, False),
 
       # These tests do a random shuffle of the inputs, which must not affect the
       # boundaries (or the computed buckets).
-      (range(99, 0, -1), range(11, 100, 10), True, None, False, False),
-      (range(1, 100), range(11, 100, 10), True, None, False, False),
+      (range(99, 0, -1), range(10, 100, 10), True, None, False, False),
+      (range(1, 100), range(10, 100, 10), True, None, False, False),
 
       # The following test is with multiple batches (3 batches with default
       # batch of 1000).
-      (range(1, 3000), [1503], False, None, False, False),
-      (range(1, 3000), [1001, 2001], False, None, False, False),
+      (range(1, 3000), [1499], False, None, False, False),
+      (range(1, 3000), [1000, 2000], False, None, False, False),
 
       # Test with specific error for bucket boundaries. This is same as the test
       # above with 3 batches and a single boundary, but with a stricter error
       # tolerance (0.001) than the default error (0.01). The result is that the
       # computed boundary in the test below is closer to the middle (1501) than
       # that computed by the boundary of 1503 above.
-      (range(1, 3000), [1501], False, 0.001, False, False),
+      (range(1, 3000), [1500], False, 0.001, False, False),
 
       # Test with specific error for bucket boundaries, with more relaxed error
       # tolerance (0.1) than the default (0.01). Now the boundary diverges
-      # further to 1519 (compared to boundary of 1501 with error 0.001, and
+      # further to 1504 (compared to boundary of 1501 with error 0.001, and
       # boundary of 1503 with error 0.01).
-      (range(1, 3000), [1519], False, 0.1, False, False),
+      (range(1, 3000), [1503], False, 0.1, False, False),
 
       # Tests for tft.apply_buckets.
-      (range(1, 100), [26, 51, 76], False, 0.00001, True, False),
+      (range(1, 100), [25, 50, 75], False, 0.00001, True, False),
       # TODO(b/78569039): Enable this test.
       # (range(1, 100), [26, 51, 76], False, 0.00001, True, True),
   )
@@ -3452,10 +3452,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
         if is_manual_boundaries:
           bucket_boundaries = expected_boundaries
         else:
-          bucket_boundaries = tft.quantiles(inputs['x'], num_buckets, epsilon)
+          bucket_boundaries = tft.quantiles(inputs['x'], num_buckets, epsilon,
+                                            always_return_num_quantiles=True)
         result = tft.apply_buckets(x, bucket_boundaries)
       else:
-        result = tft.bucketize(x, num_buckets=num_buckets, epsilon=epsilon)
+        result = tft.bucketize(x, num_buckets=num_buckets, epsilon=epsilon,
+                               always_return_num_quantiles=True)
       return {'q_b': result}
 
     input_data = [{'x': [x]} for x in test_inputs]
@@ -3531,7 +3533,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                [2 * b for b in expected_boundaries]]
         else:
           bucket_boundaries = tft.quantiles(x, num_buckets, epsilon,
-                                            reduce_instance_dims=False)
+                                            reduce_instance_dims=False,
+                                            always_return_num_quantiles=True)
           bucket_boundaries = tf.unstack(bucket_boundaries, axis=0)
 
         result = []
@@ -3543,7 +3546,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
       else:
         result = tft.bucketize(x, num_buckets=num_buckets, epsilon=epsilon,
-                               elementwise=True)
+                               elementwise=True,
+                               always_return_num_quantiles=True)
       return {'q_b': result}
 
     input_data = [{'x': [x, 2 * x]} for x in test_inputs]
@@ -3610,7 +3614,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
                   tf.cast(inputs['x'], input_dtype),
                   num_buckets=3,
                   epsilon=0.00001,
-                  weights=inputs['weights'])
+                  weights=inputs['weights'],
+                  always_return_num_quantiles=True)
       }
 
     input_data = [{'x': [x], 'weights': [x / 100.]} for x in range(1, 3000)]
@@ -3686,7 +3691,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def analyzer_fn(inputs):
       return {
           'q_b': tft.quantiles(tf.cast(inputs['x'], input_dtype),
-                               num_buckets=3, epsilon=0.00001)
+                               num_buckets=3, epsilon=0.00001,
+                               always_return_num_quantiles=True)
       }
 
     # NOTE: We force 3 batches: data has 3000 elements and we request a batch
@@ -3695,7 +3701,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_metadata = tft_unit.metadata_from_feature_spec(
         {'x': tf.io.FixedLenFeature([1], _canonical_dtype(input_dtype))})
     # The expected data has 2 boundaries that divides the data into 3 buckets.
-    expected_outputs = {'q_b': np.array([[1001, 2001]], np.float32)}
+    expected_outputs = {'q_b': np.array([[1000, 2000]], np.float32)}
     self.assertAnalyzerOutputs(
         input_data,
         input_metadata,
@@ -4106,7 +4112,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     def preprocessing_fn(inputs):
       x = tf.cast(inputs['x'], input_dtype)
-      quantiles = tft.quantiles(x, num_buckets, epsilon=0.0001)
+      quantiles = tft.quantiles(x, num_buckets, epsilon=0.0001,
+                                always_return_num_quantiles=False)
       quantiles.set_shape([1, num_expected_buckets - 1])
       return {
           'q_b': quantiles

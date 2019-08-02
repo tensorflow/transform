@@ -1218,7 +1218,7 @@ def hash_strings(strings, hash_buckets, key=None, name=None):
 
 
 def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
-              name=None):
+              always_return_num_quantiles=False, name=None):
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Args:
@@ -1244,6 +1244,9 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
       same shape as x.
     elementwise: (Optional) If true, bucketize each element of the tensor
       independently.
+    always_return_num_quantiles: (Optional) A bool that determines whether the
+      exact num_buckets should be returned (defaults to False for now, but will
+      be changed to True in an imminent update).
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1257,6 +1260,7 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
   Raises:
     ValueError: If value of num_buckets is not > 1.
   """
+  # TODO(b/137963802): Make always_return_num_quantiles default to True
   with tf.compat.v1.name_scope(name, 'bucketize'):
     if not isinstance(num_buckets, int):
       raise TypeError('num_buckets must be an int, got %s' % type(num_buckets))
@@ -1271,7 +1275,8 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
     x_values = x.values if isinstance(x, tf.SparseTensor) else x
     bucket_boundaries = analyzers.quantiles(
         x_values, num_buckets, epsilon, weights,
-        reduce_instance_dims=not elementwise)
+        reduce_instance_dims=not elementwise,
+        always_return_num_quantiles=always_return_num_quantiles)
 
     if not elementwise:
       return apply_buckets(x, bucket_boundaries)
