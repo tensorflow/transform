@@ -1,5 +1,5 @@
 <!-- mdformat off(mdformat causes unwanted indentation changes) -->
-# Current version (not yet released; still in development)
+# Release 0.14.0
 
 ## Major Features and Improvements
 * New `tft.word_count` mapper to identify the number of tokens for each row
@@ -49,16 +49,16 @@
 * At test utility `tft_unit.cross_named_parameters` for creating parameterized
   tests that involve the cartesian product of various parameters.
 * Depends on `tensorflow-metadata>=0.14,<0.15`.
-* Depends on `apache-beam[gcp]>=2.13,<3`.
+* Depends on `apache-beam[gcp]>=2.14,<3`.
 * Depends on `numpy>=1.16,<2`.
 * Depends on `absl-py>=0.7,<2`.
 * Allow `preprocessing_fn` to emit a `tf.RaggedTensor`.  In this case, the
   output `Schema` proto will not be able to be converted to a feature spec,
   and so the output data will not be able to be materialized with `tft.coders`.
 * Ability to directly set exact `num_buckets` with new parameter
-  `always_return_num_quantiles` for `analyzers.quantiles` and 
+  `always_return_num_quantiles` for `analyzers.quantiles` and
   `mappers.bucketize`, defaulting to False in general but True when
-  `reduce_instance_dims` is False
+  `reduce_instance_dims` is False.
 
 ## Breaking changes
 * `tf_utils.reduce_batch_count_mean_and_var`, which feeds into
@@ -73,6 +73,7 @@
 * Only explicitly public analyzers are exported to the `tft` module, e.g.
   combiners are no longer exported and have to be accessed directly through
   `tft.analyzers`.
+* Requires pre-installed TensorFlow >=1.14,<2.
 
 ## Deprecations
 * `DatasetSchema` is now a deprecated factory method (see above).

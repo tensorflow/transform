@@ -28,7 +28,7 @@ def _make_required_install_packages():
   # six, and protobuf) with TF.
   return [
       'absl-py>=0.7,<2',
-      'apache-beam[gcp]>=2.13,<3',
+      'apache-beam[gcp]>=2.14,<3',
       'numpy>=1.16,<2',
       'protobuf>=3.7,<4',
       'six>=1.10,<2',
@@ -71,10 +71,8 @@ setup(
         'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.5',
-        # TODO(b/125613675): Once Beam supports Python 3.6 and 3.7, uncomment
-        # these lines.
-        # 'Programming Language :: Python :: 3.6',
-        # 'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
         'Topic :: Scientific/Engineering',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
         'Topic :: Scientific/Engineering :: Mathematics',

@@ -54,9 +54,10 @@ The following table is the `tf.Transform` package versions that are
 compatible with each other. This is determined by our testing framework, but
 other *untested* combinations may also work.
 
-tensorflow-transform                                                            | tensorflow    | apache-beam[gcp]
-------------------------------------------------------------------------------- | ------------- | ----------------
-|[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) |nightly (1.x) |2.13.0          |
+|tensorflow-transform                                                            |tensorflow    |apache-beam[gcp]|
+|--------------------------------------------------------------------------------|--------------|----------------|
+|[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) |nightly (1.x) |2.14.0          |
+|[0.14.0](https://github.com/tensorflow/transform/blob/v0.13.0/RELEASE.md)       |1.14          |2.14.0          |
 |[0.13.0](https://github.com/tensorflow/transform/blob/v0.13.0/RELEASE.md)       |1.13          |2.11.0          |
 |[0.12.0](https://github.com/tensorflow/transform/blob/v0.12.0/RELEASE.md)       |1.12          |2.10.0          |
 |[0.11.0](https://github.com/tensorflow/transform/blob/v0.11.0/RELEASE.md)       |1.11          |2.8.0           |
