@@ -23,199 +23,256 @@ import tensorflow as tf
 
 from tensorflow_transform import tf_utils
 from tensorflow_transform import test_case
-from tensorflow.python.framework import test_util  # pylint: disable=g-direct-tensorflow-import
+
+
+class _SparseTensorSpec(object):
+
+  def __init__(self, shape, dtype):
+    self._shape = shape
+    self._dtype = dtype
+
+if not hasattr(tf, 'SparseTensorSpec'):
+  tf.SparseTensorSpec = _SparseTensorSpec
 
 
 class TFUtilsTest(test_case.TransformTestCase):
 
-  @test_case.named_parameters(
+  @test_case.named_parameters(test_case.cross_with_function_handlers([
       dict(
           testcase_name='rank1',
           x=['a', 'b', 'a'],
-          weights=None,
-          expected_results=[[b'a', b'b', b'a']]),
-      dict(
-          testcase_name='rank1_with_weights',
-          x=['a', 'b', 'a'],
           weights=[1, 1, 2],
-          expected_results=[[b'a', b'b'], [3, 1]]),
+          expected_unique_x=[b'a', b'b'],
+          expected_summed_weights_per_x=[3, 1]),
       dict(
           testcase_name='rank2',
           x=[['a', 'b', 'a'], ['b', 'a', 'b']],
-          weights=None,
-          expected_results=[[b'a', b'b', b'a', b'b', b'a', b'b']]),
-      dict(
-          testcase_name='rank2_with_weights',
-          x=[['a', 'b', 'a'], ['b', 'a', 'b']],
           weights=[[1, 2, 1], [1, 2, 2]],
-          expected_results=[[b'a', b'b'], [4, 5]]),
+          expected_unique_x=[b'a', b'b'],
+          expected_summed_weights_per_x=[4, 5]),
       dict(
           testcase_name='rank3',
           x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
              [['a', 'b', 'a'], ['b', 'a', 'b']]],
-          weights=None,
-          expected_results=[[
-              b'a', b'b', b'a', b'b', b'a', b'b', b'a', b'b', b'a', b'b', b'a',
-              b'b'
-          ]]),
+          weights=[[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]],
+          expected_unique_x=[b'a', b'b'],
+          expected_summed_weights_per_x=[9, 7]),
+  ]))
+  def test_reduce_batch_weighted_counts(
+      self, x, weights, expected_unique_x, expected_summed_weights_per_x,
+      function_handler):
+    input_signature = [tf.TensorSpec(None, tf.string),
+                       tf.TensorSpec(None, tf.float32)]
+    @function_handler(input_signature=input_signature)
+    def _reduce_batch_weighted_counts(x, weights):
+      (unique_x, summed_weights_per_x, summed_positive_per_x_and_y,
+       counts_per_x) = tf_utils.reduce_batch_weighted_counts(x, weights)
+      self.assertIsNone(summed_positive_per_x_and_y)
+      self.assertIsNone(counts_per_x)
+      return unique_x, summed_weights_per_x
+
+    unique_x, summed_weights_per_x = _reduce_batch_weighted_counts(x, weights)
+
+    self.assertAllEqual(unique_x,
+                        expected_unique_x)
+    self.assertAllEqual(summed_weights_per_x,
+                        expected_summed_weights_per_x)
+
+  @test_case.named_parameters(test_case.cross_with_function_handlers([
       dict(
-          testcase_name='rank3_with_weights',
+          testcase_name='rank1',
+          x=['a', 'b', 'a'],
+          expected_unique_x=[b'a', b'b', b'a']),
+      dict(
+          testcase_name='rank2',
+          x=[['a', 'b', 'a'], ['b', 'a', 'b']],
+          expected_unique_x=[b'a', b'b', b'a', b'b', b'a', b'b']),
+      dict(
+          testcase_name='rank3',
           x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
              [['a', 'b', 'a'], ['b', 'a', 'b']]],
-          weights=[[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]],
-          expected_results=[[b'a', b'b'], [9, 7]]),
-  )
-  def test_reduce_batch_weighted_counts(self, x, weights, expected_results):
-    x = tf.constant(x)
-    if weights is not None:
-      weights = tf.constant(weights)
+          expected_unique_x=[b'a', b'b', b'a', b'b', b'a', b'b', b'a', b'b',
+                             b'a', b'b', b'a', b'b']),
+  ]))
+  def test_reduce_batch_weighted_counts_weights_none(
+      self, x, expected_unique_x, function_handler):
+    input_signature = [tf.TensorSpec(None, tf.string)]
+    @function_handler(input_signature=input_signature)
+    def _reduce_batch_weighted_counts(x):
+      (unique_x, summed_weights_per_x, summed_positive_per_x_and_y,
+       counts_per_x) = tf_utils.reduce_batch_weighted_counts(x)
+      self.assertIsNone(summed_weights_per_x)
+      self.assertIsNone(summed_positive_per_x_and_y)
+      self.assertIsNone(counts_per_x)
+      return unique_x
 
-    returned_tensors = tf_utils.reduce_batch_weighted_counts(x, weights)
-    with tf.compat.v1.Session() as sess:
-      results = sess.run([a for a in returned_tensors if a is not None])
-      for result, expected in zip(results, expected_results):
-        self.assertAllEqual(result, np.array(expected))
+    unique_x = _reduce_batch_weighted_counts(x)
 
-  @test_case.named_parameters(
+    self.assertAllEqual(unique_x,
+                        expected_unique_x)
+
+  @test_case.named_parameters(test_case.cross_with_function_handlers([
       dict(
           testcase_name='rank1_with_weights_and_binary_y',
           x=['a', 'b', 'a'],
           weights=[1, 1, 2],
           y=[0, 1, 1],
-          expected_results=[[b'a', b'b', b'global_y_count_sentinel'], [3, 1, 4],
-                            [[1, 2], [0, 1], [1, 3]], [2, 1, 3]]),
+          expected_result=tf_utils.ReducedBatchWeightedCounts(
+              [b'a', b'b', b'global_y_count_sentinel'], [3, 1, 4],
+              [[1, 2], [0, 1], [1, 3]], [2, 1, 3])),
       dict(
           testcase_name='rank1_with_weights_and_multi_class_y',
           x=['a', 'b', 'a', 'a'],
           weights=[1, 1, 2, 2],
           y=[0, 2, 1, 1],
-          expected_results=[[b'a', b'b', b'global_y_count_sentinel'], [5, 1, 6],
-                            [[1, 4, 0], [0, 0, 1], [1, 4, 1]], [3, 1, 4]]),
+          expected_result=tf_utils.ReducedBatchWeightedCounts(
+              [b'a', b'b', b'global_y_count_sentinel'], [5, 1, 6],
+              [[1, 4, 0], [0, 0, 1], [1, 4, 1]], [3, 1, 4])),
       dict(
           testcase_name='rank1_with_weights_and_missing_y_values',
           x=['a', 'b', 'a', 'a'],
           weights=[1, 1, 2, 2],
           y=[3, 5, 6, 6],
-          expected_results=[[b'a', b'b', b'global_y_count_sentinel'], [5, 1, 6],
-                            [[0, 0, 0, 1, 0, 0, 4], [0, 0, 0, 0, 0, 1, 0],
-                             [0, 0, 0, 1, 0, 1, 4]], [3, 1, 4]]),
+          expected_result=tf_utils.ReducedBatchWeightedCounts(
+              [b'a', b'b', b'global_y_count_sentinel'], [5, 1, 6],
+              [[0, 0, 0, 1, 0, 0, 4], [0, 0, 0, 0, 0, 1, 0],
+               [0, 0, 0, 1, 0, 1, 4]],
+              [3, 1, 4])),
       dict(
           testcase_name='rank2_with_weights_and_binary_y',
           x=[['a', 'b', 'a'], ['b', 'a', 'b']],
           weights=[[1, 2, 1], [1, 2, 2]],
           y=[[1, 0, 1], [1, 0, 0]],
-          expected_results=[[b'a', b'b', b'global_y_count_sentinel'], [4, 5, 9],
-                            [[2, 2], [4, 1], [6, 3]], [3, 3, 6]]),
+          expected_result=tf_utils.ReducedBatchWeightedCounts(
+              [b'a', b'b', b'global_y_count_sentinel'], [4, 5, 9],
+              [[2, 2], [4, 1], [6, 3]], [3, 3, 6])),
       dict(
           testcase_name='rank3_with_weights_and_binary_y',
           x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
              [['a', 'b', 'a'], ['b', 'a', 'b']]],
           weights=[[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]],
           y=[[[1, 1, 0], [1, 0, 1]], [[1, 0, 1], [1, 0, 1]]],
-          expected_results=[[b'a', b'b', b'global_y_count_sentinel'],
-                            [9, 7, 16], [[6, 3], [2, 5], [8, 8]], [6, 6, 12]]),
-  )
-  @test_util.run_in_graph_and_eager_modes
-  def test_reduce_batch_coocurrences(self, x, weights, y, expected_results):
-    input_specs = [('x', tf.TensorSpec(shape=None, dtype=tf.string)),
-                   ('y', tf.TensorSpec(shape=None, dtype=tf.int64)),
-                   ('weights', tf.TensorSpec(shape=None, dtype=tf.int64))]
+          expected_result=tf_utils.ReducedBatchWeightedCounts(
+              [b'a', b'b', b'global_y_count_sentinel'], [9, 7, 16],
+              [[6, 3], [2, 5], [8, 8]], [6, 6, 12])),
+  ]))
+  def test_reduce_batch_coocurrences(self, x, weights, y, expected_result,
+                                     function_handler):
+    input_signature = [tf.TensorSpec(None, tf.string),
+                       tf.TensorSpec(None, tf.int64),
+                       tf.TensorSpec(None, tf.int64)]
 
-    @test_case.function_handler(input_specs=input_specs)
+    @function_handler(input_signature=input_signature)
     def _reduce_batch_weighted_cooccurrences(x, y, weights):
       return tf_utils.reduce_batch_weighted_cooccurrences(x, y, weights)
 
-    returned_tensors = _reduce_batch_weighted_cooccurrences(x, y, weights)
+    result = _reduce_batch_weighted_cooccurrences(x, y, weights)
 
-    assert len(returned_tensors) == len(expected_results)
-    for result, expected in zip(returned_tensors, expected_results):
-      self.assertAllEqual(result, np.array(expected))
+    self.assertAllEqual(result.unique_x,
+                        expected_result.unique_x)
+    self.assertAllEqual(result.summed_weights_per_x,
+                        expected_result.summed_weights_per_x)
+    self.assertAllEqual(result.summed_positive_per_x_and_y,
+                        expected_result.summed_positive_per_x_and_y)
+    self.assertAllEqual(result.counts_per_x,
+                        expected_result.counts_per_x)
 
-  @test_case.named_parameters(
+  @test_case.named_parameters(test_case.cross_with_function_handlers([
       dict(
           testcase_name='rank1_with_binary_y',
           x=['a', 'b', 'a'],
           y=[0, 1, 1],
-          expected_results=[[b'a', b'b', b'global_y_count_sentinel'], [2, 1, 3],
-                            [[1, 1], [0, 1], [1, 2]], [2, 1, 3]]),
+          expected_result=tf_utils.ReducedBatchWeightedCounts(
+              [b'a', b'b', b'global_y_count_sentinel'], [2, 1, 3],
+              [[1, 1], [0, 1], [1, 2]], [2, 1, 3]),
+          input_signature=[tf.TensorSpec(None, tf.string),
+                           tf.TensorSpec(None, tf.int64)]),
       dict(
           testcase_name='rank1_with_multi_class_y',
           x=['yes', 'no', 'yes', 'maybe', 'yes'],
           y=[1, 1, 0, 2, 3],
-          expected_results=[[
-              b'yes', b'no', b'maybe', b'global_y_count_sentinel'
-          ], [3, 1, 1, 5],
-                            [[1, 1, 0, 1], [0, 1, 0, 0], [0, 0, 1, 0],
-                             [1, 2, 1, 1]], [3, 1, 1, 5]]),
+          expected_result=tf_utils.ReducedBatchWeightedCounts(
+              [b'yes', b'no', b'maybe', b'global_y_count_sentinel'],
+              [3, 1, 1, 5],
+              [[1, 1, 0, 1], [0, 1, 0, 0], [0, 0, 1, 0], [1, 2, 1, 1]],
+              [3, 1, 1, 5]),
+          input_signature=[tf.TensorSpec(None, tf.string),
+                           tf.TensorSpec(None, tf.int64)]),
       dict(
           testcase_name='rank2_with_binary_y',
           x=[['a', 'b', 'a'], ['b', 'a', 'b']],
           y=[[1, 0, 1], [1, 0, 0]],
-          expected_results=[[b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
-                            [[1, 2], [2, 1], [3, 3]], [3, 3, 6]]),
+          expected_result=tf_utils.ReducedBatchWeightedCounts(
+              [b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
+              [[1, 2], [2, 1], [3, 3]], [3, 3, 6]),
+          input_signature=[tf.TensorSpec(None, tf.string),
+                           tf.TensorSpec(None, tf.int64)]),
       dict(
           testcase_name='rank2_with_missing_y_values',
           x=[['a', 'b', 'a'], ['b', 'a', 'b']],
           y=[[2, 0, 2], [2, 0, 0]],
           # The label 1 isn't in the batch but it will have a position (with
           # weights of 0) in the resulting array.
-          expected_results=[[b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
-                            [[1, 0, 2], [2, 0, 1], [3, 0, 3]], [3, 3, 6]]),
+          expected_result=tf_utils.ReducedBatchWeightedCounts(
+              [b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
+              [[1, 0, 2], [2, 0, 1], [3, 0, 3]], [3, 3, 6]),
+          input_signature=[tf.TensorSpec(None, tf.string),
+                           tf.TensorSpec(None, tf.int64)]),
       dict(
           testcase_name='rank2_with_multi_class_y',
           x=[['a', 'b', 'a'], ['b', 'a', 'b']],
           y=[[1, 0, 1], [1, 0, 2]],
-          expected_results=[[b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
-                            [[1, 2, 0], [1, 1, 1], [2, 3, 1]], [3, 3, 6]]),
+          expected_result=tf_utils.ReducedBatchWeightedCounts(
+              [b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
+              [[1, 2, 0], [1, 1, 1], [2, 3, 1]], [3, 3, 6]),
+          input_signature=[tf.TensorSpec(None, tf.string),
+                           tf.TensorSpec(None, tf.int64)]),
       dict(
           testcase_name='rank3_with_binary_y',
           x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
              [['a', 'b', 'a'], ['b', 'a', 'b']]],
           y=[[[1, 1, 0], [1, 0, 1]], [[1, 0, 1], [1, 0, 1]]],
-          expected_results=[[b'a', b'b', b'global_y_count_sentinel'],
-                            [6, 6, 12], [[3, 3], [1, 5], [4, 8]], [6, 6, 12]]),
-  )
-  @test_util.run_in_graph_and_eager_modes
-  def test_reduce_batch_coocurrences_no_weights(self, x, y, expected_results):
-    input_specs = [('x', tf.TensorSpec(shape=None, dtype=tf.string)),
-                   ('y', tf.TensorSpec(shape=None, dtype=tf.int64))]
-
-    @test_case.function_handler(input_specs=input_specs)
+          expected_result=tf_utils.ReducedBatchWeightedCounts(
+              [b'a', b'b', b'global_y_count_sentinel'], [6, 6, 12],
+              [[3, 3], [1, 5], [4, 8]], [6, 6, 12]),
+          input_signature=[tf.TensorSpec(None, tf.string),
+                           tf.TensorSpec(None, tf.int64)]),
+      dict(
+          testcase_name='sparse',
+          x=tf.compat.v1.SparseTensorValue(
+              indices=[[0, 0], [2, 1]], values=['a', 'b'], dense_shape=[4, 2]),
+          y=[0, 1, 0, 0],
+          expected_result=tf_utils.ReducedBatchWeightedCounts(
+              [b'a', b'b', b'global_y_count_sentinel'], [1, 1, 4],
+              [[1, 0], [1, 0], [3, 1]], [1, 1, 4]),
+          input_signature=[tf.SparseTensorSpec([None, 2], tf.string),
+                           tf.TensorSpec([None], tf.int64)]),
+      dict(
+          testcase_name='empty_sparse',
+          x=tf.compat.v1.SparseTensorValue(
+              indices=np.empty([0, 2]), values=[], dense_shape=[4, 2]),
+          y=[1, 0, 1, 1],
+          expected_result=tf_utils.ReducedBatchWeightedCounts(
+              [b'global_y_count_sentinel'], [4], [[1, 3]], [4]),
+          input_signature=[tf.SparseTensorSpec([None, 2], tf.string),
+                           tf.TensorSpec([None], tf.int64)]),
+  ]))
+  def test_reduce_batch_coocurrences_no_weights(
+      self, x, y, expected_result, input_signature, function_handler):
+    @function_handler(input_signature=input_signature)
     def _reduce_batch_weighted_cooccurrences_no_weights(x, y):
       return tf_utils.reduce_batch_weighted_cooccurrences(x, y)
 
-    returned_tensors = _reduce_batch_weighted_cooccurrences_no_weights(x, y)
+    result = _reduce_batch_weighted_cooccurrences_no_weights(x, y)
 
-    assert len(returned_tensors) == len(expected_results)
-    for result, expected in zip(returned_tensors, expected_results):
-      self.assertAllEqual(result, np.array(expected))
-
-  def test_reduce_batch_coocurrences_sparse_tensor(self):
-    x = tf.SparseTensor(
-        indices=[(0, 0), (2, 1)], values=['a', 'b'], dense_shape=[4, 2])
-    y = tf.constant([0, 1, 0, 0], dtype=tf.int64)
-    expected_results = [[b'a', b'b', b'global_y_count_sentinel'], [1, 1, 4],
-                        [[1, 0], [1, 0], [3, 1]], [1, 1, 4]]
-    returned_tensors = (
-        tf_utils.reduce_batch_weighted_cooccurrences(x, y, None))
-    with tf.compat.v1.Session() as sess:
-      results = sess.run(returned_tensors)
-      for result, expected in zip(results, expected_results):
-        self.assertAllEqual(result, np.array(expected))
-
-  def test_reduce_batch_coocurrences_empty_sparse_tensor(self):
-    x = tf.SparseTensor(
-        indices=tf.constant([], shape=(0, 2), dtype=tf.int64),
-        values=tf.constant([], shape=(0,), dtype=tf.string),
-        dense_shape=[4, 2])
-    y = tf.constant([1, 0, 1, 1], dtype=tf.int64)
-    expected_results = [[b'global_y_count_sentinel'], [4], [[1, 3]], [4]]
-    returned_tensors = (
-        tf_utils.reduce_batch_weighted_cooccurrences(x, y, None))
-    with tf.compat.v1.Session() as sess:
-      results = sess.run(returned_tensors)
-      for result, expected in zip(results, expected_results):
-        self.assertAllEqual(result, np.array(expected))
+    self.assertAllEqual(result.unique_x,
+                        expected_result.unique_x)
+    self.assertAllEqual(result.summed_weights_per_x,
+                        expected_result.summed_weights_per_x)
+    self.assertAllEqual(result.summed_positive_per_x_and_y,
+                        expected_result.summed_positive_per_x_and_y)
+    self.assertAllEqual(result.counts_per_x,
+                        expected_result.counts_per_x)
 
   @test_case.parameters(
       ([[1], [2]], [[1], [2], [3]], None, None, tf.errors.InvalidArgumentError,
@@ -226,35 +283,25 @@ class TFUtilsTest(test_case.TransformTestCase):
   def test_same_shape_exceptions(self, x_input, y_input, x_shape, y_shape,
                                  exception_cls, error_string):
 
-    x = tf.compat.v1.placeholder(tf.int32, shape=x_shape)
-    y = tf.compat.v1.placeholder(tf.int32, shape=y_shape)
+    x = tf.compat.v1.placeholder(tf.int32, x_shape)
+    y = tf.compat.v1.placeholder(tf.int32, y_shape)
     with tf.compat.v1.Session() as sess:
       with self.assertRaisesRegexp(exception_cls, error_string):
         sess.run(tf_utils.assert_same_shape(x, y), {x: x_input, y: y_input})
 
-  @test_util.run_in_graph_and_eager_modes
-  def test_same_shape(self):
-    input_specs = [('x', tf.TensorSpec(shape=None, dtype=tf.int64)),
-                   ('y', tf.TensorSpec(shape=None, dtype=tf.int64))]
+  @test_case.named_parameters(test_case.FUNCTION_HANDLERS)
+  def test_same_shape(self, function_handler):
+    input_signature = [tf.TensorSpec(None, tf.int64),
+                       tf.TensorSpec(None, tf.int64)]
 
-    @test_case.function_handler(input_specs=input_specs)
+    @function_handler(input_signature=input_signature)
     def _assert_shape(x, y):
-      return tf_utils.assert_same_shape(x, y)
+      x_return, _ = tf_utils.assert_same_shape(x, y)
+      return x_return
 
     input_list = [[1], [2], [3]]
-    x_return, _ = _assert_shape(input_list, input_list)
+    x_return = _assert_shape(input_list, input_list)
     self.assertAllEqual(x_return, input_list)
-
-  @test_util.run_in_graph_and_eager_modes
-  def test_reduce_batch_count(self):
-    x = [[[1], [2]], [[1], [2]]]
-    input_specs = [('x', tf.TensorSpec(shape=None, dtype=tf.int64))]
-
-    @test_case.function_handler(input_specs=input_specs)
-    def _reduce_batch_count(x):
-      return tf_utils.reduce_batch_count(x, reduce_instance_dims=True)
-
-    self.assertAllEqual(_reduce_batch_count(x), 4)
 
   def test_lookup_key(self):
     keys = tf.constant(['a', 'a', 'a', 'b', 'b', 'b', 'b'])
@@ -265,289 +312,317 @@ class TFUtilsTest(test_case.TransformTestCase):
       output = sess.run(key_indices)
       self.assertAllEqual([0, 0, 0, 1, 1, 1, 1], output)
 
-  @test_util.run_in_graph_and_eager_modes
-  def test_reduce_batch_count_elementwise(self):
-    x = [[[1], [2]], [[1], [2]]]
-    input_specs = [('x', tf.TensorSpec(shape=None, dtype=tf.int64))]
-
-    @test_case.function_handler(input_specs=input_specs)
-    def _reduce_batch_count(x):
-      return tf_utils.reduce_batch_count(x, reduce_instance_dims=False)
-
-    self.assertAllEqual(_reduce_batch_count(x), [[2], [2]])
-
-  def test_reduce_batch_count_sparse(self):
-    x = tf.SparseTensor(
-        indices=[[0, 0, 0], [0, 2, 0], [1, 1, 0], [1, 2, 0]],
-        values=[1., 2., 3., 4.],
-        dense_shape=[2, 4, 1])
-    with tf.compat.v1.Session():
-      self.assertAllEqual(
-          tf_utils.reduce_batch_count(x, reduce_instance_dims=True).eval(), 4)
-
-  def test_reduce_batch_count_sparse_elementwise(self):
-    x = tf.SparseTensor(
-        indices=[[0, 0, 0], [0, 2, 0], [1, 1, 0], [1, 2, 0]],
-        values=[1., 2., 3., 4.],
-        dense_shape=[2, 4, 1])
-    with tf.compat.v1.Session():
-      self.assertAllEqual(
-          tf_utils.reduce_batch_count(x, reduce_instance_dims=False).eval(),
-          [[1], [1], [2], [0]])
-
-  @test_util.run_in_graph_and_eager_modes
-  def test_reduce_batch_count_mean_and_var(self):
-    x = [[[1], [2]], [[3], [4]]]
-    input_specs = [('x', tf.TensorSpec(shape=None, dtype=tf.float32))]
-
-    @test_case.function_handler(input_specs=input_specs)
-    def _reduce_batch_count_mean_and_var(x):
-      return tf_utils.reduce_batch_count_mean_and_var(x,
-                                                      reduce_instance_dims=True)
-
-    count, mean, var = _reduce_batch_count_mean_and_var(x)
-    self.assertAllEqual(count, 4)
-    self.assertAllEqual(mean, 2.5)
-    self.assertAllEqual(var, 1.25)
-
-  @test_util.run_in_graph_and_eager_modes
-  def test_reduce_batch_count_mean_and_var_elementwise(self):
-    x = [[[1], [2]], [[3], [4]]]
-    input_specs = [('x', tf.TensorSpec(shape=None, dtype=tf.float32))]
-
-    @test_case.function_handler(input_specs=input_specs)
-    def _reduce_batch_count_mean_and_var(x):
-      return tf_utils.reduce_batch_count_mean_and_var(
-          x, reduce_instance_dims=False)
-
-    count, mean, var = _reduce_batch_count_mean_and_var(x)
-
-    self.assertAllEqual(count, [[2.], [2.]])
-    self.assertAllEqual(mean, [[2.], [3.]])
-    self.assertAllEqual(var, [[1.], [1.]])
-
-  def test_reduce_batch_count_mean_and_var_sparse(self):
-    x = tf.SparseTensor(
-        indices=[[0, 0], [0, 2], [1, 1], [1, 2]],
-        values=[1., 2., 3., 4.],
-        dense_shape=[2, 4])
-    count, mean, var = tf_utils.reduce_batch_count_mean_and_var(
-        x, reduce_instance_dims=True)
-    with tf.compat.v1.Session():
-      self.assertAllEqual(count.eval(), 4)
-      self.assertAllEqual(mean.eval(), 2.5)
-      self.assertAllEqual(var.eval(), 1.25)
-
-  def test_reduce_batch_count_mean_and_var_sparse_elementwise(self):
-    x = tf.SparseTensor(
-        indices=[[0, 0], [0, 3], [1, 1], [1, 3]],
-        values=[1., 2., 3., 4.],
-        dense_shape=[2, 5])
-    count, mean, var = tf_utils.reduce_batch_count_mean_and_var(
-        x, reduce_instance_dims=False)
-    with tf.compat.v1.Session():
-      self.assertAllEqual(count.eval(), [1.0, 1.0, 0.0, 2.0, 0.0])
-      self.assertAllEqual(mean.eval(), [1.0, 3.0, 0.0, 3.0, 0.0])
-      self.assertAllEqual(var.eval(), [0.0, 0.0, 0.0, 1.0, 0.0])
-
-  @test_util.run_in_graph_and_eager_modes
-  def test_reduce_batch_count_mean_and_var_per_key(self):
-    x = [[1], [2], [3], [4], [4]]
-    key = ['a', 'a', 'a', 'b', 'a']
-    input_specs = [('x', tf.TensorSpec(shape=[5, 1], dtype=tf.float32)),
-                   ('key', tf.TensorSpec(shape=[5], dtype=tf.string))]
-
-    @test_case.function_handler(input_specs=input_specs)
-    def _reduce_batch_count_mean_and_var_per_key(x, key):
-      return tf_utils.reduce_batch_count_mean_and_var_per_key(
-          x, key, reduce_instance_dims=True)
-
-    key_vocab, count, mean, var = _reduce_batch_count_mean_and_var_per_key(x,
-                                                                           key)
-    self.assertAllEqual(key_vocab, tf.constant(['a', 'b']))
-    self.assertAllEqual(count, [4., 1.])
-    self.assertAllEqual(mean, [2.5, 4.])
-    self.assertAllEqual(var, [1.25, 0.])
-
-  @test_util.run_in_graph_and_eager_modes
-  def test_reduce_batch_count_mean_and_var_per_key_elementwise(self):
-    x = [[1, 2], [3, 4], [1, 2]]
-    key = ['a', 'a', 'b']
-    input_specs = [('x', tf.TensorSpec(shape=[3, 2], dtype=tf.float32)),
-                   ('key', tf.TensorSpec(shape=[3], dtype=tf.string))]
-
-    @test_case.function_handler(input_specs=input_specs)
-    def _reduce_batch_count_mean_and_var_per_key(x, key):
-      return tf_utils.reduce_batch_count_mean_and_var_per_key(
-          x, key, reduce_instance_dims=False)
-
-    key_vocab, count, mean, var = _reduce_batch_count_mean_and_var_per_key(x,
-                                                                           key)
-
-    self.assertAllEqual(key_vocab, tf.constant(['a', 'b']))
-    self.assertAllEqual(count, [[2., 2.], [1., 1.]])
-    self.assertAllEqual(mean, [[2., 3.], [1., 2.]])
-    self.assertAllEqual(var, [[1., 1.], [0., 0.]])
-
-  def test_reduce_batch_count_mean_and_var_per_key_sparse(self):
-    x = tf.SparseTensor(
-        indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 3]],
-        values=[1., 2., 3., 4., 4.],
-        dense_shape=[3, 4])
-    key = tf.SparseTensor(
-        indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 3]],
-        values=['a', 'a', 'a', 'a', 'b'],
-        dense_shape=[3, 4])
-    key_vocab, count, mean, var = (
-        tf_utils.reduce_batch_count_mean_and_var_per_key(x, key, True))
-    with tf.compat.v1.Session():
-      self.assertAllEqual(key_vocab.eval(), tf.constant(['a', 'b']))
-      self.assertAllEqual(count.eval(), tf.constant([4, 1]))
-      self.assertAllEqual(mean.eval(), tf.constant([2.5, 4]))
-      self.assertAllEqual(var.eval(), tf.constant([1.25, 0]))
-
-  def test_reduce_batch_count_mean_and_var_per_key_sparse_x_dense_key(self):
-    x = tf.SparseTensor(
-        indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 3]],
-        values=[1., 2., 3., 4., 4.],
-        dense_shape=[3, 4])
-    key = tf.constant(['a', 'a', 'b'], dtype=tf.string)
-    key_vocab, count, mean, var = (
-        tf_utils.reduce_batch_count_mean_and_var_per_key(x, key, True))
-    with tf.compat.v1.Session():
-      self.assertAllEqual(key_vocab.eval(), tf.constant(['a', 'b']))
-      self.assertAllEqual(count.eval(), tf.constant([4, 1]))
-      self.assertAllEqual(mean.eval(), tf.constant([2.5, 4]))
-      self.assertAllEqual(var.eval(), tf.constant([1.25, 0]))
-
-  # pylint: disable=g-long-lambda
-  @test_case.named_parameters(
+  @test_case.named_parameters(test_case.cross_with_function_handlers([
+      dict(
+          testcase_name='dense',
+          x=[[[1], [2]], [[1], [2]]],
+          expected_result=4,
+          reduce_instance_dims=True,
+          input_signature=[tf.TensorSpec(None, tf.int64)]),
+      dict(
+          testcase_name='dense_elementwise',
+          x=[[[1], [2]], [[1], [2]]],
+          expected_result=[[2], [2]],
+          reduce_instance_dims=False,
+          input_signature=[tf.TensorSpec(None, tf.int64)]),
       dict(
           testcase_name='sparse',
-          placeholder_fn=lambda: tf.compat.v1.sparse_placeholder(
-              tf.int64, [None, None]),
-          value=tf.compat.v1.SparseTensorValue(
+          x=tf.compat.v1.SparseTensorValue(
+              indices=[[0, 0, 0], [0, 2, 0], [1, 1, 0], [1, 2, 0]],
+              values=[1., 2., 3., 4.],
+              dense_shape=[2, 4, 1]),
+          expected_result=4,
+          reduce_instance_dims=True,
+          input_signature=[
+              tf.SparseTensorSpec([None, 4, 1], tf.float32)
+          ]),
+      dict(
+          testcase_name='sparse_elementwise',
+          x=tf.compat.v1.SparseTensorValue(
+              indices=[[0, 0, 0], [0, 2, 0], [1, 1, 0], [1, 2, 0]],
+              values=[1., 2., 3., 4.],
+              dense_shape=[2, 4, 1]),
+          expected_result=[[1], [1], [2], [0]],
+          reduce_instance_dims=False,
+          input_signature=[
+              tf.SparseTensorSpec([None, 4, 1], tf.float32)
+          ]),
+  ]))
+  def test_reduce_batch_count(
+      self, x, input_signature, expected_result, reduce_instance_dims,
+      function_handler):
+
+    @function_handler(input_signature=input_signature)
+    def _reduce_batch_count(x):
+      return tf_utils.reduce_batch_count(
+          x, reduce_instance_dims=reduce_instance_dims)
+
+    result = _reduce_batch_count(x)
+    self.assertAllEqual(result, expected_result)
+
+  @test_case.named_parameters(test_case.cross_with_function_handlers([
+      dict(
+          testcase_name='dense',
+          x=[[[1], [2]], [[3], [4]]],
+          expected_count=4,
+          expected_mean=2.5,
+          expected_var=1.25,
+          reduce_instance_dims=True,
+          input_signature=[tf.TensorSpec(None, tf.float32)]),
+      dict(
+          testcase_name='dense_elementwise',
+          x=[[[1], [2]], [[3], [4]]],
+          expected_count=[[2.], [2.]],
+          expected_mean=[[2.], [3.]],
+          expected_var=[[1.], [1.]],
+          reduce_instance_dims=False,
+          input_signature=[tf.TensorSpec(None, tf.float32)]),
+      dict(
+          testcase_name='sparse',
+          x=tf.compat.v1.SparseTensorValue(
+              indices=[[0, 0], [0, 2], [1, 1], [1, 2]],
+              values=[1., 2., 3., 4.],
+              dense_shape=[2, 4]),
+          expected_count=4,
+          expected_mean=2.5,
+          expected_var=1.25,
+          reduce_instance_dims=True,
+          input_signature=[
+              tf.SparseTensorSpec([None, 4], tf.float32)
+          ]),
+      dict(
+          testcase_name='sparse_elementwise',
+          x=tf.compat.v1.SparseTensorValue(
+              indices=[[0, 0], [0, 3], [1, 1], [1, 3]],
+              values=[1., 2., 3., 4.],
+              dense_shape=[2, 5]),
+          expected_count=[1.0, 1.0, 0.0, 2.0, 0.0],
+          expected_mean=[1.0, 3.0, 0.0, 3.0, 0.0],
+          expected_var=[0.0, 0.0, 0.0, 1.0, 0.0],
+          reduce_instance_dims=False,
+          input_signature=[
+              tf.SparseTensorSpec([None, 5], tf.float32)
+          ]),
+  ]))
+  def test_reduce_batch_count_mean_and_var(
+      self, x, input_signature, expected_count, expected_mean, expected_var,
+      reduce_instance_dims, function_handler):
+
+    @function_handler(input_signature=input_signature)
+    def _reduce_batch_count_mean_and_var(x):
+      return tf_utils.reduce_batch_count_mean_and_var(
+          x, reduce_instance_dims=reduce_instance_dims)
+
+    count, mean, var = _reduce_batch_count_mean_and_var(x)
+    self.assertAllEqual(count, expected_count)
+    self.assertAllEqual(mean, expected_mean)
+    self.assertAllEqual(var, expected_var)
+
+  @test_case.named_parameters(test_case.cross_with_function_handlers([
+      dict(
+          testcase_name='dense',
+          x=[[1], [2], [3], [4], [4]],
+          key=['a', 'a', 'a', 'b', 'a'],
+          expected_key_vocab=[b'a', b'b'],
+          expected_count=[4., 1.],
+          expected_mean=[2.5, 4.],
+          expected_var=[1.25, 0.],
+          reduce_instance_dims=True,
+          input_signature=[tf.TensorSpec([None, 1], tf.float32),
+                           tf.TensorSpec([None], tf.string)]),
+      dict(
+          testcase_name='dense_elementwise',
+          x=[[1, 2], [3, 4], [1, 2]],
+          key=['a', 'a', 'b'],
+          expected_key_vocab=[b'a', b'b'],
+          expected_count=[[2., 2.], [1., 1.]],
+          expected_mean=[[2., 3.], [1., 2.]],
+          expected_var=[[1., 1.], [0., 0.]],
+          reduce_instance_dims=False,
+          input_signature=[tf.TensorSpec([None, 2], tf.float32),
+                           tf.TensorSpec([None], tf.string)]),
+      dict(
+          testcase_name='sparse',
+          x=tf.compat.v1.SparseTensorValue(
+              indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 3]],
+              values=[1., 2., 3., 4., 4.],
+              dense_shape=[3, 4]),
+          key=tf.compat.v1.SparseTensorValue(
+              indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 3]],
+              values=['a', 'a', 'a', 'a', 'b'],
+              dense_shape=[3, 4]),
+          expected_key_vocab=[b'a', b'b'],
+          expected_count=[4, 1],
+          expected_mean=[2.5, 4],
+          expected_var=[1.25, 0],
+          reduce_instance_dims=True,
+          input_signature=[tf.SparseTensorSpec([None, 4], tf.float32),
+                           tf.SparseTensorSpec([None, 4], tf.string)]),
+      dict(
+          testcase_name='sparse_x_dense_key',
+          x=tf.compat.v1.SparseTensorValue(
+              indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 3]],
+              values=[1., 2., 3., 4., 4.],
+              dense_shape=[3, 4]),
+          key=['a', 'a', 'b'],
+          expected_key_vocab=[b'a', b'b'],
+          expected_count=[4, 1],
+          expected_mean=[2.5, 4],
+          expected_var=[1.25, 0],
+          reduce_instance_dims=True,
+          input_signature=[tf.SparseTensorSpec([None, 4], tf.float32),
+                           tf.TensorSpec([None], tf.string)]),
+  ]))
+  def test_reduce_batch_count_mean_and_var_per_key(
+      self, x, key, input_signature, expected_key_vocab, expected_count,
+      expected_mean, expected_var, reduce_instance_dims, function_handler):
+
+    @function_handler(input_signature=input_signature)
+    def _reduce_batch_count_mean_and_var_per_key(x, key):
+      return tf_utils.reduce_batch_count_mean_and_var_per_key(
+          x, key, reduce_instance_dims=reduce_instance_dims)
+
+    key_vocab, count, mean, var = _reduce_batch_count_mean_and_var_per_key(
+        x, key)
+
+    self.assertAllEqual(key_vocab, expected_key_vocab)
+    self.assertAllEqual(count, expected_count)
+    self.assertAllEqual(mean, expected_mean)
+    self.assertAllEqual(var, expected_var)
+
+  @test_case.named_parameters(test_case.cross_with_function_handlers([
+      dict(
+          testcase_name='sparse',
+          x=tf.compat.v1.SparseTensorValue(
               indices=[[0, 0], [0, 1], [0, 2]],
               values=[3, 2, -1],
               dense_shape=[1, 5]),
+          expected_x_minus_min=1,
+          expected_x_max=3,
           reduce_instance_dims=True,
-          expected_result=(1, 3)),
+          input_signature=[tf.SparseTensorSpec([None, None], tf.int64)]),
       dict(
           testcase_name='float',
-          placeholder_fn=lambda: tf.compat.v1.placeholder(
-              tf.float32, [None, None]),
-          value=[[1, 5, 2]],
+          x=[[1, 5, 2]],
+          expected_x_minus_min=-1,
+          expected_x_max=5,
           reduce_instance_dims=True,
-          expected_result=(-1, 5)),
+          input_signature=[tf.TensorSpec([None, None], tf.float32)]),
       dict(
           testcase_name='sparse_float_elementwise',
-          placeholder_fn=lambda: tf.compat.v1.sparse_placeholder(
-              tf.float32, [None, None]),
-          value=tf.compat.v1.SparseTensorValue(
+          x=tf.compat.v1.SparseTensorValue(
               indices=[[0, 0], [0, 1], [1, 0]],
               values=[3, 2, -1],
               dense_shape=[2, 3]),
+          expected_x_minus_min=[1, -2, np.nan],
+          expected_x_max=[3, 2, np.nan],
           reduce_instance_dims=False,
-          expected_result=([[1, -2, np.nan], [3, 2, np.nan]])),
+          input_signature=[tf.SparseTensorSpec([None, None], tf.float32)]),
       dict(
           testcase_name='float_elementwise',
-          placeholder_fn=lambda: tf.compat.v1.placeholder(
-              tf.float32, [None, None]),
-          value=[[1, 5, 2], [2, 3, 4]],
+          x=[[1, 5, 2], [2, 3, 4]],
           reduce_instance_dims=False,
-          expected_result=([[-1, -3, -2], [2, 5, 4]])),
+          expected_x_minus_min=[-1, -3, -2],
+          expected_x_max=[2, 5, 4],
+          input_signature=[tf.TensorSpec([None, None], tf.float32)]),
       dict(
           testcase_name='sparse_int64_elementwise',
-          placeholder_fn=lambda: tf.compat.v1.sparse_placeholder(
-              tf.int64, [None, None]),
-          value=tf.compat.v1.SparseTensorValue(
+          x=tf.compat.v1.SparseTensorValue(
               indices=[[0, 0], [0, 1], [1, 0]],
               values=[3, 2, -1],
               dense_shape=[2, 3]),
           reduce_instance_dims=False,
-          expected_result=([[1, -2, tf.int64.min + 1], [3, 2,
-                                                        tf.int64.min + 1]])),
+          expected_x_minus_min=[1, -2, tf.int64.min + 1],
+          expected_x_max=[3, 2, tf.int64.min + 1],
+          input_signature=[tf.SparseTensorSpec([None, None], tf.int64)]),
       dict(
           testcase_name='sparse_int32_elementwise',
-          placeholder_fn=lambda: tf.compat.v1.sparse_placeholder(
-              tf.int32, [None, None]),
-          value=tf.compat.v1.SparseTensorValue(
+          x=tf.compat.v1.SparseTensorValue(
               indices=[[0, 0], [0, 1], [1, 0]],
               values=[3, 2, -1],
               dense_shape=[2, 3]),
           reduce_instance_dims=False,
-          expected_result=([[1, -2, tf.int32.min + 1], [3, 2,
-                                                        tf.int32.min + 1]])),
-      dict(
-          testcase_name='sparse_float32_elementwise',
-          placeholder_fn=lambda: tf.compat.v1.sparse_placeholder(
-              tf.float32, [None, None]),
-          value=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0], [0, 1], [1, 0]],
-              values=[3, 2, -1],
-              dense_shape=[2, 3]),
-          reduce_instance_dims=False,
-          expected_result=([[1, -2, np.nan], [3, 2, np.nan]])),
+          expected_x_minus_min=[1, -2, tf.int32.min + 1],
+          expected_x_max=[3, 2, tf.int32.min + 1],
+          input_signature=[tf.SparseTensorSpec([None, None], tf.int32)]),
       dict(
           testcase_name='sparse_float64_elementwise',
-          placeholder_fn=lambda: tf.compat.v1.sparse_placeholder(
-              tf.float64, [None, None]),
-          value=tf.compat.v1.SparseTensorValue(
+          x=tf.compat.v1.SparseTensorValue(
               indices=[[0, 0], [0, 1], [1, 0]],
               values=[3, 2, -1],
               dense_shape=[2, 3]),
           reduce_instance_dims=False,
-          expected_result=([[1, -2, np.nan], [3, 2, np.nan]])),
-  )
-  # pylint: enable=g-long-lambda
-  def test_reduce_batch_minus_min_and_max(self, placeholder_fn, value,
-                                          reduce_instance_dims,
-                                          expected_result):
-    x = placeholder_fn()
-    batch_minus_min, batch_max = tf_utils.reduce_batch_minus_min_and_max(
-        x, reduce_instance_dims)
+          expected_x_minus_min=[1, -2, np.nan],
+          expected_x_max=[3, 2, np.nan],
+          input_signature=[tf.SparseTensorSpec([None, None], tf.float64)]),
+      dict(
+          testcase_name='sparse_float32_elementwise',
+          x=tf.compat.v1.SparseTensorValue(
+              indices=[[0, 0], [0, 1], [1, 0]],
+              values=[3, 2, -1],
+              dense_shape=[2, 3]),
+          reduce_instance_dims=False,
+          expected_x_minus_min=[1, -2, np.nan],
+          expected_x_max=[3, 2, np.nan],
+          input_signature=[tf.SparseTensorSpec([None, None], tf.float32)]),
+  ]))
+  def test_reduce_batch_minus_min_and_max(
+      self, x, expected_x_minus_min, expected_x_max, reduce_instance_dims,
+      input_signature, function_handler):
 
-    with tf.compat.v1.Session() as sess:
-      result = sess.run([batch_minus_min, batch_max], feed_dict={x: value})
-    self.assertAllEqual(result, expected_result)
+    @function_handler(input_signature=input_signature)
+    def _reduce_batch_minus_min_and_max(x):
+      return tf_utils.reduce_batch_minus_min_and_max(
+          x, reduce_instance_dims=reduce_instance_dims)
 
-  # pylint: disable=g-long-lambda
-  @test_case.named_parameters(
+    x_minus_min, x_max = _reduce_batch_minus_min_and_max(x)
+
+    self.assertAllEqual(x_minus_min, expected_x_minus_min)
+    self.assertAllEqual(x_max, expected_x_max)
+
+  @test_case.named_parameters(test_case.cross_with_function_handlers([
       dict(
           testcase_name='sparse',
-          placeholder_fn=lambda: tf.compat.v1.sparse_placeholder(
-              tf.int64, [None, None]),
-          value=tf.compat.v1.SparseTensorValue(
+          input_signature=[tf.SparseTensorSpec([None, None], tf.int64)],
+          x=tf.compat.v1.SparseTensorValue(
               indices=[[0, 0], [1, 1], [2, 2], [3, 1]],
               values=[3, 2, -1, 3],
               dense_shape=[4, 5]),
-          expected_result=(np.array([b'a', b'b'], np.object), [1, -3], [3, 3])),
+          expected_x_minus_min=[1, -3],
+          expected_x_max=[3, 3]),
       dict(
           testcase_name='float',
-          placeholder_fn=lambda: tf.compat.v1.placeholder(
-              tf.float32, [None, None]),
-          value=[[1], [5], [2], [3]],
-          expected_result=(np.array([b'a', b'b'], np.object), [-1, -3], [5,
-                                                                         3])),
+          input_signature=[tf.TensorSpec([None, None], tf.float32)],
+          x=[[1], [5], [2], [3]],
+          expected_x_minus_min=[-1, -3],
+          expected_x_max=[5, 3]),
       dict(
           testcase_name='float3dims',
-          placeholder_fn=lambda: tf.compat.v1.placeholder(
-              tf.float32, [None, None, None]),
-          value=[[[1, 5], [1, 1]], [[5, 1], [5, 5]], [[2, 2], [2, 5]],
-                 [[3, -3], [3, 3]]],
-          expected_result=(np.array([b'a', b'b'], np.object), [-1, 3], [5, 3])))
-  # pylint: enable=g-long-lambda
-  def test_reduce_batch_minus_min_and_max_per_key(self, placeholder_fn, value,
-                                                  expected_result):
-    x = placeholder_fn()
-    key = tf.constant(['a', 'a', 'a', 'b'])
-    batch_keys, batch_minus_min, batch_max = (
-        tf_utils.reduce_batch_minus_min_and_max_per_key(x, key))
-    with tf.compat.v1.Session() as sess:
-      result = sess.run([batch_keys, batch_minus_min, batch_max],
-                        feed_dict={x: value})
-    self.assertAllEqual(result[0], expected_result[0])
-    self.assertAllEqual(result[1:], expected_result[1:])
+          input_signature=[tf.TensorSpec([None, None, None], tf.float32)],
+          x=[[[1, 5], [1, 1]],
+             [[5, 1], [5, 5]],
+             [[2, 2], [2, 5]],
+             [[3, -3], [3, 3]]],
+          expected_x_minus_min=[-1, 3],
+          expected_x_max=[5, 3]),
+  ]))
+  def test_reduce_batch_minus_min_and_max_per_key(
+      self, x, input_signature, expected_x_minus_min, expected_x_max,
+      function_handler):
+    key = ['a', 'a', 'a', 'b']
+    input_signature = input_signature + [tf.TensorSpec([None], tf.string)]
+    expected_key_vocab = [b'a', b'b']
+
+    @function_handler(input_signature=input_signature)
+    def _reduce_batch_minus_min_and_max_per_key(x, key):
+      return tf_utils.reduce_batch_minus_min_and_max_per_key(x, key)
+
+    key_vocab, x_minus_min, x_max = _reduce_batch_minus_min_and_max_per_key(
+        x, key)
+
+    self.assertAllEqual(key_vocab, expected_key_vocab)
+    self.assertAllEqual(x_minus_min, expected_x_minus_min)
+    self.assertAllEqual(x_max, expected_x_max)
 
   def test_sparse_indices(self):
     exception_cls = tf.errors.InvalidArgumentError
@@ -656,20 +731,22 @@ class TFUtilsTest(test_case.TransformTestCase):
       for result, expected_result in zip(output, expected_results):
         self.assertAllEqual(result, expected_result)
 
-  @test_case.named_parameters(
+  @test_case.named_parameters(test_case.cross_with_function_handlers([
       dict(
           testcase_name='sparse_tensor',
           feature=tf.compat.v1.SparseTensorValue(
               indices=[[0, 0], [0, 1], [0, 2], [1, 0]],
               values=[1., 2., 3., 4.],
               dense_shape=[2, 5]),
+          input_signature=[tf.SparseTensorSpec([None, 5], tf.float32)],
           ascii_protos=[
               'float_list { value: [1.0, 2.0, 3.0] }',
               'float_list { value: [4.0] }',
           ]),
       dict(
           testcase_name='dense_scalar_int',
-          feature=np.array([0, 1, 2], np.int64),
+          feature=[0, 1, 2],
+          input_signature=[tf.TensorSpec([None], tf.int64)],
           ascii_protos=[
               'int64_list { value: [0] }',
               'int64_list { value: [1] }',
@@ -677,7 +754,8 @@ class TFUtilsTest(test_case.TransformTestCase):
           ]),
       dict(
           testcase_name='dense_scalar_float',
-          feature=np.array([0.5, 1.5, 2.5], np.float32),
+          feature=[0.5, 1.5, 2.5],
+          input_signature=[tf.TensorSpec([None], tf.float32)],
           ascii_protos=[
               'float_list { value: [0.5] }',
               'float_list { value: [1.5] }',
@@ -685,34 +763,42 @@ class TFUtilsTest(test_case.TransformTestCase):
           ]),
       dict(
           testcase_name='dense_scalar_string',
-          feature=np.array(['hello', 'world'], np.object),
+          feature=['hello', 'world'],
+          input_signature=[tf.TensorSpec([None], tf.string)],
           ascii_protos=[
               'bytes_list { value: "hello" }',
               'bytes_list { value: "world" }',
           ]),
       dict(
           testcase_name='dense_vector_int',
-          feature=np.array([[0, 1], [2, 3]], np.int64),
+          feature=[[0, 1], [2, 3]],
+          input_signature=[tf.TensorSpec([None, 2], tf.int64)],
           ascii_protos=[
               'int64_list { value: [0, 1] }',
               'int64_list { value: [2, 3] }',
           ]),
       dict(
           testcase_name='dense_matrix_int',
-          feature=np.array([[[0, 1], [2, 3]], [[4, 5], [6, 7]]], np.int64),
+          feature=[[[0, 1], [2, 3]], [[4, 5], [6, 7]]],
+          input_signature=[tf.TensorSpec([None, 2, 2], tf.int64)],
           ascii_protos=[
               'int64_list { value: [0, 1, 2, 3] }',
               'int64_list { value: [4, 5, 6, 7] }',
           ]),
-  )
-  def test_serialize_feature(self, feature, ascii_protos):
-    serialized_features_tensor = tf_utils._serialize_feature(feature)
-    with tf.compat.v1.Session():
-      serialized_features = serialized_features_tensor.eval()
-      feature_proto = tf.train.Feature()
-    self.assertEqual(len(serialized_features), len(ascii_protos))
+  ]))
+  def test_serialize_feature(
+      self, feature, input_signature, ascii_protos, function_handler):
+
+    @function_handler(input_signature=input_signature)
+    def _serialize_feature(feature):
+      return tf_utils._serialize_feature(feature)
+
+    serialized_features = _serialize_feature(feature)
+
+    self.assertEqual(len(ascii_protos), len(serialized_features))
     for ascii_proto, serialized_feature in zip(ascii_protos,
                                                serialized_features):
+      feature_proto = tf.train.Feature()
       feature_proto.ParseFromString(serialized_feature)
       self.assertProtoEquals(ascii_proto, feature_proto)
 
@@ -769,7 +855,7 @@ class TFUtilsTest(test_case.TransformTestCase):
         unique_x=tf.constant(['foo', 'bar']),
         summed_weights_per_x=tf.constant([2.0, 4.0]),
         summed_positive_per_x_and_y=tf.constant([[1.0, 3.0], [1.0, 1.0]]),
-        counts_per_x=tf.constant([2, 4], dtype=tf.int64))
+        counts_per_x=tf.constant([2, 4], tf.int64))
     y = tf.constant([0, 1, 1, 1, 0, 1, 1], tf.int64)
     extended_batch = tf_utils.extend_reduced_batch_with_y_counts(
         initial_reduction, y)

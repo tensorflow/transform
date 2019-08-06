@@ -29,6 +29,9 @@ import numpy as np
 import six
 import tensorflow as tf
 
+import unittest
+from tensorflow.python.eager import context  # pylint: disable=g-direct-tensorflow-import
+
 main = tf.test.main
 
 named_parameters = parameterized.named_parameters
@@ -98,64 +101,123 @@ def parameters(*testcases):
   return wrapper
 
 
-def function_handler(input_specs=None):
-  """Run the given function with one of several possible modes and specs.
+def _make_placeholder(tensor_spec):
+  """Create a placeholder for the given tensor_spec."""
 
-  We want to test functions in at least these three modes:
-  1. In 1.x graph mode, utilizing placeholders
-  2. In 2.x graph mode
-  3. In 2.x eager mode, utilizing tf.function
+  if isinstance(tensor_spec, tf.SparseTensorSpec):
+    return tf.compat.v1.sparse_placeholder(
+        shape=tensor_spec._shape, dtype=tensor_spec._dtype)  # pylint: disable=protected-access
+  else:
+    return tf.compat.v1.placeholder(
+        shape=tensor_spec.shape, dtype=tensor_spec.dtype)  # pylint: disable=protected-access
 
-  Since placeholders/sessions do not exist in their traditional sense in TF 2.0,
-  we need to break out how we manage the inputs here. In practice, that means we
-  assign placeholders with the same properties as each input_spec in 1.x, set up
-  a tf.function with those input_specs in eager mode.
+
+def _graph_function_handler(input_signature):
+  """Run the given function in graph mode, utilizing placeholders.
 
   Args:
-    input_specs: A list of (str, `tf.TensorSpec`) tuples that specify input to
-      fn, along with the name of each arg. Must be in correct order.
+    input_signature: A possibly nested sequence of `tf.TensorSpec` objects
+      specifying the shapes and dtypes of the Tensors that will be supplied to
+      this function.
 
   Returns:
-    A wrapper function that accepts arguments specified by *input_specs.
-
-  Note: using tf.function requires the inputs to be in correct order, as
-  input_signature can only be a list.
+    A wrapper function that accepts arguments specified by `input_signature`.
   """
   def wrapper(fn):
-    """Runs either in eager mode with constants or a graph with placeholders."""
-
-    def _map_tf_constant(*inputs):
-      constant_inputs = []
-      assert len(inputs) == len(input_specs)
-      for value, spec in zip(inputs, input_specs):
-
-        constant_input = tf.constant(value, dtype=spec[1].dtype)
-        constant_input.shape.assert_is_compatible_with(spec[1].shape)
-        constant_inputs.append(constant_input)
-
-      return fn(*constant_inputs)
-
-    if tf.executing_eagerly():
-      return _map_tf_constant
-
-    else:
-      placeholders = {}
-      for input_name, input_spec in input_specs:
-        placeholders[input_name] = tf.compat.v1.placeholder(
-            shape=input_spec.shape, dtype=input_spec.dtype, name=input_name)
-
-      def _session_function(*feed_list):
-        assert len(input_specs) == len(feed_list)
-        result = fn(**placeholders)
+    """Decorator that runs decorated function in graph mode."""
+    def _run_graph(*inputs):
+      with context.graph_mode():  # pylint: disable=missing-docstring
+        assert len(input_signature) == len(inputs)
+        placeholders = list(map(_make_placeholder, input_signature))
+        output_tensor = fn(*placeholders)
         with tf.compat.v1.Session() as sess:
-          return sess.run(
-              result,
-              feed_dict=dict((placeholders[input_name], value) for (
-                  (input_name, _), value) in zip(input_specs, feed_list)))
+          return sess.run(output_tensor,
+                          feed_dict=dict(zip(placeholders, inputs)))
 
-      return _session_function
-
+    return _run_graph
   return wrapper
+
+
+def _wrap_as_constant(value, tensor_spec):
+  """Wrap a value as a constant, using tensor_spec for shape and type info."""
+  if isinstance(tensor_spec, tf.SparseTensorSpec):
+    result = tf.SparseTensor(indices=tf.constant(value.indices, dtype=tf.int64),
+                             values=tf.constant(value.values,
+                                                dtype=tensor_spec._dtype),  # pylint: disable=protected-access
+                             dense_shape=tf.constant(value.dense_shape,
+                                                     dtype=tf.int64))
+  else:
+    result = tf.constant(value, dtype=tensor_spec.dtype)
+    result.shape.assert_is_compatible_with(tensor_spec.shape)
+  return result
+
+
+def _eager_function_handler(input_signature):
+  """Run the given function in eager mode.
+
+  Args:
+    input_signature: A possibly nested sequence of `tf.TensorSpec` objects
+      specifying the shapes and dtypes of the Tensors that will be supplied to
+      this function.
+
+  Returns:
+    A wrapper function that accepts arguments specified by `input_signature`.
+  """
+  def wrapper(fn):
+    """Decorator that runs decorated function in eager mode."""
+    def _run_eagerly(*inputs):  # pylint: disable=missing-docstring
+      with context.eager_mode():
+        constants = [_wrap_as_constant(value, tensor_spec)
+                     for value, tensor_spec in zip(inputs, input_signature)]
+        output = fn(*constants)
+        if hasattr(output, '_make'):
+          return output._make([tensor.numpy() for tensor in output])
+        if isinstance(output, (tuple, list)):
+          return [tensor.numpy() for tensor in output]
+        else:
+          return output.numpy()
+    return _run_eagerly
+  return wrapper
+
+
+def _tf_function_function_handler(input_signature):
+  """Call function in eager mode, but also wrapped in `tf.function`."""
+  for tensor_spec in input_signature:
+    if isinstance(tensor_spec, tf.SparseTensorSpec) and tf.__version__ < '1.15':
+      raise unittest.SkipTest(
+          'TensorFlow version 1.14 and below does not support a SparseTensor '
+          'as an input to `tf.function`')
+  def wrapper(fn):
+    wrapped_fn = tf.function(fn, input_signature)
+    return _eager_function_handler(input_signature)(wrapped_fn)
+  return wrapper
+
+
+FUNCTION_HANDLERS = [
+    dict(testcase_name='graph',
+         function_handler=_graph_function_handler),
+    dict(testcase_name='eager',
+         function_handler=_eager_function_handler),
+    dict(testcase_name='tf_function',
+         function_handler=_tf_function_function_handler)
+]
+
+
+def cross_with_function_handlers(parameters_list):
+  """Cross named parameters with all function handlers.
+
+  Takes a list of parameters suitable as an input to @named_parameters,
+  and crosses it with the set of function handlers.
+  A parameterized test function that uses this should have a parameter named
+  `function_handler`.
+
+  Args:
+    parameters_list: A list of dicts.
+
+  Returns:
+    A list of dicts.
+  """
+  return cross_named_parameters(parameters_list, FUNCTION_HANDLERS)
 
 
 class TransformTestCase(parameterized.TestCase, tf.test.TestCase):
