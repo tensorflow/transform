@@ -39,6 +39,8 @@ from tensorflow_transform import test_case
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
 
+_TEST_CACHE_VERSION = analyzer_cache._CACHE_VERSION
+
 
 def _get_counter_value(metrics, name):
   metric = metrics.query(
@@ -88,7 +90,8 @@ _OPTIMIZE_TRAVERSAL_COMMON_CASE = dict(
     },
     preprocessing_fn=_preprocessing_fn_for_common_optimize_traversal,
     dataset_input_cache_dict={
-        b'__v0__CacheableCombineAccumulate[x/mean_and_var]-/Y\xe8\xd6\x1a\xb8OxZ_\xb4\xbes\x17AK&mXg':
+        _TEST_CACHE_VERSION +
+        b'CacheableCombineAccumulate[x/mean_and_var]-/Y\xe8\xd6\x1a\xb8OxZ_\xb4\xbes\x17AK&mXg':
             'cache hit',
     },
     expected_dot_graph_str=r"""digraph G {
@@ -392,13 +395,17 @@ class CachedImplTest(test_case.TransformTestCase):
           list(itertools.chain(*input_data_dict.values())))
       cache_dict = {
           span_0_key: {
-              b'__v0__CacheableCombineAccumulate[x_1/mean_and_var]-.\xc4t>ZBv\xea\xa5SU\xf4\x065\xc6\x1c\x81W\xf9\x1b':
+              _TEST_CACHE_VERSION +
+              b'CacheableCombineAccumulate[x_1/mean_and_var]-.\xc4t>ZBv\xea\xa5SU\xf4\x065\xc6\x1c\x81W\xf9\x1b':
                   p | 'CreateA' >> beam.Create([b'[2.0, 1.0, 9.0, 0.0]']),
-              b'__v0__CacheableCombineAccumulate[x/x]-~\xa7\\\xcc\x16\xcd\xcd\x8b\x1c\xf2V\xa9\xfa\xb1\xbf\xeb\x07j\x7f\x83':
+              _TEST_CACHE_VERSION +
+              b'CacheableCombineAccumulate[x/x]-~\xa7\\\xcc\x16\xcd\xcd\x8b\x1c\xf2V\xa9\xfa\xb1\xbf\xeb\x07j\x7f\x83':
                   p | 'CreateB' >> beam.Create([b'[2.0, 4.0]']),
-              b'__v0__CacheableCombineAccumulate[y_1/mean_and_var]-E^\xb7VZ\xeew4rm\xab\xa3\xa4k|J\x80ck\x16':
+              _TEST_CACHE_VERSION +
+              b'CacheableCombineAccumulate[y_1/mean_and_var]-E^\xb7VZ\xeew4rm\xab\xa3\xa4k|J\x80ck\x16':
                   p | 'CreateC' >> beam.Create([b'[2.0, -1.5, 6.25, 0.0]']),
-              b'__v0__CacheableCombineAccumulate[y/y]-i4\xf9\xf4\x00\x02G\x9ccy@\x7f\x0eu\x8eb\x0f\xf7\xdf\xf5':
+              _TEST_CACHE_VERSION +
+              b'CacheableCombineAccumulate[y/y]-i4\xf9\xf4\x00\x02G\x9ccy@\x7f\x0eu\x8eb\x0f\xf7\xdf\xf5':
                   p | 'CreateD' >> beam.Create([b'[4.0, 1.0]']),
           },
           span_1_key: {},
@@ -690,7 +697,8 @@ class CachedImplTest(test_case.TransformTestCase):
 
       cache_dict = {
           span_0_key: {
-              b'__v0__VocabularyAccumulate[compute_and_apply_vocabulary/vocabulary]-\x05e\xfe4\x03H.P\xb5\xcb\xd22\xe3\x16\x15\xf8\xf5\xe38\xd9':
+              _TEST_CACHE_VERSION +
+              b'VocabularyAccumulate[compute_and_apply_vocabulary/vocabulary]-\x05e\xfe4\x03H.P\xb5\xcb\xd22\xe3\x16\x15\xf8\xf5\xe38\xd9':
                   p | 'CreateB' >> beam.Create(
                       [b'[-2, 2]', b'[-4, 1]', b'[-1, 1]', b'[4, 1]']),
           },
@@ -797,21 +805,24 @@ class CachedImplTest(test_case.TransformTestCase):
           transform_fn_with_cache_dir)
 
       expected_accumulators = {
-          b'__v0__VocabularyAccumulate[vocabulary]-LM\xf9/\xdb\xa9e\x82\xa9F\x8e\xab\xbe\xd7}\x9d\xd1Ln\xe9':
+          _TEST_CACHE_VERSION +
+          b'VocabularyAccumulate[vocabulary]-LM\xf9/\xdb\xa9e\x82\xa9F\x8e\xab\xbe\xd7}\x9d\xd1Ln\xe9':
               [
                   b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
                   b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]',
                   b'["global_y_count_sentinel", [4, [0.25, 0.75], [0.0, 0.0], '
                   b'1.0]]'
               ],
-          b'__v0__VocabularyAccumulate[vocabulary_1]-\xd1{\tU\xb8\x95\x0c\x01\x1c:\xceD\xb1h\xe7\xd9`\t\xc1\xfc':
+          _TEST_CACHE_VERSION +
+          b'VocabularyAccumulate[vocabulary_1]-\xd1{\tU\xb8\x95\x0c\x01\x1c:\xceD\xb1h\xe7\xd9`\t\xc1\xfc':
               [
                   b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
                   b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]',
                   b'["global_y_count_sentinel", [4, [0.25, 0.75], [0.0, 0.0], '
                   b'1.0]]'
               ],
-          b'__v0__VocabularyAccumulate[vocabulary_2]-\xef\x13\x90\xeaj\x15fB\x17\xab^\xb08O\x1a+C\xf8"s':
+          _TEST_CACHE_VERSION +
+          b'VocabularyAccumulate[vocabulary_2]-\xef\x13\x90\xeaj\x15fB\x17\xab^\xb08O\x1a+C\xf8"s':
               [b'["a", 1.5]', b'["b", 1.75]'],
       }
       spans = [span_0_key, span_1_key]

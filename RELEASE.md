@@ -4,6 +4,7 @@
 ## Major Features and Improvements
 
 ## Bug Fixes and Other Changes
+* Existing analyzer cache is invalidated.
 
 ## Breaking changes
 

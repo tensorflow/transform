@@ -19,6 +19,7 @@ from __future__ import print_function
 
 import os
 import re
+import sys
 
 # GOOGLE-INITIALIZATION
 
@@ -29,7 +30,9 @@ import tensorflow as tf
 
 # This should be advanced whenever a non-backwards compatible change is made
 # that affects analyzer cache. For example, changing accumulator format.
-_CACHE_VERSION = b'__v0__'
+_CACHE_VERSION_NUMBER = 0
+_CACHE_VERSION = tf.compat.as_bytes('__v{}__{}.{}_'.format(
+    _CACHE_VERSION_NUMBER, sys.version_info.major, sys.version_info.minor))
 
 
 def _get_dataset_cache_path(base_dir, dataset_key):
@@ -59,7 +62,11 @@ class _ManifestFile(object):
 
   def _get_manifest_contents(self, manifest_file_handle):
     manifest_file_handle.seek(0)
-    return pickler.loads(manifest_file_handle.read())
+    try:
+      return pickler.loads(manifest_file_handle.read())
+    except ValueError as e:
+      tf.logging.error('Can\'t load cache manifest contents: %s', str(e))
+      return {}
 
   def read(self):
     if not tf.io.gfile.exists(self._manifest_path):
