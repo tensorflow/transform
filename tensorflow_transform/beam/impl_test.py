@@ -2000,1024 +2000,766 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_transformed_data,
         expected_metadata)
 
-  @tft_unit.named_parameters(
-      dict(
-          testcase_name='string_feature_k2',
-          feature_label_pairs=[
-              (b'hello', 1),
-              (b'hello', 1),
-              (b'hello', 1),
-              (b'goodbye', 1),
-              (b'aaaaa', 1),
-              (b'aaaaa', 1),
-              (b'goodbye', 0),
-              (b'goodbye', 0),
-              (b'aaaaa', 1),
-              (b'aaaaa', 1),
-              (b'goodbye', 1),
-              (b'goodbye', 0),
-          ],
-          feature_dtype=tf.string,
-          expected_data=[-1, -1, -1, 0, 1, 1, 0, 0, 0, 1, 1, 0],
-          k=2,
-      ),
-      dict(
-          testcase_name='string_feature_k1',
-          feature_label_pairs=[
-              (b'hello', 1),
-              (b'hello', 1),
-              (b'hello', 1),
-              (b'goodbye', 1),
-              (b'aaaaa', 1),
-              (b'aaaaa', 1),
-              (b'goodbye', 0),
-              (b'goodbye', 0),
-              (b'aaaaa', 1),
-              (b'aaaaa', 1),
-              (b'goodbye', 1),
-              (b'goodbye', 0),
-          ],
-          feature_dtype=tf.string,
-          expected_data=[-1, -1, -1, 0, -1, -1, 0, 0, 0, -1, -1, 0],
-          k=1,
-      ),
-      dict(
-          testcase_name='int64_feature_k2',
-          feature_label_pairs=[
-              (3, 1),
-              (3, 1),
-              (3, 1),
-              (1, 1),
-              (2, 1),
-              (2, 1),
-              (1, 0),
-              (1, 0),
-              (2, 1),
-              (2, 1),
-              (1, 1),
-              (1, 0),
-          ],
-          feature_dtype=tf.int64,
-          expected_data=[-1, -1, -1, 0, 1, 1, 0, 0, 0, 1, 1, 0],
-          k=2,
-      ))
-  def testVocabularyAnalyzerWithLabelsAndTopK(self,
-                                              feature_label_pairs,
-                                              feature_dtype,
-                                              expected_data,
-                                              k=2):
-    input_data = []
-    for feature, label in feature_label_pairs:
-      input_data.append({'a': feature, 'label': label})
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a': tf.io.FixedLenFeature([], feature_dtype),
-        'label': tf.io.FixedLenFeature([], tf.int64)
-    })
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index': tf.io.FixedLenFeature([], tf.int64),
-    }, {'index': schema_pb2.IntDomain(min=-1, max=k - 1, is_categorical=True)})
+  # From testVocabularyAnalyzerEmptyVocab
+  _EMPTY_VOCABULARY_PARAMS = tft_unit.cross_named_parameters(
+      [
+          dict(testcase_name='string',
+               x_data=['a', 'b'],
+               x_feature_spec=tf.io.FixedLenFeature([], tf.string)),
+          dict(testcase_name='int64',
+               x_data=[1, 2],
+               x_feature_spec=tf.io.FixedLenFeature([], tf.int64)),
+      ],
+      [
+          dict(testcase_name='empty_vocabulary',
+               index_data=[-1, -1],
+               index_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+               index_domain=schema_pb2.IntDomain(min=-1, max=0,
+                                                 is_categorical=True),
+               frequency_threshold=5),
+      ])
+
+  @tft_unit.named_parameters([
+      # NOTE: Since these tests are a refactoring of existing tests, each test
+      # case parameter (or parameters where the original test was parameterized
+      # or tested multiple calls to tft.compute_and_apply_vocabulary) has a
+      # comment indicating the test case that it is based on.  This preserves
+      # the ability to track the proveance of the test case parameters in the
+      # git history.
+      # TODO(KesterTong): Remove these annotations and the above comment.
+      # From testVocabularyAnalyzerWithLabelsAndTopK
+      dict(testcase_name='string_feature_with_label_top_2',
+           x_data=[b'hello', b'hello', b'hello', b'goodbye', b'aaaaa',
+                   b'aaaaa', b'goodbye', b'goodbye', b'aaaaa', b'aaaaa',
+                   b'goodbye', b'goodbye'],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           label_data=[1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_data=[-1, -1, -1, 0, 1, 1, 0, 0, 0, 1, 1, 0],
+           index_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-1, max=1,
+                                             is_categorical=True),
+           top_k=2),
+      dict(testcase_name='string_feature_with_label_top_1',
+           x_data=[b'hello', b'hello', b'hello', b'goodbye', b'aaaaa',
+                   b'aaaaa', b'goodbye', b'goodbye', b'aaaaa', b'aaaaa',
+                   b'goodbye', b'goodbye'],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           label_data=[1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_data=[-1, -1, -1, 0, -1, -1, 0, 0, 0, -1, -1, 0],
+           index_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-1, max=0,
+                                             is_categorical=True),
+           top_k=1),
+      dict(testcase_name='int_feature_with_label_top_2',
+           x_data=[3, 3, 3, 1, 2, 2, 1, 1, 2, 2, 1, 1],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           label_data=[1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_data=[-1, -1, -1, 0, 1, 1, 0, 0, 0, 1, 1, 0],
+           index_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-1, max=1,
+                                             is_categorical=True),
+           top_k=2),
+      # From testVocabularyAnalyzerWithMultiDimensionalInputs
+      dict(testcase_name='varlen_feature',
+           x_data=[[b'world', b'hello', b'hello'], [b'hello', b'world', b'foo'],
+                   [], [b'hello']],
+           x_feature_spec=tf.io.VarLenFeature(tf.string),
+           index_data=[[1, 0, 0], [0, 1, -99], [], [0]],
+           index_feature_spec=tf.io.VarLenFeature(tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-99, max=1,
+                                             is_categorical=True),
+           default_value=-99,
+           top_k=2),
+      dict(testcase_name='vector_feature',
+           x_data=[[b'world', b'hello', b'hello'], [b'hello', b'world', b'moo'],
+                   [b'hello', b'hello', b'foo'], [b'world', b'foo', b'moo']],
+           x_feature_spec=tf.io.FixedLenFeature([3], tf.string),
+           index_data=[[1, 0, 0], [0, 1, -99], [0, 0, -99], [1, -99, -99]],
+           index_feature_spec=tf.io.FixedLenFeature([3], tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-99, max=1,
+                                             is_categorical=True),
+           default_value=-99,
+           top_k=2),
+      dict(testcase_name='varlen_feature_with_labels',
+           x_data=[[b'hello', b'world', b'bye', b'moo'],
+                   [b'world', b'moo', b'foo'], [b'hello', b'foo', b'moo'],
+                   [b'moo']],
+           x_feature_spec=tf.io.VarLenFeature(tf.string),
+           label_data=[1, 0, 1, 0],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_data=[[0, -99, 1, -99], [-99, -99, -99], [0, -99, -99], [-99]],
+           index_feature_spec=tf.io.VarLenFeature(tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-99, max=1,
+                                             is_categorical=True),
+           default_value=-99,
+           top_k=2),
+      dict(testcase_name='vector_feature_with_labels',
+           x_data=[[b'world', b'hello', b'hi'], [b'hello', b'world', b'moo'],
+                   [b'hello', b'bye', b'foo'], [b'world', b'foo', b'moo']],
+           x_feature_spec=tf.io.FixedLenFeature([3], tf.string),
+           label_data=[1, 0, 1, 0],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_data=[[-99, -99, 1], [-99, -99, 0], [-99, -99, -99],
+                       [-99, -99, 0]],
+           index_feature_spec=tf.io.FixedLenFeature([3], tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-99, max=1,
+                                             is_categorical=True),
+           default_value=-99,
+           top_k=2),
+      dict(testcase_name='varlen_integer_feature_with_labels',
+           x_data=[[0, 1, 3, 2], [1, 2, 4], [0, 4, 2], [2]],
+           x_feature_spec=tf.io.VarLenFeature(tf.int64),
+           label_data=[1, 0, 1, 0],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_data=[[0, -99, 1, -99], [-99, -99, -99], [0, -99, -99], [-99]],
+           index_feature_spec=tf.io.VarLenFeature(tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-99, max=1,
+                                             is_categorical=True),
+           default_value=-99,
+           top_k=2),
+      dict(testcase_name='varlen_feature_with_some_empty_feature_values',
+           x_data=[[b'world', b'hello', b'hi', b'moo'], [],
+                   [b'world', b'hello', b'foo'], []],
+           x_feature_spec=tf.io.VarLenFeature(tf.string),
+           label_data=[1, 0, 1, 0],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_data=[[0, 1, -99, -99], [], [0, 1, -99], []],
+           index_feature_spec=tf.io.VarLenFeature(tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-99, max=1,
+                                             is_categorical=True),
+           default_value=-99,
+           top_k=2),
+      # From testSparseVocabularyWithMultiClassLabels
+      dict(testcase_name='varlen_with_multiclass_labels',
+           x_data=[[1, 2, 3, 5], [1, 4, 5], [1, 2], [1, 2], [1, 3, 5],
+                   [1, 4, 3], [1, 3]],
+           x_feature_spec=tf.io.VarLenFeature(tf.int64),
+           label_data=[1, 0, 1, 1, 4, 5, 4],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_data=[[-1, 0, 2, 3], [-1, 1, 3], [-1, 0], [-1, 0], [-1, 2, 3],
+                       [-1, 1, 2], [-1, 2]],
+           index_feature_spec=tf.io.VarLenFeature(tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-1, max=3,
+                                             is_categorical=True),
+           top_k=4),
+      # From testVocabularyAnalyzerWithLabelsAndWeights
+      dict(testcase_name='labels_and_weights',
+           x_data=[b'hello', b'hello', b'hello', b'goodbye', b'aaaaa',
+                   b'aaaaa', b'goodbye', b'goodbye', b'aaaaa', b'aaaaa',
+                   b'goodbye', b'goodbye'],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           label_data=[1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           weight_data=[0.3, 0.4, 0.3, 1.2, 0.6, 0.7, 1.0, 1.0, 0.6, 0.7, 1.0,
+                        1.0],
+           weight_feature_spec=tf.io.FixedLenFeature([], tf.float32),
+           index_data=[2, 2, 2, 1, 0, 0, 1, 1, 0, 0, 1, 1],
+           index_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-1, max=2,
+                                             is_categorical=True)),
+      # From testVocabularyAnalyzerWithWeights
+      dict(testcase_name='string_feature_with_weights',
+           x_data=[b'hello', b'world', b'goodbye', b'aaaaa', b'aaaaa',
+                   b'goodbye'],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           weight_data=[1.0, .5, 1.0, .26, .25, 1.5],
+           weight_feature_spec=tf.io.FixedLenFeature([], tf.float32),
+           index_data=[1, 3, 0, 2, 2, 0],
+           index_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-1, max=3,
+                                             is_categorical=True)),
+      dict(testcase_name='int64_feature_with_weights',
+           x_data=[2, 1, 3, 4, 4, 3],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           weight_data=[1.0, .5, 1.0, .26, .25, 1.5],
+           weight_feature_spec=tf.io.FixedLenFeature([], tf.float32),
+           index_data=[1, 3, 0, 2, 2, 0],
+           index_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-1, max=3,
+                                             is_categorical=True)),
+      # From testVocabularyAnalyzer
+      dict(testcase_name='whitespace_newlines_and_empty_strings',
+           x_data=[b'hello', b'world', b'hello', b'hello', b'goodbye', b'world',
+                   b'aaaaa', b' ', b'', b'\n', b'hi \n ho \n', '\r'],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           # The empty string and strings containing newlines map to default
+           # value because the vocab cannot contain them.
+           index_data=[0, 1, 0, 0, 2, 1, 3, 4, -1, -1, -1, -1],
+           index_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-1, max=4,
+                                             is_categorical=True)),
+      # From testVocabularyAnalyzerOOV
+      dict(testcase_name='whitespace_newlines_and_empty_strings_oov_buckets',
+           x_data=[b'hello', b'world', b'hello', b'hello', b'goodbye', b'world',
+                   b'aaaaa', b' ', b'', b'\n', b'hi \n ho \n', '\r'],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           # The empty string and strings containing newlines map to OOV because
+           # the vocab cannot contain them.
+           index_data=[0, 1, 0, 0, 2, 1, 3, 4, 5, 5, 5, 5],
+           index_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_domain=schema_pb2.IntDomain(min=0, max=5,
+                                             is_categorical=True),
+           num_oov_buckets=1,
+           vocab_filename='my_vocab',
+           expected_vocab_file_contents={
+               'my_vocab': [b'hello', b'world', b'goodbye', b'aaaaa', b' ']
+           }),
+      # From testVocabularyAnalyzerPositiveNegativeIntegers
+      dict(testcase_name='positive_and_negative_integers',
+           x_data=[13, 14, 13, 13, 12, 14, 11, 10, 10, -10, -10, -20],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           index_data=[0, 1, 0, 0, 4, 1, 5, 2, 2, 3, 3, 6],
+           index_feature_spec=tf.FixedLenFeature([], tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-1, max=6,
+                                             is_categorical=True),
+           vocab_filename='my_vocab',
+           expected_vocab_file_contents={
+               'my_vocab': [b'13', b'14', b'10', b'-10', b'12', b'11', b'-20']
+           }),
+      # From testVocabularyAnalyzerWithNDInputs
+      dict(testcase_name='rank_2',
+           x_data=[[[b'some', b'say'], [b'the', b'world']],
+                   [[b'will', b'end'], [b'in', b'fire']],
+                   [[b'some', b'say'], [b'in', b'ice']]],
+           x_feature_spec=tf.io.FixedLenFeature([2, 2], tf.string),
+           index_data=[[[0, 1], [5, 3]],
+                       [[4, 8], [2, 7]],
+                       [[0, 1], [2, 6]]],
+           index_feature_spec=tf.io.FixedLenFeature([2, 2], tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-1, max=8,
+                                             is_categorical=True)),
+      # From testVocabularyAnalyzerWithTopK
+      dict(testcase_name='top_k',
+           x_data=[[b'hello', b'hello', b'world'],
+                   [b'hello', b'goodbye', b'world'],
+                   [b'hello', b'goodbye', b'foo']],
+           x_feature_spec=tf.io.VarLenFeature(tf.string),
+           index_data=[[0, 0, 1], [0, -99, 1], [0, -99, -99]],
+           index_feature_spec=tf.io.VarLenFeature(tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-99, max=1,
+                                             is_categorical=True),
+           default_value=-99,
+           top_k=2),
+      dict(testcase_name='top_k_specified_as_str',
+           x_data=[[b'hello', b'hello', b'world'],
+                   [b'hello', b'goodbye', b'world'],
+                   [b'hello', b'goodbye', b'foo']],
+           x_feature_spec=tf.io.VarLenFeature(tf.string),
+           index_data=[[0, 0, 1], [0, -9, 1], [0, -9, -9]],
+           index_feature_spec=tf.io.VarLenFeature(tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-9, max=1,
+                                             is_categorical=True),
+           default_value=-9,
+           top_k='2'),
+      # From testVocabularyAnalyzerWithFrequencyThreshold
+      dict(testcase_name='frequency_threshold',
+           x_data=[[b'hello', b'hello', b'world'],
+                   [b'hello', b'goodbye', b'world'],
+                   [b'hello', b'goodbye', b'foo']],
+           x_feature_spec=tf.io.VarLenFeature(tf.string),
+           index_data=[[0, 0, 1], [0, 2, 1], [0, 2, -99]],
+           index_feature_spec=tf.io.VarLenFeature(tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-99, max=2,
+                                             is_categorical=True),
+           default_value=-99,
+           frequency_threshold=2),
+      dict(testcase_name='frequency_threshold_specified_with_str',
+           x_data=[[b'hello', b'hello', b'world'],
+                   [b'hello', b'goodbye', b'world'],
+                   [b'hello', b'goodbye', b'foo']],
+           x_feature_spec=tf.io.VarLenFeature(tf.string),
+           index_data=[[0, 0, 1], [0, 2, 1], [0, 2, -9]],
+           index_feature_spec=tf.io.VarLenFeature(tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-9, max=2,
+                                             is_categorical=True),
+           default_value=-9,
+           frequency_threshold='2'),
+      # From testVocabularyAnalyzerWithFrequencyThresholdTooHigh
+      dict(testcase_name='empty_vocabulary_from_high_frequency_threshold',
+           x_data=[[b'hello', b'hello', b'world'],
+                   [b'hello', b'goodbye', b'world'],
+                   [b'hello', b'goodbye', b'foo']],
+           x_feature_spec=tf.io.VarLenFeature(tf.string),
+           index_data=[[-99, -99, -99], [-99, -99, -99], [-99, -99, -99]],
+           index_feature_spec=tf.io.VarLenFeature(tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-99, max=0,
+                                             is_categorical=True),
+           default_value=-99,
+           frequency_threshold=77),
+      # From testVocabularyAnalyzerWithHighFrequencyThresholdAndOOVBuckets
+      dict(testcase_name='top_k_and_oov',
+           x_data=[[b'hello', b'hello', b'world', b'world'],
+                   [b'hello', b'tarkus', b'toccata'],
+                   [b'hello', b'goodbye', b'foo']],
+           x_feature_spec=tf.io.VarLenFeature(tf.string),
+           # Generated vocab (ordered by frequency, then value) should be:
+           # ["hello", "world", "goodbye", "foo", "tarkus", "toccata"]. After
+           # applying top_k =1 this becomes ["hello"] plus three OOV buckets.
+           # The specific output values here depend on the hash of the words,
+           # and the test will break if the hash changes.
+           index_data=[[0, 0, 2, 2], [0, 3, 1], [0, 2, 1]],
+           index_feature_spec=tf.io.VarLenFeature(tf.int64),
+           index_domain=schema_pb2.IntDomain(min=0, max=3,
+                                             is_categorical=True),
+           default_value=-99,
+           top_k=1,
+           num_oov_buckets=3),
+      # From testVocabularyAnalyzerWithKeyFn
+      dict(testcase_name='key_fn',
+           x_data=[['a_X_1', 'a_X_1', 'a_X_2', 'b_X_1', 'b_X_2'],
+                   ['a_X_1', 'a_X_1', 'a_X_2', 'a_X_2'], ['b_X_2']],
+           x_feature_spec=tf.VarLenFeature(tf.string),
+           index_data=[[0, 0, 1, -99, 2], [0, 0, 1, 1], [2]],
+           index_feature_spec=tf.VarLenFeature(tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-99, max=2,
+                                             is_categorical=True),
+           coverage_top_k=1,
+           default_value=-99,
+           key_fn=lambda s: s.split(b'_X_')[0],
+           frequency_threshold=3),
+      # from testVocabularyAnalyzerWithKeyFnAndMultiCoverageTopK
+      dict(testcase_name='key_fn_and_multi_coverage_top_k',
+           x_data=[['a_X_1', 'a_X_1', 'a_X_2', 'b_X_1', 'b_X_2'],
+                   ['a_X_1', 'a_X_1', 'a_X_2', 'a_X_2', 'a_X_3'], ['b_X_2']],
+           x_feature_spec=tf.VarLenFeature(tf.string),
+           index_data=[[0, 0, 1, 3, 2], [0, 0, 1, 1, -99], [2]],
+           index_feature_spec=tf.VarLenFeature(tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-99, max=3,
+                                             is_categorical=True),
+           coverage_top_k=2,
+           default_value=-99,
+           key_fn=lambda s: s.split(b'_X_')[0],
+           frequency_threshold=300),
+      # from testVocabularyAnalyzerWithKeyFnAndTopK
+      dict(testcase_name='key_fn_and_top_k',
+           x_data=[['a_X_1', 'a_X_1', 'a_X_2', 'b_X_1', 'b_X_2'],
+                   ['a_X_1', 'a_X_1', 'a_X_2', 'a_X_2'],
+                   ['b_X_2', 'b_X_2', 'b_X_2', 'b_X_2', 'c_X_1']],
+           x_feature_spec=tf.VarLenFeature(tf.string),
+           index_data=[[1, 1, -99, -99, 0], [1, 1, -99, -99], [0, 0, 0, 0, 2]],
+           index_feature_spec=tf.VarLenFeature(tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-99, max=2,
+                                             is_categorical=True),
+           coverage_top_k=1,
+           default_value=-99,
+           key_fn=lambda s: s.split(b'_X_')[0],
+           top_k=2),
+      # from testVocabularyAnalyzerWithKeyFnMultiCoverageTopK
+      dict(testcase_name='key_fn_multi_coverage_top_k',
+           x_data=[['0_X_a', '0_X_a', '5_X_a', '6_X_a', '6_X_a', '0_X_a'],
+                   ['0_X_a', '2_X_a', '2_X_a', '2_X_a', '0_X_a', '5_X_a'],
+                   ['1_X_b', '1_X_b', '3_X_b', '3_X_b', '0_X_b', '1_X_b',
+                    '1_X_b']],
+           x_feature_spec=tf.VarLenFeature(tf.string),
+           index_data=[[0, 0, -99, -99, -99, 0], [0, 2, 2, 2, 0, -99],
+                       [1, 1, 3, 3, -99, 1, 1]],
+           index_feature_spec=tf.VarLenFeature(tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-99, max=3,
+                                             is_categorical=True),
+           coverage_top_k=2,
+           default_value=-99,
+           key_fn=lambda s: s.split(b'_X_')[1],
+           frequency_threshold=4),
+      # from testVocabularyAnalyzerWithKeyFnAndLabels
+      dict(testcase_name='key_fn_and_labels',
+           x_data=['aaa', 'aaa', 'aaa', 'aab', 'aba', 'aba', 'aab', 'aab',
+                   'aba', 'abc', 'abc', 'aab'],
+           x_feature_spec=tf.FixedLenFeature([], tf.string),
+           label_data=[1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0],
+           label_feature_spec=tf.FixedLenFeature([], tf.int64),
+           index_data=[0, 0, 0, -1, -1, -1, -1, -1, -1, 1, 1, -1],
+           index_feature_spec=tf.FixedLenFeature([], tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-1, max=1,
+                                             is_categorical=True),
+           coverage_top_k=1,
+           key_fn=lambda s: s[:2],
+           frequency_threshold=3),
+      # from testVocabularyAnalyzerWithKeyFnAndWeights
+      dict(testcase_name='key_fn_and_weights',
+           x_data=['xa', 'xa', 'xb', 'ya', 'yb', 'yc'],
+           x_feature_spec=tf.FixedLenFeature([], tf.string),
+           weight_data=[1.0, 0.5, 3.0, 0.6, 0.25, 0.5],
+           weight_feature_spec=tf.FixedLenFeature([], tf.float32),
+           index_data=[1, 1, 0, -1, -1, -1],
+           index_feature_spec=tf.FixedLenFeature([], tf.int64),
+           index_domain=schema_pb2.IntDomain(min=-1, max=1,
+                                             is_categorical=True),
+           coverage_top_k=1,
+           key_fn=lambda s: s[0],
+           frequency_threshold=1.5,
+           coverage_frequency_threshold=1),
+  ] + _EMPTY_VOCABULARY_PARAMS)
+  def testComputeAndApplyVocabulary(
+      self, x_data, x_feature_spec, index_data, index_feature_spec,
+      index_domain, label_data=None, label_feature_spec=None, weight_data=None,
+      weight_feature_spec=None, expected_vocab_file_contents=None, **kwargs):
+    """Test tft.compute_and_apply_vocabulary with various inputs."""
+    input_data = [{'x': x} for x in x_data]
+    input_feature_spec = {'x': x_feature_spec}
+    expected_data = [{'index': index} for index in index_data]
+    expected_feature_spec = {'index': index_feature_spec}
+    expected_domains = {'index': index_domain}
+
+    if label_data is not None:
+      for idx, label in enumerate(label_data):
+        input_data[idx]['label'] = label
+      input_feature_spec['label'] = label_feature_spec
+
+    if weight_data is not None:
+      for idx, weight in enumerate(weight_data):
+        input_data[idx]['weights'] = weight
+      input_feature_spec['weights'] = weight_feature_spec
+
+    input_metadata = tft_unit.metadata_from_feature_spec(input_feature_spec)
+    expected_metadata = tft_unit.metadata_from_feature_spec(
+        expected_feature_spec, expected_domains)
 
     def preprocessing_fn(inputs):
-      return {
-          'index':
-              tft.compute_and_apply_vocabulary(
-                  inputs['a'], labels=inputs['label'], top_k=k)
-      }
+      x = inputs['x']
+      labels = inputs.get('label')
+      weights = inputs.get('weights')
+      index = tft.compute_and_apply_vocabulary(
+          x, labels=labels, weights=weights, **kwargs)
+      return {'index': index}
 
-    expected_data = [{'index': val} for val in expected_data]
-
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data,
-                                          expected_metadata)
-
-  @tft_unit.named_parameters(
-      dict(
-          testcase_name='string_feature',
-          features=[
-              b'hello',
-              b'hello',
-              b'hello',
-              b'goodbye',
-              b'aaaaa',
-              b'aaaaa',
-              b'goodbye',
-              b'goodbye',
-              b'aaaaa',
-              b'aaaaa',
-              b'goodbye',
-              b'goodbye',
-          ],
-          feature_dtype=tf.string,
-          expected_tokens=[b'goodbye', b'aaaaa', b'hello'],
-      ),
-      dict(
-          testcase_name='int64_feature',
-          features=[
-              3,
-              3,
-              3,
-              1,
-              2,
-              2,
-              1,
-              1,
-              2,
-              2,
-              1,
-              1,
-          ],
-          feature_dtype=tf.int64,
-          expected_tokens=[1, 2, 3]),
-  )
-  def testVocabularyAnalyzerStringVsIntegerFeature(
-      self, features, feature_dtype, expected_tokens):
-    """Ensure string and integer features are treated equivalently."""
-    labels = [1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0]
-    input_data = []
-    for feature, label in zip(features, labels):
-      input_data.append({'a': feature, 'label': label})
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a': tf.io.FixedLenFeature([], feature_dtype),
-        'label': tf.io.FixedLenFeature([], tf.int64)
-    })
-    expected_metadata = input_metadata
-    expected_mi = [1.975322, 1.6600708, 1.2450531]
-    if feature_dtype != tf.string:
-      expected_tokens = [str(t).encode() for t in expected_tokens]
-    expected_vocab = list(zip(expected_tokens, expected_mi))
-
-    def preprocessing_fn(inputs):
-      tft.vocabulary(
-          inputs['a'],
-          labels=inputs['label'],
-          store_frequency=True,
-          vocab_filename='my_vocab',
-          min_diff_from_avg=0.0)
-      return inputs
-
-    expected_data = input_data
-    expected_vocab_file_contents = {'my_vocab': expected_vocab}
-
-    self.assertAnalyzeAndTransformResults(
-        input_data,
-        input_metadata,
-        preprocessing_fn,
-        expected_data,
-        expected_metadata,
-        expected_vocab_file_contents=expected_vocab_file_contents)
-
-  @tft_unit.named_parameters(
-      dict(
-          testcase_name='unadjusted_mi_binary_label',
-          feature_label_pairs=[
-              (b'informative', 1),
-              (b'informative', 1),
-              (b'informative', 1),
-              (b'uninformative', 0),
-              (b'uninformative', 1),
-              (b'uninformative', 1),
-              (b'uninformative', 0),
-              (b'uninformative_rare', 0),
-              (b'uninformative_rare', 1),
-          ],
-          expected_vocab=[
-              (b'informative', 1.7548264),
-              (b'uninformative', 0.33985),
-              (b'uninformative_rare', 0.169925),
-          ],
-          use_adjusted_mutual_info=False),
-      dict(
-          testcase_name='unadjusted_mi_multi_class_label',
-          feature_label_pairs=[
-              (b'good_predictor_of_0', 0),
-              (b'good_predictor_of_0', 0),
-              (b'good_predictor_of_0', 0),
-              (b'good_predictor_of_1', 1),
-              (b'good_predictor_of_2', 2),
-              (b'good_predictor_of_2', 2),
-              (b'good_predictor_of_2', 2),
-              (b'good_predictor_of_1', 1),
-              (b'good_predictor_of_1', 1),
-              (b'weak_predictor_of_1', 1),
-              (b'good_predictor_of_0', 0),
-              (b'good_predictor_of_1', 1),
-              (b'good_predictor_of_1', 1),
-              (b'good_predictor_of_1', 1),
-              (b'weak_predictor_of_1', 0),
-          ],
-          expected_vocab=[
-              (b'good_predictor_of_2', 6.9656615),
-              (b'good_predictor_of_1', 6.5969831),
-              (b'good_predictor_of_0', 6.3396921),
-              (b'weak_predictor_of_1', 0.684463),
-          ],
-          use_adjusted_mutual_info=False),
-      dict(
-          testcase_name='unadjusted_mi_binary_label_with_weights',
-          feature_label_pairs=[
-              (b'informative_1', 1),
-              (b'informative_1', 1),
-              (b'informative_0', 0),
-              (b'informative_0', 0),
-              (b'uninformative', 0),
-              (b'uninformative', 1),
-              (b'informative_by_weight', 0),
-              (b'informative_by_weight', 1),
-          ],
-          # uninformative and informative_by_weight have the same co-occurrence
-          # relationship with the label but will have different importance
-          # values due to the weighting.
-          expected_vocab=[
-              (b'informative_0', 3.1698803),
-              (b'informative_1', 1.1698843),
-              (b'informative_by_weight', 0.6096405),
-              (b'uninformative', 0.169925),
-          ],
-          weights=[1, 1, 1, 1, 1, 1, 1, 5],
-          use_adjusted_mutual_info=False),
-      dict(
-          testcase_name='unadjusted_mi_binary_label_min_diff_from_avg',
-          feature_label_pairs=[
-              (b'hello', 1),
-              (b'hello', 1),
-              (b'hello', 1),
-              (b'goodbye', 1),
-              (b'aaaaa', 1),
-              (b'aaaaa', 1),
-              (b'goodbye', 0),
-              (b'goodbye', 0),
-              (b'aaaaa', 1),
-              (b'aaaaa', 1),
-              (b'goodbye', 1),
-              (b'goodbye', 0),
-          ],
-          # All features are weak predictors, so all are adjusted to zero.
-          expected_vocab=[
-              (b'hello', 0.0),
-              (b'goodbye', 0.0),
-              (b'aaaaa', 0.0),
-          ],
-          use_adjusted_mutual_info=False,
-          min_diff_from_avg=2),
-      dict(
-          testcase_name='adjusted_mi_binary_label',
-          feature_label_pairs=[
-              (b'hello', 1),
-              (b'hello', 1),
-              (b'hello', 1),
-              (b'goodbye', 1),
-              (b'aaaaa', 1),
-              (b'aaaaa', 1),
-              (b'goodbye', 0),
-              (b'goodbye', 0),
-              (b'aaaaa', 1),
-              (b'aaaaa', 1),
-              (b'goodbye', 1),
-              (b'goodbye', 0),
-          ],
-          expected_vocab=[
-              (b'goodbye', 1.4070791),
-              (b'aaaaa', 0.9987449),
-              (b'hello', 0.5017179),
-          ],
-          use_adjusted_mutual_info=True),
-      dict(
-          testcase_name='adjusted_mi_binary_label_int64_feature',
-          feature_label_pairs=[
-              (3, 1),
-              (3, 1),
-              (3, 1),
-              (1, 1),
-              (2, 1),
-              (2, 1),
-              (1, 0),
-              (1, 0),
-              (2, 1),
-              (2, 1),
-              (1, 1),
-              (1, 0),
-          ],
-          expected_vocab=[
-              (b'1', 1.4070791),
-              (b'2', 0.9987449),
-              (b'3', 0.5017179),
-          ],
-          feature_dtype=tf.int64,
-          use_adjusted_mutual_info=True),
-      dict(
-          testcase_name='adjusted_mi_multi_class_label',
-          feature_label_pairs=[
-              (b'good_predictor_of_0', 0),
-              (b'good_predictor_of_0', 0),
-              (b'good_predictor_of_0', 0),
-              (b'good_predictor_of_1', 1),
-              (b'good_predictor_of_2', 2),
-              (b'good_predictor_of_2', 2),
-              (b'good_predictor_of_2', 2),
-              (b'good_predictor_of_1', 1),
-              (b'good_predictor_of_1', 1),
-              (b'weak_predictor_of_1', 1),
-              (b'good_predictor_of_0', 0),
-              (b'good_predictor_of_1', 1),
-              (b'good_predictor_of_1', 1),
-              (b'good_predictor_of_1', 1),
-              (b'weak_predictor_of_1', 0),
-          ],
-          expected_vocab=[
-              (b'good_predictor_of_1', 5.4800903),
-              (b'good_predictor_of_2', 5.386102),
-              (b'good_predictor_of_0', 4.9054723),
-              (b'weak_predictor_of_1', -0.9748023),
-          ],
-          use_adjusted_mutual_info=True),
-      # TODO(b/128831096): Determine correct interaction between AMI and weights
-      dict(
-          testcase_name='adjusted_mi_binary_label_with_weights',
-          feature_label_pairs=[
-              (b'informative_1', 1),
-              (b'informative_1', 1),
-              (b'informative_0', 0),
-              (b'informative_0', 0),
-              (b'uninformative', 0),
-              (b'uninformative', 1),
-              (b'informative_by_weight', 0),
-              (b'informative_by_weight', 1),
-          ],
-          # uninformative and informative_by_weight have the same co-occurrence
-          # relationship with the label but will have different importance
-          # values due to the weighting.
-          expected_vocab=[
-              (b'informative_0', 2.3029856),
-              (b'informative_1', 0.3029896),
-              (b'informative_by_weight', 0.1713041),
-              (b'uninformative', -0.6969697),
-          ],
-          weights=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 5.0],
-          use_adjusted_mutual_info=True),
-      dict(
-          testcase_name='adjusted_mi_min_diff_from_avg',
-          feature_label_pairs=[
-              (b'good_predictor_of_0', 0),
-              (b'good_predictor_of_0', 0),
-              (b'good_predictor_of_0', 0),
-              (b'good_predictor_of_1', 1),
-              (b'good_predictor_of_0', 0),
-              (b'good_predictor_of_1', 1),
-              (b'good_predictor_of_1', 1),
-              (b'good_predictor_of_1', 1),
-              (b'good_predictor_of_1', 0),
-              (b'good_predictor_of_0', 1),
-              (b'good_predictor_of_1', 1),
-              (b'good_predictor_of_1', 1),
-              (b'good_predictor_of_1', 1),
-              (b'weak_predictor_of_1', 1),
-              (b'weak_predictor_of_1', 0),
-          ],
-          # With min_diff_from_avg, the small AMI value is regularized to 0
-          expected_vocab=[
-              (b'good_predictor_of_0', 1.8322128),
-              (b'good_predictor_of_1', 1.7554416),
-              (b'weak_predictor_of_1', 0),
-          ],
-          use_adjusted_mutual_info=True,
-          min_diff_from_avg=1),
-  )
-  def testVocabularyWithMutualInformation(self,
-                                          feature_label_pairs,
-                                          expected_vocab,
-                                          weights=None,
-                                          use_adjusted_mutual_info=False,
-                                          min_diff_from_avg=0.0,
-                                          feature_dtype=tf.string):
-    input_data = []
-    for (value, label) in feature_label_pairs:
-      input_data.append({'x': value, 'label': label})
-    feature_spec = {
-        'x': tf.io.FixedLenFeature([], feature_dtype),
-        'label': tf.io.FixedLenFeature([], tf.int64)
-    }
-    if weights is not None:
-      feature_spec['weight'] = tf.io.FixedLenFeature([], tf.float32)
-      assert len(weights) == len(input_data)
-      for data, weight in zip(input_data, weights):
-        data['weight'] = weight
-
-    input_metadata = tft_unit.metadata_from_feature_spec(feature_spec)
-    expected_metadata = input_metadata
-
-    def preprocessing_fn(inputs):
-      tft.vocabulary(
-          inputs['x'],
-          labels=inputs['label'],
-          weights=inputs.get('weight'),
-          store_frequency=True,
-          vocab_filename='my_vocab',
-          use_adjusted_mutual_info=use_adjusted_mutual_info,
-          min_diff_from_avg=min_diff_from_avg)
-      return inputs
-
-    expected_data = input_data
-    expected_vocab_file_contents = {
-        'my_vocab': expected_vocab,
-    }
-
-    self.assertAnalyzeAndTransformResults(
-        input_data,
-        input_metadata,
-        preprocessing_fn,
-        expected_data,
-        expected_metadata,
-        expected_vocab_file_contents=expected_vocab_file_contents)
-
-  @tft_unit.named_parameters(
-      dict(
-          testcase_name='sparse_feature',
-          feature_input=[['world', 'hello', 'hello'], ['hello', 'world', 'foo'],
-                         [], ['hello']],
-          expected_output=[[1, 0, 0], [0, 1, -99], [], [0]],
-          use_labels=False,
-      ),
-      dict(
-          testcase_name='dense_feature',
-          feature_input=[['world', 'hello', 'hello'], ['hello', 'world', 'moo'],
-                         ['hello', 'hello', 'foo'], ['world', 'foo', 'moo']],
-          expected_output=[[1, 0, 0], [0, 1, -99], [0, 0, -99], [1, -99, -99]],
-          use_labels=False,
-      ),
-      dict(
-          testcase_name='dense_feature_with_labels',
-          feature_input=[['world', 'hello', 'hi'], ['hello', 'world', 'moo'],
-                         ['hello', 'bye', 'foo'], ['world', 'foo', 'moo']],
-          expected_output=[[-99, -99, 1], [-99, -99, 0], [-99, -99, -99],
-                           [-99, -99, 0]],
-          use_labels=True,
-      ),
-      dict(
-          testcase_name='sparse_feature_with_labels',
-          feature_input=[['hello', 'world', 'bye', 'moo'],
-                         ['world', 'moo', 'foo'], ['hello', 'foo', 'moo'],
-                         ['moo']],
-          expected_output=[[0, -99, 1, -99], [-99, -99, -99], [0, -99, -99],
-                           [-99]],
-          use_labels=True,
-      ),
-      dict(
-          testcase_name='sparse_integer_feature_with_labels',
-          feature_input=[[0, 1, 3, 2],
-                         [1, 2, 4], [0, 4, 2],
-                         [2]],
-          expected_output=[[0, -99, 1, -99], [-99, -99, -99], [0, -99, -99],
-                           [-99]],
-          use_labels=True,
-          feature_dtype=tf.int64,
-      ),
-      dict(
-          testcase_name='sparse_feature_with_labels_some_empty',
-          feature_input=[['world', 'hello', 'hi', 'moo'], [],
-                         ['world', 'hello', 'foo'], []],
-          expected_output=[[0, 1, -99, -99], [], [0, 1, -99], []],
-          use_labels=True,
-      ),
-  )
-  def testVocabularyAnalyzerWithMultiDimensionalInputs(self,
-                                                       feature_input,
-                                                       expected_output,
-                                                       use_labels,
-                                                       feature_dtype=tf.string):
-
-    def preprocessing_fn(inputs):
-      if use_labels:
-        vocab = tft.compute_and_apply_vocabulary(
-            inputs['feature'],
-            labels=inputs['label'],
-            default_value=-99,
-            top_k=2)
-      else:
-        vocab = tft.compute_and_apply_vocabulary(
-            inputs['feature'], default_value=-99, top_k=2)
-      return {'vocab_feature': vocab}
-
-    input_data = [
-        {
-            'label': 1
-        },
-        {
-            'label': 0
-        },
-        {
-            'label': 1
-        },
-        {
-            'label': 0
-        },
-    ]
-    counts = []
-    for i, input_entry in enumerate(feature_input):
-      input_data[i]['feature'] = input_entry
-      counts.append(len(input_entry))
-    if min(counts) == max(counts):
-      feature_type = tf.FixedLenFeature([max(counts)], feature_dtype)
-    else:
-      feature_type = tf.VarLenFeature(feature_dtype)
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'feature': feature_type,
-        'label': tf.FixedLenFeature([], tf.int64)
-    })
-    expected_data = [{'vocab_feature': output} for output in expected_output]
-
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data)
-
-  def testSparseVocabularyWithMultiClassLabels(self):
-
-    def preprocessing_fn(inputs):
-      vocab_feature = tft.compute_and_apply_vocabulary(
-          inputs['feature'],
-          labels=inputs['label'],
-          vocab_filename='my_vocab',
-          top_k=4)
-      return {'vocab_feature': vocab_feature}
-
-    input_data = [
-        {
-            'feature': [1, 2, 3, 5],
-            'label': 1
-        },
-        {
-            'feature': [1, 4, 5],
-            'label': 0
-        },
-        {
-            'feature': [1, 2],
-            'label': 1
-        },
-        {
-            'feature': [1, 2],
-            'label': 1
-        },
-        {
-            'feature': [1, 3, 5],
-            'label': 4
-        },
-        {
-            'feature': [1, 4, 3],
-            'label': 5
-        },
-        {
-            'feature': [1, 3],
-            'label': 4
-        },
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'feature': tf.VarLenFeature(tf.int64),
-        'label': tf.FixedLenFeature([], tf.int64)
-    })
-    expected_data = [
-        {
-            'vocab_feature': [-1, 0, 2, 3],
-        },
-        {
-            'vocab_feature': [-1, 1, 3],
-        },
-        {
-            'vocab_feature': [-1, 0],
-        },
-        {
-            'vocab_feature': [-1, 0],
-        },
-        {
-            'vocab_feature': [-1, 2, 3],
-        },
-        {
-            'vocab_feature': [-1, 1, 2],
-        },
-        {
-            'vocab_feature': [-1, 2],
-        },
-    ]
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data)
-
-  def testVocabularyAnalyzerWithLabelsAndWeights(self):
-    input_data = [
-        {'a': 'hello', 'weights': .3, 'labels': 1},
-        {'a': 'hello', 'weights': .4, 'labels': 1},
-        {'a': 'hello', 'weights': .3, 'labels': 1},
-        {'a': 'goodbye', 'weights': 1.2, 'labels': 1},
-        {'a': 'aaaaa', 'weights': .6, 'labels': 1},
-        {'a': 'aaaaa', 'weights': .7, 'labels': 1},
-        {'a': 'goodbye', 'weights': 1., 'labels': 0},
-        {'a': 'goodbye', 'weights': 1., 'labels': 0},
-        {'a': 'aaaaa', 'weights': .6, 'labels': 1},
-        {'a': 'aaaaa', 'weights': .7, 'labels': 1},
-        {'a': 'goodbye', 'weights': 1., 'labels': 1},
-        {'a': 'goodbye', 'weights': 1., 'labels': 0},
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a': tf.io.FixedLenFeature([], tf.string),
-        'weights': tf.io.FixedLenFeature([], tf.float32),
-        'labels': tf.io.FixedLenFeature([], tf.int64)
-    })
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index': tf.io.FixedLenFeature([], tf.int64),
-    }, {
-        'index': schema_pb2.IntDomain(min=-1, max=2, is_categorical=True),
-    })
-
-    def preprocessing_fn(inputs):
-      return {
-          'index':
-              tft.compute_and_apply_vocabulary(
-                  inputs['a'],
-                  weights=inputs['weights'],
-                  labels=inputs['labels'])
-      }
-
-    expected_data = [{
-        'index': 2
-    }, {
-        'index': 2
-    }, {
-        'index': 2
-    }, {
-        'index': 1
-    }, {
-        'index': 0
-    }, {
-        'index': 0
-    }, {
-        'index': 1
-    }, {
-        'index': 1
-    }, {
-        'index': 0
-    }, {
-        'index': 0
-    }, {
-        'index': 1
-    }, {
-        'index': 1
-    }]
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data,
-                                          expected_metadata)
-
-  def testVocabularyAnalyzerWithLabelsWeightsAndFrequency(self):
-    input_data = [
-        {'a': b'hello', 'weights': .3, 'labels': 1},
-        {'a': b'hello', 'weights': .4, 'labels': 1},
-        {'a': b'hello', 'weights': .3, 'labels': 1},
-        {'a': b'goodbye', 'weights': 1.2, 'labels': 1},
-        {'a': b'aaaaa', 'weights': .6, 'labels': 1},
-        {'a': b'aaaaa', 'weights': .7, 'labels': 1},
-        {'a': b'goodbye', 'weights': 1., 'labels': 0},
-        {'a': b'goodbye', 'weights': 1., 'labels': 0},
-        {'a': b'aaaaa', 'weights': .6, 'labels': 1},
-        {'a': b'aaaaa', 'weights': .7, 'labels': 1},
-        {'a': b'goodbye', 'weights': 1., 'labels': 1},
-        {'a': b'goodbye', 'weights': 1., 'labels': 0},
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a': tf.io.FixedLenFeature([], tf.string),
-        'weights': tf.io.FixedLenFeature([], tf.float32),
-        'labels': tf.io.FixedLenFeature([], tf.int64)
-    })
-    expected_metadata = input_metadata
-
-    def preprocessing_fn(inputs):
-      tft.vocabulary(
-          inputs['a'],
-          weights=inputs['weights'],
-          labels=inputs['labels'],
-          store_frequency=True,
-          vocab_filename='my_vocab',
-          min_diff_from_avg=0.0)
-      return inputs
-
-    expected_data = input_data
-    expected_vocab_file_contents = {
-        'my_vocab': [(b'aaaaa', 1.5637185), (b'goodbye', 0.8699492),
-                     (b'hello', 0.6014302)]
-    }
-
-    self.assertAnalyzeAndTransformResults(
-        input_data,
-        input_metadata,
-        preprocessing_fn,
-        expected_data,
-        expected_metadata,
-        expected_vocab_file_contents=expected_vocab_file_contents)
-
-  @tft_unit.named_parameters(
-      dict(
-          testcase_name='string_feature',
-          features=['hello', 'world', 'goodbye', 'aaaaa', 'aaaaa', 'goodbye'],
-          weights=[1.0, .5, 1.0, .26, .25, 1.5],
-          feature_dtype=tf.string,
-          expected_data=[1, 3, 0, 2, 2, 0],
-      ),
-      dict(
-          testcase_name='int64_feature',
-          features=[2, 1, 3, 4, 4, 3],
-          weights=[1.0, .5, 1.0, .26, .25, 1.5],
-          feature_dtype=tf.int64,
-          expected_data=[1, 3, 0, 2, 2, 0],
-      ))
-  def testVocabularyAnalyzerWithWeights(self, features, weights, feature_dtype,
-                                        expected_data):
-    input_data = []
-    for feature, weight in zip(features, weights):
-      input_data.append({'a': feature, 'weights': weight})
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a': tf.io.FixedLenFeature([], feature_dtype),
-        'weights': tf.io.FixedLenFeature([], tf.float32)
-    })
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index': tf.io.FixedLenFeature([], tf.int64),
-    }, {'index': schema_pb2.IntDomain(min=-1, max=3, is_categorical=True)})
-
-    def preprocessing_fn(inputs):
-      return {
-          'index':
-              tft.compute_and_apply_vocabulary(
-                  inputs['a'], weights=inputs['weights'])
-      }
-
-    expected_data = [{'index': val} for val in expected_data]
-
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data,
-                                          expected_metadata)
-
-  def testVocabularyAnalyzer(self):
-    input_data = [
-        {'a': 'hello'},
-        {'a': 'world'},
-        {'a': 'hello'},
-        {'a': 'hello'},
-        {'a': 'goodbye'},
-        {'a': 'world'},
-        {'a': 'aaaaa'},
-        # Verify the analyzer can handle (dont-ignore) a space-only token.
-        {'a': ' '},
-        # Verify the analyzer can handle (ignore) the empty string.
-        {'a': ''},
-        # Verify the analyzer can handle (ignore) tokens that contain \n.
-        {'a': '\n'},
-        {'a': 'hi \n ho \n'},
-        {'a': ' \r'},
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'a': tf.io.FixedLenFeature([], tf.string)})
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index': tf.io.FixedLenFeature([], tf.int64),
-    }, {
-        'index': schema_pb2.IntDomain(min=-1, max=4, is_categorical=True),
-    })
-
-    # Assert empty string with default_value=-1
-    def preprocessing_fn(inputs):
-      return {'index': tft.compute_and_apply_vocabulary(inputs['a'])}
-
-    expected_data = [
-        {
-            'index': 0
-        },
-        {
-            'index': 1
-        },
-        {
-            'index': 0
-        },
-        {
-            'index': 0
-        },
-        {
-            'index': 2
-        },
-        {
-            'index': 1
-        },
-        {
-            'index': 3
-        },
-        {
-            'index': 4
-        },
-        # The empty string maps to compute_and_apply_vocabulary(
-        #     default_value=-1).
-        {
-            'index': -1
-        },
-        # The tokens that contain \n map to
-        # compute_and_apply_vocabulary(default_value=-1).
-        {
-            'index': -1
-        },
-        {
-            'index': -1
-        },
-        {
-            'index': -1
-        }
-    ]
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
-
-  def testVocabularyAnalyzerEmptyVocab(self):
-    input_data = [
-        {
-            'a': 1
-        },
-        {
-            'a': 2
-        },
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'a': tf.io.FixedLenFeature([], tf.int64)})
-
-    # No tokens meet the frequency_threshold, so we should create an empty
-    # vocabulary. All tokens will be treated as OOV.
-    def preprocessing_fn(inputs):
-      return {
-          'index':
-              tft.compute_and_apply_vocabulary(
-                  inputs['a'], frequency_threshold=5)
-      }
-
-    expected_data = [
-        {
-            'index': -1
-        },
-        {
-            'index': -1
-        },
-    ]
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data)
-
-  def testVocabularyAnalyzerOOV(self):
-    input_data = [
-        {'a': 'hello'},
-        {'a': 'world'},
-        {'a': 'hello'},
-        {'a': 'hello'},
-        {'a': 'goodbye'},
-        {'a': 'world'},
-        {'a': 'aaaaa'},
-        # Verify the analyzer can handle (dont-ignore) a space-only token.
-        {'a': ' '},
-        # Verify the analyzer can handle (ignore) the empty string.
-        {'a': ''},
-        # Verify the analyzer can handle (ignore) tokens that contain \n.
-        {'a': '\n'},
-        {'a': 'hi \n ho \n'},
-        {'a': ' \r'},
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'a': tf.io.FixedLenFeature([], tf.string)})
-
-    # Assert empty string with num_oov_buckets=1
-    def preprocessing_fn_oov(inputs):
-      return {
-          'index':
-              tft.compute_and_apply_vocabulary(
-                  inputs['a'], num_oov_buckets=1, vocab_filename='my_vocab')
-      }
-    expected_data = [
-        {'index': 0},
-        {'index': 1},
-        {'index': 0},
-        {'index': 0},
-        {'index': 2},
-        {'index': 1},
-        {'index': 3},
-        {'index': 4},
-        # The empty string maps to the oov bucket.
-        {'index': 5},
-        # The tokens that contain \n map to the oov bucket.
-        {'index': 5},
-        {'index': 5},
-        {'index': 5}
-    ]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index': tf.io.FixedLenFeature([], tf.int64),
-    }, {
-        'index': schema_pb2.IntDomain(min=0, max=5, is_categorical=True),
-    })
-    expected_vocab_file_contents = {
-        'my_vocab': [b'hello', b'world', b'goodbye', b'aaaaa', b' ']
-    }
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn_oov, expected_data,
         expected_metadata,
         expected_vocab_file_contents=expected_vocab_file_contents)
 
-  def testVocabularyAnalyzerPositiveNegativeIntegers(self):
-    input_data = [
-        {
-            'a': 13
-        },
-        {
-            'a': 14
-        },
-        {
-            'a': 13
-        },
-        {
-            'a': 13
-        },
-        {
-            'a': 12
-        },
-        {
-            'a': 14
-        },
-        {
-            'a': 11
-        },
-        {
-            'a': 10
-        },
-        {
-            'a': 10
-        },
-        {
-            'a': -10
-        },
-        {
-            'a': -10
-        },
-        {
-            'a': -20
-        },
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'a': tf.FixedLenFeature([], tf.int64)})
+  # From testVocabularyAnalyzerStringVsIntegerFeature
+  _WITH_LABEL_PARAMS = tft_unit.cross_named_parameters(
+      [
+          dict(testcase_name='string',
+               x_data=[
+                   b'hello', b'hello', b'hello', b'goodbye', b'aaaaa', b'aaaaa',
+                   b'goodbye', b'goodbye', b'aaaaa', b'aaaaa', b'goodbye',
+                   b'goodbye'
+               ],
+               x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+               expected_vocab_file_contents=[(b'goodbye', 1.975322),
+                                             (b'aaaaa', 1.6600708),
+                                             (b'hello', 1.2450531)]),
+          dict(testcase_name='int64',
+               x_data=[3, 3, 3, 1, 2, 2, 1, 1, 2, 2, 1, 1],
+               x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+               expected_vocab_file_contents=[(b'1', 1.975322),
+                                             (b'2', 1.6600708),
+                                             (b'3', 1.2450531)]),
+      ],
+      [
+          dict(testcase_name='with_label',
+               label_data=[1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0],
+               label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+               min_diff_from_avg=0.0,
+               store_frequency=True),
+      ])
 
-    def preprocessing_fn_oov(inputs):
-      return {
-          'b':
-              tft.compute_and_apply_vocabulary(
-                  inputs['a'], vocab_filename='my_vocab')
-      }
+  @tft_unit.named_parameters([
+      # NOTE: Since these tests are a refactoring of existing tests, each test
+      # case parameter (or parameters where the original test was parameterized
+      # or tested multiple calls to tft.vocabulary) has a comment indicating the
+      # test case that it is based on.  This preserves the ability to track the
+      # proveance of the test case parameters in the git history.
+      # TODO(KesterTong): Remove these annotations and the above comment.
+      # From testVocabularyWithMutualInformation
+      dict(testcase_name='unadjusted_mi_binary_label',
+           x_data=[
+               b'informative', b'informative', b'informative', b'uninformative',
+               b'uninformative', b'uninformative', b'uninformative',
+               b'uninformative_rare', b'uninformative_rare'
+           ],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           label_data=[1, 1, 1, 0, 1, 1, 0, 0, 1],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           expected_vocab_file_contents=[
+               (b'informative', 1.7548264),
+               (b'uninformative', 0.33985),
+               (b'uninformative_rare', 0.169925),
+           ],
+           min_diff_from_avg=0.0,
+           use_adjusted_mutual_info=False,
+           store_frequency=True),
+      dict(testcase_name='unadjusted_mi_multi_class_label',
+           x_data=[
+               b'good_predictor_of_0', b'good_predictor_of_0',
+               b'good_predictor_of_0', b'good_predictor_of_1',
+               b'good_predictor_of_2', b'good_predictor_of_2',
+               b'good_predictor_of_2', b'good_predictor_of_1',
+               b'good_predictor_of_1', b'weak_predictor_of_1',
+               b'good_predictor_of_0', b'good_predictor_of_1',
+               b'good_predictor_of_1', b'good_predictor_of_1',
+               b'weak_predictor_of_1'
+           ],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           label_data=[0, 0, 0, 1, 2, 2, 2, 1, 1, 1, 0, 1, 1, 1, 0],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           expected_vocab_file_contents=[
+               (b'good_predictor_of_2', 6.9656615),
+               (b'good_predictor_of_1', 6.5969831),
+               (b'good_predictor_of_0', 6.3396921),
+               (b'weak_predictor_of_1', 0.684463),
+           ],
+           min_diff_from_avg=0.0,
+           use_adjusted_mutual_info=False,
+           store_frequency=True),
+      dict(testcase_name='unadjusted_mi_binary_label_with_weights',
+           x_data=[
+               b'informative_1', b'informative_1', b'informative_0',
+               b'informative_0', b'uninformative', b'uninformative',
+               b'informative_by_weight', b'informative_by_weight'
+           ],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           label_data=[1, 1, 0, 0, 0, 1, 0, 1],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           # uninformative and informative_by_weight have the same co-occurrence
+           # relationship with the label but will have different importance
+           # values due to the weighting.
+           expected_vocab_file_contents=[
+               (b'informative_0', 3.1698803),
+               (b'informative_1', 1.1698843),
+               (b'informative_by_weight', 0.6096405),
+               (b'uninformative', 0.169925),
+           ],
+           weight_data=[1, 1, 1, 1, 1, 1, 1, 5],
+           weight_feature_spec=tf.io.FixedLenFeature([], tf.float32),
+           min_diff_from_avg=0.0,
+           use_adjusted_mutual_info=False,
+           store_frequency=True),
+      dict(testcase_name='unadjusted_mi_binary_label_min_diff_from_avg',
+           x_data=[
+               b'hello', b'hello', b'hello', b'goodbye', b'aaaaa', b'aaaaa',
+               b'goodbye', b'goodbye', b'aaaaa', b'aaaaa', b'goodbye',
+               b'goodbye'
+           ],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           label_data=[1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           # All features are weak predictors, so all are adjusted to zero.
+           expected_vocab_file_contents=[
+               (b'hello', 0.0),
+               (b'goodbye', 0.0),
+               (b'aaaaa', 0.0),
+           ],
+           use_adjusted_mutual_info=False,
+           min_diff_from_avg=2.0,
+           store_frequency=True),
+      dict(testcase_name='adjusted_mi_binary_label',
+           x_data=[
+               b'hello', b'hello', b'hello', b'goodbye', b'aaaaa', b'aaaaa',
+               b'goodbye', b'goodbye', b'aaaaa', b'aaaaa', b'goodbye',
+               b'goodbye'
+           ],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           label_data=[1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           expected_vocab_file_contents=[
+               (b'goodbye', 1.4070791),
+               (b'aaaaa', 0.9987449),
+               (b'hello', 0.5017179),
+           ],
+           min_diff_from_avg=0.0,
+           use_adjusted_mutual_info=True,
+           store_frequency=True),
+      dict(testcase_name='adjusted_mi_binary_label_int64_feature',
+           x_data=[3, 3, 3, 1, 2, 2, 1, 1, 2, 2, 1, 1],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           label_data=[1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           expected_vocab_file_contents=[
+               (b'1', 1.4070791),
+               (b'2', 0.9987449),
+               (b'3', 0.5017179),
+           ],
+           min_diff_from_avg=0.0,
+           use_adjusted_mutual_info=True,
+           store_frequency=True),
+      dict(testcase_name='adjusted_mi_multi_class_label',
+           x_data=[
+               b'good_predictor_of_0', b'good_predictor_of_0',
+               b'good_predictor_of_0', b'good_predictor_of_1',
+               b'good_predictor_of_2', b'good_predictor_of_2',
+               b'good_predictor_of_2', b'good_predictor_of_1',
+               b'good_predictor_of_1', b'weak_predictor_of_1',
+               b'good_predictor_of_0', b'good_predictor_of_1',
+               b'good_predictor_of_1', b'good_predictor_of_1',
+               b'weak_predictor_of_1'
+           ],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           label_data=[0, 0, 0, 1, 2, 2, 2, 1, 1, 1, 0, 1, 1, 1, 0],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           expected_vocab_file_contents=[
+               (b'good_predictor_of_1', 5.4800903),
+               (b'good_predictor_of_2', 5.386102),
+               (b'good_predictor_of_0', 4.9054723),
+               (b'weak_predictor_of_1', -0.9748023),
+           ],
+           min_diff_from_avg=0.0,
+           use_adjusted_mutual_info=True,
+           store_frequency=True),
+      # TODO(b/128831096): Determine correct interaction between AMI and weights
+      dict(testcase_name='adjusted_mi_binary_label_with_weights',
+           x_data=[
+               b'informative_1', b'informative_1', b'informative_0',
+               b'informative_0', b'uninformative', b'uninformative',
+               b'informative_by_weight', b'informative_by_weight'
+           ],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           label_data=[1, 1, 0, 0, 0, 1, 0, 1],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           weight_data=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 5.0],
+           weight_feature_spec=tf.io.FixedLenFeature([], tf.float32),
+           # uninformative and informative_by_weight have the same co-occurrence
+           # relationship with the label but will have different importance
+           # values due to the weighting.
+           expected_vocab_file_contents=[
+               (b'informative_0', 2.3029856),
+               (b'informative_1', 0.3029896),
+               (b'informative_by_weight', 0.1713041),
+               (b'uninformative', -0.6969697),
+           ],
+           min_diff_from_avg=0.0,
+           use_adjusted_mutual_info=True,
+           store_frequency=True),
+      dict(testcase_name='adjusted_mi_min_diff_from_avg',
+           x_data=[
+               b'good_predictor_of_0', b'good_predictor_of_0',
+               b'good_predictor_of_0', b'good_predictor_of_1',
+               b'good_predictor_of_0', b'good_predictor_of_1',
+               b'good_predictor_of_1', b'good_predictor_of_1',
+               b'good_predictor_of_1', b'good_predictor_of_0',
+               b'good_predictor_of_1', b'good_predictor_of_1',
+               b'good_predictor_of_1', b'weak_predictor_of_1',
+               b'weak_predictor_of_1'
+           ],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           label_data=[0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           # With min_diff_from_avg, the small AMI value is regularized to 0
+           expected_vocab_file_contents=[
+               (b'good_predictor_of_0', 1.8322128),
+               (b'good_predictor_of_1', 1.7554416),
+               (b'weak_predictor_of_1', 0),
+           ],
+           use_adjusted_mutual_info=True,
+           min_diff_from_avg=1.0,
+           store_frequency=True),
+      # From testVocabularyAnalyzerWithLabelsWeightsAndFrequency
+      dict(testcase_name='labels_weight_and_frequency',
+           x_data=[
+               b'hello', b'hello', b'hello', b'goodbye', b'aaaaa', b'aaaaa',
+               b'goodbye', b'goodbye', b'aaaaa', b'aaaaa', b'goodbye',
+               b'goodbye'
+           ],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           label_data=[1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0],
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           weight_data=[
+               0.3, 0.4, 0.3, 1.2, 0.6, 0.7, 1.0, 1.0, 0.6, 0.7, 1.0, 1.0
+           ],
+           weight_feature_spec=tf.io.FixedLenFeature([], tf.float32),
+           expected_vocab_file_contents=[
+               (b'aaaaa', 1.5637185),
+               (b'goodbye', 0.8699492),
+               (b'hello', 0.6014302),
+           ],
+           min_diff_from_avg=0.0,
+           store_frequency=True),
+      # From testVocabularyWithFrequencyAndFingerprintShuffle
+      # fingerprints by which each of the tokens will be sorted if fingerprint
+      # shuffling is used.
+      # 'ho ho': '1b3dd735ddff70d90f3b7ba5ebf65df521d6ca4d'
+      # 'world': '7c211433f02071597741e6ff5a8ea34789abbf43'
+      # 'hello': 'aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d'
+      # 'hi': 'c22b5f9178342609428d6f51b2c5af4c0bde6a42'
+      # '1': '356a192b7913b04c54574d18c28d46e6395428ab'
+      # '2': 'da4b9237bacccdf19c0760cab7aec4a8359010b0'
+      # '3': '77de68daecd823babbb58edb1c8e14d7106e83bb'
+      dict(testcase_name='string_feature_with_frequency_and_shuffle',
+           x_data=[b'world', b'hello', b'hello'],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           expected_vocab_file_contents=[(b'world', 1), (b'hello', 2)],
+           fingerprint_shuffle=True,
+           store_frequency=True),
+      dict(testcase_name='string_feature_with_frequency_and_no_shuffle',
+           x_data=[b'hi', b'ho ho', b'ho ho'],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           expected_vocab_file_contents=[(b'ho ho', 2), (b'hi', 1)],
+           store_frequency=True),
+      dict(testcase_name='string_feature_with_no_frequency_and_shuffle',
+           x_data=[b'world', b'hello', b'hello'],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           expected_vocab_file_contents=[b'world', b'hello'],
+           fingerprint_shuffle=True),
+      dict(testcase_name='string_feature_with_no_frequency_and_no_shuffle',
+           x_data=[b'world', b'hello', b'hello'],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
+           expected_vocab_file_contents=[b'hello', b'world']),
+      dict(testcase_name='int_feature_with_frequency_and_shuffle',
+           x_data=[1, 2, 2, 3],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           expected_vocab_file_contents=[(b'1', 1), (b'3', 1), (b'2', 2)],
+           fingerprint_shuffle=True,
+           store_frequency=True),
+      dict(testcase_name='int_feature_with_frequency_and_no_shuffle',
+           x_data=[2, 1, 1, 1],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           expected_vocab_file_contents=[(b'1', 3), (b'2', 1)],
+           store_frequency=True),
+      dict(testcase_name='int_feature_with_no_frequency_and_shuffle',
+           x_data=[1, 2, 2, 3],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           expected_vocab_file_contents=[b'1', b'3', b'2'],
+           fingerprint_shuffle=True),
+      dict(testcase_name='int_feature_with_no_frequency_and_no_shuffle',
+           x_data=[1, 2, 2, 3],
+           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+           expected_vocab_file_contents=[b'2', b'3', b'1']),
+  ] + _WITH_LABEL_PARAMS)
+  def testVocabulary(
+      self, x_data, x_feature_spec, label_data=None, label_feature_spec=None,
+      weight_data=None, weight_feature_spec=None,
+      expected_vocab_file_contents=None, **kwargs):
+    """Test tft.Vocabulary with various inputs."""
+    input_data = [{'x': x} for x in x_data]
+    input_feature_spec = {'x': x_feature_spec}
 
-    expected_data = [
-        {
-            'b': 0
-        },
-        {
-            'b': 1
-        },
-        {
-            'b': 0
-        },
-        {
-            'b': 0
-        },
-        {
-            'b': 4
-        },
-        {
-            'b': 1
-        },
-        {
-            'b': 5
-        },
-        {
-            'b': 2
-        },
-        {
-            'b': 2
-        },
-        {
-            'b': 3
-        },
-        {
-            'b': 3
-        },
-        {
-            'b': 6
-        },
-    ]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'b': tf.FixedLenFeature([], tf.int64),
-    }, {
-        'b': schema_pb2.IntDomain(min=-1, max=6, is_categorical=True),
-    })
-    expected_vocab_file_contents = {
-        'my_vocab': [b'13', b'14', b'10', b'-10', b'12', b'11', b'-20']
-    }
+    if label_data is not None:
+      for idx, label in enumerate(label_data):
+        input_data[idx]['label'] = label
+      input_feature_spec['label'] = label_feature_spec
+
+    if weight_data is not None:
+      for idx, weight in enumerate(weight_data):
+        input_data[idx]['weights'] = weight
+      input_feature_spec['weights'] = weight_feature_spec
+
+    input_metadata = tft_unit.metadata_from_feature_spec(input_feature_spec)
+
+    def preprocessing_fn(inputs):
+      x = inputs['x']
+      labels = inputs.get('label')
+      weights = inputs.get('weights')
+      # Note even though the return value is not used, calling tft.vocabulary
+      # will generate the vocabulary as a side effect, and since we have named
+      # this vocabulary it can be looked up using public APIs.
+      tft.vocabulary(
+          x, labels=labels, weights=weights, vocab_filename='my_vocab',
+          **kwargs)
+      return inputs
+
     self.assertAnalyzeAndTransformResults(
         input_data,
         input_metadata,
-        preprocessing_fn_oov,
-        expected_data,
-        expected_metadata=expected_metadata,
-        expected_vocab_file_contents=expected_vocab_file_contents)
+        preprocessing_fn,
+        input_data,  # expected output data is same as input data
+        input_metadata,  # expected output metadata is ame as input metadata
+        expected_vocab_file_contents={'my_vocab': expected_vocab_file_contents})
 
-  def testCreateApplyVocab(self):
+  def testJointVocabularyForMultipleFeatures(self):
     input_data = [
         {'a': 'hello', 'b': 'world', 'c': 'aaaaa'},
         {'a': 'good', 'b': '', 'c': 'hello'},
@@ -3157,31 +2899,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
-  def testVocabularyAnalyzerWithNDInputs(self):
-    def preprocessing_fn(inputs):
-      return {'index': tft.compute_and_apply_vocabulary(inputs['a'])}
-
-    input_data = [
-        {'a': [['some', 'say'], ['the', 'world']]},
-        {'a': [['will', 'end'], ['in', 'fire']]},
-        {'a': [['some', 'say'], ['in', 'ice']]},
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'a': tf.io.FixedLenFeature([2, 2], tf.string)})
-    expected_data = [
-        {'index': [[0, 1], [5, 3]]},
-        {'index': [[4, 8], [2, 7]]},
-        {'index': [[0, 1], [2, 6]]},
-    ]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index': tf.io.FixedLenFeature([2, 2], tf.int64),
-    }, {
-        'index': schema_pb2.IntDomain(min=-1, max=8, is_categorical=True),
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
-
   def testVocabularyAnalyzerWithTokenization(self):
     def preprocessing_fn(inputs):
       return {
@@ -3198,175 +2915,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'index': tf.io.VarLenFeature(tf.int64),
     }, {
         'index': schema_pb2.IntDomain(min=-1, max=2, is_categorical=True),
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
-
-  def testVocabularyAnalyzerWithTopK(self):
-    def preprocessing_fn(inputs):
-      return {
-          'index1':
-              tft.compute_and_apply_vocabulary(
-                  tf.strings.split(inputs['a']), default_value=-99, top_k=2),
-
-          # As above but using a string for top_k (and changing the
-          # default_value to showcase things).
-          'index2':
-              tft.compute_and_apply_vocabulary(
-                  tf.strings.split(inputs['a']), default_value=-9, top_k='2')
-      }
-
-    input_data = [
-        {'a': 'hello hello world'},
-        {'a': 'hello goodbye world'},
-        {'a': 'hello goodbye foo'}
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'a': tf.io.FixedLenFeature([], tf.string)})
-    # Generated vocab (ordered by frequency, then value) should be:
-    # ["hello", "world", "goodbye", "foo"]. After applying top_k=2, this becomes
-    # ["hello", "world"].
-    expected_data = [
-        {'index1': [0, 0, 1], 'index2': [0, 0, 1]},
-        {'index1': [0, -99, 1], 'index2': [0, -9, 1]},
-        {'index1': [0, -99, -99], 'index2': [0, -9, -9]}
-    ]
-
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index1': tf.io.VarLenFeature(tf.int64),
-        'index2': tf.io.VarLenFeature(tf.int64),
-    }, {
-        'index1': schema_pb2.IntDomain(min=-99, max=1, is_categorical=True),
-        'index2': schema_pb2.IntDomain(min=-9, max=1, is_categorical=True),
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
-
-  def testVocabularyAnalyzerWithFrequencyThreshold(self):
-    def preprocessing_fn(inputs):
-      return {
-          'index1':
-              tft.compute_and_apply_vocabulary(
-                  tf.strings.split(inputs['a']),
-                  default_value=-99,
-                  frequency_threshold=2),
-
-          # As above but using a string for frequency_threshold (and changing
-          # the default_value to showcase things).
-          'index2':
-              tft.compute_and_apply_vocabulary(
-                  tf.strings.split(inputs['a']),
-                  default_value=-9,
-                  frequency_threshold='2')
-      }
-
-    input_data = [
-        {'a': 'hello hello world'},
-        {'a': 'hello goodbye world'},
-        {'a': 'hello goodbye foo'}
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'a': tf.io.FixedLenFeature([], tf.string)})
-    # Generated vocab (ordered by frequency, then value) should be:
-    # ["hello", "world", "goodbye", "foo"]. After applying frequency_threshold=2
-    # this becomes
-    # ["hello", "world", "goodbye"].
-    expected_data = [
-        {'index1': [0, 0, 1], 'index2': [0, 0, 1]},
-        {'index1': [0, 2, 1], 'index2': [0, 2, 1]},
-        {'index1': [0, 2, -99], 'index2': [0, 2, -9]}
-    ]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index1': tf.io.VarLenFeature(tf.int64),
-        'index2': tf.io.VarLenFeature(tf.int64),
-    }, {
-        'index1': schema_pb2.IntDomain(min=-99, max=2, is_categorical=True),
-        'index2': schema_pb2.IntDomain(min=-9, max=2, is_categorical=True),
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
-
-  def testVocabularyAnalyzerWithFrequencyThresholdTooHigh(self):
-    # Expected to return an empty dict due to too high threshold.
-    def preprocessing_fn(inputs):
-      return {
-          'index1':
-              tft.compute_and_apply_vocabulary(
-                  tf.strings.split(inputs['a']),
-                  default_value=-99,
-                  frequency_threshold=77),
-
-          # As above but using a string for frequency_threshold (and changing
-          # the default_value to showcase things).
-          'index2':
-              tft.compute_and_apply_vocabulary(
-                  tf.strings.split(inputs['a']),
-                  default_value=-9,
-                  frequency_threshold='77')
-      }
-
-    input_data = [
-        {'a': 'hello hello world'},
-        {'a': 'hello goodbye world'},
-        {'a': 'hello goodbye foo'}
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'a': tf.io.FixedLenFeature([], tf.string)})
-    # Generated vocab (ordered by frequency, then value) should be:
-    # ["hello", "world", "goodbye", "foo"]. After applying
-    # frequency_threshold=77 this becomes empty.
-    expected_data = [
-        {'index1': [-99, -99, -99], 'index2': [-9, -9, -9]},
-        {'index1': [-99, -99, -99], 'index2': [-9, -9, -9]},
-        {'index1': [-99, -99, -99], 'index2': [-9, -9, -9]}
-    ]
-    # Note the vocabs are empty but the tables have size 1 so max_value is 1.
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index1': tf.io.VarLenFeature(tf.int64),
-        'index2': tf.io.VarLenFeature(tf.int64),
-    }, {
-        'index1': schema_pb2.IntDomain(min=-99, max=0, is_categorical=True),
-        'index2': schema_pb2.IntDomain(min=-9, max=0, is_categorical=True),
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
-
-  def testVocabularyAnalyzerWithHighFrequencyThresholdAndOOVBuckets(self):
-    def preprocessing_fn(inputs):
-      return {
-          'index1':
-              tft.compute_and_apply_vocabulary(
-                  tf.strings.split(inputs['a']),
-                  default_value=-99,
-                  top_k=1,
-                  num_oov_buckets=3)
-      }
-
-    input_data = [
-        {'a': 'hello hello world world'},
-        {'a': 'hello tarkus toccata'},
-        {'a': 'hello goodbye foo'}
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'a': tf.io.FixedLenFeature([], tf.string)})
-    # Generated vocab (ordered by frequency, then value) should be:
-    # ["hello", "world", "goodbye", "foo", "tarkus", "toccata"]. After applying
-    # top_k =1 this becomes ["hello"] plus three OOV buckets.
-    # The specific output values here depend on the hash of the words, and the
-    # test will break if the hash changes.
-    expected_data = [
-        {'index1': [0, 0, 2, 2]},
-        {'index1': [0, 3, 1]},
-        {'index1': [0, 2, 1]},
-    ]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index1': tf.io.VarLenFeature(tf.int64),
-    }, {
-        'index1': schema_pb2.IntDomain(min=0, max=3, is_categorical=True),
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -3986,87 +3534,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
                               'vocab_compute_and_apply_vocabulary_vocabulary',
                               'hello\nworld\n')
 
-  @tft_unit.named_parameters(
-      # fingerprints by which each of the tokens will be sorted if fingerprint
-      # shuffling is used.
-      # 'ho ho': '1b3dd735ddff70d90f3b7ba5ebf65df521d6ca4d'
-      # 'world': '7c211433f02071597741e6ff5a8ea34789abbf43'
-      # 'hello': 'aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d'
-      # 'hi': 'c22b5f9178342609428d6f51b2c5af4c0bde6a42'
-      dict(
-          testcase_name='string_feature',
-          a=['world', 'hello', 'hello'],
-          b=['hi', 'ho ho', 'ho ho'],
-          a_frequency_and_shuffle=[(b'world', 1), (b'hello', 2)],
-          b_frequency_no_shuffle=[(b'ho ho', 2), (b'hi', 1)],
-          a_shuffle_no_frequency=[b'world', b'hello'],
-          a_no_shuffle_no_frequency=[b'hello', b'world'],
-      ),
-      # '1': '356a192b7913b04c54574d18c28d46e6395428ab'
-      # '2': 'da4b9237bacccdf19c0760cab7aec4a8359010b0'
-      # '3': '77de68daecd823babbb58edb1c8e14d7106e83bb'
-      dict(
-          testcase_name='int_feature',
-          a=[1, 2, 2, 3],
-          b=[2, 1, 1, 1],
-          a_frequency_and_shuffle=[(b'1', 1), (b'3', 1), (b'2', 2)],
-          b_frequency_no_shuffle=[(b'1', 3), (b'2', 1)],
-          a_shuffle_no_frequency=[b'1', b'3', b'2'],
-          a_no_shuffle_no_frequency=[b'2', b'3', b'1'],
-          dtype=tf.int64,
-      ))
-  def testVocabularyWithFrequencyAndFingerprintShuffle(
-      self,
-      a,
-      b,
-      a_frequency_and_shuffle,
-      b_frequency_no_shuffle,
-      a_shuffle_no_frequency,
-      a_no_shuffle_no_frequency,
-      dtype=tf.string):
-
-    def preprocessing_fn(inputs):
-      # Sort by fingerprint.
-      _ = tft.vocabulary(
-          inputs['a'],
-          vocab_filename='a_frequency_and_shuffle',
-          store_frequency=True,
-          fingerprint_shuffle=True)
-      _ = tft.vocabulary(
-          inputs['b'],
-          store_frequency=True,
-          vocab_filename='b_frequency_no_shuffle')
-
-      # The following must not produce frequency output, just the shuffled vocab
-      # words.
-      _ = tft.vocabulary(
-          inputs['a'],
-          vocab_filename='a_shuffle_no_frequency',
-          fingerprint_shuffle=True)
-      # Sort by frequency (default).
-      _ = tft.vocabulary(
-          inputs['a'], vocab_filename='a_no_shuffle_no_frequency')
-      # Simply return 'a'.
-      return {'a': inputs['a']}
-
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a': tf.io.FixedLenFeature([], dtype),
-        'b': tf.io.FixedLenFeature([], dtype)
-    })
-
-    input_data = [{'a': a_val, 'b': b_val} for a_val, b_val in zip(a, b)]
-
-    self.assertAnalyzeAndTransformResults(
-        input_data,
-        input_metadata,
-        preprocessing_fn,
-        expected_vocab_file_contents={
-            'a_frequency_and_shuffle': a_frequency_and_shuffle,
-            'b_frequency_no_shuffle': b_frequency_no_shuffle,
-            'a_shuffle_no_frequency': a_shuffle_no_frequency,
-            'a_no_shuffle_no_frequency': a_no_shuffle_no_frequency
-        })
-
   def testCovarianceTwoDimensions(self):
     def analyzer_fn(inputs):
       return {'y': tft.covariance(inputs['x'], dtype=tf.float32)}
@@ -4261,154 +3728,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_outputs,
         desired_batch_size=10)
 
-  def testVocabularyAnalyzerWithKeyFn(self):
-    def key_fn(string):
-      return string.split(b'_X_')[0]
-
-    def preprocessing_fn(inputs):
-      return {
-          'index1':
-              tft.compute_and_apply_vocabulary(
-                  tf.strings.split(inputs['a']),
-                  coverage_top_k=1,
-                  default_value=-99,
-                  key_fn=key_fn,
-                  frequency_threshold=3)
-      }
-
-    input_data = [
-        {'a': 'a_X_1 a_X_1 a_X_2 b_X_1 b_X_2'},
-        {'a': 'a_X_1 a_X_1 a_X_2 a_X_2'},
-        {'a': 'b_X_2'}
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'a': tf.io.FixedLenFeature([], tf.string)})
-
-    expected_data = [
-        {'index1': [0, 0, 1, -99, 2]},
-        {'index1': [0, 0, 1, 1]},
-        {'index1': [2]}
-    ]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index1': tf.io.VarLenFeature(tf.int64),
-    }, {
-        'index1': schema_pb2.IntDomain(min=-99, max=2, is_categorical=True),
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
-
-  def testVocabularyAnalyzerWithKeyFnAndMultiCoverageTopK(self):
-    def key_fn(string):
-      return string.split(b'_X_')[0]
-
-    def preprocessing_fn(inputs):
-      return {
-          'index1':
-              tft.compute_and_apply_vocabulary(
-                  tf.strings.split(inputs['a']),
-                  coverage_top_k=2,
-                  default_value=-99,
-                  key_fn=key_fn,
-                  frequency_threshold=300)
-      }
-
-    input_data = [
-        {'a': 'a_X_1 a_X_1 a_X_2 b_X_1 b_X_2'},
-        {'a': 'a_X_1 a_X_1 a_X_2 a_X_2 a_X_3'},
-        {'a': 'b_X_2'}
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'a': tf.io.FixedLenFeature([], tf.string)})
-
-    expected_data = [
-        {'index1': [0, 0, 1, 3, 2]},
-        {'index1': [0, 0, 1, 1, -99]},
-        {'index1': [2]}
-    ]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index1': tf.io.VarLenFeature(tf.int64),
-    }, {
-        'index1': schema_pb2.IntDomain(min=-99, max=3, is_categorical=True),
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
-
-  def testVocabularyAnalyzerWithKeyFnAndTopK(self):
-    def key_fn(string):
-      return string.split(b'_X_')[0]
-
-    def preprocessing_fn(inputs):
-      return {
-          'index1':
-              tft.compute_and_apply_vocabulary(
-                  tf.strings.split(inputs['a']),
-                  coverage_top_k=1,
-                  default_value=-99,
-                  key_fn=key_fn,
-                  top_k=2)
-      }
-
-    input_data = [
-        {'a': 'a_X_1 a_X_1 a_X_2 b_X_1 b_X_2'},
-        {'a': 'a_X_1 a_X_1 a_X_2 a_X_2'},
-        {'a': 'b_X_2 b_X_2 b_X_2 b_X_2 c_X_1'}
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'a': tf.io.FixedLenFeature([], tf.string)})
-
-    expected_data = [
-        {'index1': [1, 1, -99, -99, 0]},
-        {'index1': [1, 1, -99, -99]},
-        {'index1': [0, 0, 0, 0, 2]}
-    ]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index1': tf.io.VarLenFeature(tf.int64),
-    }, {
-        'index1': schema_pb2.IntDomain(min=-99, max=2, is_categorical=True),
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
-
-  def testVocabularyAnalyzerWithKeyFnMultiCoverageTopK(self):
-    def key_fn(string):
-      return string.split(b'_X_')[1]
-
-    def preprocessing_fn(inputs):
-      return {
-          'index1':
-              tft.compute_and_apply_vocabulary(
-                  tf.strings.split(inputs['a']),
-                  coverage_top_k=2,
-                  default_value=-99,
-                  key_fn=key_fn,
-                  frequency_threshold=4)
-      }
-
-    input_data = [
-        {'a': '0_X_a 0_X_a 5_X_a 6_X_a 6_X_a 0_X_a'},
-        {'a': '0_X_a 2_X_a 2_X_a 2_X_a 0_X_a 5_X_a'},
-        {'a': '1_X_b 1_X_b 3_X_b 3_X_b 0_X_b 1_X_b 1_X_b'}
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'a': tf.io.FixedLenFeature([], tf.string)})
-
-    expected_data = [
-        {'index1': [0, 0, -99, -99, -99, 0]},
-        {'index1': [0, 2, 2, 2, 0, -99]},
-        {'index1': [1, 1, 3, 3, -99, 1, 1]}
-    ]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index1': tf.io.VarLenFeature(tf.int64),
-    }, {
-        'index1': schema_pb2.IntDomain(min=-99, max=3, is_categorical=True),
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
-
   def testVocabularyWithKeyFnAndFrequency(self):
     def key_fn(string):
       return string.split(b'_X_')[1]
@@ -4481,102 +3800,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     check_asset_file_contents(assets_path, outfile,
                               '4 1_X_a\n2 2_X_b\n1 4_X_c\n')
-
-  def testVocabularyAnalyzerWithKeyFnAndWeights(self):
-    def key_fn(string):
-      return string[0]
-
-    input_data = [
-        {'a': 'xa', 'weights': 1.},
-        {'a': 'xa', 'weights': .5},
-        {'a': 'xb', 'weights': 3},
-        {'a': 'ya', 'weights': .6},
-        {'a': 'yb', 'weights': .25},
-        {'a': 'yc', 'weights': .5},
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a': tf.io.FixedLenFeature([], tf.string),
-        'weights': tf.io.FixedLenFeature([], tf.float32)
-    })
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index': tf.io.FixedLenFeature([], tf.int64),
-    }, {
-        'index': schema_pb2.IntDomain(min=-1, max=1, is_categorical=True),
-    })
-
-    def preprocessing_fn(inputs):
-      return {
-          'index':
-              tft.compute_and_apply_vocabulary(
-                  inputs['a'], weights=inputs['weights'], coverage_top_k=1,
-                  key_fn=key_fn, frequency_threshold=1.5,
-                  coverage_frequency_threshold=1)
-      }
-
-    expected_data = [
-        {'index': 1},
-        {'index': 1},
-        {'index': 0},
-        {'index': -1},
-        {'index': -1},
-        {'index': -1},
-    ]
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data,
-                                          expected_metadata)
-
-  def testVocabularyAnalyzerWithKeyFnAndLabels(self):
-    def key_fn(string):
-      return string[:2]
-
-    input_data = [
-        {'a': 'aaa', 'labels': 1},
-        {'a': 'aaa', 'labels': 1},
-        {'a': 'aaa', 'labels': 1},
-        {'a': 'aab', 'labels': 1},
-        {'a': 'aba', 'labels': 0},
-        {'a': 'aba', 'labels': 1},
-        {'a': 'aab', 'labels': 0},
-        {'a': 'aab', 'labels': 0},
-        {'a': 'aba', 'labels': 0},
-        {'a': 'abc', 'labels': 1},
-        {'a': 'abc', 'labels': 1},
-        {'a': 'aab', 'labels': 0}
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a': tf.io.FixedLenFeature([], tf.string),
-        'labels': tf.io.FixedLenFeature([], tf.int64)
-    })
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index': tf.io.FixedLenFeature([], tf.int64),
-    }, {
-        'index': schema_pb2.IntDomain(min=-1, max=1, is_categorical=True),
-    })
-
-    def preprocessing_fn(inputs):
-      return {
-          'index':
-              tft.compute_and_apply_vocabulary(
-                  inputs['a'], key_fn=key_fn, labels=inputs['labels'],
-                  coverage_top_k=1, frequency_threshold=3)
-      }
-
-    expected_data = [
-        {'index': 0},
-        {'index': 0},
-        {'index': 0},
-        {'index': -1},
-        {'index': -1},
-        {'index': -1},
-        {'index': -1},
-        {'index': -1},
-        {'index': -1},
-        {'index': 1},
-        {'index': 1},
-        {'index': -1}]
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data,
-                                          expected_metadata)
 
   def testSavedModelWithAnnotations(self):
     """Test serialization/deserialization as a saved model with annotations."""
