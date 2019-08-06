@@ -83,7 +83,7 @@ def _feature_spec_from_batched_tensors(tensors):
       tf.logging.warn(
           'Feature %s was a RaggedTensor.  A Schema will be generated but the '
           'Schema cannot be used with a coder (e.g. to materialize output '
-          'data) or to generated a feature spec.')
+          'data) or to generated a feature spec.', name)
       # Arbitrarily select VarLenFeature.
       feature_spec[name] = tf.io.VarLenFeature(tensor.dtype)
     else:
