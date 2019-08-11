@@ -30,7 +30,9 @@ from __future__ import print_function
 
 import collections
 import pickle
+import random
 import re
+import threading
 
 # GOOGLE-INITIALIZATION
 import numpy as np
@@ -1172,13 +1174,6 @@ def uniques(x,
 
 # TODO(b/65627483): Make this an instantiation of a generic CombineFn based on
 # TF ops.
-#
-# TODO(KesterTong): It seems like QuantilesCombiner is using the state of the
-# current object as the accumulator (as opposed to using a bonafide
-# accumulator). We should change that to ensure correctness (I believe we
-# currently rely on runner implementation details), portability and
-# ease of understanding of the code. The fact that a summary/accumulator can be
-# None is also confusing.
 class QuantilesCombiner(analyzer_nodes.Combiner):
   """Computes quantiles on the PCollection.
 
@@ -1210,173 +1205,39 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     if not self._always_return_num_quantiles and self._num_features > 1:
       raise NotImplementedError(
           'Elementwise quantiles requires same boundary count.')
+    self._graph_state_options = None  # Initialized in initialize_local_state().
 
-  # TODO(b/69566045): Move initialization to start_bundle() or follow the
-  # _start_bundle() approach that TFMA has taken and get rid of the __reduce__
-  # override below.
+  # TODO(katsiapis): Make tf_config required.
   def initialize_local_state(self, tf_config=None):
     """Called by the CombineFnWrapper's __init__ method.
 
-    This can be used to set non-pickleable local state.  It is used in
-    conjunction with overriding __reduce__ so this state is not pickled.  This
-    method must be called prior to any other method.
+    This method must be called prior to any other method.
 
     Args:
-      tf_config: (optional) A tf.ConfigProto
+      tf_config: A tf.ConfigProto
     """
-    # Create a new session with a new graph for quantile ops.
-    with tf.Graph().as_default() as graph:
+    random_slot = random.randint(0, 9)  # For thread contention amelioration.
+    self._graph_state_options = _QuantilesGraphStateOptions(
+        num_quantiles=self._num_quantiles,
+        epsilon=self._epsilon,
+        bucket_numpy_dtype=self._bucket_numpy_dtype,
+        always_return_num_quantiles=self._always_return_num_quantiles,
+        has_weights=self._has_weights,
+        num_features=self._num_features,
+        tf_config=tf_config,
+        random_slot=random_slot)
 
-      # stamp_token is used to commit the state of each qaccumulator. In
-      # this case, the qaccumulator state is completely returned and stored
-      # as part of quantile_state/summary in the combiner fn (i.e the summary is
-      # extracted and stored outside the qaccumulator). So we don't use
-      # the timestamp mechanism to signify progress in the qaccumulator state.
-      stamp_token = 0
+  def _get_graph_state(self):
+    return _global_quantiles_graph_state_provider.get_graph_state(
+        self._graph_state_options)
 
-      self._session = tf.compat.v1.Session(graph=graph)
-
-      qaccumulators = []
-      for idx in range(self._num_features):
-        qaccumulators.append(quantile_ops.QuantileAccumulator(
-            init_stamp_token=stamp_token,
-            num_quantiles=self._num_quantiles,
-            epsilon=self._epsilon,
-            name='qaccumulator_{}'.format(idx),
-            generate_quantiles=self._always_return_num_quantiles))
-      qaccumulators = tuple(qaccumulators)
-
-      self._session.run(
-          resources.initialize_resources(resources.shared_resources()))
-
-      self._add_input_callable = self._make_add_input_callable(
-          qaccumulators, stamp_token)
-      self._merge_inputs_callable = self._make_add_summary_callable(
-          qaccumulators, stamp_token)
-      self._get_buckets_callable = self._make_get_buckets_callable(
-          qaccumulators, stamp_token)
-
-      # Create op to flush summaries and return a list representing the
-      # summaries that were added to all accumulators so far.
-      self._flush_summary_callable = self._session.make_callable(
-          fetches=[qacc.flush_summary(stamp_token=stamp_token,
-                                      next_stamp_token=stamp_token)
-                   for qacc in qaccumulators])
-
-      graph.finalize()
-
-    # We generate an empty summary by calling self._flush_summary_op.
-    # We cache this as some implementations may call create_accumulator for
-    # every input, and it can be cached since it will always be the same and
-    # immutable.
-    self._empty_summary = self._flush_summary_callable()[0]
-
-  def __reduce__(self):
-    return QuantilesCombiner, (self._num_quantiles,
-                               self._epsilon,
-                               self._bucket_numpy_dtype,
-                               self._always_return_num_quantiles,
-                               self._has_weights,
-                               self._output_shape,
-                               self._include_max_and_min,
-                               self._feature_shape)
-
-  def _make_add_input_callable(self, qaccumulators, stamp_token):
-    # Create placeholders for add_inputs_callable.  These placeholders will
-    # be used to provide prebuilt summary, input and weights to the
-    # QuantileAccumulator.
-    # inputs and weights need to have shapes (1, None) as this is what the
-    # QuantileAccumulator accepts.
-    prebuilt_summary = tf.compat.v1.placeholder(
-        dtype=tf.string, shape=[self._num_features], name='summaries')
-    inputs = tf.compat.v1.placeholder(
-        dtype=self._bucket_numpy_dtype, shape=[self._num_features, None],
-        name='inputs')
-    feed_list = [prebuilt_summary, inputs]
-    if self._has_weights:
-      weights = tf.compat.v1.placeholder(dtype=tf.float32, shape=[1, None],
-                                         name='weights')
-      feed_list.append(weights)
-    else:
-      weights = tf.expand_dims(tf.ones_like(inputs[0, :]), axis=0)
-
-    # TODO(b/68277922): Investigate add_inputs() to efficiently handle multiple
-    # batches of inputs.
-    # This is where we can most parallelize the operation, so we should
-    # refrain from using accumulators until necessary to merge
-    next_summaries = gen_quantile_ops.make_quantile_summaries(
-        dense_float_features=[[data] for data in tf.unstack(inputs, axis=0)],
-        sparse_float_feature_indices=[],
-        sparse_float_feature_values=[],
-        sparse_float_feature_shapes=[],
-        example_weights=weights,
-        epsilon=self._epsilon / 2).dense_summaries
-
-    summaries = []
-    for summary_ix in range(self._num_features):
-      add_prebuilt_summary_op = qaccumulators[summary_ix].add_prebuilt_summary(
-          stamp_token=stamp_token, summary=prebuilt_summary[summary_ix])
-
-      with tf.control_dependencies([add_prebuilt_summary_op]):
-        # Create op to update the accumulator with new input fed from
-        # inputs_placeholder.
-
-        add_summary_op = qaccumulators[summary_ix].add_prebuilt_summary(
-            stamp_token=stamp_token, summary=next_summaries[summary_ix])
-
-      with tf.control_dependencies([add_summary_op]):
-        # After the flush_summary, qaccumulators will not contain any
-        # uncommitted information that represents the input. Instead all the
-        # digested information is returned as 'summary'. Many such summaries
-        # will be combined by merge_accumulators().
-        summaries.append(qaccumulators[summary_ix].flush_summary(
-            stamp_token=stamp_token, next_stamp_token=stamp_token))
-
-    return self._session.make_callable(fetches=summaries, feed_list=feed_list)
-
-  def _make_add_summary_callable(self, qaccumulators, stamp_token):
-    summary = tf.compat.v1.placeholder(
-        dtype=tf.string, shape=[self._num_features])
-
-    add_merge_prebuilt_summary_op = [
-        qaccumulators[summary_ix].add_prebuilt_summary(
-            stamp_token=stamp_token, summary=summary[summary_ix])
-        for summary_ix in range(self._num_features)]
-
-    return self._session.make_callable(
-        fetches=add_merge_prebuilt_summary_op,
-        feed_list=[summary])
-
-  def _make_get_buckets_callable(self, qaccumulators, stamp_token):
-    def final_buckets(accumulator):
-      _, buckets = accumulator.get_buckets(stamp_token=stamp_token)
-      return buckets
-
-    final_summary = tf.compat.v1.placeholder(dtype=tf.string,
-                                             shape=[self._num_features])
-
-    add_final_summary_op = [
-        qaccumulators[summary_ix].add_prebuilt_summary(
-            stamp_token=stamp_token, summary=final_summary[summary_ix])
-        for summary_ix in range(self._num_features)
-    ]
-
-    # Create ops to flush the accumulator and return approximate boundaries.
-    with tf.control_dependencies(add_final_summary_op):
-      flush_op = [qacc.flush(stamp_token=stamp_token,
-                             next_stamp_token=stamp_token)
-                  for qacc in qaccumulators]
-
-    with tf.control_dependencies(flush_op):
-      bucket_lists = [final_buckets(qacc) for qacc in qaccumulators]
-
-    return self._session.make_callable(
-        fetches=bucket_lists, feed_list=[final_summary])
-
+  # TODO(KesterTong): The fact that a summary/accumulator can be None is confusing.
   def create_accumulator(self):
     return None
 
   def add_input(self, summary, next_input):
+    graph_state = self._get_graph_state()
+
     # next_input is a list of tensors each one representing a batch for its
     # respective input.  In this case a single input should be
     # reshaped to (num_features, ?).
@@ -1386,7 +1247,7 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     if summary is None:
       if flattened_input.size == 0:
         return None
-      summary = [self._empty_summary] * self._num_features
+      summary = [graph_state.empty_summary] * self._num_features
 
     # This conversion is necessary to maintain compatibility with previous
     # versions, and will be removed in future (0.15).
@@ -1399,30 +1260,37 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
       if flattened_input.size != flattened_weights.size * self._num_features:
         # We can only accept one dimension of weights; different size is ok.
         raise ValueError(
-            'Values and weights contain incompatible sizes ({} vs {})'
-            .format(flattened_input.size, flattened_weights.size))
+            'Values and weights contain incompatible sizes ({} vs {})'.format(
+                flattened_input.size, flattened_weights.size))
       callable_args = [summary, flattened_input.T, flattened_weights]
     else:
       callable_args = [summary, flattened_input.T]
 
-    return self._add_input_callable(*callable_args)
+    with graph_state.lock:
+      return graph_state.thread_hostile_add_input_callable(*callable_args)
 
-  def merge_accumulators(self, summary_sets):
-    found_a_summary = False
-    for summaries in summary_sets:
-      if summaries is None:
+  def merge_accumulators(self, summaries_iterable):
+    graph_state = self._get_graph_state()
+    result = None
+    for summary in summaries_iterable:
+      if summary is None:
         continue
-      found_a_summary = True
-      # TODO(b/127336397): Remove this check.
-      self._merge_inputs_callable(
-          [summaries] if isinstance(summaries, (six.binary_type, six.text_type))
-          else summaries)
-
-    if found_a_summary:
-      return self._flush_summary_callable()
-    return None
+      else:
+        # This conversion is necessary to maintain compatibility with previous
+        # versions, and will be removed in future (0.15).
+        # TODO(b/127336397): Remove this.
+        if isinstance(summary, (six.binary_type, six.text_type)):
+          summary = [summary]
+        with graph_state.lock:
+          graph_state.thread_hostile_merge_inputs_callable(summary)
+          if result is not None:
+            graph_state.thread_hostile_merge_inputs_callable(result)
+          result = graph_state.thread_hostile_flush_summary_callable()
+    return result
 
   def extract_output(self, summary):
+    graph_state = self._get_graph_state()
+
     num_buckets = (
         self._num_quantiles - 1 if self._always_return_num_quantiles else 0)
     output_shape = tuple(self._feature_shape + [num_buckets])
@@ -1430,7 +1298,8 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
       return [np.zeros(output_shape, np.float32)]
     output_shape = tuple(self._feature_shape + [-1])
 
-    bucket_lists = self._get_buckets_callable(summary)
+    with graph_state.lock:
+      bucket_lists = graph_state.thread_hostile_get_buckets_callable(summary)
 
     def prune_buckets(buckets):  # pylint: disable=missing-docstring
       # If always_return_num_quantiles is set to True, the number of elements in
@@ -1478,6 +1347,228 @@ class _QuantilesAccumulatorCacheCoder(analyzer_nodes.CacheCoder):
 
   def decode_cache(self, encoded_accumulator):
     return pickle.loads(encoded_accumulator)
+
+
+# TODO(KesterTong): We could perhaps enable even more graph_state sharing by making
+# the various options be "inputs" as opposed to "constants" (or more generally
+# "graph structure") of the graph.
+class _QuantilesGraphStateOptions(
+    collections.namedtuple('_QuantilesGraphStateOptions', [
+        'num_quantiles', 'epsilon', 'bucket_numpy_dtype',
+        'always_return_num_quantiles', 'has_weights', 'num_features',
+        'tf_config', 'random_slot'
+    ])):
+  """Options defining an equivalence class of Quantiles shared graph state."""
+  pass
+
+
+# Thread-hostile.
+class _QuantilesGraphState(object):
+  """A container for a Quantiles shared graph state.
+
+  Note that the implementation is currently thread-hostile and all methods that
+  have "thread_hostile" in their name should acquire this state's lock both when
+  called directly and when called in succession, for methods that are logically
+  "paired" like for example _thread_hostile_merge_inputs_callable() and
+  _thread_hostile_flush_callable().
+  """
+
+  def __init__(self, options):
+    # Current implementation of Quantiles Ops require mutation of resources
+    # which is "impure" and necessitates atomicity. This lock enforces those
+    # invariants, by protecting access to all callables of this graph state.
+    #
+    # TODO(KesterTong): Consider making this lock private and having methods of
+    # this object only grab it when they need it. When that is done, remember to
+    #   a) Annotate this class as Thread-safe (as opposed to thread-hostile) and
+    #      update its documentation.
+    #   b) Make all thread-hostile methods private and remove "thread_hostile"
+    #      from their name.
+    #   c) Expose the right public methods.
+    #
+    # TODO(KesterTong): Perhaps TF Quantiles Ops could be changed so that they
+    # are truly pure. That would allow sharing the _QuantilesGraphState without
+    # a need for locking.
+    self.lock = threading.Lock()
+
+    # Create a new session with a new graph for quantile ops.
+    with tf.Graph().as_default() as graph:
+      self._session = tf.compat.v1.Session(
+          graph=graph, config=options.tf_config)
+
+      # stamp_token is used to commit the state of each qaccumulator. In
+      # this case, the qaccumulator state is completely returned and stored
+      # as part of quantile_state/summary in the combiner fn (i.e the summary
+      # is extracted and stored outside the qaccumulator). So we don't use
+      # the timestamp mechanism to signify progress in the qaccumulator state.
+      stamp_token = 0
+
+      qaccumulators = []
+      for idx in range(options.num_features):
+        qaccumulators.append(
+            quantile_ops.QuantileAccumulator(
+                init_stamp_token=stamp_token,
+                num_quantiles=options.num_quantiles,
+                epsilon=options.epsilon,
+                name='qaccumulator_{}'.format(idx),
+                generate_quantiles=options.always_return_num_quantiles))
+      qaccumulators = tuple(qaccumulators)
+
+      self._session.run(
+          resources.initialize_resources(resources.shared_resources()))
+
+      self.thread_hostile_add_input_callable = self._make_add_input_callable(
+          qaccumulators, stamp_token, options)
+      self.thread_hostile_get_buckets_callable = (
+          self._make_get_buckets_callable(qaccumulators, stamp_token, options))
+      self.thread_hostile_merge_inputs_callable = (
+          self._make_add_summary_callable(qaccumulators, stamp_token, options))
+      # Create op to flush summaries and return a list representing the
+      # summaries that were added to all accumulators so far.
+      self.thread_hostile_flush_summary_callable = self._session.make_callable(
+          fetches=[
+              qacc.flush_summary(
+                  stamp_token=stamp_token, next_stamp_token=stamp_token)
+              for qacc in qaccumulators
+          ])
+
+      graph.finalize()
+
+    # We generate an empty summary by calling self._flush_summary_callable and
+    # cache it for efficiency. Caching is safe (and as such the cache is public)
+    # since it is immutable.
+    with self.lock:
+      self.empty_summary = self.thread_hostile_flush_summary_callable()[0]
+
+  def _make_add_input_callable(self, qaccumulators, stamp_token, options):
+    # Create placeholders for add_inputs_callable.  These placeholders will
+    # be used to provide prebuilt summary, input and weights to the
+    # QuantileAccumulator.
+    # inputs and weights need to have shapes (1, None) as this is what the
+    # QuantileAccumulator accepts.
+    prebuilt_summary = tf.compat.v1.placeholder(
+        dtype=tf.string, shape=[options.num_features], name='summaries')
+    inputs = tf.compat.v1.placeholder(
+        dtype=options.bucket_numpy_dtype,
+        shape=[options.num_features, None],
+        name='inputs')
+    feed_list = [prebuilt_summary, inputs]
+    if options.has_weights:
+      weights = tf.compat.v1.placeholder(
+          dtype=tf.float32, shape=[1, None], name='weights')
+      feed_list.append(weights)
+    else:
+      weights = tf.expand_dims(tf.ones_like(inputs[0, :]), axis=0)
+
+    # TODO(b/68277922): Investigate add_inputs() to efficiently handle
+    # multiple batches of inputs.
+    # This is where we can most parallelize the operation, so we should
+    # refrain from using accumulators until necessary to merge
+    next_summaries = gen_quantile_ops.make_quantile_summaries(
+        dense_float_features=[[data] for data in tf.unstack(inputs, axis=0)],
+        sparse_float_feature_indices=[],
+        sparse_float_feature_values=[],
+        sparse_float_feature_shapes=[],
+        example_weights=weights,
+        epsilon=options.epsilon / 2).dense_summaries
+
+    summaries = []
+    for summary_ix in range(options.num_features):
+      add_prebuilt_summary_op = qaccumulators[summary_ix].add_prebuilt_summary(
+          stamp_token=stamp_token, summary=prebuilt_summary[summary_ix])
+
+      with tf.control_dependencies([add_prebuilt_summary_op]):
+        # Create op to update the accumulator with new input fed from
+        # inputs_placeholder.
+        add_summary_op = qaccumulators[summary_ix].add_prebuilt_summary(
+            stamp_token=stamp_token, summary=next_summaries[summary_ix])
+
+      with tf.control_dependencies([add_summary_op]):
+        # After the flush_summary, qaccumulators will not contain any
+        # uncommitted information that represents the input. Instead all the
+        # digested information is returned as 'summary'. Many such summaries
+        # will be combined by merge_summaries().
+        summaries.append(qaccumulators[summary_ix].flush_summary(
+            stamp_token=stamp_token, next_stamp_token=stamp_token))
+
+    return self._session.make_callable(fetches=summaries, feed_list=feed_list)
+
+  def _make_add_summary_callable(self, qaccumulators, stamp_token, options):
+    summary = tf.compat.v1.placeholder(
+        dtype=tf.string, shape=[options.num_features])
+
+    add_merge_prebuilt_summary_op = [
+        qaccumulators[summary_ix].add_prebuilt_summary(
+            stamp_token=stamp_token, summary=summary[summary_ix])
+        for summary_ix in range(options.num_features)
+    ]
+
+    return self._session.make_callable(
+        fetches=add_merge_prebuilt_summary_op, feed_list=[summary])
+
+  def _make_get_buckets_callable(self, qaccumulators, stamp_token, options):
+
+    def final_buckets(accumulator):
+      _, buckets = accumulator.get_buckets(stamp_token=stamp_token)
+      return buckets
+
+    final_summary = tf.compat.v1.placeholder(
+        dtype=tf.string, shape=[options.num_features])
+
+    add_final_summary_op = [
+        qaccumulators[summary_ix].add_prebuilt_summary(
+            stamp_token=stamp_token, summary=final_summary[summary_ix])
+        for summary_ix in range(options.num_features)
+    ]
+
+    # Create ops to flush the accumulator and return approximate boundaries.
+    with tf.control_dependencies(add_final_summary_op):
+      flush_op = [
+          qacc.flush(stamp_token=stamp_token, next_stamp_token=stamp_token)
+          for qacc in qaccumulators
+      ]
+
+    with tf.control_dependencies(flush_op):
+      bucket_lists = [final_buckets(qacc) for qacc in qaccumulators]
+
+    return self._session.make_callable(
+        fetches=bucket_lists, feed_list=[final_summary])
+
+
+# Thread-safe.
+class _QuantilesGraphStateProvider(object):
+  """Constructs _QuantilesGraphState in a lazy and shared manner where possible.
+
+  This class provides a get_graph_state method that lazily constructs and
+  returns a _QuantilesGraphState, given some _QuantilesGraphStateOptions.  If a
+  _QuantilesGraphState already exists for given _QuantilesGraphStateOptions,
+  that _QuantilesGraphState is returned.
+  """
+
+  def __init__(self):
+    self._graph_states_by_options = {}
+
+  def get_graph_state(self, graph_state_options):
+    # Access to self._graph_states_by_options happens under GIL so this lazy
+    # population is thread-safe (even if it might occasionally waste creation
+    # of some objects that might otherwise be avoided).
+    result = self._graph_states_by_options.get(graph_state_options)
+    if result is None:
+      result = _QuantilesGraphState(graph_state_options)
+      self._graph_states_by_options[graph_state_options] = result
+    return result
+
+  def __reduce__(self):
+    # The values of _graph_states_by_options are not picklable and this is a
+    # lazy cache so we 'clear' it any time we need to pickle it.
+    return self.__class__, ()
+
+
+# TODO(b/134414978): Investigate removal of global _QuantilesGraphStateProvider
+# and instead pass in a single _QuantilesGraphStateProvider object, owned by the
+# packed combiner, to QuantilesCombiner, making sure that the provider object
+# remains shared across combiners during pipeline execution.
+_global_quantiles_graph_state_provider = _QuantilesGraphStateProvider()
 
 
 def quantiles(x, num_buckets, epsilon, weights=None, reduce_instance_dims=True,

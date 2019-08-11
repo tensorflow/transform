@@ -618,8 +618,6 @@ class _CombinerWrapper(beam.CombineFn):
         combiner's extract_output method in extract_output. If not specified, we
         assume it's the same value as `should_extract_output`.
     """
-    # TODO(b/69566045): Move initialization to start_bundle(), removing the need
-    # for initialize_local_state to be called here.
     if isinstance(combiner, analyzers.QuantilesCombiner):
       combiner.initialize_local_state(tf_config)
     self._combiner = combiner
@@ -628,11 +626,6 @@ class _CombinerWrapper(beam.CombineFn):
     if should_extract_output is None:
       should_extract_output = is_combining_accumulators
     self._should_extract_output = should_extract_output
-
-  def __reduce__(self):
-    return _CombinerWrapper, (self._combiner, self._tf_config,
-                              self._is_combining_accumulators,
-                              self._should_extract_output)
 
   def create_accumulator(self):
     return self._combiner.create_accumulator()

@@ -2,6 +2,7 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
+* Performance improvements for preprocessing_fns with many Quantiles analyzers.
 
 ## Bug Fixes and Other Changes
 * Existing analyzer cache is invalidated.

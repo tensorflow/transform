@@ -331,7 +331,7 @@ class AnalyzersTest(test_case.TransformTestCase):
     combiner = pickle.loads(pickle.dumps(combiner))
 
     if isinstance(combiner, analyzers.QuantilesCombiner):
-      combiner.initialize_local_state()
+      combiner.initialize_local_state(tf_config=None)
 
     # Note `accumulators` is a generator, not list.  We do this to ensure that
     # add_input is not relying on its input being a list.

@@ -309,9 +309,8 @@ class _RunMetaGraphDoFn(beam.DoFn):
     def __init__(self, saved_model_dir, input_schema, exclude_outputs,
                  tf_config):
       self.saved_model_dir = saved_model_dir
-      graph = tf.Graph()
-      self._session = tf.compat.v1.Session(graph=graph, config=tf_config)
-      with graph.as_default():
+      with tf.Graph().as_default() as graph:
+        self._session = tf.compat.v1.Session(graph=graph, config=tf_config)
         with self._session.as_default():
           inputs, outputs = (
               saved_transform_io.partially_apply_saved_transform_internal(
