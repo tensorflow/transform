@@ -44,7 +44,6 @@ from tensorflow_transform import tf_utils
 
 
 from tensorflow.contrib.boosted_trees.python.ops import gen_quantile_ops
-from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
 from tensorflow.python.ops import resources
 from tensorflow.python.util import deprecation
 
@@ -1373,6 +1372,22 @@ class _QuantilesGraphState(object):
   _thread_hostile_flush_callable().
   """
 
+  def _create_resource(self, name, stamp_token, options):  # pylint: disable=missing-docstring
+    resource_handle = gen_quantile_ops.quantile_stream_resource_handle_op(
+        container=None, shared_name=name, name=name)
+    create_op = gen_quantile_ops.create_quantile_accumulator(
+        resource_handle,
+        stamp_token,
+        epsilon=options.epsilon,
+        max_elements=None,
+        num_quantiles=options.num_quantiles,
+        generate_quantiles=options.always_return_num_quantiles)
+
+    is_initialized_op = gen_quantile_ops.quantile_accumulator_is_initialized(
+        resource_handle)
+    resources.register_resource(resource_handle, create_op, is_initialized_op)
+    return resource_handle
+
   def __init__(self, options):
     # Current implementation of Quantiles Ops require mutation of resources
     # which is "impure" and necessitates atomicity. This lock enforces those
@@ -1403,34 +1418,25 @@ class _QuantilesGraphState(object):
       # the timestamp mechanism to signify progress in the qaccumulator state.
       stamp_token = 0
 
-      qaccumulators = []
-      for idx in range(options.num_features):
-        qaccumulators.append(
-            quantile_ops.QuantileAccumulator(
-                init_stamp_token=stamp_token,
-                num_quantiles=options.num_quantiles,
-                epsilon=options.epsilon,
-                name='qaccumulator_{}'.format(idx),
-                generate_quantiles=options.always_return_num_quantiles))
-      qaccumulators = tuple(qaccumulators)
+      resource_handles = [
+          self._create_resource(name='quantiles_combiner_{}'.format(idx),
+                                stamp_token=stamp_token, options=options)
+          for idx in range(options.num_features)
+      ]
 
       self._session.run(
           resources.initialize_resources(resources.shared_resources()))
 
       self.thread_hostile_add_input_callable = self._make_add_input_callable(
-          qaccumulators, stamp_token, options)
+          resource_handles, stamp_token, options)
       self.thread_hostile_get_buckets_callable = (
-          self._make_get_buckets_callable(qaccumulators, stamp_token, options))
+          self._make_get_buckets_callable(
+              resource_handles, stamp_token, options))
       self.thread_hostile_merge_inputs_callable = (
-          self._make_add_summary_callable(qaccumulators, stamp_token, options))
-      # Create op to flush summaries and return a list representing the
-      # summaries that were added to all accumulators so far.
-      self.thread_hostile_flush_summary_callable = self._session.make_callable(
-          fetches=[
-              qacc.flush_summary(
-                  stamp_token=stamp_token, next_stamp_token=stamp_token)
-              for qacc in qaccumulators
-          ])
+          self._make_add_summary_callable(
+              resource_handles, stamp_token, options))
+      self.thread_hostile_flush_summary_callable = (
+          self._make_flush_summary_callable(resource_handles, stamp_token))
 
       graph.finalize()
 
@@ -1440,7 +1446,18 @@ class _QuantilesGraphState(object):
     with self.lock:
       self.empty_summary = self.thread_hostile_flush_summary_callable()[0]
 
-  def _make_add_input_callable(self, qaccumulators, stamp_token, options):
+  def _make_flush_summary_callable(self, resource_handles, stamp_token):
+    # Create op to flush summaries and return a list representing the
+    # summaries that were added to all accumulators so far.
+    flushed_summaries = []
+    for resource in resource_handles:
+      flushed_summaries.append(
+          gen_quantile_ops.quantile_accumulator_flush_summary(
+              quantile_accumulator_handle=resource, stamp_token=stamp_token,
+              next_stamp_token=stamp_token))
+    return self._session.make_callable(fetches=flushed_summaries)
+
+  def _make_add_input_callable(self, resource_handles, stamp_token, options):  # pylint: disable=missing-docstring
     # Create placeholders for add_inputs_callable.  These placeholders will
     # be used to provide prebuilt summary, input and weights to the
     # QuantileAccumulator.
@@ -1474,62 +1491,58 @@ class _QuantilesGraphState(object):
 
     summaries = []
     for summary_ix in range(options.num_features):
-      add_prebuilt_summary_op = qaccumulators[summary_ix].add_prebuilt_summary(
-          stamp_token=stamp_token, summary=prebuilt_summary[summary_ix])
-
-      with tf.control_dependencies([add_prebuilt_summary_op]):
-        # Create op to update the accumulator with new input fed from
-        # inputs_placeholder.
-        add_summary_op = qaccumulators[summary_ix].add_prebuilt_summary(
-            stamp_token=stamp_token, summary=next_summaries[summary_ix])
+      add_summary_op = gen_quantile_ops.quantile_accumulator_add_summaries(
+          quantile_accumulator_handles=[resource_handles[summary_ix],
+                                        resource_handles[summary_ix]],
+          stamp_token=stamp_token,
+          summaries=[prebuilt_summary[summary_ix], next_summaries[summary_ix]])
 
       with tf.control_dependencies([add_summary_op]):
         # After the flush_summary, qaccumulators will not contain any
         # uncommitted information that represents the input. Instead all the
         # digested information is returned as 'summary'. Many such summaries
         # will be combined by merge_summaries().
-        summaries.append(qaccumulators[summary_ix].flush_summary(
+        summaries.append(gen_quantile_ops.quantile_accumulator_flush_summary(
+            quantile_accumulator_handle=resource_handles[summary_ix],
             stamp_token=stamp_token, next_stamp_token=stamp_token))
 
     return self._session.make_callable(fetches=summaries, feed_list=feed_list)
 
-  def _make_add_summary_callable(self, qaccumulators, stamp_token, options):
+  def _make_add_summary_callable(self, resource_handles, stamp_token, options):  # pylint: disable=missing-docstring
     summary = tf.compat.v1.placeholder(
         dtype=tf.string, shape=[options.num_features])
 
     add_merge_prebuilt_summary_op = [
-        qaccumulators[summary_ix].add_prebuilt_summary(
-            stamp_token=stamp_token, summary=summary[summary_ix])
+        gen_quantile_ops.quantile_accumulator_add_summaries(
+            [resource_handles[summary_ix]], stamp_token, [summary[summary_ix]])
         for summary_ix in range(options.num_features)
     ]
 
     return self._session.make_callable(
         fetches=add_merge_prebuilt_summary_op, feed_list=[summary])
 
-  def _make_get_buckets_callable(self, qaccumulators, stamp_token, options):
+  def _make_get_buckets_callable(self, resource_handles, stamp_token, options):  # pylint: disable=missing-docstring
 
-    def final_buckets(accumulator):
-      _, buckets = accumulator.get_buckets(stamp_token=stamp_token)
-      return buckets
+    def final_buckets(resource):
+      _, buckets = gen_quantile_ops.quantile_accumulator_get_buckets(
+          quantile_accumulator_handles=[resource], stamp_token=stamp_token)
+      # There is one bucket for each resource, but only one resource
+      return buckets[0]
 
     final_summary = tf.compat.v1.placeholder(
         dtype=tf.string, shape=[options.num_features])
 
-    add_final_summary_op = [
-        qaccumulators[summary_ix].add_prebuilt_summary(
-            stamp_token=stamp_token, summary=final_summary[summary_ix])
-        for summary_ix in range(options.num_features)
-    ]
+    add_final_summary_op = [gen_quantile_ops.quantile_accumulator_add_summaries(
+        resource_handles, stamp_token, tf.unstack(final_summary))]
 
     # Create ops to flush the accumulator and return approximate boundaries.
     with tf.control_dependencies(add_final_summary_op):
-      flush_op = [
-          qacc.flush(stamp_token=stamp_token, next_stamp_token=stamp_token)
-          for qacc in qaccumulators
-      ]
+      flush_op = [gen_quantile_ops.quantile_accumulator_flush(
+          resource, stamp_token=stamp_token, next_stamp_token=stamp_token)
+                  for resource in resource_handles]
 
     with tf.control_dependencies(flush_op):
-      bucket_lists = [final_buckets(qacc) for qacc in qaccumulators]
+      bucket_lists = [final_buckets(resource) for resource in resource_handles]
 
     return self._session.make_callable(
         fetches=bucket_lists, feed_list=[final_summary])
