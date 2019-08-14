@@ -393,23 +393,42 @@ class CachedImplTest(test_case.TransformTestCase):
     with _TestPipeline() as p:
       flat_data = p | 'CreateInputData' >> beam.Create(
           list(itertools.chain(*input_data_dict.values())))
-      cache_dict = {
-          span_0_key: {
-              _TEST_CACHE_VERSION +
-              b'CacheableCombineAccumulate[x_1/mean_and_var]-.\xc4t>ZBv\xea\xa5SU\xf4\x065\xc6\x1c\x81W\xf9\x1b':
-                  p | 'CreateA' >> beam.Create([b'[2.0, 1.0, 9.0, 0.0]']),
-              _TEST_CACHE_VERSION +
-              b'CacheableCombineAccumulate[x/x]-~\xa7\\\xcc\x16\xcd\xcd\x8b\x1c\xf2V\xa9\xfa\xb1\xbf\xeb\x07j\x7f\x83':
-                  p | 'CreateB' >> beam.Create([b'[2.0, 4.0]']),
-              _TEST_CACHE_VERSION +
-              b'CacheableCombineAccumulate[y_1/mean_and_var]-E^\xb7VZ\xeew4rm\xab\xa3\xa4k|J\x80ck\x16':
-                  p | 'CreateC' >> beam.Create([b'[2.0, -1.5, 6.25, 0.0]']),
-              _TEST_CACHE_VERSION +
-              b'CacheableCombineAccumulate[y/y]-i4\xf9\xf4\x00\x02G\x9ccy@\x7f\x0eu\x8eb\x0f\xf7\xdf\xf5':
-                  p | 'CreateD' >> beam.Create([b'[4.0, 1.0]']),
-          },
-          span_1_key: {},
-      }
+      if test_case.TF_STATIC_ASSERTS_ENABLED:
+        cache_dict = {
+            span_0_key: {
+                _TEST_CACHE_VERSION +
+                b'CacheableCombineAccumulate[x_1/mean_and_var]-.\xc4t>ZBv\xea\xa5SU\xf4\x065\xc6\x1c\x81W\xf9\x1b':
+                    p | 'CreateA' >> beam.Create([b'[2.0, 1.0, 9.0, 0.0]']),
+                _TEST_CACHE_VERSION +
+                b'CacheableCombineAccumulate[x/x]-5\xa7\xacn$62\xff\xa5Y{\xfdb\x83\x98\x99Ge\xbe\x9c':
+                    p | 'CreateB' >> beam.Create([b'[2.0, 4.0]']),
+                _TEST_CACHE_VERSION +
+                b'CacheableCombineAccumulate[y_1/mean_and_var]-E^\xb7VZ\xeew4rm\xab\xa3\xa4k|J\x80ck\x16':
+                    p | 'CreateC' >> beam.Create([b'[2.0, -1.5, 6.25, 0.0]']),
+                _TEST_CACHE_VERSION +
+                b"CacheableCombineAccumulate[y/y]-\xf9'@pp;yC\xcbd\xec+\xe3\xfb\xff\x96e\xb5\x8d,":
+                    p | 'CreateD' >> beam.Create([b'[4.0, 1.0]']),
+            },
+            span_1_key: {},
+        }
+      else:
+        cache_dict = {
+            span_0_key: {
+                _TEST_CACHE_VERSION +
+                b'CacheableCombineAccumulate[x_1/mean_and_var]-.\xc4t>ZBv\xea\xa5SU\xf4\x065\xc6\x1c\x81W\xf9\x1b':
+                    p | 'CreateA' >> beam.Create([b'[2.0, 1.0, 9.0, 0.0]']),
+                _TEST_CACHE_VERSION +
+                b'CacheableCombineAccumulate[x/x]-~\xa7\\\xcc\x16\xcd\xcd\x8b\x1c\xf2V\xa9\xfa\xb1\xbf\xeb\x07j\x7f\x83':
+                    p | 'CreateB' >> beam.Create([b'[2.0, 4.0]']),
+                _TEST_CACHE_VERSION +
+                b'CacheableCombineAccumulate[y_1/mean_and_var]-E^\xb7VZ\xeew4rm\xab\xa3\xa4k|J\x80ck\x16':
+                    p | 'CreateC' >> beam.Create([b'[2.0, -1.5, 6.25, 0.0]']),
+                _TEST_CACHE_VERSION +
+                b'CacheableCombineAccumulate[y/y]-i4\xf9\xf4\x00\x02G\x9ccy@\x7f\x0eu\x8eb\x0f\xf7\xdf\xf5':
+                    p | 'CreateD' >> beam.Create([b'[4.0, 1.0]']),
+            },
+            span_1_key: {},
+        }
 
       transform_fn, cache_output = (
           (flat_data, input_data_dict, cache_dict, input_metadata)
@@ -804,27 +823,51 @@ class CachedImplTest(test_case.TransformTestCase):
       _ = transform_fn_with_cache | tft_beam.WriteTransformFn(
           transform_fn_with_cache_dir)
 
-      expected_accumulators = {
-          _TEST_CACHE_VERSION +
-          b'VocabularyAccumulate[vocabulary]-LM\xf9/\xdb\xa9e\x82\xa9F\x8e\xab\xbe\xd7}\x9d\xd1Ln\xe9':
-              [
-                  b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
-                  b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]',
-                  b'["global_y_count_sentinel", [4, [0.25, 0.75], [0.0, 0.0], '
-                  b'1.0]]'
-              ],
-          _TEST_CACHE_VERSION +
-          b'VocabularyAccumulate[vocabulary_1]-\xd1{\tU\xb8\x95\x0c\x01\x1c:\xceD\xb1h\xe7\xd9`\t\xc1\xfc':
-              [
-                  b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
-                  b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]',
-                  b'["global_y_count_sentinel", [4, [0.25, 0.75], [0.0, 0.0], '
-                  b'1.0]]'
-              ],
-          _TEST_CACHE_VERSION +
-          b'VocabularyAccumulate[vocabulary_2]-\xef\x13\x90\xeaj\x15fB\x17\xab^\xb08O\x1a+C\xf8"s':
-              [b'["a", 1.5]', b'["b", 1.75]'],
-      }
+      if test_case.TF_STATIC_ASSERTS_ENABLED:
+        expected_accumulators = {
+            _TEST_CACHE_VERSION +
+            b'VocabularyAccumulate[vocabulary]-\x13\x08X\xa2\x9e\xb80\x85\xcf\x17?\xfc\x82\x0b\x88\xe97/\x0b\x1b':
+                [
+                    b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
+                    b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]',
+                    b'["global_y_count_sentinel", [4, [0.25, 0.75], [0.0, 0.0], '  # pylint: disable=line-too-long
+                    b'1.0]]'
+                ],
+            _TEST_CACHE_VERSION +
+            b'VocabularyAccumulate[vocabulary_1]-\xcb\x04u\x9f\xa4(\xb9rE\xdd{\xadbR\x97\xbd\xf4\xfc\xcc\xfe':
+
+                [
+                    b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
+                    b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]',
+                    b'["global_y_count_sentinel", [4, [0.25, 0.75], [0.0, 0.0], '  # pylint: disable=line-too-long
+                    b'1.0]]'
+                ],
+            _TEST_CACHE_VERSION +
+            b'VocabularyAccumulate[vocabulary_2]-\xfd\n\xca\x84K\x0b<\x1avC\x03e\x93G\x1c\x91\x03\xb1\xfa\x1e':
+                [b'["a", 1.5]', b'["b", 1.75]'],
+        }
+      else:
+        expected_accumulators = {
+            _TEST_CACHE_VERSION +
+            b'VocabularyAccumulate[vocabulary]-LM\xf9/\xdb\xa9e\x82\xa9F\x8e\xab\xbe\xd7}\x9d\xd1Ln\xe9':
+                [
+                    b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
+                    b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]',
+                    b'["global_y_count_sentinel", [4, [0.25, 0.75], [0.0, '
+                    b'0.0], 1.0]]'
+                ],
+            _TEST_CACHE_VERSION +
+            b'VocabularyAccumulate[vocabulary_1]-\xd1{\tU\xb8\x95\x0c\x01\x1c:\xceD\xb1h\xe7\xd9`\t\xc1\xfc':
+                [
+                    b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
+                    b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]',
+                    b'["global_y_count_sentinel", [4, [0.25, 0.75], [0.0, '
+                    b'0.0], 1.0]]'
+                ],
+            _TEST_CACHE_VERSION +
+            b'VocabularyAccumulate[vocabulary_2]-\xef\x13\x90\xeaj\x15fB\x17\xab^\xb08O\x1a+C\xf8"s':
+                [b'["a", 1.5]', b'["b", 1.75]'],
+        }
       spans = [span_0_key, span_1_key]
       self.assertCountEqual(output_cache.keys(), spans)
       for span in spans:
