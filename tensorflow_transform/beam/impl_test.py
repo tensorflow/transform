@@ -644,7 +644,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testWithUnicode(self):
     def preprocessing_fn(inputs):
-      return {'a b': tf.strings.join([inputs['a'], inputs['b']], separator=' ')}
+      return {'a b': tf.compat.v1.strings.join(
+          [inputs['a'], inputs['b']], separator=' ')}
 
     input_data = [{'a': 'Hello', 'b': 'world'}, {'a': 'Hello', 'b': u'κόσμε'}]
     input_metadata = tft_unit.metadata_from_feature_spec({
@@ -964,9 +965,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
                'key_idx': [0, 1], 'key': ['b', 'a']}
           ],
           input_metadata=tft_unit.metadata_from_feature_spec(
-              {'x': tf.SparseFeature('idx', 'val',
-                                     _canonical_dtype(tf.float32), 4),
-               'key': tf.SparseFeature('key_idx', 'key', tf.string, 4)}),
+              {'x': tf.io.SparseFeature('idx', 'val',
+                                        _canonical_dtype(tf.float32), 4),
+               'key': tf.io.SparseFeature('key_idx', 'key', tf.string, 4)}),
           expected_data=[
               {'x_scaled': [0., 1., 0, 0]},
               {'x_scaled': [.75, 1., 0, 0]},
@@ -980,9 +981,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
               {'idx': [0, 1], 'val': [-1, 4], 'key': 'b'}
           ],
           input_metadata=tft_unit.metadata_from_feature_spec(
-              {'x': tf.SparseFeature('idx', 'val',
-                                     _canonical_dtype(tf.float32), 4),
-               'key': tf.FixedLenFeature([], tf.string)}),
+              {'x': tf.io.SparseFeature('idx', 'val',
+                                        _canonical_dtype(tf.float32), 4),
+               'key': tf.io.FixedLenFeature([], tf.string)}),
           expected_data=[
               {'x_scaled': [0., 1., 0, 0]},
               {'x_scaled': [.75, .625, 0, 0]},
@@ -1764,7 +1765,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testStringToTFIDF(self):
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.compute_and_apply_vocabulary(
-          tf.strings.split(inputs['a']))
+          tf.compat.v1.strings.split(inputs['a']))
       out_index, out_values = tft.tfidf(inputs_as_ints, 6)
       return {
           'tf_idf': out_values,
@@ -1806,7 +1807,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testTFIDFNoData(self):
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.compute_and_apply_vocabulary(
-          tf.strings.split(inputs['a']))
+          tf.compat.v1.strings.split(inputs['a']))
       out_index, out_values = tft.tfidf(inputs_as_ints, 6)
       return {
           'tf_idf': out_values,
@@ -1827,7 +1828,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testStringToTFIDFEmptyDoc(self):
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.compute_and_apply_vocabulary(
-          tf.strings.split(inputs['a']))
+          tf.compat.v1.strings.split(inputs['a']))
       out_index, out_values = tft.tfidf(inputs_as_ints, 6)
       return {
           'tf_idf': out_values,
@@ -1927,7 +1928,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     test_vocab_size = 3
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.compute_and_apply_vocabulary(
-          tf.strings.split(inputs['a']), top_k=test_vocab_size)
+          tf.compat.v1.strings.split(inputs['a']), top_k=test_vocab_size)
       out_index, out_values = tft.tfidf(inputs_as_ints,
                                         test_vocab_size+1)
       return {
@@ -2212,7 +2213,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
            x_data=[13, 14, 13, 13, 12, 14, 11, 10, 10, -10, -10, -20],
            x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
            index_data=[0, 1, 0, 0, 4, 1, 5, 2, 2, 3, 3, 6],
-           index_feature_spec=tf.FixedLenFeature([], tf.int64),
+           index_feature_spec=tf.io.FixedLenFeature([], tf.int64),
            index_domain=schema_pb2.IntDomain(min=-1, max=6,
                                              is_categorical=True),
            vocab_filename='my_vocab',
@@ -2311,9 +2312,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
       dict(testcase_name='key_fn',
            x_data=[['a_X_1', 'a_X_1', 'a_X_2', 'b_X_1', 'b_X_2'],
                    ['a_X_1', 'a_X_1', 'a_X_2', 'a_X_2'], ['b_X_2']],
-           x_feature_spec=tf.VarLenFeature(tf.string),
+           x_feature_spec=tf.io.VarLenFeature(tf.string),
            index_data=[[0, 0, 1, -99, 2], [0, 0, 1, 1], [2]],
-           index_feature_spec=tf.VarLenFeature(tf.int64),
+           index_feature_spec=tf.io.VarLenFeature(tf.int64),
            index_domain=schema_pb2.IntDomain(min=-99, max=2,
                                              is_categorical=True),
            coverage_top_k=1,
@@ -2324,9 +2325,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
       dict(testcase_name='key_fn_and_multi_coverage_top_k',
            x_data=[['a_X_1', 'a_X_1', 'a_X_2', 'b_X_1', 'b_X_2'],
                    ['a_X_1', 'a_X_1', 'a_X_2', 'a_X_2', 'a_X_3'], ['b_X_2']],
-           x_feature_spec=tf.VarLenFeature(tf.string),
+           x_feature_spec=tf.io.VarLenFeature(tf.string),
            index_data=[[0, 0, 1, 3, 2], [0, 0, 1, 1, -99], [2]],
-           index_feature_spec=tf.VarLenFeature(tf.int64),
+           index_feature_spec=tf.io.VarLenFeature(tf.int64),
            index_domain=schema_pb2.IntDomain(min=-99, max=3,
                                              is_categorical=True),
            coverage_top_k=2,
@@ -2338,9 +2339,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
            x_data=[['a_X_1', 'a_X_1', 'a_X_2', 'b_X_1', 'b_X_2'],
                    ['a_X_1', 'a_X_1', 'a_X_2', 'a_X_2'],
                    ['b_X_2', 'b_X_2', 'b_X_2', 'b_X_2', 'c_X_1']],
-           x_feature_spec=tf.VarLenFeature(tf.string),
+           x_feature_spec=tf.io.VarLenFeature(tf.string),
            index_data=[[1, 1, -99, -99, 0], [1, 1, -99, -99], [0, 0, 0, 0, 2]],
-           index_feature_spec=tf.VarLenFeature(tf.int64),
+           index_feature_spec=tf.io.VarLenFeature(tf.int64),
            index_domain=schema_pb2.IntDomain(min=-99, max=2,
                                              is_categorical=True),
            coverage_top_k=1,
@@ -2353,10 +2354,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
                    ['0_X_a', '2_X_a', '2_X_a', '2_X_a', '0_X_a', '5_X_a'],
                    ['1_X_b', '1_X_b', '3_X_b', '3_X_b', '0_X_b', '1_X_b',
                     '1_X_b']],
-           x_feature_spec=tf.VarLenFeature(tf.string),
+           x_feature_spec=tf.io.VarLenFeature(tf.string),
            index_data=[[0, 0, -99, -99, -99, 0], [0, 2, 2, 2, 0, -99],
                        [1, 1, 3, 3, -99, 1, 1]],
-           index_feature_spec=tf.VarLenFeature(tf.int64),
+           index_feature_spec=tf.io.VarLenFeature(tf.int64),
            index_domain=schema_pb2.IntDomain(min=-99, max=3,
                                              is_categorical=True),
            coverage_top_k=2,
@@ -2367,11 +2368,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
       dict(testcase_name='key_fn_and_labels',
            x_data=['aaa', 'aaa', 'aaa', 'aab', 'aba', 'aba', 'aab', 'aab',
                    'aba', 'abc', 'abc', 'aab'],
-           x_feature_spec=tf.FixedLenFeature([], tf.string),
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
            label_data=[1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0],
-           label_feature_spec=tf.FixedLenFeature([], tf.int64),
+           label_feature_spec=tf.io.FixedLenFeature([], tf.int64),
            index_data=[0, 0, 0, -1, -1, -1, -1, -1, -1, 1, 1, -1],
-           index_feature_spec=tf.FixedLenFeature([], tf.int64),
+           index_feature_spec=tf.io.FixedLenFeature([], tf.int64),
            index_domain=schema_pb2.IntDomain(min=-1, max=1,
                                              is_categorical=True),
            coverage_top_k=1,
@@ -2380,11 +2381,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
       # from testVocabularyAnalyzerWithKeyFnAndWeights
       dict(testcase_name='key_fn_and_weights',
            x_data=['xa', 'xa', 'xb', 'ya', 'yb', 'yc'],
-           x_feature_spec=tf.FixedLenFeature([], tf.string),
+           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
            weight_data=[1.0, 0.5, 3.0, 0.6, 0.25, 0.5],
-           weight_feature_spec=tf.FixedLenFeature([], tf.float32),
+           weight_feature_spec=tf.io.FixedLenFeature([], tf.float32),
            index_data=[1, 1, 0, -1, -1, -1],
-           index_feature_spec=tf.FixedLenFeature([], tf.int64),
+           index_feature_spec=tf.io.FixedLenFeature([], tf.int64),
            index_domain=schema_pb2.IntDomain(min=-1, max=1,
                                              is_categorical=True),
            coverage_top_k=1,
@@ -2903,7 +2904,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def preprocessing_fn(inputs):
       return {
           'index':
-              tft.compute_and_apply_vocabulary(tf.strings.split(inputs['a']))
+              tft.compute_and_apply_vocabulary(
+                  tf.compat.v1.strings.split(inputs['a']))
       }
 
     input_data = [{'a': 'hello hello world'}, {'a': 'hello goodbye world'}]
@@ -3740,7 +3742,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       # side-effect.
 
       _ = tft.vocabulary(
-          tf.strings.split(inputs['a']),
+          tf.compat.v1.strings.split(inputs['a']),
           coverage_top_k=1,
           key_fn=key_fn,
           frequency_threshold=4,
@@ -3748,14 +3750,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
           store_frequency=True)
 
       _ = tft.vocabulary(
-          tf.strings.split(inputs['a']),
+          tf.compat.v1.strings.split(inputs['a']),
           coverage_top_k=1,
           key_fn=key_fn,
           frequency_threshold=4,
           store_frequency=True)
 
       a_int = tft.compute_and_apply_vocabulary(
-          tf.strings.split(inputs['a']),
+          tf.compat.v1.strings.split(inputs['a']),
           coverage_top_k=1,
           key_fn=key_fn,
           frequency_threshold=4)

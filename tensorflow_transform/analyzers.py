@@ -42,10 +42,14 @@ from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import nodes
 from tensorflow_transform import tf_utils
 
-
-from tensorflow.contrib.boosted_trees.python.ops import gen_quantile_ops
+# pylint: disable=g-import-not-at-top
+try:
+  from tensorflow.contrib.boosted_trees.python.ops import gen_quantile_ops
+except ImportError:
+  pass
 from tensorflow.python.ops import resources
 from tensorflow.python.util import deprecation
+# pylint:enable=g-import-not-at-top
 
 __all__ = [
     'covariance',
@@ -1205,6 +1209,7 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
       raise NotImplementedError(
           'Elementwise quantiles requires same boundary count.')
     self._graph_state_options = None  # Initialized in initialize_local_state().
+    self._use_core_quantile_ops = tf.__version__ >= '1.15'
 
   # TODO(katsiapis): Make tf_config required.
   def initialize_local_state(self, tf_config=None):
@@ -1224,7 +1229,8 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
         has_weights=self._has_weights,
         num_features=self._num_features,
         tf_config=tf_config,
-        random_slot=random_slot)
+        random_slot=random_slot,
+        use_core_quantile_ops=self._use_core_quantile_ops)
 
   def _get_graph_state(self):
     return _global_quantiles_graph_state_provider.get_graph_state(
@@ -1243,16 +1249,23 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     flattened_input = np.reshape(next_input[0],
                                  newshape=(-1, self._num_features,))
 
-    if summary is None:
-      if flattened_input.size == 0:
-        return None
-      summary = [graph_state.empty_summary] * self._num_features
-
     # This conversion is necessary to maintain compatibility with previous
     # versions, and will be removed in future (0.15).
     # TODO(b/127336397): Remove this.
     if isinstance(summary, (six.binary_type, six.text_type)):
-      summary = [summary]
+      assert not summary
+      summary = None
+
+    if summary is None:
+      if flattened_input.size == 0:
+        return None
+      if self._use_core_quantile_ops:
+        summary = graph_state.empty_summary
+      else:
+        summary = [graph_state.empty_summary] * self._num_features
+
+    callable_args = [summary, flattened_input.T] if (
+        not self._use_core_quantile_ops) else summary + [flattened_input.T]
 
     if self._has_weights:
       flattened_weights = np.reshape(next_input[1], newshape=(1, -1))
@@ -1261,9 +1274,7 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
         raise ValueError(
             'Values and weights contain incompatible sizes ({} vs {})'.format(
                 flattened_input.size, flattened_weights.size))
-      callable_args = [summary, flattened_input.T, flattened_weights]
-    else:
-      callable_args = [summary, flattened_input.T]
+      callable_args.append(flattened_weights)
 
     with graph_state.lock:
       return graph_state.thread_hostile_add_input_callable(*callable_args)
@@ -1279,11 +1290,17 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
         # versions, and will be removed in future (0.15).
         # TODO(b/127336397): Remove this.
         if isinstance(summary, (six.binary_type, six.text_type)):
-          summary = [summary]
+          assert not summary
+          continue
         with graph_state.lock:
-          graph_state.thread_hostile_merge_inputs_callable(summary)
-          if result is not None:
-            graph_state.thread_hostile_merge_inputs_callable(result)
+          if self._use_core_quantile_ops:
+            graph_state.thread_hostile_merge_inputs_callable(*summary)
+            if result is not None:
+              graph_state.thread_hostile_merge_inputs_callable(*result)  # pylint: disable=not-an-iterable
+          else:
+            graph_state.thread_hostile_merge_inputs_callable(summary)
+            if result is not None:
+              graph_state.thread_hostile_merge_inputs_callable(result)
           result = graph_state.thread_hostile_flush_summary_callable()
     return result
 
@@ -1298,7 +1315,10 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     output_shape = tuple(self._feature_shape + [-1])
 
     with graph_state.lock:
-      bucket_lists = graph_state.thread_hostile_get_buckets_callable(summary)
+      if self._use_core_quantile_ops:
+        bucket_lists = graph_state.thread_hostile_get_buckets_callable(*summary)
+      else:
+        bucket_lists = graph_state.thread_hostile_get_buckets_callable(summary)
 
     def prune_buckets(buckets):  # pylint: disable=missing-docstring
       # If always_return_num_quantiles is set to True, the number of elements in
@@ -1355,7 +1375,7 @@ class _QuantilesGraphStateOptions(
     collections.namedtuple('_QuantilesGraphStateOptions', [
         'num_quantiles', 'epsilon', 'bucket_numpy_dtype',
         'always_return_num_quantiles', 'has_weights', 'num_features',
-        'tf_config', 'random_slot'
+        'tf_config', 'random_slot', 'use_core_quantile_ops'
     ])):
   """Options defining an equivalence class of Quantiles shared graph state."""
   pass
@@ -1370,6 +1390,9 @@ class _QuantilesGraphState(object):
   called directly and when called in succession, for methods that are logically
   "paired" like for example _thread_hostile_merge_inputs_callable() and
   _thread_hostile_flush_callable().
+
+  Note to future authors to please update comments for both _QuantilesGraphState
+  and _QuantilesGraphStateV2 until they can be merged again.
   """
 
   def _create_resource(self, name, stamp_token, options):  # pylint: disable=missing-docstring
@@ -1548,6 +1571,188 @@ class _QuantilesGraphState(object):
         fetches=bucket_lists, feed_list=[final_summary])
 
 
+# Thread-hostile.
+class _QuantilesGraphStateV2(object):
+  """A container for a Quantiles shared graph state.
+
+  Note that the implementation is currently thread-hostile and all methods that
+  have "thread_hostile" in their name should acquire this state's lock both when
+  called directly and when called in succession, for methods that are logically
+  "paired" like for example _thread_hostile_merge_inputs_callable() and
+  _thread_hostile_flush_callable().
+
+  Note to future authors to please update comments for both _QuantilesGraphState
+  and _QuantilesGraphStateV2 until they can be merged again.
+  """
+
+  def __init__(self, options):
+    # Current implementation of Quantiles Ops require mutation of resources
+    # which is "impure" and necessitates atomicity. This lock enforces those
+    # invariants, by protecting access to all callables of this graph state.
+    #
+    # TODO(KesterTong): Consider making this lock private and having methods of
+    # this object only grab it when they need it. When that is done, remember to
+    #   a) Annotate this class as Thread-safe (as opposed to thread-hostile) and
+    #      update its documentation.
+    #   b) Make all thread-hostile methods private and remove "thread_hostile"
+    #      from their name.
+    #   c) Expose the right public methods.
+    #
+    # TODO(KesterTong): Perhaps TF Quantiles Ops could be changed so that they
+    # are truly pure. That would allow sharing the _QuantilesGraphState without
+    # a need for locking.
+    self.lock = threading.Lock()
+
+    # Create a new session with a new graph for quantile ops.
+    with tf.Graph().as_default() as graph:
+      self._session = tf.compat.v1.Session(
+          graph=graph, config=options.tf_config)
+
+      # We will instantiate a single resource for the purpose of computing the
+      # Quantiles operations.
+      self._resource = self._create_resource(name='quantiles_combiner',
+                                             eps=options.epsilon,
+                                             max_elements=1 << 32,
+                                             num_streams=options.num_features)
+
+      self._session.run(
+          resources.initialize_resources(resources.shared_resources()))
+
+      self.thread_hostile_add_input_callable = self._make_add_input_callable(
+          self._resource, options)
+      self.thread_hostile_get_buckets_callable = (
+          self._make_get_buckets_callable(self._resource, options))
+      self.thread_hostile_merge_inputs_callable = (
+          self._make_add_summary_callable(self._resource, options))
+      # Create op to flush summaries and return a list representing the
+      # summaries that were added to all accumulators so far.
+      self.thread_hostile_flush_summary_callable = self._session.make_callable(
+          fetches=tf.raw_ops.BoostedTreesFlushQuantileSummaries(
+              quantile_stream_resource_handle=self._resource,
+              num_features=options.num_features))
+
+      graph.finalize()
+
+    # We generate an empty summary by calling self._flush_summary_callable and
+    # cache it for efficiency. Caching is safe (and as such the cache is public)
+    # since it is immutable.
+    with self.lock:
+      self.empty_summary = [np.zeros(shape=(0, 4))
+                            for _ in range(options.num_features)]
+
+  def _create_resource(self, name, eps, max_elements, num_streams=1):  # pylint: disable=missing-docstring
+    quantile_accumulator_handle = (
+        tf.raw_ops.BoostedTreesQuantileStreamResourceHandleOp(
+            container='', shared_name=name, name=name))
+    create_op = tf.raw_ops.BoostedTreesCreateQuantileStreamResource(
+        quantile_stream_resource_handle=quantile_accumulator_handle,
+        epsilon=eps / 2,
+        max_elements=max_elements,
+        num_streams=num_streams)
+    is_initialized_op = (
+        tf.raw_ops.IsBoostedTreesQuantileStreamResourceInitialized(
+            quantile_stream_resource_handle=quantile_accumulator_handle))
+    resources.register_resource(quantile_accumulator_handle, create_op,
+                                is_initialized_op)
+
+    return quantile_accumulator_handle
+
+  def _make_add_input_callable(self, resource_handle, options):  # pylint: disable=missing-docstring
+    # Create placeholders for add_inputs_callable.  These placeholders will
+    # be used to provide prebuilt summary, input and weights to the
+    # QuantileAccumulator.
+    # inputs and weights need to have shapes (1, None) as this is what the
+    # QuantileAccumulator accepts.
+    prebuilt_summaries = [tf.compat.v1.placeholder(
+        dtype=tf.float32, shape=[None, 4], name='summaries')
+                          for _ in range(options.num_features)]
+    inputs = tf.compat.v1.placeholder(
+        dtype=options.bucket_numpy_dtype,
+        shape=[options.num_features, None],
+        name='inputs')
+    feed_list = prebuilt_summaries + [inputs]
+    if options.has_weights:
+      weights = tf.compat.v1.placeholder(
+          dtype=tf.float32, shape=[1, None], name='weights')
+      feed_list.append(weights)
+    else:
+      weights = tf.expand_dims(tf.ones_like(inputs[0, :]), axis=0)
+
+    # TODO(b/68277922): Investigate add_inputs() to efficiently handle
+    # multiple batches of inputs.
+    # This is where we can most parallelize the operation, so we should
+    # refrain from using accumulators until necessary to merge
+    next_summaries = tf.raw_ops.BoostedTreesMakeQuantileSummaries(
+        float_values=tf.unstack(inputs, axis=0),
+        example_weights=tf.squeeze(weights),
+        epsilon=options.epsilon / 2)
+
+    add_prebuilt_summary_op = (
+        tf.raw_ops.BoostedTreesQuantileStreamResourceAddSummaries(
+            quantile_stream_resource_handle=resource_handle,
+            summaries=prebuilt_summaries))
+
+    with tf.control_dependencies([add_prebuilt_summary_op]):
+      # Create op to update the accumulator with new input fed from
+      # inputs_placeholder.
+      add_summary_op = (
+          tf.raw_ops.BoostedTreesQuantileStreamResourceAddSummaries(
+              quantile_stream_resource_handle=resource_handle,
+              summaries=next_summaries))
+
+    with tf.control_dependencies([add_summary_op]):
+      # After the flush_summary, qaccumulators will not contain any
+      # uncommitted information that represents the input. Instead all the
+      # digested information is returned as 'summary'. Many such summaries
+      # will be combined by merge_accumulators().
+      summaries = tf.raw_ops.BoostedTreesFlushQuantileSummaries(
+          quantile_stream_resource_handle=resource_handle,
+          num_features=options.num_features)
+
+    return self._session.make_callable(fetches=summaries, feed_list=feed_list)
+
+  def _make_add_summary_callable(self, resource_handle, options):  # pylint: disable=missing-docstring
+    summaries = [tf.compat.v1.placeholder(
+        dtype=tf.float32, shape=[None, 4]) for _ in range(options.num_features)]
+
+    add_merge_prebuilt_summary_op = (
+        tf.raw_ops.BoostedTreesQuantileStreamResourceAddSummaries(
+            quantile_stream_resource_handle=resource_handle,
+            summaries=summaries))
+
+    return self._session.make_callable(
+        fetches=add_merge_prebuilt_summary_op, feed_list=summaries)
+
+  def _make_get_buckets_callable(self, resource_handle, options):  # pylint: disable=missing-docstring
+    final_summaries = [tf.compat.v1.placeholder(
+        dtype=tf.float32, shape=[None, 4]) for _ in range(options.num_features)]
+
+    add_final_summary_op = (
+        tf.raw_ops.BoostedTreesQuantileStreamResourceAddSummaries(
+            quantile_stream_resource_handle=resource_handle,
+            summaries=final_summaries))
+
+    # In the new generate_quantiles op, 1 is subtracted from input num_buckets
+    num_buckets = options.num_quantiles + (
+        1 if options.always_return_num_quantiles else 0)
+
+    # Create ops to flush the accumulator and return approximate boundaries.
+    with tf.control_dependencies([add_final_summary_op]):
+      flush_op = tf.raw_ops.BoostedTreesQuantileStreamResourceFlush(
+          quantile_stream_resource_handle=resource_handle,
+          num_buckets=num_buckets,
+          generate_quantiles=options.always_return_num_quantiles)
+
+    with tf.control_dependencies([flush_op]):
+      bucket_lists = (
+          tf.raw_ops.BoostedTreesQuantileStreamResourceGetBucketBoundaries(
+              quantile_stream_resource_handle=resource_handle,
+              num_features=options.num_features))
+
+    return self._session.make_callable(
+        fetches=bucket_lists, feed_list=final_summaries)
+
+
 # Thread-safe.
 class _QuantilesGraphStateProvider(object):
   """Constructs _QuantilesGraphState in a lazy and shared manner where possible.
@@ -1561,13 +1766,17 @@ class _QuantilesGraphStateProvider(object):
   def __init__(self):
     self._graph_states_by_options = {}
 
-  def get_graph_state(self, graph_state_options):
+  def get_graph_state(self, graph_state_options):  # pylint: disable=missing-docstring
     # Access to self._graph_states_by_options happens under GIL so this lazy
     # population is thread-safe (even if it might occasionally waste creation
     # of some objects that might otherwise be avoided).
     result = self._graph_states_by_options.get(graph_state_options)
     if result is None:
-      result = _QuantilesGraphState(graph_state_options)
+      if graph_state_options.use_core_quantile_ops:
+        result = _QuantilesGraphStateV2(graph_state_options)
+      else:
+        result = _QuantilesGraphState(graph_state_options)
+
       self._graph_states_by_options[graph_state_options] = result
     return result
 
@@ -1657,6 +1866,7 @@ def quantiles(x, num_buckets, epsilon, weights=None, reduce_instance_dims=True,
         )
     (quantile_boundaries,) = _apply_cacheable_combiner(combiner,
                                                        *analyzer_inputs)
+    quantile_boundaries = tf.sort(quantile_boundaries, axis=-1)
     if quantile_boundaries.get_shape().ndims < 2:
       return tf.expand_dims(quantile_boundaries, axis=0)
     return quantile_boundaries

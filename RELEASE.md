@@ -3,7 +3,8 @@
 
 ## Major Features and Improvements
 * Performance improvements for preprocessing_fns with many Quantiles analyzers.
-
+* Using new TF core quantiles ops, which are not publicly available until next
+  release.
 ## Bug Fixes and Other Changes
 * Existing analyzer cache is invalidated.
 
