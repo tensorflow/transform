@@ -1794,7 +1794,7 @@ _global_quantiles_graph_state_provider = _QuantilesGraphStateProvider()
 
 
 def quantiles(x, num_buckets, epsilon, weights=None, reduce_instance_dims=True,
-              always_return_num_quantiles=False, name=None):
+              always_return_num_quantiles=True, name=None):
   """Computes the quantile boundaries of a `Tensor` over the whole dataset.
 
   quantile boundaries are computed using approximate quantiles,
@@ -1805,9 +1805,11 @@ def quantiles(x, num_buckets, epsilon, weights=None, reduce_instance_dims=True,
   Args:
     x: An input `Tensor`.
     num_buckets: Values in the `x` are divided into approximately equal-sized
-      buckets, where the number of buckets is num_buckets. This is a hint. The
-      actual number of buckets computed can be less or more than the requested
-      number. Use the generated metadata to find the computed number of buckets.
+      buckets, where the number of buckets is `num_buckets`. By default, the
+      exact number will be returned, minus one (boundary count is one less).
+      If `always_return_num_quantiles` is False, the actual number of buckets
+      computed can be less or more than the requested number. Use the generated
+      metadata to find the computed number of buckets.
     epsilon: Error tolerance, typically a small fraction close to zero (e.g.
       0.01). Higher values of epsilon increase the quantile approximation, and
       hence result in more unequal buckets, but could improve performance,
@@ -1829,8 +1831,8 @@ def quantiles(x, num_buckets, epsilon, weights=None, reduce_instance_dims=True,
         to arrive at a single output vector. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
     always_return_num_quantiles: (Optional) A bool that determines whether the
-      exact num_buckets should be returned (defaults to False for now, but will
-      be changed to True in an imminent update).
+      exact num_buckets should be returned. If False, `num_buckets` will be
+      treated as a suggestion.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1839,7 +1841,6 @@ def quantiles(x, num_buckets, epsilon, weights=None, reduce_instance_dims=True,
     shape x.shape + [num_bucket-1].
     See code below for discussion on the type of bucket boundaries.
   """
-  # TODO(b/137963802): Make always_return_num_quantiles default to True
   # TODO(b/64039847): quantile ops only support float bucket boundaries as this
   # triggers an assertion in MakeQuantileSummaries().
   # The restriction does not apply to inputs, which can be of any integral

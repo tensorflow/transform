@@ -9,6 +9,8 @@
 * Existing analyzer cache is invalidated.
 
 ## Breaking changes
+* `always_return_num_quantiles` changed to default to True in `tft.quantiles`
+  and `tft.bucketize`, resulting in exact bucket count returned.
 
 ## Deprecations
 

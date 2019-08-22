@@ -1218,7 +1218,7 @@ def hash_strings(strings, hash_buckets, key=None, name=None):
 
 
 def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
-              always_return_num_quantiles=False, name=None):
+              always_return_num_quantiles=True, name=None):
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Args:
@@ -1227,10 +1227,11 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
       in the quantiles computation, and the result of `bucketize` will be a
       `SparseTensor` with non-missing values mapped to buckets.
     num_buckets: Values in the input `x` are divided into approximately
-      equal-sized buckets, where the number of buckets is num_buckets.
-      This is a hint. The actual number of buckets computed can be
-      less or more than the requested number. Use the generated metadata to
-      find the computed number of buckets.
+      equal-sized buckets, where the number of buckets is `num_buckets`. By
+      default, the exact number will be available to `bucketize`. If
+      `always_return_num_quantiles` is False, the actual number of
+      buckets computed can be less or more than the requested number. Use the
+      generated metadata to find the computed number of buckets.
     epsilon: (Optional) Error tolerance, typically a small fraction close to
       zero. If a value is not specified by the caller, a suitable value is
       computed based on experimental results.  For `num_buckets` less
@@ -1245,8 +1246,8 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
     elementwise: (Optional) If true, bucketize each element of the tensor
       independently.
     always_return_num_quantiles: (Optional) A bool that determines whether the
-      exact num_buckets should be returned (defaults to False for now, but will
-      be changed to True in an imminent update).
+      exact num_buckets should be returned. If False, `num_buckets` will be
+      treated as a suggestion.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1260,7 +1261,6 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
   Raises:
     ValueError: If value of num_buckets is not > 1.
   """
-  # TODO(b/137963802): Make always_return_num_quantiles default to True
   with tf.compat.v1.name_scope(name, 'bucketize'):
     if not isinstance(num_buckets, int):
       raise TypeError('num_buckets must be an int, got %s' % type(num_buckets))
