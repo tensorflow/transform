@@ -555,4 +555,7 @@ def _legacy_infer_default_value(feature_proto, dtype):
     else:
       return [default_value] * feature_proto.value_count.min
   else:
+    tf.compat.v1.logging.info(
+        'Feature %s has min_fraction = 1 (%s). Setting default value to None.',
+        feature_proto.name, feature_proto.presence)
     return None
