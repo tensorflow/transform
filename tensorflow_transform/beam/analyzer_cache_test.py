@@ -64,19 +64,19 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
   @test_case.named_parameters(
       dict(
           testcase_name='JsonNumpyCacheCoder',
-          coder_cls=analyzer_nodes.JsonNumpyCacheCoder,
+          coder=analyzer_nodes.JsonNumpyCacheCoder(),
           value=[1, 2.5, 3, '4']),
       dict(
           testcase_name='_VocabularyAccumulatorCoderIntAccumulator',
-          coder_cls=analyzer_nodes._VocabularyAccumulatorCoder,
+          coder=analyzer_nodes._VocabularyAccumulatorCoder(),
           value=[b'A', 17]),
       dict(
-          testcase_name='_VocabularyAccumulatorCoderIntAccumulatorUnicode',
-          coder_cls=analyzer_nodes._VocabularyAccumulatorCoder,
-          value=[u'ȟᎥ𝒋ǩľḿꞑȯ𝘱𝑞𝗋𝘴'.encode('utf-8'), 29]),
+          testcase_name='_VocabularyAccumulatorCoderIntAccumulatorNonUtf8',
+          coder=analyzer_nodes._VocabularyAccumulatorCoder(),
+          value=[b'\x8a', 29]),
       dict(
           testcase_name='_VocabularyAccumulatorCoderClassAccumulator',
-          coder_cls=analyzer_nodes._VocabularyAccumulatorCoder,
+          coder=analyzer_nodes._VocabularyAccumulatorCoder(),
           value=[
               b'A',
               analyzers._WeightedMeanAndVarAccumulator(
@@ -88,14 +88,14 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
           ]),
       dict(
           testcase_name='_QuantilesAccumulatorCoderClassAccumulator',
-          coder_cls=analyzers._QuantilesAccumulatorCacheCoder,
+          coder=analyzers._QuantilesAccumulatorCacheCoder(),
           value=[
               '\n\x0f\r\x00\x00 A\x15\x00\x00\x80?%\x00\x00\x80?\n\x14\r\x00\x00@A\x15\x00\x00\x80?\x1d\x00\x00\x80?%\x00\x00\x00@',
-              '', _get_quantiles_summary()]
-          ),
+              '',
+              _get_quantiles_summary()
+          ]),
   )
-  def test_coders_round_trip(self, coder_cls, value):
-    coder = coder_cls()
+  def test_coders_round_trip(self, coder, value):
     encoded = coder.encode_cache(value)
     np.testing.assert_equal(coder.decode_cache(encoded), value)
 

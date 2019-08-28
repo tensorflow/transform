@@ -21,6 +21,7 @@ from __future__ import print_function
 import collections
 import itertools
 import os
+import struct
 # GOOGLE-INITIALIZATION
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
@@ -39,6 +40,8 @@ from tensorflow_transform import test_case
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
 
+import unittest
+
 _TEST_CACHE_VERSION = analyzer_cache._CACHE_VERSION
 
 
@@ -49,6 +52,12 @@ def _get_counter_value(metrics, name):
   attempted = sum([r.attempted for r in metric])
   assert committed == attempted, '{} != {}'.format(committed, attempted)
   return committed
+
+
+def _encode_vocabulary_accumulator(token_bytes, value_bytes):
+  return struct.pack('qq{}s{}s'.format(len(token_bytes), len(value_bytes)),
+                     len(token_bytes), len(value_bytes), token_bytes,
+                     value_bytes)
 
 
 class _TestPipeline(beam.Pipeline):
@@ -718,8 +727,12 @@ class CachedImplTest(test_case.TransformTestCase):
           span_0_key: {
               _TEST_CACHE_VERSION +
               b'VocabularyAccumulate[compute_and_apply_vocabulary/vocabulary]-\x05e\xfe4\x03H.P\xb5\xcb\xd22\xe3\x16\x15\xf8\xf5\xe38\xd9':
-                  p | 'CreateB' >> beam.Create(
-                      [b'[-2, 2]', b'[-4, 1]', b'[-1, 1]', b'[4, 1]']),
+                  p | 'CreateB' >> beam.Create([
+                      _encode_vocabulary_accumulator(b'-2', b'2'),
+                      _encode_vocabulary_accumulator(b'-4', b'1'),
+                      _encode_vocabulary_accumulator(b'-1', b'1'),
+                      _encode_vocabulary_accumulator(b'4', b'1'),
+                  ])
           },
           span_1_key: {},
       }
@@ -754,6 +767,10 @@ class CachedImplTest(test_case.TransformTestCase):
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 1)
     self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
 
+  # TODO(b/37788560): Remove this once TFT no longer supports TF 1.14.
+  @unittest.skipIf(
+      not test_case.TF_STATIC_ASSERTS_ENABLED,
+      'Static asserts cause the expected cache fingerprint to be different')
   def test_non_frequency_vocabulary_merge(self):
     """This test compares vocabularies produced with and without cache."""
 
@@ -823,51 +840,37 @@ class CachedImplTest(test_case.TransformTestCase):
       _ = transform_fn_with_cache | tft_beam.WriteTransformFn(
           transform_fn_with_cache_dir)
 
-      if test_case.TF_STATIC_ASSERTS_ENABLED:
-        expected_accumulators = {
-            _TEST_CACHE_VERSION +
-            b'VocabularyAccumulate[vocabulary]-\x13\x08X\xa2\x9e\xb80\x85\xcf\x17?\xfc\x82\x0b\x88\xe97/\x0b\x1b':
-                [
-                    b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
-                    b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]',
-                    b'["global_y_count_sentinel", [4, [0.25, 0.75], [0.0, 0.0], '  # pylint: disable=line-too-long
-                    b'1.0]]'
-                ],
-            _TEST_CACHE_VERSION +
-            b'VocabularyAccumulate[vocabulary_1]-\xcb\x04u\x9f\xa4(\xb9rE\xdd{\xadbR\x97\xbd\xf4\xfc\xcc\xfe':
+      expected_accumulators = {
+          _TEST_CACHE_VERSION +
+          b'VocabularyAccumulate[vocabulary]-\x13\x08X\xa2\x9e\xb80\x85\xcf\x17?\xfc\x82\x0b\x88\xe97/\x0b\x1b':
+              [
+                  _encode_vocabulary_accumulator(
+                      b'a', b'[2, [0.0, 1.0], [0.0, 0.0], 1.0]'),
+                  _encode_vocabulary_accumulator(
+                      b'b', b'[2, [0.5, 0.5], [0.0, 0.0], 1.0]'),
+                  _encode_vocabulary_accumulator(
+                      b'global_y_count_sentinel',
+                      b'[4, [0.25, 0.75], [0.0, 0.0], 1.0]'),
+              ],
+          _TEST_CACHE_VERSION +
+          b'VocabularyAccumulate[vocabulary_1]-\xcb\x04u\x9f\xa4(\xb9rE\xdd{\xadbR\x97\xbd\xf4\xfc\xcc\xfe':
+              [
+                  _encode_vocabulary_accumulator(
+                      b'a', b'[2, [0.0, 1.0], [0.0, 0.0], 1.0]'),
+                  _encode_vocabulary_accumulator(
+                      b'b', b'[2, [0.5, 0.5], [0.0, 0.0], 1.0]'),
+                  _encode_vocabulary_accumulator(
+                      b'global_y_count_sentinel',
+                      b'[4, [0.25, 0.75], [0.0, 0.0], 1.0]'),
+              ],
+          _TEST_CACHE_VERSION +
+          b'VocabularyAccumulate[vocabulary_2]-\xfd\n\xca\x84K\x0b<\x1avC\x03e\x93G\x1c\x91\x03\xb1\xfa\x1e':
+              [
+                  _encode_vocabulary_accumulator(b'a', b'1.5'),
+                  _encode_vocabulary_accumulator(b'b', b'1.75')
+              ],
+      }
 
-                [
-                    b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
-                    b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]',
-                    b'["global_y_count_sentinel", [4, [0.25, 0.75], [0.0, 0.0], '  # pylint: disable=line-too-long
-                    b'1.0]]'
-                ],
-            _TEST_CACHE_VERSION +
-            b'VocabularyAccumulate[vocabulary_2]-\xfd\n\xca\x84K\x0b<\x1avC\x03e\x93G\x1c\x91\x03\xb1\xfa\x1e':
-                [b'["a", 1.5]', b'["b", 1.75]'],
-        }
-      else:
-        expected_accumulators = {
-            _TEST_CACHE_VERSION +
-            b'VocabularyAccumulate[vocabulary]-LM\xf9/\xdb\xa9e\x82\xa9F\x8e\xab\xbe\xd7}\x9d\xd1Ln\xe9':
-                [
-                    b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
-                    b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]',
-                    b'["global_y_count_sentinel", [4, [0.25, 0.75], [0.0, '
-                    b'0.0], 1.0]]'
-                ],
-            _TEST_CACHE_VERSION +
-            b'VocabularyAccumulate[vocabulary_1]-\xd1{\tU\xb8\x95\x0c\x01\x1c:\xceD\xb1h\xe7\xd9`\t\xc1\xfc':
-                [
-                    b'["a", [2, [0.0, 1.0], [0.0, 0.0], 1.0]]',
-                    b'["b", [2, [0.5, 0.5], [0.0, 0.0], 1.0]]',
-                    b'["global_y_count_sentinel", [4, [0.25, 0.75], [0.0, '
-                    b'0.0], 1.0]]'
-                ],
-            _TEST_CACHE_VERSION +
-            b'VocabularyAccumulate[vocabulary_2]-\xef\x13\x90\xeaj\x15fB\x17\xab^\xb08O\x1a+C\xf8"s':
-                [b'["a", 1.5]', b'["b", 1.75]'],
-        }
       spans = [span_0_key, span_1_key]
       self.assertCountEqual(output_cache.keys(), spans)
       for span in spans:

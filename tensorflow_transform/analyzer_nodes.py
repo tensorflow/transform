@@ -28,6 +28,7 @@ from __future__ import print_function
 import abc
 import collections
 import json
+import struct
 
 # GOOGLE-INITIALIZATION
 
@@ -426,40 +427,45 @@ class _VocabularyAccumulatorCoder(CacheCoder):
 
   def __init__(self, input_dtype=tf.string.name):
     self._input_dtype = tf.dtypes.as_dtype(input_dtype)
+    self._lengths_prefix_format = 'qq'
+    self._lengths_prefix_length = struct.calcsize(self._lengths_prefix_format)
 
   def encode_cache(self, accumulator):
-    # Need to wrap in np.array and call tolist to make it JSON serializable.
     token, value = accumulator
-    if self._input_dtype == tf.string:
-      token = tf.compat.as_text(token)
+    if self._input_dtype is not tf.string:
+      token = tf.compat.as_bytes(json.dumps(token))
     # If the value is a _WeightedMeanAndVarAccumulator, cast each field to a
     # list for serialization.
-    try:
-      value = value._replace(
-          count=value.count.tolist(),
-          mean=value.mean.tolist(),
-          variance=value.variance.tolist(),
-          weight=value.weight.tolist())
-    except AttributeError:
-      pass
-    accumulator = (token, value)
-    return tf.compat.as_bytes(
-        json.dumps(np.array(accumulator, dtype=object).tolist()))
+    if isinstance(value, tuple):
+      value = [
+          a.tolist()
+          for a in (value.count, value.mean, value.variance, value.weight)
+      ]
+    value = tf.compat.as_bytes(json.dumps(value))
+    len_token, len_value = len(token), len(value)
+    return struct.pack(
+        '{}{}s{}s'.format(self._lengths_prefix_format, len_token, len_value),
+        len_token, len_value, token, value)
 
   def decode_cache(self, encoded_accumulator):
+    (len_token, len_value) = struct.unpack_from(
+        self._lengths_prefix_format,
+        encoded_accumulator[:self._lengths_prefix_length])
+    accumulator = struct.unpack_from(
+        '{}s{}s'.format(len_token, len_value),
+        encoded_accumulator[self._lengths_prefix_length:])
 
-    accumulator = json.loads(tf.compat.as_text(encoded_accumulator))
     token, value = accumulator
-    try:
+    if self._input_dtype is not tf.string:
+      token = json.loads(tf.compat.as_text(token))
+
+    value = json.loads(tf.compat.as_text(value))
+    if isinstance(value, list):
       # If the value is a _WeightedMeanAndVarAccumulator (serialized to tuple),
       # cast each field back to a np.array.
-      count, mean, variance, weight = value
+      (count, mean, variance, weight) = value
       value = (np.array(count), np.array(mean), np.array(variance),
                np.array(weight))
-    except TypeError:
-      pass
-    if self._input_dtype == tf.string:
-      token = tf.compat.as_bytes(token)
     return token, value
 
 

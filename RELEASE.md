@@ -5,8 +5,10 @@
 * Performance improvements for preprocessing_fns with many Quantiles analyzers.
 * Using new TF core quantiles ops, which are not publicly available until next
   release.
+
 ## Bug Fixes and Other Changes
 * Existing analyzer cache is invalidated.
+* Vocabulary's cache coder now supports non utf-8 encodable tokens.
 
 ## Breaking changes
 * `always_return_num_quantiles` changed to default to True in `tft.quantiles`
