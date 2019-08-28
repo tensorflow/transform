@@ -562,6 +562,8 @@ def _count_docs_with_term(term_frequency):
   return tf.expand_dims(out, 0)
 
 
+# TODO(b/116308354): frequency_threshold is misleading since this threshold can
+# be applied to mutual information rather than frequency.
 def compute_and_apply_vocabulary(
     x,
     default_value=-1,
@@ -599,7 +601,9 @@ def compute_and_apply_vocabulary(
       absolute frequency is >= to the supplied threshold. If set to None, the
       full vocabulary is generated.  Absolute frequency means the number of
       occurences of the element in the dataset, as opposed to the proportion of
-      instances that contain that element.
+      instances that contain that element. If labels are provided and the vocab
+      is computed using mutual information, tokens are filtered if their mutual
+      information with the label is < the supplied threshold.
     num_oov_buckets:  Any lookup of an out-of-vocabulary token will return a
       bucket ID based on its hash if `num_oov_buckets` is greater than zero.
       Otherwise it is assigned the `default_value`.
@@ -612,8 +616,16 @@ def compute_and_apply_vocabulary(
       downstream component.
     weights: (Optional) Weights `Tensor` for the vocabulary. It must have the
       same shape as x.
-    labels: (Optional) Labels `Tensor` for the vocabulary. It must have dtype
-      int64, have values 0 or 1, and have the same shape as x.
+    labels: (Optional) A `Tensor` of labels for the vocabulary. If provided,
+      the vocabulary is calculated based on mutual information with the label,
+      rather than frequency. The labels must have the same batch dimension as x.
+      If x is sparse, labels should be a 1D tensor reflecting row-wise labels.
+      If x is dense, labels can either be a 1D tensor of row-wise labels, or
+      a dense tensor of the identical shape as x (i.e. element-wise labels).
+      Labels should be a discrete integerized tensor (If the label is numeric,
+      it should first be bucketized; If the label is a string, an integer
+      vocabulary should first be applied). Note: `SparseTensor` labels are not
+      yet supported (b/134931826).
     use_adjusted_mutual_info: If true, use adjusted mutual information.
     min_diff_from_avg: Mutual information of a feature will be adjusted to zero
       whenever the difference between count of the feature with any label and
@@ -1430,7 +1442,8 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
   points that close to each other in the raw feature space may not be equally
   close in the transformed feature space). This means that unlike linear
   normalization methods, correlations between features may be distorted by the
-  transformation.
+  transformation. This scaling method may help with stability and minimize
+  exploding gradients in neural networks.
 
   Args:
     x: A numeric input `Tensor`/`SparseTensor` (tf.float[32|64], tf.int[32|64])
