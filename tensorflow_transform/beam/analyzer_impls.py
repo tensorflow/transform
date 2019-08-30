@@ -861,10 +861,6 @@ class _IntermediateAccumulateCombineImpl(beam.PTransform):
 
   def expand(self, inputs):
     pcoll, = inputs
-    # NOTE: Currently, all combiners except QuantilesCombiner
-    # require .with_defaults(False) to be set.
-    # TODO(b/34792459): Don't set with_defaults.
-    has_defaults = isinstance(self._combiner, analyzers.QuantilesCombiner)
 
     return (
         pcoll
@@ -872,7 +868,11 @@ class _IntermediateAccumulateCombineImpl(beam.PTransform):
             _CombinerWrapper(
                 self._combiner,
                 self._tf_config,
-                is_combining_accumulators=False)).with_defaults(has_defaults))
+                # TODO(b/34792459): Don't set with_defaults. We set it to False
+                # for all combiners (even though QuantilesCombiner doesn't need
+                # it to be set) as after combiner packing we will have a single
+                # combiner and want a consistent behavior.
+                is_combining_accumulators=False)).with_defaults(False))
 
 
 @common.register_ptransform(analyzer_nodes.CacheableCombineMerge)
@@ -888,10 +888,6 @@ class _MergeAccumulatorsCombineImpl(beam.PTransform):
 
   def expand(self, inputs):
     pcoll, = inputs
-    # NOTE: Currently, all combiners except QuantilesCombiner
-    # require .with_defaults(False) to be set.
-    # TODO(b/34792459): Don't set with_defaults.
-    has_defaults = isinstance(self._combiner, analyzers.QuantilesCombiner)
 
     def extract_outputs(outputs, num_outputs):
       if len(outputs) != num_outputs:
@@ -909,7 +905,11 @@ class _MergeAccumulatorsCombineImpl(beam.PTransform):
             _CombinerWrapper(
                 self._combiner,
                 self._tf_config,
-                is_combining_accumulators=True)).with_defaults(has_defaults)
+                # TODO(b/34792459): Don't set with_defaults. We set it to False
+                # for all combiners (even though QuantilesCombiner doesn't need
+                # it to be set) as after combiner packing we will have a single
+                # combiner and want a consistent behavior.
+                is_combining_accumulators=True)).with_defaults(False)
         | 'ExtractOutputs' >> beam.FlatMap(
             extract_outputs, self._num_outputs).with_outputs(*output_keys))
     return tuple(outputs_tuple[key] for key in output_keys)
