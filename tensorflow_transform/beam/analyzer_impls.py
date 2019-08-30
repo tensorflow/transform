@@ -141,6 +141,29 @@ def _ApplyFrequencyThresholdAndTopK(  # pylint: disable=invalid-name
   return counts
 
 
+# Experimental
+def sum_labeled_weights(accs):
+  """Sums up a collection of labeled-weight tables.
+
+  Args:
+    accs: a list of (w, lw) tuples, where w is the total weight (floating point)
+      and lw is a list of weights for each label.
+
+  Returns:
+    component-wise sum of the inputs in the same format.
+  """
+  total_weight, labeled_weights = 0., []
+  for acc in accs:
+    total_weight = total_weight + acc[0]
+    accumulator_labeled_weights = acc[1]
+    if len(accumulator_labeled_weights) > len(labeled_weights):
+      labeled_weights.extend(
+          [0.] * (len(accumulator_labeled_weights) - len(labeled_weights)))
+    for i in range(len(accumulator_labeled_weights)):
+      labeled_weights[i] = labeled_weights[i] + accumulator_labeled_weights[i]
+  return (total_weight, labeled_weights)
+
+
 @common.register_ptransform(analyzer_nodes.VocabularyAccumulate)
 @beam.typehints.with_input_types(Tuple[np.ndarray, ...])
 # TODO(b/123325923): Constrain the key type here to the right string type.
@@ -168,6 +191,9 @@ class VocabularyAccumulateImpl(beam.PTransform):
     elif self._vocab_ordering_type == _VocabOrderingType.WEIGHTED_FREQUENCY:
       flatten_map_fn = _flatten_value_and_weights_to_list_of_tuples
       combine_transform = beam.CombinePerKey(sum)
+    elif self._vocab_ordering_type == _VocabOrderingType.WEIGHTED_LABELS:
+      flatten_map_fn = _flatten_value_and_labeled_weights_to_list_of_tuples
+      combine_transform = beam.CombinePerKey(sum_labeled_weights)
     else:
       flatten_map_fn = _flatten_value_to_list
       combine_transform = beam.combiners.Count.PerElement()
@@ -208,6 +234,8 @@ class VocabularyMergeImpl(beam.PTransform):
         _VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION):
       combine_transform = _MutualInformationTransformMerge(  # pylint: disable=no-value-for-parameter
           self._use_adjusted_mutual_info, self._min_diff_from_avg)
+    elif self._vocab_ordering_type == _VocabOrderingType.WEIGHTED_LABELS:
+      combine_transform = beam.CombinePerKey(sum_labeled_weights)
     else:
       combine_transform = beam.CombinePerKey(sum)
 
@@ -338,6 +366,25 @@ def _flatten_value_and_weights_to_list_of_tuples(batch_values):
   batch_value = batch_value.tolist()
   weights = weights.tolist()
   return zip(batch_value, weights)
+
+
+# Experimental
+def _flatten_value_and_labeled_weights_to_list_of_tuples(batch_values):
+  """Converts a batch of vocabulary and labeled weights to a list of KV tuples.
+
+  Args:
+    batch_values: A row in the batch consists of a value, a (total) weight, and
+      a list of weights for each label.
+  """
+  batch_value, weights, labeled_weights = batch_values
+
+  # TODO(b/36603294): Perhaps obviate the tolist(). It is currently used so
+  # that we go to native Python types for more efficient followup
+  # processing.
+  batch_value = batch_value.tolist()
+  weights = weights.tolist()
+  labeled_weights = labeled_weights.tolist()
+  return zip(batch_value, zip(weights, labeled_weights))
 
 
 def _make_count_and_weights_means_accumulator(sum_positive, weights_sum_total,

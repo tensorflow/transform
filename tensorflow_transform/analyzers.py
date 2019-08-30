@@ -897,6 +897,8 @@ class _VocabOrderingType(object):
   WEIGHTED_FREQUENCY = 2
   # Orders vocabulary based on the mutual information of token with the label
   WEIGHTED_MUTUAL_INFORMATION = 3
+  # Experimental
+  WEIGHTED_LABELS = 4
 
 
 # TODO(KesterTong): Once multiple outputs are supported, return indices too.
