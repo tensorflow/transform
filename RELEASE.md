@@ -5,6 +5,8 @@
 * Performance improvements for preprocessing_fns with many Quantiles analyzers.
 * Using new TF core quantiles ops, which are not publicly available until next
   release.
+* Performance improvements due to packing multiple combine analyzers into a
+  single Beam Combiner.
 
 ## Bug Fixes and Other Changes
 * Existing analyzer cache is invalidated.

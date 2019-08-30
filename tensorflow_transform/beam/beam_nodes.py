@@ -159,8 +159,8 @@ class ExtractFromDict(
   tuple of values, one for each key.
 
   Args:
-    key: The keys whose values should be extracted from each element of the
-        input PCollection.
+    keys: The keys whose values should be extracted from each element of the
+        input PCollection. keys should either be a tuple or a string.
     label: A unique label for this operation.
   """
 

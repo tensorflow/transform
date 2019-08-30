@@ -238,6 +238,39 @@ class AnalyzerDef(nodes.OperationDef):
     return len(self.output_tensor_infos)
 
 
+# We do the packing of combiners after the caching optimization. Hence, we don't
+# name this operation as cacheable. The rationale behind doing the combiner
+# packing after the cache optimization is that this optimization is more of a
+# Beam execution level optimization and we want to keep it towards the end.
+# So that, once Beam can automatically pack combines, we can remove this.
+class PackedCombineAccumulate(
+    collections.namedtuple('PackedCombineAccumulate', ['combiners', 'label']),
+    AnalyzerDef):
+  """An analyzer that packs a list of combiners into a single beam CombineFn.
+
+  Fields:
+    combiners:  A list of `analysis_graph_builder._CombinerOpWrapper` objects.
+    label: A unique label for this operation.
+  """
+
+  def __new__(cls, combiners, label=None):
+    if label is None:
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
+      label = '{}[{}]'.format(cls.__name__, scope)
+    return super(PackedCombineAccumulate, cls).__new__(
+        cls, combiners=combiners, label=label)
+
+  @property
+  def num_outputs(self):
+    return 1
+
+  # Note that this will not have any effect as packing of combiners is done
+  # after the caching optimization.
+  @property
+  def is_partitionable(self):
+    return True
+
+
 class CacheableCombineAccumulate(
     collections.namedtuple('CacheableCombineAccumulate', ['combiner', 'label']),
     AnalyzerDef):

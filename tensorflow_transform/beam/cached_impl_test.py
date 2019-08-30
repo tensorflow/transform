@@ -488,6 +488,7 @@ class CachedImplTest(test_case.TransformTestCase):
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 4)
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 8)
     self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
+    self.assertEqual(_get_counter_value(p.metrics, 'num_packed_combiners'), 1)
 
   def test_single_phase_run_twice(self):
 

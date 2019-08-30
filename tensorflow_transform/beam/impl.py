@@ -625,11 +625,17 @@ class _ApplySavedModelImpl(beam.PTransform):
             saved_model_dir=beam.pvalue.AsSingleton(inputs[0])))
 
 
+def _extract_keys_fn(inp, operation):
+  if isinstance(operation.keys, tuple):
+    return tuple(inp[key] for key in operation.keys)
+  return inp[operation.keys]
+
+
 @common.register_ptransform(beam_nodes.ExtractFromDict)
 def _extract_from_dict_impl(inputs, operation, extra_args):
   del extra_args  # unused
-  return inputs[0] | operation.label >> beam.Map(
-      lambda d, keys=operation.keys: tuple(d[key] for key in keys))
+  return inputs[0] | operation.label >> beam.Map(_extract_keys_fn,
+                                                 operation=operation)
 
 
 @common.register_ptransform(beam_nodes.Flatten)

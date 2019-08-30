@@ -504,6 +504,167 @@ def get_analysis_dataset_keys(preprocessing_fn, feature_spec, dataset_keys,
   return required_dataset_keys_result, flat_data_required
 
 
+_CombinerOpWrapper = collections.namedtuple('_CombinerOpWrapper',
+                                            ['combiner', 'keys', 'label'])
+
+
+# As the below visitor visits the TFT Beam Graph, we group together all the
+# packable combine nodes. Specifically, we look for the following path:
+# ExtractFromDict --> CacheableCombineAccumulate
+# The combines under the same grand parent can be packed together.
+# In this visitor, we group all the packable combines for each unique
+# grand parent node.
+class _InspectCombineVisitor(nodes.Visitor):
+  """A visitor that inspects the graph and looks for combine nodes."""
+
+  def __init__(self):
+    # Group all packable combines. We pack all the combines that have the same
+    # grand parent.
+    # {grand_parent_label: List of packable _CombinerOpWrapper's}
+    self.packable_combines = collections.defaultdict(list)
+
+  def visit(self, operation_def, input_values):
+    self._maybe_add_packable_combine(operation_def, input_values)
+    return nodes.OperationNode(operation_def, input_values).outputs
+
+  def _maybe_add_packable_combine(self, operation_def, input_values):
+    # We cannot pack the per-key combine analyzers as the key may be different
+    # for each analyzer.
+    if (not isinstance(operation_def, analyzer_nodes.CacheableCombineAccumulate)
+        or isinstance(operation_def,
+                      analyzer_nodes.CacheableCombinePerKeyAccumulate)):
+      return
+    assert len(input_values) == 1
+
+    # Get the ExtractFromDict parent node of the current
+    # CacheableCombineAccumulate node.
+    parent = input_values[0].parent_operation
+    if not isinstance(parent.operation_def, beam_nodes.ExtractFromDict):
+      return
+    assert len(parent.inputs) == 1
+
+    # Get the parent of the current ExtractFromDict node.
+    grand_parent = parent.inputs[0].parent_operation
+
+    # This is a packable combine.
+    grand_parent_label = grand_parent.operation_def.label
+    self.packable_combines[grand_parent_label].append(_CombinerOpWrapper(
+        combiner=operation_def.combiner,
+        keys=parent.operation_def.keys,
+        label=operation_def.label))
+
+  def validate_value(self, value):
+    assert isinstance(value, nodes.ValueNode)
+
+
+# This visitor takes the grouped combines and performs the packing of those
+# combines.
+#                Before packing
+#            GrandParentNode
+#             /           \
+#  ExtractFromDict1     ExtractFromDict2
+#            /              \
+#        Combine1         Combine2
+#
+#                After packing
+#            GrandParentNode
+#                   |
+#              PackedCombine
+#                /      \
+#  ExtractFromDict1'   ExtractFromDict2'
+#
+# The ExtractFromDict nodes after packing extracts the accumulator corresponding
+# to the individual combines.
+class _PackCombineVisitor(nodes.Visitor):
+  """A visitor that packs combine nodes in the graph."""
+
+  def __init__(self, packable_combines):
+    self._packable_combines = packable_combines
+
+    self._combine_to_grand_parent = {}
+    for grand_parent_label, group in self._packable_combines.items():
+      for combine_op in group:
+        self._combine_to_grand_parent[combine_op.label] = grand_parent_label
+
+    # Cache the packed combine node.
+    # Grand parent node label -> Packed combine node
+    self._packed_combine_cache = {}
+
+  def visit(self, operation_def, input_values):
+    # If we see a combine node which can be packed, create the packed combine
+    # node and cache it as we will use the same packed node for all the combines
+    # in the group.
+    if operation_def.label in self._combine_to_grand_parent:
+      return self._get_packed_combine(operation_def, input_values)
+    return nodes.OperationNode(operation_def, input_values).outputs
+
+  def _get_packed_combine(self, operation_def, input_values):
+    grand_parent_label = self._combine_to_grand_parent[operation_def.label]
+    # If we are seeing a combine from a group for the first time, create the
+    # the packed combine node and cache it.
+    if grand_parent_label not in self._packed_combine_cache:
+      # Get the grand parent node of the CacheableCombineAccumulate node.
+      # We will make this node as the parent of the
+      # PackedCombineAccumulate node.
+      assert len(input_values) == 1
+      parent_node = input_values[0]
+      assert isinstance(parent_node.parent_operation.operation_def,
+                        beam_nodes.ExtractFromDict)
+      assert len(parent_node.parent_operation.inputs) == 1
+      grand_parent_node = parent_node.parent_operation.inputs[0]
+      assert (grand_parent_node.parent_operation.operation_def.label ==
+              grand_parent_label)
+      self._packed_combine_cache[grand_parent_label] = (
+          nodes.apply_operation(
+              analyzer_nodes.PackedCombineAccumulate,
+              grand_parent_node,
+              combiners=self._packable_combines[grand_parent_label],
+              label='PackedCombineAccumulate[{}]'.format(grand_parent_label)))
+    # For the current combine, create the ExtractFromDict node which
+    # extracts the accumulator corresponding to this combine from the
+    # packed combine output.
+    result = nodes.apply_operation(
+        beam_nodes.ExtractFromDict,
+        self._packed_combine_cache[grand_parent_label],
+        keys=operation_def.label, label=operation_def.label)
+    return (result,)
+
+  def validate_value(self, value):
+    assert isinstance(value, nodes.ValueNode)
+
+
+def _perform_combiner_packing_optimization(saved_model_future,
+                                           cache_value_nodes):
+  """Optimizes the graph by packing possible combine nodes."""
+  # Inspect the graph to identify all the packable combines.
+  inspect_combine_visitor = _InspectCombineVisitor()
+  inspect_combine_traverser = nodes.Traverser(inspect_combine_visitor)
+  _ = inspect_combine_traverser.visit_value_node(saved_model_future)
+  if cache_value_nodes:
+    for value_node in cache_value_nodes.values():
+      _ = inspect_combine_traverser.visit_value_node(value_node)
+
+  packable_combines = inspect_combine_visitor.packable_combines
+  # Do not pack if we have only a single combine in the group.
+  packable_combines = {
+      label: group for label, group in packable_combines.items()
+      if len(group) > 1
+  }
+
+  # Do another pass over the graph and pack the grouped combines.
+  pack_combine_visitor = _PackCombineVisitor(packable_combines)
+  pack_combine_traverser = nodes.Traverser(pack_combine_visitor)
+  saved_model_future = pack_combine_traverser.visit_value_node(
+      saved_model_future)
+  # Replace cache nodes to point to the corresponding new nodes.
+  if cache_value_nodes:
+    cache_value_nodes = {
+        key: pack_combine_traverser.visit_value_node(value_node)
+        for key, value_node in cache_value_nodes.items()
+    }
+  return (saved_model_future, cache_value_nodes)
+
+
 def build(graph,
           input_signature,
           output_signature,
@@ -646,6 +807,9 @@ def build(graph,
   (optimized_saved_model_future,
    output_cache_value_nodes) = _perform_cache_optimization(
        saved_model_future, dataset_keys, tensor_keys_to_paths, cache_dict)
+  (optimized_saved_model_future,
+   output_cache_value_nodes) = _perform_combiner_packing_optimization(
+       optimized_saved_model_future, output_cache_value_nodes)
   global _ANALYSIS_GRAPH
   _ANALYSIS_GRAPH = optimized_saved_model_future
   return optimized_saved_model_future, output_cache_value_nodes
