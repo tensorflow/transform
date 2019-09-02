@@ -45,7 +45,8 @@ def _get_quantiles_summary():
                                           include_max_and_min=False,
                                           feature_shape=[1])
   qcombiner.initialize_local_state(tf_config=None)
-  add_input_op = qcombiner.add_input(None, [np.array([1.0, 2.0, 3.0])])
+  accumulator = qcombiner.create_accumulator()
+  add_input_op = qcombiner.add_input(accumulator, [np.array([1.0, 2.0, 3.0])])
   with tf.Session():
     return add_input_op[0]
 

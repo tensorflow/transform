@@ -29,6 +29,7 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import itertools
 import pickle
 import random
 import re
@@ -36,7 +37,6 @@ import threading
 
 # GOOGLE-INITIALIZATION
 import numpy as np
-import six
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import nodes
@@ -1179,6 +1179,11 @@ def uniques(x,
 
 # TODO(b/65627483): Make this an instantiation of a generic CombineFn based on
 # TF ops.
+#
+# Code related to this class is performance sensitive, so (micro-)benchmarks
+# should be run when it is updated.
+#
+# TODO(zoyahav): Move the (micro-)benchmarks from TFDV to TFT.
 class QuantilesCombiner(analyzer_nodes.Combiner):
   """Computes quantiles on the PCollection.
 
@@ -1213,8 +1218,7 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     self._graph_state_options = None  # Initialized in initialize_local_state().
     self._use_core_quantile_ops = tf.__version__ >= '1.15'
 
-  # TODO(katsiapis): Make tf_config required.
-  def initialize_local_state(self, tf_config=None):
+  def initialize_local_state(self, tf_config):
     """Called by the CombineFnWrapper's __init__ method.
 
     This method must be called prior to any other method.
@@ -1238,36 +1242,21 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     return _global_quantiles_graph_state_provider.get_graph_state(
         self._graph_state_options)
 
-  # TODO(KesterTong): The fact that a summary/accumulator can be None is confusing.
   def create_accumulator(self):
-    return None
+    graph_state = self._get_graph_state()
+    return graph_state.empty_summary
 
   def add_input(self, summary, next_input):
-    graph_state = self._get_graph_state()
-
     # next_input is a list of tensors each one representing a batch for its
     # respective input.  In this case a single input should be
     # reshaped to (num_features, ?).
     flattened_input = np.reshape(next_input[0],
                                  newshape=(-1, self._num_features,))
 
-    # This conversion is necessary to maintain compatibility with previous
-    # versions, and will be removed in future (0.15).
-    # TODO(b/127336397): Remove this.
-    if isinstance(summary, (six.binary_type, six.text_type)):
-      assert not summary
-      summary = None
-
-    if summary is None:
-      if flattened_input.size == 0:
-        return None
-      if self._use_core_quantile_ops:
-        summary = graph_state.empty_summary
-      else:
-        summary = [graph_state.empty_summary] * self._num_features
-
-    callable_args = [summary, flattened_input.T] if (
-        not self._use_core_quantile_ops) else summary + [flattened_input.T]
+    if self._use_core_quantile_ops:
+      callable_args = summary + [flattened_input.T]
+    else:
+      callable_args = [summary, flattened_input.T]
 
     if self._has_weights:
       flattened_weights = np.reshape(next_input[1], newshape=(1, -1))
@@ -1278,44 +1267,48 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
                 flattened_input.size, flattened_weights.size))
       callable_args.append(flattened_weights)
 
+    graph_state = self._get_graph_state()
     with graph_state.lock:
       return graph_state.thread_hostile_add_input_callable(*callable_args)
 
-  def merge_accumulators(self, summaries_iterable):
+  def merge_accumulators(self, summaries):
+    # Since graph_state modification needs to happen under lock, and for
+    # performance reasons, we will merge summaries in a chunked fashion,
+    # repeatedly taking the next N from `summaries` (an iterable), or all if
+    # there are less than N remaining. N=100.
+    result = self.create_accumulator()
+    # Make sure summaries is an iterator (so it remembers its position).
+    summaries = iter(summaries)
     graph_state = self._get_graph_state()
-    result = None
-    for summary in summaries_iterable:
-      if summary is None:
-        continue
-      else:
-        # This conversion is necessary to maintain compatibility with previous
-        # versions, and will be removed in future (0.15).
-        # TODO(b/127336397): Remove this.
-        if isinstance(summary, (six.binary_type, six.text_type)):
-          assert not summary
-          continue
-        with graph_state.lock:
-          if self._use_core_quantile_ops:
-            graph_state.thread_hostile_merge_inputs_callable(*summary)
-            if result is not None:
-              graph_state.thread_hostile_merge_inputs_callable(*result)  # pylint: disable=not-an-iterable
-          else:
-            graph_state.thread_hostile_merge_inputs_callable(summary)
-            if result is not None:
-              graph_state.thread_hostile_merge_inputs_callable(result)
-          result = graph_state.thread_hostile_flush_summary_callable()
+    while True:
+      batched_summaries = list(itertools.islice(summaries, 100))
+      if not batched_summaries:
+        break
+      with graph_state.lock:
+        if self._use_core_quantile_ops:
+          graph_state.thread_hostile_merge_summary_callable(*result)
+          for summary in batched_summaries:
+            graph_state.thread_hostile_merge_summary_callable(*summary)
+        else:
+          graph_state.thread_hostile_merge_summary_callable(result)
+          for summary in batched_summaries:
+            graph_state.thread_hostile_merge_summary_callable(summary)
+        result = graph_state.thread_hostile_flush_summary_callable()
     return result
 
   def extract_output(self, summary):
-    graph_state = self._get_graph_state()
-
     num_buckets = (
         self._num_quantiles - 1 if self._always_return_num_quantiles else 0)
     output_shape = tuple(self._feature_shape + [num_buckets])
-    if summary is None:
+
+    # TODO(KesterTong): Perhaps the TF get buckets callable should be more robust
+    # instead, so that it can deal with "empty" accumulator / summary?
+    if summary == self.create_accumulator():
       return [np.zeros(output_shape, np.float32)]
+
     output_shape = tuple(self._feature_shape + [-1])
 
+    graph_state = self._get_graph_state()
     with graph_state.lock:
       if self._use_core_quantile_ops:
         bucket_lists = graph_state.thread_hostile_get_buckets_callable(*summary)
@@ -1390,10 +1383,10 @@ class _QuantilesGraphState(object):
   Note that the implementation is currently thread-hostile and all methods that
   have "thread_hostile" in their name should acquire this state's lock both when
   called directly and when called in succession, for methods that are logically
-  "paired" like for example _thread_hostile_merge_inputs_callable() and
+  "paired" like for example _thread_hostile_merge_summary_callable() and
   _thread_hostile_flush_callable().
 
-  Note to future authors to please update comments for both _QuantilesGraphState
+  Note to future authors to please update content for both _QuantilesGraphState
   and _QuantilesGraphStateV2 until they can be merged again.
   """
 
@@ -1457,8 +1450,8 @@ class _QuantilesGraphState(object):
       self.thread_hostile_get_buckets_callable = (
           self._make_get_buckets_callable(
               resource_handles, stamp_token, options))
-      self.thread_hostile_merge_inputs_callable = (
-          self._make_add_summary_callable(
+      self.thread_hostile_merge_summary_callable = (
+          self._make_merge_summary_callable(
               resource_handles, stamp_token, options))
       self.thread_hostile_flush_summary_callable = (
           self._make_flush_summary_callable(resource_handles, stamp_token))
@@ -1469,7 +1462,7 @@ class _QuantilesGraphState(object):
     # cache it for efficiency. Caching is safe (and as such the cache is public)
     # since it is immutable.
     with self.lock:
-      self.empty_summary = self.thread_hostile_flush_summary_callable()[0]
+      self.empty_summary = self.thread_hostile_flush_summary_callable()
 
   def _make_flush_summary_callable(self, resource_handles, stamp_token):
     # Create op to flush summaries and return a list representing the
@@ -1533,7 +1526,8 @@ class _QuantilesGraphState(object):
 
     return self._session.make_callable(fetches=summaries, feed_list=feed_list)
 
-  def _make_add_summary_callable(self, resource_handles, stamp_token, options):  # pylint: disable=missing-docstring
+  def _make_merge_summary_callable(  # pylint: disable=missing-docstring
+      self, resource_handles, stamp_token, options):
     summary = tf.compat.v1.placeholder(
         dtype=tf.string, shape=[options.num_features])
 
@@ -1574,16 +1568,19 @@ class _QuantilesGraphState(object):
 
 
 # Thread-hostile.
+#
+# TODO(b/140113426): Remove this and all associated code after TF 1.15 is
+# released, and TFT requires it.
 class _QuantilesGraphStateV2(object):
   """A container for a Quantiles shared graph state.
 
   Note that the implementation is currently thread-hostile and all methods that
   have "thread_hostile" in their name should acquire this state's lock both when
   called directly and when called in succession, for methods that are logically
-  "paired" like for example _thread_hostile_merge_inputs_callable() and
+  "paired" like for example _thread_hostile_merge_summary_callable() and
   _thread_hostile_flush_callable().
 
-  Note to future authors to please update comments for both _QuantilesGraphState
+  Note to future authors to please update content for both _QuantilesGraphState
   and _QuantilesGraphStateV2 until they can be merged again.
   """
 
@@ -1624,8 +1621,8 @@ class _QuantilesGraphStateV2(object):
           self._resource, options)
       self.thread_hostile_get_buckets_callable = (
           self._make_get_buckets_callable(self._resource, options))
-      self.thread_hostile_merge_inputs_callable = (
-          self._make_add_summary_callable(self._resource, options))
+      self.thread_hostile_merge_summary_callable = (
+          self._make_merge_summary_callable(self._resource, options))
       # Create op to flush summaries and return a list representing the
       # summaries that were added to all accumulators so far.
       self.thread_hostile_flush_summary_callable = self._session.make_callable(
@@ -1713,7 +1710,7 @@ class _QuantilesGraphStateV2(object):
 
     return self._session.make_callable(fetches=summaries, feed_list=feed_list)
 
-  def _make_add_summary_callable(self, resource_handle, options):  # pylint: disable=missing-docstring
+  def _make_merge_summary_callable(self, resource_handle, options):  # pylint: disable=missing-docstring
     summaries = [tf.compat.v1.placeholder(
         dtype=tf.float32, shape=[None, 4]) for _ in range(options.num_features)]
 
