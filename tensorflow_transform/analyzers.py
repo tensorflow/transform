@@ -1303,7 +1303,7 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
 
     # TODO(KesterTong): Perhaps the TF get buckets callable should be more robust
     # instead, so that it can deal with "empty" accumulator / summary?
-    if summary == self.create_accumulator():
+    if np.array_equal(summary, self.create_accumulator()):
       return [np.zeros(output_shape, np.float32)]
 
     output_shape = tuple(self._feature_shape + [-1])
@@ -1376,6 +1376,8 @@ class _QuantilesGraphStateOptions(
   pass
 
 
+# TODO(b/138722087): Once the two graph state implementations are merged (in
+# TF 1.15), alter the type declarations in TFDV, such as quantiles_util.py.
 # Thread-hostile.
 class _QuantilesGraphState(object):
   """A container for a Quantiles shared graph state.
@@ -1636,8 +1638,7 @@ class _QuantilesGraphStateV2(object):
     # cache it for efficiency. Caching is safe (and as such the cache is public)
     # since it is immutable.
     with self.lock:
-      self.empty_summary = [np.zeros(shape=(0, 4))
-                            for _ in range(options.num_features)]
+      self.empty_summary = self.thread_hostile_flush_summary_callable()
 
   def _create_resource(self, name, eps, max_elements, num_streams=1):  # pylint: disable=missing-docstring
     quantile_accumulator_handle = (
