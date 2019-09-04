@@ -106,17 +106,17 @@ _OPTIMIZE_TRAVERSAL_COMMON_CASE = dict(
     expected_dot_graph_str=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('vocabulary/Reshape', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\"), ('x/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[0]}"];
-"ApplySavedModel[0][span-0]" [label="{ApplySavedModel|dataset_key: span-0|phase: 0|label: ApplySavedModel[0][span-0]|partitionable: True}"];
-"CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0][span-0]";
+"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('vocabulary/Reshape', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\"), ('x/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
+"ApplySavedModel[Phase0][span-0]" [label="{ApplySavedModel|dataset_key: span-0|phase: 0|label: ApplySavedModel[Phase0][span-0]|partitionable: True}"];
+"CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0][span-0]";
 "TensorSource[vocabulary][span-0]" [label="{ExtractFromDict|keys: ('vocabulary/Reshape',)|label: TensorSource[vocabulary][span-0]|partitionable: True}"];
-"ApplySavedModel[0][span-0]" -> "TensorSource[vocabulary][span-0]";
+"ApplySavedModel[Phase0][span-0]" -> "TensorSource[vocabulary][span-0]";
 "VocabularyAccumulate[vocabulary][span-0]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|input_dtype: string|label: VocabularyAccumulate[vocabulary][span-0]|partitionable: True}"];
 "TensorSource[vocabulary][span-0]" -> "VocabularyAccumulate[vocabulary][span-0]";
-"ApplySavedModel[0][span-1]" [label="{ApplySavedModel|dataset_key: span-1|phase: 0|label: ApplySavedModel[0][span-1]|partitionable: True}"];
-"CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0][span-1]";
+"ApplySavedModel[Phase0][span-1]" [label="{ApplySavedModel|dataset_key: span-1|phase: 0|label: ApplySavedModel[Phase0][span-1]|partitionable: True}"];
+"CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0][span-1]";
 "TensorSource[vocabulary][span-1]" [label="{ExtractFromDict|keys: ('vocabulary/Reshape',)|label: TensorSource[vocabulary][span-1]|partitionable: True}"];
-"ApplySavedModel[0][span-1]" -> "TensorSource[vocabulary][span-1]";
+"ApplySavedModel[Phase0][span-1]" -> "TensorSource[vocabulary][span-1]";
 "VocabularyAccumulate[vocabulary][span-1]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|input_dtype: string|label: VocabularyAccumulate[vocabulary][span-1]|partitionable: True}"];
 "TensorSource[vocabulary][span-1]" -> "VocabularyAccumulate[vocabulary][span-1]";
 "FlattenCache[VocabularyMerge[vocabulary]]" [label="{Flatten|label: FlattenCache[VocabularyMerge[vocabulary]]|partitionable: True}"];
@@ -130,13 +130,13 @@ node [shape=Mrecord];
 "VocabularyOrderAndFilter[vocabulary]" -> "VocabularyWrite[vocabulary]";
 "CreateTensorBinding[vocabulary/Placeholder]" [label="{CreateTensorBinding|tensor: vocabulary/Placeholder:0|is_asset_filepath: True|label: CreateTensorBinding[vocabulary/Placeholder]}"];
 "VocabularyWrite[vocabulary]" -> "CreateTensorBinding[vocabulary/Placeholder]";
-"DecodeCache[span-0][CacheableCombineAccumulate[x/mean_and_var]]" [label="{DecodeCache|dataset_key: span-0|cache_key: \<bytes\>|cache_entry_identifier: CacheableCombineAccumulate[x/mean_and_var]|coder: \<JsonNumpyCacheCoder\>|label: DecodeCache[span-0][CacheableCombineAccumulate[x/mean_and_var]]|partitionable: True}"];
+"DecodeCache[CacheableCombineAccumulate[x/mean_and_var]][span-0]" [label="{DecodeCache|dataset_key: span-0|cache_key: \<bytes\>|coder: \<JsonNumpyCacheCoder\>|label: DecodeCache[CacheableCombineAccumulate[x/mean_and_var]][span-0]|partitionable: True}"];
 "TensorSource[x/mean_and_var][span-1]" [label="{ExtractFromDict|keys: ('x/mean_and_var/Cast', 'x/mean_and_var/truediv', 'x/mean_and_var/truediv_1', 'x/mean_and_var/zeros')|label: TensorSource[x/mean_and_var][span-1]|partitionable: True}"];
-"ApplySavedModel[0][span-1]" -> "TensorSource[x/mean_and_var][span-1]";
+"ApplySavedModel[Phase0][span-1]" -> "TensorSource[x/mean_and_var][span-1]";
 "CacheableCombineAccumulate[x/mean_and_var][span-1]" [label="{CacheableCombineAccumulate|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineAccumulate[x/mean_and_var][span-1]|partitionable: True}"];
 "TensorSource[x/mean_and_var][span-1]" -> "CacheableCombineAccumulate[x/mean_and_var][span-1]";
 "FlattenCache[CacheableCombineMerge[x/mean_and_var]]" [label="{Flatten|label: FlattenCache[CacheableCombineMerge[x/mean_and_var]]|partitionable: True}"];
-"DecodeCache[span-0][CacheableCombineAccumulate[x/mean_and_var]]" -> "FlattenCache[CacheableCombineMerge[x/mean_and_var]]";
+"DecodeCache[CacheableCombineAccumulate[x/mean_and_var]][span-0]" -> "FlattenCache[CacheableCombineMerge[x/mean_and_var]]";
 "CacheableCombineAccumulate[x/mean_and_var][span-1]" -> "FlattenCache[CacheableCombineMerge[x/mean_and_var]]";
 "CacheableCombineMerge[x/mean_and_var]" [label="{CacheableCombineMerge|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineMerge[x/mean_and_var]|{<0>0|<1>1}}"];
 "FlattenCache[CacheableCombineMerge[x/mean_and_var]]" -> "CacheableCombineMerge[x/mean_and_var]";
@@ -144,14 +144,14 @@ node [shape=Mrecord];
 "CacheableCombineMerge[x/mean_and_var]":0 -> "CreateTensorBinding[x/mean_and_var/Placeholder]";
 "CreateTensorBinding[x/mean_and_var/Placeholder_1]" [label="{CreateTensorBinding|tensor: x/mean_and_var/Placeholder_1:0|is_asset_filepath: False|label: CreateTensorBinding[x/mean_and_var/Placeholder_1]}"];
 "CacheableCombineMerge[x/mean_and_var]":1 -> "CreateTensorBinding[x/mean_and_var/Placeholder_1]";
-"CreateSavedModelForAnalyzerInputs[1]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_square_deviations/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[1]}"];
-"CreateTensorBinding[vocabulary/Placeholder]" -> "CreateSavedModelForAnalyzerInputs[1]";
-"CreateTensorBinding[x/mean_and_var/Placeholder]" -> "CreateSavedModelForAnalyzerInputs[1]";
-"CreateTensorBinding[x/mean_and_var/Placeholder_1]" -> "CreateSavedModelForAnalyzerInputs[1]";
-"ApplySavedModel[1]" [label="{ApplySavedModel|dataset_key: None|phase: 1|label: ApplySavedModel[1]|partitionable: True}"];
-"CreateSavedModelForAnalyzerInputs[1]" -> "ApplySavedModel[1]";
+"CreateSavedModelForAnalyzerInputs[Phase1]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_square_deviations/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase1]}"];
+"CreateTensorBinding[vocabulary/Placeholder]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
+"CreateTensorBinding[x/mean_and_var/Placeholder]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
+"CreateTensorBinding[x/mean_and_var/Placeholder_1]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
+"ApplySavedModel[Phase1]" [label="{ApplySavedModel|dataset_key: None|phase: 1|label: ApplySavedModel[Phase1]|partitionable: True}"];
+"CreateSavedModelForAnalyzerInputs[Phase1]" -> "ApplySavedModel[Phase1]";
 "TensorSource[x_square_deviations/mean_and_var]" [label="{ExtractFromDict|keys: ('x_square_deviations/mean_and_var/Cast', 'x_square_deviations/mean_and_var/truediv', 'x_square_deviations/mean_and_var/truediv_1', 'x_square_deviations/mean_and_var/zeros')|label: TensorSource[x_square_deviations/mean_and_var]|partitionable: True}"];
-"ApplySavedModel[1]" -> "TensorSource[x_square_deviations/mean_and_var]";
+"ApplySavedModel[Phase1]" -> "TensorSource[x_square_deviations/mean_and_var]";
 "CacheableCombineAccumulate[x_square_deviations/mean_and_var]" [label="{CacheableCombineAccumulate|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineAccumulate[x_square_deviations/mean_and_var]|partitionable: True}"];
 "TensorSource[x_square_deviations/mean_and_var]" -> "CacheableCombineAccumulate[x_square_deviations/mean_and_var]";
 "CacheableCombineMerge[x_square_deviations/mean_and_var]" [label="{CacheableCombineMerge|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineMerge[x_square_deviations/mean_and_var]|{<0>0|<1>1}}"];
@@ -275,11 +275,11 @@ _OPTIMIZE_TRAVERSAL_GENERALIZED_CHAINED_PTRANSFORMS_CASE = dict(
     expected_dot_graph_str=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('inputs/x', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[0]}"];
-"ApplySavedModel[0][span-0]" [label="{ApplySavedModel|dataset_key: span-0|phase: 0|label: ApplySavedModel[0][span-0]|partitionable: True}"];
-"CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0][span-0]";
+"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('inputs/x', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
+"ApplySavedModel[Phase0][span-0]" [label="{ApplySavedModel|dataset_key: span-0|phase: 0|label: ApplySavedModel[Phase0][span-0]|partitionable: True}"];
+"CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0][span-0]";
 "TensorSource[x][span-0]" [label="{ExtractFromDict|keys: ('inputs/x',)|label: TensorSource[x][span-0]|partitionable: True}"];
-"ApplySavedModel[0][span-0]" -> "TensorSource[x][span-0]";
+"ApplySavedModel[Phase0][span-0]" -> "TensorSource[x][span-0]";
 "FakeChainablePartitionable[x/partitionable1][span-0]" [label="{FakeChainablePartitionable|label: FakeChainablePartitionable[x/partitionable1][span-0]|partitionable: True}"];
 "TensorSource[x][span-0]" -> "FakeChainablePartitionable[x/partitionable1][span-0]";
 "FakeChainableCacheable[x/cacheable1][span-0]" [label="{FakeChainableCacheable|label: FakeChainableCacheable[x/cacheable1][span-0]|partitionable: True}"];
@@ -290,10 +290,10 @@ node [shape=Mrecord];
 "FakeChainablePartitionable[x/partitionable2][span-0]" -> "FakeChainableCacheable[x/cacheable2][span-0]";
 "FakeChainablePartitionable[x/partitionable3][span-0]" [label="{FakeChainablePartitionable|label: FakeChainablePartitionable[x/partitionable3][span-0]|partitionable: True}"];
 "FakeChainableCacheable[x/cacheable2][span-0]" -> "FakeChainablePartitionable[x/partitionable3][span-0]";
-"ApplySavedModel[0][span-1]" [label="{ApplySavedModel|dataset_key: span-1|phase: 0|label: ApplySavedModel[0][span-1]|partitionable: True}"];
-"CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0][span-1]";
+"ApplySavedModel[Phase0][span-1]" [label="{ApplySavedModel|dataset_key: span-1|phase: 0|label: ApplySavedModel[Phase0][span-1]|partitionable: True}"];
+"CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0][span-1]";
 "TensorSource[x][span-1]" [label="{ExtractFromDict|keys: ('inputs/x',)|label: TensorSource[x][span-1]|partitionable: True}"];
-"ApplySavedModel[0][span-1]" -> "TensorSource[x][span-1]";
+"ApplySavedModel[Phase0][span-1]" -> "TensorSource[x][span-1]";
 "FakeChainablePartitionable[x/partitionable1][span-1]" [label="{FakeChainablePartitionable|label: FakeChainablePartitionable[x/partitionable1][span-1]|partitionable: True}"];
 "TensorSource[x][span-1]" -> "FakeChainablePartitionable[x/partitionable1][span-1]";
 "FakeChainableCacheable[x/cacheable1][span-1]" [label="{FakeChainableCacheable|label: FakeChainableCacheable[x/cacheable1][span-1]|partitionable: True}"];
@@ -311,10 +311,10 @@ node [shape=Mrecord];
 "FlattenCache[FakeChainable[x/merge]]" -> "FakeChainable[x/merge]";
 "CreateTensorBinding[x/Placeholder]" [label="{CreateTensorBinding|tensor: x/Placeholder:0|is_asset_filepath: False|label: CreateTensorBinding[x/Placeholder]}"];
 "FakeChainable[x/merge]" -> "CreateTensorBinding[x/Placeholder]";
-"ApplySavedModel[0]" [label="{ApplySavedModel|dataset_key: None|phase: 0|label: ApplySavedModel[0]|partitionable: True}"];
-"CreateSavedModelForAnalyzerInputs[0]" -> "ApplySavedModel[0]";
+"ApplySavedModel[Phase0]" [label="{ApplySavedModel|dataset_key: None|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
+"CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
 "TensorSource[x]" [label="{ExtractFromDict|keys: ('inputs/x',)|label: TensorSource[x]|partitionable: True}"];
-"ApplySavedModel[0]" -> "TensorSource[x]";
+"ApplySavedModel[Phase0]" -> "TensorSource[x]";
 "FakeChainable[x/not-cacheable]" [label="{FakeChainable|label: FakeChainable[x/not-cacheable]}"];
 "TensorSource[x]" -> "FakeChainable[x/not-cacheable]";
 "CreateTensorBinding[x/Placeholder_1]" [label="{CreateTensorBinding|tensor: x/Placeholder_1:0|is_asset_filepath: False|label: CreateTensorBinding[x/Placeholder_1]}"];
@@ -945,8 +945,8 @@ class CachedImplTest(test_case.TransformTestCase):
     self.WriteRenderedDotFile(dot_string)
 
     self.assertSameElements(
-        dot_string.split('\n'),
         expected_dot_graph_str.split('\n'),
+        dot_string.split('\n'),
         msg='Result dot graph is:\n{}\nCache output dict keys are: {}'.format(
             dot_string, cache_output_dict.keys()))
 

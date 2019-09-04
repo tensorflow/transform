@@ -118,6 +118,9 @@ class WriteAnalysisCacheToFS(beam.PTransform):
     manifest = manifest_file.read()
     start_cache_idx = max(manifest.values()) + 1 if manifest else 0
 
+    # TODO(b/37788560): The file_name_suffix='.gz' logically only applies to
+    # WriteToTFRecord (and probably not other sinks). Similaly for
+    # ReadAnalysisCacheFromFS.
     cache_is_written = []
     for cache_key_idx, (cache_entry_key, cache_pcoll) in enumerate(
         six.iteritems(cache_dict), start_cache_idx):
@@ -125,7 +128,7 @@ class WriteAnalysisCacheToFS(beam.PTransform):
       manifest[cache_entry_key] = cache_key_idx
       cache_is_written.append(
           cache_pcoll
-          | 'WriteCache[{}][{}]'.format(dataset_key, cache_key_idx) >>
+          | 'Write[{}][CacheKeyIndex{}]'.format(dataset_key, cache_key_idx) >>
           self._sink(path, file_name_suffix='.gz'))
 
     manifest_file.write(manifest)
@@ -134,7 +137,7 @@ class WriteAnalysisCacheToFS(beam.PTransform):
   def expand(self, dataset_cache_dict):
 
     cache_is_written = []
-    for dataset_key, cache_dict in six.iteritems(dataset_cache_dict):
+    for dataset_key, cache_dict in dataset_cache_dict.items():
       dataset_key_dir = _get_dataset_cache_path(self._cache_base_dir,
                                                 dataset_key)
 
@@ -176,12 +179,13 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
       if not manifest:
         continue
       cache_dict[dataset_key] = {}
-      for key, value in six.iteritems(manifest):
+      for key, cache_key_idx in manifest.items():
         cache_dict[dataset_key][key] = (
             pvalue.pipeline
-            | 'ReadCache[{}][{}]'.format(dataset_key, value) >>
+            | 'Read[{}][CacheKeyIndex{}]'.format(dataset_key, cache_key_idx) >>
             self._source('{}{}'.format(
-                os.path.join(dataset_cache_path, str(value)), '-*-of-*')))
+                os.path.join(
+                    dataset_cache_path, str(cache_key_idx)), '-*-of-*')))
     return cache_dict
 
 

@@ -366,15 +366,15 @@ class _OptimizeVisitor(nodes.Visitor):
         tf.compat.as_bytes(operation_def.label) + b'-' + next_hashed_path)
 
     for dataset_key in self._dataset_keys:
-
       if (operation_def.cache_coder and self._cache_dict.get(
           dataset_key, {}).get(cache_entry_key) is not None):
-        (op_output,) = nodes.OperationNode(
-            analyzer_nodes.DecodeCache(
-                dataset_key,
-                cache_entry_key,
-                operation_def.label,
-                coder=operation_def.cache_coder), tuple()).outputs
+        decode_cache = analyzer_nodes.DecodeCache(
+            dataset_key,
+            cache_entry_key,
+            coder=operation_def.cache_coder,
+            label='DecodeCache[{}][{}]'.format(operation_def.label,
+                                               dataset_key))
+        (op_output,) = nodes.OperationNode(decode_cache, tuple()).outputs
       else:
         value_node = fine_grained_view[dataset_key]
         (op_output,) = nodes.OperationNode(
@@ -382,14 +382,13 @@ class _OptimizeVisitor(nodes.Visitor):
                 label='{}[{}]'.format(operation_def.label, dataset_key)),
             (value_node,)).outputs
         if operation_def.cache_coder:
-          encoded_cache = nodes.apply_operation(
+          encode_cache = nodes.apply_operation(
               analyzer_nodes.EncodeCache,
               op_output,
               coder=operation_def.cache_coder,
               label='EncodeCache[{}][{}]'.format(operation_def.label,
                                                  dataset_key))
-          self.cache_output_nodes[(dataset_key,
-                                   cache_entry_key)] = encoded_cache
+          self.cache_output_nodes[(dataset_key, cache_entry_key)] = encode_cache
       result_fine_grained_view[dataset_key] = op_output
 
     return result_fine_grained_view
@@ -401,13 +400,12 @@ class _OptimizeVisitor(nodes.Visitor):
           'Was not expecting a fine_grained_view input for ApplySavedModel')
 
     fine_grained_view = collections.OrderedDict()
-    for key in self._dataset_keys:
-      (fine_grained_view[key],) = (
-          nodes.OperationNode(
-              operation_def._replace(
-                  dataset_key=key,
-                  label='{}[{}]'.format(operation_def.label, key)),
-              (upstream_view.flattened_view,)).outputs)
+    for dataset_key in self._dataset_keys:
+      (fine_grained_view[dataset_key],) = nodes.OperationNode(
+          operation_def._replace(
+              dataset_key=dataset_key,
+              label='{}[{}]'.format(operation_def.label, dataset_key)),
+          (upstream_view.flattened_view,)).outputs
 
     (flattened_view,) = nodes.OperationNode(
         operation_def, (upstream_view.flattened_view,)).outputs
@@ -732,6 +730,7 @@ def build(graph,
   analyzers_input_signature = {}
   graph_analyzer = None
   while not all(sink_tensors_ready.values()):
+    infix = 'Phase{}'.format(phase)
     # Determine which table init ops are ready to run in this phase
     # Determine which keys of pending_tensor_replacements are ready to run
     # in this phase, based in whether their dependencies are ready.
@@ -748,14 +747,14 @@ def build(graph,
         *tensor_bindings,
         table_initializers=tuple(graph_analyzer.ready_table_initializers),
         output_signature=intermediate_output_signature,
-        label='CreateSavedModelForAnalyzerInputs[{}]'.format(phase))
+        label='CreateSavedModelForAnalyzerInputs[{}]'.format(infix))
 
     extracted_values_dict = nodes.apply_operation(
         beam_nodes.ApplySavedModel,
         saved_model_future,
         dataset_key=None,
         phase=phase,
-        label='ApplySavedModel[{}]'.format(phase))
+        label='ApplySavedModel[{}]'.format(infix))
 
     translate_visitor.phase = phase
     translate_visitor.intermediate_output_signature = (

@@ -1569,7 +1569,7 @@ class _QuantilesGraphState(object):
 
 # Thread-hostile.
 #
-# TODO(b/140113426): Remove this and all associated code after TF 1.15 is
+# TODO(b/139376608): Remove this and all associated code after TF 1.15 is
 # released, and TFT requires it.
 class _QuantilesGraphStateV2(object):
   """A container for a Quantiles shared graph state.

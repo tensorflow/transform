@@ -1000,7 +1000,6 @@ class _MergeAccumulatorsCombineImpl(beam.PTransform):
     self._combiner = operation.combiner
     self._tf_config = extra_args.tf_config
     self._num_outputs = operation.num_outputs
-
     self._name = operation.label
 
   def expand(self, inputs):
@@ -1097,9 +1096,8 @@ class _EncodeCacheImpl(beam.PTransform):
     pcoll, = inputs
 
     return (pcoll
-            | 'EncodeCache[%s]' %
-            (self._label) >> beam.Map(self._coder.encode_cache)
-            | 'ProfileEncodeCache[%s]' % self._label >>
+            | 'Encode[%s]' % self._label >> beam.Map(self._coder.encode_cache)
+            | 'Count[%s]' % self._label >>
             common.IncrementCounter('cache_entries_encoded'))
 
 
@@ -1112,7 +1110,6 @@ def _decode_cache_impl(inputs, operation, extra_args):
 
   return (
       extra_args.cache_pcoll_dict[operation.dataset_key][operation.cache_key]
-      | 'DecodeCache[%s]' %
-      (operation.label) >> beam.Map(operation.coder.decode_cache)
-      | 'ProfileDecodeCache[%s]' % operation.label >>
+      | 'Decode[%s]' % operation.label >> beam.Map(operation.coder.decode_cache)
+      | 'Count[%s]' % operation.label >>
       common.IncrementCounter('cache_entries_decoded'))

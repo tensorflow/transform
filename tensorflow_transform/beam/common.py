@@ -181,18 +181,14 @@ class IncrementCounter(beam.PTransform):
   def __init__(self, counter_name):
     self._counter_name = counter_name
 
-  def _make_and_increment_counter(self, _, unused_side_input):
+  def _make_and_increment_counter(self, unused_element):
+    del unused_element
     beam.metrics.Metrics.counter(METRICS_NAMESPACE, self._counter_name).inc()
+    return None
 
   def expand(self, pcoll):
-
-    # This branching is needed in order to avoid incrementing the counter by the
-    # size of pcoll.
-    empty_pcoll = pcoll | 'Branch' >> beam.FlatMap(lambda _: [])
     _ = (
         pcoll.pipeline
-        | 'CreateUpdate' >> beam.Create([None])
-        | 'IncrementCounter' >> beam.Map(self._make_and_increment_counter,
-                                         beam.pvalue.AsIter(empty_pcoll)))
-
+        | 'CreateSole' >> beam.Create([None])
+        | 'Count' >> beam.Map(self._make_and_increment_counter))
     return pcoll

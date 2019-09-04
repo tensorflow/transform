@@ -130,7 +130,7 @@ class ApplySavedModel(
     nodes.OperationDef):
   """An operation that represents applying a SavedModel as a `beam.ParDo`.
 
-  This operation represents applying a `SavedModel`, which is theinput to this
+  This operation represents applying a `SavedModel`, which is the input to this
   operation, to the input values.  The inputs values are not an input to this
   operation, but are provided to the implementation by
   `tensorflow_transform.beam.common.ConstructBeamPipelineVisitor.ExtraArgs`.
