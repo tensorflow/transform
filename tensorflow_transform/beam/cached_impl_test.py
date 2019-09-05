@@ -355,6 +355,10 @@ class CachedImplTest(test_case.TransformTestCase):
     self._context.__exit__()
     super(CachedImplTest, self).tearDown()
 
+  # TODO(b/37788560): Remove this once TFT no longer supports TF 1.14.
+  @unittest.skipIf(
+      not test_case.TF_STATIC_ASSERTS_ENABLED,
+      'Static asserts cause the expected cache fingerprint to be different')
   def test_single_phase_mixed_analyzer_run_once(self):
     span_0_key = 'span-0'
     span_1_key = 'span-1'
@@ -403,42 +407,23 @@ class CachedImplTest(test_case.TransformTestCase):
     with _TestPipeline() as p:
       flat_data = p | 'CreateInputData' >> beam.Create(
           list(itertools.chain(*input_data_dict.values())))
-      if test_case.TF_STATIC_ASSERTS_ENABLED:
-        cache_dict = {
-            span_0_key: {
-                _TEST_CACHE_VERSION +
-                b'CacheableCombineAccumulate[x_1/mean_and_var]-.\xc4t>ZBv\xea\xa5SU\xf4\x065\xc6\x1c\x81W\xf9\x1b':
-                    p | 'CreateA' >> beam.Create([b'[2.0, 1.0, 9.0, 0.0]']),
-                _TEST_CACHE_VERSION +
-                b'CacheableCombineAccumulate[x/x]-5\xa7\xacn$62\xff\xa5Y{\xfdb\x83\x98\x99Ge\xbe\x9c':
-                    p | 'CreateB' >> beam.Create([b'[2.0, 4.0]']),
-                _TEST_CACHE_VERSION +
-                b'CacheableCombineAccumulate[y_1/mean_and_var]-E^\xb7VZ\xeew4rm\xab\xa3\xa4k|J\x80ck\x16':
-                    p | 'CreateC' >> beam.Create([b'[2.0, -1.5, 6.25, 0.0]']),
-                _TEST_CACHE_VERSION +
-                b"CacheableCombineAccumulate[y/y]-\xf9'@pp;yC\xcbd\xec+\xe3\xfb\xff\x96e\xb5\x8d,":
-                    p | 'CreateD' >> beam.Create([b'[4.0, 1.0]']),
-            },
-            span_1_key: {},
-        }
-      else:
-        cache_dict = {
-            span_0_key: {
-                _TEST_CACHE_VERSION +
-                b'CacheableCombineAccumulate[x_1/mean_and_var]-.\xc4t>ZBv\xea\xa5SU\xf4\x065\xc6\x1c\x81W\xf9\x1b':
-                    p | 'CreateA' >> beam.Create([b'[2.0, 1.0, 9.0, 0.0]']),
-                _TEST_CACHE_VERSION +
-                b'CacheableCombineAccumulate[x/x]-~\xa7\\\xcc\x16\xcd\xcd\x8b\x1c\xf2V\xa9\xfa\xb1\xbf\xeb\x07j\x7f\x83':
-                    p | 'CreateB' >> beam.Create([b'[2.0, 4.0]']),
-                _TEST_CACHE_VERSION +
-                b'CacheableCombineAccumulate[y_1/mean_and_var]-E^\xb7VZ\xeew4rm\xab\xa3\xa4k|J\x80ck\x16':
-                    p | 'CreateC' >> beam.Create([b'[2.0, -1.5, 6.25, 0.0]']),
-                _TEST_CACHE_VERSION +
-                b'CacheableCombineAccumulate[y/y]-i4\xf9\xf4\x00\x02G\x9ccy@\x7f\x0eu\x8eb\x0f\xf7\xdf\xf5':
-                    p | 'CreateD' >> beam.Create([b'[4.0, 1.0]']),
-            },
-            span_1_key: {},
-        }
+      cache_dict = {
+          span_0_key: {
+              _TEST_CACHE_VERSION +
+              b'CacheableCombineAccumulate[x_1/mean_and_var]-.\xc4t>ZBv\xea\xa5SU\xf4\x065\xc6\x1c\x81W\xf9\x1b':
+                  p | 'CreateA' >> beam.Create([b'[2.0, 1.0, 9.0, 0.0]']),
+              _TEST_CACHE_VERSION +
+              b'CacheableCombineAccumulate[x/x]-5\xa7\xacn$62\xff\xa5Y{\xfdb\x83\x98\x99Ge\xbe\x9c':
+                  p | 'CreateB' >> beam.Create([b'[2.0, 4.0]']),
+              _TEST_CACHE_VERSION +
+              b'CacheableCombineAccumulate[y_1/mean_and_var]-E^\xb7VZ\xeew4rm\xab\xa3\xa4k|J\x80ck\x16':
+                  p | 'CreateC' >> beam.Create([b'[2.0, -1.5, 6.25, 0.0]']),
+              _TEST_CACHE_VERSION +
+              b"CacheableCombineAccumulate[y/y]-\xf9'@pp;yC\xcbd\xec+\xe3\xfb\xff\x96e\xb5\x8d,":
+                  p | 'CreateD' >> beam.Create([b'[4.0, 1.0]']),
+          },
+          span_1_key: {},
+      }
 
       transform_fn, cache_output = (
           (flat_data, input_data_dict, cache_dict, input_metadata)
