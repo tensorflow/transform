@@ -2038,7 +2038,11 @@ class CovarianceCombiner(analyzer_nodes.Combiner):
     expected_cross_terms = sum_product / count
     expected_terms = sum_vectors / count
 
-    return [expected_cross_terms - np.outer(expected_terms, expected_terms)]
+    return [
+        np.ndarray.astype(
+            expected_cross_terms - np.outer(expected_terms, expected_terms),
+            self._numpy_dtype)
+    ]
 
   def output_tensor_infos(self):
     return [
@@ -2111,7 +2115,9 @@ class PCACombiner(CovarianceCombiner):
     sum_product, sum_vectors, count = accumulator
     expected_cross_terms = sum_product / count
     expected_terms = sum_vectors / count
-    cov = expected_cross_terms - np.outer(expected_terms, expected_terms)
+    cov = np.ndarray.astype(
+        expected_cross_terms - np.outer(expected_terms, expected_terms),
+        self._numpy_dtype)
     vals, vecs = np.linalg.eigh(cov)
     sorted_vecs = vecs[:, np.argsort(vals)[::-1]]
     if self._output_dim is None:

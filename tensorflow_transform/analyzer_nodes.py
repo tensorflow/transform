@@ -196,10 +196,22 @@ class CacheCoder(object):
 
 
 class JsonNumpyCacheCoder(CacheCoder):
+  """An accumulator cache coder that can handle lists."""
+
+  def _convert_numpy_dtype(self, x):
+    if hasattr(x, 'tolist'):
+      return x.tolist()
+    return x
 
   def encode_cache(self, accumulator):
+    if isinstance(accumulator, (list, tuple)):
+      primitive_accumulator = [
+          self._convert_numpy_dtype(a) for a in accumulator
+      ]
+    else:
+      primitive_accumulator = self._convert_numpy_dtype(accumulator)
     # Need to wrap in np.array and call tolist to make it JSON serializable.
-    return tf.compat.as_bytes(json.dumps(np.array(accumulator).tolist()))
+    return tf.compat.as_bytes(json.dumps(primitive_accumulator))
 
   def decode_cache(self, encoded_accumulator):
     return np.array(json.loads(tf.compat.as_text(encoded_accumulator)))
@@ -331,7 +343,28 @@ class CacheableCombineMerge(
     return self.combiner.output_tensor_infos()
 
 
-class CacheableCombinePerKeyAccumulate(CacheableCombineAccumulate):
+class _CombinerPerKeyAccumulatorCoder(CacheCoder):
+  """Coder for per-key combiner accumulators."""
+
+  def __init__(self, value_coder):
+    self._combiner_coder = value_coder
+    self._vocabulary_coder = _BaseKVCoder()
+
+  def encode_cache(self, accumulator):
+    key, value = accumulator
+    encoded_value = self._combiner_coder.encode_cache(value)
+    return self._vocabulary_coder.encode_cache((key, encoded_value))
+
+  def decode_cache(self, encoded_accumulator):
+    accumulator = self._vocabulary_coder.decode_cache(encoded_accumulator)
+    key, encoded_value = accumulator
+    value = self._combiner_coder.decode_cache(encoded_value)
+    return (key, value)
+
+
+class CacheableCombinePerKeyAccumulate(
+    collections.namedtuple('CacheableCombineAccumulate', ['combiner', 'label']),
+    AnalyzerDef):
   """An analyzer that runs `beam.CombinePerKey` to accumulate without merging.
 
   This analyzer reduces the values that it accepts as inputs, using the
@@ -353,8 +386,22 @@ class CacheableCombinePerKeyAccumulate(CacheableCombineAccumulate):
     return super(CacheableCombinePerKeyAccumulate, cls).__new__(
         cls, combiner=combiner, label=label)
 
+  @property
+  def num_outputs(self):
+    return 1
 
-class CacheableCombinePerKeyMerge(CacheableCombineMerge):
+  @property
+  def is_partitionable(self):
+    return True
+
+  @property
+  def cache_coder(self):
+    return _CombinerPerKeyAccumulatorCoder(self.combiner.accumulator_coder)
+
+
+class CacheableCombinePerKeyMerge(
+    collections.namedtuple('CacheableCombineMerge', ['combiner', 'label']),
+    AnalyzerDef):
   """An analyzer that runs `beam.CombinePerKey` to only merge accumulators.
 
   This analyzer reduces the values that it accepts as inputs, using the
@@ -455,13 +502,36 @@ class VocabularyAccumulate(
     return _VocabularyAccumulatorCoder(input_dtype=self.input_dtype)
 
 
-class _VocabularyAccumulatorCoder(CacheCoder):
+class _BaseKVCoder(CacheCoder):
+  """Coder for key-value based accumulators."""
+
+  def __init__(self):
+    self._lengths_prefix_format = 'qq'
+    self._lengths_prefix_length = struct.calcsize(self._lengths_prefix_format)
+
+  def encode_cache(self, accumulator):
+    token, value = accumulator
+    len_token, len_value = len(token), len(value)
+    return struct.pack(
+        '{}{}s{}s'.format(self._lengths_prefix_format, len_token, len_value),
+        len_token, len_value, token, value)
+
+  def decode_cache(self, encoded_accumulator):
+    (len_token, len_value) = struct.unpack_from(
+        self._lengths_prefix_format,
+        encoded_accumulator[:self._lengths_prefix_length])
+    accumulator = struct.unpack_from(
+        '{}s{}s'.format(len_token, len_value),
+        encoded_accumulator[self._lengths_prefix_length:])
+    return accumulator
+
+
+class _VocabularyAccumulatorCoder(_BaseKVCoder):
   """Coder for vocabulary accumulators."""
 
   def __init__(self, input_dtype=tf.string.name):
     self._input_dtype = tf.dtypes.as_dtype(input_dtype)
-    self._lengths_prefix_format = 'qq'
-    self._lengths_prefix_length = struct.calcsize(self._lengths_prefix_format)
+    super(_VocabularyAccumulatorCoder, self).__init__()
 
   def encode_cache(self, accumulator):
     token, value = accumulator
@@ -475,19 +545,11 @@ class _VocabularyAccumulatorCoder(CacheCoder):
           for a in (value.count, value.mean, value.variance, value.weight)
       ]
     value = tf.compat.as_bytes(json.dumps(value))
-    len_token, len_value = len(token), len(value)
-    return struct.pack(
-        '{}{}s{}s'.format(self._lengths_prefix_format, len_token, len_value),
-        len_token, len_value, token, value)
+    return super(_VocabularyAccumulatorCoder, self).encode_cache((token, value))
 
   def decode_cache(self, encoded_accumulator):
-    (len_token, len_value) = struct.unpack_from(
-        self._lengths_prefix_format,
-        encoded_accumulator[:self._lengths_prefix_length])
-    accumulator = struct.unpack_from(
-        '{}s{}s'.format(len_token, len_value),
-        encoded_accumulator[self._lengths_prefix_length:])
-
+    accumulator = super(_VocabularyAccumulatorCoder, self).decode_cache(
+        encoded_accumulator)
     token, value = accumulator
     if self._input_dtype is not tf.string:
       token = json.loads(tf.compat.as_text(token))

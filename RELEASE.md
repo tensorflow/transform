@@ -11,6 +11,8 @@
 ## Bug Fixes and Other Changes
 * Existing analyzer cache is invalidated.
 * Vocabulary's cache coder now supports non utf-8 encodable tokens.
+* Fixes encoding of the `tft.covariance` accumulator cache.
+* Fixes encoding per-key analyzers accumulator cache.
 
 ## Breaking changes
 * `always_return_num_quantiles` changed to default to True in `tft.quantiles`

@@ -68,6 +68,14 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
           coder=analyzer_nodes.JsonNumpyCacheCoder(),
           value=[1, 2.5, 3, '4']),
       dict(
+          testcase_name='JsonNumpyCacheCoderNpArray',
+          coder=analyzer_nodes.JsonNumpyCacheCoder(),
+          value=np.array([1, 2.5, 3, '4'])),
+      dict(
+          testcase_name='JsonNumpyCacheCoderNestedNpTypes',
+          coder=analyzer_nodes.JsonNumpyCacheCoder(),
+          value=[np.int64(1), np.float32(2.5), 3, '4']),
+      dict(
           testcase_name='_VocabularyAccumulatorCoderIntAccumulator',
           coder=analyzer_nodes._VocabularyAccumulatorCoder(),
           value=[b'A', 17]),
@@ -95,6 +103,11 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
               '',
               _get_quantiles_summary()
           ]),
+      dict(
+          testcase_name='_CombinerPerKeyAccumulatorCoder',
+          coder=analyzer_nodes._CombinerPerKeyAccumulatorCoder(
+              analyzer_nodes.JsonNumpyCacheCoder()),
+          value=[b'\x8a', [np.int64(1), np.float32(2.5), 3, '4']]),
   )
   def test_coders_round_trip(self, coder, value):
     encoded = coder.encode_cache(value)

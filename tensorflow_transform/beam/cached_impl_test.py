@@ -353,6 +353,7 @@ class CachedImplTest(test_case.TransformTestCase):
 
   def tearDown(self):
     self._context.__exit__()
+    super(CachedImplTest, self).tearDown()
 
   def test_single_phase_mixed_analyzer_run_once(self):
     span_0_key = 'span-0'
@@ -501,6 +502,7 @@ class CachedImplTest(test_case.TransformTestCase):
 
       _ = tft.bucketize(inputs['x'], 2, name='bucketize')
 
+      y_cov = tft.covariance(tf.expand_dims(inputs['y'], axis=1), tf.float32)
       return {
           'x_min':
               tft.min(inputs['x'], name='x') + tf.zeros_like(inputs['x']),
@@ -510,6 +512,8 @@ class CachedImplTest(test_case.TransformTestCase):
               tft.min(inputs['y'], name='y') + tf.zeros_like(inputs['y']),
           'y_mean':
               tft.mean(inputs['y'], name='y') + tf.zeros_like(inputs['y']),
+          'y_cov':
+              tf.math.reduce_sum(y_cov) + tf.zeros_like(inputs['y']),
           's_integerized':
               tft.compute_and_apply_vocabulary(
                   inputs['s'],
@@ -591,6 +595,7 @@ class CachedImplTest(test_case.TransformTestCase):
               'x_min': -2.0,
               'y_mean': 1.0,
               'y_min': -4.0,
+              'y_cov': 25.0,
               's_integerized': 0,
           },
           {
@@ -598,6 +603,7 @@ class CachedImplTest(test_case.TransformTestCase):
               'x_min': -2.0,
               'y_mean': 1.0,
               'y_min': -4.0,
+              'y_cov': 25.0,
               's_integerized': 2,
           },
       ]
@@ -611,7 +617,7 @@ class CachedImplTest(test_case.TransformTestCase):
 
       for key in input_data_dict:
         self.assertIn(key, cache_output)
-        self.assertEqual(7, len(cache_output[key]))
+        self.assertEqual(8, len(cache_output[key]))
 
     tf_transform_output = tft.TFTransformOutput(transform_fn_dir)
     vocab1_path = tf_transform_output.vocabulary_file_by_name('vocab1')
@@ -620,7 +626,7 @@ class CachedImplTest(test_case.TransformTestCase):
     # 4 from analyzing 2 spans, and 2 from transform.
     self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 8)
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 0)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 14)
+    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 16)
     self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
 
     with _TestPipeline() as p:
@@ -668,7 +674,7 @@ class CachedImplTest(test_case.TransformTestCase):
 
     # Only 2 from transform.
     self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 2)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 14)
+    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 16)
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 0)
 
     # The root CreateSavedModel is optimized away because the data doesn't get
