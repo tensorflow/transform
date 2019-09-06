@@ -413,13 +413,13 @@ class CachedImplTest(test_case.TransformTestCase):
               b'CacheableCombineAccumulate[x_1/mean_and_var]-.\xc4t>ZBv\xea\xa5SU\xf4\x065\xc6\x1c\x81W\xf9\x1b':
                   p | 'CreateA' >> beam.Create([b'[2.0, 1.0, 9.0, 0.0]']),
               _TEST_CACHE_VERSION +
-              b'CacheableCombineAccumulate[x/x]-5\xa7\xacn$62\xff\xa5Y{\xfdb\x83\x98\x99Ge\xbe\x9c':
+              b"CacheableCombineAccumulate[x/x]-\xe6 kW\x99\xdc\x06\xc2\x12\x8c\n\xbe]\xc3'\xb3\x9b\xd9\xc2u":
                   p | 'CreateB' >> beam.Create([b'[2.0, 4.0]']),
               _TEST_CACHE_VERSION +
               b'CacheableCombineAccumulate[y_1/mean_and_var]-E^\xb7VZ\xeew4rm\xab\xa3\xa4k|J\x80ck\x16':
                   p | 'CreateC' >> beam.Create([b'[2.0, -1.5, 6.25, 0.0]']),
               _TEST_CACHE_VERSION +
-              b"CacheableCombineAccumulate[y/y]-\xf9'@pp;yC\xcbd\xec+\xe3\xfb\xff\x96e\xb5\x8d,":
+              b'CacheableCombineAccumulate[y/y]-\x18\xc3\x1bV\x02\xe7}i\xf7\x83>=:H0\x8dJF\xf5O':
                   p | 'CreateD' >> beam.Create([b'[4.0, 1.0]']),
           },
           span_1_key: {},
@@ -834,7 +834,7 @@ class CachedImplTest(test_case.TransformTestCase):
 
       expected_accumulators = {
           _TEST_CACHE_VERSION +
-          b'VocabularyAccumulate[vocabulary]-\x13\x08X\xa2\x9e\xb80\x85\xcf\x17?\xfc\x82\x0b\x88\xe97/\x0b\x1b':
+          b'VocabularyAccumulate[vocabulary]-\x96\x86S\x19A\x07\x91\x06\xd6\xe9\xb1\x80\xd1\xe8\x8a \x0b\xda\x97\xb5':
               [
                   _encode_vocabulary_accumulator(
                       b'a', b'[2, [0.0, 1.0], [0.0, 0.0], 1.0]'),
@@ -845,7 +845,7 @@ class CachedImplTest(test_case.TransformTestCase):
                       b'[4, [0.25, 0.75], [0.0, 0.0], 1.0]'),
               ],
           _TEST_CACHE_VERSION +
-          b'VocabularyAccumulate[vocabulary_1]-\xcb\x04u\x9f\xa4(\xb9rE\xdd{\xadbR\x97\xbd\xf4\xfc\xcc\xfe':
+          b'VocabularyAccumulate[vocabulary_1]-ij\xd2,\x9drj\xde\xe6\xa7,\xd5\x90\xde\xf1\xa9\x84k\x9c\xd3':
               [
                   _encode_vocabulary_accumulator(
                       b'a', b'[2, [0.0, 1.0], [0.0, 0.0], 1.0]'),
@@ -856,7 +856,7 @@ class CachedImplTest(test_case.TransformTestCase):
                       b'[4, [0.25, 0.75], [0.0, 0.0], 1.0]'),
               ],
           _TEST_CACHE_VERSION +
-          b'VocabularyAccumulate[vocabulary_2]-\xfd\n\xca\x84K\x0b<\x1avC\x03e\x93G\x1c\x91\x03\xb1\xfa\x1e':
+          b'VocabularyAccumulate[vocabulary_2]-\x15\x10\xe5g3\xf2\xf7\x85\x1f"\xf0\x95\xfd\xd0\xc6T_\xf1\r\xb7':
               [
                   _encode_vocabulary_accumulator(b'a', b'1.5'),
                   _encode_vocabulary_accumulator(b'b', b'1.75')
