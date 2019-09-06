@@ -113,7 +113,7 @@ class WriteAnalysisCacheToFS(beam.PTransform):
     # possible.
     self._sink = sink if sink is not None else beam.io.WriteToTFRecord
 
-  def _write_cache(self, manifest_file, dataset_key, dataset_key_dir,
+  def _write_cache(self, manifest_file, dataset_key_index, dataset_key_dir,
                    cache_dict):
     manifest = manifest_file.read()
     start_cache_idx = max(manifest.values()) + 1 if manifest else 0
@@ -126,10 +126,10 @@ class WriteAnalysisCacheToFS(beam.PTransform):
         six.iteritems(cache_dict), start_cache_idx):
       path = os.path.join(dataset_key_dir, str(cache_key_idx))
       manifest[cache_entry_key] = cache_key_idx
-      cache_is_written.append(
-          cache_pcoll
-          | 'Write[{}][CacheKeyIndex{}]'.format(dataset_key, cache_key_idx) >>
-          self._sink(path, file_name_suffix='.gz'))
+      cache_is_written.append(cache_pcoll
+                              | 'Write[AnalysisIndex{}][CacheKeyIndex{}]'
+                              .format(dataset_key_index, cache_key_idx) >>
+                              self._sink(path, file_name_suffix='.gz'))
 
     manifest_file.write(manifest)
     return cache_is_written
@@ -137,13 +137,16 @@ class WriteAnalysisCacheToFS(beam.PTransform):
   def expand(self, dataset_cache_dict):
 
     cache_is_written = []
-    for dataset_key, cache_dict in dataset_cache_dict.items():
+    sorted_dataset_cache_list = sorted(
+        dataset_cache_dict.items(), key=lambda kv: kv[0])
+    for dataset_key_idx, (dataset_key,
+                          cache_dict) in enumerate(sorted_dataset_cache_list):
       dataset_key_dir = _get_dataset_cache_path(self._cache_base_dir,
                                                 dataset_key)
 
       with _ManifestFile(dataset_key_dir) as manifest_file:
         cache_is_written.extend(
-            self._write_cache(manifest_file, dataset_key, dataset_key_dir,
+            self._write_cache(manifest_file, dataset_key_idx, dataset_key_dir,
                               cache_dict))
 
     return cache_is_written
@@ -162,7 +165,7 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
         constructor, and is used to read the cache.
     """
     self._cache_base_dir = cache_base_dir
-    self._dataset_keys = dataset_keys
+    self._sorted_dataset_keys = sorted(dataset_keys)
     # TODO(b/37788560): Possibly use Riegeli as a default file format once
     # possible.
     self._source = source if source is not None else beam.io.ReadFromTFRecord
@@ -170,7 +173,7 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
   def expand(self, pvalue):
     cache_dict = {}
 
-    for dataset_key in self._dataset_keys:
+    for dataset_key_idx, dataset_key in enumerate(self._sorted_dataset_keys):
 
       dataset_cache_path = _get_dataset_cache_path(self._cache_base_dir,
                                                    dataset_key)
@@ -182,10 +185,10 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
       for key, cache_key_idx in manifest.items():
         cache_dict[dataset_key][key] = (
             pvalue.pipeline
-            | 'Read[{}][CacheKeyIndex{}]'.format(dataset_key, cache_key_idx) >>
-            self._source('{}{}'.format(
-                os.path.join(
-                    dataset_cache_path, str(cache_key_idx)), '-*-of-*')))
+            | 'Read[AnalysisIndex{}][CacheKeyIndex{}]'.format(
+                dataset_key_idx, cache_key_idx) >> self._source('{}{}'.format(
+                    os.path.join(dataset_cache_path, str(cache_key_idx)),
+                    '-*-of-*')))
     return cache_dict
 
 

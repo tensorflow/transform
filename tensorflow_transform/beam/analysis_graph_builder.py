@@ -225,7 +225,7 @@ class _OptimizeVisitor(nodes.Visitor):
       cache_output_nodes: A dictionary from (dataset_key, cache_key) to encoded
         cache ValueNode. This is the output cache for this graph.
     """
-    self._dataset_keys = sorted(dataset_keys)
+    self._sorted_dataset_keys = sorted(dataset_keys)
     self._cache_dict = cache_dict
     self._tensor_keys_to_paths = tensor_keys_to_paths
     self.cache_output_nodes = cache_output_nodes
@@ -365,29 +365,29 @@ class _OptimizeVisitor(nodes.Visitor):
     cache_entry_key = analyzer_cache.make_cache_entry_key(
         tf.compat.as_bytes(operation_def.label) + b'-' + next_hashed_path)
 
-    for dataset_key in self._dataset_keys:
+    for (dataset_idx, dataset_key) in enumerate(self._sorted_dataset_keys):
+      # We use an index for the label in order to make beam labels more stable.
+      infix = 'AnalysisIndex{}'.format(dataset_idx)
       if (operation_def.cache_coder and self._cache_dict.get(
           dataset_key, {}).get(cache_entry_key) is not None):
         decode_cache = analyzer_nodes.DecodeCache(
             dataset_key,
             cache_entry_key,
             coder=operation_def.cache_coder,
-            label='DecodeCache[{}][{}]'.format(operation_def.label,
-                                               dataset_key))
+            label='DecodeCache[{}][{}]'.format(operation_def.label, infix))
         (op_output,) = nodes.OperationNode(decode_cache, tuple()).outputs
       else:
         value_node = fine_grained_view[dataset_key]
         (op_output,) = nodes.OperationNode(
             operation_def._replace(
-                label='{}[{}]'.format(operation_def.label, dataset_key)),
+                label='{}[{}]'.format(operation_def.label, infix)),
             (value_node,)).outputs
         if operation_def.cache_coder:
           encode_cache = nodes.apply_operation(
               analyzer_nodes.EncodeCache,
               op_output,
               coder=operation_def.cache_coder,
-              label='EncodeCache[{}][{}]'.format(operation_def.label,
-                                                 dataset_key))
+              label='EncodeCache[{}][{}]'.format(operation_def.label, infix))
           self.cache_output_nodes[(dataset_key, cache_entry_key)] = encode_cache
       result_fine_grained_view[dataset_key] = op_output
 
@@ -400,12 +400,15 @@ class _OptimizeVisitor(nodes.Visitor):
           'Was not expecting a fine_grained_view input for ApplySavedModel')
 
     fine_grained_view = collections.OrderedDict()
-    for dataset_key in self._dataset_keys:
-      (fine_grained_view[dataset_key],) = nodes.OperationNode(
-          operation_def._replace(
-              dataset_key=dataset_key,
-              label='{}[{}]'.format(operation_def.label, dataset_key)),
-          (upstream_view.flattened_view,)).outputs
+    for (dataset_idx, dataset_key) in enumerate(self._sorted_dataset_keys):
+      infix = 'AnalysisIndex{}'.format(dataset_idx)
+      # We use an index for the label in order to make beam labels more stable.
+      (fine_grained_view[dataset_key],) = (
+          nodes.OperationNode(
+              operation_def._replace(
+                  dataset_key=dataset_key,
+                  label='{}[{}]'.format(operation_def.label, infix)),
+              (upstream_view.flattened_view,)).outputs)
 
     (flattened_view,) = nodes.OperationNode(
         operation_def, (upstream_view.flattened_view,)).outputs
@@ -420,8 +423,8 @@ class _OptimizeVisitor(nodes.Visitor):
     assert isinstance(value, _OptimizationView), value
     if value.fine_grained_view:
       assert set(value.fine_grained_view.keys()) == set(
-          self._dataset_keys), ('{} != {}'.format(
-              value.fine_grained_view.keys(), self._dataset_keys))
+          self._sorted_dataset_keys), ('{} != {}'.format(
+              value.fine_grained_view.keys(), self._sorted_dataset_keys))
 
 
 def _perform_cache_optimization(saved_model_future, dataset_keys,
