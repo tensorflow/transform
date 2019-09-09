@@ -257,7 +257,7 @@ def annotate(type_url, proto_message, tensor=None):
   if tensor is None:
     tensor = tf.constant('unused', name=_TF_METADATA_EXTRA_ANNOTATION_GLOBAL)
 
-  if not isinstance(tensor, tf.Tensor):
+  if not isinstance(tensor, (tf.Tensor, tf.SparseTensor)):
     raise ValueError('tensor {} was not a Tensor'.format(tensor))
   if not isinstance(proto_message, tf.Tensor):
     raise ValueError('proto_message {} was not a Tensor'.format(proto_message))
