@@ -40,7 +40,7 @@ from tensorflow_transform import test_case
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
 
-import unittest
+mock = tf.compat.v1.test.mock
 
 _TEST_CACHE_VERSION = analyzer_cache._CACHE_VERSION
 
@@ -339,6 +339,20 @@ _OPTIMIZE_TRAVERSAL_TEST_CASES = [
 ]
 
 
+def mock_out_cache_hash(test_fn):
+
+  def _make_next_hashed_path_for_test(*unused_args):
+    return b'HASH'
+
+  def _run_test(*args, **kwargs):
+    with mock.patch.object(analysis_graph_builder._OptimizeVisitor,
+                           '_make_next_hashed_path',
+                           _make_next_hashed_path_for_test):
+      return test_fn(*args, **kwargs)
+
+  return _run_test
+
+
 class CachedImplTest(test_case.TransformTestCase):
 
   def setUp(self):
@@ -355,10 +369,7 @@ class CachedImplTest(test_case.TransformTestCase):
     self._context.__exit__()
     super(CachedImplTest, self).tearDown()
 
-  # TODO(b/37788560): Remove this once TFT no longer supports TF 1.14.
-  @unittest.skipIf(
-      not test_case.TF_STATIC_ASSERTS_ENABLED,
-      'Static asserts cause the expected cache fingerprint to be different')
+  @mock_out_cache_hash
   def test_single_phase_mixed_analyzer_run_once(self):
     span_0_key = 'span-0'
     span_1_key = 'span-1'
@@ -410,16 +421,14 @@ class CachedImplTest(test_case.TransformTestCase):
       cache_dict = {
           span_0_key: {
               _TEST_CACHE_VERSION +
-              b'CacheableCombineAccumulate[x_1/mean_and_var]-.\xc4t>ZBv\xea\xa5SU\xf4\x065\xc6\x1c\x81W\xf9\x1b':
+              b'CacheableCombineAccumulate[x_1/mean_and_var]-HASH':
                   p | 'CreateA' >> beam.Create([b'[2.0, 1.0, 9.0, 0.0]']),
-              _TEST_CACHE_VERSION +
-              b"CacheableCombineAccumulate[x/x]-\xe6 kW\x99\xdc\x06\xc2\x12\x8c\n\xbe]\xc3'\xb3\x9b\xd9\xc2u":
+              _TEST_CACHE_VERSION + b'CacheableCombineAccumulate[x/x]-HASH':
                   p | 'CreateB' >> beam.Create([b'[2.0, 4.0]']),
               _TEST_CACHE_VERSION +
-              b'CacheableCombineAccumulate[y_1/mean_and_var]-E^\xb7VZ\xeew4rm\xab\xa3\xa4k|J\x80ck\x16':
+              b'CacheableCombineAccumulate[y_1/mean_and_var]-HASH':
                   p | 'CreateC' >> beam.Create([b'[2.0, -1.5, 6.25, 0.0]']),
-              _TEST_CACHE_VERSION +
-              b'CacheableCombineAccumulate[y/y]-\x18\xc3\x1bV\x02\xe7}i\xf7\x83>=:H0\x8dJF\xf5O':
+              _TEST_CACHE_VERSION + b'CacheableCombineAccumulate[y/y]-HASH':
                   p | 'CreateD' >> beam.Create([b'[4.0, 1.0]']),
           },
           span_1_key: {},
@@ -666,6 +675,7 @@ class CachedImplTest(test_case.TransformTestCase):
     # processed at all (only cache).
     self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 1)
 
+  @mock_out_cache_hash
   def test_caching_vocab_for_integer_categorical(self):
 
     span_0_key = 'span-0'
@@ -718,7 +728,8 @@ class CachedImplTest(test_case.TransformTestCase):
       cache_dict = {
           span_0_key: {
               _TEST_CACHE_VERSION +
-              b'VocabularyAccumulate[compute_and_apply_vocabulary/vocabulary]-\x05e\xfe4\x03H.P\xb5\xcb\xd22\xe3\x16\x15\xf8\xf5\xe38\xd9':
+              b'VocabularyAccumulate[compute_and_apply_vocabulary/vocabulary]'
+              b'-HASH':
                   p | 'CreateB' >> beam.Create([
                       _encode_vocabulary_accumulator(b'-2', b'2'),
                       _encode_vocabulary_accumulator(b'-4', b'1'),
@@ -759,10 +770,7 @@ class CachedImplTest(test_case.TransformTestCase):
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 1)
     self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
 
-  # TODO(b/37788560): Remove this once TFT no longer supports TF 1.14.
-  @unittest.skipIf(
-      not test_case.TF_STATIC_ASSERTS_ENABLED,
-      'Static asserts cause the expected cache fingerprint to be different')
+  @mock_out_cache_hash
   def test_non_frequency_vocabulary_merge(self):
     """This test compares vocabularies produced with and without cache."""
 
@@ -777,7 +785,8 @@ class CachedImplTest(test_case.TransformTestCase):
           store_frequency=True,
           vocab_filename=mi_vocab_name,
           min_diff_from_avg=0.1,
-          use_adjusted_mutual_info=False)
+          use_adjusted_mutual_info=False,
+          name='with_mi')
 
       _ = tft.vocabulary(
           inputs['s'],
@@ -785,14 +794,16 @@ class CachedImplTest(test_case.TransformTestCase):
           store_frequency=True,
           vocab_filename=adjusted_mi_vocab_name,
           min_diff_from_avg=1.0,
-          use_adjusted_mutual_info=True)
+          use_adjusted_mutual_info=True,
+          name='with_adjusted_mi')
 
       _ = tft.vocabulary(
           inputs['s'],
           weights=inputs['weight'],
           store_frequency=True,
           vocab_filename=weighted_frequency_vocab_name,
-          use_adjusted_mutual_info=False)
+          use_adjusted_mutual_info=False,
+          name='with_weight')
       return inputs
 
     span_0_key = 'span-0'
@@ -833,34 +844,29 @@ class CachedImplTest(test_case.TransformTestCase):
           transform_fn_with_cache_dir)
 
       expected_accumulators = {
+          _TEST_CACHE_VERSION + b'VocabularyAccumulate[with_mi]-HASH': [
+              _encode_vocabulary_accumulator(
+                  b'a', b'[2, [0.0, 1.0], [0.0, 0.0], 1.0]'),
+              _encode_vocabulary_accumulator(
+                  b'b', b'[2, [0.5, 0.5], [0.0, 0.0], 1.0]'),
+              _encode_vocabulary_accumulator(
+                  b'global_y_count_sentinel',
+                  b'[4, [0.25, 0.75], [0.0, 0.0], 1.0]'),
+          ],
           _TEST_CACHE_VERSION +
-          b'VocabularyAccumulate[vocabulary]-\x96\x86S\x19A\x07\x91\x06\xd6\xe9\xb1\x80\xd1\xe8\x8a \x0b\xda\x97\xb5':
-              [
-                  _encode_vocabulary_accumulator(
-                      b'a', b'[2, [0.0, 1.0], [0.0, 0.0], 1.0]'),
-                  _encode_vocabulary_accumulator(
-                      b'b', b'[2, [0.5, 0.5], [0.0, 0.0], 1.0]'),
-                  _encode_vocabulary_accumulator(
-                      b'global_y_count_sentinel',
-                      b'[4, [0.25, 0.75], [0.0, 0.0], 1.0]'),
-              ],
-          _TEST_CACHE_VERSION +
-          b'VocabularyAccumulate[vocabulary_1]-ij\xd2,\x9drj\xde\xe6\xa7,\xd5\x90\xde\xf1\xa9\x84k\x9c\xd3':
-              [
-                  _encode_vocabulary_accumulator(
-                      b'a', b'[2, [0.0, 1.0], [0.0, 0.0], 1.0]'),
-                  _encode_vocabulary_accumulator(
-                      b'b', b'[2, [0.5, 0.5], [0.0, 0.0], 1.0]'),
-                  _encode_vocabulary_accumulator(
-                      b'global_y_count_sentinel',
-                      b'[4, [0.25, 0.75], [0.0, 0.0], 1.0]'),
-              ],
-          _TEST_CACHE_VERSION +
-          b'VocabularyAccumulate[vocabulary_2]-\x15\x10\xe5g3\xf2\xf7\x85\x1f"\xf0\x95\xfd\xd0\xc6T_\xf1\r\xb7':
-              [
-                  _encode_vocabulary_accumulator(b'a', b'1.5'),
-                  _encode_vocabulary_accumulator(b'b', b'1.75')
-              ],
+          b'VocabularyAccumulate[with_adjusted_mi]-HASH': [
+              _encode_vocabulary_accumulator(
+                  b'a', b'[2, [0.0, 1.0], [0.0, 0.0], 1.0]'),
+              _encode_vocabulary_accumulator(
+                  b'b', b'[2, [0.5, 0.5], [0.0, 0.0], 1.0]'),
+              _encode_vocabulary_accumulator(
+                  b'global_y_count_sentinel',
+                  b'[4, [0.25, 0.75], [0.0, 0.0], 1.0]'),
+          ],
+          _TEST_CACHE_VERSION + b'VocabularyAccumulate[with_weight]-HASH': [
+              _encode_vocabulary_accumulator(b'a', b'1.5'),
+              _encode_vocabulary_accumulator(b'b', b'1.75')
+          ],
       }
 
       spans = [span_0_key, span_1_key]
