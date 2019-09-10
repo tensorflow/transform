@@ -10,6 +10,7 @@
 
 ## Bug Fixes and Other Changes
 * Existing analyzer cache is invalidated.
+* Saved transforms now support composite tensors (such as RaggedTensor).
 * Vocabulary's cache coder now supports non utf-8 encodable tokens.
 * Fixes encoding of the `tft.covariance` accumulator cache.
 * Fixes encoding per-key analyzers accumulator cache.

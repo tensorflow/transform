@@ -26,11 +26,14 @@ import numpy as np
 import tensorflow as tf
 from tensorflow_transform.saved import saved_transform_io
 
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.core.protobuf import meta_graph_pb2
 from tensorflow.python.framework import ops
 from tensorflow.python.lib.io import file_io
 from tensorflow.python.ops import lookup_ops
 from tensorflow.python.platform import test
 from tensorflow.python.util import compat
+# pylint: enable=g-direct-tensorflow-import
 
 
 # TODO(b/123241798): Find an open-source compatible way to access
@@ -217,10 +220,45 @@ class SavedTransformIOTest(tf.test.TestCase):
         self.assertTrue(isinstance(output_sparse, tf.SparseTensor))
         result = session.run(output_sparse)
 
-        # indices and shape unchanged; values divided by 2
+        # indices and shape unchanged; values multiplied by 10 and divided by 5
         self.assertEqual(indices.tolist(), result.indices.tolist())
         self.assertEqual([2.0, 4.0], result.values.tolist())
         self.assertEqual(shape.tolist(), result.dense_shape.tolist())
+
+  def test_ragged_roundtrip(self):
+    if not hasattr(meta_graph_pb2.TensorInfo, 'CompositeTensor'):
+      self.skipTest('This version of TensorFlow does not support '
+                    'CompositeTenors in TensorInfo.')
+    export_path = os.path.join(tempfile.mkdtemp(), 'export')
+
+    with tf.Graph().as_default():
+      with tf.compat.v1.Session().as_default() as session:
+        input_float = tf.compat.v1.ragged.placeholder(tf.float32, ragged_rank=1,
+                                                      value_shape=[])
+        output = input_float / 2.0
+        inputs = {'input': input_float}
+        outputs = {'output': output}
+        saved_transform_io.write_saved_transform_from_session(
+            session, inputs, outputs, export_path)
+
+    with tf.Graph().as_default():
+      with tf.compat.v1.Session().as_default() as session:
+        splits = np.array([0, 2, 3], dtype=np.int64)
+        values = np.array([1.0, 2.0, 4.0], dtype=np.float32)
+        input_ragged = tf.RaggedTensor.from_row_splits(values, splits)
+
+        # Using a computed input gives confidence that the graphs are fused
+        inputs = {'input': input_ragged * 10}
+        _, outputs = (
+            saved_transform_io.partially_apply_saved_transform_internal(
+                export_path, inputs))
+        output_ragged = outputs['output']
+        self.assertIsInstance(output_ragged, tf.RaggedTensor)
+        result = session.run(output_ragged)
+
+        # indices and shape unchanged; values multipled by 10 and divided by 2
+        self.assertAllEqual(splits, result.row_splits)
+        self.assertEqual([5.0, 10.0, 20.0], result.values.tolist())
 
   def test_stale_asset_collections_are_cleaned(self):
     vocabulary_file = os.path.join(

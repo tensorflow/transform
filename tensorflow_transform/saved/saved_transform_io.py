@@ -27,8 +27,13 @@ import tensorflow as tf
 from tensorflow_transform.py_func import pyfunc_helper
 from tensorflow_transform.saved import constants
 from tensorflow_transform.saved import saved_model_loader
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.core.protobuf import struct_pb2
 from tensorflow.python.framework import ops
+from tensorflow.python.saved_model import nested_structure_coder
 from tensorflow.python.training import saver as tf_saver
+from tensorflow.python.util import nest
+# pylint: enable=g-direct-tensorflow-import
 
 _MANGLED_TENSOR_NAME_RE = re.compile(
     r'(.*)\$(indices|values|dense_shape|dense_tensor)$')
@@ -177,14 +182,22 @@ def _partially_apply_saved_transform_impl(
   input_map = {}
   for logical_name, replacement in six.iteritems(logical_input_map):
     tensor_info = input_signature[logical_name]
-    if tensor_info.WhichOneof('encoding') == 'coo_sparse':
+    encoding = tensor_info.WhichOneof('encoding')
+    if encoding == 'coo_sparse':
       input_map[tensor_info.coo_sparse.indices_tensor_name] = (
           replacement.indices)
       input_map[tensor_info.coo_sparse.values_tensor_name] = replacement.values
       input_map[tensor_info.coo_sparse.dense_shape_tensor_name] = (
           replacement.dense_shape)
-    else:
+    elif encoding == 'composite_tensor':
+      component_infos = tensor_info.composite_tensor.components
+      component_tensors = nest.flatten(replacement, expand_composites=True)
+      for (info, tensor) in zip(component_infos, component_tensors):
+        input_map[info.name] = tensor
+    elif encoding == 'name':
       input_map[tensor_info.name] = replacement
+    else:
+      raise ValueError('Unsupported TensorInfo encoding %s' % encoding)
 
   input_map.update(asset_tensor_dict)
   if tensor_replacement_map:
@@ -292,22 +305,34 @@ def _partially_apply_saved_transform_impl(
     else:
       return graph.get_tensor_by_name(
           ops.prepend_name_scope(tensor_name, scope))
-  def lookup_tensor_or_sparse_tensor(tensor_info):
-    if tensor_info.WhichOneof('encoding') == 'coo_sparse':
+  def lookup_tensor_or_sparse_or_composite_tensor(tensor_info):
+    """Returns the remapped tensor corresponding to TensorInfo."""
+    encoding = tensor_info.WhichOneof('encoding')
+    if encoding == 'coo_sparse':
       return tf.SparseTensor(
           lookup_remapped_tensor(tensor_info.coo_sparse.indices_tensor_name),
           lookup_remapped_tensor(tensor_info.coo_sparse.values_tensor_name),
           lookup_remapped_tensor(
               tensor_info.coo_sparse.dense_shape_tensor_name))
-    else:
+    elif encoding == 'composite_tensor':
+      components = [lookup_remapped_tensor(info.name)
+                    for info in tensor_info.composite_tensor.components]
+      struct_coder = nested_structure_coder.StructureCoder()
+      spec_proto = struct_pb2.StructuredValue(
+          type_spec_value=tensor_info.composite_tensor.type_spec)
+      spec = struct_coder.decode_proto(spec_proto)
+      return spec._from_components(components)  # pylint: disable=protected-access
+    elif encoding == 'name':
       return lookup_remapped_tensor(tensor_info.name)
+    else:
+      raise ValueError('Unsupported TensorInfo encoding %s' % encoding)
   outputs = {
-      logical_name: lookup_tensor_or_sparse_tensor(tensor_info)
+      logical_name: lookup_tensor_or_sparse_or_composite_tensor(tensor_info)
       for logical_name, tensor_info in six.iteritems(output_signature)}
   # Do the same for input tensors, although such tensors should never be in the
   # input_map since identical tensors in an input_map would be an error.
   unbound_inputs = {
-      logical_name: lookup_tensor_or_sparse_tensor(tensor_info)
+      logical_name: lookup_tensor_or_sparse_or_composite_tensor(tensor_info)
       for logical_name, tensor_info in six.iteritems(input_signature)
       if logical_name not in logical_input_map}
   if fetch_tensor_names is None:
