@@ -87,6 +87,13 @@ class _ManifestFile(object):
     self._file.write(pickler.dumps(manifest))
 
 
+class _WriteToTFRecordGzip(beam.io.WriteToTFRecord):
+
+  def __init__(self, file_path_prefix):
+    super(_WriteToTFRecordGzip, self).__init__(
+        file_path_prefix, file_name_suffix='.gz')
+
+
 class WriteAnalysisCacheToFS(beam.PTransform):
   """Writes a cache object that can be read by ReadAnalysisCacheFromFS.
 
@@ -103,33 +110,32 @@ class WriteAnalysisCacheToFS(beam.PTransform):
     Args:
       pipeline: A beam Pipeline.
       cache_base_dir: A str, the path that the cache should be stored in.
-      sink: (Optional) A PTransform class that takes a path, and optional
-        file_name_suffix arguments in its constructor, and is used to write the
-        cache.
+      sink: (Optional) A PTransform class that takes a path in its constructor,
+        and is used to write the cache. If not provided this uses a GZipped
+        TFRecord sink.
     """
     self.pipeline = pipeline
     self._cache_base_dir = cache_base_dir
-    # TODO(b/37788560): Possibly use Riegeli as a default file format once
-    # possible.
-    self._sink = sink if sink is not None else beam.io.WriteToTFRecord
+    self._sink = sink
+    if self._sink is None:
+      # TODO(b/37788560): Possibly use Riegeli as a default file format once
+      # possible.
+      self._sink = _WriteToTFRecordGzip
 
   def _write_cache(self, manifest_file, dataset_key_index, dataset_key_dir,
                    cache_dict):
     manifest = manifest_file.read()
     start_cache_idx = max(manifest.values()) + 1 if manifest else 0
 
-    # TODO(b/37788560): The file_name_suffix='.gz' logically only applies to
-    # WriteToTFRecord (and probably not other sinks). Similaly for
-    # ReadAnalysisCacheFromFS.
     cache_is_written = []
     for cache_key_idx, (cache_entry_key, cache_pcoll) in enumerate(
         six.iteritems(cache_dict), start_cache_idx):
       path = os.path.join(dataset_key_dir, str(cache_key_idx))
       manifest[cache_entry_key] = cache_key_idx
-      cache_is_written.append(cache_pcoll
-                              | 'Write[AnalysisIndex{}][CacheKeyIndex{}]'
-                              .format(dataset_key_index, cache_key_idx) >>
-                              self._sink(path, file_name_suffix='.gz'))
+      cache_is_written.append(
+          cache_pcoll
+          | 'Write[AnalysisIndex{}][CacheKeyIndex{}]'.format(
+              dataset_key_index, cache_key_idx) >> self._sink(path))
 
     manifest_file.write(manifest)
     return cache_is_written

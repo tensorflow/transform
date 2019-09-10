@@ -220,8 +220,7 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
 
     class LocalSink(beam.PTransform):
 
-      def __init__(self, path, file_name_suffix):
-        del file_name_suffix
+      def __init__(self, path):
         self._path = path
 
       def expand(self, pcoll):
