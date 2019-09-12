@@ -131,7 +131,7 @@ def _construct_test_bucketization_parameters():
       # TODO(b/78569039): Enable this test.
       # (range(1, 100), [26, 51, 76], False, 0.00001, True, True),
   )
-  dtypes = (tf.int32, tf.int64, tf.float16, tf.float32, tf.float64, tf.double)
+  dtypes = (tf.int32, tf.int64, tf.float32, tf.float64, tf.double)
   return (x + (dtype,) for x in args_without_dtype for dtype in dtypes)
 
 

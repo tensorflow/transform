@@ -45,6 +45,9 @@ from tensorflow_transform import tf_utils
 # pylint: disable=g-import-not-at-top
 try:
   from tensorflow.contrib.boosted_trees.python.ops import gen_quantile_ops
+  # We need to import this in order to register all quantiles ops, even though
+  # it's not directly used.
+  from tensorflow.contrib.boosted_trees.python.ops import quantile_ops  # pylint: disable=unused-import
 except ImportError:
   pass
 from tensorflow.python.ops import resources
@@ -1869,8 +1872,8 @@ def quantiles(x, num_buckets, epsilon, weights=None, reduce_instance_dims=True,
                                                        *analyzer_inputs)
     quantile_boundaries = tf.sort(quantile_boundaries, axis=-1)
     if quantile_boundaries.get_shape().ndims < 2:
-      return tf.expand_dims(quantile_boundaries, axis=0)
-    return quantile_boundaries
+      return tf.sort(tf.expand_dims(quantile_boundaries, axis=0))
+    return tf.sort(quantile_boundaries)
 
 
 def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):

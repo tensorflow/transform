@@ -4,7 +4,7 @@
 ## Major Features and Improvements
 * Performance improvements for preprocessing_fns with many Quantiles analyzers.
 * Using new TF core quantiles ops, which are not publicly available until next
-  release.
+  release.  Analyzers and mappers now support missing tf.contrib module.
 * Performance improvements due to packing multiple combine analyzers into a
   single Beam Combiner.
 

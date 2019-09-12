@@ -66,7 +66,6 @@ from tensorflow_transform import schema_inference
 from tensorflow_transform import tf_utils
 
 # pylint: disable=g-direct-tensorflow-import
-from tensorflow.contrib.boosted_trees.python.ops import quantile_ops
 from tensorflow.python.ops import check_ops
 from tensorflow.python.util import deprecation
 # pylint: enable=g-direct-tensorflow-import
@@ -395,7 +394,7 @@ def tfidf(x, vocab_size, smooth=True, name=None):
     """Enforces that the vocab_ids in x are positive."""
     return tf.SparseTensor(
         indices=x.indices,
-        values=tf.mod(x.values, vocab_size),
+        values=tf.math.mod(x.values, vocab_size),
         dense_shape=x.dense_shape)
 
   with tf.compat.v1.name_scope(name, 'tfidf'):
@@ -1397,10 +1396,9 @@ def _apply_buckets_with_keys(x,
     shifts = tf.gather(shift_per_key, key_indices)
 
     transformed_x = x_values * scale_factors + shifts
-    offset_buckets = tf.cast(
-        quantile_ops.bucketize_with_input_boundaries(
-            transformed_x, tf.cast(bucket_boundaries, tf.float32)),
-        dtype=tf.int64)
+
+    offset_buckets = _assign_buckets_all_shapes(
+        transformed_x, tf.expand_dims(bucket_boundaries, 0))
 
     max_bucket = num_buckets - 1
 
@@ -1469,12 +1467,7 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
     return_type = tf.float64 if x.dtype == tf.float64 else tf.float32
     num_boundaries = tf.to_int64(tf.shape(bucket_boundaries)[1])
 
-    # The TF BucketizeWithInputBoundaries Op expects boundaries as tf.float32.
-    bucket_boundaries = tf.cast(bucket_boundaries, tf.float32)
-    bucket_indices = tf.cast(
-        quantile_ops.bucketize_with_input_boundaries(
-            x_values, boundaries=bucket_boundaries, name='assign_buckets'),
-        tf.int64)
+    bucket_indices = _assign_buckets_all_shapes(x_values, bucket_boundaries)
 
     # Get max, min, and width of the corresponding bucket for each element.
     bucket_max = tf.cast(
@@ -1542,13 +1535,8 @@ def apply_buckets(x, bucket_boundaries, name=None):
   """
   tf.compat.v1.assert_rank(bucket_boundaries, 2)
   with tf.compat.v1.name_scope(name, 'apply_buckets'):
-    x_values = x.values if isinstance(x, tf.SparseTensor) else x
-    buckets = quantile_ops.bucketize_with_input_boundaries(
-        x_values, boundaries=bucket_boundaries, name='assign_buckets')
-    # Convert to int64 because int32 is not compatible with tf.Example parser.
-    # See _TF_EXAMPLE_ALLOWED_TYPES in FixedColumnRepresentation()
-    # in tf_metadata/dataset_schema.py
-    bucketized_values = tf.cast(buckets, dtype=tf.int64)
+
+    bucketized_values = _assign_buckets_all_shapes(x, bucket_boundaries)
 
     # Attach the relevant metadata to result, so that the corresponding
     # output feature will have this metadata set.
@@ -1563,6 +1551,92 @@ def apply_buckets(x, bucket_boundaries, name=None):
     else:
       result = bucketized_values
     return result
+
+
+def _assign_buckets_all_shapes(x, bucket_boundaries):
+  """Assigns every value in x to a bucket index defined by bucket_boundaries.
+
+  Depending on the shape of the x input, we split into individual vectors
+  so that the actual _assign_buckets function can operate as expected.
+
+  Args:
+    x: a `Tensor` with no more than one dimension.
+    bucket_boundaries:  The bucket boundaries represented as a rank 2 `Tensor`.
+
+  Returns:
+    A `Tensor` of the same shape as `x`, with each element in the
+    returned tensor representing the bucketized value. Bucketized value is
+    in the range [0, len(bucket_boundaries)].
+  """
+  with tf.compat.v1.name_scope(None, 'assign_buckets_all_shapes'):
+    bucket_boundaries = tf.cast(bucket_boundaries, tf.float32)
+    x = tf.cast(x.values if isinstance(x, tf.SparseTensor) else x, tf.float32)
+
+    # We expect boundaries in final dimension but have to satisfy other shapes.
+    if bucket_boundaries.shape[0] != 1:
+      bucket_boundaries = tf.transpose(bucket_boundaries)
+
+    if x.get_shape().ndims == 1:
+      buckets = _assign_buckets(x, bucket_boundaries)
+    elif x.get_shape().ndims is None or x.get_shape().ndims == 0:
+      buckets = tf.squeeze(_assign_buckets(
+          tf.expand_dims(x, axis=0), bucket_boundaries))
+    elif x.get_shape().ndims == 2:
+      # For x with 2 dimensions, assign buckets to each column separately.
+      buckets = [_assign_buckets(x_column, bucket_boundaries)
+                 for x_column in tf.unstack(x, axis=1)]
+      # Ex: x = [[1,2], [3,4]], boundaries = [[2.5]]
+      #     results in [[0,1], [0,1]] transposed to [[0,0], [1,1]].
+      buckets = tf.transpose(buckets)
+    else:
+      raise ValueError('Assign buckets requires at most 2 dimensions')
+    return buckets
+
+
+def _assign_buckets(x_values, bucket_boundaries):
+  """Assigns every value in x to a bucket index defined by bucket_boundaries.
+
+  Args:
+    x_values: a `Tensor` of dtype float32 with no more than one dimension.
+    bucket_boundaries:  The bucket boundaries represented as a rank 2 `Tensor`.
+      Should be sorted.
+
+  Returns:
+    A `Tensor` of the same shape as `x_values`, with each element in the
+    returned tensor representing the bucketized value. Bucketized value is
+    in the range [0, len(bucket_boundaries)].
+  """
+  with tf.compat.v1.name_scope(None, 'assign_buckets'):
+    max_value = tf.cast(tf.shape(input=bucket_boundaries)[1], dtype=tf.int64)
+
+    # We need to reverse the negated boundaries and x_values and add a final
+    # max boundary to work with the new bucketize op.
+    bucket_boundaries = tf.reverse(-bucket_boundaries, [-1])
+    bucket_boundaries = tf.concat([
+        bucket_boundaries, [[tf.reduce_max(-x_values)]]], axis=-1)
+
+    if x_values.get_shape().ndims > 1:
+      x_values = tf.squeeze(x_values)
+
+    # BoostedTreesBucketize assigns to lower bound instead of upper bound, so
+    # we need to reverse both boundaries and x_values and make them negative
+    # to make cases exactly at the boundary consistent.
+    buckets = tf.cast(tf.raw_ops.BoostedTreesBucketize(
+        float_values=[-x_values],
+        bucket_boundaries=tf.unstack(bucket_boundaries))[0], dtype=tf.int64)
+    # After reversing the inputs, the assigned buckets are exactly reversed
+    # and need to be re-reversed to their original index.
+    buckets = tf.subtract(max_value, buckets)
+
+    if buckets.shape.ndims <= 1:
+      # As a result of the above squeeze, there might be too few bucket dims
+      # and we want the output shape to match the input.
+      if not buckets.shape.ndims:
+        buckets = tf.expand_dims(buckets, -1)
+      elif x_values.shape.ndims is not None and x_values.shape.ndims > 1:
+        buckets = tf.expand_dims(buckets, -1)
+
+    return buckets
 
 
 def _annotate_buckets(x, bucket_boundaries):

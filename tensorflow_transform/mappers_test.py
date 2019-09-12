@@ -612,6 +612,13 @@ class MappersTest(test_case.TransformTestCase):
         actual_sparse_tensor=hashed_strings,
         close_values=False)
 
+  def testApplyBucketsSmall(self):
+    inputs = tf.constant(4)
+    quantiles = tf.constant([5])
+    expected_outputs = tf.constant(0, dtype=tf.int64)
+    bucketized = mappers.apply_buckets(inputs, [quantiles])
+    self.assertAllEqual(bucketized, expected_outputs)
+
   def testApplyBucketsWithKeys(self):
     values = tf.constant(
         [-100, -0.05, 0.05, 0.25, 0.15, 100, -100, 4.3, 4.5, 4.4, 4.6, 100],
@@ -736,15 +743,6 @@ class MappersTest(test_case.TransformTestCase):
       # We don't assert anything about the outcome because we are intentionally
       # using randomized boundaries, but we ensure the operations succeed.
       _ = sess.run(mappers.apply_buckets_with_interpolation(x, boundaries))
-
-  def testBucketsWithInterpolationUnsortedBoundaries(self):
-    with self.test_session() as sess:
-      x = tf.constant([1, 2, 3, 5], dtype=tf.float32)
-      boundaries = tf.constant([[4, 2]], dtype=tf.float32)
-      output = mappers.apply_buckets_with_interpolation(x, boundaries)
-      # Boundaries must be sorted, so an exception is raised.
-      with self.assertRaises(tf.errors.InvalidArgumentError):
-        sess.run(output)
 
   def testSparseTensorToDenseWithShape(self):
     with tf.Graph().as_default():
