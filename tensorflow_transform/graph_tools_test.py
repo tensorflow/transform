@@ -29,9 +29,8 @@ from tensorflow_transform import graph_tools
 from tensorflow_transform import test_case
 
 from tensorflow.python.ops import control_flow_ops  # pylint: disable=g-direct-tensorflow-import
-from tensorflow.python.ops import control_flow_util  # pylint: disable=g-direct-tensorflow-import
 
-mock = tf.test.mock
+mock = tf.compat.v1.test.mock
 
 
 def _create_lookup_table_from_file(filename):
@@ -79,16 +78,16 @@ def _create_graph_with_y_sparse_function_of_x_sparse():
 
 
 def _create_graph_with_y_function_of_x_and_table():
-  filename = tf.compat.v1.placeholder(tf.string, ())
+  filename = tf.raw_ops.Placeholder(dtype=tf.string, shape=())
   table = _create_lookup_table_from_file(filename)
-  x = tf.compat.v1.placeholder(tf.string, (None,))
+  x = tf.raw_ops.Placeholder(dtype=tf.string, shape=(None,))
   y = table.lookup(x)
   return {'filename': filename, 'x': x, 'y': y}
 
 
 def _create_graph_with_y_function_of_x_and_table_in_first_phase():
   table = _create_lookup_table_from_file('not_a_file_name_but_ok')
-  x = tf.compat.v1.placeholder(tf.string, (None,))
+  x = tf.raw_ops.Placeholder(dtype=tf.string, shape=(None,))
   y = table.lookup(x)
   return {'x': x, 'y': y}
 
@@ -124,24 +123,36 @@ def _create_graph_with_table_initialized_by_table_output():
 
 
 def _create_graph_with_assert_equal():
-  x = tf.compat.v1.placeholder(tf.int64)
-  y = tf.compat.v1.placeholder(tf.int64)
-  z = control_flow_ops.with_dependencies([tf.compat.v1.assert_equal(x, y)], x)
+  x = tf.raw_ops.Placeholder(dtype=tf.int64)
+  y = tf.raw_ops.Placeholder(dtype=tf.int64)
+  z = control_flow_ops.with_dependencies(
+      [tf.raw_ops.Assert(condition=tf.raw_ops.Equal(x=x, y=y), data=[x, y])], x)
   return {'x': x, 'y': y, 'z': z}
 
 
 def _create_graph_with_y_function_of_x_with_tf_while():
-  x = tf.compat.v1.placeholder(tf.int64, ())
+  x = tf.raw_ops.Placeholder(dtype=tf.int64, shape=())
 
   # Subtract 10 from x using a tf.while_loop.
+  @tf.function(input_signature=[
+      tf.TensorSpec([], tf.int32),
+      tf.TensorSpec([], tf.int64)
+  ])
   def stop_condition(counter, x_minus_counter):
     del x_minus_counter  # unused
     return tf.less(counter, 10)
+
+  @tf.function(input_signature=[
+      tf.TensorSpec([], tf.int32),
+      tf.TensorSpec([], tf.int64)
+  ])
   def iteration(counter, x_minus_counter):
     return tf.add(counter, 1), tf.add(x_minus_counter, -1)
   initial_values = [tf.constant(0), x]
-  final_values = tf.while_loop(
-      cond=stop_condition, body=iteration, loop_vars=initial_values)
+  final_values = tf.raw_ops.While(
+      cond=stop_condition.get_concrete_function(),
+      body=iteration.get_concrete_function(),
+      input=initial_values)
 
   y = final_values[1]
   return {'x': x, 'y': y}
@@ -152,7 +163,7 @@ class _SubStrMatcher(collections.namedtuple('_EitherMatcher', ['sub'])):
   def __eq__(self, other):
     if self.sub in other:
       return True
-    tf.logging.error('{} is not in {}'.format(self.sub, other))
+    tf.compat.v1.logging.error('{} is not in {}'.format(self.sub, other))
     return False
 
 
@@ -181,16 +192,17 @@ class _Matcher(object):
 
   def __eq__(self, other):
     if not isinstance(other, self.expected_class):
-      tf.logging.error('Types do not match, got: %s, expected: %s', type(other),
-                       self.expected_class)
+      tf.compat.v1.logging.error('Types do not match, got: %s, expected: %s',
+                                 type(other), self.expected_class)
       return False
 
     future_expected_fields = tuple(
         self._future_proof(f) for f in self.expected_fields_values)
     if (self.expected_fields_values != self.expected_fields(other) and
         future_expected_fields != self.expected_fields(other)):
-      tf.logging.error('Fields do not match: %s != %s',
-                       self.expected_fields_values, self.expected_fields(other))
+      tf.compat.v1.logging.error('Fields do not match: %s != %s',
+                                 self.expected_fields_values,
+                                 self.expected_fields(other))
       return False
 
     return True
@@ -547,460 +559,6 @@ class GraphToolsTest(test_case.TransformTestCase):
       self.assertEqual(tensors[input_name], got[input_name])
 
 
-def static_asserts_calls_dict():
-  return {
-      'x': [mock.call('x$tensor'),],
-      'y': [mock.call('y$tensor'),],
-      'z': [
-          mock.call(
-              _OpMatcher(name='assert_equal_1/range/delta'),
-              parents=[]),
-          mock.call(
-              _TensorMatcher(name='assert_equal_1/range/delta:0'),
-              parents=[u'assert_equal_1/range/delta']),
-          mock.call('y$tensor'),
-          mock.call('x$tensor'),
-          mock.call(
-              _OpMatcher(name='assert_equal_1/Equal'),
-              parents=['x$tensor', 'y$tensor']),
-          mock.call(
-              _TensorMatcher(name='assert_equal_1/Equal:0'),
-              parents=[u'assert_equal_1/Equal']),
-          mock.call(
-              _OpMatcher(name='assert_equal_1/Rank'),
-              parents=[u'assert_equal_1/Equal:0']),
-          mock.call(
-              _TensorMatcher(name='assert_equal_1/Rank:0'),
-              parents=[u'assert_equal_1/Rank']),
-          mock.call(
-              _OpMatcher(name='assert_equal_1/range/start'),
-              parents=[]),
-          mock.call(
-              _TensorMatcher(name='assert_equal_1/range/start:0'),
-              parents=[u'assert_equal_1/range/start']),
-          mock.call(
-              _OpMatcher(name='assert_equal_1/range'),
-              parents=[
-                  u'assert_equal_1/range/start:0',
-                  u'assert_equal_1/Rank:0',
-                  u'assert_equal_1/range/delta:0'
-              ]),
-          mock.call(
-              _TensorMatcher(name='assert_equal_1/range:0'),
-              parents=[u'assert_equal_1/range']),
-          mock.call(
-              _OpMatcher(name='assert_equal_1/All'),
-              parents=[
-                  u'assert_equal_1/Equal:0', u'assert_equal_1/range:0'
-              ]),
-          mock.call(
-              _TensorMatcher(name='assert_equal_1/All:0'),
-              parents=[u'assert_equal_1/All']),
-          mock.call(
-              _OpMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Switch'),
-              parents=[
-                  u'assert_equal_1/All:0', u'assert_equal_1/All:0'
-              ]),
-          mock.call(
-              _TensorMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Switch:1'),
-              parents=[u'assert_equal_1/Assert/AssertGuard/Switch']),
-          mock.call(
-              _OpMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/switch_t'),
-              parents=[u'assert_equal_1/Assert/AssertGuard/Switch:1']),
-          mock.call(
-              _OpMatcher(name='assert_equal_1/Assert/AssertGuard/NoOp'),
-              parents=[u'assert_equal_1/Assert/AssertGuard/switch_t']),
-          mock.call(
-              _TensorMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/switch_t:0'),
-              parents=[u'assert_equal_1/Assert/AssertGuard/switch_t']),
-          mock.call(
-              _OpMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/control_dependency'
-              ),
-              parents=[
-                  u'assert_equal_1/Assert/AssertGuard/switch_t:0',
-                  u'assert_equal_1/Assert/AssertGuard/NoOp'
-              ]),
-          mock.call(
-              _TensorMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/control_dependency:0'
-              ),
-              parents=[
-                  u'assert_equal_1/Assert/AssertGuard/control_dependency'
-              ]),
-          mock.call(
-              _OpMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/pred_id'),
-              parents=[u'assert_equal_1/All:0']),
-          mock.call(
-              _TensorMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/pred_id:0'),
-              parents=[u'assert_equal_1/Assert/AssertGuard/pred_id']),
-          mock.call(
-              _OpMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Assert/Switch_2'
-              ),
-              parents=[
-                  'y$tensor',
-                  u'assert_equal_1/Assert/AssertGuard/pred_id:0'
-              ]),
-          mock.call(
-              _TensorMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Assert/Switch_2:0'
-              ),
-              parents=[
-                  u'assert_equal_1/Assert/AssertGuard/Assert/Switch_2'
-              ]),
-          mock.call(
-              _TensorMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Switch:0'),
-              parents=[u'assert_equal_1/Assert/AssertGuard/Switch']),
-          mock.call(
-              _OpMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/switch_f'),
-              parents=[u'assert_equal_1/Assert/AssertGuard/Switch:0']),
-          mock.call(
-              _OpMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Assert/data_3'
-              ),
-              parents=[u'assert_equal_1/Assert/AssertGuard/switch_f']),
-          mock.call(
-              _TensorMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Assert/data_3:0'
-              ),
-              parents=[
-                  u'assert_equal_1/Assert/AssertGuard/Assert/data_3'
-              ]),
-          mock.call(
-              _OpMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Assert/Switch_1'
-              ),
-              parents=[
-                  'x$tensor',
-                  u'assert_equal_1/Assert/AssertGuard/pred_id:0'
-              ]),
-          mock.call(
-              _TensorMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Assert/Switch_1:0'
-              ),
-              parents=[
-                  u'assert_equal_1/Assert/AssertGuard/Assert/Switch_1'
-              ]),
-          mock.call(
-              _OpMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Assert/data_1'
-              ),
-              parents=[u'assert_equal_1/Assert/AssertGuard/switch_f']),
-          mock.call(
-              _TensorMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Assert/data_1:0'
-              ),
-              parents=[
-                  u'assert_equal_1/Assert/AssertGuard/Assert/data_1'
-              ]),
-          mock.call(
-              _OpMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Assert/data_0'
-              ),
-              parents=[u'assert_equal_1/Assert/AssertGuard/switch_f']),
-          mock.call(
-              _TensorMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Assert/data_0:0'
-              ),
-              parents=[
-                  u'assert_equal_1/Assert/AssertGuard/Assert/data_0'
-              ]),
-          mock.call(
-              _OpMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Assert/Switch'
-              ),
-              parents=[
-                  u'assert_equal_1/All:0',
-                  u'assert_equal_1/Assert/AssertGuard/pred_id:0'
-              ]),
-          mock.call(
-              _TensorMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Assert/Switch:0'
-              ),
-              parents=[
-                  u'assert_equal_1/Assert/AssertGuard/Assert/Switch'
-              ]),
-          mock.call(
-              _OpMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Assert'),
-              parents=[
-                  u'assert_equal_1/Assert/AssertGuard/Assert/Switch:0',
-                  u'assert_equal_1/Assert/AssertGuard/Assert/data_0:0',
-                  u'assert_equal_1/Assert/AssertGuard/Assert/data_1:0',
-                  u'assert_equal_1/Assert/AssertGuard/Assert/Switch_1:0',
-                  u'assert_equal_1/Assert/AssertGuard/Assert/data_3:0',
-                  u'assert_equal_1/Assert/AssertGuard/Assert/Switch_2:0'
-              ]),
-          mock.call(
-              _TensorMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/switch_f:0'),
-              parents=[u'assert_equal_1/Assert/AssertGuard/switch_f']),
-          mock.call(
-              _OpMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/control_dependency_1'
-              ),
-              parents=[
-                  u'assert_equal_1/Assert/AssertGuard/switch_f:0',
-                  u'assert_equal_1/Assert/AssertGuard/Assert'
-              ]),
-          mock.call(
-              _TensorMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/control_dependency_1:0'
-              ),
-              parents=[
-                  u'assert_equal_1/Assert/AssertGuard/control_dependency_1'
-              ]),
-          mock.call(
-              _OpMatcher(
-                  name='assert_equal_1/Assert/AssertGuard/Merge'),
-              parents=[
-                  u'assert_equal_1/Assert/AssertGuard/control_dependency_1:0',
-                  u'assert_equal_1/Assert/AssertGuard/control_dependency:0'
-              ]),
-          mock.call(
-              _OpMatcher(name='control_dependency'),
-              parents=[
-                  'x$tensor', u'assert_equal_1/Assert/AssertGuard/Merge'
-              ]),
-          mock.call(
-              _TensorMatcher(name='control_dependency:0'),
-              parents=[u'control_dependency'])
-      ]
-  }
-
-
-def dynamic_asserts_calls_dict():
-  return {
-      'x': [mock.call('x$tensor'),],
-      'y': [mock.call('y$tensor'),],
-      'z': [
-          mock.call(_OpMatcher('assert_equal/range/delta'), parents=[]),
-          mock.call(
-              _TensorMatcher('assert_equal/range/delta:0'),
-              parents=[u'assert_equal/range/delta']),
-          mock.call('y$tensor'),
-          mock.call('x$tensor'),
-          mock.call(
-              _OpMatcher('assert_equal/Equal'),
-              parents=['x$tensor', 'y$tensor']),
-          mock.call(
-              _TensorMatcher('assert_equal/Equal:0'),
-              parents=[u'assert_equal/Equal']),
-          mock.call(
-              _OpMatcher('assert_equal/Rank'),
-              parents=[u'assert_equal/Equal:0']),
-          mock.call(
-              _TensorMatcher('assert_equal/Rank:0'),
-              parents=[u'assert_equal/Rank']),
-          mock.call(_OpMatcher('assert_equal/range/start'), parents=[]),
-          mock.call(
-              _TensorMatcher('assert_equal/range/start:0'),
-              parents=[u'assert_equal/range/start']),
-          mock.call(
-              _OpMatcher('assert_equal/range'),
-              parents=[
-                  u'assert_equal/range/start:0', u'assert_equal/Rank:0',
-                  u'assert_equal/range/delta:0'
-              ]),
-          mock.call(
-              _TensorMatcher('assert_equal/range:0'),
-              parents=[u'assert_equal/range']),
-          mock.call(
-              _OpMatcher('assert_equal/All'),
-              parents=[
-                  u'assert_equal/Equal:0', u'assert_equal/range:0'
-              ]),
-          mock.call(
-              _TensorMatcher('assert_equal/All:0'),
-              parents=[u'assert_equal/All']),
-          mock.call(
-              _OpMatcher('assert_equal/Assert/AssertGuard/Switch'),
-              parents=[u'assert_equal/All:0', u'assert_equal/All:0']),
-          mock.call(
-              _TensorMatcher(
-                  'assert_equal/Assert/AssertGuard/Switch:1'),
-              parents=[u'assert_equal/Assert/AssertGuard/Switch']),
-          mock.call(
-              _OpMatcher('assert_equal/Assert/AssertGuard/switch_t'),
-              parents=[u'assert_equal/Assert/AssertGuard/Switch:1']),
-          mock.call(
-              _OpMatcher('assert_equal/Assert/AssertGuard/NoOp'),
-              parents=[u'assert_equal/Assert/AssertGuard/switch_t']),
-          mock.call(
-              _TensorMatcher(
-                  'assert_equal/Assert/AssertGuard/switch_t:0'),
-              parents=[u'assert_equal/Assert/AssertGuard/switch_t']),
-          mock.call(
-              _OpMatcher(
-                  'assert_equal/Assert/AssertGuard/control_dependency'),
-              parents=[
-                  u'assert_equal/Assert/AssertGuard/switch_t:0',
-                  u'assert_equal/Assert/AssertGuard/NoOp'
-              ]),
-          mock.call(
-              _TensorMatcher(
-                  'assert_equal/Assert/AssertGuard/control_dependency:0'
-              ),
-              parents=[
-                  u'assert_equal/Assert/AssertGuard/control_dependency'
-              ]),
-          mock.call(
-              _OpMatcher('assert_equal/Assert/AssertGuard/pred_id'),
-              parents=[u'assert_equal/All:0']),
-          mock.call(
-              _TensorMatcher(
-                  'assert_equal/Assert/AssertGuard/pred_id:0'),
-              parents=[u'assert_equal/Assert/AssertGuard/pred_id']),
-          mock.call(
-              _OpMatcher(
-                  'assert_equal/Assert/AssertGuard/Assert/Switch_2'),
-              parents=[
-                  'y$tensor',
-                  u'assert_equal/Assert/AssertGuard/pred_id:0'
-              ]),
-          mock.call(
-              _TensorMatcher(
-                  'assert_equal/Assert/AssertGuard/Assert/Switch_2:0'),
-              parents=[
-                  u'assert_equal/Assert/AssertGuard/Assert/Switch_2'
-              ]),
-          mock.call(
-              _TensorMatcher(
-                  'assert_equal/Assert/AssertGuard/Switch:0'),
-              parents=[u'assert_equal/Assert/AssertGuard/Switch']),
-          mock.call(
-              _OpMatcher('assert_equal/Assert/AssertGuard/switch_f'),
-              parents=[u'assert_equal/Assert/AssertGuard/Switch:0']),
-          mock.call(
-              _OpMatcher(
-                  'assert_equal/Assert/AssertGuard/Assert/data_4'),
-              parents=[u'assert_equal/Assert/AssertGuard/switch_f']),
-          mock.call(
-              _TensorMatcher(
-                  'assert_equal/Assert/AssertGuard/Assert/data_4:0'),
-              parents=[
-                  u'assert_equal/Assert/AssertGuard/Assert/data_4'
-              ]),
-          mock.call(
-              _OpMatcher(
-                  'assert_equal/Assert/AssertGuard/Assert/Switch_1'),
-              parents=[
-                  'x$tensor',
-                  u'assert_equal/Assert/AssertGuard/pred_id:0'
-              ]),
-          mock.call(
-              _TensorMatcher(
-                  'assert_equal/Assert/AssertGuard/Assert/Switch_1:0'),
-              parents=[
-                  u'assert_equal/Assert/AssertGuard/Assert/Switch_1'
-              ]),
-          mock.call(
-              _OpMatcher(
-                  'assert_equal/Assert/AssertGuard/Assert/data_2'),
-              parents=[u'assert_equal/Assert/AssertGuard/switch_f']),
-          mock.call(
-              _TensorMatcher(
-                  'assert_equal/Assert/AssertGuard/Assert/data_2:0'),
-              parents=[
-                  u'assert_equal/Assert/AssertGuard/Assert/data_2'
-              ]),
-          mock.call(
-              _OpMatcher(
-                  'assert_equal/Assert/AssertGuard/Assert/data_1'),
-              parents=[u'assert_equal/Assert/AssertGuard/switch_f']),
-          mock.call(
-              _TensorMatcher(
-                  'assert_equal/Assert/AssertGuard/Assert/data_1:0'),
-              parents=[
-                  u'assert_equal/Assert/AssertGuard/Assert/data_1'
-              ]),
-          mock.call(
-              _OpMatcher(
-                  'assert_equal/Assert/AssertGuard/Assert/data_0'),
-              parents=[u'assert_equal/Assert/AssertGuard/switch_f']),
-          mock.call(
-              _TensorMatcher(
-                  'assert_equal/Assert/AssertGuard/Assert/data_0:0'),
-              parents=[
-                  u'assert_equal/Assert/AssertGuard/Assert/data_0'
-              ]),
-          mock.call(
-              _OpMatcher(
-                  'assert_equal/Assert/AssertGuard/Assert/Switch'),
-              parents=[
-                  u'assert_equal/All:0',
-                  u'assert_equal/Assert/AssertGuard/pred_id:0'
-              ]),
-          mock.call(
-              _TensorMatcher(
-                  'assert_equal/Assert/AssertGuard/Assert/Switch:0'),
-              parents=[
-                  u'assert_equal/Assert/AssertGuard/Assert/Switch'
-              ]),
-          mock.call(
-              _OpMatcher('assert_equal/Assert/AssertGuard/Assert'),
-              parents=[
-                  u'assert_equal/Assert/AssertGuard/Assert/Switch:0',
-                  u'assert_equal/Assert/AssertGuard/Assert/data_0:0',
-                  u'assert_equal/Assert/AssertGuard/Assert/data_1:0',
-                  u'assert_equal/Assert/AssertGuard/Assert/data_2:0',
-                  u'assert_equal/Assert/AssertGuard/Assert/Switch_1:0',
-                  u'assert_equal/Assert/AssertGuard/Assert/data_4:0',
-                  u'assert_equal/Assert/AssertGuard/Assert/Switch_2:0'
-              ]),
-          mock.call(
-              _TensorMatcher(
-                  'assert_equal/Assert/AssertGuard/switch_f:0'),
-              parents=[u'assert_equal/Assert/AssertGuard/switch_f']),
-          mock.call(
-              _OpMatcher(
-                  'assert_equal/Assert/AssertGuard/control_dependency_1'
-              ),
-              parents=[
-                  u'assert_equal/Assert/AssertGuard/switch_f:0',
-                  u'assert_equal/Assert/AssertGuard/Assert'
-              ]),
-          mock.call(
-              _TensorMatcher(
-                  'assert_equal/Assert/AssertGuard/control_dependency_1:0'
-              ),
-              parents=[
-                  u'assert_equal/Assert/AssertGuard/control_dependency_1'
-              ]),
-          mock.call(
-              _OpMatcher('assert_equal/Assert/AssertGuard/Merge'),
-              parents=[
-                  u'assert_equal/Assert/AssertGuard/control_dependency_1:0',
-                  u'assert_equal/Assert/AssertGuard/control_dependency:0'
-              ]),
-          mock.call(
-              _OpMatcher('control_dependency'),
-              parents=[
-                  'x$tensor', u'assert_equal/Assert/AssertGuard/Merge'
-              ]),
-          mock.call(
-              _TensorMatcher('control_dependency:0'),
-              parents=[u'control_dependency']),
-      ]
-  }
-
-
-def asserts_calls_dict():
-  if test_case.TF_STATIC_ASSERTS_ENABLED:
-    return static_asserts_calls_dict()
-  else:
-    return dynamic_asserts_calls_dict()
-
-
 class GraphToolsTestUniquePath(test_case.TransformTestCase):
 
   @test_case.named_parameters(
@@ -1099,107 +657,13 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           replaced_tensors_ready={'x': False},
           expected_calls_dict={
               'y': [
-                  mock.call(_TensorMatcher('while/Merge:0'), parents=[]),
-                  mock.call(
-                      _OpMatcher('while/Switch'), parents=[
-                          u'while/Merge:0',
-                      ]),
-                  mock.call(
-                      _TensorMatcher('while/Switch:1'),
-                      parents=[u'while/Switch']),
-                  mock.call(
-                      _OpMatcher('while/Identity'),
-                      parents=[u'while/Switch:1']),
-                  mock.call(
-                      _OpMatcher('while/Add/y'), parents=[u'while/Identity']),
-                  mock.call(
-                      _TensorMatcher('while/Add/y:0'),
-                      parents=[u'while/Add/y']),
-                  mock.call(
-                      _TensorMatcher('while/Identity:0'),
-                      parents=[u'while/Identity']),
-                  mock.call(
-                      _OpMatcher('while/Add'),
-                      parents=[u'while/Identity:0', u'while/Add/y:0']),
-                  mock.call(
-                      _TensorMatcher('while/Add:0'), parents=[u'while/Add']),
-                  mock.call(
-                      _OpMatcher('while/NextIteration'),
-                      parents=[u'while/Add:0']),
-                  mock.call(
-                      _TensorMatcher('while/NextIteration:0'),
-                      parents=[u'while/NextIteration']),
-                  mock.call(_OpMatcher('Const'), parents=[]),
-                  mock.call(_TensorMatcher('Const:0'), parents=[u'Const']),
-                  mock.call(_OpMatcher('while/Enter'), parents=[u'Const:0']),
-                  mock.call(
-                      _TensorMatcher('while/Enter:0'),
-                      parents=[u'while/Enter']),
-                  mock.call(
-                      _OpMatcher('while/Merge'),
-                      parents=[u'while/Enter:0', u'while/NextIteration:0']),
-                  mock.call(
-                      _OpMatcher('while/Less/y'), parents=[u'while/Merge']),
-                  mock.call(
-                      _TensorMatcher('while/Less/y:0'),
-                      parents=[u'while/Less/y']),
-                  mock.call(
-                      _OpMatcher('while/Less'),
-                      parents=[u'while/Merge:0', u'while/Less/y:0']),
-                  mock.call(
-                      _TensorMatcher('while/Less:0'), parents=[u'while/Less']),
-                  mock.call(
-                      _OpMatcher('while/LoopCond'), parents=[u'while/Less:0']),
-                  mock.call(
-                      _TensorMatcher('while/LoopCond:0'),
-                      parents=[u'while/LoopCond']),
-                  mock.call(
-                      _OpMatcher('while/Add_1/y'), parents=[u'while/Identity']),
-                  mock.call(
-                      _TensorMatcher('while/Add_1/y:0'),
-                      parents=[u'while/Add_1/y']),
-                  mock.call(_TensorMatcher('while/Switch_1:1'), parents=[]),
-                  mock.call(
-                      _OpMatcher('while/Identity_1'),
-                      parents=[u'while/Switch_1:1']),
-                  mock.call(
-                      _TensorMatcher('while/Identity_1:0'),
-                      parents=[u'while/Identity_1']),
-                  mock.call(
-                      _OpMatcher('while/Add_1'),
-                      parents=[u'while/Identity_1:0', u'while/Add_1/y:0']),
-                  mock.call(
-                      _TensorMatcher('while/Add_1:0'),
-                      parents=[u'while/Add_1']),
-                  mock.call(
-                      _OpMatcher('while/NextIteration_1'),
-                      parents=[u'while/Add_1:0']),
-                  mock.call(
-                      _TensorMatcher('while/NextIteration_1:0'),
-                      parents=[u'while/NextIteration_1']),
                   mock.call('x$tensor'),
-                  mock.call(_OpMatcher('while/Enter_1'), parents=['x$tensor']),
+                  mock.call(_OpMatcher(name='Const'), parents=[]),
+                  mock.call(_TensorMatcher(name='Const:0'), parents=[u'Const']),
                   mock.call(
-                      _TensorMatcher('while/Enter_1:0'),
-                      parents=[u'while/Enter_1']),
-                  mock.call(
-                      _OpMatcher('while/Merge_1'),
-                      parents=[u'while/Enter_1:0', u'while/NextIteration_1:0']),
-                  mock.call(
-                      _TensorMatcher('while/Merge_1:0'),
-                      parents=[u'while/Merge_1']),
-                  mock.call(
-                      _OpMatcher('while/Switch_1'),
-                      parents=[u'while/Merge_1:0', u'while/LoopCond:0']),
-                  mock.call(
-                      _TensorMatcher('while/Switch_1:0'),
-                      parents=[u'while/Switch_1']),
-                  mock.call(
-                      _OpMatcher('while/Exit_1'),
-                      parents=[u'while/Switch_1:0']),
-                  mock.call(
-                      _TensorMatcher('while/Exit_1:0'),
-                      parents=[u'while/Exit_1']),
+                      _OpMatcher(name='While'),
+                      parents=[u'Const:0', 'x$tensor']),
+                  mock.call(_TensorMatcher(name='While:1'), parents=[u'While']),
               ],
           }),
       dict(
@@ -1209,43 +673,26 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           replaced_tensors_ready={'x': False},
           expected_calls_dict={
               'x': [
+                  mock.call(_OpMatcher('asset_path'), parents=[]),
                   mock.call(
-                      _OpMatcher('asset_path'),
-                      parents=[]),
-                  mock.call(
-                      _TensorMatcher('asset_path:0'),
-                      parents=['asset_path']),
-                  mock.call(
-                      _OpMatcher('hash_table'),
-                      parents=['asset_path:0']),
+                      _TensorMatcher('asset_path:0'), parents=['asset_path']),
+                  mock.call(_OpMatcher('hash_table'), parents=['asset_path:0']),
                   mock.call('x$tensor'),
               ],
               'y': [
+                  mock.call(_OpMatcher('asset_path'), parents=[]),
                   mock.call(
-                      _OpMatcher('asset_path'),
-                      parents=[]),
-                  mock.call(
-                      _TensorMatcher('asset_path:0'),
-                      parents=['asset_path']),
-                  mock.call(
-                      _OpMatcher('hash_table'),
-                      parents=['asset_path:0']),
-                  mock.call(
-                      _OpMatcher('Const'),
-                      parents=[]),
-                  mock.call(
-                      _TensorMatcher('Const:0'),
-                      parents=['Const']),
+                      _TensorMatcher('asset_path:0'), parents=['asset_path']),
+                  mock.call(_OpMatcher('hash_table'), parents=['asset_path:0']),
+                  mock.call(_OpMatcher('Const'), parents=[]),
+                  mock.call(_TensorMatcher('Const:0'), parents=['Const']),
                   mock.call('x$tensor'),
                   mock.call('hash_table'),
                   mock.call(
-                      _TensorMatcher('hash_table:0'),
-                      parents=['hash_table']),
+                      _TensorMatcher('hash_table:0'), parents=['hash_table']),
                   mock.call(
                       _OpMatcher('hash_table_Lookup/LookupTableFindV2'),
-                      parents=[
-                          'hash_table:0', 'x$tensor', 'Const:0'
-                      ]),
+                      parents=['hash_table:0', 'x$tensor', 'Const:0']),
                   mock.call(
                       _TensorMatcher('hash_table_Lookup/LookupTableFindV2:0'),
                       parents=['hash_table_Lookup/LookupTableFindV2']),
@@ -1259,8 +706,26 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
               'x': False,
               'y': False
           },
-          expected_calls_dict=asserts_calls_dict()
-          ),
+          expected_calls_dict={
+              'x': [mock.call('x$tensor'),],
+              'y': [mock.call('y$tensor'),],
+              'z': [
+                  mock.call('y$tensor'),
+                  mock.call('x$tensor'),
+                  mock.call(
+                      _OpMatcher('Equal'), parents=['x$tensor', 'y$tensor']),
+                  mock.call(_TensorMatcher('Equal:0'), parents=[u'Equal']),
+                  mock.call(
+                      _OpMatcher('Assert'),
+                      parents=[u'Equal:0', 'x$tensor', 'y$tensor']),
+                  mock.call(
+                      _OpMatcher('control_dependency'),
+                      parents=['x$tensor', u'Assert']),
+                  mock.call(
+                      _TensorMatcher('control_dependency:0'),
+                      parents=[u'control_dependency']),
+              ]
+          }),
   )
   def testGetUniquePath(self, create_graph_fn, feeds, replaced_tensors_ready,
                         expected_calls_dict):
@@ -1308,7 +773,7 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
             'Number of expected calls != number of actual calls for {}: {}'
             .format(name, path_cb_mock.call_args_list))
       except AssertionError:
-        tf.logging.error(
+        tf.compat.v1.logging.error(
             'The following is a list of matchers for {}:\n{}'.format(
                 name, '\n'.join(actual_needed_matchers_to_pass)))
         raise
@@ -1332,7 +797,4 @@ def _value_to_matcher(value, add_quotes=False):
 if __name__ == '__main__':
   # TODO(b/133440043): Remove this once TFT supports eager execution.
   tf.compat.v1.disable_eager_execution()
-  # TODO(b/138856464): Enable this with v2 control flow.
-  # TODO(b/138848475): Replace this with tf.compat.v1.disable_control_flow_v2()
-  control_flow_util.ENABLE_CONTROL_FLOW_V2 = False
   test_case.main()
