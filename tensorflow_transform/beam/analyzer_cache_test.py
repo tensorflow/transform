@@ -118,18 +118,22 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
         os.environ.get('TEST_UNDECLARED_OUTPUTS_DIR', self.get_temp_dir()),
         self._testMethodName)
 
+    dataset_key_0 = 'dataset_key_0'
+    dataset_key_1 = 'dataset_key_1'
+    dataset_keys = (dataset_key_0, dataset_key_1)
+
     with beam.Pipeline() as p:
       cache_pcoll_dict = {
-          'dataset_key_0': {
+          dataset_key_0: {
               'a': p | 'CreateA' >> beam.Create([b'[1, 2, 3]']),
               'b': p | 'CreateB' >> beam.Create([b'[5]']),
           },
-          'dataset_key_1': {
+          dataset_key_1: {
               'c': p | 'CreateC' >> beam.Create([b'[9, 5, 2, 1]']),
           },
       }
       _ = cache_pcoll_dict | analyzer_cache.WriteAnalysisCacheToFS(
-          p, base_test_dir)
+          p, base_test_dir, dataset_keys)
 
     with beam.Pipeline() as p:
       read_cache = p | analyzer_cache.ReadAnalysisCacheFromFS(
@@ -185,7 +189,7 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
           },
       }
       _ = cache_pcoll_dict | analyzer_cache.WriteAnalysisCacheToFS(
-          p, base_test_dir)
+          p, base_test_dir, dataset_keys)
 
     first_manifests = read_manifests()
 
@@ -201,7 +205,7 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
           },
       }
       _ = cache_pcoll_dict | analyzer_cache.WriteAnalysisCacheToFS(
-          p, base_test_dir)
+          p, base_test_dir, dataset_keys)
 
     second_manifests = read_manifests()
     self.assertEqual(len(first_manifests), len(second_manifests))
@@ -242,13 +246,14 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
       def expand(self, pbegin):
         return pbegin | beam.Create([test_cache_dict['a']['b']])
 
+    dataset_keys = list(test_cache_dict.keys())
     cache_dir = self.get_temp_dir()
     with beam.Pipeline() as p:
       _ = test_cache_dict | analyzer_cache.WriteAnalysisCacheToFS(
-          p, cache_dir, sink=LocalSink)
+          p, cache_dir, dataset_keys, sink=LocalSink)
 
       read_cache = p | analyzer_cache.ReadAnalysisCacheFromFS(
-          cache_dir, list(test_cache_dict.keys()), source=LocalSource)
+          cache_dir, dataset_keys, source=LocalSource)
 
       self.assertItemsEqual(read_cache.keys(), ['a'])
       self.assertItemsEqual(read_cache['a'].keys(), ['b'])

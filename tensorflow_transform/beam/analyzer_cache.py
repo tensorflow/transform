@@ -104,18 +104,23 @@ class WriteAnalysisCacheToFS(beam.PTransform):
   so the cache must already exist there when constructing this.
   """
 
-  def __init__(self, pipeline, cache_base_dir, sink=None):
+  def __init__(self, pipeline, cache_base_dir, dataset_keys=None, sink=None):
     """Init method.
 
     Args:
       pipeline: A beam Pipeline.
       cache_base_dir: A str, the path that the cache should be stored in.
+      dataset_keys: (Optional) An iterable of strings.
       sink: (Optional) A PTransform class that takes a path in its constructor,
         and is used to write the cache. If not provided this uses a GZipped
         TFRecord sink.
     """
     self.pipeline = pipeline
     self._cache_base_dir = cache_base_dir
+    if dataset_keys is None:
+      self._sorted_dataset_keys = None
+    else:
+      self._sorted_dataset_keys = sorted(dataset_keys)
     self._sink = sink
     if self._sink is None:
       # TODO(b/37788560): Possibly use Riegeli as a default file format once
@@ -141,12 +146,20 @@ class WriteAnalysisCacheToFS(beam.PTransform):
     return cache_is_written
 
   def expand(self, dataset_cache_dict):
+    if self._sorted_dataset_keys is None:
+      sorted_dataset_keys_list = sorted(dataset_cache_dict.keys())
+    else:
+      sorted_dataset_keys_list = self._sorted_dataset_keys
+      missing_keys = set(dataset_cache_dict.keys()).difference(
+          set(sorted_dataset_keys_list))
+      if missing_keys:
+        raise ValueError(
+            'The dataset keys in the cache dictionary must be a subset of the '
+            'keys in dataset_keys. Missing {}.'.format(missing_keys))
 
     cache_is_written = []
-    sorted_dataset_cache_list = sorted(
-        dataset_cache_dict.items(), key=lambda kv: kv[0])
-    for dataset_key_idx, (dataset_key,
-                          cache_dict) in enumerate(sorted_dataset_cache_list):
+    for dataset_key, cache_dict in dataset_cache_dict.items():
+      dataset_key_idx = sorted_dataset_keys_list.index(dataset_key)
       dataset_key_dir = _get_dataset_cache_path(self._cache_base_dir,
                                                 dataset_key)
 
