@@ -24,6 +24,8 @@ import os
 import tensorflow as tf
 from tensorflow_transform import pretrained_models
 
+import unittest
+
 
 class PretrainedModelsTest(tf.test.TestCase):
 
@@ -138,6 +140,10 @@ class PretrainedModelsTest(tf.test.TestCase):
       output_value = sess.run(output_tensor, feed_dict=feed_dict)
       self.assertAllEqual(output_value, [5, 7, 9, 11, 11])
 
+  # TODO(b/129758574): Remove this.
+  @unittest.skipIf(
+      not pretrained_models._ESTIMATOR_CONTRIB_EXISTS,
+      'pretrained_models requires tf-estimator to have a contrib module.')
   def testApplyFunctionWithCheckpointTwoInputs(self):
     checkpoint = os.path.join(self.get_temp_dir(), 'checkpoint_two')
     self.save_checkpoint_with_two_inputs(checkpoint)

@@ -43,6 +43,8 @@ from tensorflow.core.example import example_pb2
 from tensorflow.python.ops import lookup_ops
 from tensorflow_metadata.proto.v0 import schema_pb2
 
+import unittest
+
 
 _SCALE_TO_Z_SCORE_TEST_CASES = [
     dict(testcase_name='int16',
@@ -329,6 +331,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
+  # TODO(b/129758574): Remove this.
+  @unittest.skipIf(
+      not tft.pretrained_models._ESTIMATOR_CONTRIB_EXISTS,
+      'pretrained_models requires tf-estimator to have a contrib module.')
   def testApplyFunctionWithCheckpoint(self):
 
     def tensor_fn(input1, input2):

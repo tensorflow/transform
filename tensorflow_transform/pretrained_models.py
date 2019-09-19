@@ -30,6 +30,13 @@ import tensorflow as tf
 
 from tensorflow.contrib.session_bundle import bundle_shim
 
+# TODO(b/129758574): Remove this.
+try:
+  from tensorflow_estimator.contrib import estimator  # pylint: disable=unused-import,g-import-not-at-top
+  _ESTIMATOR_CONTRIB_EXISTS = True
+except ImportError:
+  _ESTIMATOR_CONTRIB_EXISTS = False
+
 
 def apply_saved_model(model_dir, inputs, tags, signature_name=None,
                       output_keys_in_signature=None):
