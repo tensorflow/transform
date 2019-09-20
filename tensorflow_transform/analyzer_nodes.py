@@ -363,8 +363,8 @@ class _CombinerPerKeyAccumulatorCoder(CacheCoder):
 
 
 class CacheableCombinePerKeyAccumulate(
-    collections.namedtuple('CacheableCombineAccumulate', ['combiner', 'label']),
-    AnalyzerDef):
+    collections.namedtuple('CacheableCombinePerKeyAccumulate',
+                           ['combiner', 'label']), AnalyzerDef):
   """An analyzer that runs `beam.CombinePerKey` to accumulate without merging.
 
   This analyzer reduces the values that it accepts as inputs, using the
@@ -400,8 +400,8 @@ class CacheableCombinePerKeyAccumulate(
 
 
 class CacheableCombinePerKeyMerge(
-    collections.namedtuple('CacheableCombineMerge', ['combiner', 'label']),
-    AnalyzerDef):
+    collections.namedtuple('CacheableCombinePerKeyMerge',
+                           ['combiner', 'label']), AnalyzerDef):
   """An analyzer that runs `beam.CombinePerKey` to only merge accumulators.
 
   This analyzer reduces the values that it accepts as inputs, using the

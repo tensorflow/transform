@@ -38,7 +38,7 @@ class ValueNode(collections.namedtuple(
     'ValueNode', ['parent_operation', 'value_index'])):
   """A placeholder that will ultimately be translated to a PCollection.
 
-  Args:
+  Attributes:
     parent_operation: The `OperationNode` that produces this value.
     value_index: The index of this value in the outputs of `parent_operation`.
   """
@@ -117,7 +117,7 @@ class OperationDef(object):
 class OperationNode(object):
   """A placeholder that will ultimately be translated to a PTransform.
 
-  Args:
+  Attributes:
     operation_def: An `OperationDef`.
     inputs: A tuple of `ValueNode`s.
   """
@@ -221,13 +221,14 @@ class Visitor(with_metaclass(abc.ABCMeta, object)):
 
 
 class Traverser(object):
-  """Class to traverse the DAG of nodes.
-
-  Args:
-    visitor: A `Visitor` object.
-  """
+  """Class to traverse the DAG of nodes."""
 
   def __init__(self, visitor):
+    """Init method for Traverser.
+
+    Args:
+      visitor: A `Visitor` object.
+    """
     self._cached_value_nodes_values = {}
     self._stack = []
     self._visitor = visitor

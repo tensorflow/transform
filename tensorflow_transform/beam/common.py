@@ -25,13 +25,14 @@ import uuid
 
 import apache_beam as beam
 from apache_beam.typehints import Union
+from six import binary_type
 from six import integer_types
 from six import string_types
 import tensorflow as tf
 from tensorflow_transform import nodes
 
 NUMERIC_TYPE = Union[float, Union[integer_types]]
-PRIMITIVE_TYPE = Union[NUMERIC_TYPE, Union[string_types]]
+PRIMITIVE_TYPE = Union[NUMERIC_TYPE, Union[string_types], binary_type]
 
 METRICS_NAMESPACE = 'tfx.Transform'
 

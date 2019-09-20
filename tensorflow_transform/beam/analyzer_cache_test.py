@@ -33,6 +33,8 @@ from tensorflow_transform import analyzers
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform import test_case
 
+mock = tf.compat.v1.test.mock
+
 
 def _get_quantiles_summary():
 
@@ -125,13 +127,14 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
     with beam.Pipeline() as p:
       cache_pcoll_dict = {
           dataset_key_0: {
-              'a': p | 'CreateA' >> beam.Create([b'[1, 2, 3]']),
-              'b': p | 'CreateB' >> beam.Create([b'[5]']),
+              b'\x8a': p | 'CreateA' >> beam.Create([b'[1, 2, 3]']),
+              b'\x8b': p | 'CreateB' >> beam.Create([b'[5]']),
           },
           dataset_key_1: {
-              'c': p | 'CreateC' >> beam.Create([b'[9, 5, 2, 1]']),
+              b'\x8c': p | 'CreateC' >> beam.Create([b'[9, 5, 2, 1]']),
           },
       }
+
       _ = cache_pcoll_dict | analyzer_cache.WriteAnalysisCacheToFS(
           p, base_test_dir, dataset_keys)
 
@@ -139,25 +142,17 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
       read_cache = p | analyzer_cache.ReadAnalysisCacheFromFS(
           base_test_dir, list(cache_pcoll_dict.keys()))
 
-      def assert_equal_matcher(expected_encoded):
-
-        def _assert_equal(encoded_cache_list):
-          (encode_cache,) = encoded_cache_list
-          self.assertEqual(expected_encoded, encode_cache)
-
-        return _assert_equal
-
       beam_test_util.assert_that(
-          read_cache['dataset_key_0']['a'],
+          read_cache['dataset_key_0'][b'\x8a'],
           beam_test_util.equal_to([b'[1, 2, 3]']),
           label='AssertA')
       beam_test_util.assert_that(
-          read_cache['dataset_key_0']['b'],
-          assert_equal_matcher(b'[5]'),
+          read_cache['dataset_key_0'][b'\x8b'],
+          beam_test_util.equal_to([b'[5]']),
           label='AssertB')
       beam_test_util.assert_that(
-          read_cache['dataset_key_1']['c'],
-          assert_equal_matcher(b'[9, 5, 2, 1]'),
+          read_cache['dataset_key_1'][b'\x8c'],
+          beam_test_util.equal_to([b'[9, 5, 2, 1]']),
           label='AssertC')
 
   def test_cache_merge(self):
@@ -231,12 +226,12 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
 
         def write_to_file(value):
           tf.io.gfile.makedirs(self._path)
-          with open(os.path.join(self._path, 'cache'), 'w') as f:
+          with open(os.path.join(self._path, 'cache'), 'wb') as f:
             f.write(value)
 
         return pcoll | beam.Map(write_to_file)
 
-    test_cache_dict = {'a': {'b': [str([17, 19, 27, 31])]}}
+    test_cache_dict = {'a': {'b': [bytes([17, 19, 27, 31])]}}
 
     class LocalSource(beam.PTransform):
 

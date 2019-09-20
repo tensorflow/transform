@@ -94,6 +94,7 @@ class _WriteToTFRecordGzip(beam.io.WriteToTFRecord):
         file_path_prefix, file_name_suffix='.gz')
 
 
+@beam.typehints.with_input_types(six.binary_type)
 class WriteAnalysisCacheToFS(beam.PTransform):
   """Writes a cache object that can be read by ReadAnalysisCacheFromFS.
 

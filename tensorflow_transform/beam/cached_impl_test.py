@@ -100,7 +100,7 @@ _OPTIMIZE_TRAVERSAL_COMMON_CASE = dict(
     preprocessing_fn=_preprocessing_fn_for_common_optimize_traversal,
     dataset_input_cache_dict={
         _TEST_CACHE_VERSION +
-        b'CacheableCombineAccumulate[x/mean_and_var]-/Y\xe8\xd6\x1a\xb8OxZ_\xb4\xbes\x17AK&mXg':
+        b'CacheableCombineAccumulate[x/mean_and_var]-HASH':
             'cache hit',
     },
     expected_dot_graph_str=r"""digraph G {
@@ -920,6 +920,7 @@ class CachedImplTest(test_case.TransformTestCase):
                 vocab_filename))
 
   @test_case.named_parameters(*_OPTIMIZE_TRAVERSAL_TEST_CASES)
+  @mock_out_cache_hash
   def test_optimize_traversal(self, feature_spec, preprocessing_fn,
                               dataset_input_cache_dict, expected_dot_graph_str):
     span_0_key, span_1_key = 'span-0', 'span-1'

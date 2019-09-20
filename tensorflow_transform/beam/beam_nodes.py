@@ -138,7 +138,7 @@ class ApplySavedModel(
   The input should be a PCollection containing a single element which is the
   directory containing the SavedModel to be run.
 
-  Args:
+  Attributes:
     phase: An integer which is the phase that this operation is run as part of.
     label: A unique label for this operation.
   """
@@ -158,7 +158,7 @@ class ExtractFromDict(
   the PCollection, this corresponding element of the output PCollection is a
   tuple of values, one for each key.
 
-  Args:
+  Attributes:
     keys: The keys whose values should be extracted from each element of the
         input PCollection. keys should either be a tuple or a string.
     label: A unique label for this operation.

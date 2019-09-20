@@ -146,7 +146,7 @@ class Context(object):
 
   All the attributes in this context are kept on a thread local state.
 
-  Args:
+  Attributes:
     temp_dir: (Optional) The temporary directory used within in this block.
     desired_batch_size: (Optional) A batch size to batch elements by. If not
         provided, a batch size will be computed automatically.
@@ -819,6 +819,7 @@ class AnalyzeDatasetWithCache(_AnalyzeDatasetCommon):
   Args:
     preprocessing_fn: A function that accepts and returns a dictionary from
       strings to `Tensor` or `SparseTensor`s.
+    pipeline: (Optional) a beam Pipeline.
   """
 
   def expand(self, dataset):

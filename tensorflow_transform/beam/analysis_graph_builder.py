@@ -269,8 +269,6 @@ class _OptimizeVisitor(nodes.Visitor):
   def visit(self, operation_def, input_values):
     self._validate_operation_def(operation_def)
 
-    # TODO(b/37788560): Possibly make this generic instead of special casing the
-    # ApplySavedModel operation.
     if (isinstance(operation_def, beam_nodes.ApplySavedModel) and
         operation_def.phase == 0):
       return self._visit_apply_savedmodel_operation(operation_def, input_values)
