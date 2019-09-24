@@ -21,6 +21,10 @@ import os
 import pickle
 import sys
 
+# GOOGLE-INITIALIZATION
+
+from absl import flags
+
 # Note that this needs to happen before any non-python imports, so we do it
 # pretty early on.
 if any(arg == '--proto_implementation_type=python' for arg in sys.argv):
@@ -43,7 +47,7 @@ from google.protobuf import text_format
 # pylint: enable=g-import-not-at-top
 
 
-tf.flags.DEFINE_string(
+flags.DEFINE_string(
     'proto_implementation_type', 'cpp',
     'The implementation type of python proto to use when exercising this test')
 
@@ -64,7 +68,7 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
 
   def setUp(self):
     # Verify that the implementation we requested via the Flag is honoured.
-    assert api_implementation.Type() == tf.flags.FLAGS.proto_implementation_type
+    assert api_implementation.Type() == flags.FLAGS.proto_implementation_type
 
   def assertSerializedProtosEqual(self, a, b):
     np.testing.assert_equal(_binary_to_example(a), _binary_to_example(b))

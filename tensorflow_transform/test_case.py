@@ -40,7 +40,7 @@ named_parameters = parameterized.named_parameters
 def _are_static_asserts_enabled():
   try:
     with tf.compat.v1.Session():
-      tf.debugging.assert_less(2.0, 1.0).mark_used()
+      tf.compat.v1.debugging.assert_less(2.0, 1.0).mark_used()
     return False
   except tf.errors.InvalidArgumentError:
     return True

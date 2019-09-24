@@ -714,13 +714,13 @@ class TFUtilsTest(test_case.TransformTestCase):
   def test_map_per_key_reductions(
       self, key, key_vocab, reductions, x, expected_results):
     if isinstance(key, tf.compat.v1.SparseTensorValue):
-      key = tf.convert_to_tensor_or_sparse_tensor(key)
+      key = tf.compat.v1.convert_to_tensor_or_sparse_tensor(key)
     else:
       key = tf.constant(key)
     key_vocab = tf.constant(key_vocab)
     reductions = tuple([tf.constant(t) for t in reductions])
     if isinstance(x, tf.compat.v1.SparseTensorValue):
-      x = tf.convert_to_tensor_or_sparse_tensor(x)
+      x = tf.compat.v1.convert_to_tensor_or_sparse_tensor(x)
     else:
       x = tf.constant(x)
     expected_results = tuple(tf.constant(t) for t in expected_results)

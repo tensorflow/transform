@@ -65,7 +65,8 @@ class _ManifestFile(object):
     try:
       return pickler.loads(manifest_file_handle.read())
     except ValueError as e:
-      tf.logging.error('Can\'t load cache manifest contents: %s', str(e))
+      tf.compat.v1.logging.error('Can\'t load cache manifest contents: %s',
+                                 str(e))
       return {}
 
   def read(self):

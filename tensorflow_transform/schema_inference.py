@@ -80,7 +80,7 @@ def _feature_spec_from_batched_tensors(tensors):
       feature_spec[name] = tf.io.FixedLenFeature(shape.as_list()[1:],
                                                  tensor.dtype)
     elif isinstance(tensor, tf.RaggedTensor):
-      tf.logging.warn(
+      tf.compat.v1.logging.warn(
           'Feature %s was a RaggedTensor.  A Schema will be generated but the '
           'Schema cannot be used with a coder (e.g. to materialize output '
           'data) or to generated a feature spec.', name)

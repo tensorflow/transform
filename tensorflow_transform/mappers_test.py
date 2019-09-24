@@ -56,7 +56,7 @@ class MappersTest(test_case.TransformTestCase):
 
   def testNGramsEmpty(self):
     output_tensor = mappers.ngrams(
-        tf.strings.split(tf.constant([''])), (1, 5), '')
+        tf.compat.v1.strings.split(tf.constant([''])), (1, 5), '')
     with tf.compat.v1.Session():
       output = output_tensor.eval()
       self.assertEqual((0, 2), output.indices.shape)
@@ -116,7 +116,7 @@ class MappersTest(test_case.TransformTestCase):
 
   def testNGramsWithSpaceSeparator(self):
     string_tensor = tf.constant(['One was Johnny', 'Two was a rat'])
-    tokenized_tensor = tf.strings.split(string_tensor, sep=' ')
+    tokenized_tensor = tf.compat.v1.strings.split(string_tensor, sep=' ')
     output_tensor = mappers.ngrams(
         tokens=tokenized_tensor,
         ngram_range=(1, 2),
@@ -135,7 +135,7 @@ class MappersTest(test_case.TransformTestCase):
 
   def testNGramsWithRepeatedTokensPerRow(self):
     string_tensor = tf.constant(['Cats or dogs or bunnies', 'Cats not rats'])
-    tokenized_tensor = tf.strings.split(string_tensor, sep=' ')
+    tokenized_tensor = tf.compat.v1.strings.split(string_tensor, sep=' ')
     output_tensor = mappers.ngrams(
         tokens=tokenized_tensor, ngram_range=(1, 1), separator=' ')
     with tf.compat.v1.Session():
