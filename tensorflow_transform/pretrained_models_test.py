@@ -103,6 +103,10 @@ class PretrainedModelsTest(tf.test.TestCase):
       sess.run(tf.compat.v1.global_variables_initializer())
       saver.save(sess, checkpoint_path)
 
+  # TODO(b/129758574): Remove this.
+  @unittest.skipIf(
+      not pretrained_models._PRETRAINED_MODELS_SUPPORTED,
+      'pretrained_models is not compatible with TF 2.0.')
   def testApplySavedModelSingleInput(self):
     export_dir = os.path.join(self.get_temp_dir(), 'single_input')
     self.save_model_with_single_input(export_dir)
@@ -115,6 +119,10 @@ class PretrainedModelsTest(tf.test.TestCase):
       output_value = sess.run(output_tensor, feed_dict=feed_dict)
       self.assertAllEqual(output_value, [3, 4, 5, 6, 7])
 
+  # TODO(b/129758574): Remove this.
+  @unittest.skipIf(
+      not pretrained_models._PRETRAINED_MODELS_SUPPORTED,
+      'pretrained_models is not compatible with TF 2.0.')
   def testApplySavedModelMultiInputs(self):
     export_dir = os.path.join(self.get_temp_dir(), 'multi_inputs')
     self.save_model_with_multi_inputs(export_dir)
@@ -142,7 +150,7 @@ class PretrainedModelsTest(tf.test.TestCase):
 
   # TODO(b/129758574): Remove this.
   @unittest.skipIf(
-      not pretrained_models._ESTIMATOR_CONTRIB_EXISTS,
+      not pretrained_models._PRETRAINED_MODELS_SUPPORTED,
       'pretrained_models requires tf-estimator to have a contrib module.')
   def testApplyFunctionWithCheckpointTwoInputs(self):
     checkpoint = os.path.join(self.get_temp_dir(), 'checkpoint_two')

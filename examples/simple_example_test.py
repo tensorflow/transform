@@ -20,11 +20,13 @@ from __future__ import print_function
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
+from tensorflow_transform.beam import tft_unit
 import simple_example
 
 
 class SimpleExampleTest(tf.test.TestCase):
 
+  @tft_unit.disable_tf_version_check
   def testMainDoesNotCrash(self):
     simple_example.main()
 

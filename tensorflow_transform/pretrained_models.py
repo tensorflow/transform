@@ -28,14 +28,16 @@ from __future__ import print_function
 import six
 import tensorflow as tf
 
-from tensorflow.contrib.session_bundle import bundle_shim
 
-# TODO(b/129758574): Remove this.
+# TODO(b/129758574): Remove this try/except block.
 try:
-  from tensorflow_estimator.contrib import estimator  # pylint: disable=unused-import,g-import-not-at-top
-  _ESTIMATOR_CONTRIB_EXISTS = True
+  # pylint: disable=g-import-not-at-top
+  from tensorflow.contrib.session_bundle import bundle_shim
+  from tensorflow_estimator.contrib import estimator  # pylint: disable=unused-import
+  # pylint: enable=g-import-not-at-top
+  _PRETRAINED_MODELS_SUPPORTED = True
 except ImportError:
-  _ESTIMATOR_CONTRIB_EXISTS = False
+  _PRETRAINED_MODELS_SUPPORTED = False
 
 
 def apply_saved_model(model_dir, inputs, tags, signature_name=None,

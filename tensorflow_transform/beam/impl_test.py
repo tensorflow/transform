@@ -333,7 +333,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   # TODO(b/129758574): Remove this.
   @unittest.skipIf(
-      not tft.pretrained_models._ESTIMATOR_CONTRIB_EXISTS,
+      not tft.pretrained_models._PRETRAINED_MODELS_SUPPORTED,
       'pretrained_models requires tf-estimator to have a contrib module.')
   def testApplyFunctionWithCheckpoint(self):
 

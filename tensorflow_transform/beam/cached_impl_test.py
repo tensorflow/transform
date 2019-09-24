@@ -690,7 +690,7 @@ class CachedImplTest(test_case.TransformTestCase):
 
     input_metadata = dataset_metadata.DatasetMetadata(
         schema_utils.schema_from_feature_spec({
-            'x': tf.FixedLenFeature([], tf.int64),
+            'x': tf.io.FixedLenFeature([], tf.int64),
         }))
     input_data_dict = {
         span_0_key: [{

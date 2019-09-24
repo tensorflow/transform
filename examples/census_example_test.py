@@ -22,12 +22,14 @@ import os
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
+from tensorflow_transform.beam import tft_unit
 import census_example
 import local_model_server
 
 
 class CensusExampleTest(tf.test.TestCase):
 
+  @tft_unit.disable_tf_version_check
   def testCensusExampleAccuracy(self):
     raw_data_dir = os.path.join(os.path.dirname(__file__), 'testdata/census')
     working_dir = self.get_temp_dir()

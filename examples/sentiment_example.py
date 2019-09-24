@@ -341,7 +341,7 @@ def train_and_evaluate(working_dir,
   estimator = tf.estimator.LinearClassifier(
       feature_columns=get_feature_columns(tf_transform_output),
       config=run_config,
-      loss_reduction=tf.compat.v1.losses.Reduction.SUM)
+      loss_reduction=tf.losses.Reduction.SUM)
 
   # Fit the model using the default optimizer.
   train_input_fn = _make_training_input_fn(
@@ -362,7 +362,7 @@ def train_and_evaluate(working_dir,
   # Export the model.
   serving_input_fn = _make_serving_input_fn(tf_transform_output)
   exported_model_dir = os.path.join(working_dir, EXPORTED_MODEL_DIR)
-  estimator.export_savedmodel(exported_model_dir, serving_input_fn)
+  estimator.export_saved_model(exported_model_dir, serving_input_fn)
 
   return result
 
@@ -395,6 +395,4 @@ def main():
 
 
 if __name__ == '__main__':
-  # TODO(b/133440043): Remove this once TFT supports eager execution.
-  tf.compat.v1.disable_eager_execution()
   main()

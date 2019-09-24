@@ -44,6 +44,9 @@ cross_named_parameters = test_case.cross_named_parameters
 main = test_case.main
 
 
+mock = tf.compat.v1.test.mock
+
+
 def metadata_from_feature_spec(feature_spec, domains=None):
   """Construct a DatasetMetadata from a feature spec.
 
@@ -56,6 +59,15 @@ def metadata_from_feature_spec(feature_spec, domains=None):
   """
   return dataset_metadata.DatasetMetadata(
       schema_utils.schema_from_feature_spec(feature_spec, domains))
+
+
+def disable_tf_version_check(test_fn):
+
+  def _run_test(*args, **kwargs):
+    with mock.patch.object(beam_impl, '_assert_tensorflow_version'):
+      return test_fn(*args, **kwargs)
+
+  return _run_test
 
 
 class TransformTestCase(test_case.TransformTestCase):
