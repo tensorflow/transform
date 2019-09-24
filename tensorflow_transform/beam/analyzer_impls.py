@@ -110,15 +110,7 @@ def _ApplyFrequencyThresholdAndTopK(  # pylint: disable=invalid-name
     counts |= ('FilterByFrequencyThreshold(%s)' % frequency_threshold >>
                beam.Filter(lambda kv: kv[0] >= frequency_threshold))
 
-  if top_k is None:
-    # Performance optimization to obviate reading from finely sharded files via
-    # AsIter in order_elements below. By breaking fusion, we allow sharded
-    # files' sizes to be automatically computed (when possible), so we end up
-    # reading from fewer and larger files. This is not needed when top_k is
-    # provided since that already induces a single-sharded output.
-    # TODO(b/26245647): Remove this "Reshard".
-    counts |= 'Reshard' >> beam.transforms.Reshuffle()  # pylint: disable=no-value-for-parameter
-  else:
+  if top_k is not None:
     # TODO(katsiapis): Perhaps enhance Beam's Top to accept an N that can
     # signify "unlimited" and then we can simplify a lot of our code (though
     # that might come at a performance penalty).
@@ -129,15 +121,17 @@ def _ApplyFrequencyThresholdAndTopK(  # pylint: disable=invalid-name
         key = key_fn(term)
         return key, (count, term)
 
-      return (
+      counts = (
           counts
           | 'MapKeyToCountAndTerm' >> beam.Map(
               lambda x: map_key_to_count_and_term(x, key_fn))
           | 'CoverageTop(%s)' % top_k >> beam.combiners.Top.LargestPerKey(top_k)
           | 'FlattenCoverageTerms' >> beam.FlatMap(lambda kv: kv[1]))
-    counts = (counts
-              | 'Top(%s)' % top_k >> beam.combiners.Top.Of(top_k)
-              | 'FlattenList' >> beam.FlatMap(lambda lst: lst))
+    else:
+      counts = (counts
+                | 'Top(%s)' % top_k >> beam.combiners.Top.Of(top_k)
+                | 'FlattenList' >> beam.FlatMap(lambda lst: lst))
+
   return counts
 
 
@@ -168,7 +162,7 @@ def sum_labeled_weights(accs):
 @beam.typehints.with_input_types(Tuple[np.ndarray, ...])
 # TODO(b/123325923): Constrain the key type here to the right string type.
 @beam.typehints.with_output_types(KV[Any, Union[int, float]])  # Any -> np.str?
-class VocabularyAccumulateImpl(beam.PTransform):
+class _VocabularyAccumulateImpl(beam.PTransform):
   """Accumulates the unique elements in a PCollection of batches."""
 
   def __init__(self, operation, extra_args):
@@ -221,7 +215,7 @@ class VocabularyAccumulateImpl(beam.PTransform):
 @beam.typehints.with_input_types(KV[np.str, Union[int, float]])
 # TODO(b/123325923): Constrain the value type here to the right string type.
 @beam.typehints.with_output_types(KV[Union[int, float], Any])  # Any -> np.str?
-class VocabularyMergeImpl(beam.PTransform):
+class _VocabularyMergeImpl(beam.PTransform):
   """Merges vocabulary accumulators of (token, num) pairs."""
 
   def __init__(self, operation, extra_args):
@@ -253,7 +247,7 @@ class VocabularyMergeImpl(beam.PTransform):
 @beam.typehints.with_input_types(KV[Union[int, float], np.str])
 # TODO(b/123325923): Constrain the value type here to the right string type.
 @beam.typehints.with_output_types(KV[Union[int, float], Any])  # Any -> np.str?
-class VocabularyOrderAndFilterImpl(beam.PTransform):
+class _VocabularyOrderAndFilterImpl(beam.PTransform):
   """Order, filters and writes the computed vocabulary file."""
 
   def __init__(self, operation, extra_args):
@@ -304,7 +298,7 @@ class VocabularyOrderAndFilterImpl(beam.PTransform):
 @common.register_ptransform(analyzer_nodes.VocabularyWrite)
 @beam.typehints.with_input_types(KV[Union[int, float], np.str])
 @beam.typehints.with_output_types(np.ndarray)
-class VocabularyWriteImpl(beam.PTransform):
+class _VocabularyWriteImpl(beam.PTransform):
   """Writes the computed vocabulary file."""
 
   def __init__(self, operation, extra_args):
@@ -320,12 +314,10 @@ class VocabularyWriteImpl(beam.PTransform):
     vocab_is_written = (
         counts.pipeline
         | 'Prepare' >> beam.Create([None])
-
-        # Using AsIter instead of AsList at the callsite below in order to
-        # reduce max memory usage.
         | 'OrderElements' >> beam.ParDo(
             _OrderElementsFn(self._store_frequency, self._fingerprint_shuffle,
                              self._input_dtype),
+            # Using AsIter instead of AsList to reduce max memory usage.
             counts_iter=beam.pvalue.AsIter(counts))
         # TODO(b/62379925) For now force a single file. Should
         # `InitializeTableFromTextFile` operate on a @N set of files?

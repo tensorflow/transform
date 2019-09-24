@@ -476,7 +476,7 @@ class VocabularyAccumulate(
   """An operation that accumulates unique words with their frequency or weight.
 
   This operation is implemented by
-  `tensorflow_transform.beam.analyzer_impls.VocabularyAccumulateImpl`.
+  `tensorflow_transform.beam.analyzer_impls._VocabularyAccumulateImpl`.
   """
 
   def __new__(cls, vocab_ordering_type, input_dtype=tf.string.name, label=None):
@@ -572,7 +572,8 @@ class VocabularyMerge(
   """An operation that merges the accumulators produced by VocabularyAccumulate.
 
   This operation operates on the output of VocabularyAccumulate and is
-  implemented by `tensorflow_transform.beam.analyzer_impls.VocabularyMergeImpl`.
+  implemented by `tensorflow_transform.beam.analyzer_impls._VocabularyMergeImpl`
+  .
 
   See `tft.vocabulary` for a description of the parameters.
   """
@@ -605,7 +606,7 @@ class VocabularyOrderAndFilter(
   """An operation that filters and orders a computed vocabulary.
 
   This operation operates on the output of VocabularyMerge and is implemented by
-  `tensorflow_transform.beam.analyzer_impls.VocabularyOrderAndFilterImpl`.
+  `tensorflow_transform.beam.analyzer_impls._VocabularyOrderAndFilterImpl`.
 
   See `tft.vocabulary` for a description of the parameters.
   """
@@ -646,7 +647,8 @@ class VocabularyWrite(
   """An analyzer that writes vocabulary files from an accumulator.
 
   This operation operates on the output of VocabularyOrderAndFilter and is
-  implemented by `tensorflow_transform.beam.analyzer_impls.VocabularyWriteImpl`.
+  implemented by `tensorflow_transform.beam.analyzer_impls._VocabularyWriteImpl`
+  .
 
   See `tft.vocabulary` for a description of the parameters.
   """
