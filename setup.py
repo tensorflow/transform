@@ -40,7 +40,7 @@ def _make_required_install_packages():
       # 'tensorflow>=1.14,<2',
 
       # TODO(b/138934800): Update to use released version of tfx-bsl.
-      'tfx-bsl>=0.15.0.dev0,<0.16'
+      'tfx-bsl>=0.15.0.dev0,<0.16',
 
       'pydot>=1.2.0,<2',
   ]
