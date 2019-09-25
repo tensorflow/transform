@@ -168,6 +168,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def tearDown(self):
     self._context.__exit__()
 
+
+  # TODO(b/129758574): Remove this.
+  @unittest.skipIf(not tft.pretrained_models._PRETRAINED_MODELS_SUPPORTED,
+                     'pretrained_models it not compatible with TF 2.0 yet.')
   def testApplySavedModelSingleInput(self):
     def save_model_with_single_input(instance, export_dir):
       builder = tf.compat.v1.saved_model.builder.SavedModelBuilder(export_dir)
@@ -216,6 +220,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
+  # TODO(b/129758574): Remove this.
+  @unittest.skipIf(not tft.pretrained_models._PRETRAINED_MODELS_SUPPORTED,
+                     'pretrained_models it not compatible with TF 2.0 yet.')
   def testApplySavedModelWithHashTable(self):
     def save_model_with_hash_table(instance, export_dir):
       builder = tf.compat.v1.saved_model.builder.SavedModelBuilder(export_dir)
@@ -266,6 +273,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
+  # TODO(b/129758574): Remove this.
+  @unittest.skipIf(not tft.pretrained_models._PRETRAINED_MODELS_SUPPORTED,
+                     'pretrained_models it not compatible with TF 2.0 yet.')
   def testApplySavedModelMultiInputs(self):
 
     def save_model_with_multi_inputs(instance, export_dir):
@@ -489,6 +499,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata, desired_batch_size=1)
 
+  @tft_unit.disable_tf_version_check
   def testTransformWithExcludedOutputs(self):
     def preprocessing_fn(inputs):
       return {
@@ -2928,6 +2939,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
+  @tft_unit.disable_tf_version_check
   def testPipelineWithoutAutomaterialization(self):
     # Other tests pass lists instead of PCollections and thus invoke
     # automaterialization where each call to a beam PTransform will implicitly
@@ -3468,6 +3480,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_metadata,
         desired_batch_size=10)
 
+  @tft_unit.disable_tf_version_check
   def testVocabularyWithFrequency(self):
     outfile = 'vocabulary_with_frequency'
     def preprocessing_fn(inputs):
@@ -3736,6 +3749,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_outputs,
         desired_batch_size=10)
 
+  @tft_unit.disable_tf_version_check
   def testVocabularyWithKeyFnAndFrequency(self):
     def key_fn(string):
       return string.split(b'_X_')[1]
@@ -3809,15 +3823,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
     check_asset_file_contents(assets_path, outfile,
                               '4 1_X_a\n2 2_X_b\n1 4_X_c\n')
 
+  @tft_unit.disable_tf_version_check
   def testSavedModelWithAnnotations(self):
     """Test serialization/deserialization as a saved model with annotations."""
     # TODO(b/132098015): Schema annotations aren't yet supported in OSS builds.
-    # pylint: disable=g-import-not-at-top
     try:
-      from tensorflow_transform import annotations_pb2
+      from tensorflow_transform import annotations_pb2  # pylint: disable=g-import-not-at-top
     except ImportError:
       return
-    # pylint: enable=g-import-not-at-top
     def preprocessing_fn(inputs):
       # Bucketization applies annotations to the output schema
       return {
@@ -3847,14 +3860,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
         annotation.Unpack(message)
         self.assertAllClose(list(message.boundaries), [2, 3, 4])
 
+  @tft_unit.disable_tf_version_check
   def testSavedModelWithGlobalAnnotations(self):
     # TODO(b/132098015): Schema annotations aren't yet supported in OSS builds.
-    # pylint: disable=g-import-not-at-top
     try:
-      from tensorflow_transform import annotations_pb2
+      from tensorflow_transform import annotations_pb2  # pylint: disable=g-import-not-at-top
     except ImportError:
       return
-    # pylint: enable=g-import-not-at-top
     def preprocessing_fn(inputs):
       # Add some arbitrary annotation data at the global schema level.
       boundaries = tf.constant([[1.0]])

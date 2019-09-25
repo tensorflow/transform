@@ -61,6 +61,8 @@ def metadata_from_feature_spec(feature_spec, domains=None):
       schema_utils.schema_from_feature_spec(feature_spec, domains))
 
 
+# TODO(b/129758574): Remove this decorator once the TF version check allows for
+# TF 2.0.
 def disable_tf_version_check(test_fn):
 
   def _run_test(*args, **kwargs):
@@ -154,6 +156,7 @@ class TransformTestCase(test_case.TransformTestCase):
         test_data=test_data,
         desired_batch_size=desired_batch_size)
 
+  @disable_tf_version_check
   def assertAnalyzeAndTransformResults(self,
                                        input_data,
                                        input_metadata,

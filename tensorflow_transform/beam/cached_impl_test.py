@@ -36,7 +36,7 @@ from tensorflow_transform import nodes
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.beam import analysis_graph_builder
 from tensorflow_transform.beam import analyzer_cache
-from tensorflow_transform import test_case
+from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
 
@@ -353,7 +353,7 @@ def mock_out_cache_hash(test_fn):
   return _run_test
 
 
-class CachedImplTest(test_case.TransformTestCase):
+class CachedImplTest(tft_unit.TransformTestCase):
 
   def setUp(self):
     super(CachedImplTest, self).setUp()
@@ -370,6 +370,7 @@ class CachedImplTest(test_case.TransformTestCase):
     super(CachedImplTest, self).tearDown()
 
   @mock_out_cache_hash
+  @tft_unit.disable_tf_version_check
   def test_single_phase_mixed_analyzer_run_once(self):
     span_0_key = 'span-0'
     span_1_key = 'span-1'
@@ -485,6 +486,7 @@ class CachedImplTest(test_case.TransformTestCase):
     self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
     self.assertEqual(_get_counter_value(p.metrics, 'num_packed_combiners'), 1)
 
+  @tft_unit.disable_tf_version_check
   def test_single_phase_run_twice(self):
 
     span_0_key = 'span-0'
@@ -676,6 +678,7 @@ class CachedImplTest(test_case.TransformTestCase):
     self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 1)
 
   @mock_out_cache_hash
+  @tft_unit.disable_tf_version_check
   def test_caching_vocab_for_integer_categorical(self):
 
     span_0_key = 'span-0'
@@ -771,6 +774,7 @@ class CachedImplTest(test_case.TransformTestCase):
     self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
 
   @mock_out_cache_hash
+  @tft_unit.disable_tf_version_check
   def test_non_frequency_vocabulary_merge(self):
     """This test compares vocabularies produced with and without cache."""
 
@@ -919,7 +923,7 @@ class CachedImplTest(test_case.TransformTestCase):
             'vocab with cache != vocab without cache for: {}'.format(
                 vocab_filename))
 
-  @test_case.named_parameters(*_OPTIMIZE_TRAVERSAL_TEST_CASES)
+  @tft_unit.named_parameters(*_OPTIMIZE_TRAVERSAL_TEST_CASES)
   @mock_out_cache_hash
   def test_optimize_traversal(self, feature_spec, preprocessing_fn,
                               dataset_input_cache_dict, expected_dot_graph_str):
@@ -929,13 +933,14 @@ class CachedImplTest(test_case.TransformTestCase):
     else:
       cache = {}
 
-    with tf.compat.v1.name_scope('inputs'):
-      input_signature = impl_helper.feature_spec_as_batched_placeholders(
-          feature_spec)
-    output_signature = preprocessing_fn(input_signature)
-    transform_fn_future, cache_output_dict = analysis_graph_builder.build(
-        tf.compat.v1.get_default_graph(), input_signature, output_signature,
-        {span_0_key, span_1_key}, cache)
+    with tf.compat.v1.Graph().as_default() as graph:
+      with tf.compat.v1.name_scope('inputs'):
+        input_signature = impl_helper.feature_spec_as_batched_placeholders(
+            feature_spec)
+      output_signature = preprocessing_fn(input_signature)
+      transform_fn_future, cache_output_dict = analysis_graph_builder.build(
+          graph, input_signature, output_signature, {span_0_key, span_1_key},
+          cache)
 
     leaf_nodes = [transform_fn_future] + sorted(
         cache_output_dict.values(), key=str)
@@ -948,6 +953,7 @@ class CachedImplTest(test_case.TransformTestCase):
         msg='Result dot graph is:\n{}\nCache output dict keys are: {}'.format(
             dot_string, cache_output_dict.keys()))
 
+  @tft_unit.disable_tf_version_check
   def test_no_data_needed(self):
     span_0_key = 'span-0'
     span_1_key = 'span-1'
@@ -977,6 +983,7 @@ class CachedImplTest(test_case.TransformTestCase):
               preprocessing_fn, pipeline=p))
       self.assertFalse(output_cache)
 
+  @tft_unit.disable_tf_version_check
   def test_tf_function_fails_cache(self):
 
     def preprocessing_fn(inputs):
@@ -1058,8 +1065,5 @@ class CachedImplTest(test_case.TransformTestCase):
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 1)
     self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
 
-
 if __name__ == '__main__':
-  # TODO(b/133440043): Remove this once TFT supports eager execution.
-  tf.compat.v1.disable_eager_execution()
-  test_case.main()
+  tft_unit.main()

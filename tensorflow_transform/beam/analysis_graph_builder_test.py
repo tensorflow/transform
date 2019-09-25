@@ -367,12 +367,13 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
 
   @test_case.named_parameters(*_ANALYZE_TEST_CASES)
   def test_build(self, feature_spec, preprocessing_fn, expected_dot_graph_str):
-    with tf.compat.v1.name_scope('inputs'):
-      input_signature = impl_helper.feature_spec_as_batched_placeholders(
-          feature_spec)
-    output_signature = preprocessing_fn(input_signature)
-    transform_fn_future, unused_cache = analysis_graph_builder.build(
-        tf.compat.v1.get_default_graph(), input_signature, output_signature)
+    with tf.compat.v1.Graph().as_default() as graph:
+      with tf.compat.v1.name_scope('inputs'):
+        input_signature = impl_helper.feature_spec_as_batched_placeholders(
+            feature_spec)
+      output_signature = preprocessing_fn(input_signature)
+      transform_fn_future, unused_cache = analysis_graph_builder.build(
+          graph, input_signature, output_signature)
 
     dot_string = nodes.get_dot_graph([transform_fn_future]).to_string()
     self.WriteRenderedDotFile(dot_string)

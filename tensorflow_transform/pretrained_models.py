@@ -34,9 +34,10 @@ try:
   # pylint: disable=g-import-not-at-top
   from tensorflow.contrib.session_bundle import bundle_shim
   from tensorflow_estimator.contrib import estimator  # pylint: disable=unused-import
+  _ = tf.contrib.slim.get_variables_to_restore
   # pylint: enable=g-import-not-at-top
   _PRETRAINED_MODELS_SUPPORTED = True
-except ImportError:
+except (ImportError, AttributeError):
   _PRETRAINED_MODELS_SUPPORTED = False
 
 
