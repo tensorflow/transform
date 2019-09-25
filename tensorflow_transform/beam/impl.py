@@ -102,11 +102,11 @@ from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import beam_nodes
 from tensorflow_transform.beam import common
 from tensorflow_transform.beam import deep_copy
+from tensorflow_transform.beam import shared
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
-from tfx_bsl.beam import shared
 
 # TODO(b/123325923): Fix the key type here to agree with the actual keys.
 _DATASET_ELEMENT_TYPE = Dict[Any,  # Any -> six.text_type?
