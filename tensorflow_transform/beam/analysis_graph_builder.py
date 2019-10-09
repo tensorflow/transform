@@ -29,6 +29,7 @@ from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import graph_tools
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
+from tensorflow_transform import tf_utils
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import beam_nodes
 
@@ -475,7 +476,7 @@ def get_analysis_dataset_keys(preprocessing_fn, feature_spec, dataset_keys,
         dataset is required. See the `flat_data` input to
         `AnalyzeDatasetWithCache`.
   """
-  with tf.Graph().as_default() as graph:
+  with tf.compat.v1.Graph().as_default() as graph:
     with tf.compat.v1.name_scope('inputs'):
       input_signature = impl_helper.feature_spec_as_batched_placeholders(
           feature_spec)
@@ -723,7 +724,8 @@ def build(graph,
   phase = 0
   tensor_bindings = []
   sink_tensors_ready = {
-      tensor_sink.tensor: False for tensor_sink in tensor_sinks
+      tf_utils.hashable_tensor_or_op(tensor_sink.tensor):
+          False for tensor_sink in tensor_sinks
   }
   translate_visitor = _TranslateVisitor()
   translate_traverser = nodes.Traverser(translate_visitor)
@@ -736,7 +738,7 @@ def build(graph,
     # Determine which keys of pending_tensor_replacements are ready to run
     # in this phase, based in whether their dependencies are ready.
     graph_analyzer = graph_tools.InitializableGraphAnalyzer(
-        graph, input_signature, sink_tensors_ready,
+        graph, input_signature, list(sink_tensors_ready.items()),
         _describe_path_as_analyzer_cache_hash)
     ready_traverser = nodes.Traverser(_ReadyVisitor(graph_analyzer))
 
@@ -762,8 +764,9 @@ def build(graph,
         intermediate_output_signature)
     translate_visitor.extracted_values_dict = extracted_values_dict
     for tensor, value_node, is_asset_filepath in tensor_sinks:
+      hashable_tensor = tf_utils.hashable_tensor_or_op(tensor)
       # Don't compute a binding/sink/replacement that's already been computed
-      if sink_tensors_ready[tensor]:
+      if sink_tensors_ready[hashable_tensor]:
         continue
 
       if not ready_traverser.visit_value_node(value_node):
@@ -779,7 +782,7 @@ def build(graph,
               tensor=str(tensor.name),
               is_asset_filepath=is_asset_filepath,
               label='CreateTensorBinding[{}]'.format(name)))
-      sink_tensors_ready[tensor] = True
+      sink_tensors_ready[hashable_tensor] = True
 
     analyzers_input_signature.update(intermediate_output_signature)
     phase += 1

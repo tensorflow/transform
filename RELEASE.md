@@ -14,6 +14,11 @@
 * Vocabulary's cache coder now supports non utf-8 encodable tokens.
 * Fixes encoding of the `tft.covariance` accumulator cache.
 * Fixes encoding per-key analyzers accumulator cache.
+* Make various utility methods in `tft.inspect_preprocessing_fn` support
+  RaggedTensor.
+* Moved beam/shared lib to `tfx-bsl`. If running with latest master, `tfx-bsl`
+  must also be latest master.
+* Depends on `tfx-bsl>=0.15,<0.16`.
 
 ## Breaking changes
 * `always_return_num_quantiles` changed to default to True in `tft.quantiles`

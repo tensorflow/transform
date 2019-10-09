@@ -82,6 +82,7 @@ import threading
 
 import apache_beam as beam
 
+from apache_beam.runners.portability import fn_api_runner
 from apache_beam.transforms import util
 from apache_beam.typehints import Any
 from apache_beam.typehints import Dict
@@ -102,11 +103,34 @@ from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import beam_nodes
 from tensorflow_transform.beam import common
 from tensorflow_transform.beam import deep_copy
-from tensorflow_transform.beam import shared
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
+from tfx_bsl.beam import shared
+
+# For some runners, we rely on Beam to manage concurrency, i.e. we expect it to
+# run one session per CPU--so we don't want to proliferate TF threads.
+# Nonetheless we provide 4 threads per session for TF ops, 2 inter-
+# and 2 intra-thread.  In many cases only 2 of these will be runnable
+# at any given time.  This approach oversubscribes a bit to make sure
+# the CPUs are really saturated.
+_FIXED_PARALLELISM_TF_CONFIG = tf.compat.v1.ConfigProto(
+    # TODO(b/36091595): use_per_session_threads is deprecated, but the
+    # replacement session_inter_op_thread_pool is experimental; using
+    # the former for now.
+    use_per_session_threads=True,
+    inter_op_parallelism_threads=2,
+    intra_op_parallelism_threads=2)
+
+_DEFAULT_TENSORFLOW_CONFIG_BY_BEAM_RUNNER_TYPE = {
+    # TODO(katsiapis): Perhaps remove this entry once b/69922446 and b/30837990
+    # are resolved.
+    beam.runners.DataflowRunner: _FIXED_PARALLELISM_TF_CONFIG,
+
+    beam.runners.DirectRunner: _FIXED_PARALLELISM_TF_CONFIG,
+    fn_api_runner.FnApiRunner: _FIXED_PARALLELISM_TF_CONFIG,
+}
 
 # TODO(b/123325923): Fix the key type here to agree with the actual keys.
 _DATASET_ELEMENT_TYPE = Dict[Any,  # Any -> six.text_type?
@@ -309,7 +333,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
     def __init__(self, saved_model_dir, input_schema, exclude_outputs,
                  tf_config):
       self.saved_model_dir = saved_model_dir
-      with tf.Graph().as_default() as graph:
+      with tf.compat.v1.Graph().as_default() as graph:
         self._session = tf.compat.v1.Session(graph=graph, config=tf_config)
         with self._session.as_default():
           inputs, outputs = (
@@ -518,7 +542,7 @@ def _replace_tensors_with_constant_values(saved_model_dir, tensor_bindings,
       RuntimeError: if there is no default graph available to which to
         apply the transform.
   """
-  with tf.Graph().as_default() as graph:
+  with tf.compat.v1.Graph().as_default() as graph:
     tensor_replacement_map = {}
     for value, tensor_name, is_asset_filepath in tensor_bindings:
       replacement_tensor = tf.constant(value)
@@ -655,7 +679,7 @@ class _Flatten(beam.PTransform):
 
 def _infer_metadata_from_saved_model(saved_model_dir):
   """Infers a DatasetMetadata for outputs of a SavedModel."""
-  with tf.Graph().as_default() as graph:
+  with tf.compat.v1.Graph().as_default() as graph:
     with tf.compat.v1.Session(graph=graph) as session:
       _, outputs = (
           saved_transform_io.partially_apply_saved_transform_internal(
@@ -715,7 +739,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
 
     input_values_pcoll_dict = input_values_pcoll_dict or dict()
 
-    with tf.Graph().as_default() as graph:
+    with tf.compat.v1.Graph().as_default() as graph:
 
       with tf.compat.v1.name_scope('inputs'):
         feature_spec = schema_utils.schema_as_feature_spec(
@@ -750,8 +774,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
 
     pipeline = self.pipeline or (flattened_pcoll or next(
         v for v in input_values_pcoll_dict.values() if v is not None)).pipeline
-    tf_config = common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
-        pipeline.runner)
+    tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_BEAM_RUNNER_TYPE.get(
+        type(pipeline.runner))
     extra_args = common.ConstructBeamPipelineVisitor.ExtraArgs(
         base_temp_dir=Context.create_base_temp_dir(),
         tf_config=tf_config,
@@ -987,10 +1011,8 @@ class TransformDataset(beam.PTransform):
         output_metadata = _remove_columns_from_metadata(
             output_metadata, self._exclude_outputs)
 
-    tf_config = (
-        common._DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER.get(  # pylint: disable=protected-access
-            self.pipeline.runner))
-
+    tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_BEAM_RUNNER_TYPE.get(
+        type(self.pipeline.runner))
     output_instances = (
         input_values
         | 'Batch' >> _BatchElements()

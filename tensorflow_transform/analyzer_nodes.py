@@ -598,15 +598,15 @@ class VocabularyMerge(
     return 1
 
 
-class VocabularyOrderAndFilter(
-    collections.namedtuple('VocabularyOrderAndFilter', [
+class VocabularyPrune(
+    collections.namedtuple('VocabularyPrune', [
         'top_k', 'frequency_threshold', 'coverage_top_k',
         'coverage_frequency_threshold', 'key_fn', 'label'
     ]), nodes.OperationDef):
   """An operation that filters and orders a computed vocabulary.
 
   This operation operates on the output of VocabularyMerge and is implemented by
-  `tensorflow_transform.beam.analyzer_impls._VocabularyOrderAndFilterImpl`.
+  `tensorflow_transform.beam.analyzer_impls._VocabularyPruneImpl`.
 
   See `tft.vocabulary` for a description of the parameters.
   """
@@ -622,7 +622,7 @@ class VocabularyOrderAndFilter(
     if label is None:
       scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
-    return super(VocabularyOrderAndFilter, cls).__new__(
+    return super(VocabularyPrune, cls).__new__(
         cls,
         top_k=top_k,
         frequency_threshold=frequency_threshold,
@@ -636,8 +636,8 @@ class VocabularyOrderAndFilter(
     return 1
 
 
-class VocabularyWrite(
-    collections.namedtuple('VocabularyWrite', [
+class VocabularyOrderAndWrite(
+    collections.namedtuple('VocabularyOrderAndWrite', [
         'vocab_filename',
         'store_frequency',
         'input_dtype',
@@ -646,9 +646,8 @@ class VocabularyWrite(
     ]), AnalyzerDef):
   """An analyzer that writes vocabulary files from an accumulator.
 
-  This operation operates on the output of VocabularyOrderAndFilter and is
-  implemented by `tensorflow_transform.beam.analyzer_impls._VocabularyWriteImpl`
-  .
+  This operation operates on the output of VocabularyPrune and is implemented by
+  `tensorflow_transform.beam.analyzer_impls._VocabularyOrderAndWriteImpl`.
 
   See `tft.vocabulary` for a description of the parameters.
   """
@@ -662,7 +661,7 @@ class VocabularyWrite(
     if label is None:
       scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
-    return super(VocabularyWrite, cls).__new__(
+    return super(VocabularyOrderAndWrite, cls).__new__(
         cls,
         vocab_filename=vocab_filename,
         store_frequency=store_frequency,

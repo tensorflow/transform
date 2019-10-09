@@ -28,36 +28,12 @@ from apache_beam.typehints import Union
 from six import binary_type
 from six import integer_types
 from six import string_types
-import tensorflow as tf
 from tensorflow_transform import nodes
 
 NUMERIC_TYPE = Union[float, Union[integer_types]]
 PRIMITIVE_TYPE = Union[NUMERIC_TYPE, Union[string_types], binary_type]
 
 METRICS_NAMESPACE = 'tfx.Transform'
-
-_DEFAULT_TENSORFLOW_CONFIG_BY_RUNNER = {
-    # We rely on Beam to manage concurrency, i.e. we expect it to run one
-    # session per CPU--so we don't want to proliferate TF threads.
-    # Nonetheless we provide 4 threads per session for TF ops, 2 inter-
-    # and 2 intra-thread.  In many cases only 2 of these will be runnable
-    # at any given time.  This approach oversubscribes a bit to make sure
-    # the CPUs are really saturated.
-    #
-    # TODO(katsiapis): Perhaps remove this once b/69922446 and b/30837990 are
-    # resolved.
-    beam.runners.DataflowRunner:
-        tf.compat.v1.ConfigProto(
-            # TODO(b/36091595): use_per_session_threads is deprecated, but the
-            # replacement session_inter_op_thread_pool is experimental; using
-            # the former for now.
-            use_per_session_threads=True,
-            inter_op_parallelism_threads=2,
-            intra_op_parallelism_threads=2),
-
-    # TODO(katsiapis): Perhaps do the same for DirectRunner once it becomes
-    # multi-process (https://issues.apache.org/jira/browse/BEAM-3645).
-}
 
 
 def get_unique_temp_path(base_temp_dir):
@@ -75,7 +51,7 @@ def get_unique_temp_path(base_temp_dir):
   return os.path.join(base_temp_dir, uuid.uuid4().hex)
 
 
-PTRANSFORM_BY_OPERATION_DEF_SUBCLASS = {}
+_PTRANSFORM_BY_OPERATION_DEF_SUBCLASS = {}
 
 
 def register_ptransform(operation_def_subclass):
@@ -116,8 +92,8 @@ def register_ptransform(operation_def_subclass):
   """
 
   def register(ptransform_class):
-    assert operation_def_subclass not in PTRANSFORM_BY_OPERATION_DEF_SUBCLASS
-    PTRANSFORM_BY_OPERATION_DEF_SUBCLASS[operation_def_subclass] = (
+    assert operation_def_subclass not in _PTRANSFORM_BY_OPERATION_DEF_SUBCLASS
+    _PTRANSFORM_BY_OPERATION_DEF_SUBCLASS[operation_def_subclass] = (
         ptransform_class)
     return ptransform_class
 
@@ -145,7 +121,7 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
 
   def visit(self, operation, inputs):
     try:
-      ptransform = PTRANSFORM_BY_OPERATION_DEF_SUBCLASS[operation.__class__]
+      ptransform = _PTRANSFORM_BY_OPERATION_DEF_SUBCLASS[operation.__class__]
     except KeyError:
       raise ValueError('No implementation for {} was registered'.format(
           operation))

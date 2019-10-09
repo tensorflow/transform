@@ -159,7 +159,7 @@ class TFTransformOutput(object):
       graph = tf.compat.v1.get_default_graph()
       graph_analyzer = graph_tools.InitializableGraphAnalyzer(
           graph, raw_features,
-          {t: False for t in six.itervalues(unbounded_raw_features)})
+          [(t, False) for t in six.itervalues(unbounded_raw_features)])
       return {
           name: feature
           for name, feature in six.iteritems(transformed_features)

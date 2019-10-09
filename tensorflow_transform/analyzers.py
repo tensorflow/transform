@@ -1108,7 +1108,7 @@ def vocabulary(x,
         vocab_ordering_type=vocab_ordering_type)
 
     filtered_value_node = nodes.apply_operation(
-        analyzer_nodes.VocabularyOrderAndFilter,
+        analyzer_nodes.VocabularyPrune,
         merge_output_value_node,
         coverage_top_k=coverage_top_k,
         coverage_frequency_threshold=coverage_frequency_threshold,
@@ -1117,7 +1117,7 @@ def vocabulary(x,
         frequency_threshold=frequency_threshold)
 
     vocab_filename_node = nodes.apply_operation(
-        analyzer_nodes.VocabularyWrite,
+        analyzer_nodes.VocabularyOrderAndWrite,
         filtered_value_node,
         vocab_filename=vocab_filename,
         store_frequency=store_frequency,
@@ -1376,7 +1376,12 @@ class _QuantilesGraphStateOptions(
         'tf_config', 'random_slot', 'use_core_quantile_ops'
     ])):
   """Options defining an equivalence class of Quantiles shared graph state."""
-  pass
+
+  def __hash__(self):
+    # Some options (like tf_config) are not hashable.
+    # Hashing on just a few properties should suffice for the purpose of
+    # _GraphState caching.
+    return hash((self.num_quantiles, self.num_features, self.random_slot))
 
 
 # TODO(b/138722087): Once the two graph state implementations are merged (in
@@ -1430,7 +1435,7 @@ class _QuantilesGraphState(object):
     self.lock = threading.Lock()
 
     # Create a new session with a new graph for quantile ops.
-    with tf.Graph().as_default() as graph:
+    with tf.compat.v1.Graph().as_default() as graph:
       self._session = tf.compat.v1.Session(
           graph=graph, config=options.tf_config)
 
@@ -1608,7 +1613,7 @@ class _QuantilesGraphStateV2(object):
     self.lock = threading.Lock()
 
     # Create a new session with a new graph for quantile ops.
-    with tf.Graph().as_default() as graph:
+    with tf.compat.v1.Graph().as_default() as graph:
       self._session = tf.compat.v1.Session(
           graph=graph, config=options.tf_config)
 

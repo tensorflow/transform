@@ -77,7 +77,7 @@ class SchemaInferenceTest(test_case.TransformTestCase):
                                 feature_spec,
                                 domains=None,
                                 create_session=False):
-    with tf.Graph().as_default() as graph:
+    with tf.compat.v1.Graph().as_default() as graph:
       tensors = make_tensors_fn()
 
     if create_session:
@@ -91,7 +91,7 @@ class SchemaInferenceTest(test_case.TransformTestCase):
     self.assertEqual(schema, expected_schema)
 
   def test_infer_feature_schema_bad_rank(self):
-    with tf.Graph().as_default() as graph:
+    with tf.compat.v1.Graph().as_default() as graph:
       tensors = {
           'a': tf.compat.v1.placeholder(tf.float32, ()),
       }
@@ -106,7 +106,7 @@ class SchemaInferenceTest(test_case.TransformTestCase):
     except ImportError:
       return
     # pylint: enable=g-import-not-at-top
-    with tf.Graph().as_default() as graph:
+    with tf.compat.v1.Graph().as_default() as graph:
       inputs = {
           'foo': tf.convert_to_tensor([0, 1, 2, 3]),
           'bar': tf.convert_to_tensor([0, 2, 0, 2]),
@@ -148,7 +148,7 @@ class SchemaInferenceTest(test_case.TransformTestCase):
     except ImportError:
       return
     # pylint: enable=g-import-not-at-top
-    with tf.Graph().as_default() as graph:
+    with tf.compat.v1.Graph().as_default() as graph:
       outputs = {
           'foo': tf.convert_to_tensor([0, 1, 2, 3], dtype=tf.int64),
           'bar': tf.convert_to_tensor([0, 2, 0, 2], dtype=tf.int64),
@@ -175,7 +175,7 @@ class SchemaInferenceTest(test_case.TransformTestCase):
           self.assertAllClose(list(message.boundaries), [1])
 
   def test_infer_feature_schema_with_ragged_tensor(self):
-    with tf.Graph().as_default() as graph:
+    with tf.compat.v1.Graph().as_default() as graph:
       outputs = {
           'foo': tf.RaggedTensor.from_row_splits(
               values=tf.constant([3, 1, 4, 1, 5, 9, 2, 6], tf.int64),

@@ -64,6 +64,14 @@ def _create_graph_with_y_function_of_x_sparse():
   return {'x': x, 'y': y}
 
 
+def _create_graph_with_ragged_tensor():
+  x1 = tf.compat.v1.placeholder(tf.int64, (1, 3, 3))
+  x2 = tf.compat.v1.sparse.placeholder(tf.int64, (4, 3))
+  y1 = tf.RaggedTensor.from_tensor(x1, ragged_rank=2)
+  y2 = tf.RaggedTensor.from_sparse(x2) + 1
+  return {'x1': x1, 'x2': x2, 'y1': y1, 'y2': y2}
+
+
 def _create_graph_with_y_sparse_function_of_x_sparse():
   x = tf.compat.v1.sparse_placeholder(tf.int64)
   y = tf.SparseTensor(
@@ -73,7 +81,7 @@ def _create_graph_with_y_sparse_function_of_x_sparse():
   return {
       'x': x,
       'y': y,
-      'z': tf.sparse.add(y, tf.ones(y.dense_shape, tf.int64))
+      'z': tf.compat.v1.sparse.add(y, tf.ones(y.dense_shape, tf.int64))
   }
 
 
@@ -86,7 +94,7 @@ def _create_graph_with_y_function_of_x_and_table():
 
 
 def _create_graph_with_y_function_of_x_and_table_in_first_phase():
-  table = _create_lookup_table_from_file('not_a_file_name_but_ok')
+  table = _create_lookup_table_from_file(tf.constant('not_a_file_name_but_ok'))
   x = tf.raw_ops.Placeholder(dtype=tf.string, shape=(None,))
   y = table.lookup(x)
   return {'x': x, 'y': y}
@@ -419,15 +427,16 @@ class GraphToolsTest(test_case.TransformTestCase):
       num_ready_table_initializers: The number of table initializers that are
           ready to run in the table initialization run of this phase.
     """
-    tensors = create_graph_fn()
-    replaced_tensors_ready = {tensors[name]: ready
-                              for name, ready in replaced_tensors_ready.items()}
+    with tf.compat.v1.Graph().as_default() as graph:
+      tensors = create_graph_fn()
+      replaced_tensors_ready = [(tensors[name], ready) for name, ready
+                                in replaced_tensors_ready.items()]
 
-    graph_analyzer = graph_tools.InitializableGraphAnalyzer(
-        tf.compat.v1.get_default_graph(), {x: tensors[x] for x in feeds},
-        replaced_tensors_ready)
-    self.assertEqual(len(graph_analyzer.ready_table_initializers),
-                     num_ready_table_initializers)
+      graph_analyzer = graph_tools.InitializableGraphAnalyzer(
+          graph, {x: tensors[x] for x in feeds},
+          replaced_tensors_ready)
+      self.assertEqual(len(graph_analyzer.ready_table_initializers),
+                       num_ready_table_initializers)
 
     for name, ready in should_be_ready.items():
       tensor = tensors[name]
@@ -468,13 +477,14 @@ class GraphToolsTest(test_case.TransformTestCase):
           is ready to be replaced in this phase.
       error_msg_regex: The expected error message.
     """
-    tensors = create_graph_fn()
-    replaced_tensors_ready = {tensors[name]: ready
-                              for name, ready in replaced_tensors_ready.items()}
-    with self.assertRaisesRegexp(ValueError, error_msg_regex):
-      graph_tools.InitializableGraphAnalyzer(tf.compat.v1.get_default_graph(),
-                                             {x: tensors[x] for x in feeds},
-                                             replaced_tensors_ready)
+    with tf.compat.v1.Graph().as_default() as graph:
+      tensors = create_graph_fn()
+      replaced_tensors_ready = [(tensors[name], ready) for name, ready
+                                in replaced_tensors_ready.items()]
+      with self.assertRaisesRegexp(ValueError, error_msg_regex):
+        graph_tools.InitializableGraphAnalyzer(graph,
+                                               {x: tensors[x] for x in feeds},
+                                               replaced_tensors_ready)
 
   @test_case.parameters(
       (_create_graph_with_y_function_of_x, [], {}, 'y',
@@ -500,12 +510,12 @@ class GraphToolsTest(test_case.TransformTestCase):
           create_graph_fn.
       error_msg_regex: The expected error message.
     """
-    tensors = create_graph_fn()
-    replaced_tensors_ready = {tensors[name]: ready
-                              for name, ready in replaced_tensors_ready.items()}
+    with tf.compat.v1.Graph().as_default() as graph:
+      tensors = create_graph_fn()
+    replaced_tensors_ready = [(
+        tensors[name], ready) for name, ready in replaced_tensors_ready.items()]
     graph_analyzer = graph_tools.InitializableGraphAnalyzer(
-        tf.compat.v1.get_default_graph(), {x: tensors[x] for x in feeds},
-        replaced_tensors_ready)
+        graph, {x: tensors[x] for x in feeds}, replaced_tensors_ready)
     with self.assertRaisesRegexp(ValueError, error_msg_regex):
       tensor = tensors[fetch]
       graph_analyzer.ready_to_run(tensor)
@@ -536,6 +546,12 @@ class GraphToolsTest(test_case.TransformTestCase):
           fetches=['y'],
           expected_dependent_inputs=['x']),
       dict(
+          testcase_name='y_function_of_ragged_x',
+          create_graph_fn=_create_graph_with_ragged_tensor,
+          feeds=['x1', 'x2'],
+          fetches=['y1', 'y2'],
+          expected_dependent_inputs=['x1', 'x2']),
+      dict(
           testcase_name='z_function_of_x_y_with_control_dependencies',
           create_graph_fn=_create_graph_with_assert_equal,
           feeds=['x', 'y'],
@@ -550,10 +566,11 @@ class GraphToolsTest(test_case.TransformTestCase):
   )
   def testGetDependentInputs(self, create_graph_fn, feeds, fetches,
                              expected_dependent_inputs):
-    tensors = create_graph_fn()
-    got = graph_tools.get_dependent_inputs(tf.compat.v1.get_default_graph(),
-                                           {x: tensors[x] for x in feeds},
-                                           {y: tensors[y] for y in fetches})
+    with tf.compat.v1.Graph().as_default() as graph:
+      tensors = create_graph_fn()
+      got = graph_tools.get_dependent_inputs(graph,
+                                             {x: tensors[x] for x in feeds},
+                                             {y: tensors[y] for y in fetches})
     self.assertCountEqual(expected_dependent_inputs, got.keys())
     for input_name in expected_dependent_inputs:
       self.assertEqual(tensors[input_name], got[input_name])
@@ -673,26 +690,25 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           replaced_tensors_ready={'x': False},
           expected_calls_dict={
               'x': [
-                  mock.call(_OpMatcher('asset_path'), parents=[]),
-                  mock.call(
-                      _TensorMatcher('asset_path:0'), parents=['asset_path']),
-                  mock.call(_OpMatcher('hash_table'), parents=['asset_path:0']),
+                  mock.call(_OpMatcher('Const'), parents=[]),
+                  mock.call(_TensorMatcher('Const:0'), parents=['Const']),
+                  mock.call(_OpMatcher('hash_table'), parents=['Const:0']),
                   mock.call('x$tensor'),
               ],
               'y': [
-                  mock.call(_OpMatcher('asset_path'), parents=[]),
-                  mock.call(
-                      _TensorMatcher('asset_path:0'), parents=['asset_path']),
-                  mock.call(_OpMatcher('hash_table'), parents=['asset_path:0']),
                   mock.call(_OpMatcher('Const'), parents=[]),
-                  mock.call(_TensorMatcher('Const:0'), parents=['Const']),
+                  mock.call(
+                      _TensorMatcher('Const:0'), parents=['Const']),
+                  mock.call(_OpMatcher('hash_table'), parents=['Const:0']),
+                  mock.call(_OpMatcher('Const_1'), parents=[]),
+                  mock.call(_TensorMatcher('Const_1:0'), parents=['Const_1']),
                   mock.call('x$tensor'),
                   mock.call('hash_table'),
                   mock.call(
                       _TensorMatcher('hash_table:0'), parents=['hash_table']),
                   mock.call(
                       _OpMatcher('hash_table_Lookup/LookupTableFindV2'),
-                      parents=['hash_table:0', 'x$tensor', 'Const:0']),
+                      parents=['hash_table:0', 'x$tensor', 'Const_1:0']),
                   mock.call(
                       _TensorMatcher('hash_table_Lookup/LookupTableFindV2:0'),
                       parents=['hash_table_Lookup/LookupTableFindV2']),
@@ -730,53 +746,52 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
   def testGetUniquePath(self, create_graph_fn, feeds, replaced_tensors_ready,
                         expected_calls_dict):
 
-    tensors = create_graph_fn()
-    replaced_tensors_ready = {
-        tensors[name]: ready for name, ready in replaced_tensors_ready.items()
-    }
+    with tf.compat.v1.Graph().as_default() as graph:
+      tensors = create_graph_fn()
+      replaced_tensors_ready = [(tensors[name], ready) for name, ready
+                                in replaced_tensors_ready.items()]
+      for name in expected_calls_dict:
 
-    for name in expected_calls_dict:
+        # This is used to construct the debugging string below.
+        actual_needed_matchers_to_pass = []
 
-      # This is used to construct the debugging string below.
-      actual_needed_matchers_to_pass = []
+        def describe_path_fn(x, parents=None):
+          if parents is None:
+            parents_str = ''
+          else:
+            parents_str = ', parents={}'.format(
+                list(map(_value_to_matcher, parents)))
+          actual_needed_matchers_to_pass.append('({}{}),'.format(  # pylint: disable=cell-var-from-loop
+              _value_to_matcher(x, True), parents_str))
 
-      def describe_path_fn(x, parents=None):
-        if parents is None:
-          parents_str = ''
-        else:
-          parents_str = ', parents={}'.format(
-              list(map(_value_to_matcher, parents)))
-        actual_needed_matchers_to_pass.append('({}{}),'.format(  # pylint: disable=cell-var-from-loop
-            _value_to_matcher(x, True), parents_str))
+          if isinstance(x, tf.Operation):
+            return x.node_def.name
+          if isinstance(x, tf.Tensor):
+            self.assertLessEqual(len(parents), 1)
+            return x.name
+          if isinstance(x, (six.text_type, str, bytes)):
+            return x
+          raise ValueError('Unexpected type: {}'.format(x))
 
-        if isinstance(x, tf.Operation):
-          return x.node_def.name
-        if isinstance(x, tf.Tensor):
-          self.assertLessEqual(len(parents), 1)
-          return x.name
-        if isinstance(x, (six.text_type, str, bytes)):
-          return x
-        raise ValueError('Unexpected type: {}'.format(x))
+        path_cb_mock = mock.MagicMock(side_effect=describe_path_fn)
 
-      path_cb_mock = mock.MagicMock(side_effect=describe_path_fn)
+        graph_analyzer = graph_tools.InitializableGraphAnalyzer(
+            graph, {x: tensors[x] for x in feeds}, replaced_tensors_ready,
+            path_cb_mock)
 
-      graph_analyzer = graph_tools.InitializableGraphAnalyzer(
-          tf.compat.v1.get_default_graph(), {x: tensors[x] for x in feeds},
-          replaced_tensors_ready, path_cb_mock)
+        graph_analyzer.get_unique_path(tensors[name])
 
-      graph_analyzer.get_unique_path(tensors[name])
-
-      try:
-        path_cb_mock.assert_has_calls(expected_calls_dict[name])
-        self.assertEqual(
-            path_cb_mock.call_count, len(expected_calls_dict[name]),
-            'Number of expected calls != number of actual calls for {}: {}'
-            .format(name, path_cb_mock.call_args_list))
-      except AssertionError:
-        tf.compat.v1.logging.error(
-            'The following is a list of matchers for {}:\n{}'.format(
-                name, '\n'.join(actual_needed_matchers_to_pass)))
-        raise
+        try:
+          path_cb_mock.assert_has_calls(expected_calls_dict[name])
+          self.assertEqual(
+              path_cb_mock.call_count, len(expected_calls_dict[name]),
+              'Number of expected calls != number of actual calls for {}: {}'
+              .format(name, path_cb_mock.call_args_list))
+        except AssertionError:
+          tf.compat.v1.logging.error(
+              'The following is a list of matchers for {}:\n{}'.format(
+                  name, '\n'.join(actual_needed_matchers_to_pass)))
+          raise
 
 
 def _value_to_matcher(value, add_quotes=False):
@@ -795,6 +810,4 @@ def _value_to_matcher(value, add_quotes=False):
 
 
 if __name__ == '__main__':
-  # TODO(b/133440043): Remove this once TFT supports eager execution.
-  tf.compat.v1.disable_eager_execution()
   test_case.main()

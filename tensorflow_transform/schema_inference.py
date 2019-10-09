@@ -29,6 +29,7 @@ import collections
 
 import six
 import tensorflow as tf
+from tensorflow_transform import tf_utils
 from tensorflow_transform.tf_metadata import schema_utils
 
 from google.protobuf import any_pb2
@@ -122,7 +123,7 @@ def infer_feature_schema(features, graph, session=None):
   """
   tensor_ranges = _get_tensor_schema_overrides(graph)
   if session is None:
-    tensor_ranges = {tensor: (None, None) for tensor in tensor_ranges.keys()}
+    tensor_ranges = {hashable: (None, None) for hashable in tensor_ranges}
     tensor_annotations = {}
     global_annotations = []
   else:
@@ -145,13 +146,14 @@ def infer_feature_schema(features, graph, session=None):
     else:
       values = tensor
     values = tensor.values if isinstance(tensor, tf.SparseTensor) else tensor
-    if values in tensor_ranges:
+    hashable_values = tf_utils.hashable_tensor_or_op(values)
+    if hashable_values in tensor_ranges:
       assert values.dtype == tf.int64
-      min_value, max_value = tensor_ranges[values]
+      min_value, max_value = tensor_ranges[hashable_values]
       domains[name] = schema_pb2.IntDomain(
           min=min_value, max=max_value, is_categorical=True)
     # tensor_annotations is a defaultdict(list) so always returns a list.
-    feature_annotations[name] = tensor_annotations.get(values, [])
+    feature_annotations[name] = tensor_annotations.get(hashable_values, [])
   feature_spec = _feature_spec_from_batched_tensors(features)
 
   schema_proto = schema_utils.schema_from_feature_spec(feature_spec, domains)
@@ -230,7 +232,8 @@ def _get_tensor_schema_overrides(graph):
   max_values = graph.get_collection(_TF_METADATA_TENSOR_MAX_COLLECTION)
   assert len(tensors) == len(min_values), '{} != {}'.format(tensors, min_values)
   assert len(tensors) == len(max_values), '{} != {}'.format(tensors, max_values)
-  return dict(zip(tensors, zip(min_values, max_values)))
+  return dict(zip(map(tf_utils.hashable_tensor_or_op, tensors),
+                  zip(min_values, max_values)))
 
 
 def annotate(type_url, proto_message, tensor=None):
@@ -307,5 +310,6 @@ def _get_schema_annotations(graph, session):
     if tensor_name.startswith(_TF_METADATA_EXTRA_ANNOTATION_GLOBAL):
       global_annotations.append(annotation)
     else:
-      tensor_annotations[tensor].append(annotation)
+      tensor_annotations[tf_utils.hashable_tensor_or_op(tensor)].append(
+          annotation)
   return tensor_annotations, global_annotations

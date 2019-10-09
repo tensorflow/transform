@@ -39,6 +39,8 @@ def _make_required_install_packages():
       # between CPU and GPU installation.
       # 'tensorflow>=1.14,<2',
 
+      'tfx-bsl>=0.15,<0.16',
+
       'pydot>=1.2.0,<2',
   ]
 

@@ -19,7 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 import itertools
-
+import re
 # GOOGLE-INITIALIZATION
 
 import numpy as np
@@ -57,18 +57,24 @@ def feature_spec_as_batched_placeholders(feature_spec):
     ValueError: If the feature spec contains feature types not supported.
   """
   result = {}
+  valid_scope_regex = re.compile('^[A-Za-z0-9]*$')
   for name, spec in six.iteritems(feature_spec):
     if spec.dtype not in (tf.int64, tf.float32, tf.string):
       raise ValueError('Feature {} ({}) had invalid dtype'.format(name, spec))
+    scope_name = name
+    # If the feature name is not a valid TF scope name, add a prefix to
+    # make it acceptable as a variable scope.
+    if not valid_scope_regex.match(scope_name):
+      scope_name = 'F_{}'.format(scope_name)
     if isinstance(spec, tf.io.FixedLenFeature):
       result[name] = tf.compat.v1.placeholder(
-          spec.dtype, [None] + spec.shape, name=name)
+          spec.dtype, [None] + spec.shape, name=scope_name)
     elif isinstance(spec, tf.io.VarLenFeature):
       result[name] = tf.compat.v1.sparse_placeholder(
-          spec.dtype, [None, None], name=name)
+          spec.dtype, [None, None], name=scope_name)
     elif isinstance(spec, tf.io.SparseFeature):
       result[name] = tf.compat.v1.sparse_placeholder(
-          spec.dtype, [None, spec.size], name=name)
+          spec.dtype, [None, spec.size], name=scope_name)
     else:
       raise TypeError('Feature spec {} of type {} is not supported for feature '
                       '{}'.format(spec, type(spec), name))

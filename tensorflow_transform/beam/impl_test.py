@@ -43,8 +43,6 @@ from tensorflow.core.example import example_pb2
 from tensorflow.python.ops import lookup_ops
 from tensorflow_metadata.proto.v0 import schema_pb2
 
-import unittest
-
 
 _SCALE_TO_Z_SCORE_TEST_CASES = [
     dict(testcase_name='int16',
@@ -168,32 +166,30 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def tearDown(self):
     self._context.__exit__()
 
-
-  # TODO(b/129758574): Remove this.
-  @unittest.skipIf(not tft.pretrained_models._PRETRAINED_MODELS_SUPPORTED,
-                     'pretrained_models it not compatible with TF 2.0 yet.')
   def testApplySavedModelSingleInput(self):
     def save_model_with_single_input(instance, export_dir):
       builder = tf.compat.v1.saved_model.builder.SavedModelBuilder(export_dir)
-      with instance.test_session(graph=tf.Graph()) as sess:
-        input1 = tf.compat.v1.placeholder(
-            dtype=tf.int64, shape=[3], name='myinput1')
-        initializer = tf.compat.v1.constant_initializer([1, 2, 3])
-        with tf.compat.v1.variable_scope(
-            'Model', reuse=None, initializer=initializer):
-          v1 = tf.compat.v1.get_variable('v1', [3], dtype=tf.int64)
-        output1 = tf.add(v1, input1, name='myadd1')
-        inputs = {'single_input': input1}
-        outputs = {'single_output': output1}
-        signature_def_map = {
-            'serving_default':
-                tf.compat.v1.saved_model.signature_def_utils
-                .predict_signature_def(inputs, outputs)
-        }
-        sess.run(tf.compat.v1.global_variables_initializer())
-        builder.add_meta_graph_and_variables(
-            sess, [tf.saved_model.SERVING], signature_def_map=signature_def_map)
-        builder.save(False)
+      with tf.compat.v1.Graph().as_default() as graph:
+        with instance.test_session(graph=graph) as sess:
+          input1 = tf.compat.v1.placeholder(
+              dtype=tf.int64, shape=[3], name='myinput1')
+          initializer = tf.compat.v1.constant_initializer([1, 2, 3])
+          with tf.compat.v1.variable_scope(
+              'Model', reuse=None, initializer=initializer):
+            v1 = tf.compat.v1.get_variable('v1', [3], dtype=tf.int64)
+          output1 = tf.add(v1, input1, name='myadd1')
+          inputs = {'single_input': input1}
+          outputs = {'single_output': output1}
+          signature_def_map = {
+              'serving_default':
+                  tf.compat.v1.saved_model.signature_def_utils
+                  .predict_signature_def(inputs, outputs)
+          }
+          sess.run(tf.compat.v1.global_variables_initializer())
+          builder.add_meta_graph_and_variables(
+              sess, [tf.saved_model.SERVING],
+              signature_def_map=signature_def_map)
+          builder.save(False)
 
     export_dir = os.path.join(self.get_temp_dir(), 'saved_model_single')
 
@@ -220,34 +216,33 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
-  # TODO(b/129758574): Remove this.
-  @unittest.skipIf(not tft.pretrained_models._PRETRAINED_MODELS_SUPPORTED,
-                     'pretrained_models it not compatible with TF 2.0 yet.')
   def testApplySavedModelWithHashTable(self):
     def save_model_with_hash_table(instance, export_dir):
       builder = tf.compat.v1.saved_model.builder.SavedModelBuilder(export_dir)
-      with instance.test_session(graph=tf.Graph()) as sess:
-        key = tf.constant('test_key', shape=[1])
-        value = tf.constant('test_value', shape=[1])
-        table = lookup_ops.HashTable(
-            lookup_ops.KeyValueTensorInitializer(key, value), '__MISSING__')
+      with tf.compat.v1.Graph().as_default() as graph:
+        with instance.test_session(graph=graph) as sess:
+          key = tf.constant('test_key', shape=[1])
+          value = tf.constant('test_value', shape=[1])
+          table = lookup_ops.HashTable(
+              lookup_ops.KeyValueTensorInitializer(key, value), '__MISSING__')
 
-        input1 = tf.compat.v1.placeholder(
-            dtype=tf.string, shape=[1], name='myinput')
-        output1 = tf.reshape(table.lookup(input1), shape=[1])
-        inputs = {'input': input1}
-        outputs = {'output': output1}
+          input1 = tf.compat.v1.placeholder(
+              dtype=tf.string, shape=[1], name='myinput')
+          output1 = tf.reshape(table.lookup(input1), shape=[1])
+          inputs = {'input': input1}
+          outputs = {'output': output1}
 
-        signature_def_map = {
-            'serving_default':
-                tf.compat.v1.saved_model.signature_def_utils
-                .predict_signature_def(inputs, outputs)
-        }
+          signature_def_map = {
+              'serving_default':
+                  tf.compat.v1.saved_model.signature_def_utils
+                  .predict_signature_def(inputs, outputs)
+          }
 
-        sess.run(table.init)
-        builder.add_meta_graph_and_variables(
-            sess, [tf.saved_model.SERVING], signature_def_map=signature_def_map)
-        builder.save(False)
+          sess.run(table.init)
+          builder.add_meta_graph_and_variables(
+              sess, [tf.saved_model.SERVING],
+              signature_def_map=signature_def_map)
+          builder.save(False)
 
     export_dir = os.path.join(self.get_temp_dir(), 'saved_model_hash_table')
 
@@ -273,39 +268,38 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
-  # TODO(b/129758574): Remove this.
-  @unittest.skipIf(not tft.pretrained_models._PRETRAINED_MODELS_SUPPORTED,
-                     'pretrained_models it not compatible with TF 2.0 yet.')
   def testApplySavedModelMultiInputs(self):
 
     def save_model_with_multi_inputs(instance, export_dir):
       builder = tf.compat.v1.saved_model.builder.SavedModelBuilder(export_dir)
-      with instance.test_session(graph=tf.Graph()) as sess:
-        input1 = tf.compat.v1.placeholder(
-            dtype=tf.int64, shape=[3], name='myinput1')
-        input2 = tf.compat.v1.placeholder(
-            dtype=tf.int64, shape=[3], name='myinput2')
-        input3 = tf.compat.v1.placeholder(
-            dtype=tf.int64, shape=[3], name='myinput3')
-        initializer = tf.compat.v1.constant_initializer([1, 2, 3])
-        with tf.compat.v1.variable_scope(
-            'Model', reuse=None, initializer=initializer):
-          v1 = tf.compat.v1.get_variable('v1', [3], dtype=tf.int64)
-        o1 = tf.add(v1, input1, name='myadd1')
-        o2 = tf.subtract(o1, input2, name='mysubtract1')
-        output1 = tf.add(o2, input3, name='myadd2')
-        inputs = {'name1': input1, 'name2': input2,
-                  'name3': input3}
-        outputs = {'single_output': output1}
-        signature_def_map = {
-            'serving_default':
-                tf.compat.v1.saved_model.signature_def_utils
-                .predict_signature_def(inputs, outputs)
-        }
-        sess.run(tf.compat.v1.global_variables_initializer())
-        builder.add_meta_graph_and_variables(
-            sess, [tf.saved_model.SERVING], signature_def_map=signature_def_map)
-        builder.save(False)
+      with tf.compat.v1.Graph().as_default() as graph:
+        with instance.test_session(graph=graph) as sess:
+          input1 = tf.compat.v1.placeholder(
+              dtype=tf.int64, shape=[3], name='myinput1')
+          input2 = tf.compat.v1.placeholder(
+              dtype=tf.int64, shape=[3], name='myinput2')
+          input3 = tf.compat.v1.placeholder(
+              dtype=tf.int64, shape=[3], name='myinput3')
+          initializer = tf.compat.v1.constant_initializer([1, 2, 3])
+          with tf.compat.v1.variable_scope(
+              'Model', reuse=None, initializer=initializer):
+            v1 = tf.compat.v1.get_variable('v1', [3], dtype=tf.int64)
+          o1 = tf.add(v1, input1, name='myadd1')
+          o2 = tf.subtract(o1, input2, name='mysubtract1')
+          output1 = tf.add(o2, input3, name='myadd2')
+          inputs = {'name1': input1, 'name2': input2,
+                    'name3': input3}
+          outputs = {'single_output': output1}
+          signature_def_map = {
+              'serving_default':
+                  tf.compat.v1.saved_model.signature_def_utils
+                  .predict_signature_def(inputs, outputs)
+          }
+          sess.run(tf.compat.v1.global_variables_initializer())
+          builder.add_meta_graph_and_variables(
+              sess, [tf.saved_model.SERVING],
+              signature_def_map=signature_def_map)
+          builder.save(False)
 
     export_dir = os.path.join(self.get_temp_dir(), 'saved_model_multi')
 
@@ -341,10 +335,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
-  # TODO(b/129758574): Remove this.
-  @unittest.skipIf(
-      not tft.pretrained_models._PRETRAINED_MODELS_SUPPORTED,
-      'pretrained_models requires tf-estimator to have a contrib module.')
   def testApplyFunctionWithCheckpoint(self):
 
     def tensor_fn(input1, input2):
@@ -359,15 +349,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
         return o3
 
     def save_checkpoint(instance, checkpoint_path):
-      with instance.test_session(graph=tf.Graph()) as sess:
-        input1 = tf.compat.v1.placeholder(
-            dtype=tf.int64, shape=[3], name='myinput1')
-        input2 = tf.compat.v1.placeholder(
-            dtype=tf.int64, shape=[3], name='myinput2')
-        tensor_fn(input1, input2)
-        saver = tf.compat.v1.train.Saver()
-        sess.run(tf.compat.v1.global_variables_initializer())
-        saver.save(sess, checkpoint_path)
+      with tf.compat.v1.Graph().as_default() as graph:
+        with instance.test_session(graph=graph) as sess:
+          input1 = tf.compat.v1.placeholder(
+              dtype=tf.int64, shape=[3], name='myinput1')
+          input2 = tf.compat.v1.placeholder(
+              dtype=tf.int64, shape=[3], name='myinput2')
+          tensor_fn(input1, input2)
+          saver = tf.compat.v1.train.Saver()
+          sess.run(tf.compat.v1.global_variables_initializer())
+          saver.save(sess, checkpoint_path)
 
     checkpoint_path = os.path.join(self.get_temp_dir(), 'chk')
 
@@ -3904,6 +3895,4 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
 
 if __name__ == '__main__':
-  # TODO(b/133440043): Remove this once TFT supports eager execution.
-  tf.compat.v1.disable_eager_execution()
   tft_unit.main()

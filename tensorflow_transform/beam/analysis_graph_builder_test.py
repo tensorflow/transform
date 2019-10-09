@@ -238,12 +238,12 @@ node [shape=Mrecord];
 "TensorSource[x]" -> "VocabularyAccumulate[x]";
 "VocabularyMerge[x]" [label="{VocabularyMerge|vocab_ordering_type: 1|use_adjusted_mutual_info: False|min_diff_from_avg: None|label: VocabularyMerge[x]}"];
 "VocabularyAccumulate[x]" -> "VocabularyMerge[x]";
-"VocabularyOrderAndFilter[x]" [label="{VocabularyOrderAndFilter|top_k: None|frequency_threshold: None|coverage_top_k: None|coverage_frequency_threshold: None|key_fn: None|label: VocabularyOrderAndFilter[x]}"];
-"VocabularyMerge[x]" -> "VocabularyOrderAndFilter[x]";
-"VocabularyWrite[x]" [label="{VocabularyWrite|vocab_filename: vocab_x|store_frequency: False|input_dtype: string|label: VocabularyWrite[x]|fingerprint_shuffle: False}"];
-"VocabularyOrderAndFilter[x]" -> "VocabularyWrite[x]";
+"VocabularyPrune[x]" [label="{VocabularyPrune|top_k: None|frequency_threshold: None|coverage_top_k: None|coverage_frequency_threshold: None|key_fn: None|label: VocabularyPrune[x]}"];
+"VocabularyMerge[x]" -> "VocabularyPrune[x]";
+"VocabularyOrderAndWrite[x]" [label="{VocabularyOrderAndWrite|vocab_filename: vocab_x|store_frequency: False|input_dtype: string|label: VocabularyOrderAndWrite[x]|fingerprint_shuffle: False}"];
+"VocabularyPrune[x]" -> "VocabularyOrderAndWrite[x]";
 "CreateTensorBinding[x/Placeholder]" [label="{CreateTensorBinding|tensor: x/Placeholder:0|is_asset_filepath: True|label: CreateTensorBinding[x/Placeholder]}"];
-"VocabularyWrite[x]" -> "CreateTensorBinding[x/Placeholder]";
+"VocabularyOrderAndWrite[x]" -> "CreateTensorBinding[x/Placeholder]";
 CreateSavedModel [label="{CreateSavedModel|table_initializers: 1|output_signature: OrderedDict([('x_integerized', \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\")])|label: CreateSavedModel}"];
 "CreateTensorBinding[x/Placeholder]" -> CreateSavedModel;
 }
@@ -447,6 +447,4 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
 
 
 if __name__ == '__main__':
-  # TODO(b/133440043): Remove this once TFT supports eager execution.
-  tf.compat.v1.disable_eager_execution()
   test_case.main()

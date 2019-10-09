@@ -326,12 +326,15 @@ class ImplHelperTest(test_case.TransformTestCase):
     feature_spec = {
         'fixed_len_float': tf.io.FixedLenFeature([2, 3], tf.float32),
         'fixed_len_string': tf.io.FixedLenFeature([], tf.string),
+        '_var_len_underscored': tf.io.VarLenFeature(tf.string),
         'var_len_int': tf.io.VarLenFeature(tf.int64)
     }
-    with tf.Graph().as_default():
+    with tf.compat.v1.Graph().as_default():
       features = impl_helper.feature_spec_as_batched_placeholders(feature_spec)
-    self.assertCountEqual(
-        features.keys(), ['fixed_len_float', 'fixed_len_string', 'var_len_int'])
+    self.assertCountEqual(features.keys(), [
+        'fixed_len_float', 'fixed_len_string', 'var_len_int',
+        '_var_len_underscored'
+    ])
     self.assertEqual(type(features['fixed_len_float']), tf.Tensor)
     self.assertEqual(features['fixed_len_float'].get_shape().as_list(),
                      [None, 2, 3])
@@ -340,6 +343,9 @@ class ImplHelperTest(test_case.TransformTestCase):
                      [None])
     self.assertEqual(type(features['var_len_int']), tf.SparseTensor)
     self.assertEqual(features['var_len_int'].get_shape().as_list(),
+                     [None, None])
+    self.assertEqual(type(features['_var_len_underscored']), tf.SparseTensor)
+    self.assertEqual(features['_var_len_underscored'].get_shape().as_list(),
                      [None, None])
 
   @test_case.named_parameters(*(_ROUNDTRIP_CASES + _MAKE_FEED_DICT_CASES))
@@ -357,12 +363,13 @@ class ImplHelperTest(test_case.TransformTestCase):
                                 instances,
                                 error_msg,
                                 error_type=ValueError):
-    tensors = tf.io.parse_example(
-        serialized=tf.compat.v1.placeholder(tf.string, [None]),
-        features=feature_spec)
-    schema = schema_utils.schema_from_feature_spec(feature_spec)
-    with self.assertRaisesRegexp(error_type, error_msg):
-      impl_helper.make_feed_list(tensors, schema, instances)
+    with tf.compat.v1.Graph().as_default():
+      tensors = tf.io.parse_example(
+          serialized=tf.compat.v1.placeholder(tf.string, [None]),
+          features=feature_spec)
+      schema = schema_utils.schema_from_feature_spec(feature_spec)
+      with self.assertRaisesRegexp(error_type, error_msg):
+        impl_helper.make_feed_list(tensors, schema, instances)
 
   @test_case.named_parameters(*_ROUNDTRIP_CASES)
   def test_to_instance_dicts(self, feature_spec, instances, feed_dict):
@@ -379,49 +386,53 @@ class ImplHelperTest(test_case.TransformTestCase):
       impl_helper.to_instance_dicts(schema, feed_dict)
 
   def test_copy_tensors_produces_different_tensors(self):
-    tensors = {
-        'dense':
-            tf.compat.v1.placeholder(tf.int64, (None,), name='my_dense_input'),
-        'sparse':
-            tf.compat.v1.sparse_placeholder(tf.int64, name='my_sparse_input')
-    }
-    copied_tensors = impl_helper.copy_tensors(tensors)
+    with tf.compat.v1.Graph().as_default():
+      tensors = {
+          'dense':
+              tf.compat.v1.placeholder(tf.int64, (None,),
+                                       name='my_dense_input'),
+          'sparse':
+              tf.compat.v1.sparse_placeholder(tf.int64, name='my_sparse_input')
+      }
+      copied_tensors = impl_helper.copy_tensors(tensors)
 
-    self.assertNotEqual(tensors['dense'],
-                        copied_tensors['dense'])
-    self.assertNotEqual(tensors['sparse'].indices,
-                        copied_tensors['sparse'].indices)
-    self.assertNotEqual(tensors['sparse'].values,
-                        copied_tensors['sparse'].values)
-    self.assertNotEqual(tensors['sparse'].dense_shape,
-                        copied_tensors['sparse'].dense_shape)
+      self.assertNotEqual(tensors['dense'],
+                          copied_tensors['dense'])
+      self.assertNotEqual(tensors['sparse'].indices,
+                          copied_tensors['sparse'].indices)
+      self.assertNotEqual(tensors['sparse'].values,
+                          copied_tensors['sparse'].values)
+      self.assertNotEqual(tensors['sparse'].dense_shape,
+                          copied_tensors['sparse'].dense_shape)
 
   def test_copy_tensors_produces_equivalent_tensors(self):
-    tensors = {
-        'dense':
-            tf.compat.v1.placeholder(tf.int64, (None,), name='my_dense_input'),
-        'sparse':
-            tf.compat.v1.sparse_placeholder(tf.int64, name='my_sparse_input')
-    }
-    copied_tensors = impl_helper.copy_tensors(tensors)
+    with tf.compat.v1.Graph().as_default():
+      tensors = {
+          'dense':
+              tf.compat.v1.placeholder(tf.int64, (None,),
+                                       name='my_dense_input'),
+          'sparse':
+              tf.compat.v1.sparse_placeholder(tf.int64, name='my_sparse_input')
+      }
+      copied_tensors = impl_helper.copy_tensors(tensors)
 
-    with tf.compat.v1.Session() as session:
-      dense_value = [1, 2]
-      sparse_value = tf.compat.v1.SparseTensorValue(
-          indices=[[0, 0], [0, 2], [1, 1]],
-          values=[3, 4, 5],
-          dense_shape=[2, 3])
-      sample_tensors = session.run(copied_tensors, feed_dict={
-          tensors['dense']: dense_value,
-          tensors['sparse']: sparse_value
-      })
-      self.assertAllEqual(sample_tensors['dense'], dense_value)
-      self.assertAllEqual(sample_tensors['sparse'].indices,
-                          sparse_value.indices)
-      self.assertAllEqual(sample_tensors['sparse'].values,
-                          sparse_value.values)
-      self.assertAllEqual(sample_tensors['sparse'].dense_shape,
-                          sparse_value.dense_shape)
+      with tf.compat.v1.Session() as session:
+        dense_value = [1, 2]
+        sparse_value = tf.compat.v1.SparseTensorValue(
+            indices=[[0, 0], [0, 2], [1, 1]],
+            values=[3, 4, 5],
+            dense_shape=[2, 3])
+        sample_tensors = session.run(copied_tensors, feed_dict={
+            tensors['dense']: dense_value,
+            tensors['sparse']: sparse_value
+        })
+        self.assertAllEqual(sample_tensors['dense'], dense_value)
+        self.assertAllEqual(sample_tensors['sparse'].indices,
+                            sparse_value.indices)
+        self.assertAllEqual(sample_tensors['sparse'].values,
+                            sparse_value.values)
+        self.assertAllEqual(sample_tensors['sparse'].dense_shape,
+                            sparse_value.dense_shape)
 
 
 def _subtract_ten_with_tf_while(x):
@@ -447,6 +458,4 @@ def _subtract_ten_with_tf_while(x):
 
 
 if __name__ == '__main__':
-  # TODO(b/133440043): Remove this once TFT supports eager execution.
-  tf.compat.v1.disable_eager_execution()
   test_case.main()

@@ -29,16 +29,70 @@ import six
 import tensorflow as tf
 
 
-# TODO(b/129758574): Remove this try/except block.
-try:
-  # pylint: disable=g-import-not-at-top
-  from tensorflow.contrib.session_bundle import bundle_shim
-  from tensorflow_estimator.contrib import estimator  # pylint: disable=unused-import
-  _ = tf.contrib.slim.get_variables_to_restore
-  # pylint: enable=g-import-not-at-top
-  _PRETRAINED_MODELS_SUPPORTED = True
-except (ImportError, AttributeError):
-  _PRETRAINED_MODELS_SUPPORTED = False
+# TODO(b/141936246) Replace this function with a V2-safe way to load models.
+def _get_variables(scope=None,
+                   suffix=None,
+                   collection=tf.compat.v1.GraphKeys.GLOBAL_VARIABLES):
+  """Gets the list of variables, filtered by scope and/or suffix.
+
+  Taken from tensorflow/contrib/framework/python/ops/variables.py.
+
+  Args:
+    scope: an optional scope for filtering the variables to return. Can be a
+      variable scope or a string.
+    suffix: an optional suffix for filtering the variables to return.
+    collection: in which collection search for. Defaults to
+      `GraphKeys.GLOBAL_VARIABLES`.
+
+  Returns:
+    a list of variables in collection with scope and suffix.
+  """
+  if isinstance(scope, tf.compat.v1.VariableScope):
+    scope = scope.name
+  if suffix is not None:
+    if ':' not in suffix:
+      suffix += ':'
+    scope = (scope or '') + '.*' + suffix
+  return tf.compat.v1.get_collection(collection, scope)
+
+
+# TODO(b/141936246) Replace this function with a V2-safe way to load models.
+def _get_variables_to_restore(include=None, exclude=None):
+  """Gets the list of the variables to restore.
+
+  Taken from tensorflow/contrib/framework/python/ops/variables.py.
+
+  Args:
+    include: an optional list/tuple of scope strings for filtering which
+      variables from the VARIABLES collection to include. None would include all
+      the variables.
+    exclude: an optional list/tuple of scope strings for filtering which
+      variables from the VARIABLES collection to exclude. None it would not
+      exclude any.
+
+  Returns:
+    a list of variables to restore.
+
+  Raises:
+    TypeError: include or exclude is provided but is not a list or a tuple.
+  """
+  if include is None:
+    # Include all variables.
+    vars_to_include = _get_variables()
+  else:
+    if not isinstance(include, (list, tuple)):
+      raise TypeError('include is provided but is not a list or a tuple.')
+    vars_to_include = []
+    for scope in include:
+      vars_to_include += _get_variables(scope)
+  vars_to_exclude = set()
+  if exclude is not None:
+    if not isinstance(exclude, (list, tuple)):
+      raise TypeError('exclude is provided but is not a list or a tuple.')
+    for scope in exclude:
+      vars_to_exclude |= set(_get_variables(scope))
+  # Exclude the variables in vars_to_exclude
+  return [v for v in vars_to_include if v not in vars_to_exclude]
 
 
 def apply_saved_model(model_dir, inputs, tags, signature_name=None,
@@ -75,13 +129,14 @@ def apply_saved_model(model_dir, inputs, tags, signature_name=None,
     `output_keys_in_signature` is not a subset of the signature outputs.
   """
   # Load model, get graph, inputs and outputs.
-  loaded_graph = tf.Graph()
+  loaded_graph = tf.compat.v1.Graph()
   loaded_initializer_op_names = []
 
   with loaded_graph.as_default():
-    session, meta_graph = (
-        bundle_shim.load_session_bundle_or_saved_model_bundle_from_path(
-            model_dir, tags=tags))
+    sess = tf.compat.v1.Session()
+    meta_graph = tf.compat.v1.saved_model.load(sess,
+                                               export_dir=model_dir,
+                                               tags=tags)
     loaded_initializer_op_names = [
         op.name for op in tf.compat.v1.get_collection(
             tf.compat.v1.GraphKeys.TABLE_INITIALIZERS)
@@ -139,8 +194,9 @@ def apply_saved_model(model_dir, inputs, tags, signature_name=None,
   output_op_names = [loaded_graph.get_tensor_by_name(tensor_name).op.name
                      for tensor_name in output_tensor_names]
   constant_graph_def = tf.compat.v1.graph_util.convert_variables_to_constants(
-      session, loaded_graph.as_graph_def(),
+      sess, loaded_graph.as_graph_def(),
       output_op_names + loaded_initializer_op_names)
+  sess.close()
 
   returned_elements = tf.import_graph_def(
       constant_graph_def,
@@ -188,7 +244,7 @@ def apply_function_with_checkpoint(fn, inputs, checkpoint, include=None,
     ValueError: if the input tensor-in-tensor-out function adds to
         TABLE_INITIALIZERS collections.
   """
-  loaded_graph = tf.Graph()
+  loaded_graph = tf.compat.v1.Graph()
   with loaded_graph.as_default():
     input_placeholders = [
         tf.compat.v1.placeholder(
@@ -207,8 +263,8 @@ def apply_function_with_checkpoint(fn, inputs, checkpoint, include=None,
     if tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.TABLE_INITIALIZERS):
       raise ValueError('Models with table init ops are not supported.')
 
-    vars_to_restore = tf.contrib.slim.get_variables_to_restore(
-        include=include, exclude=exclude)
+    vars_to_restore = _get_variables_to_restore(include=include,
+                                                exclude=exclude)
     saver = tf.compat.v1.train.Saver(vars_to_restore)
     with tf.compat.v1.Session() as sess:
       saver.restore(sess, checkpoint)

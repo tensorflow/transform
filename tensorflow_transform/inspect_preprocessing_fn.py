@@ -51,7 +51,7 @@ def get_analyze_input_columns(preprocessing_fn, feature_spec):
   Returns:
     A list of columns that are required inputs of analyzers.
   """
-  with tf.Graph().as_default() as graph:
+  with tf.compat.v1.Graph().as_default() as graph:
     input_signature = impl_helper.feature_spec_as_batched_placeholders(
         feature_spec)
     _ = preprocessing_fn(input_signature.copy())
@@ -77,7 +77,7 @@ def get_transform_input_columns(preprocessing_fn, feature_spec):
     A list of columns that are required inputs of the transform `tf.Graph`
     defined by `preprocessing_fn`.
   """
-  with tf.Graph().as_default() as graph:
+  with tf.compat.v1.Graph().as_default() as graph:
     input_signature = impl_helper.feature_spec_as_batched_placeholders(
         feature_spec)
     output_signature = preprocessing_fn(input_signature.copy())

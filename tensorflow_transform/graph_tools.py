@@ -35,6 +35,7 @@ import itertools
 import six
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
+from tensorflow_transform import tf_utils
 
 _INITIALIZABLE_TABLE_OP_TYPES = [
     'CuckooTable',
@@ -55,11 +56,19 @@ _TABLE_INIT_OP_TYPES = [
 ]
 
 
-def _decompose_tensor_or_sparse_tensor(tensor):
+def _decompose_tensor(tensor):
+  """Returns the raw components of a Tensor / SparseTensor / RaggedTensor."""
   if isinstance(tensor, tf.SparseTensor):
     yield tensor.indices
     yield tensor.values
     yield tensor.dense_shape
+  elif isinstance(tensor, tf.RaggedTensor):
+    yield tensor.row_splits
+    v = tensor.values  # values is a potentially ragged tensor.
+    while isinstance(v, tf.RaggedTensor):
+      yield v.row_splits
+      v = v.values
+    yield v
   else:
     yield tensor
 
@@ -118,7 +127,8 @@ class _GraphAnalyzer(object):
   """Class that analyzes a graph to determine readiness of tensors.
 
   Args:
-    source_info_dict: A dict from `Tensor` or `Operation` to `_SourceInfo`.
+    source_info_dict: A dict from `Tensor Reference` or `Operation` to
+      `_SourceInfo`.
     translate_path_fn: A function with the signature: (identifier, parents) ->
       Any which will be used to construct a unique path for a given `Tensor`.
   """
@@ -130,7 +140,7 @@ class _GraphAnalyzer(object):
 
   def _get_parents(self, tensor_or_op):
     """Get the parents of the given `tensor_or_op`."""
-    if tensor_or_op in self._source_info_dict:
+    if tf_utils.hashable_tensor_or_op(tensor_or_op) in self._source_info_dict:
       return []
 
     if isinstance(tensor_or_op, tf.Operation):
@@ -149,14 +159,15 @@ class _GraphAnalyzer(object):
 
   def _compute_analysis_result(self, tensor_or_op, parent_analysis_results):
     """Compute analysis result for a tensor or op with its parent results."""
-    if tensor_or_op in self._source_info_dict:
-      source_info = self._source_info_dict[tensor_or_op]
+    hashable = tf_utils.hashable_tensor_or_op(tensor_or_op)
+    if hashable in self._source_info_dict:
+      source_info = self._source_info_dict[hashable]
       # source_info.name may be None but that just means that it relies on an
       # output of a previous analyzer, so that's ok.
       return _AnalysisResult(
           is_ready_to_run=source_info.is_ready_to_run,
           path=self._translate_path_fn(source_info.name),
-          dependent_sources={tensor_or_op})
+          dependent_sources={hashable})
 
     result = _AnalysisResult(
         is_ready_to_run=all(
@@ -196,7 +207,9 @@ class _GraphAnalyzer(object):
       _UnexpectedPlaceholderError: If a placeholder is encountered.
     """
     stack = collections.deque()
-    stack.append(tensor_or_op)
+    # Note that because tensors are no longer hashable, we need to convert to
+    # their reference in order to use them in sets or dicts.
+    stack.append(tf_utils.hashable_tensor_or_op(tensor_or_op))
     # Contains the nodes of the path starting from tensor_or_op to current
     # visiting node, used for loop detection. We assume that any loop is a
     # valid while loop and so it will be able to run as long as all the other
@@ -208,19 +221,22 @@ class _GraphAnalyzer(object):
         stack.pop()
         continue
       path.add(current)
-      parents = self._get_parents(current)
-      parents = [parent for parent in parents if parent not in path]
+      parents = self._get_parents(tf_utils.deref_tensor_or_op(current))
+      parents = [parent for parent in map(tf_utils.hashable_tensor_or_op,
+                                          parents) if parent not in path]
       if all(
           parent in self._memoized_analyze_tensor_result for parent in parents):
         parent_results = [
             self._memoized_analyze_tensor_result[parent] for parent in parents
         ]
-        current_result = self._compute_analysis_result(current, parent_results)
+        current_result = self._compute_analysis_result(
+            tf_utils.deref_tensor_or_op(current), parent_results)
         self._memoized_analyze_tensor_result[current] = current_result
         path.discard(stack.pop())
       else:
         stack.extend(parents)
-    return self._memoized_analyze_tensor_result[tensor_or_op]
+    return self._memoized_analyze_tensor_result[tf_utils.hashable_tensor_or_op(
+        tensor_or_op)]
 
   def ready_to_run(self, tensor_or_op):
     """Determine if a given tensor or op is ready to run.
@@ -254,7 +270,7 @@ class _GraphAnalyzer(object):
               tensor_or_op, type(tensor_or_op)))
     return all(
         self.analyze_tensor(component).is_ready_to_run
-        for component in _decompose_tensor_or_sparse_tensor(tensor_or_op))
+        for component in _decompose_tensor(tensor_or_op))
 
   def get_unique_path(self, tensor):
     """Gets the analyzed path from the tensor to its root(s).
@@ -286,7 +302,7 @@ class _GraphAnalyzer(object):
 
 def _set_unique_value_in_dict(input_dict, key, value):
   assert value not in input_dict.values(), value
-  input_dict[key] = value
+  input_dict[tf_utils.hashable_tensor_or_op(key)] = value
 
 
 class InitializableGraphAnalyzer(object):
@@ -308,7 +324,7 @@ class InitializableGraphAnalyzer(object):
     graph: a `Graph`.
     input_signature: A dict whose keys are strings and values are `Tensor`s or
       `SparseTensor`s.
-    replaced_tensors_ready: a dict from `Tensor` or `SparseTensor` to bool
+    replaced_tensors_ready: a list of `Tensor` or `SparseTensor`, bool pairs
       indicating whether the `Tensor` or `SparseTensor` is ready in this phase.
     translate_path_fn: (Optional) A function with the signature:
         (identifier, optional(parents)) -> Any
@@ -330,6 +346,8 @@ class InitializableGraphAnalyzer(object):
 
     self._ready_table_initializers = []
     self._input_signature = input_signature
+    replaced_tensors_ready = {tf_utils.hashable_tensor_or_op(t): ready
+                              for t, ready in replaced_tensors_ready}
 
     initial_source_infos_dict = self._make_source_infos_dict(
         {}, replaced_tensors_ready)
@@ -350,7 +368,8 @@ class InitializableGraphAnalyzer(object):
       # We are using the table init op information and the table op information,
       # since that is a unique description of the table op.
       table_op = table_init_op.inputs[0].op
-      complete_source_info_dict[table_op] = source_info
+      complete_source_info_dict[
+          tf_utils.hashable_tensor_or_op(table_op)] = source_info
       if source_info.is_ready_to_run:
         self._ready_table_initializers.append(table_init_op)
 
@@ -378,8 +397,10 @@ class InitializableGraphAnalyzer(object):
     """
     result = {}
     for tensor_or_op, is_ready in six.iteritems(replaced_tensors_ready):
-      for component in _decompose_tensor_or_sparse_tensor(tensor_or_op):
-        result[component] = _SourceInfo(is_ready, None)
+      for component in _decompose_tensor(
+          tf_utils.deref_tensor_or_op(tensor_or_op)):
+        result[tf_utils.hashable_tensor_or_op(component)] = _SourceInfo(
+            is_ready, None)
 
     for name, tensor in six.iteritems(input_signature):
       if isinstance(tensor, tf.SparseTensor):
@@ -390,9 +411,13 @@ class InitializableGraphAnalyzer(object):
         _set_unique_value_in_dict(
             result, tensor.dense_shape,
             _SourceInfo(True, '{}$dense_shape'.format(name)))
-      else:
+      elif isinstance(tensor, tf.Tensor):
         _set_unique_value_in_dict(result, tensor,
                                   _SourceInfo(True, '{}$tensor'.format(name)))
+      else:
+        raise TypeError(
+            'Expected Tensor or SparseTensor, got {} of type {}'.format(
+                tensor, type(tensor)))
     return result
 
   def _get_table_init_op_source_info(self, table_init_op, graph_analyzer,
@@ -461,7 +486,7 @@ class InitializableGraphAnalyzer(object):
     """Gets the inputs that the given `tensor_or_op` transitively depends on.
 
     Args:
-      tensor_or_op: A `Tensor`, `SparseTensor` or `Operation`.
+      tensor_or_op: A `Tensor`, `SparseTensor`, `RaggedTensor` or `Operation`.
 
     Returns:
       A dict of name to `Tensor` or `SparseTensor` (sub-dict of
@@ -470,21 +495,22 @@ class InitializableGraphAnalyzer(object):
     Raises:
       TypeError: If `tensor_or_op` is of an unsupported type.
     """
-    if not isinstance(tensor_or_op, (tf.Tensor, tf.SparseTensor, tf.Operation)):
+    if not isinstance(
+        tensor_or_op,
+        (tf.Tensor, tf.SparseTensor, tf.RaggedTensor, tf.Operation)):
       raise TypeError(
-          'Expected Tensor, SparseTensor or Operation got {} of type {}'.format(
-              tensor_or_op, type(tensor_or_op)))
+          'Expected Tensor, SparseTensor, RaggedTensor or Operation got {} of '
+          'type {}'.format(tensor_or_op, type(tensor_or_op)))
 
     dependents = set()
-    for component in _decompose_tensor_or_sparse_tensor(tensor_or_op):
+    for component in _decompose_tensor(tensor_or_op):
       dependents.update(
           self._graph_analyzer.analyze_tensor(component).dependent_sources)
 
     result = {}
     for name, tensor in six.iteritems(self._input_signature):
-      if any(
-          component in dependents
-          for component in _decompose_tensor_or_sparse_tensor(tensor)):
+      if any(tf_utils.hashable_tensor_or_op(component) in dependents
+             for component in _decompose_tensor(tensor)):
         result[name] = tensor
     return result
 
@@ -500,8 +526,9 @@ def get_dependent_inputs(graph, input_tensors, output_tensors):
       Logical name doesn't have any implications in this method and can be
       anything. In some cases it is the feature name corresponding to the input
       tensor.
-    output_tensors: A dict of logical name to `tf.Tensor` or `tf.SparseTensor`,
-      or a list of `tf.Tensor` or `tf.SparseTensor`.
+    output_tensors: A dict of logical name to `tf.Tensor`, `tf.SparseTensor` or
+      `tf.RaggedTensor`, or a list of `tf.Tensor`, `tf.SparseTensor` or
+      `tf.RaggedTensor`.
 
   Returns:
     A dict of logical name to `tf.Tensor` or `tf.SparseTensor` that are
@@ -517,9 +544,7 @@ def get_dependent_inputs(graph, input_tensors, output_tensors):
   # readiness of tensor replacements. Note that the readiness of replacement
   # tensors doesn't affect the correctness of dependencies tracing.
   tensor_sinks = graph.get_collection(analyzer_nodes.TENSOR_REPLACEMENTS)
-  sink_tensors_ready = {
-      tensor_sink.tensor: False for tensor_sink in tensor_sinks
-  }
+  sink_tensors_ready = [(sink.tensor, False) for sink in tensor_sinks]
   graph_analyzer = InitializableGraphAnalyzer(graph, input_tensors,
                                               sink_tensors_ready)
   dependent_inputs = {}

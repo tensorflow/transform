@@ -31,7 +31,7 @@ import unittest
 def _create_test_saved_model_dir():
   export_path = os.path.join(tempfile.mkdtemp(), 'export')
 
-  with tf.Graph().as_default():
+  with tf.compat.v1.Graph().as_default():
     with tf.compat.v1.Session().as_default() as session:
       input_float = tf.compat.v1.placeholder(tf.float32, shape=[1])
       output = (input_float - 2.0) / 5.0

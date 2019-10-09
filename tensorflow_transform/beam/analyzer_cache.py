@@ -50,15 +50,27 @@ class _ManifestFile(object):
     self._manifest_path = os.path.join(base_path, self._MANIFEST_FILE_NAME)
     self._file = None
 
-  def __enter__(self):
+  def _open(self):
+    assert self._file is None
     if not tf.io.gfile.isdir(self._base_path):
       tf.io.gfile.makedirs(self._base_path)
     self._file = tf.io.gfile.GFile(self._manifest_path, 'wb+')
+
+  def _close(self):
+    if self._file:
+      self._file.close()
+    self._file = None
+
+  def _delete(self):
+    self._close()
+    tf.io.gfile.remove(self._manifest_path)
+
+  def __enter__(self):
+    self._open()
     return self
 
   def __exit__(self, *exn_info):
-    self._file.close()
-    self._file = None
+    self._close()
 
   def _get_manifest_contents(self, manifest_file_handle):
     manifest_file_handle.seek(0)
@@ -80,11 +92,13 @@ class _ManifestFile(object):
         return self._get_manifest_contents(f)
 
   def write(self, manifest):
-    assert self._file is not None
     try:
-      self._file.seek(0)
+      # First attempt to delete the manifest if it exists in case it can't be
+      # edited in-place.
+      self._delete()
     except tf.errors.NotFoundError:
       pass
+    self._open()
     self._file.write(pickler.dumps(manifest))
 
 

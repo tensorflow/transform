@@ -41,7 +41,7 @@ from tensorflow.python.util import compat
 def _create_test_saved_model():
   export_path = os.path.join(tempfile.mkdtemp(), 'export')
 
-  with tf.Graph().as_default():
+  with tf.compat.v1.Graph().as_default():
     with tf.compat.v1.Session().as_default() as session:
       input_float = tf.compat.v1.placeholder(tf.float32, shape=[1])
       output = (input_float - 2.0) / 5.0
@@ -60,7 +60,7 @@ class SavedTransformIOTest(tf.test.TestCase):
     cls._test_saved_model = _create_test_saved_model()
 
   def test_apply_saved_transform(self):
-    with tf.Graph().as_default() as graph:
+    with tf.compat.v1.Graph().as_default() as graph:
       with tf.compat.v1.Session().as_default() as session:
         input_floats = tf.constant([1237.0])  # tf.float32
         input_features = {'x': input_floats}
@@ -79,7 +79,7 @@ class SavedTransformIOTest(tf.test.TestCase):
 
   def test_apply_transform_extra_features_no_passthrough(self):
     with self.assertRaises(ValueError):
-      with tf.Graph().as_default():
+      with tf.compat.v1.Graph().as_default():
         with tf.compat.v1.Session().as_default():
           input_floats = tf.constant([1234.0])  # tf.float32
           input_features = {'x': input_floats,
@@ -90,7 +90,7 @@ class SavedTransformIOTest(tf.test.TestCase):
 
   def test_apply_transform_type_mismatch(self):
     with self.assertRaises(ValueError):
-      with tf.Graph().as_default():
+      with tf.compat.v1.Graph().as_default():
         with tf.compat.v1.Session().as_default():
           input_strings = tf.constant(['bogus'])  # tf.string
           input_features = {'x': input_strings}
@@ -99,7 +99,7 @@ class SavedTransformIOTest(tf.test.TestCase):
 
   def test_apply_transform_shape_mismatch(self):
     with self.assertRaises(ValueError):
-      with tf.Graph().as_default():
+      with tf.compat.v1.Graph().as_default():
         with tf.compat.v1.Session().as_default():
           input_floats = tf.constant(1234.0)  # tf.float32
           input_features = {'x': input_floats}
@@ -107,7 +107,7 @@ class SavedTransformIOTest(tf.test.TestCase):
               self._test_saved_model, input_features)
 
   def test_apply_saved_transform_to_tensor_inside_scope(self):
-    with tf.Graph().as_default():
+    with tf.compat.v1.Graph().as_default():
       with tf.compat.v1.name_scope('my_scope'):
         with tf.compat.v1.Session().as_default() as session:
           input_floats = tf.constant([1237.0])  # tf.float32
@@ -120,7 +120,7 @@ class SavedTransformIOTest(tf.test.TestCase):
           self.assertAllEqual(session.run(result_tensor), [247.0])
 
   def test_apply_saved_transform_to_tensor_outside_scope(self):
-    with tf.Graph().as_default():
+    with tf.compat.v1.Graph().as_default():
       input_floats = tf.constant([1237.0])  # tf.float32
       with tf.compat.v1.name_scope('my_scope'):
         with tf.compat.v1.Session().as_default() as session:
@@ -135,7 +135,7 @@ class SavedTransformIOTest(tf.test.TestCase):
   def test_dense_roundtrip(self):
     export_path = os.path.join(tempfile.mkdtemp(), 'export')
 
-    with tf.Graph().as_default():
+    with tf.compat.v1.Graph().as_default():
       with tf.compat.v1.Session().as_default() as session:
         input_float = tf.compat.v1.placeholder(tf.float32)
         # show that unrelated & unmapped placeholders do not interfere
@@ -146,7 +146,7 @@ class SavedTransformIOTest(tf.test.TestCase):
         saved_transform_io.write_saved_transform_from_session(
             session, inputs, outputs, export_path)
 
-    with tf.Graph().as_default():
+    with tf.compat.v1.Graph().as_default():
       with tf.compat.v1.Session().as_default() as session:
         # Using a computed input gives confidence that the graphs are fused.
         input_float = tf.constant(25.0) * 2
@@ -161,7 +161,7 @@ class SavedTransformIOTest(tf.test.TestCase):
   def test_table_roundtrip(self):
     export_path = os.path.join(tempfile.mkdtemp(), 'export')
 
-    with tf.Graph().as_default():
+    with tf.compat.v1.Graph().as_default():
       with tf.compat.v1.Session().as_default() as session:
         input_string = tf.compat.v1.placeholder(tf.string)
         # Map string through a table, in this case based on a constant tensor.
@@ -179,7 +179,7 @@ class SavedTransformIOTest(tf.test.TestCase):
         saved_transform_io.write_saved_transform_from_session(
             session, inputs, outputs, export_path)
 
-    with tf.Graph().as_default():
+    with tf.compat.v1.Graph().as_default():
       with tf.compat.v1.Session().as_default() as session:
         # Using a computed input gives confidence that the graphs are fused.
         input_string = tf.constant('dog')
@@ -194,7 +194,7 @@ class SavedTransformIOTest(tf.test.TestCase):
   def test_sparse_roundtrip(self):
     export_path = os.path.join(tempfile.mkdtemp(), 'export')
 
-    with tf.Graph().as_default():
+    with tf.compat.v1.Graph().as_default():
       with tf.compat.v1.Session().as_default() as session:
         input_float = tf.compat.v1.sparse_placeholder(tf.float32)
         output = input_float / 5.0
@@ -203,7 +203,7 @@ class SavedTransformIOTest(tf.test.TestCase):
         saved_transform_io.write_saved_transform_from_session(
             session, inputs, outputs, export_path)
 
-    with tf.Graph().as_default():
+    with tf.compat.v1.Graph().as_default():
       with tf.compat.v1.Session().as_default() as session:
         indices = np.array([[3, 2, 0], [4, 5, 1]], dtype=np.int64)
         values = np.array([1.0, 2.0], dtype=np.float32)
@@ -231,7 +231,7 @@ class SavedTransformIOTest(tf.test.TestCase):
                     'CompositeTenors in TensorInfo.')
     export_path = os.path.join(tempfile.mkdtemp(), 'export')
 
-    with tf.Graph().as_default():
+    with tf.compat.v1.Graph().as_default():
       with tf.compat.v1.Session().as_default() as session:
         input_float = tf.compat.v1.ragged.placeholder(tf.float32, ragged_rank=1,
                                                       value_shape=[])
@@ -241,7 +241,7 @@ class SavedTransformIOTest(tf.test.TestCase):
         saved_transform_io.write_saved_transform_from_session(
             session, inputs, outputs, export_path)
 
-    with tf.Graph().as_default():
+    with tf.compat.v1.Graph().as_default():
       with tf.compat.v1.Session().as_default() as session:
         splits = np.array([0, 2, 3], dtype=np.int64)
         values = np.array([1.0, 2.0, 4.0], dtype=np.float32)
@@ -268,7 +268,7 @@ class SavedTransformIOTest(tf.test.TestCase):
     export_path = os.path.join(tempfile.mkdtemp(), 'export')
 
     # create a SavedModel including assets
-    with tf.Graph().as_default():
+    with tf.compat.v1.Graph().as_default():
       with tf.compat.v1.Session().as_default() as session:
         input_string = tf.compat.v1.placeholder(tf.string)
         # Map string through a table loaded from an asset file
@@ -291,7 +291,7 @@ class SavedTransformIOTest(tf.test.TestCase):
     # Load it and save it again repeatedly, verifying that the asset collections
     # remain valid.
     for _ in [1, 2, 3]:
-      with tf.Graph().as_default() as g:
+      with tf.compat.v1.Graph().as_default() as g:
         with tf.compat.v1.Session().as_default() as session:
           input_string = tf.constant('dog')
           inputs = {'input': input_string}

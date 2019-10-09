@@ -243,11 +243,11 @@ class _VocabularyMergeImpl(beam.PTransform):
     return raw_counts
 
 
-@common.register_ptransform(analyzer_nodes.VocabularyOrderAndFilter)
+@common.register_ptransform(analyzer_nodes.VocabularyPrune)
 @beam.typehints.with_input_types(KV[Union[int, float], np.str])
 # TODO(b/123325923): Constrain the value type here to the right string type.
 @beam.typehints.with_output_types(KV[Union[int, float], Any])  # Any -> np.str?
-class _VocabularyOrderAndFilterImpl(beam.PTransform):
+class _VocabularyPruneImpl(beam.PTransform):
   """Order, filters and writes the computed vocabulary file."""
 
   def __init__(self, operation, extra_args):
@@ -295,10 +295,10 @@ class _VocabularyOrderAndFilterImpl(beam.PTransform):
     return counts
 
 
-@common.register_ptransform(analyzer_nodes.VocabularyWrite)
+@common.register_ptransform(analyzer_nodes.VocabularyOrderAndWrite)
 @beam.typehints.with_input_types(KV[Union[int, float], np.str])
 @beam.typehints.with_output_types(np.ndarray)
-class _VocabularyWriteImpl(beam.PTransform):
+class _VocabularyOrderAndWriteImpl(beam.PTransform):
   """Writes the computed vocabulary file."""
 
   def __init__(self, operation, extra_args):

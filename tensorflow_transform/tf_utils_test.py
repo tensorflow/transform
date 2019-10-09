@@ -283,11 +283,12 @@ class TFUtilsTest(test_case.TransformTestCase):
   def test_same_shape_exceptions(self, x_input, y_input, x_shape, y_shape,
                                  exception_cls, error_string):
 
-    x = tf.compat.v1.placeholder(tf.int32, x_shape)
-    y = tf.compat.v1.placeholder(tf.int32, y_shape)
-    with tf.compat.v1.Session() as sess:
-      with self.assertRaisesRegexp(exception_cls, error_string):
-        sess.run(tf_utils.assert_same_shape(x, y), {x: x_input, y: y_input})
+    with tf.compat.v1.Graph().as_default():
+      x = tf.compat.v1.placeholder(tf.int32, x_shape)
+      y = tf.compat.v1.placeholder(tf.int32, y_shape)
+      with tf.compat.v1.Session() as sess:
+        with self.assertRaisesRegexp(exception_cls, error_string):
+          sess.run(tf_utils.assert_same_shape(x, y), {x: x_input, y: y_input})
 
   @test_case.named_parameters(test_case.FUNCTION_HANDLERS)
   def test_same_shape(self, function_handler):
@@ -304,13 +305,14 @@ class TFUtilsTest(test_case.TransformTestCase):
     self.assertAllEqual(x_return, input_list)
 
   def test_lookup_key(self):
-    keys = tf.constant(['a', 'a', 'a', 'b', 'b', 'b', 'b'])
-    key_vocab = tf.constant(['a', 'b'])
-    key_indices = tf_utils.lookup_key(keys, key_vocab)
-    with self.test_session() as sess:
-      sess.run(tf.compat.v1.tables_initializer())
-      output = sess.run(key_indices)
-      self.assertAllEqual([0, 0, 0, 1, 1, 1, 1], output)
+    with tf.compat.v1.Graph().as_default():
+      keys = tf.constant(['a', 'a', 'a', 'b', 'b', 'b', 'b'])
+      key_vocab = tf.constant(['a', 'b'])
+      key_indices = tf_utils.lookup_key(keys, key_vocab)
+      with self.test_session() as sess:
+        sess.run(tf.compat.v1.tables_initializer())
+        output = sess.run(key_indices)
+        self.assertAllEqual([0, 0, 0, 1, 1, 1, 1], output)
 
   @test_case.named_parameters(test_case.cross_with_function_handlers([
       dict(
@@ -627,8 +629,6 @@ class TFUtilsTest(test_case.TransformTestCase):
   def test_sparse_indices(self):
     exception_cls = tf.errors.InvalidArgumentError
     error_string = 'Condition x == y did not hold element-wise:'
-    x = tf.compat.v1.sparse_placeholder(tf.int64, shape=[None, None])
-    key = tf.compat.v1.sparse_placeholder(tf.string, shape=[None, None])
     value = tf.compat.v1.SparseTensorValue(
         indices=[[0, 0], [1, 1], [2, 2], [3, 1]],
         values=[3, 2, -1, 3],
@@ -637,10 +637,13 @@ class TFUtilsTest(test_case.TransformTestCase):
         indices=[[0, 0], [1, 2], [2, 2], [3, 1]],
         values=['a', 'a', 'a', 'b'],
         dense_shape=[4, 5])
-    with tf.compat.v1.Session() as sess:
-      with self.assertRaisesRegexp(exception_cls, error_string):
-        sess.run(tf_utils.reduce_batch_minus_min_and_max_per_key(x, key),
-                 feed_dict={x: value, key: key_value})
+    with tf.compat.v1.Graph().as_default():
+      x = tf.compat.v1.sparse_placeholder(tf.int64, shape=[None, None])
+      key = tf.compat.v1.sparse_placeholder(tf.string, shape=[None, None])
+      with tf.compat.v1.Session() as sess:
+        with self.assertRaisesRegexp(exception_cls, error_string):
+          sess.run(tf_utils.reduce_batch_minus_min_and_max_per_key(x, key),
+                   feed_dict={x: value, key: key_value})
 
   def test_convert_sparse_indices(self):
     exception_cls = tf.errors.InvalidArgumentError
@@ -650,31 +653,30 @@ class TFUtilsTest(test_case.TransformTestCase):
         values=[3, 2, -1, 3],
         dense_shape=[4, 5])
     dense = tf.constant(['a', 'b', 'c', 'd'])
-    with tf.compat.v1.Session() as sess:
-      x, key = tf_utils._get_dense_value_key_inputs(sparse, sparse)
-      self.assertAllEqual(x.eval(session=sess), sparse.values)
-      self.assertAllEqual(key.eval(session=sess), sparse.values)
+    x, key = tf_utils._get_dense_value_key_inputs(sparse, sparse)
+    self.assertAllEqual(self.evaluate(x), sparse.values)
+    self.assertAllEqual(self.evaluate(key), sparse.values)
 
-    with tf.compat.v1.Session() as sess:
-      x, key = tf_utils._get_dense_value_key_inputs(sparse, dense)
-      self.assertAllEqual(x.eval(session=sess), sparse.values)
-      self.assertAllEqual(key.eval(session=sess), dense)
+    x, key = tf_utils._get_dense_value_key_inputs(sparse, dense)
+    self.assertAllEqual(self.evaluate(x), sparse.values)
+    self.assertAllEqual(self.evaluate(key), dense)
 
-    sparse1 = tf.compat.v1.sparse_placeholder(tf.int64, shape=[None, None])
-    sparse2 = tf.compat.v1.sparse_placeholder(tf.int64, shape=[None, None])
-    sparse_value1 = tf.compat.v1.SparseTensorValue(
-        indices=[[0, 0], [1, 1], [2, 2], [3, 1]],
-        values=[3, 2, -1, 3],
-        dense_shape=[4, 5])
-    sparse_value2 = tf.compat.v1.SparseTensorValue(
-        indices=[[0, 0], [1, 2], [2, 2], [3, 1]],
-        values=[3, 2, -1, 3],
-        dense_shape=[4, 5])
+    with tf.compat.v1.Graph().as_default():
+      sparse1 = tf.compat.v1.sparse_placeholder(tf.int64, shape=[None, None])
+      sparse2 = tf.compat.v1.sparse_placeholder(tf.int64, shape=[None, None])
+      sparse_value1 = tf.compat.v1.SparseTensorValue(
+          indices=[[0, 0], [1, 1], [2, 2], [3, 1]],
+          values=[3, 2, -1, 3],
+          dense_shape=[4, 5])
+      sparse_value2 = tf.compat.v1.SparseTensorValue(
+          indices=[[0, 0], [1, 2], [2, 2], [3, 1]],
+          values=[3, 2, -1, 3],
+          dense_shape=[4, 5])
 
-    with tf.compat.v1.Session() as sess:
-      with self.assertRaisesRegexp(exception_cls, error_string):
-        sess.run(tf_utils._get_dense_value_key_inputs(sparse1, sparse2),
-                 feed_dict={sparse1: sparse_value1, sparse2: sparse_value2})
+      with tf.compat.v1.Session() as sess:
+        with self.assertRaisesRegexp(exception_cls, error_string):
+          sess.run(tf_utils._get_dense_value_key_inputs(sparse1, sparse2),
+                   feed_dict={sparse1: sparse_value1, sparse2: sparse_value2})
 
   @test_case.named_parameters(
       dict(
@@ -713,23 +715,24 @@ class TFUtilsTest(test_case.TransformTestCase):
   )
   def test_map_per_key_reductions(
       self, key, key_vocab, reductions, x, expected_results):
-    if isinstance(key, tf.compat.v1.SparseTensorValue):
-      key = tf.compat.v1.convert_to_tensor_or_sparse_tensor(key)
-    else:
-      key = tf.constant(key)
-    key_vocab = tf.constant(key_vocab)
-    reductions = tuple([tf.constant(t) for t in reductions])
-    if isinstance(x, tf.compat.v1.SparseTensorValue):
-      x = tf.compat.v1.convert_to_tensor_or_sparse_tensor(x)
-    else:
-      x = tf.constant(x)
-    expected_results = tuple(tf.constant(t) for t in expected_results)
-    results = tf_utils.map_per_key_reductions(reductions, key, key_vocab, x)
-    with tf.compat.v1.Session() as sess:
-      sess.run(tf.compat.v1.tables_initializer())
-      output = sess.run(results)
-      for result, expected_result in zip(output, expected_results):
-        self.assertAllEqual(result, expected_result)
+    with tf.compat.v1.Graph().as_default():
+      if isinstance(key, tf.compat.v1.SparseTensorValue):
+        key = tf.compat.v1.convert_to_tensor_or_sparse_tensor(key)
+      else:
+        key = tf.constant(key)
+      key_vocab = tf.constant(key_vocab)
+      reductions = tuple([tf.constant(t) for t in reductions])
+      if isinstance(x, tf.compat.v1.SparseTensorValue):
+        x = tf.compat.v1.convert_to_tensor_or_sparse_tensor(x)
+      else:
+        x = tf.constant(x)
+      expected_results = tuple(tf.constant(t) for t in expected_results)
+      results = tf_utils.map_per_key_reductions(reductions, key, key_vocab, x)
+      with tf.compat.v1.Session() as sess:
+        sess.run(tf.compat.v1.tables_initializer())
+        output = sess.run(results)
+        for result, expected_result in zip(output, expected_results):
+          self.assertAllEqual(result, expected_result)
 
   @test_case.named_parameters(test_case.cross_with_function_handlers([
       dict(
@@ -840,10 +843,11 @@ class TFUtilsTest(test_case.TransformTestCase):
                """
           ]))
   def test_serialize_example(self, examples, ascii_protos):
-    serialized_examples_tensor = tf_utils.serialize_example(examples)
-    with tf.compat.v1.Session():
-      serialized_examples = serialized_examples_tensor.eval()
-      example_proto = tf.train.Example()
+    with tf.compat.v1.Graph().as_default():
+      serialized_examples_tensor = tf_utils.serialize_example(examples)
+      with tf.compat.v1.Session():
+        serialized_examples = serialized_examples_tensor.eval()
+        example_proto = tf.train.Example()
     self.assertEqual(len(serialized_examples), len(ascii_protos))
     for ascii_proto, serialized_example in zip(ascii_protos,
                                                serialized_examples):
@@ -859,21 +863,18 @@ class TFUtilsTest(test_case.TransformTestCase):
     y = tf.constant([0, 1, 1, 1, 0, 1, 1], tf.int64)
     extended_batch = tf_utils.extend_reduced_batch_with_y_counts(
         initial_reduction, y)
-    with tf.compat.v1.Session():
-      self.assertAllEqual(
-          extended_batch.unique_x.eval(),
-          np.array([b'foo', b'bar', b'global_y_count_sentinel']))
-      self.assertAllClose(extended_batch.summed_weights_per_x.eval(),
-                          np.array([2.0, 4.0, 7.0]))
-      self.assertAllClose(extended_batch.summed_positive_per_x_and_y.eval(),
-                          np.array([[1.0, 3.0], [1.0, 1.0], [2.0, 5.0]]))
-      self.assertAllClose(extended_batch.counts_per_x.eval(),
-                          np.array([2.0, 4.0, 7.0]))
+    self.assertAllEqual(self.evaluate(extended_batch.unique_x),
+                        np.array([b'foo', b'bar', b'global_y_count_sentinel']))
+    self.assertAllClose(self.evaluate(extended_batch.summed_weights_per_x),
+                        np.array([2.0, 4.0, 7.0]))
+    self.assertAllClose(
+        self.evaluate(extended_batch.summed_positive_per_x_and_y),
+        np.array([[1.0, 3.0], [1.0, 1.0], [2.0, 5.0]]))
+    self.assertAllClose(self.evaluate(extended_batch.counts_per_x),
+                        np.array([2.0, 4.0, 7.0]))
 
 
 if __name__ == '__main__':
-  # TODO(b/133440043): Remove this once TFT supports eager execution.
-  tf.compat.v1.disable_eager_execution()
   # TODO(b/133440043): Remove this once this is enabled by default.
   tf.compat.v1.enable_v2_tensorshape()
   test_case.main()

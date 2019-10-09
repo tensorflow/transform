@@ -22,6 +22,13 @@ import collections
 # GOOGLE-INITIALIZATION
 import tensorflow as tf
 
+# TODO(b/138934800) Remove this condition once we no longer support TF 1.14.
+_TENSORS_ARE_HASHABLE = tf.__version__ < '1.15'
+if not _TENSORS_ARE_HASHABLE:
+  # pylint: disable=g-import-not-at-top
+  from tensorflow.python.util import object_identity  # pylint: disable=g-direct-tensorflow-import
+  _TENSORS_ARE_HASHABLE = False
+  # pylint: enable=g-import-not-at-top
 
 _FLOATING_NAN = float('nan')
 # Global sentinels used to keep track of the total counts of y
@@ -32,6 +39,12 @@ ReducedBatchWeightedCounts = collections.namedtuple('ReducedBatchCounts', [
     'unique_x', 'summed_weights_per_x', 'summed_positive_per_x_and_y',
     'counts_per_x'
 ])
+
+_SparseTensorRef = collections.namedtuple('_SparseTensorRef', [
+    'indices', 'values', 'dense_shape'])
+
+_RaggedTensorRef = collections.namedtuple('_RaggedTensorRef', [
+    'flat_values', 'nested_row_splits'])
 
 
 def reduce_batch_weighted_counts(x, weights=None):
@@ -195,6 +208,61 @@ def extend_reduced_batch_with_y_counts(reduced_batch, y, weights=None):
                                             axis=0),
       counts_per_x=tf.concat(
           [reduced_batch.counts_per_x, sentinel_batch.counts_per_x], axis=0))
+
+
+def hashable_tensor_or_op(tensor_or_op):
+  """Returns a hashable reference to a Tensor if available and given a Tensor.
+
+  Use deref_tensor_or_op on the result to get the Tensor (or SparseTensor).
+
+  Args:
+    tensor_or_op: A `tf.Tensor`, `tf.SparseTensor` or other type.
+
+  Returns:
+    A hashable representation for the Tensor or SparseTensor, or the original
+    value for other types.
+  """
+  # TODO(b/138934800) Remove this condition once we no longer support TF 1.14.
+  if _TENSORS_ARE_HASHABLE:
+    return tensor_or_op
+  if isinstance(tensor_or_op, tf.Tensor):
+    return tensor_or_op.experimental_ref()
+  if isinstance(tensor_or_op, tf.RaggedTensor):
+    return _RaggedTensorRef(
+        flat_values=tensor_or_op.flat_values.experimental_ref(),
+        nested_row_splits=tuple(split.experimental_ref()
+                                for split in tensor_or_op.nested_row_splits))
+  if isinstance(tensor_or_op, tf.SparseTensor):
+    return _SparseTensorRef(
+        indices=tensor_or_op.indices.experimental_ref(),
+        values=tensor_or_op.values.experimental_ref(),
+        dense_shape=tensor_or_op.dense_shape.experimental_ref())
+  return tensor_or_op
+
+
+def deref_tensor_or_op(tensor_or_op):
+  """Returns a Tensor or SparseTensor if given a reference, otherwise input.
+
+  Args:
+    tensor_or_op: An output of `hashable_tensor_or_op`.
+
+  Returns:
+    A Tensor, SparseTensor, RaggedTensor, or the given tensor_or_op.
+  """
+  # TODO(b/138934800) Remove this condition once we no longer support TF 1.14.
+  if _TENSORS_ARE_HASHABLE:
+    return tensor_or_op
+  if isinstance(tensor_or_op, object_identity.Reference):
+    return tensor_or_op.deref()
+  if isinstance(tensor_or_op, _SparseTensorRef):
+    return tf.SparseTensor(indices=tensor_or_op.indices.deref(),
+                           values=tensor_or_op.values.deref(),
+                           dense_shape=tensor_or_op.dense_shape.deref())
+  if isinstance(tensor_or_op, _RaggedTensorRef):
+    return tf.RaggedTensor.from_nested_row_splits(
+        tensor_or_op.flat_values.deref(),
+        [split.deref() for split in tensor_or_op.nested_row_splits])
+  return tensor_or_op
 
 
 def _broadcast_to_x_shape(x, y):
