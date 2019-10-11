@@ -436,8 +436,8 @@ def _make_training_input_fn(tf_transform_output, transformed_examples,
 ```
 
 The remaining code is the same as using the
-[`Estimator`](/api_docs/python/tf/estimator/Estimator) class. The
-example also contains code to export the model in the `SavedModel` format. The
-exported model can be used by
+[`Estimator`](https://www.tensorflow.org/api_docs/python/tf/estimator/Estimator)
+class. The example also contains code to export the model in the `SavedModel`
+format. The exported model can be used by
 [Tensorflow Serving](https://www.tensorflow.org/serving/serving_basic) or the
 [Cloud ML Engine](https://cloud.google.com/ml-engine/docs/prediction-overview).

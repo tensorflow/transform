@@ -490,7 +490,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata, desired_batch_size=1)
 
-  @tft_unit.disable_tf_version_check
   def testTransformWithExcludedOutputs(self):
     def preprocessing_fn(inputs):
       return {
@@ -2930,7 +2929,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
-  @tft_unit.disable_tf_version_check
   def testPipelineWithoutAutomaterialization(self):
     # Other tests pass lists instead of PCollections and thus invoke
     # automaterialization where each call to a beam PTransform will implicitly
@@ -3471,7 +3469,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_metadata,
         desired_batch_size=10)
 
-  @tft_unit.disable_tf_version_check
   def testVocabularyWithFrequency(self):
     outfile = 'vocabulary_with_frequency'
     def preprocessing_fn(inputs):
@@ -3740,7 +3737,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_outputs,
         desired_batch_size=10)
 
-  @tft_unit.disable_tf_version_check
   def testVocabularyWithKeyFnAndFrequency(self):
     def key_fn(string):
       return string.split(b'_X_')[1]
@@ -3814,7 +3810,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
     check_asset_file_contents(assets_path, outfile,
                               '4 1_X_a\n2 2_X_b\n1 4_X_c\n')
 
-  @tft_unit.disable_tf_version_check
   def testSavedModelWithAnnotations(self):
     """Test serialization/deserialization as a saved model with annotations."""
     # TODO(b/132098015): Schema annotations aren't yet supported in OSS builds.
@@ -3851,7 +3846,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         annotation.Unpack(message)
         self.assertAllClose(list(message.boundaries), [2, 3, 4])
 
-  @tft_unit.disable_tf_version_check
   def testSavedModelWithGlobalAnnotations(self):
     # TODO(b/132098015): Schema annotations aren't yet supported in OSS builds.
     try:

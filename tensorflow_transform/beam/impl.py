@@ -469,13 +469,19 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
 
 def _assert_tensorflow_version():
+  """Check that we're using a compatible TF version."""
   # Fail with a clear error in case we are not using a compatible TF version.
-  major, minor, _ = tf.__version__.split('.')
-  if int(major) != 1 or int(minor) < 14:
+  major, minor, _ = tf.version.VERSION.split('.')
+  if (int(major) not in (1, 2)) or (int(major == 1 and int(minor) < 14)):
     raise RuntimeError(
-        'TensorFlow version >= 1.14, < 2 is required. Found (%s). Please '
-        'install the latest 1.x version from '
-        'https://github.com/tensorflow/tensorflow. ' % tf.__version__)
+        'Tensorflow version >= 1.14, < 3 is required. Found (%s). Please '
+        'install the latest 1.x or 2.x version from '
+        'https://github.com/tensorflow/tensorflow. ' % tf.version.VERSION)
+  if int(major) == 2:
+    tf.compat.v1.logging.warning(
+        'Tensorflow version (%s) found. Note that Tensorflow Transform '
+        'support for TF 2.0 is currently in beta, and features such as '
+        'tf.function may not work as intended. ' % tf.version.VERSION)
 
 
 def _convert_and_unbatch_to_instance_dicts(batch_dict, schema,

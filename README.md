@@ -57,21 +57,21 @@ The following table is the `tf.Transform` package versions that are
 compatible with each other. This is determined by our testing framework, but
 other *untested* combinations may also work.
 
-|tensorflow-transform                                                            |tensorflow    |apache-beam[gcp]|
-|--------------------------------------------------------------------------------|--------------|----------------|
-|[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) |nightly (1.x) |2.14.0          |
-|[0.14.0](https://github.com/tensorflow/transform/blob/v0.14.0/RELEASE.md)       |1.14          |2.14.0          |
-|[0.13.0](https://github.com/tensorflow/transform/blob/v0.13.0/RELEASE.md)       |1.13          |2.11.0          |
-|[0.12.0](https://github.com/tensorflow/transform/blob/v0.12.0/RELEASE.md)       |1.12          |2.10.0          |
-|[0.11.0](https://github.com/tensorflow/transform/blob/v0.11.0/RELEASE.md)       |1.11          |2.8.0           |
-|[0.9.0](https://github.com/tensorflow/transform/blob/v0.9.0/RELEASE.md)         |1.9           |2.6.0           |
-|[0.8.0](https://github.com/tensorflow/transform/blob/v0.8.0/RELEASE.md)         |1.8           |2.5.0           |
-|[0.6.0](https://github.com/tensorflow/transform/blob/v0.6.0/RELEASE.md)         |1.6           |2.4.0           |
-|[0.5.0](https://github.com/tensorflow/transform/blob/v0.5.0/RELEASE.md)         |1.5           |2.3.0           |
-|[0.4.0](https://github.com/tensorflow/transform/blob/v0.4.0/RELEASE.md)         |1.4           |2.2.0           |
-|[0.3.1](https://github.com/tensorflow/transform/blob/v0.3.1/RELEASE.md)         |1.3           |2.1.1           |
-|[0.3.0](https://github.com/tensorflow/transform/blob/v0.3.0/RELEASE.md)         |1.3           |2.1.1           |
-|[0.1.10](https://github.com/tensorflow/transform/blob/v0.1.10/RELEASE.md)       |1.0           |2.0.0           |
+tensorflow-transform                                                            | tensorflow        | apache-beam[gcp]
+------------------------------------------------------------------------------- | ----------------- | ----------------
+[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) | nightly (1.x/2.x) | 2.14.0
+[0.14.0](https://github.com/tensorflow/transform/blob/v0.14.0/RELEASE.md)       | 1.14              | 2.14.0
+[0.13.0](https://github.com/tensorflow/transform/blob/v0.13.0/RELEASE.md)       | 1.13              | 2.11.0
+[0.12.0](https://github.com/tensorflow/transform/blob/v0.12.0/RELEASE.md)       | 1.12              | 2.10.0
+[0.11.0](https://github.com/tensorflow/transform/blob/v0.11.0/RELEASE.md)       | 1.11              | 2.8.0
+[0.9.0](https://github.com/tensorflow/transform/blob/v0.9.0/RELEASE.md)         | 1.9               | 2.6.0
+[0.8.0](https://github.com/tensorflow/transform/blob/v0.8.0/RELEASE.md)         | 1.8               | 2.5.0
+[0.6.0](https://github.com/tensorflow/transform/blob/v0.6.0/RELEASE.md)         | 1.6               | 2.4.0
+[0.5.0](https://github.com/tensorflow/transform/blob/v0.5.0/RELEASE.md)         | 1.5               | 2.3.0
+[0.4.0](https://github.com/tensorflow/transform/blob/v0.4.0/RELEASE.md)         | 1.4               | 2.2.0
+[0.3.1](https://github.com/tensorflow/transform/blob/v0.3.1/RELEASE.md)         | 1.3               | 2.1.1
+[0.3.0](https://github.com/tensorflow/transform/blob/v0.3.0/RELEASE.md)         | 1.3               | 2.1.1
+[0.1.10](https://github.com/tensorflow/transform/blob/v0.1.10/RELEASE.md)       | 1.0               | 2.0.0
 
 ## Questions
 

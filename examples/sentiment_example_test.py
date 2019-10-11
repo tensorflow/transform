@@ -24,14 +24,12 @@ import shutil
 
 import tensorflow as tf
 import tensorflow_transform as tft
-from tensorflow_transform.beam import tft_unit
 import sentiment_example
 import local_model_server
 
 
 class SentimentExampleTest(tf.test.TestCase):
 
-  @tft_unit.disable_tf_version_check
   def testSentimentExampleAccuracy(self):
     raw_data_dir = os.path.join(os.path.dirname(__file__), 'testdata/sentiment')
     working_dir = self.get_temp_dir()

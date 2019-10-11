@@ -370,7 +370,6 @@ class CachedImplTest(tft_unit.TransformTestCase):
     super(CachedImplTest, self).tearDown()
 
   @mock_out_cache_hash
-  @tft_unit.disable_tf_version_check
   def test_single_phase_mixed_analyzer_run_once(self):
     span_0_key = 'span-0'
     span_1_key = 'span-1'
@@ -486,7 +485,6 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
     self.assertEqual(_get_counter_value(p.metrics, 'num_packed_combiners'), 1)
 
-  @tft_unit.disable_tf_version_check
   def test_single_phase_run_twice(self):
 
     span_0_key = 'span-0'
@@ -678,7 +676,6 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 1)
 
   @mock_out_cache_hash
-  @tft_unit.disable_tf_version_check
   def test_caching_vocab_for_integer_categorical(self):
 
     span_0_key = 'span-0'
@@ -774,7 +771,6 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
 
   @mock_out_cache_hash
-  @tft_unit.disable_tf_version_check
   def test_non_frequency_vocabulary_merge(self):
     """This test compares vocabularies produced with and without cache."""
 
@@ -953,7 +949,6 @@ class CachedImplTest(tft_unit.TransformTestCase):
         msg='Result dot graph is:\n{}\nCache output dict keys are: {}'.format(
             dot_string, cache_output_dict.keys()))
 
-  @tft_unit.disable_tf_version_check
   def test_no_data_needed(self):
     span_0_key = 'span-0'
     span_1_key = 'span-1'
@@ -983,7 +978,6 @@ class CachedImplTest(tft_unit.TransformTestCase):
               preprocessing_fn, pipeline=p))
       self.assertFalse(output_cache)
 
-  @tft_unit.disable_tf_version_check
   def test_tf_function_fails_cache(self):
 
     def preprocessing_fn(inputs):

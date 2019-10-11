@@ -2,6 +2,13 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
+* This release introduces initial experimental support for TF 2.0. TF 2.0
+  programs running in "safety" mode (i.e. using TF 1.X APIs through the
+  `tensorflow.compat.v1` compatibility module are expected to work. Newly
+  written TF 2.0 programs may not work if they exercise functionality that is
+  not yet supported. If you do encounter an issue when using TFT with TF 2.0,
+  please create an issue https://github.com/tensorflow/transform/issues with
+  instructions on how to reproduce it.
 * Performance improvements for preprocessing_fns with many Quantiles analyzers.
 * Using new TF core quantiles ops, which are not publicly available until next
   release.  Analyzers and mappers now support missing tf.contrib module.
