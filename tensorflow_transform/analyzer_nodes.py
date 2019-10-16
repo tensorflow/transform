@@ -350,6 +350,11 @@ class _CombinerPerKeyAccumulatorCoder(CacheCoder):
     self._combiner_coder = value_coder
     self._vocabulary_coder = _BaseKVCoder()
 
+  def __repr__(self):
+    return '<{}[{}[{}]]>'.format(self.__class__.__name__,
+                                 repr(self._vocabulary_coder),
+                                 repr(self._combiner_coder))
+
   def encode_cache(self, accumulator):
     key, value = accumulator
     encoded_value = self._combiner_coder.encode_cache(value)

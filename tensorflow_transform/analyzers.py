@@ -1350,7 +1350,12 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
 
   @property
   def accumulator_coder(self):
-    return _QuantilesAccumulatorCacheCoder()
+    if self._use_core_quantile_ops:
+      # The contents of the accumulator are different, so we need the
+      # fingerprint to be different for the different versions.
+      return _QuantilesAccumulatorCacheCoderV2()
+    else:
+      return _QuantilesAccumulatorCacheCoder()
 
 
 class _QuantilesAccumulatorCacheCoder(analyzer_nodes.CacheCoder):
@@ -1364,6 +1369,12 @@ class _QuantilesAccumulatorCacheCoder(analyzer_nodes.CacheCoder):
 
   def decode_cache(self, encoded_accumulator):
     return pickle.loads(encoded_accumulator)
+
+
+# Creating a different name for this coder causes its entries to have a
+# different fingerprint.
+class _QuantilesAccumulatorCacheCoderV2(_QuantilesAccumulatorCacheCoder):
+  pass
 
 
 # TODO(KesterTong): We could perhaps enable even more graph_state sharing by making
