@@ -42,7 +42,12 @@ from tensorflow_transform.tf_metadata import schema_utils
 
 mock = tf.compat.v1.test.mock
 
-_TEST_CACHE_VERSION = analyzer_cache._CACHE_VERSION
+_SINGLE_PHASE_NUM_SAVED_MODELS = 2
+_ZERO_PHASE_NUM_SAVED_MODELS = 1
+
+
+def _make_cache_key(cache_identifier):
+  return analyzer_cache._CACHE_VERSION + cache_identifier + b'-HASH'
 
 
 def _get_counter_value(metrics, name):
@@ -99,8 +104,7 @@ _OPTIMIZE_TRAVERSAL_COMMON_CASE = dict(
     },
     preprocessing_fn=_preprocessing_fn_for_common_optimize_traversal,
     dataset_input_cache_dict={
-        _TEST_CACHE_VERSION +
-        b'CacheableCombineAccumulate[x/mean_and_var]-HASH':
+        _make_cache_key(b'CacheableCombineAccumulate[x/mean_and_var]'):
             'cache hit',
     },
     expected_dot_graph_str=r"""digraph G {
@@ -369,6 +373,113 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self._context.__exit__()
     super(CachedImplTest, self).tearDown()
 
+  _RunPipelineResult = collections.namedtuple(  # pylint: disable=invalid-name
+      '_RunPipelineResult', ['cache_output', 'pipeline'])
+
+  def _run_pipeline(self,
+                    feature_spec,
+                    input_data_dict,
+                    preprocessing_fn,
+                    cache_dict=None,
+                    should_read_cache=False,
+                    datasets_to_transform=None,
+                    expected_transform_data=None,
+                    expected_cache=None,
+                    transform_fn_output_dir=None):
+    """Runs an analysis pipeline with cache.
+
+    Args:
+      feature_spec: A feature_spec for the input data.
+      input_data_dict: Dict[str, List[Dict[str, primitive]]] the input data used
+        for analysis.
+      preprocessing_fn: The preprocessing_fn used for analysis.
+      cache_dict: Dict[str, Dict[str, List[bytes]]], input cache dict. If
+        provided, should_read_cache must be False.
+      should_read_cache: A bool indicating if the pipeline should read cache. If
+        True, cache_dict must be False.
+      datasets_to_transform: List[str], list of dataset keys to transform.
+      expected_transform_data: List[Dict[str, primitive]], the expected
+        transformed data, should be the same for each dataset.
+      expected_cache: Dict[str, Dict[str, bytes]], expected encoded cache.
+      transform_fn_output_dir: A directory where the output transform_fn should
+        be written to, if not provided it will not be written.
+
+    Returns:
+      A _RunPipelineResult.
+    """
+    input_metadata = dataset_metadata.DatasetMetadata(
+        schema_utils.schema_from_feature_spec(feature_spec))
+    with _TestPipeline() as p:
+      flat_data = p | 'CreateInputData' >> beam.Create(
+          list(itertools.chain(*input_data_dict.values())))
+
+      # Wraps each value in input_data_dict as a PCollection.
+      input_data_pcoll_dict = {}
+      for a, b in input_data_dict.items():
+        input_data_pcoll_dict[a] = p | a >> beam.Create(b)
+
+      pcoll_cache_dict = {}
+
+      # If provided with a cache dictionary this wraps cache entries in
+      # PCollections.
+      if cache_dict is not None:
+        assert not should_read_cache
+        for dataset in cache_dict:
+          pcoll_cache_dict[dataset] = {
+              k:
+              (p | 'CreateCache[{}][{}]'.format(dataset, idx) >> beam.Create(v))
+              for idx, (k, v) in enumerate(cache_dict[dataset].items())
+          }
+
+      # If requested, reads cache from the test cache directory.
+      if should_read_cache:
+        assert cache_dict is None
+        pcoll_cache_dict = p | analyzer_cache.ReadAnalysisCacheFromFS(
+            self._cache_dir, list(input_data_dict.keys()))
+
+      transform_fn, cache_output = (
+          (flat_data, input_data_pcoll_dict, pcoll_cache_dict, input_metadata)
+          | 'Analyze' >> tft_beam.AnalyzeDatasetWithCache(preprocessing_fn))
+      _ = (
+          cache_output
+          | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
+              p, self._cache_dir))
+
+      # Transforms the requested datasets.
+      if datasets_to_transform is None:
+        transformed_dataset = None
+      else:
+        flattened_transform_data = (
+            [input_data_pcoll_dict[d] for d in datasets_to_transform]
+            | 'FlattenTransformData' >> beam.Flatten())
+        transformed_dataset = ((
+            (flattened_transform_data, input_metadata), transform_fn)
+                               | 'Transform' >> tft_beam.TransformDataset())
+
+      # Validate the transformed data is as expected. This requires providing
+      # datasets_to_transform.
+      if expected_transform_data is not None:
+        assert transformed_dataset is not None
+        transformed_data, unused_transformed_metadata = transformed_dataset
+        beam_test_util.assert_that(
+            transformed_data, beam_test_util.equal_to(expected_transform_data))
+
+      if expected_cache is not None:
+        for dataset in expected_cache:
+          self.assertCountEqual(cache_output[dataset].keys(),
+                                expected_cache[dataset].keys())
+          for idx, (key, value) in enumerate(expected_cache[dataset].items()):
+            beam_test_util.assert_that(
+                cache_output[dataset][key],
+                beam_test_util.equal_to(value),
+                label='AssertCache[{}][{}]'.format(dataset, idx))
+
+      # Write transform_fn if provided with an output directory.
+      if transform_fn_output_dir is not None:
+        _ = transform_fn | tft_beam.WriteTransformFn(transform_fn_output_dir)
+
+      return self._RunPipelineResult(cache_output, p)
+
   @mock_out_cache_hash
   def test_single_phase_mixed_analyzer_run_once(self):
     span_0_key = 'span-0'
@@ -396,12 +507,11 @@ class CachedImplTest(tft_unit.TransformTestCase):
     # Run AnalyzeAndTransform on some input data and compare with expected
     # output.
     input_data = [{'x': 12, 'y': 1, 's': 'd'}, {'x': 10, 'y': 1, 's': 'c'}]
-    input_metadata = dataset_metadata.DatasetMetadata(
-        schema_utils.schema_from_feature_spec({
-            'x': tf.io.FixedLenFeature([], tf.float32),
-            'y': tf.io.FixedLenFeature([], tf.float32),
-            's': tf.io.FixedLenFeature([], tf.string),
-        }))
+    feature_spec = {
+        'x': tf.io.FixedLenFeature([], tf.float32),
+        'y': tf.io.FixedLenFeature([], tf.float32),
+        's': tf.io.FixedLenFeature([], tf.string),
+    }
     input_data_dict = {
         span_0_key: [{
             'x': -2,
@@ -415,74 +525,69 @@ class CachedImplTest(tft_unit.TransformTestCase):
         span_1_key: input_data,
     }
 
-    with _TestPipeline() as p:
-      flat_data = p | 'CreateInputData' >> beam.Create(
-          list(itertools.chain(*input_data_dict.values())))
-      cache_dict = {
-          span_0_key: {
-              _TEST_CACHE_VERSION +
-              b'CacheableCombineAccumulate[x_1/mean_and_var]-HASH':
-                  p | 'CreateA' >> beam.Create([b'[2.0, 1.0, 9.0, 0.0]']),
-              _TEST_CACHE_VERSION + b'CacheableCombineAccumulate[x/x]-HASH':
-                  p | 'CreateB' >> beam.Create([b'[2.0, 4.0]']),
-              _TEST_CACHE_VERSION +
-              b'CacheableCombineAccumulate[y_1/mean_and_var]-HASH':
-                  p | 'CreateC' >> beam.Create([b'[2.0, -1.5, 6.25, 0.0]']),
-              _TEST_CACHE_VERSION + b'CacheableCombineAccumulate[y/y]-HASH':
-                  p | 'CreateD' >> beam.Create([b'[4.0, 1.0]']),
-          },
-          span_1_key: {},
-      }
+    cache_dict = {
+        span_0_key: {
+            _make_cache_key(b'CacheableCombineAccumulate[x_1/mean_and_var]'): [
+                b'[2.0, 1.0, 9.0, 0.0]'
+            ],
+            _make_cache_key(b'CacheableCombineAccumulate[x/x]'): [
+                b'[2.0, 4.0]'
+            ],
+            _make_cache_key(b'CacheableCombineAccumulate[y_1/mean_and_var]'): [
+                b'[2.0, -1.5, 6.25, 0.0]'
+            ],
+            _make_cache_key(b'CacheableCombineAccumulate[y/y]'): [
+                b'[4.0, 1.0]'
+            ],
+        },
+        span_1_key: {},
+    }
 
-      transform_fn, cache_output = (
-          (flat_data, input_data_dict, cache_dict, input_metadata)
-          | 'Analyze' >> tft_beam.AnalyzeDatasetWithCache(preprocessing_fn))
-      _ = (cache_output | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
-          p, self._cache_dir))
+    expected_transformed = [
+        {
+            'x_mean': 6.0,
+            'x_min': -2.0,
+            'y_mean': -0.25,
+            'y_min': -4.0,
+            'integerized_s': 1,
+        },
+        {
+            'x_mean': 6.0,
+            'x_min': -2.0,
+            'y_mean': -0.25,
+            'y_min': -4.0,
+            'integerized_s': 2,
+        },
+    ]
 
-      transformed_dataset = ((
-          (input_data_dict[span_1_key], input_metadata), transform_fn)
-                             | 'Transform' >> tft_beam.TransformDataset())
+    run_result = self._run_pipeline(
+        feature_spec,
+        input_data_dict,
+        preprocessing_fn,
+        cache_dict=cache_dict,
+        datasets_to_transform=[span_1_key],
+        expected_transform_data=expected_transformed,
+        transform_fn_output_dir=os.path.join(self.base_test_dir,
+                                             'transform_fn'))
 
-      dot_string = nodes.get_dot_graph([analysis_graph_builder._ANALYSIS_GRAPH
-                                       ]).to_string()
-      self.WriteRenderedDotFile(dot_string)
+    dot_string = nodes.get_dot_graph([analysis_graph_builder._ANALYSIS_GRAPH
+                                     ]).to_string()
+    self.WriteRenderedDotFile(dot_string)
 
-      # The output cache should not have entries for the cache that is present
-      # in the input cache.
-      self.assertEqual(
-          len(cache_output[span_0_key]),
-          len(cache_output[span_1_key]) - 4)
+    # The output cache should not have entries for the cache that is present
+    # in the input cache.
+    self.assertEqual(
+        len(run_result.cache_output[span_0_key]),
+        len(run_result.cache_output[span_1_key]) - 4)
 
-      transformed_data, unused_transformed_metadata = transformed_dataset
-
-      expected_transformed = [
-          {
-              'x_mean': 6.0,
-              'x_min': -2.0,
-              'y_mean': -0.25,
-              'y_min': -4.0,
-              'integerized_s': 1,
-          },
-          {
-              'x_mean': 6.0,
-              'x_min': -2.0,
-              'y_mean': -0.25,
-              'y_min': -4.0,
-              'integerized_s': 2,
-          },
-      ]
-      beam_test_util.assert_that(transformed_data,
-                                 beam_test_util.equal_to(expected_transformed))
-
-      transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn')
-      _ = transform_fn | tft_beam.WriteTransformFn(transform_fn_dir)
-
+    p = run_result.pipeline
     # 4 from analyzing 2 spans, and 2 from transform.
     self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 6)
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 4)
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 8)
-    self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
+    self.assertEqual(
+        _get_counter_value(p.metrics, 'saved_models_created'),
+        _SINGLE_PHASE_NUM_SAVED_MODELS)
     self.assertEqual(_get_counter_value(p.metrics, 'num_packed_combiners'), 1)
 
   def test_single_phase_run_twice(self):
@@ -515,13 +620,12 @@ class CachedImplTest(tft_unit.TransformTestCase):
                   use_adjusted_mutual_info=True),
       }
 
-    input_metadata = dataset_metadata.DatasetMetadata(
-        schema_utils.schema_from_feature_spec({
-            'x': tf.io.FixedLenFeature([], tf.float32),
-            'y': tf.io.FixedLenFeature([], tf.float32),
-            's': tf.io.FixedLenFeature([], tf.string),
-            'label': tf.io.FixedLenFeature([], tf.int64),
-        }))
+    feature_spec = {
+        'x': tf.io.FixedLenFeature([], tf.float32),
+        'y': tf.io.FixedLenFeature([], tf.float32),
+        's': tf.io.FixedLenFeature([], tf.string),
+        'label': tf.io.FixedLenFeature([], tf.int64),
+    }
     input_data_dict = {
         span_0_key: [{
             'x': -2,
@@ -559,113 +663,74 @@ class CachedImplTest(tft_unit.TransformTestCase):
     expected_vocabulary_contents = np.array(
         [b'a', u'ȟᎥ𝒋ǩľḿꞑȯ𝘱𝑞𝗋𝘴'.encode('utf-8'), b'c'],
         dtype=object)
-    with _TestPipeline() as p:
-      flat_data = p | 'CreateInputData' >> beam.Create(
-          list(itertools.chain(*input_data_dict.values())))
 
-      # wrap each value in input_data_dict as a pcoll.
-      input_data_pcoll_dict = {}
-      for a, b in six.iteritems(input_data_dict):
-        input_data_pcoll_dict[a] = p | a >> beam.Create(b)
+    expected_transformed_data = [
+        {
+            'x_mean': 5.0,
+            'x_min': -2.0,
+            'y_mean': 1.0,
+            'y_min': -4.0,
+            'y_cov': 25.0,
+            's_integerized': 0,
+        },
+        {
+            'x_mean': 5.0,
+            'x_min': -2.0,
+            'y_mean': 1.0,
+            'y_min': -4.0,
+            'y_cov': 25.0,
+            's_integerized': 2,
+        },
+    ]
 
-      transform_fn_1, cache_output = (
-          (flat_data, input_data_pcoll_dict, {}, input_metadata)
-          | 'Analyze' >> tft_beam.AnalyzeDatasetWithCache(preprocessing_fn))
-      _ = (
-          cache_output
-          | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
-              p, self._cache_dir))
+    transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_1')
 
-      transformed_dataset = ((
-          (input_data_pcoll_dict[span_1_key], input_metadata), transform_fn_1)
-                             | 'Transform' >> tft_beam.TransformDataset())
+    first_run_result = self._run_pipeline(
+        feature_spec,
+        input_data_dict,
+        preprocessing_fn,
+        datasets_to_transform=[span_1_key],
+        expected_transform_data=expected_transformed_data,
+        transform_fn_output_dir=transform_fn_dir)
 
-      del input_data_pcoll_dict
-      transformed_data, unused_transformed_metadata = transformed_dataset
-
-      expected_transformed_data = [
-          {
-              'x_mean': 5.0,
-              'x_min': -2.0,
-              'y_mean': 1.0,
-              'y_min': -4.0,
-              'y_cov': 25.0,
-              's_integerized': 0,
-          },
-          {
-              'x_mean': 5.0,
-              'x_min': -2.0,
-              'y_mean': 1.0,
-              'y_min': -4.0,
-              'y_cov': 25.0,
-              's_integerized': 2,
-          },
-      ]
-      beam_test_util.assert_that(
-          transformed_data,
-          beam_test_util.equal_to(expected_transformed_data),
-          label='first')
-
-      transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_1')
-      _ = transform_fn_1 | tft_beam.WriteTransformFn(transform_fn_dir)
-
-      for key in input_data_dict:
-        self.assertIn(key, cache_output)
-        self.assertEqual(8, len(cache_output[key]))
+    for key in input_data_dict:
+      self.assertIn(key, first_run_result.cache_output)
+      self.assertEqual(8, len(first_run_result.cache_output[key]))
 
     tf_transform_output = tft.TFTransformOutput(transform_fn_dir)
     vocab1_path = tf_transform_output.vocabulary_file_by_name('vocab1')
     self.AssertVocabularyContents(vocab1_path, expected_vocabulary_contents)
 
+    p = first_run_result.pipeline
     # 4 from analyzing 2 spans, and 2 from transform.
     self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 8)
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 0)
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 16)
-    self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
+    self.assertEqual(
+        _get_counter_value(p.metrics, 'saved_models_created'),
+        _SINGLE_PHASE_NUM_SAVED_MODELS)
 
-    with _TestPipeline() as p:
-      flat_data = p | 'CreateInputData' >> beam.Create(
-          list(itertools.chain(*input_data_dict.values())))
+    transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_2')
+    second_run_result = self._run_pipeline(
+        feature_spec,
+        input_data_dict,
+        preprocessing_fn,
+        should_read_cache=True,
+        datasets_to_transform=[span_1_key],
+        expected_transform_data=expected_transformed_data,
+        transform_fn_output_dir=transform_fn_dir)
 
-      # wrap each value in input_data_dict as a pcoll.
-      input_data_pcoll_dict = {}
-      for a, b in six.iteritems(input_data_dict):
-        input_data_pcoll_dict[a] = p | a >> beam.Create(b)
-
-      input_cache = p | analyzer_cache.ReadAnalysisCacheFromFS(
-          self._cache_dir, list(input_data_dict.keys()))
-
-      transform_fn_2, second_output_cache = (
-          (flat_data, input_data_pcoll_dict, input_cache, input_metadata)
-          | 'AnalyzeAgain' >>
-          (tft_beam.AnalyzeDatasetWithCache(preprocessing_fn)))
-      _ = (
-          second_output_cache
-          | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
-              p, self._cache_dir))
-
-      dot_string = nodes.get_dot_graph([analysis_graph_builder._ANALYSIS_GRAPH
-                                       ]).to_string()
-      self.WriteRenderedDotFile(dot_string)
-
-      transformed_dataset = ((
-          (input_data_dict[span_1_key], input_metadata), transform_fn_2)
-                             | 'TransformAgain' >> tft_beam.TransformDataset())
-      transformed_data, unused_transformed_metadata = transformed_dataset
-      beam_test_util.assert_that(
-          transformed_data,
-          beam_test_util.equal_to(expected_transformed_data),
-          label='second')
-
-      transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_2')
-      _ = transform_fn_2 | tft_beam.WriteTransformFn(transform_fn_dir)
+    dot_string = nodes.get_dot_graph([analysis_graph_builder._ANALYSIS_GRAPH
+                                     ]).to_string()
+    self.WriteRenderedDotFile(dot_string)
 
     tf_transform_output = tft.TFTransformOutput(transform_fn_dir)
     vocab1_path = tf_transform_output.vocabulary_file_by_name('vocab1')
     self.AssertVocabularyContents(vocab1_path, expected_vocabulary_contents)
 
-    self.assertFalse(second_output_cache)
+    self.assertFalse(second_run_result.cache_output)
 
+    p = second_run_result.pipeline
     # Only 2 from transform.
     self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 2)
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 16)
@@ -673,7 +738,9 @@ class CachedImplTest(tft_unit.TransformTestCase):
 
     # The root CreateSavedModel is optimized away because the data doesn't get
     # processed at all (only cache).
-    self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 1)
+    self.assertEqual(
+        _get_counter_value(p.metrics, 'saved_models_created'),
+        _ZERO_PHASE_NUM_SAVED_MODELS)
 
   @mock_out_cache_hash
   def test_caching_vocab_for_integer_categorical(self):
@@ -688,10 +755,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
                   inputs['x'], frequency_threshold=2)
       }
 
-    input_metadata = dataset_metadata.DatasetMetadata(
-        schema_utils.schema_from_feature_spec({
-            'x': tf.io.FixedLenFeature([], tf.int64),
-        }))
+    feature_spec = {'x': tf.io.FixedLenFeature([], tf.int64)}
     input_data_dict = {
         span_0_key: [{
             'x': -2,
@@ -721,54 +785,43 @@ class CachedImplTest(tft_unit.TransformTestCase):
     }, {
         'x_vocab': -1,
     }]
-    with _TestPipeline() as p:
-      flat_data = p | 'CreateInputData' >> beam.Create(
-          list(itertools.chain(*input_data_dict.values())))
 
-      cache_dict = {
-          span_0_key: {
-              _TEST_CACHE_VERSION +
-              b'VocabularyAccumulate[compute_and_apply_vocabulary/vocabulary]'
-              b'-HASH':
-                  p | 'CreateB' >> beam.Create([
-                      _encode_vocabulary_accumulator(b'-2', b'2'),
-                      _encode_vocabulary_accumulator(b'-4', b'1'),
-                      _encode_vocabulary_accumulator(b'-1', b'1'),
-                      _encode_vocabulary_accumulator(b'4', b'1'),
-                  ])
-          },
-          span_1_key: {},
-      }
+    cache_dict = {
+        span_0_key: {
+            _make_cache_key(
+                b'VocabularyAccumulate[compute_and_apply_vocabulary/vocabulary]'
+            ): [
+                _encode_vocabulary_accumulator(b'-2', b'2'),
+                _encode_vocabulary_accumulator(b'-4', b'1'),
+                _encode_vocabulary_accumulator(b'-1', b'1'),
+                _encode_vocabulary_accumulator(b'4', b'1'),
+            ]
+        },
+        span_1_key: {},
+    }
 
-      transform_fn, cache_output = (
-          (flat_data, input_data_dict, cache_dict, input_metadata)
-          | 'Analyze' >> tft_beam.AnalyzeDatasetWithCache(preprocessing_fn))
+    run_result = self._run_pipeline(
+        feature_spec,
+        input_data_dict,
+        preprocessing_fn,
+        cache_dict=cache_dict,
+        datasets_to_transform=[span_1_key],
+        expected_transform_data=expected_transformed_data)
 
-      dot_string = nodes.get_dot_graph(
-          [analysis_graph_builder._ANALYSIS_GRAPH]).to_string()
-      self.WriteRenderedDotFile(dot_string)
+    dot_string = nodes.get_dot_graph([analysis_graph_builder._ANALYSIS_GRAPH
+                                     ]).to_string()
+    self.WriteRenderedDotFile(dot_string)
 
-      self.assertNotIn(span_0_key, cache_output)
+    self.assertNotIn(span_0_key, run_result.cache_output)
 
-      _ = cache_output | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
-          p, self._cache_dir)
-
-      transformed_dataset = ((
-          (input_data_dict[span_1_key], input_metadata), transform_fn)
-                             | 'Transform' >> tft_beam.TransformDataset())
-
-      transformed_data, _ = transformed_dataset
-
-      beam_test_util.assert_that(
-          transformed_data,
-          beam_test_util.equal_to(expected_transformed_data),
-          label='first')
-
+    p = run_result.pipeline
     # 4 from analysis since 1 span was completely cached, and 4 from transform.
     self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 8)
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 1)
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 1)
-    self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
+    self.assertEqual(
+        _get_counter_value(p.metrics, 'saved_models_created'),
+        _SINGLE_PHASE_NUM_SAVED_MODELS)
 
   @mock_out_cache_hash
   def test_non_frequency_vocabulary_merge(self):
@@ -815,81 +868,67 @@ class CachedImplTest(tft_unit.TransformTestCase):
         dict(s='b', weight=0.75, label=1),
         dict(s='b', weight=1, label=0),
     ]
-    input_metadata = dataset_metadata.DatasetMetadata(
-        schema_utils.schema_from_feature_spec({
-            's': tf.io.FixedLenFeature([], tf.string),
-            'label': tf.io.FixedLenFeature([], tf.int64),
-            'weight': tf.io.FixedLenFeature([], tf.float32),
-        }))
+    feature_spec = {
+        's': tf.io.FixedLenFeature([], tf.string),
+        'label': tf.io.FixedLenFeature([], tf.int64),
+        'weight': tf.io.FixedLenFeature([], tf.float32),
+    }
     input_data_dict = {
         span_0_key: input_data,
         span_1_key: input_data,
     }
+    transform_fn_with_cache_dir = os.path.join(self.base_test_dir,
+                                               'transform_fn_with_cache')
 
-    with _TestPipeline() as p:
-      flat_data = p | 'CreateInputData' >> beam.Create(
-          list(itertools.chain(*input_data_dict.values())))
+    expected_accumulators = {
+        _make_cache_key(b'VocabularyAccumulate[with_mi]'): [
+            _encode_vocabulary_accumulator(b'a',
+                                           b'[2, [0.0, 1.0], [0.0, 0.0], 1.0]'),
+            _encode_vocabulary_accumulator(b'b',
+                                           b'[2, [0.5, 0.5], [0.0, 0.0], 1.0]'),
+            _encode_vocabulary_accumulator(
+                b'global_y_count_sentinel',
+                b'[4, [0.25, 0.75], [0.0, 0.0], 1.0]'),
+        ],
+        _make_cache_key(b'VocabularyAccumulate[with_adjusted_mi]'): [
+            _encode_vocabulary_accumulator(b'a',
+                                           b'[2, [0.0, 1.0], [0.0, 0.0], 1.0]'),
+            _encode_vocabulary_accumulator(b'b',
+                                           b'[2, [0.5, 0.5], [0.0, 0.0], 1.0]'),
+            _encode_vocabulary_accumulator(
+                b'global_y_count_sentinel',
+                b'[4, [0.25, 0.75], [0.0, 0.0], 1.0]'),
+        ],
+        _make_cache_key(b'VocabularyAccumulate[with_weight]'): [
+            _encode_vocabulary_accumulator(b'a', b'1.5'),
+            _encode_vocabulary_accumulator(b'b', b'1.75')
+        ],
+    }
+    expected_cache = {
+        span: expected_accumulators for span in [span_0_key, span_1_key]
+    }
 
-      # wrap each value in input_data_dict as a pcoll.
-      input_data_pcoll_dict = {}
-      for a, b in six.iteritems(input_data_dict):
-        input_data_pcoll_dict[a] = p | a >> beam.Create(b)
+    run_result = self._run_pipeline(
+        feature_spec,
+        input_data_dict,
+        preprocessing_fn,
+        transform_fn_output_dir=transform_fn_with_cache_dir,
+        expected_cache=expected_cache)
 
-      transform_fn_with_cache, output_cache = (
-          (flat_data, input_data_pcoll_dict, {}, input_metadata)
-          | tft_beam.AnalyzeDatasetWithCache(preprocessing_fn))
-      transform_fn_with_cache_dir = os.path.join(self.base_test_dir,
-                                                 'transform_fn_with_cache')
-      _ = transform_fn_with_cache | tft_beam.WriteTransformFn(
-          transform_fn_with_cache_dir)
-
-      expected_accumulators = {
-          _TEST_CACHE_VERSION + b'VocabularyAccumulate[with_mi]-HASH': [
-              _encode_vocabulary_accumulator(
-                  b'a', b'[2, [0.0, 1.0], [0.0, 0.0], 1.0]'),
-              _encode_vocabulary_accumulator(
-                  b'b', b'[2, [0.5, 0.5], [0.0, 0.0], 1.0]'),
-              _encode_vocabulary_accumulator(
-                  b'global_y_count_sentinel',
-                  b'[4, [0.25, 0.75], [0.0, 0.0], 1.0]'),
-          ],
-          _TEST_CACHE_VERSION +
-          b'VocabularyAccumulate[with_adjusted_mi]-HASH': [
-              _encode_vocabulary_accumulator(
-                  b'a', b'[2, [0.0, 1.0], [0.0, 0.0], 1.0]'),
-              _encode_vocabulary_accumulator(
-                  b'b', b'[2, [0.5, 0.5], [0.0, 0.0], 1.0]'),
-              _encode_vocabulary_accumulator(
-                  b'global_y_count_sentinel',
-                  b'[4, [0.25, 0.75], [0.0, 0.0], 1.0]'),
-          ],
-          _TEST_CACHE_VERSION + b'VocabularyAccumulate[with_weight]-HASH': [
-              _encode_vocabulary_accumulator(b'a', b'1.5'),
-              _encode_vocabulary_accumulator(b'b', b'1.75')
-          ],
-      }
-
-      spans = [span_0_key, span_1_key]
-      self.assertCountEqual(output_cache.keys(), spans)
-      for span in spans:
-        self.assertCountEqual(output_cache[span].keys(),
-                              expected_accumulators.keys())
-        for idx, (key,
-                  value) in enumerate(six.iteritems(expected_accumulators)):
-          beam_test_util.assert_that(
-              output_cache[span][key],
-              beam_test_util.equal_to(value),
-              label='AssertCache[{}][{}]'.format(span, idx))
-
+    p = run_result.pipeline
     # 4 from analysis on each of the input spans.
     self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 8)
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 0)
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 6)
-    self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
+    self.assertEqual(
+        _get_counter_value(p.metrics, 'saved_models_created'),
+        _SINGLE_PHASE_NUM_SAVED_MODELS)
 
     with _TestPipeline() as p:
       flat_data = p | 'CreateInputData' >> beam.Create(input_data * 2)
 
+      input_metadata = dataset_metadata.DatasetMetadata(
+          schema_utils.schema_from_feature_spec(feature_spec))
       transform_fn_no_cache = ((flat_data, input_metadata)
                                | tft_beam.AnalyzeDataset(preprocessing_fn))
 
@@ -902,7 +941,9 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 8)
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 0)
     self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 0)
-    self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
+    self.assertEqual(
+        _get_counter_value(p.metrics, 'saved_models_created'),
+        _SINGLE_PHASE_NUM_SAVED_MODELS)
 
     tft_output_cache = tft.TFTransformOutput(transform_fn_with_cache_dir)
     tft_output_no_cache = tft.TFTransformOutput(transform_fn_no_cache_dir)
@@ -992,72 +1033,86 @@ class CachedImplTest(tft_unit.TransformTestCase):
               tf.zeros_like(inputs['x'])
       }
 
-    input_metadata = dataset_metadata.DatasetMetadata(
-        schema_utils.schema_from_feature_spec({
-            'x': tf.io.FixedLenFeature([], tf.float32),
-        }))
-    input_data_dict = {
-        'span-0': [dict(x=-2), dict(x=4)],
-    }
-    with _TestPipeline() as p:
-      flat_data = p | 'CreateInputData' >> beam.Create(
-          list(itertools.chain(*input_data_dict.values())))
+    feature_spec = {'x': tf.io.FixedLenFeature([], tf.float32)}
+    input_data_dict = {'span-0': [dict(x=-2), dict(x=4)]}
+    run_result = self._run_pipeline(feature_spec, input_data_dict,
+                                    preprocessing_fn)
+    first_cache_output, p1 = run_result.cache_output, run_result.pipeline
 
-      # wrap each value in input_data_dict as a pcoll.
-      input_data_pcoll_dict = {}
-      for a, b in six.iteritems(input_data_dict):
-        input_data_pcoll_dict[a] = p | a >> beam.Create(b)
+    for key in input_data_dict:
+      self.assertIn(key, first_cache_output)
+      self.assertEqual(1, len(first_cache_output[key]))
 
-      _, cache_output = (
-          (flat_data, input_data_pcoll_dict, {}, input_metadata)
-          | 'Analyze' >> tft_beam.AnalyzeDatasetWithCache(preprocessing_fn))
-      _ = (
-          cache_output
-          | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
-              p, self._cache_dir))
+    self.assertEqual(_get_counter_value(p1.metrics, 'num_instances'), 2)
+    self.assertEqual(_get_counter_value(p1.metrics, 'cache_entries_decoded'), 0)
+    self.assertEqual(_get_counter_value(p1.metrics, 'cache_entries_encoded'), 1)
+    self.assertEqual(
+        _get_counter_value(p1.metrics, 'saved_models_created'),
+        _SINGLE_PHASE_NUM_SAVED_MODELS)
 
-      del input_data_pcoll_dict
+    run_result = self._run_pipeline(feature_spec, input_data_dict,
+                                    preprocessing_fn)
+    second_cache_output, p2 = run_result.cache_output, run_result.pipeline
 
-      for key in input_data_dict:
-        self.assertIn(key, cache_output)
-        self.assertEqual(1, len(cache_output[key]))
+    # We expect a full output cache again because tf.function in the
+    # preprocessing_fn broke that cache entry.
+    for key in input_data_dict:
+      self.assertIn(key, second_cache_output)
+      self.assertEqual(1, len(second_cache_output[key]))
 
-    self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 2)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 0)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 1)
-    self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
+    self.assertEqual(_get_counter_value(p2.metrics, 'num_instances'), 2)
+    self.assertEqual(_get_counter_value(p2.metrics, 'cache_entries_decoded'), 0)
+    self.assertEqual(_get_counter_value(p2.metrics, 'cache_entries_encoded'), 1)
+    self.assertEqual(
+        _get_counter_value(p2.metrics, 'saved_models_created'),
+        _SINGLE_PHASE_NUM_SAVED_MODELS)
 
-    with _TestPipeline() as p:
-      flat_data = p | 'CreateInputData' >> beam.Create(
-          list(itertools.chain(*input_data_dict.values())))
+  def test_changing_constant_fails_cache(self):
 
-      # wrap each value in input_data_dict as a pcoll.
-      input_data_pcoll_dict = {}
-      for a, b in six.iteritems(input_data_dict):
-        input_data_pcoll_dict[a] = p | a >> beam.Create(b)
+    def make_preprocessing_fn(string):
 
-      input_cache = p | analyzer_cache.ReadAnalysisCacheFromFS(
-          self._cache_dir, list(input_data_dict.keys()))
+      def preprocessing_fn(inputs):
+        constant_str = tf.tile(tf.constant([string]), tf.shape(inputs['s']))
+        joined = tf.strings.join([inputs['s'], constant_str])
+        return {'id': tft.compute_and_apply_vocabulary(joined)}
 
-      _, second_output_cache = (
-          (flat_data, input_data_pcoll_dict, input_cache, input_metadata)
-          | 'AnalyzeAgain' >>
-          (tft_beam.AnalyzeDatasetWithCache(preprocessing_fn)))
-      _ = (
-          second_output_cache
-          | 'WriteCache' >> analyzer_cache.WriteAnalysisCacheToFS(
-              p, self._cache_dir))
+      return preprocessing_fn
 
-      # We expect a full output cache again because tf.function in the
-      # preprocessing_fn broke that cache entry.
-      for key in input_data_dict:
-        self.assertIn(key, cache_output)
-        self.assertEqual(1, len(cache_output[key]))
+    feature_spec = {'s': tf.io.FixedLenFeature([], tf.string)}
+    input_data_dict = {'span-0': [dict(s='a'), dict(s='b')]}
 
-    self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 2)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 0)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 1)
-    self.assertEqual(_get_counter_value(p.metrics, 'saved_models_created'), 2)
+    run_result = self._run_pipeline(feature_spec, input_data_dict,
+                                    make_preprocessing_fn('1st_run'))
+    first_cache_output, p1 = run_result.cache_output, run_result.pipeline
+
+    for key in input_data_dict:
+      self.assertIn(key, first_cache_output)
+      self.assertEqual(1, len(first_cache_output[key]))
+
+    self.assertEqual(_get_counter_value(p1.metrics, 'num_instances'), 2)
+    self.assertEqual(_get_counter_value(p1.metrics, 'cache_entries_decoded'), 0)
+    self.assertEqual(_get_counter_value(p1.metrics, 'cache_entries_encoded'), 1)
+    self.assertEqual(
+        _get_counter_value(p1.metrics, 'saved_models_created'),
+        _SINGLE_PHASE_NUM_SAVED_MODELS)
+
+    run_result = self._run_pipeline(feature_spec, input_data_dict,
+                                    make_preprocessing_fn('2nd_run'))
+    second_cache_output, p2 = run_result.cache_output, run_result.pipeline
+
+    # We expect a full output cache again because tf.function in the
+    # preprocessing_fn broke that cache entry.
+    for key in input_data_dict:
+      self.assertIn(key, second_cache_output)
+      self.assertEqual(1, len(second_cache_output[key]))
+
+    self.assertEqual(_get_counter_value(p2.metrics, 'num_instances'), 2)
+    self.assertEqual(_get_counter_value(p2.metrics, 'cache_entries_decoded'), 0)
+    self.assertEqual(_get_counter_value(p2.metrics, 'cache_entries_encoded'), 1)
+    self.assertEqual(
+        _get_counter_value(p2.metrics, 'saved_models_created'),
+        _SINGLE_PHASE_NUM_SAVED_MODELS)
+
 
 if __name__ == '__main__':
   tft_unit.main()
