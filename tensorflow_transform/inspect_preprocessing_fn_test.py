@@ -51,10 +51,17 @@ def _renaming_preprocessing_fn(inputs):
   return {'id_{}'.format(key): value for key, value in six.iteritems(inputs)}
 
 
+@tf.function
+def _plus_one(x):
+  return x + 1
+
+
 def _one_phase_preprocessing_fn(inputs):
-  x_centered = inputs['x'] - analyzers.mean(inputs['y'])
+  x_plus_one = _plus_one(inputs['x'])
+  subtracted = tf.sparse.add(
+      tf.cast(inputs['y'], tf.float32), -analyzers.mean(x_plus_one))
   _ = analyzers.vocabulary(inputs['s'])
-  return {'x_centered': x_centered}
+  return {'subtracted': subtracted}
 
 
 def _two_phases_preprocessing_fn(inputs):
@@ -77,7 +84,7 @@ class InspectPreprocessingFnTest(test_case.TransformTestCase):
       ('non_identity_ops', _non_identity_ops_preprocessing_fn, [],
        ['x', 'y', 's']),
       ('feature_renaming', _renaming_preprocessing_fn, [], ['x', 'y', 's']),
-      ('one_phase', _one_phase_preprocessing_fn, ['y', 's'], ['x']),
+      ('one_phase', _one_phase_preprocessing_fn, ['x', 's'], ['y']),
       ('two_phases', _two_phases_preprocessing_fn, ['x', 'y', 's'], ['x', 's']),
   )
   def test_column_inference(self, preprocessing_fn,

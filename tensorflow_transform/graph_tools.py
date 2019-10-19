@@ -29,6 +29,7 @@ from __future__ import print_function
 
 import collections
 import itertools
+import uuid
 
 # GOOGLE-INITIALIZATION
 
@@ -36,6 +37,7 @@ import six
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import tf_utils
+from tensorflow.python.framework import function_def_to_graph  # pylint: disable=g-direct-tensorflow-import
 
 _INITIALIZABLE_TABLE_OP_TYPES = [
     'CuckooTable',
@@ -73,41 +75,71 @@ def _decompose_tensor(tensor):
     yield tensor
 
 
+def _get_func_graph_for_name(graph, func_name):
+  """Returns the FuncGraph associated to the given func_name if possible."""
+  func = graph._get_function(str(func_name))  # pylint: disable=protected-access
+  if not func:
+    raise ValueError(
+        'Function {} does not exist in the graph.'.format(func_name))
+  if not hasattr(func, 'graph'):
+    # This is a _DefinedFunction.
+    return function_def_to_graph.function_def_to_graph(func.definition)
+  else:
+    return func.graph
+
+
 class _UnexpectedPlaceholderError(Exception):
 
-  def __init__(self, op):
+  def __init__(self, op, func_graph_name):
     tensor = op.outputs[0]
     msg = 'An unexpected placeholder was encountered ({})'.format(tensor)
     super(_UnexpectedPlaceholderError, self).__init__(msg)
     self.tensor = tensor
+    self.func_graph_name = func_graph_name
 
 
 class _UnexpectedTableError(Exception):
 
-  def __init__(self, op):
+  def __init__(self, op, func_graph_name):
     msg = 'An unexpected initializable table was encountered ({})'.format(op)
     super(_UnexpectedTableError, self).__init__(msg)
     self.op = op
+    self.func_graph_name = func_graph_name
 
 
 def _reraise_unexpected_error(func):
   """A decorator that reraises certain exceptions with modified msg and type."""
 
   def wrapper(self, tensor_or_op):
+    """Wrapper when calling func to re-raise exceptions."""
     try:
       return func(self, tensor_or_op)
     except _UnexpectedPlaceholderError as e:
-      raise ValueError(
-          'The tensor_or_op {} depended on a placeholder ({}) that was not '
-          'in the input_signature.  This may have be caused by manually '
-          'adding a placeholder to the graph'.format(tensor_or_op, e.tensor))
+      if e.func_graph_name:
+        raise ValueError(
+            'The tensor_or_op {} depended on a placeholder ({}) that is part '
+            'of a tf.function graph ({}), this is not supported. This may be a '
+            'result of calling a tf.Transform analyzer in a tf.function'
+            ''.format(tensor_or_op, e.tensor, e.func_graph_name))
+      else:
+        raise ValueError(
+            'The tensor_or_op {} depended on a placeholder ({}) that was not '
+            'in the input_signature.  This may have be caused by manually '
+            'adding a placeholder to the graph'.format(tensor_or_op, e.tensor))
     except _UnexpectedTableError as e:
-      raise ValueError(
-          'The tensor_or_op {} depended on an initializable table ({}) that was'
-          ' not tracked by the graph analysis.  This may be caused by adding an'
-          ' initializable table without adding its initializer to the '
-          'collection tf.GraphKeys.TABLE_INITIALIZERS'.format(
-              tensor_or_op, e.op))
+      if e.func_graph_name:
+        raise ValueError(
+            'The tensor_or_op {} depended on an initializable table ({}) that '
+            'is part of a tf.function graph ({}), this is not supported. This'
+            ' may be a result of initializing a table in a tf.function'
+            ''.format(tensor_or_op, e.op, e.func_graph_name))
+      else:
+        raise ValueError(
+            'The tensor_or_op {} depended on an initializable table ({}) that '
+            'was not tracked by the graph analysis.  This may be caused by '
+            'adding an initializable table without adding its initializer to '
+            'the collection tf.GraphKeys.TABLE_INITIALIZERS'.format(
+                tensor_or_op, e.op))
 
   return wrapper
 
@@ -124,38 +156,128 @@ class _SourceInfo(
 
 
 class _GraphAnalyzer(object):
-  """Class that analyzes a graph to determine readiness of tensors.
+  """Class that analyzes a graph to determine readiness of tensors."""
 
-  Args:
-    source_info_dict: A dict from `Tensor Reference` or `Operation` to
-      `_SourceInfo`.
-    translate_path_fn: A function with the signature: (identifier, parents) ->
-      Any which will be used to construct a unique path for a given `Tensor`.
-  """
+  def __init__(self, source_info_dict, translate_path_fn, graph):
+    """Init method for _GraphAnalyzer.
 
-  def __init__(self, source_info_dict, translate_path_fn):
+    Args:
+      source_info_dict: A dict from `Tensor Reference` or `Operation` to
+        `_SourceInfo`.
+      translate_path_fn: A function with the signature: (identifier, parents) ->
+        Any which will be used to construct a unique path for a given `Tensor`.
+      graph: A `tf.Graph` which the given tensors belong to.
+    """
     self._memoized_analyze_tensor_result = {}
     self._source_info_dict = source_info_dict
     self._translate_path_fn = translate_path_fn
+    self._graph = graph
 
   def _get_parents(self, tensor_or_op):
     """Get the parents of the given `tensor_or_op`."""
     if tf_utils.hashable_tensor_or_op(tensor_or_op) in self._source_info_dict:
       return []
 
+    # func_graph_name is not None only if the graph is a FuncGraph.
+    func_graph_name = getattr(self._graph, 'name', None)
     if isinstance(tensor_or_op, tf.Operation):
       if tensor_or_op.type in _INITIALIZABLE_TABLE_OP_TYPES:
-        raise _UnexpectedTableError(tensor_or_op)
+        raise _UnexpectedTableError(tensor_or_op, func_graph_name)
       if tensor_or_op.type == 'Placeholder':
-        raise _UnexpectedPlaceholderError(tensor_or_op)
+        raise _UnexpectedPlaceholderError(tensor_or_op, func_graph_name)
       parents = list(
           itertools.chain(tensor_or_op.inputs, tensor_or_op.control_inputs))
     elif isinstance(tensor_or_op, tf.Tensor):
       parents = [tensor_or_op.op]
     else:
-      raise TypeError('Expected Tensor or Operation, got {} of type {}1'.format(
+      raise TypeError('Expected Tensor or Operation, got {} of type {}'.format(
           tensor_or_op, type(tensor_or_op)))
     return parents
+
+  def _compute_analysis_results_for_func_attributes(self, tensor_or_op,
+                                                    parent_analysis_results):
+    """Analyzes `FuncGraph`s if tensor_or_op has them as attributes.
+
+    This functionality is added to support `Operation`s such as PartitionedCall
+    (tf.function call) and control flow ops which use `func` attributes.
+
+    These func attributes are references to `FuncGraph`s which can also be
+    analyzed, and the result of their analysis can be used as additional
+    information for the current node (`tensor_or_op`).
+
+    Since `FuncGraph`s are completely different graphs than the one that this
+    _GraphAnalyzer is analyzing, their analysis wouldn't be taken into account
+    when analysing the current graph even though they will affect the runtime
+    results of running it. This is why we have to manually analyze those
+    sub-graphs as well as the main graph when computing graph information such
+    as dependent_inputs, unique_path, etc.
+
+    Args:
+      tensor_or_op: A `Tensor` or `Operation` object.
+      parent_analysis_results: A list of `_AnalysisResult`s, results of analysis
+        of the parents of tensor_or_op.
+
+    Returns:
+      A list of `_AnalysisResult`s, the results of analysis of `tensor_or_op`'s
+      func attributes. All `Tensor`s in dependent_sources belong to self._graph.
+    """
+    if not isinstance(tensor_or_op, tf.Operation):
+      return []
+    func_attributes = [
+        attr.name for attr in tensor_or_op.op_def.attr if attr.type == 'func'
+    ]
+    func_names = [tensor_or_op.get_attr(str(n)).name for n in func_attributes]
+    func_graphs = [_get_func_graph_for_name(self._graph, n) for n in func_names]
+
+    result = []
+    for func_graph in func_graphs:
+      if not hasattr(func_graph, 'inputs'):
+        # Since the body of the graph is not visible we insert a random string
+        # to the path in order to reflect that we don't know its full contents.
+        result.append(
+            _AnalysisResult(
+                is_ready_to_run=True,
+                path=self._translate_path_fn(uuid.uuid4().hex),
+                dependent_sources={}))
+        continue
+      assert len(tensor_or_op.inputs) == len(parent_analysis_results), (
+          tensor_or_op.inputs, parent_analysis_results)
+      func_graph_inputs_ready = [
+          (next_input, r.is_ready_to_run)
+          for (next_input, r) in zip(func_graph.inputs, parent_analysis_results)
+      ]
+      infos = {
+          tf_utils.hashable_tensor_or_op(t):
+          _SourceInfo(ready, 'FuncGraphInput[{}]'.format(idx))
+          for idx, (t, ready) in enumerate(func_graph_inputs_ready)
+      }
+      func_graph_analyzer = _GraphAnalyzer(infos, self._translate_path_fn,
+                                           func_graph)
+      analyzed_list = [
+          func_graph_analyzer.analyze_tensor(t) for t in func_graph.outputs
+      ]
+
+      if len(tensor_or_op.inputs) == len(func_graph.inputs):
+        tensor_pairs = zip(tensor_or_op.inputs, func_graph.inputs)
+      else:
+        # Control flow ops such as while store this information in captures.
+        tensor_pairs = func_graph.captures
+      tensor_map = {
+          tf_utils.hashable_tensor_or_op(b): a for a, b in tensor_pairs
+      }
+
+      # Make sure that the dependent sources Tensors are translated from the
+      # FuncGraph to the outer graph in order to align with the rest of the
+      # traversal.
+      for analysis in analyzed_list:
+        translated_dependent_sources = {
+            tf_utils.hashable_tensor_or_op(tensor_map[s])
+            for s in analysis.dependent_sources
+            if s in tensor_map
+        }
+        result.append(
+            analysis._replace(dependent_sources=translated_dependent_sources))
+    return result
 
   def _compute_analysis_result(self, tensor_or_op, parent_analysis_results):
     """Compute analysis result for a tensor or op with its parent results."""
@@ -169,19 +291,27 @@ class _GraphAnalyzer(object):
           path=self._translate_path_fn(source_info.name),
           dependent_sources={hashable})
 
+    func_graphs_analysis_results = (
+        self._compute_analysis_results_for_func_attributes(
+            tensor_or_op, parent_analysis_results))
+
     result = _AnalysisResult(
         is_ready_to_run=all(
-            parent_analysis_result.is_ready_to_run
-            for parent_analysis_result in parent_analysis_results),
+            analysis_result.is_ready_to_run
+            for analysis_result in (parent_analysis_results +
+                                    func_graphs_analysis_results)),
         path=self._translate_path_fn(
             tensor_or_op,
             parents=[
                 parent_analysis_result.path
                 for parent_analysis_result in parent_analysis_results
-            ]),
+            ] +
+            [func_result.path for func_result in func_graphs_analysis_results]),
         dependent_sources=set())
     for parent_analysis_result in parent_analysis_results:
       result.dependent_sources.update(parent_analysis_result.dependent_sources)
+    for func_result in func_graphs_analysis_results:
+      result.dependent_sources.update(func_result.dependent_sources)
     return result
 
   def analyze_tensor(self, tensor_or_op):
@@ -319,20 +449,6 @@ class InitializableGraphAnalyzer(object):
   2. Determine which of `fetches` are ready to run.  A fetch is ready to run if
      it only depends on tensors in `feeds` and tensors that are set to ready in
      `replaced_tensors_ready`.
-
-  Args:
-    graph: a `Graph`.
-    input_signature: A dict whose keys are strings and values are `Tensor`s or
-      `SparseTensor`s.
-    replaced_tensors_ready: a list of `Tensor` or `SparseTensor`, bool pairs
-      indicating whether the `Tensor` or `SparseTensor` is ready in this phase.
-    translate_path_fn: (Optional) A function with the signature:
-        (identifier, optional(parents)) -> Any
-        which will be used to construct a unique path for a given `Tensor`.
-
-  Raises:
-    ValueError: If unexpected placeholders or tables are encountered, or table
-        initializers do not have the expected structure in the graph.
   """
 
   def __init__(self,
@@ -340,6 +456,23 @@ class InitializableGraphAnalyzer(object):
                input_signature,
                replaced_tensors_ready,
                translate_path_fn=None):
+    """Init method for InitializableGraphAnalyzer.
+
+    Args:
+      graph: a `Graph`.
+      input_signature: A dict whose keys are strings and values are `Tensor`s or
+        `SparseTensor`s.
+      replaced_tensors_ready: a list of `Tensor` or `SparseTensor`, bool pairs
+        indicating whether the `Tensor` or `SparseTensor` is ready in this
+        phase.
+      translate_path_fn: (Optional) A function with the signature: (identifier,
+        optional(parents)) -> Any which will be used to construct a unique path
+        for a given `Tensor`.
+
+    Raises:
+      ValueError: If unexpected placeholders or tables are encountered, or table
+          initializers do not have the expected structure in the graph.
+    """
 
     if translate_path_fn is None:
       translate_path_fn = lambda x, parents=None: None
@@ -356,7 +489,7 @@ class InitializableGraphAnalyzer(object):
     # tensors. Since no input tensors are fed during table initialization, we do
     # not set the value of any tensors in `input_signature`.
     graph_analyzer_for_table_init = _GraphAnalyzer(initial_source_infos_dict,
-                                                   translate_path_fn)
+                                                   translate_path_fn, graph)
     complete_source_info_dict = self._make_source_infos_dict(
         input_signature, replaced_tensors_ready)
 
@@ -376,7 +509,7 @@ class InitializableGraphAnalyzer(object):
     # Now determine which tensors are ready to run once the table has been
     # initialized.
     self._graph_analyzer = _GraphAnalyzer(complete_source_info_dict,
-                                          translate_path_fn)
+                                          translate_path_fn, graph)
 
   def _make_source_infos_dict(self, input_signature, replaced_tensors_ready):
     """Builds a dictionary from source tensors to _SourceInfos.
@@ -440,11 +573,15 @@ class InitializableGraphAnalyzer(object):
           table_op,
           parents=list(map(graph_analyzer.get_unique_path, table_init_inputs)))
     except _UnexpectedPlaceholderError as e:
+      if e.func_graph_name:
+        raise e
       raise ValueError(
           'The table initializer {} depended on a placeholder ({}).  Note '
           'placeholders will not be fed during table initialization'.format(
               table_init_op, e.tensor))
     except _UnexpectedTableError as e:
+      if e.func_graph_name:
+        raise e
       raise ValueError(
           'The table initializer {} depended on an initializable table ({}). '
           'Note tables are initialized in one pass so a table initializer '

@@ -19,6 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import collections
+import functools
 import itertools
 import os
 import struct
@@ -1019,12 +1020,14 @@ class CachedImplTest(tft_unit.TransformTestCase):
               preprocessing_fn, pipeline=p))
       self.assertFalse(output_cache)
 
-  def test_tf_function_fails_cache(self):
+  def test_tf_function_works_with_cache(self):
 
-    def preprocessing_fn(inputs):
+    def preprocessing_fn(inputs, should_add_one):
 
       @tf.function
       def identity(x):
+        if should_add_one:
+          x = x + 1
         return x
 
       return {
@@ -1035,6 +1038,96 @@ class CachedImplTest(tft_unit.TransformTestCase):
 
     feature_spec = {'x': tf.io.FixedLenFeature([], tf.float32)}
     input_data_dict = {'span-0': [dict(x=-2), dict(x=4)]}
+    run_result = self._run_pipeline(
+        feature_spec, input_data_dict,
+        functools.partial(preprocessing_fn, should_add_one=False))
+    first_cache_output, p1 = run_result.cache_output, run_result.pipeline
+
+    for key in input_data_dict:
+      self.assertIn(key, first_cache_output)
+      self.assertEqual(1, len(first_cache_output[key]))
+
+    self.assertEqual(_get_counter_value(p1.metrics, 'num_instances'), 2)
+    self.assertEqual(_get_counter_value(p1.metrics, 'cache_entries_decoded'), 0)
+    self.assertEqual(_get_counter_value(p1.metrics, 'cache_entries_encoded'), 1)
+    self.assertEqual(
+        _get_counter_value(p1.metrics, 'saved_models_created'),
+        _SINGLE_PHASE_NUM_SAVED_MODELS)
+
+    # Cache is still valid since the contents of the tf.function are the same.
+    run_result = self._run_pipeline(
+        feature_spec,
+        input_data_dict,
+        functools.partial(preprocessing_fn, should_add_one=False),
+        should_read_cache=True)
+    second_cache_output, p2 = run_result.cache_output, run_result.pipeline
+
+    self.assertFalse(second_cache_output)
+
+    self.assertEqual(_get_counter_value(p2.metrics, 'num_instances'), 0)
+    self.assertEqual(_get_counter_value(p2.metrics, 'cache_entries_decoded'), 1)
+    self.assertEqual(_get_counter_value(p2.metrics, 'cache_entries_encoded'), 0)
+    self.assertEqual(
+        _get_counter_value(p2.metrics, 'saved_models_created'),
+        _ZERO_PHASE_NUM_SAVED_MODELS)
+
+    self.assertEqual(_get_counter_value(p2.metrics, 'num_instances'), 0)
+    self.assertEqual(_get_counter_value(p2.metrics, 'cache_entries_decoded'), 1)
+    self.assertEqual(_get_counter_value(p2.metrics, 'cache_entries_encoded'), 0)
+    self.assertEqual(_get_counter_value(p2.metrics, 'saved_models_created'), 1)
+
+    # Modifying the tf.function contents causes cache invalidation.
+    run_result = self._run_pipeline(
+        feature_spec,
+        input_data_dict,
+        functools.partial(preprocessing_fn, should_add_one=True),
+        should_read_cache=True)
+    third_output_cache, p3 = run_result.cache_output, run_result.pipeline
+
+    for key in input_data_dict:
+      self.assertIn(key, third_output_cache)
+      self.assertEqual(1, len(third_output_cache[key]))
+
+    self.assertEqual(_get_counter_value(p3.metrics, 'num_instances'), 2)
+    self.assertEqual(_get_counter_value(p3.metrics, 'cache_entries_decoded'), 0)
+    self.assertEqual(_get_counter_value(p3.metrics, 'cache_entries_encoded'), 1)
+    self.assertEqual(_get_counter_value(p3.metrics, 'saved_models_created'), 2)
+
+  def test_incomplete_graphs_fail_cache(self):
+
+    def preprocessing_fn(inputs):
+      # Subtract 10 from x using a tf.while_loop.
+      @tf.function(input_signature=[
+          tf.TensorSpec([], tf.int32),
+          tf.TensorSpec([], tf.int64)
+      ])
+      def stop_condition(counter, x_minus_counter):
+        del x_minus_counter  # unused
+        return tf.less(counter, 10)
+
+      @tf.function(input_signature=[
+          tf.TensorSpec([], tf.int32),
+          tf.TensorSpec([], tf.int64)
+      ])
+      def iteration(counter, x_minus_counter):
+        return tf.add(counter, 1), tf.add(x_minus_counter, -1)
+
+      initial_values = [tf.constant(0), inputs['x']]
+      final_values = tf.raw_ops.While(
+          cond=stop_condition.get_concrete_function(),
+          body=iteration.get_concrete_function(),
+          input=initial_values)
+
+      y = final_values[1]
+
+      return {'y': tft.mean(y) + tf.zeros_like(inputs['x'], dtype=tf.float32)}
+
+    feature_spec = {
+        'x': tf.io.FixedLenFeature([], tf.int64),
+    }
+    input_data_dict = {
+        'span-0': [dict(x=-2), dict(x=4)],
+    }
     run_result = self._run_pipeline(feature_spec, input_data_dict,
                                     preprocessing_fn)
     first_cache_output, p1 = run_result.cache_output, run_result.pipeline
@@ -1050,12 +1143,11 @@ class CachedImplTest(tft_unit.TransformTestCase):
         _get_counter_value(p1.metrics, 'saved_models_created'),
         _SINGLE_PHASE_NUM_SAVED_MODELS)
 
-    run_result = self._run_pipeline(feature_spec, input_data_dict,
-                                    preprocessing_fn)
+    run_result = self._run_pipeline(
+        feature_spec, input_data_dict, preprocessing_fn, should_read_cache=True)
     second_cache_output, p2 = run_result.cache_output, run_result.pipeline
 
-    # We expect a full output cache again because tf.function in the
-    # preprocessing_fn broke that cache entry.
+    # We expect the cache to fail here because the tf.function is now different.
     for key in input_data_dict:
       self.assertIn(key, second_cache_output)
       self.assertEqual(1, len(second_cache_output[key]))

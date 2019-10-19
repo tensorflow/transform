@@ -48,7 +48,12 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signatur
 
 
 def _preprocessing_fn_with_one_analyzer(inputs):
-  x = inputs['x']
+
+  @tf.function
+  def _plus_one(x):
+    return x + 1
+
+  x = _plus_one(inputs['x'])
   x_mean = tft.mean(x, name='x')
   x_centered = x - x_mean
   return {'x_centered': x_centered}

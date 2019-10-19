@@ -20,7 +20,6 @@ from __future__ import print_function
 import collections
 import copy
 import hashlib
-import uuid
 
 # GOOGLE-INITIALIZATION
 
@@ -41,6 +40,14 @@ _ANALYSIS_GRAPH = None
 def _serialize_op_attr(op_attr):
   """Deterministicly serializes tf.Operation attrs since it is a map."""
   sorted_attributes = sorted(op_attr.items(), key=lambda kv: kv[0])
+  if 'f' in op_attr:
+    # This is a tf.Function node, and it includes attributes that are
+    # inconsistent across runs such as _gradient_op_type, config_proto, so we
+    # only keep input and output types since other information will arrive from
+    # the FuncGraph attributes.
+    sorted_attributes = [
+        kv for kv in sorted_attributes if kv[0] in ('Tin', 'Tout')
+    ]
   result = []
   for key, attr_value in sorted_attributes:
     result.append(key)
@@ -49,8 +56,7 @@ def _serialize_op_attr(op_attr):
       raise ValueError(
           'Unable to serialize op attributes that contain a `list.func` field')
     if attr_value.HasField('func'):
-      # TODO(b/138796127): Support tf.function fingerprint.
-      result.append(uuid.uuid4().hex)
+      # There should be a separate call for the FuncGraph attributes.
       attr_value.ClearField('func')
     result.append(attr_value.SerializeToString())
   return result

@@ -26,6 +26,9 @@
 * Moved beam/shared lib to `tfx-bsl`. If running with latest master, `tfx-bsl`
   must also be latest master.
 * Depends on `tfx-bsl>=0.15,<0.16`.
+* `preprocessing_fn`s now have beta support of calls to `tf.function`s, as long
+  as they don't contain calls to `tf.Transform` analyzers/mappers or table
+  initializers.
 
 ## Breaking changes
 * `always_return_num_quantiles` changed to default to True in `tft.quantiles`

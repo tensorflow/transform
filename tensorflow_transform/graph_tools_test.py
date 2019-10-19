@@ -27,6 +27,7 @@ import six
 import tensorflow as tf
 from tensorflow_transform import graph_tools
 from tensorflow_transform import test_case
+import unittest
 
 from tensorflow.python.ops import control_flow_ops  # pylint: disable=g-direct-tensorflow-import
 
@@ -47,6 +48,55 @@ def _create_graph_with_y_function_of_x():
   x = tf.compat.v1.placeholder(tf.int64)
   y = x + 1
   return {'x': x, 'y': y}
+
+
+def _create_graph_with_tf_function():
+  x = tf.compat.v1.placeholder(tf.int64)
+  y = tf.compat.v1.placeholder(tf.int64)
+
+  @tf.function
+  def foo(x, y):
+    return x * 2, x + y, y * 2
+
+  a, b, c = foo(x, y)
+  return {'x': x, 'y': y, 'z': a + b + c, 'r': a, 'q': foo(x, x)[0]}
+
+
+def _create_graph_with_placeholder_in_tf_function():
+  x = tf.compat.v1.placeholder(tf.int64)
+
+  @tf.function
+  def foo(x):
+    a = tf.compat.v1.placeholder(tf.int64)
+    return x * a, a
+
+  y, a = foo(x + 1)
+  return {'x': x, 'y': y + 1, 'z': a}
+
+
+def _create_graph_with_mixed_dependencies():
+  x = tf.compat.v1.placeholder(tf.int64)
+  y = tf.compat.v1.placeholder(tf.int64)
+
+  @tf.function
+  def foo(x):
+    return x * 2
+
+  return {'x': x, 'y': y, 'z': foo(x) + y}
+
+
+def _create_graph_with_chained_tf_function():
+  x = tf.compat.v1.placeholder(tf.int64)
+
+  @tf.function
+  def goo(x):
+    return x + 1
+
+  @tf.function
+  def foo(x):
+    return goo(x) * 2
+
+  return {'x': x, 'y': foo(x) / 2}
 
 
 def _create_graph_with_y_function_of_x_with_unused_inputs():
@@ -166,6 +216,18 @@ def _create_graph_with_y_function_of_x_with_tf_while():
   return {'x': x, 'y': y}
 
 
+def _create_graph_with_tf_function_while():
+  x = tf.raw_ops.Placeholder(dtype=tf.float32, shape=())
+
+  @tf.function
+  def larger_than_100(x):
+    while x < 100:
+      x *= 2
+    return x
+
+  return {'x': x, 'y': larger_than_100(x)}
+
+
 class _SubStrMatcher(collections.namedtuple('_EitherMatcher', ['sub'])):
 
   def __eq__(self, other):
@@ -249,14 +311,14 @@ class GraphToolsTest(test_case.TransformTestCase):
 
   @test_case.named_parameters(
       dict(
-          testcase_name='y_function_of_x_nothing_ready',
+          testcase_name='_y_function_of_x_nothing_ready',
           create_graph_fn=_create_graph_with_y_function_of_x,
           feeds=[],
           replaced_tensors_ready={'x': False},
           should_be_ready={'y': False},
           num_ready_table_initializers=0),
       dict(
-          testcase_name='y_function_of_x_unused_input_ready',
+          testcase_name='_y_function_of_x_unused_input_ready',
           create_graph_fn=_create_graph_with_y_function_of_x_with_unused_inputs,
           feeds=[],
           replaced_tensors_ready={
@@ -270,84 +332,84 @@ class GraphToolsTest(test_case.TransformTestCase):
           },
           num_ready_table_initializers=0),
       dict(
-          testcase_name='y_function_of_x_no_feeds_y_is_ready',
+          testcase_name='_y_function_of_x_no_feeds_y_is_ready',
           create_graph_fn=_create_graph_with_y_function_of_x,
           feeds=[],
           replaced_tensors_ready={'x': True},
           should_be_ready={'y': True},
           num_ready_table_initializers=0),
       dict(
-          testcase_name='y_function_of_x_feeds_x_y_is_ready',
+          testcase_name='_y_function_of_x_feeds_x_y_is_ready',
           create_graph_fn=_create_graph_with_y_function_of_x,
           feeds=['x'],
           replaced_tensors_ready={},
           should_be_ready={'y': True},
           num_ready_table_initializers=0),
       dict(
-          testcase_name='y_function_of_x_sparse_nothing_ready',
+          testcase_name='_y_function_of_x_sparse_nothing_ready',
           create_graph_fn=_create_graph_with_y_function_of_x_sparse,
           feeds=[],
           replaced_tensors_ready={'x': False},
           should_be_ready={'y': False},
           num_ready_table_initializers=0),
       dict(
-          testcase_name='y_function_of_x_sparse_no_feeds_y_is_ready',
+          testcase_name='_y_function_of_x_sparse_no_feeds_y_is_ready',
           create_graph_fn=_create_graph_with_y_function_of_x_sparse,
           feeds=[],
           replaced_tensors_ready={'x': True},
           should_be_ready={'y': True},
           num_ready_table_initializers=0),
       dict(
-          testcase_name='y_function_of_x_sparse_feeds_x_y_is_ready',
+          testcase_name='_y_function_of_x_sparse_feeds_x_y_is_ready',
           create_graph_fn=_create_graph_with_y_function_of_x_sparse,
           feeds=['x'],
           replaced_tensors_ready={},
           should_be_ready={'y': True},
           num_ready_table_initializers=0),
       dict(
-          testcase_name='y_sparse_function_of_x_sparse_nothing_ready',
+          testcase_name='_y_sparse_function_of_x_sparse_nothing_ready',
           create_graph_fn=_create_graph_with_y_sparse_function_of_x_sparse,
           feeds=[],
           replaced_tensors_ready={'x': False},
           should_be_ready={'y': False},
           num_ready_table_initializers=0),
       dict(
-          testcase_name='y_sparse_function_of_x_sparse_no_feeds_y_is_ready',
+          testcase_name='_y_sparse_function_of_x_sparse_no_feeds_y_is_ready',
           create_graph_fn=_create_graph_with_y_sparse_function_of_x_sparse,
           feeds=[],
           replaced_tensors_ready={'x': True},
           should_be_ready={'y': True},
           num_ready_table_initializers=0),
       dict(
-          testcase_name='y_sparse_function_of_x_sparse_feeds_x_y_is_ready',
+          testcase_name='_y_sparse_function_of_x_sparse_feeds_x_y_is_ready',
           create_graph_fn=_create_graph_with_y_sparse_function_of_x_sparse,
           feeds=['x'],
           replaced_tensors_ready={},
           should_be_ready={'y': True},
           num_ready_table_initializers=0),
       dict(
-          testcase_name='y_function_of_x_with_tf_while_nothing_ready',
+          testcase_name='_y_function_of_x_with_tf_while_nothing_ready',
           create_graph_fn=_create_graph_with_y_function_of_x_with_tf_while,
           feeds=[],
           replaced_tensors_ready={'x': False},
           should_be_ready={'y': False},
           num_ready_table_initializers=0),
       dict(
-          testcase_name='y_function_of_x_with_tf_while_no_feeds_y_is_ready',
+          testcase_name='_y_function_of_x_with_tf_while_no_feeds_y_is_ready',
           create_graph_fn=_create_graph_with_y_function_of_x_with_tf_while,
           feeds=[],
           replaced_tensors_ready={'x': True},
           should_be_ready={'y': True},
           num_ready_table_initializers=0),
       dict(
-          testcase_name='y_function_of_x_with_tf_while_feeds_x_y_is_ready',
+          testcase_name='_y_function_of_x_with_tf_while_feeds_x_y_is_ready',
           create_graph_fn=_create_graph_with_y_function_of_x_with_tf_while,
           feeds=['x'],
           replaced_tensors_ready={},
           should_be_ready={'y': True},
           num_ready_table_initializers=0),
       dict(
-          testcase_name='y_function_of_x_and_table_nothing_ready',
+          testcase_name='_y_function_of_x_and_table_nothing_ready',
           create_graph_fn=_create_graph_with_y_function_of_x_and_table,
           feeds=[],
           replaced_tensors_ready={
@@ -357,7 +419,7 @@ class GraphToolsTest(test_case.TransformTestCase):
           should_be_ready={'y': False},
           num_ready_table_initializers=0),
       dict(
-          testcase_name='y_function_of_x_and_table_filename_ready_y_is_not',
+          testcase_name='_y_function_of_x_and_table_filename_ready_y_is_not',
           create_graph_fn=_create_graph_with_y_function_of_x_and_table,
           feeds=[],
           replaced_tensors_ready={
@@ -367,7 +429,7 @@ class GraphToolsTest(test_case.TransformTestCase):
           should_be_ready={'y': False},
           num_ready_table_initializers=1),
       dict(
-          testcase_name='y_function_of_x_and_table_x_ready_filename_is_not',
+          testcase_name='_y_function_of_x_and_table_x_ready_filename_is_not',
           create_graph_fn=_create_graph_with_y_function_of_x_and_table,
           feeds=[],
           replaced_tensors_ready={
@@ -377,35 +439,65 @@ class GraphToolsTest(test_case.TransformTestCase):
           should_be_ready={'y': False},
           num_ready_table_initializers=0),
       dict(
-          testcase_name='y_function_of_x_and_table_everything_is_ready',
+          testcase_name='_y_function_of_x_and_table_everything_is_ready',
           create_graph_fn=_create_graph_with_y_function_of_x_and_table,
           feeds=[],
           replaced_tensors_ready={
               'x': True,
-              'filename': True
+              'filename': True,
           },
           should_be_ready={'y': True},
           num_ready_table_initializers=1),
       dict(
-          testcase_name='y_function_of_x_and_table_feeds_x_nothing_ready',
+          testcase_name='_y_function_of_x_and_table_feeds_x_nothing_ready',
           create_graph_fn=_create_graph_with_y_function_of_x_and_table,
           feeds=['x'],
           replaced_tensors_ready={'filename': False},
           should_be_ready={'y': False},
           num_ready_table_initializers=0),
       dict(
-          testcase_name='y_function_of_x_and_table_feeds_x_everything_ready',
+          testcase_name='_y_function_of_x_and_table_feeds_x_everything_ready',
           create_graph_fn=_create_graph_with_y_function_of_x_and_table,
           feeds=['x'],
           replaced_tensors_ready={'filename': True},
           should_be_ready={'y': True},
           num_ready_table_initializers=1),
       dict(
-          testcase_name='assert_equal',
+          testcase_name='_assert_equal',
           create_graph_fn=_create_graph_with_assert_equal,
+          feeds=['x', 'y'],
+          replaced_tensors_ready={
+              'x': True,
+              'y': True,
+          },
+          should_be_ready={'z': True},
+          num_ready_table_initializers=0),
+      dict(
+          testcase_name='_tf_function',
+          create_graph_fn=_create_graph_with_tf_function,
           feeds=['x', 'y'],
           replaced_tensors_ready={},
           should_be_ready={'z': True},
+          num_ready_table_initializers=0),
+      dict(
+          testcase_name='_tf_function_not_ready',
+          create_graph_fn=_create_graph_with_tf_function,
+          feeds=[],
+          replaced_tensors_ready={
+              'x': True,
+              'y': False,
+          },
+          should_be_ready={
+              'z': False,
+              'q': True,
+          },
+          num_ready_table_initializers=0),
+      dict(
+          testcase_name='_chained_tf_function',
+          create_graph_fn=_create_graph_with_chained_tf_function,
+          feeds=['x'],
+          replaced_tensors_ready={},
+          should_be_ready={'y': True},
           num_ready_table_initializers=0),
   )
   def testDetermineReadyTensorsAndTableInitializers(
@@ -429,18 +521,21 @@ class GraphToolsTest(test_case.TransformTestCase):
     """
     with tf.compat.v1.Graph().as_default() as graph:
       tensors = create_graph_fn()
-      replaced_tensors_ready = [(tensors[name], ready) for name, ready
-                                in replaced_tensors_ready.items()]
+    replaced_tensors_ready = [(tensors[name], ready)
+                              for name, ready in replaced_tensors_ready.items()]
 
-      graph_analyzer = graph_tools.InitializableGraphAnalyzer(
-          graph, {x: tensors[x] for x in feeds},
-          replaced_tensors_ready)
-      self.assertEqual(len(graph_analyzer.ready_table_initializers),
-                       num_ready_table_initializers)
+    graph_analyzer = graph_tools.InitializableGraphAnalyzer(
+        graph, {x: tensors[x] for x in feeds}, replaced_tensors_ready)
+    self.assertEqual(
+        len(graph_analyzer.ready_table_initializers),
+        num_ready_table_initializers)
 
     for name, ready in should_be_ready.items():
       tensor = tensors[name]
-      self.assertEqual(graph_analyzer.ready_to_run(tensor), ready)
+      self.assertEqual(
+          graph_analyzer.ready_to_run(tensor),
+          ready,
+          msg='Expected tensor {} to be ready={}'.format(name, ready))
 
   @test_case.parameters(
       (_create_graph_with_y_function_of_x_and_table,
@@ -479,19 +574,23 @@ class GraphToolsTest(test_case.TransformTestCase):
     """
     with tf.compat.v1.Graph().as_default() as graph:
       tensors = create_graph_fn()
-      replaced_tensors_ready = [(tensors[name], ready) for name, ready
-                                in replaced_tensors_ready.items()]
-      with self.assertRaisesRegexp(ValueError, error_msg_regex):
-        graph_tools.InitializableGraphAnalyzer(graph,
-                                               {x: tensors[x] for x in feeds},
-                                               replaced_tensors_ready)
+    replaced_tensors_ready = [(tensors[name], ready)
+                              for name, ready in replaced_tensors_ready.items()]
+    with self.assertRaisesRegexp(ValueError, error_msg_regex):
+      graph_tools.InitializableGraphAnalyzer(graph,
+                                             {x: tensors[x] for x in feeds},
+                                             replaced_tensors_ready)
 
   @test_case.parameters(
       (_create_graph_with_y_function_of_x, [], {}, 'y',
        'may have be caused by manually adding a placeholder to the graph'),
-      (_create_graph_with_y_function_of_x_and_untracked_table,
-       ['x'], {'filename': True}, 'y',
-       'may be caused by adding an initializable table without'),
+      (_create_graph_with_placeholder_in_tf_function, ['x'], {}, 'z',
+       r'that is part of a tf.function graph \(foo\), this is not supported. '
+       'This may be a result of calling a tf.Transform analyzer in a '
+       'tf.function'),
+      (_create_graph_with_y_function_of_x_and_untracked_table, ['x'], {
+          'filename': True
+      }, 'y', 'may be caused by adding an initializable table without'),
   )
   def testInitializableGraphAnalyzerReadyToRunRaises(
       self, create_graph_fn, feeds, replaced_tensors_ready, fetch,
@@ -522,31 +621,55 @@ class GraphToolsTest(test_case.TransformTestCase):
 
   @test_case.named_parameters(
       dict(
-          testcase_name='y_function_of_x',
+          testcase_name='_y_function_of_x',
           create_graph_fn=_create_graph_with_y_function_of_x,
           feeds=['x'],
           fetches=['y'],
           expected_dependent_inputs=['x']),
       dict(
-          testcase_name='y_function_of_x_with_unused_inputs',
+          testcase_name='_tf_function',
+          create_graph_fn=_create_graph_with_tf_function,
+          feeds=['x', 'y'],
+          fetches=['z'],
+          expected_dependent_inputs=['x', 'y']),
+      dict(
+          testcase_name='_tf_function_signature_forces_dependencies',
+          create_graph_fn=_create_graph_with_tf_function,
+          feeds=['x', 'y'],
+          fetches=['r'],
+          expected_dependent_inputs=['x', 'y']),
+      dict(
+          testcase_name='_tf_function_mixed_dependencies',
+          create_graph_fn=_create_graph_with_mixed_dependencies,
+          feeds=['x', 'y'],
+          fetches=['z'],
+          expected_dependent_inputs=['x', 'y']),
+      dict(
+          testcase_name='_chained_tf_function',
+          create_graph_fn=_create_graph_with_chained_tf_function,
+          feeds=['x'],
+          fetches=['y'],
+          expected_dependent_inputs=['x']),
+      dict(
+          testcase_name='_y_function_of_x_with_unused_inputs',
           create_graph_fn=_create_graph_with_y_function_of_x_with_unused_inputs,
           feeds=['x', 'x2', 'x_unused'],
           fetches=['y', 'z'],
           expected_dependent_inputs=['x', 'x2']),
       dict(
-          testcase_name='y_function_of_sparse_x',
+          testcase_name='_y_function_of_sparse_x',
           create_graph_fn=_create_graph_with_y_function_of_x_sparse,
           feeds=['x'],
           fetches=['y'],
           expected_dependent_inputs=['x']),
       dict(
-          testcase_name='y_sparse_function_of_sparse_x',
+          testcase_name='_y_sparse_function_of_sparse_x',
           create_graph_fn=_create_graph_with_y_sparse_function_of_x_sparse,
           feeds=['x'],
           fetches=['y'],
           expected_dependent_inputs=['x']),
       dict(
-          testcase_name='y_function_of_ragged_x',
+          testcase_name='_y_function_of_ragged_x',
           create_graph_fn=_create_graph_with_ragged_tensor,
           feeds=['x1', 'x2'],
           fetches=['y1', 'y2'],
@@ -558,7 +681,7 @@ class GraphToolsTest(test_case.TransformTestCase):
           fetches=['z'],
           expected_dependent_inputs=['x', 'y']),
       dict(
-          testcase_name='y_function_of_x_with_tf_while',
+          testcase_name='_y_function_of_x_with_tf_while',
           create_graph_fn=_create_graph_with_y_function_of_x_with_tf_while,
           feeds=['x'],
           fetches=['y'],
@@ -568,9 +691,9 @@ class GraphToolsTest(test_case.TransformTestCase):
                              expected_dependent_inputs):
     with tf.compat.v1.Graph().as_default() as graph:
       tensors = create_graph_fn()
-      got = graph_tools.get_dependent_inputs(graph,
-                                             {x: tensors[x] for x in feeds},
-                                             {y: tensors[y] for y in fetches})
+    got = graph_tools.get_dependent_inputs(graph,
+                                           {x: tensors[x] for x in feeds},
+                                           {y: tensors[y] for y in fetches})
     self.assertCountEqual(expected_dependent_inputs, got.keys())
     for input_name in expected_dependent_inputs:
       self.assertEqual(tensors[input_name], got[input_name])
@@ -580,7 +703,7 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
 
   @test_case.named_parameters(
       dict(
-          testcase_name='y_function_of_x',
+          testcase_name='_y_function_of_x',
           create_graph_fn=_create_graph_with_y_function_of_x,
           feeds=['x'],
           replaced_tensors_ready={'x': False},
@@ -596,7 +719,134 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
               ]
           }),
       dict(
-          testcase_name='y_function_of_x_sparse',
+          testcase_name='_y_function_of_x_and_tf_function',
+          create_graph_fn=_create_graph_with_tf_function,
+          feeds=['x', 'y'],
+          replaced_tensors_ready={
+              'x': False,
+              'y': False
+          },
+          expected_calls_dict={
+              'x': [mock.call('x$tensor'),],
+              'y': [mock.call('y$tensor'),],
+              'z': [
+                  mock.call('y$tensor'),
+                  mock.call('x$tensor'),
+                  mock.call(_OpMatcher('mul/y'), parents=[]),
+                  mock.call(_TensorMatcher('mul/y:0'), parents=[u'mul/y']),
+                  mock.call('FuncGraphInput[0]'),
+                  mock.call(
+                      _OpMatcher('mul'),
+                      parents=['FuncGraphInput[0]', u'mul/y:0']),
+                  mock.call(_TensorMatcher('mul:0'), parents=[u'mul']),
+                  mock.call(_OpMatcher('Identity'), parents=[u'mul:0']),
+                  mock.call(
+                      _TensorMatcher('Identity:0'), parents=[u'Identity']),
+                  mock.call('FuncGraphInput[1]'),
+                  mock.call(
+                      _OpMatcher('add'),
+                      parents=['FuncGraphInput[0]', 'FuncGraphInput[1]']),
+                  mock.call(_TensorMatcher('add:0'), parents=[u'add']),
+                  mock.call(_OpMatcher('Identity_1'), parents=[u'add:0']),
+                  mock.call(
+                      _TensorMatcher('Identity_1:0'), parents=[u'Identity_1']),
+                  mock.call(_OpMatcher('mul_1/y'), parents=[]),
+                  mock.call(_TensorMatcher('mul_1/y:0'), parents=[u'mul_1/y']),
+                  mock.call(
+                      _OpMatcher('mul_1'),
+                      parents=['FuncGraphInput[1]', u'mul_1/y:0']),
+                  mock.call(_TensorMatcher('mul_1:0'), parents=[u'mul_1']),
+                  mock.call(_OpMatcher('Identity_2'), parents=[u'mul_1:0']),
+                  mock.call(
+                      _TensorMatcher('Identity_2:0'), parents=[u'Identity_2']),
+                  mock.call(
+                      _OpMatcher('PartitionedCall'),
+                      parents=[
+                          'x$tensor', 'y$tensor', u'Identity:0',
+                          u'Identity_1:0', u'Identity_2:0'
+                      ]),
+                  mock.call(
+                      _TensorMatcher('PartitionedCall:2'),
+                      parents=[u'PartitionedCall']),
+                  mock.call(
+                      _TensorMatcher('PartitionedCall:1'),
+                      parents=[u'PartitionedCall']),
+                  mock.call(
+                      _TensorMatcher('PartitionedCall:0'),
+                      parents=[u'PartitionedCall']),
+                  mock.call(
+                      _OpMatcher('add'),
+                      parents=[u'PartitionedCall:0', u'PartitionedCall:1']),
+                  mock.call(_TensorMatcher('add:0'), parents=[u'add']),
+                  mock.call(
+                      _OpMatcher('add_1'),
+                      parents=[u'add:0', u'PartitionedCall:2']),
+                  mock.call(_TensorMatcher('add_1:0'), parents=[u'add_1']),
+              ]
+          }),
+      dict(
+          testcase_name='_y_function_of_x_and_chained_tf_function',
+          create_graph_fn=_create_graph_with_chained_tf_function,
+          feeds=['x'],
+          replaced_tensors_ready={'x': False},
+          expected_calls_dict={
+              'x': [mock.call('x$tensor'),],
+              'y': [
+                  mock.call(_OpMatcher('truediv/y'), parents=[]),
+                  mock.call(
+                      _TensorMatcher('truediv/y:0'), parents=[u'truediv/y']),
+                  mock.call(
+                      _OpMatcher('truediv/Cast_1'), parents=[u'truediv/y:0']),
+                  mock.call(
+                      _TensorMatcher('truediv/Cast_1:0'),
+                      parents=[u'truediv/Cast_1']),
+                  mock.call('x$tensor'),
+                  mock.call(_OpMatcher('mul/y'), parents=[]),
+                  mock.call(_TensorMatcher('mul/y:0'), parents=[u'mul/y']),
+                  mock.call('FuncGraphInput[0]'),
+                  mock.call(_OpMatcher('add/y'), parents=[]),
+                  mock.call(_TensorMatcher('add/y:0'), parents=[u'add/y']),
+                  mock.call('FuncGraphInput[0]'),
+                  mock.call(
+                      _OpMatcher('add'),
+                      parents=['FuncGraphInput[0]', u'add/y:0']),
+                  mock.call(_TensorMatcher('add:0'), parents=[u'add']),
+                  mock.call(_OpMatcher('Identity'), parents=[u'add:0']),
+                  mock.call(
+                      _TensorMatcher('Identity:0'), parents=[u'Identity']),
+                  mock.call(
+                      _OpMatcher('PartitionedCall'),
+                      parents=['FuncGraphInput[0]', u'Identity:0']),
+                  mock.call(
+                      _TensorMatcher('PartitionedCall:0'),
+                      parents=[u'PartitionedCall']),
+                  mock.call(
+                      _OpMatcher('mul'),
+                      parents=[u'PartitionedCall:0', u'mul/y:0']),
+                  mock.call(_TensorMatcher('mul:0'), parents=[u'mul']),
+                  mock.call(_OpMatcher('Identity'), parents=[u'mul:0']),
+                  mock.call(
+                      _TensorMatcher('Identity:0'), parents=[u'Identity']),
+                  mock.call(
+                      _OpMatcher('PartitionedCall'),
+                      parents=['x$tensor', u'Identity:0']),
+                  mock.call(
+                      _TensorMatcher('PartitionedCall:0'),
+                      parents=[u'PartitionedCall']),
+                  mock.call(
+                      _OpMatcher('truediv/Cast'),
+                      parents=[u'PartitionedCall:0']),
+                  mock.call(
+                      _TensorMatcher('truediv/Cast:0'),
+                      parents=[u'truediv/Cast']),
+                  mock.call(
+                      _OpMatcher('truediv'),
+                      parents=[u'truediv/Cast:0', u'truediv/Cast_1:0']),
+                  mock.call(_TensorMatcher('truediv:0'), parents=[u'truediv']),
+              ],
+          }),
+      dict(
+          testcase_name='_y_function_of_x_sparse',
           create_graph_fn=_create_graph_with_y_function_of_x_sparse,
           feeds=['x'],
           replaced_tensors_ready={'x': False},
@@ -636,7 +886,7 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
               ]
           }),
       dict(
-          testcase_name='y_sparse_function_of_x_sparse',
+          testcase_name='_y_sparse_function_of_x_sparse',
           create_graph_fn=_create_graph_with_y_sparse_function_of_x_sparse,
           feeds=['x'],
           replaced_tensors_ready={'x': False},
@@ -668,23 +918,105 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
               ],
           }),
       dict(
-          testcase_name='y_function_of_x_with_tf_while',
+          testcase_name='_y_function_of_x_with_raw_ops_while',
           create_graph_fn=_create_graph_with_y_function_of_x_with_tf_while,
           feeds=['x'],
           replaced_tensors_ready={'x': False},
           expected_calls_dict={
               'y': [
                   mock.call('x$tensor'),
-                  mock.call(_OpMatcher(name='Const'), parents=[]),
-                  mock.call(_TensorMatcher(name='Const:0'), parents=[u'Const']),
+                  mock.call(_OpMatcher('Const'), parents=[]),
+                  mock.call(_TensorMatcher('Const:0'), parents=[u'Const']),
+                  # This part was edited manually, the path includes random
+                  # strings since the body and cond FuncGraphs lack information.
+                  # The empty strings below will match these random strings.
+                  mock.call(_SubStrMatcher('')),
+                  mock.call(_SubStrMatcher('')),
                   mock.call(
-                      _OpMatcher(name='While'),
-                      parents=[u'Const:0', 'x$tensor']),
-                  mock.call(_TensorMatcher(name='While:1'), parents=[u'While']),
+                      _OpMatcher('While'),
+                      parents=[
+                          u'Const:0', 'x$tensor',
+                          _SubStrMatcher(''),
+                          _SubStrMatcher('')
+                      ]),
+                  mock.call(_TensorMatcher('While:1'), parents=[u'While']),
               ],
           }),
       dict(
-          testcase_name='y_function_of_x_and_table',
+          testcase_name='_y_function_of_x_with_tf_while',
+          should_skip_test=tf.__version__.startswith('1.15'),
+          create_graph_fn=_create_graph_with_tf_function_while,
+          feeds=['x'],
+          replaced_tensors_ready={'x': False},
+          expected_calls_dict={
+              'y': [
+                  mock.call('x$tensor'),
+                  mock.call('FuncGraphInput[0]'),
+                  mock.call(_OpMatcher('while/maximum_iterations'), parents=[]),
+                  mock.call(
+                      _TensorMatcher('while/maximum_iterations:0'),
+                      parents=[u'while/maximum_iterations']),
+                  mock.call(_OpMatcher('while/loop_counter'), parents=[]),
+                  mock.call(
+                      _TensorMatcher('while/loop_counter:0'),
+                      parents=[u'while/loop_counter']),
+                  mock.call(_OpMatcher('Less/y'), parents=[]),
+                  mock.call(_TensorMatcher('Less/y:0'), parents=[u'Less/y']),
+                  mock.call('FuncGraphInput[2]'),
+                  mock.call(
+                      _OpMatcher('Less'),
+                      parents=['FuncGraphInput[2]', u'Less/y:0']),
+                  mock.call(_TensorMatcher('Less:0'), parents=[u'Less']),
+                  mock.call(_OpMatcher('Identity'), parents=[u'Less:0']),
+                  mock.call(
+                      _TensorMatcher('Identity:0'), parents=[u'Identity']),
+                  mock.call(_OpMatcher('add/y'), parents=[]),
+                  mock.call(_TensorMatcher('add/y:0'), parents=[u'add/y']),
+                  mock.call('FuncGraphInput[0]'),
+                  mock.call(
+                      _OpMatcher('add'),
+                      parents=['FuncGraphInput[0]', u'add/y:0']),
+                  mock.call(_TensorMatcher('add:0'), parents=[u'add']),
+                  mock.call(_OpMatcher('Identity'), parents=[u'add:0']),
+                  mock.call(
+                      _TensorMatcher('Identity:0'), parents=[u'Identity']),
+                  mock.call('FuncGraphInput[1]'),
+                  mock.call(
+                      _OpMatcher('Identity_1'), parents=['FuncGraphInput[1]']),
+                  mock.call(
+                      _TensorMatcher('Identity_1:0'), parents=[u'Identity_1']),
+                  mock.call(_OpMatcher('mul/y'), parents=[]),
+                  mock.call(_TensorMatcher('mul/y:0'), parents=[u'mul/y']),
+                  mock.call('FuncGraphInput[2]'),
+                  mock.call(
+                      _OpMatcher('mul'),
+                      parents=['FuncGraphInput[2]', u'mul/y:0']),
+                  mock.call(_TensorMatcher('mul:0'), parents=[u'mul']),
+                  mock.call(_OpMatcher('Identity_2'), parents=[u'mul:0']),
+                  mock.call(
+                      _TensorMatcher('Identity_2:0'), parents=[u'Identity_2']),
+                  mock.call(
+                      _OpMatcher('while'),
+                      parents=[
+                          u'while/loop_counter:0',
+                          u'while/maximum_iterations:0', 'FuncGraphInput[0]',
+                          u'Identity:0', u'Identity:0', u'Identity_1:0',
+                          u'Identity_2:0'
+                      ]),
+                  mock.call(_TensorMatcher('while:2'), parents=[u'while']),
+                  mock.call(_OpMatcher('Identity'), parents=[u'while:2']),
+                  mock.call(
+                      _TensorMatcher('Identity:0'), parents=[u'Identity']),
+                  mock.call(
+                      _OpMatcher('PartitionedCall'),
+                      parents=['x$tensor', u'Identity:0']),
+                  mock.call(
+                      _TensorMatcher('PartitionedCall:0'),
+                      parents=[u'PartitionedCall']),
+              ],
+          }),
+      dict(
+          testcase_name='_y_function_of_x_and_table',
           create_graph_fn=_create_graph_with_y_function_of_x_and_table_in_first_phase,
           feeds=['x'],
           replaced_tensors_ready={'x': False},
@@ -697,8 +1029,7 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
               ],
               'y': [
                   mock.call(_OpMatcher('Const'), parents=[]),
-                  mock.call(
-                      _TensorMatcher('Const:0'), parents=['Const']),
+                  mock.call(_TensorMatcher('Const:0'), parents=['Const']),
                   mock.call(_OpMatcher('hash_table'), parents=['Const:0']),
                   mock.call(_OpMatcher('Const_1'), parents=[]),
                   mock.call(_TensorMatcher('Const_1:0'), parents=['Const_1']),
@@ -715,7 +1046,7 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
               ],
           }),
       dict(
-          testcase_name='with_assert_equal',
+          testcase_name='_with_assert_equal',
           create_graph_fn=_create_graph_with_assert_equal,
           feeds=['x', 'y'],
           replaced_tensors_ready={
@@ -743,55 +1074,65 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
               ]
           }),
   )
-  def testGetUniquePath(self, create_graph_fn, feeds, replaced_tensors_ready,
-                        expected_calls_dict):
+  def testGetUniquePath(self,
+                        create_graph_fn,
+                        feeds,
+                        replaced_tensors_ready,
+                        expected_calls_dict,
+                        should_skip_test=False):
+
+    # TODO(b/138934800): Remove this once TF 1.15 has the same results in all
+    # environments.
+    if should_skip_test:
+      raise unittest.SkipTest(
+          'TF version 1.15 can have unexpected behaviour affecting this test')
 
     with tf.compat.v1.Graph().as_default() as graph:
       tensors = create_graph_fn()
-      replaced_tensors_ready = [(tensors[name], ready) for name, ready
-                                in replaced_tensors_ready.items()]
-      for name in expected_calls_dict:
+    replaced_tensors_ready = [(tensors[name], ready)
+                              for name, ready in replaced_tensors_ready.items()]
+    for name in expected_calls_dict:
 
-        # This is used to construct the debugging string below.
-        actual_needed_matchers_to_pass = []
+      # This is used to construct the debugging string below.
+      actual_needed_matchers_to_pass = []
 
-        def describe_path_fn(x, parents=None):
-          if parents is None:
-            parents_str = ''
-          else:
-            parents_str = ', parents={}'.format(
-                list(map(_value_to_matcher, parents)))
-          actual_needed_matchers_to_pass.append('({}{}),'.format(  # pylint: disable=cell-var-from-loop
-              _value_to_matcher(x, True), parents_str))
+      def describe_path_fn(x, parents=None):
+        if parents is None:
+          parents_str = ''
+        else:
+          parents_str = ', parents={}'.format(
+              list(map(_value_to_matcher, parents)))
+        actual_needed_matchers_to_pass.append('({}{}),'.format(  # pylint: disable=cell-var-from-loop
+            _value_to_matcher(x, True), parents_str))
 
-          if isinstance(x, tf.Operation):
-            return x.node_def.name
-          if isinstance(x, tf.Tensor):
-            self.assertLessEqual(len(parents), 1)
-            return x.name
-          if isinstance(x, (six.text_type, str, bytes)):
-            return x
-          raise ValueError('Unexpected type: {}'.format(x))
+        if isinstance(x, tf.Operation):
+          return x.node_def.name
+        if isinstance(x, tf.Tensor):
+          self.assertLessEqual(len(parents), 1)
+          return x.name
+        if isinstance(x, (six.text_type, str, bytes)):
+          return x
+        raise ValueError('Unexpected type: {}'.format(x))
 
-        path_cb_mock = mock.MagicMock(side_effect=describe_path_fn)
+      path_cb_mock = mock.MagicMock(side_effect=describe_path_fn)
 
-        graph_analyzer = graph_tools.InitializableGraphAnalyzer(
-            graph, {x: tensors[x] for x in feeds}, replaced_tensors_ready,
-            path_cb_mock)
+      graph_analyzer = graph_tools.InitializableGraphAnalyzer(
+          graph, {x: tensors[x] for x in feeds}, replaced_tensors_ready,
+          path_cb_mock)
 
-        graph_analyzer.get_unique_path(tensors[name])
+      graph_analyzer.get_unique_path(tensors[name])
 
-        try:
-          path_cb_mock.assert_has_calls(expected_calls_dict[name])
-          self.assertEqual(
-              path_cb_mock.call_count, len(expected_calls_dict[name]),
-              'Number of expected calls != number of actual calls for {}: {}'
-              .format(name, path_cb_mock.call_args_list))
-        except AssertionError:
-          tf.compat.v1.logging.error(
-              'The following is a list of matchers for {}:\n{}'.format(
-                  name, '\n'.join(actual_needed_matchers_to_pass)))
-          raise
+      try:
+        path_cb_mock.assert_has_calls(expected_calls_dict[name])
+        self.assertEqual(
+            path_cb_mock.call_count, len(expected_calls_dict[name]),
+            'Number of expected calls != number of actual calls for {}: {}'
+            .format(name, path_cb_mock.call_args_list))
+      except AssertionError:
+        tf.compat.v1.logging.error(
+            'The following is a list of matchers for {}:\n{}'.format(
+                name, '\n'.join(actual_needed_matchers_to_pass)))
+        raise
 
 
 def _value_to_matcher(value, add_quotes=False):
