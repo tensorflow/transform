@@ -29,7 +29,6 @@ import numpy as np
 import six
 import tensorflow as tf
 
-import unittest
 from tensorflow.python.eager import context  # pylint: disable=g-direct-tensorflow-import
 
 main = tf.test.main
@@ -201,11 +200,6 @@ def _eager_function_handler(input_signature):
 
 def _tf_function_function_handler(input_signature):
   """Call function in eager mode, but also wrapped in `tf.function`."""
-  for tensor_spec in input_signature:
-    if isinstance(tensor_spec, tf.SparseTensorSpec) and tf.__version__ < '1.15':
-      raise unittest.SkipTest(
-          'TensorFlow version 1.14 and below does not support a SparseTensor '
-          'as an input to `tf.function`')
   def wrapper(fn):
     wrapped_fn = tf.function(fn, input_signature)
     return _eager_function_handler(input_signature)(wrapped_fn)

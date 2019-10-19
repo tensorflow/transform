@@ -990,6 +990,8 @@ def _deduplicate_tensor_per_row(input_tensor, batch_dim):
       dense_shape=dense_shape)
 
 
+# TODO(b/141750093) bag_of_words can produce unexpected results on macOS when
+# there are empty rows, such as certain words overwritten with an empty string.
 def bag_of_words(tokens, ngram_range, separator, name=None):
   """Computes a bag of "words" based on the specified ngram configuration.
 

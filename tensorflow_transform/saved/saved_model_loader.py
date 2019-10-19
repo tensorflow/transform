@@ -62,11 +62,4 @@ def choose_meta_graph_def(saved_model, tags):
 
 
 def get_asset_tensors(saved_model_dir, meta_graph_def_to_load):
-  try:
-    return loader_impl.get_asset_tensors(saved_model_dir,
-                                         meta_graph_def_to_load)
-  # TODO(b/124491249): Remove this backwards compatibility once TFT 0.14 is
-  # released.
-  except AttributeError:
-    return loader_impl._get_asset_tensors(  # pylint: disable=protected-access
-        saved_model_dir, meta_graph_def_to_load)
+  return loader_impl.get_asset_tensors(saved_model_dir, meta_graph_def_to_load)
