@@ -33,6 +33,8 @@
 ## Breaking changes
 * `always_return_num_quantiles` changed to default to True in `tft.quantiles`
   and `tft.bucketize`, resulting in exact bucket count returned.
+* Removes the `input_fn_maker` module which has been deprecated since TFT 0.11.
+  For idiomatic construction of `input_fn`, see `tensorflow_transform` examples.
 
 ## Deprecations
 
