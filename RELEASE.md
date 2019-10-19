@@ -29,13 +29,13 @@
 * `preprocessing_fn`s now have beta support of calls to `tf.function`s, as long
   as they don't contain calls to `tf.Transform` analyzers/mappers or table
   initializers.
-
+* `tft.quantiles` is now using core TF ops, requiring `tensorflow>=1.15`.
 ## Breaking changes
 * `always_return_num_quantiles` changed to default to True in `tft.quantiles`
   and `tft.bucketize`, resulting in exact bucket count returned.
 * Removes the `input_fn_maker` module which has been deprecated since TFT 0.11.
   For idiomatic construction of `input_fn`, see `tensorflow_transform` examples.
-
+* Requires pre-installed TensorFlow >=1.15, < 3.
 ## Deprecations
 
 # Release 0.14.0

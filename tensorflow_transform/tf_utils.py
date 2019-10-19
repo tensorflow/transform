@@ -22,13 +22,7 @@ import collections
 # GOOGLE-INITIALIZATION
 import tensorflow as tf
 
-# TODO(b/138934800) Remove this condition once we no longer support TF 1.14.
-_TENSORS_ARE_HASHABLE = tf.__version__ < '1.15'
-if not _TENSORS_ARE_HASHABLE:
-  # pylint: disable=g-import-not-at-top
-  from tensorflow.python.util import object_identity  # pylint: disable=g-direct-tensorflow-import
-  _TENSORS_ARE_HASHABLE = False
-  # pylint: enable=g-import-not-at-top
+from tensorflow.python.util import object_identity  # pylint: disable=g-direct-tensorflow-import
 
 _FLOATING_NAN = float('nan')
 # Global sentinels used to keep track of the total counts of y
@@ -211,7 +205,7 @@ def extend_reduced_batch_with_y_counts(reduced_batch, y, weights=None):
 
 
 def hashable_tensor_or_op(tensor_or_op):
-  """Returns a hashable reference to a Tensor if available and given a Tensor.
+  """Returns a hashable reference to a Tensor if given a Tensor or SparseTensor.
 
   Use deref_tensor_or_op on the result to get the Tensor (or SparseTensor).
 
@@ -222,9 +216,6 @@ def hashable_tensor_or_op(tensor_or_op):
     A hashable representation for the Tensor or SparseTensor, or the original
     value for other types.
   """
-  # TODO(b/138934800) Remove this condition once we no longer support TF 1.14.
-  if _TENSORS_ARE_HASHABLE:
-    return tensor_or_op
   if isinstance(tensor_or_op, tf.Tensor):
     return tensor_or_op.experimental_ref()
   if isinstance(tensor_or_op, tf.RaggedTensor):
@@ -249,9 +240,6 @@ def deref_tensor_or_op(tensor_or_op):
   Returns:
     A Tensor, SparseTensor, RaggedTensor, or the given tensor_or_op.
   """
-  # TODO(b/138934800) Remove this condition once we no longer support TF 1.14.
-  if _TENSORS_ARE_HASHABLE:
-    return tensor_or_op
   if isinstance(tensor_or_op, object_identity.Reference):
     return tensor_or_op.deref()
   if isinstance(tensor_or_op, _SparseTensorRef):

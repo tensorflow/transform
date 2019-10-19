@@ -99,7 +99,7 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
           ]),
       dict(
           testcase_name='_QuantilesAccumulatorCoderClassAccumulator',
-          coder=analyzers._QuantilesAccumulatorCacheCoder(),
+          coder=analyzers._QuantilesAccumulatorCacheCoderV2(),
           value=[
               '\n\x0f\r\x00\x00 A\x15\x00\x00\x80?%\x00\x00\x80?\n\x14\r\x00\x00@A\x15\x00\x00\x80?\x1d\x00\x00\x80?%\x00\x00\x00@',
               '',
