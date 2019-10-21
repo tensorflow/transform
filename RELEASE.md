@@ -2,40 +2,53 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
-* This release introduces initial experimental support for TF 2.0. TF 2.0
-  programs running in "safety" mode (i.e. using TF 1.X APIs through the
+* This release introduces initial beta support for TF 2.0. TF 2.0 programs
+  running in "safety" mode (i.e. using TF 1.X APIs through the
   `tensorflow.compat.v1` compatibility module are expected to work. Newly
   written TF 2.0 programs may not work if they exercise functionality that is
-  not yet supported. If you do encounter an issue when using TFT with TF 2.0,
-  please create an issue https://github.com/tensorflow/transform/issues with
-  instructions on how to reproduce it.
-* Performance improvements for preprocessing_fns with many Quantiles analyzers.
-* Using new TF core quantiles ops, which are not publicly available until next
-  release.  Analyzers and mappers now support missing tf.contrib module.
+  not yet supported. If you do encounter an issue when using
+  `tensorflow-transform` with TF 2.0, please create an issue
+  https://github.com/tensorflow/transform/issues with instructions on how to
+  reproduce it.
+* Performance improvements for `preprocessing_fns` with many Quantiles
+  analyzers.
+* `tft.quantiles` and `tft.bucketize` are now using new TF core quantiles ops
+  instead of contrib ops.
 * Performance improvements due to packing multiple combine analyzers into a
   single Beam Combiner.
 
 ## Bug Fixes and Other Changes
 * Existing analyzer cache is invalidated.
-* Saved transforms now support composite tensors (such as RaggedTensor).
+* Saved transforms now support composite tensors (such as `tf.RaggedTensor`).
 * Vocabulary's cache coder now supports non utf-8 encodable tokens.
 * Fixes encoding of the `tft.covariance` accumulator cache.
 * Fixes encoding per-key analyzers accumulator cache.
 * Make various utility methods in `tft.inspect_preprocessing_fn` support
-  RaggedTensor.
+  `tf.RaggedTensor`.
 * Moved beam/shared lib to `tfx-bsl`. If running with latest master, `tfx-bsl`
   must also be latest master.
-* Depends on `tfx-bsl>=0.15,<0.16`.
 * `preprocessing_fn`s now have beta support of calls to `tf.function`s, as long
   as they don't contain calls to `tf.Transform` analyzers/mappers or table
   initializers.
-* `tft.quantiles` is now using core TF ops, requiring `tensorflow>=1.15`.
+* `tft.quantiles` and `tft.bucketize` are now using core TF ops.
+* Depends on `tfx-bsl>=0.15,<0.16`.
+* Depends on `tensorflow-metadata>=0.15,<0.16`.
+* Depends on `apache-beam[gcp]>=2.16,<3`.
+* Depends on `tensorflow>=0.15,<2.2`.
+  * Starting from 1.15, package
+    `tensorflow` comes with GPU support. Users won't need to choose between
+    `tensorflow` and `tensorflow-gpu`.
+  * Caveat: `tensorflow` 2.0.0 is an exception and does not have GPU
+    support. If `tensorflow-gpu` 2.0.0 is installed before installing
+    `tensorflow-transform`, it will be replaced with `tensorflow` 2.0.0.
+    Re-install `tensorflow-gpu` 2.0.0 if needed.
+
 ## Breaking changes
 * `always_return_num_quantiles` changed to default to True in `tft.quantiles`
   and `tft.bucketize`, resulting in exact bucket count returned.
 * Removes the `input_fn_maker` module which has been deprecated since TFT 0.11.
   For idiomatic construction of `input_fn`, see `tensorflow_transform` examples.
-* Requires pre-installed TensorFlow >=1.15, < 3.
+
 ## Deprecations
 
 # Release 0.14.0

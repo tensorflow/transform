@@ -27,21 +27,15 @@ def _make_required_install_packages():
   # Make sure to sync the versions of common dependencies (absl-py, numpy,
   # six, and protobuf) with TF.
   return [
-      'absl-py>=0.7,<2',
-      'apache-beam[gcp]>=2.14,<3',
+      'absl-py>=0.7,<0.9',
+      'apache-beam[gcp]>=2.16,<3',
       'numpy>=1.16,<2',
       'protobuf>=3.7,<4',
+      'pydot>=1.2,<2',
       'six>=1.10,<2',
-
-      'tensorflow-metadata>=0.14,<0.15',
-
-      # TODO(b/123240958): Uncomment this once TF can automatically select
-      # between CPU and GPU installation.
-      # 'tensorflow>=1.14,<2',
-
+      'tensorflow-metadata>=0.15,<0.16',
+      'tensorflow>=1.15,<2.2',
       'tfx-bsl>=0.15,<0.16',
-
-      'pydot>=1.2.0,<2',
   ]
 
 # TODO(b/121329572): Remove the following comment after we can guarantee the
