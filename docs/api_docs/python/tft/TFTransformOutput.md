@@ -42,7 +42,7 @@ A wrapper around the output of the tf.Transform.
 __init__(transform_output_dir)
 ```
 
-
+Initialize self.  See help(type(self)) for accurate signature.
 
 
 

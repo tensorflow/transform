@@ -3,13 +3,9 @@
 <meta itemprop="path" content="Stable" />
 <meta itemprop="property" content="label"/>
 <meta itemprop="property" content="__init__"/>
-<meta itemprop="property" content="__long__"/>
-<meta itemprop="property" content="__native__"/>
-<meta itemprop="property" content="__nonzero__"/>
 <meta itemprop="property" content="__or__"/>
 <meta itemprop="property" content="__ror__"/>
 <meta itemprop="property" content="__rrshift__"/>
-<meta itemprop="property" content="__unicode__"/>
 <meta itemprop="property" content="default_label"/>
 <meta itemprop="property" content="default_type_hints"/>
 <meta itemprop="property" content="display_data"/>
@@ -18,7 +14,6 @@
 <meta itemprop="property" content="get_type_hints"/>
 <meta itemprop="property" content="get_windowing"/>
 <meta itemprop="property" content="infer_output_type"/>
-<meta itemprop="property" content="next"/>
 <meta itemprop="property" content="register_urn"/>
 <meta itemprop="property" content="runner_api_requires_keyed_input"/>
 <meta itemprop="property" content="to_runner_api"/>
@@ -66,7 +61,7 @@ but may be more efficient since it avoids multiple passes over the data.
 __init__(preprocessing_fn)
 ```
 
-
+Initialize self.  See help(type(self)) for accurate signature.
 
 
 
@@ -79,30 +74,6 @@ __init__(preprocessing_fn)
 
 
 ## Methods
-
-<h3 id="__long__"><code>__long__</code></h3>
-
-``` python
-__long__()
-```
-
-
-
-<h3 id="__native__"><code>__native__</code></h3>
-
-``` python
-__native__()
-```
-
-Hook for the future.utils.native() function
-
-<h3 id="__nonzero__"><code>__nonzero__</code></h3>
-
-``` python
-__nonzero__()
-```
-
-
 
 <h3 id="__or__"><code>__or__</code></h3>
 
@@ -127,14 +98,6 @@ Used to apply this PTransform to non-PValues, e.g., a tuple.
 
 ``` python
 __rrshift__(label)
-```
-
-
-
-<h3 id="__unicode__"><code>__unicode__</code></h3>
-
-``` python
-__unicode__()
 ```
 
 
@@ -240,14 +203,6 @@ with the input PCollection (or the first input if several).
 
 ``` python
 infer_output_type(unused_input_type)
-```
-
-
-
-<h3 id="next"><code>next</code></h3>
-
-``` python
-next()
 ```
 
 
