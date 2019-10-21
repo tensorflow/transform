@@ -59,7 +59,8 @@ other *untested* combinations may also work.
 
 tensorflow-transform                                                            | tensorflow        | apache-beam[gcp]
 ------------------------------------------------------------------------------- | ----------------- | ----------------
-[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) | nightly (1.x/2.x) | 2.14.0
+[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) | nightly (1.x/2.x) | 2.16.0
+[0.15.0](https://github.com/tensorflow/transform/blob/v0.15.0/RELEASE.md)       | 1.15 / 2.0        | 2.16.0
 [0.14.0](https://github.com/tensorflow/transform/blob/v0.14.0/RELEASE.md)       | 1.14              | 2.14.0
 [0.13.0](https://github.com/tensorflow/transform/blob/v0.13.0/RELEASE.md)       | 1.13              | 2.11.0
 [0.12.0](https://github.com/tensorflow/transform/blob/v0.12.0/RELEASE.md)       | 1.12              | 2.10.0

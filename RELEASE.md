@@ -1,5 +1,5 @@
 <!-- mdformat off(mdformat causes unwanted indentation changes) -->
-# Current version (not yet released; still in development)
+# Release 0.15.0
 
 ## Major Features and Improvements
 * This release introduces initial beta support for TF 2.0. TF 2.0 programs
