@@ -19,6 +19,7 @@ from __future__ import print_function
 
 import abc
 import collections
+import os
 
 # GOOGLE-INITIALIZATION
 
@@ -944,7 +945,8 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           }),
       dict(
           testcase_name='_y_function_of_x_with_tf_while',
-          should_skip_test=tf.__version__.startswith('1.15'),
+          should_skip_test=not os.environ.get('TEST_WORKSPACE',
+                                              '').startswith('google'),
           create_graph_fn=_create_graph_with_tf_function_while,
           feeds=['x'],
           replaced_tensors_ready={'x': False},
@@ -1085,7 +1087,7 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
     # environments.
     if should_skip_test:
       raise unittest.SkipTest(
-          'TF version 1.15 can have unexpected behaviour affecting this test')
+          'This test is not currently supported.')
 
     with tf.compat.v1.Graph().as_default() as graph:
       tensors = create_graph_fn()
