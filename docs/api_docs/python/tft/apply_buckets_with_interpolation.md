@@ -31,7 +31,8 @@ distance relationships in the raw data are not necessarily preserved (data
 points that close to each other in the raw feature space may not be equally
 close in the transformed feature space). This means that unlike linear
 normalization methods, correlations between features may be distorted by the
-transformation.
+transformation. This scaling method may help with stability and minimize
+exploding gradients in neural networks.
 
 #### Args:
 

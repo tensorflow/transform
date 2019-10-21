@@ -12,7 +12,7 @@ tft.quantiles(
     epsilon,
     weights=None,
     reduce_instance_dims=True,
-    always_return_num_quantiles=False,
+    always_return_num_quantiles=True,
     name=None
 )
 ```
@@ -28,9 +28,11 @@ See go/squawd for details, and how to control the error due to approximation.
 
 * <b>`x`</b>: An input `Tensor`.
 * <b>`num_buckets`</b>: Values in the `x` are divided into approximately equal-sized
-    buckets, where the number of buckets is num_buckets. This is a hint. The
-    actual number of buckets computed can be less or more than the requested
-    number. Use the generated metadata to find the computed number of buckets.
+    buckets, where the number of buckets is `num_buckets`. By default, the
+    exact number will be returned, minus one (boundary count is one less).
+    If `always_return_num_quantiles` is False, the actual number of buckets
+    computed can be less or more than the requested number. Use the generated
+    metadata to find the computed number of buckets.
 * <b>`epsilon`</b>: Error tolerance, typically a small fraction close to zero (e.g.
     0.01). Higher values of epsilon increase the quantile approximation, and
     hence result in more unequal buckets, but could improve performance,
@@ -52,8 +54,8 @@ See go/squawd for details, and how to control the error due to approximation.
       to arrive at a single output vector. If False, only collapses the batch
       dimension and outputs a vector of the same shape as the input.
 * <b>`always_return_num_quantiles`</b>: (Optional) A bool that determines whether the
-    exact num_buckets should be returned (defaults to False for now, but will
-    be changed to True in an imminent update).
+    exact num_buckets should be returned. If False, `num_buckets` will be
+    treated as a suggestion.
 * <b>`name`</b>: (Optional) A name for this operation.
 
 

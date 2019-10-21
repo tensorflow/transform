@@ -51,6 +51,7 @@ will write out cache for statistics that it does compute whenever possible.
 
 * <b>`preprocessing_fn`</b>: A function that accepts and returns a dictionary from
     strings to `Tensor` or `SparseTensor`s.
+* <b>`pipeline`</b>: (Optional) a beam Pipeline.
 
 <h2 id="__init__"><code>__init__</code></h2>
 
@@ -203,7 +204,12 @@ from_runner_api(
 get_type_hints()
 ```
 
+Gets and/or initializes type hints for this object.
 
+If type hints have not been set, attempts to initialize type hints in this
+order:
+- Using self.default_type_hints().
+- Using self.__class__ type hints.
 
 <h3 id="get_windowing"><code>get_windowing</code></h3>
 

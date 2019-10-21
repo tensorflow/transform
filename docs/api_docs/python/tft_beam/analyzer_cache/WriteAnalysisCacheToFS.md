@@ -53,6 +53,7 @@ so the cache must already exist there when constructing this.
 __init__(
     pipeline,
     cache_base_dir,
+    dataset_keys=None,
     sink=None
 )
 ```
@@ -63,9 +64,10 @@ Init method.
 
 * <b>`pipeline`</b>: A beam Pipeline.
 * <b>`cache_base_dir`</b>: A str, the path that the cache should be stored in.
-* <b>`sink`</b>: (Optional) A PTransform class that takes a path, and optional
-    file_name_suffix arguments in its constructor, and is used to write the
-    cache.
+* <b>`dataset_keys`</b>: (Optional) An iterable of strings.
+* <b>`sink`</b>: (Optional) A PTransform class that takes a path in its constructor,
+    and is used to write the cache. If not provided this uses a GZipped
+    TFRecord sink.
 
 
 
@@ -207,7 +209,12 @@ from_runner_api(
 get_type_hints()
 ```
 
+Gets and/or initializes type hints for this object.
 
+If type hints have not been set, attempts to initialize type hints in this
+order:
+- Using self.default_type_hints().
+- Using self.__class__ type hints.
 
 <h3 id="get_windowing"><code>get_windowing</code></h3>
 

@@ -59,7 +59,7 @@ Init module for TF.Transform.
 
 [`ngrams(...)`](./tft/ngrams.md): Create a `SparseTensor` of n-grams.
 
-[`pca(...)`](./tft/pca.md): Computes pca on the dataset using biased covariance.
+[`pca(...)`](./tft/pca.md): Computes PCA on the dataset using biased covariance.
 
 [`ptransform_analyzer(...)`](./tft/ptransform_analyzer.md): Applies a user-provided PTransform over the whole dataset.
 

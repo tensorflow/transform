@@ -12,7 +12,7 @@ tft.bucketize(
     epsilon=None,
     weights=None,
     elementwise=False,
-    always_return_num_quantiles=False,
+    always_return_num_quantiles=True,
     name=None
 )
 ```
@@ -26,10 +26,11 @@ Returns a bucketized column, with a bucket index assigned to each input.
     in the quantiles computation, and the result of `bucketize` will be a
     `SparseTensor` with non-missing values mapped to buckets.
 * <b>`num_buckets`</b>: Values in the input `x` are divided into approximately
-    equal-sized buckets, where the number of buckets is num_buckets.
-    This is a hint. The actual number of buckets computed can be
-    less or more than the requested number. Use the generated metadata to
-    find the computed number of buckets.
+    equal-sized buckets, where the number of buckets is `num_buckets`. By
+    default, the exact number will be available to `bucketize`. If
+    `always_return_num_quantiles` is False, the actual number of
+    buckets computed can be less or more than the requested number. Use the
+    generated metadata to find the computed number of buckets.
 * <b>`epsilon`</b>: (Optional) Error tolerance, typically a small fraction close to
     zero. If a value is not specified by the caller, a suitable value is
     computed based on experimental results.  For `num_buckets` less
@@ -44,8 +45,8 @@ Returns a bucketized column, with a bucket index assigned to each input.
 * <b>`elementwise`</b>: (Optional) If true, bucketize each element of the tensor
     independently.
 * <b>`always_return_num_quantiles`</b>: (Optional) A bool that determines whether the
-    exact num_buckets should be returned (defaults to False for now, but will
-    be changed to True in an imminent update).
+    exact num_buckets should be returned. If False, `num_buckets` will be
+    treated as a suggestion.
 * <b>`name`</b>: (Optional) A name for this operation.
 
 

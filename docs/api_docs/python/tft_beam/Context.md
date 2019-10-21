@@ -20,7 +20,7 @@ Context manager for tensorflow-transform.
 
 All the attributes in this context are kept on a thread local state.
 
-#### Args:
+#### Attributes:
 
 * <b>`temp_dir`</b>: (Optional) The temporary directory used within in this block.
 * <b>`desired_batch_size`</b>: (Optional) A batch size to batch elements by. If not
