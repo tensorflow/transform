@@ -38,7 +38,7 @@ _SparseTensorRef = collections.namedtuple('_SparseTensorRef', [
     'indices', 'values', 'dense_shape'])
 
 _RaggedTensorRef = collections.namedtuple('_RaggedTensorRef', [
-    'flat_values', 'nested_row_splits'])
+    'values', 'row_splits'])
 
 
 def reduce_batch_weighted_counts(x, weights=None):
@@ -220,14 +220,13 @@ def hashable_tensor_or_op(tensor_or_op):
     return tensor_or_op.experimental_ref()
   if isinstance(tensor_or_op, tf.RaggedTensor):
     return _RaggedTensorRef(
-        flat_values=tensor_or_op.flat_values.experimental_ref(),
-        nested_row_splits=tuple(split.experimental_ref()
-                                for split in tensor_or_op.nested_row_splits))
+        values=hashable_tensor_or_op(tensor_or_op.values),
+        row_splits=hashable_tensor_or_op(tensor_or_op.row_splits))
   if isinstance(tensor_or_op, tf.SparseTensor):
     return _SparseTensorRef(
-        indices=tensor_or_op.indices.experimental_ref(),
-        values=tensor_or_op.values.experimental_ref(),
-        dense_shape=tensor_or_op.dense_shape.experimental_ref())
+        indices=hashable_tensor_or_op(tensor_or_op.indices),
+        values=hashable_tensor_or_op(tensor_or_op.values),
+        dense_shape=hashable_tensor_or_op(tensor_or_op.dense_shape))
   return tensor_or_op
 
 
@@ -243,13 +242,17 @@ def deref_tensor_or_op(tensor_or_op):
   if isinstance(tensor_or_op, object_identity.Reference):
     return tensor_or_op.deref()
   if isinstance(tensor_or_op, _SparseTensorRef):
-    return tf.SparseTensor(indices=tensor_or_op.indices.deref(),
-                           values=tensor_or_op.values.deref(),
-                           dense_shape=tensor_or_op.dense_shape.deref())
+    return tf.SparseTensor(
+        indices=deref_tensor_or_op(tensor_or_op.indices),
+        values=deref_tensor_or_op(tensor_or_op.values),
+        dense_shape=deref_tensor_or_op(tensor_or_op.dense_shape))
   if isinstance(tensor_or_op, _RaggedTensorRef):
-    return tf.RaggedTensor.from_nested_row_splits(
-        tensor_or_op.flat_values.deref(),
-        [split.deref() for split in tensor_or_op.nested_row_splits])
+    # Using the private constructor because the factory methods create new
+    # tensors that do not match the original, even using the same method.
+    return tf.RaggedTensor(
+        values=deref_tensor_or_op(tensor_or_op.values),
+        row_splits=deref_tensor_or_op(tensor_or_op.row_splits),
+        internal=True)
   return tensor_or_op
 
 

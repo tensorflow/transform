@@ -111,6 +111,34 @@ class TFUtilsTest(test_case.TransformTestCase):
     self.assertAllEqual(unique_x,
                         expected_unique_x)
 
+  @test_case.named_parameters([
+      dict(testcase_name='constant', get_value_fn=lambda: tf.constant([1.618])),
+      dict(testcase_name='op', get_value_fn=lambda: tf.identity),
+      dict(testcase_name='int', get_value_fn=lambda: 4),
+      dict(testcase_name='object', get_value_fn=object),
+      dict(testcase_name='sparse', get_value_fn=lambda: tf.SparseTensor(  # pylint: disable=g-long-lambda
+          indices=[[0, 0], [2, 1]], values=['a', 'b'], dense_shape=[4, 2])),
+      dict(testcase_name='ragged',
+           get_value_fn=lambda: tf.RaggedTensor.from_row_splits(  # pylint: disable=g-long-lambda
+               values=['a', 'b'], row_splits=[0, 1, 2]))
+  ])
+  def test_hashable_tensor_or_op(self, get_value_fn):
+    with tf.compat.v1.Graph().as_default():
+      input_value = get_value_fn()
+      input_ref = tf_utils.hashable_tensor_or_op(input_value)
+      input_dict = {input_ref: input_value}
+      input_deref = tf_utils.deref_tensor_or_op(input_ref)
+      self.assertAllEqual(input_ref,
+                          tf_utils.hashable_tensor_or_op(input_deref))
+
+      if isinstance(input_value, tf.SparseTensor):
+        input_deref = input_deref.values
+        input_dict[input_ref] = input_dict[input_ref].values
+        input_value = input_value.values
+
+      self.assertAllEqual(input_value, input_deref)
+      self.assertAllEqual(input_value, input_dict[input_ref])
+
   @test_case.named_parameters(test_case.cross_with_function_handlers([
       dict(
           testcase_name='rank1_with_weights_and_binary_y',
