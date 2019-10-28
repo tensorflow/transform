@@ -35,7 +35,7 @@ def _make_required_install_packages():
       'six>=1.10,<2',
       'tensorflow-metadata>=0.15,<0.16',
       'tensorflow>=1.15,<2.2',
-      'tfx-bsl>=0.15,<0.16',
+      'tfx-bsl>=0.15,<0.17',
   ]
 
 # TODO(b/121329572): Remove the following comment after we can guarantee the
