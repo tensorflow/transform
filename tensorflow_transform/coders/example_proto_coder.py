@@ -255,9 +255,7 @@ class ExampleProtoCoder(object):
     Args:
       schema: A `Schema` proto.
       serialized: Whether to encode / decode serialized Example protos (as
-        opposed to in-memory Example protos). The default (True) is used for
-        backwards compatibility. Note that the serialized=True option might be
-        removed in a future version.
+        opposed to in-memory Example protos).
     Raises:
       ValueError: If `schema` is invalid.
     """
