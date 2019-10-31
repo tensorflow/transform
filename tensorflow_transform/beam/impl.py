@@ -94,6 +94,7 @@ from apache_beam.typehints import with_output_types
 import numpy as np
 import six
 import tensorflow as tf
+from tensorflow_transform import common
 from tensorflow_transform import graph_tools
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
@@ -101,7 +102,7 @@ from tensorflow_transform import schema_inference
 from tensorflow_transform.beam import analysis_graph_builder
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import beam_nodes
-from tensorflow_transform.beam import common
+from tensorflow_transform.beam import common as beam_common
 from tensorflow_transform.beam import deep_copy
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.saved import saved_transform_io
@@ -134,7 +135,7 @@ _DEFAULT_TENSORFLOW_CONFIG_BY_BEAM_RUNNER_TYPE = {
 
 # TODO(b/123325923): Fix the key type here to agree with the actual keys.
 _DATASET_ELEMENT_TYPE = Dict[Any,  # Any -> six.text_type?
-                             Union[common.PRIMITIVE_TYPE,
+                             Union[beam_common.PRIMITIVE_TYPE,
                                    # Arbitrarily-nested lists are allowed.
                                    List[Any], np.generic, np.ndarray]]
 
@@ -390,11 +391,11 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
     # Metrics.
     self._graph_load_seconds_distribution = beam.metrics.Metrics.distribution(
-        common.METRICS_NAMESPACE, 'graph_load_seconds')
+        beam_common.METRICS_NAMESPACE, 'graph_load_seconds')
     self._batch_size_distribution = beam.metrics.Metrics.distribution(
-        common.METRICS_NAMESPACE, 'batch_size')
+        beam_common.METRICS_NAMESPACE, 'batch_size')
     self._num_instances = beam.metrics.Metrics.counter(
-        common.METRICS_NAMESPACE, 'num_instances')
+        beam_common.METRICS_NAMESPACE, 'num_instances')
 
   def _handle_batch(self, batch):
     self._batch_size_distribution.update(len(batch))
@@ -516,7 +517,7 @@ _TensorBinding = collections.namedtuple(
     '_TensorBinding', ['value', 'tensor_name', 'is_asset_filepath'])
 
 
-@common.register_ptransform(beam_nodes.CreateTensorBinding)
+@beam_common.register_ptransform(beam_nodes.CreateTensorBinding)
 def _create_tensor_bindings_impl(inputs, operation, extra_args):
   del extra_args  # unused
   return inputs[0] | operation.label >> beam.Map(
@@ -558,7 +559,7 @@ def _replace_tensors_with_constant_values(saved_model_dir, tensor_bindings,
       tensor_replacement_map[tensor_name] = replacement_tensor
 
     with tf.compat.v1.Session(graph=graph) as session:
-      temp_dir = common.get_unique_temp_path(base_temp_dir)
+      temp_dir = beam_common.get_unique_temp_path(base_temp_dir)
       input_tensors, output_tensors = (
           saved_transform_io.partially_apply_saved_transform_internal(
               saved_model_dir, {}, tensor_replacement_map))
@@ -568,10 +569,10 @@ def _replace_tensors_with_constant_values(saved_model_dir, tensor_bindings,
     return temp_dir
 
 
-@common.register_ptransform(beam_nodes.CreateSavedModel)
+@beam_common.register_ptransform(beam_nodes.CreateSavedModel)
 def _create_saved_model_impl(inputs, operation, extra_args):
   """Create a SavedModel from a TF Graph."""
-  unbound_saved_model_dir = common.get_unique_temp_path(
+  unbound_saved_model_dir = beam_common.get_unique_temp_path(
       extra_args.base_temp_dir)
   with extra_args.graph.as_default():
     with tf.compat.v1.Session(graph=extra_args.graph) as session:
@@ -590,7 +591,7 @@ def _create_saved_model_impl(inputs, operation, extra_args):
   return (inputs | operation.label >> _BindTensors(
       extra_args.base_temp_dir, unbound_saved_model_dir, extra_args.pipeline)
           | 'Count[%s]' % operation.label >>
-          common.IncrementCounter('saved_models_created'))
+          beam_common.IncrementCounter('saved_models_created'))
 
 
 class _BindTensors(beam.PTransform):
@@ -616,7 +617,7 @@ class _BindTensors(beam.PTransform):
         base_temp_dir=self._base_temp_dir)
 
 
-@common.register_ptransform(beam_nodes.ApplySavedModel)
+@beam_common.register_ptransform(beam_nodes.ApplySavedModel)
 class _ApplySavedModelImpl(beam.PTransform):
   """PTransform to apply a SavedModel to data."""
 
@@ -661,14 +662,14 @@ def _extract_keys_fn(inp, operation):
   return inp[operation.keys]
 
 
-@common.register_ptransform(beam_nodes.ExtractFromDict)
+@beam_common.register_ptransform(beam_nodes.ExtractFromDict)
 def _extract_from_dict_impl(inputs, operation, extra_args):
   del extra_args  # unused
   return inputs[0] | operation.label >> beam.Map(_extract_keys_fn,
                                                  operation=operation)
 
 
-@common.register_ptransform(beam_nodes.Flatten)
+@beam_common.register_ptransform(beam_nodes.Flatten)
 class _Flatten(beam.PTransform):
   """PTransform to flatten PCollections."""
 
@@ -695,6 +696,43 @@ def _infer_metadata_from_saved_model(saved_model_dir):
       session.run(tf.compat.v1.tables_initializer())
       return dataset_metadata.DatasetMetadata(
           schema=schema_inference.infer_feature_schema(outputs, graph, session))
+
+
+class _InstrumentAPI(beam.PTransform):
+  """PTransform that adds metrics for API usage."""
+
+  def __init__(self, tf_graph):
+
+    def _get_counter_from_graph_collection(collection_name):
+      collection = tf_graph.get_collection(collection_name)
+      if len(collection) > 1:
+        raise ValueError(
+            "Expected TF graph collection '{}' to contain at most one element. "
+            'Encountered {}.'.format(collection_name, len(collection)))
+      return collection[0] if collection else {}
+
+    self._analyzer_use_counter = _get_counter_from_graph_collection(
+        common.ANALYZER_COLLECTION)
+    self._mapper_use_counter = _get_counter_from_graph_collection(
+        common.MAPPER_COLLECTION)
+
+  def expand(self, pipeline):
+
+    def _make_and_increment_counters(unused_element, analyzer_counter,
+                                     mapper_counter):
+      del unused_element
+      for counter_prefix, counter in (('tft_analyzer_{}', analyzer_counter),
+                                      ('tft_mapper_{}', mapper_counter)):
+        for name, count in counter.items():
+          beam.metrics.Metrics.counter(beam_common.METRICS_NAMESPACE,
+                                       counter_prefix.format(name)).inc(count)
+
+    _ = (
+        pipeline
+        | 'CreateSoleAPIUse' >> beam.Create([None])
+        | 'CountAPIUse' >>
+        beam.Map(_make_and_increment_counters, self._analyzer_use_counter,
+                 self._mapper_use_counter))
 
 
 class _AnalyzeDatasetCommon(beam.PTransform):
@@ -780,9 +818,14 @@ class _AnalyzeDatasetCommon(beam.PTransform):
 
     pipeline = self.pipeline or (flattened_pcoll or next(
         v for v in input_values_pcoll_dict.values() if v is not None)).pipeline
+
+    # Add a stage that inspects graph collections for API use counts and logs
+    # them as a beam metric.
+    _ = (pipeline | 'InstrumentAPI' >> _InstrumentAPI(graph))
+
     tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_BEAM_RUNNER_TYPE.get(
         type(pipeline.runner))
-    extra_args = common.ConstructBeamPipelineVisitor.ExtraArgs(
+    extra_args = beam_common.ConstructBeamPipelineVisitor.ExtraArgs(
         base_temp_dir=Context.create_base_temp_dir(),
         tf_config=tf_config,
         pipeline=pipeline,
@@ -800,7 +843,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
         input_values_pcoll_dict.keys(),
         cache_dict=dataset_cache_dict)
 
-    traverser = nodes.Traverser(common.ConstructBeamPipelineVisitor(extra_args))
+    traverser = nodes.Traverser(
+        beam_common.ConstructBeamPipelineVisitor(extra_args))
     transform_fn_pcoll = traverser.visit_value_node(transform_fn_future)
 
     if cache_value_nodes is not None:

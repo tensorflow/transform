@@ -4,6 +4,7 @@
 ## Major Features and Improvements
 
 ## Bug Fixes and Other Changes
+* Added beam counters to log analyzer and mapper usage.
 
 ## Breaking changes
 

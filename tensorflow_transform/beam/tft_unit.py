@@ -64,8 +64,35 @@ def metadata_from_feature_spec(feature_spec, domains=None):
 class TransformTestCase(test_case.TransformTestCase):
   """Base test class for testing tf-transform preprocessing functions."""
 
+  class _TestPipeline(beam.Pipeline):
+    """Test pipeline class that retains pipeline metrics."""
+
+    @property
+    def has_ran(self):
+      return hasattr(self, '_run_result')
+
+    @property
+    def metrics(self):
+      if not self.has_ran:
+        raise RuntimeError('Pipeline has to run before accessing its metrics')
+      return self._run_result.metrics()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+      if not exc_type:
+        assert not self.has_ran
+        self._run_result = self.run()
+        self._run_result.wait_until_finish()
+
   def _makeTestPipeline(self):
-    return beam.Pipeline(**test_helpers.make_test_beam_pipeline_kwargs())
+    return self._TestPipeline(**test_helpers.make_test_beam_pipeline_kwargs())
+
+  def assertMetricsCounterEqual(self, metrics, name, expected_count):
+    metric = metrics.query(
+        beam.metrics.metric.MetricsFilter().with_name(name))['counters']
+    committed = sum([r.committed for r in metric])
+    attempted = sum([r.attempted for r in metric])
+    self.assertEqual(committed, attempted)
+    self.assertEqual(committed, expected_count)
 
   def assertAnalyzerOutputs(self,
                             input_data,

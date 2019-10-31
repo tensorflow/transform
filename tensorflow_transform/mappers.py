@@ -62,6 +62,7 @@ import six
 
 import tensorflow as tf
 from tensorflow_transform import analyzers
+from tensorflow_transform import common
 from tensorflow_transform import schema_inference
 from tensorflow_transform import tf_utils
 
@@ -79,6 +80,7 @@ except ImportError:
 # pylint: enable=g-import-not-at-top
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def sparse_tensor_to_dense_with_shape(x, shape, default_value=0):
   """Converts a `SparseTensor` into a dense tensor and sets its shape.
 
@@ -106,6 +108,7 @@ def sparse_tensor_to_dense_with_shape(x, shape, default_value=0):
   return dense
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def scale_by_min_max(x,
                      output_min=0.0,
                      output_max=1.0,
@@ -135,6 +138,7 @@ def scale_by_min_max(x,
                                     name=name)
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def scale_by_min_max_per_key(x,
                              key=None,
                              output_min=0.0,
@@ -211,6 +215,7 @@ def scale_by_min_max_per_key(x,
         (scaled_result * (output_max - output_min)) + output_min)
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def scale_to_0_1(x, elementwise=False, name=None):
   """Returns a column which is the input column scaled to have range [0,1].
 
@@ -225,6 +230,7 @@ def scale_to_0_1(x, elementwise=False, name=None):
   return scale_by_min_max(x, 0, 1, elementwise=elementwise, name=name)
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def scale_to_0_1_per_key(x, key, elementwise=False, name=None):
   """Returns a column which is the input column scaled to have range [0,1].
 
@@ -240,6 +246,7 @@ def scale_to_0_1_per_key(x, key, elementwise=False, name=None):
   return scale_by_min_max_per_key(x, key, 0, 1, elementwise, name=name)
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
   """Returns a standardized column with mean 0 and variance 1.
 
@@ -271,6 +278,7 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
                                     output_dtype=output_dtype)
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def scale_to_z_score_per_key(x, key=None, elementwise=False, name=None,
                              output_dtype=None):
   """Returns a standardized column with mean 0 and variance 1, grouped per key.
@@ -349,6 +357,7 @@ def scale_to_z_score_per_key(x, key=None, elementwise=False, name=None,
     return compose_result_fn(deviation_values)
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def tfidf(x, vocab_size, smooth=True, name=None):
   """Maps the terms in x to their term frequency * inverse document frequency.
 
@@ -563,6 +572,7 @@ def _count_docs_with_term(term_frequency):
 
 # TODO(b/116308354): frequency_threshold is misleading since this threshold can
 # be applied to mutual information rather than frequency.
+@common.log_api_use(common.MAPPER_COLLECTION)
 def compute_and_apply_vocabulary(
     x,
     default_value=-1,
@@ -677,6 +687,7 @@ def compute_and_apply_vocabulary(
 
 @deprecation.deprecated(None,
                         'Use `tft.compute_and_apply_vocabulary()` instead.')
+@common.log_api_use(common.MAPPER_COLLECTION)
 def string_to_int(x,
                   default_value=-1,
                   top_k=None,
@@ -699,6 +710,7 @@ def string_to_int(x,
       name=name)
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def apply_vocabulary(x,
                      deferred_vocab_filename_tensor,
                      default_value=-1,
@@ -788,6 +800,7 @@ def apply_vocabulary(x,
 
 
 @deprecation.deprecated(None, 'Use `tft.apply_vocabulary()` instead.')
+@common.log_api_use(common.MAPPER_COLLECTION)
 def apply_vocab(x,
                 deferred_vocab_filename_tensor,
                 default_value=-1,
@@ -804,6 +817,7 @@ def apply_vocab(x,
       name=name)
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def segment_indices(segment_ids, name=None):
   """Returns a `Tensor` of indices within each segment.
 
@@ -835,6 +849,7 @@ def segment_indices(segment_ids, name=None):
             segment_starts)
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def deduplicate_tensor_per_row(input_tensor, name=None):
   """Deduplicates each row (0-th dimension) of the provided tensor.
 
@@ -995,6 +1010,7 @@ def _deduplicate_tensor_per_row(input_tensor, batch_dim):
 
 # TODO(b/141750093) bag_of_words can produce unexpected results on macOS when
 # there are empty rows, such as certain words overwritten with an empty string.
+@common.log_api_use(common.MAPPER_COLLECTION)
 def bag_of_words(tokens, ngram_range, separator, name=None):
   """Computes a bag of "words" based on the specified ngram configuration.
 
@@ -1024,6 +1040,7 @@ def bag_of_words(tokens, ngram_range, separator, name=None):
     return deduplicate_tensor_per_row(all_ngrams)
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def ngrams(tokens, ngram_range, separator, name=None):
   """Create a `SparseTensor` of n-grams.
 
@@ -1161,6 +1178,7 @@ def ngrams(tokens, ngram_range, separator, name=None):
             [tokens.dense_shape[0], dense_shape_second_dim]))
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def word_count(tokens, name=None):
   """Find the token count of each document/row.
 
@@ -1196,6 +1214,7 @@ def word_count(tokens, name=None):
       raise ValueError('Invalid token tensor')
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def hash_strings(strings, hash_buckets, key=None, name=None):
   """Hash strings into buckets.
 
@@ -1233,6 +1252,7 @@ def hash_strings(strings, hash_buckets, key=None, name=None):
   return tf.strings.to_hash_bucket_strong(strings, hash_buckets, key, name=name)
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
               always_return_num_quantiles=True, name=None):
   """Returns a bucketized column, with a bucket index assigned to each input.
@@ -1308,6 +1328,7 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
                       [-1] + x.get_shape().as_list()[1:])
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def bucketize_per_key(x, key, num_buckets, epsilon=None, name=None):
   """Returns a bucketized column, with a bucket index assigned to each input.
 
@@ -1426,6 +1447,7 @@ def _apply_buckets_with_keys(x,
     return result
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
   """Interpolates within the provided buckets and then normalizes to 0 to 1.
 
@@ -1523,6 +1545,7 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
     return compose_result_fn(normalized_result)
 
 
+@common.log_api_use(common.MAPPER_COLLECTION)
 def apply_buckets(x, bucket_boundaries, name=None):
   """Returns a bucketized column, with a bucket index assigned to each input.
 

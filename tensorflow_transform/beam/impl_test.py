@@ -3887,6 +3887,44 @@ class BeamImplTest(tft_unit.TransformTestCase):
       annotation.Unpack(message)
       self.assertAllClose(list(message.boundaries), [1])
 
+  def testPipelineAPICounters(self):
+
+    def preprocessing_fn(inputs):
+      _ = tft.vocabulary(inputs['a'])
+      return {
+          'a_int': tft.compute_and_apply_vocabulary(inputs['a']),
+          'x_scaled': tft.scale_to_0_1(inputs['x']),
+          'y_scaled': tft.scale_to_0_1(inputs['y'])
+      }
+
+    with self._makeTestPipeline() as pipeline:
+      input_data = pipeline | 'CreateTrainingData' >> beam.Create([{
+          'x': 4,
+          'y': 5,
+          'a': 'hello'
+      }, {
+          'x': 1,
+          'y': 3,
+          'a': 'world'
+      }])
+      metadata = tft_unit.metadata_from_feature_spec({
+          'x': tf.io.FixedLenFeature([], tf.float32),
+          'y': tf.io.FixedLenFeature([], tf.float32),
+          'a': tf.io.FixedLenFeature([], tf.string)
+      })
+      with beam_impl.Context(temp_dir=self.get_temp_dir()):
+        _ = ((input_data, metadata)
+             | 'AnalyzeDataset' >> beam_impl.AnalyzeDataset(preprocessing_fn))
+
+    metrics = pipeline.metrics
+    self.assertMetricsCounterEqual(metrics, 'tft_analyzer_vocabulary', 1)
+    self.assertMetricsCounterEqual(metrics, 'tft_mapper_scale_to_0_1', 2)
+    self.assertMetricsCounterEqual(metrics,
+                                   'tft_mapper_compute_and_apply_vocabulary', 1)
+    # compute_and_apply_vocabulary implicitly calls apply_vocabulary.
+    # We check that that call is not logged.
+    self.assertMetricsCounterEqual(metrics, 'tft_mapper_apply_vocabulary', 0)
+
 
 if __name__ == '__main__':
   tft_unit.main()

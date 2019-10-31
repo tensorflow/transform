@@ -51,38 +51,10 @@ def _make_cache_key(cache_identifier):
   return analyzer_cache._CACHE_VERSION + cache_identifier + b'-HASH'
 
 
-def _get_counter_value(metrics, name):
-  metric = metrics.query(
-      beam.metrics.metric.MetricsFilter().with_name(name))['counters']
-  committed = sum([r.committed for r in metric])
-  attempted = sum([r.attempted for r in metric])
-  assert committed == attempted, '{} != {}'.format(committed, attempted)
-  return committed
-
-
 def _encode_vocabulary_accumulator(token_bytes, value_bytes):
   return struct.pack('qq{}s{}s'.format(len(token_bytes), len(value_bytes)),
                      len(token_bytes), len(value_bytes), token_bytes,
                      value_bytes)
-
-
-class _TestPipeline(beam.Pipeline):
-
-  @property
-  def has_ran(self):
-    return hasattr(self, '_run_result')
-
-  @property
-  def metrics(self):
-    if not self.has_ran:
-      raise RuntimeError('Pipeline has to run before accessing its metrics')
-    return self._run_result.metrics()
-
-  def __exit__(self, exc_type, exc_val, exc_tb):
-    if not exc_type:
-      assert not self.has_ran
-      self._run_result = self.run()
-      self._run_result.wait_until_finish()
 
 
 def _preprocessing_fn_for_common_optimize_traversal(inputs):
@@ -410,7 +382,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
     """
     input_metadata = dataset_metadata.DatasetMetadata(
         schema_utils.schema_from_feature_spec(feature_spec))
-    with _TestPipeline() as p:
+    with self._TestPipeline() as p:
       flat_data = p | 'CreateInputData' >> beam.Create(
           list(itertools.chain(*input_data_dict.values())))
 
@@ -583,13 +555,12 @@ class CachedImplTest(tft_unit.TransformTestCase):
 
     p = run_result.pipeline
     # 4 from analyzing 2 spans, and 2 from transform.
-    self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 6)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 4)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 8)
-    self.assertEqual(
-        _get_counter_value(p.metrics, 'saved_models_created'),
-        _SINGLE_PHASE_NUM_SAVED_MODELS)
-    self.assertEqual(_get_counter_value(p.metrics, 'num_packed_combiners'), 1)
+    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 6)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 4)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 8)
+    self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
+                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
+    self.assertMetricsCounterEqual(p.metrics, 'num_packed_combiners', 1)
 
   def test_single_phase_run_twice(self):
 
@@ -704,12 +675,11 @@ class CachedImplTest(tft_unit.TransformTestCase):
 
     p = first_run_result.pipeline
     # 4 from analyzing 2 spans, and 2 from transform.
-    self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 8)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 0)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 16)
-    self.assertEqual(
-        _get_counter_value(p.metrics, 'saved_models_created'),
-        _SINGLE_PHASE_NUM_SAVED_MODELS)
+    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 8)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 16)
+    self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
+                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
 
     transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_2')
     second_run_result = self._run_pipeline(
@@ -733,15 +703,14 @@ class CachedImplTest(tft_unit.TransformTestCase):
 
     p = second_run_result.pipeline
     # Only 2 from transform.
-    self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 2)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 16)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 0)
+    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 2)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 16)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 0)
 
     # The root CreateSavedModel is optimized away because the data doesn't get
     # processed at all (only cache).
-    self.assertEqual(
-        _get_counter_value(p.metrics, 'saved_models_created'),
-        _ZERO_PHASE_NUM_SAVED_MODELS)
+    self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
+                                   _ZERO_PHASE_NUM_SAVED_MODELS)
 
   @mock_out_cache_hash
   def test_caching_vocab_for_integer_categorical(self):
@@ -817,12 +786,11 @@ class CachedImplTest(tft_unit.TransformTestCase):
 
     p = run_result.pipeline
     # 4 from analysis since 1 span was completely cached, and 4 from transform.
-    self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 8)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 1)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 1)
-    self.assertEqual(
-        _get_counter_value(p.metrics, 'saved_models_created'),
-        _SINGLE_PHASE_NUM_SAVED_MODELS)
+    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 8)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 1)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 1)
+    self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
+                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
 
   @mock_out_cache_hash
   def test_non_frequency_vocabulary_merge(self):
@@ -918,14 +886,13 @@ class CachedImplTest(tft_unit.TransformTestCase):
 
     p = run_result.pipeline
     # 4 from analysis on each of the input spans.
-    self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 8)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 0)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 6)
-    self.assertEqual(
-        _get_counter_value(p.metrics, 'saved_models_created'),
-        _SINGLE_PHASE_NUM_SAVED_MODELS)
+    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 8)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 6)
+    self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
+                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
 
-    with _TestPipeline() as p:
+    with self._TestPipeline() as p:
       flat_data = p | 'CreateInputData' >> beam.Create(input_data * 2)
 
       input_metadata = dataset_metadata.DatasetMetadata(
@@ -939,12 +906,11 @@ class CachedImplTest(tft_unit.TransformTestCase):
           transform_fn_no_cache_dir)
 
     # 4 from analysis on each of the input spans.
-    self.assertEqual(_get_counter_value(p.metrics, 'num_instances'), 8)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_decoded'), 0)
-    self.assertEqual(_get_counter_value(p.metrics, 'cache_entries_encoded'), 0)
-    self.assertEqual(
-        _get_counter_value(p.metrics, 'saved_models_created'),
-        _SINGLE_PHASE_NUM_SAVED_MODELS)
+    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 8)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 0)
+    self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
+                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
 
     tft_output_cache = tft.TFTransformOutput(transform_fn_with_cache_dir)
     tft_output_no_cache = tft.TFTransformOutput(transform_fn_no_cache_dir)
@@ -1007,7 +973,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
         span_1_key: None,
     }
 
-    with _TestPipeline() as p:
+    with self._TestPipeline() as p:
       flat_data = None
       cache_dict = {
           span_0_key: {},
@@ -1047,12 +1013,11 @@ class CachedImplTest(tft_unit.TransformTestCase):
       self.assertIn(key, first_cache_output)
       self.assertEqual(1, len(first_cache_output[key]))
 
-    self.assertEqual(_get_counter_value(p1.metrics, 'num_instances'), 2)
-    self.assertEqual(_get_counter_value(p1.metrics, 'cache_entries_decoded'), 0)
-    self.assertEqual(_get_counter_value(p1.metrics, 'cache_entries_encoded'), 1)
-    self.assertEqual(
-        _get_counter_value(p1.metrics, 'saved_models_created'),
-        _SINGLE_PHASE_NUM_SAVED_MODELS)
+    self.assertMetricsCounterEqual(p1.metrics, 'num_instances', 2)
+    self.assertMetricsCounterEqual(p1.metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(p1.metrics, 'cache_entries_encoded', 1)
+    self.assertMetricsCounterEqual(p1.metrics, 'saved_models_created',
+                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
 
     # Cache is still valid since the contents of the tf.function are the same.
     run_result = self._run_pipeline(
@@ -1064,17 +1029,16 @@ class CachedImplTest(tft_unit.TransformTestCase):
 
     self.assertFalse(second_cache_output)
 
-    self.assertEqual(_get_counter_value(p2.metrics, 'num_instances'), 0)
-    self.assertEqual(_get_counter_value(p2.metrics, 'cache_entries_decoded'), 1)
-    self.assertEqual(_get_counter_value(p2.metrics, 'cache_entries_encoded'), 0)
-    self.assertEqual(
-        _get_counter_value(p2.metrics, 'saved_models_created'),
-        _ZERO_PHASE_NUM_SAVED_MODELS)
+    self.assertMetricsCounterEqual(p2.metrics, 'num_instances', 0)
+    self.assertMetricsCounterEqual(p2.metrics, 'cache_entries_decoded', 1)
+    self.assertMetricsCounterEqual(p2.metrics, 'cache_entries_encoded', 0)
+    self.assertMetricsCounterEqual(p2.metrics, 'saved_models_created',
+                                   _ZERO_PHASE_NUM_SAVED_MODELS)
 
-    self.assertEqual(_get_counter_value(p2.metrics, 'num_instances'), 0)
-    self.assertEqual(_get_counter_value(p2.metrics, 'cache_entries_decoded'), 1)
-    self.assertEqual(_get_counter_value(p2.metrics, 'cache_entries_encoded'), 0)
-    self.assertEqual(_get_counter_value(p2.metrics, 'saved_models_created'), 1)
+    self.assertMetricsCounterEqual(p2.metrics, 'num_instances', 0)
+    self.assertMetricsCounterEqual(p2.metrics, 'cache_entries_decoded', 1)
+    self.assertMetricsCounterEqual(p2.metrics, 'cache_entries_encoded', 0)
+    self.assertMetricsCounterEqual(p2.metrics, 'saved_models_created', 1)
 
     # Modifying the tf.function contents causes cache invalidation.
     run_result = self._run_pipeline(
@@ -1088,10 +1052,10 @@ class CachedImplTest(tft_unit.TransformTestCase):
       self.assertIn(key, third_output_cache)
       self.assertEqual(1, len(third_output_cache[key]))
 
-    self.assertEqual(_get_counter_value(p3.metrics, 'num_instances'), 2)
-    self.assertEqual(_get_counter_value(p3.metrics, 'cache_entries_decoded'), 0)
-    self.assertEqual(_get_counter_value(p3.metrics, 'cache_entries_encoded'), 1)
-    self.assertEqual(_get_counter_value(p3.metrics, 'saved_models_created'), 2)
+    self.assertMetricsCounterEqual(p3.metrics, 'num_instances', 2)
+    self.assertMetricsCounterEqual(p3.metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(p3.metrics, 'cache_entries_encoded', 1)
+    self.assertMetricsCounterEqual(p3.metrics, 'saved_models_created', 2)
 
   def test_incomplete_graphs_fail_cache(self):
 
@@ -1136,12 +1100,11 @@ class CachedImplTest(tft_unit.TransformTestCase):
       self.assertIn(key, first_cache_output)
       self.assertEqual(1, len(first_cache_output[key]))
 
-    self.assertEqual(_get_counter_value(p1.metrics, 'num_instances'), 2)
-    self.assertEqual(_get_counter_value(p1.metrics, 'cache_entries_decoded'), 0)
-    self.assertEqual(_get_counter_value(p1.metrics, 'cache_entries_encoded'), 1)
-    self.assertEqual(
-        _get_counter_value(p1.metrics, 'saved_models_created'),
-        _SINGLE_PHASE_NUM_SAVED_MODELS)
+    self.assertMetricsCounterEqual(p1.metrics, 'num_instances', 2)
+    self.assertMetricsCounterEqual(p1.metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(p1.metrics, 'cache_entries_encoded', 1)
+    self.assertMetricsCounterEqual(p1.metrics, 'saved_models_created',
+                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
 
     run_result = self._run_pipeline(
         feature_spec, input_data_dict, preprocessing_fn, should_read_cache=True)
@@ -1152,12 +1115,11 @@ class CachedImplTest(tft_unit.TransformTestCase):
       self.assertIn(key, second_cache_output)
       self.assertEqual(1, len(second_cache_output[key]))
 
-    self.assertEqual(_get_counter_value(p2.metrics, 'num_instances'), 2)
-    self.assertEqual(_get_counter_value(p2.metrics, 'cache_entries_decoded'), 0)
-    self.assertEqual(_get_counter_value(p2.metrics, 'cache_entries_encoded'), 1)
-    self.assertEqual(
-        _get_counter_value(p2.metrics, 'saved_models_created'),
-        _SINGLE_PHASE_NUM_SAVED_MODELS)
+    self.assertMetricsCounterEqual(p2.metrics, 'num_instances', 2)
+    self.assertMetricsCounterEqual(p2.metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(p2.metrics, 'cache_entries_encoded', 1)
+    self.assertMetricsCounterEqual(p2.metrics, 'saved_models_created',
+                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
 
   def test_changing_constant_fails_cache(self):
 
@@ -1181,12 +1143,11 @@ class CachedImplTest(tft_unit.TransformTestCase):
       self.assertIn(key, first_cache_output)
       self.assertEqual(1, len(first_cache_output[key]))
 
-    self.assertEqual(_get_counter_value(p1.metrics, 'num_instances'), 2)
-    self.assertEqual(_get_counter_value(p1.metrics, 'cache_entries_decoded'), 0)
-    self.assertEqual(_get_counter_value(p1.metrics, 'cache_entries_encoded'), 1)
-    self.assertEqual(
-        _get_counter_value(p1.metrics, 'saved_models_created'),
-        _SINGLE_PHASE_NUM_SAVED_MODELS)
+    self.assertMetricsCounterEqual(p1.metrics, 'num_instances', 2)
+    self.assertMetricsCounterEqual(p1.metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(p1.metrics, 'cache_entries_encoded', 1)
+    self.assertMetricsCounterEqual(p1.metrics, 'saved_models_created',
+                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
 
     run_result = self._run_pipeline(feature_spec, input_data_dict,
                                     make_preprocessing_fn('2nd_run'))
@@ -1198,12 +1159,11 @@ class CachedImplTest(tft_unit.TransformTestCase):
       self.assertIn(key, second_cache_output)
       self.assertEqual(1, len(second_cache_output[key]))
 
-    self.assertEqual(_get_counter_value(p2.metrics, 'num_instances'), 2)
-    self.assertEqual(_get_counter_value(p2.metrics, 'cache_entries_decoded'), 0)
-    self.assertEqual(_get_counter_value(p2.metrics, 'cache_entries_encoded'), 1)
-    self.assertEqual(
-        _get_counter_value(p2.metrics, 'saved_models_created'),
-        _SINGLE_PHASE_NUM_SAVED_MODELS)
+    self.assertMetricsCounterEqual(p2.metrics, 'num_instances', 2)
+    self.assertMetricsCounterEqual(p2.metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(p2.metrics, 'cache_entries_encoded', 1)
+    self.assertMetricsCounterEqual(p2.metrics, 'saved_models_created',
+                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
 
 
 if __name__ == '__main__':

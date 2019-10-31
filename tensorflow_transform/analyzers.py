@@ -39,6 +39,7 @@ import threading
 import numpy as np
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
+from tensorflow_transform import common
 from tensorflow_transform import nodes
 from tensorflow_transform import tf_utils
 
@@ -279,6 +280,7 @@ def _numeric_combine(inputs,
   return _apply_cacheable_combiner_per_key(combiner, key, *inputs)
 
 
+@common.log_api_use(common.ANALYZER_COLLECTION)
 def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
   """Computes the minimum of the values of a `Tensor` over the whole dataset.
 
@@ -302,6 +304,7 @@ def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
     return _min_and_max(x, reduce_instance_dims, name)[0]
 
 
+@common.log_api_use(common.ANALYZER_COLLECTION)
 def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
   """Computes the maximum of the values of a `Tensor` over the whole dataset.
 
@@ -414,6 +417,7 @@ def _sum_combine_fn_and_dtype(input_dtype):
   return output_dtype, sum_fn_with_dtype
 
 
+@common.log_api_use(common.ANALYZER_COLLECTION)
 def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
   """Computes the sum of the values of a `Tensor` over the whole dataset.
 
@@ -454,6 +458,7 @@ def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
                             [output_dtype])[0]
 
 
+@common.log_api_use(common.ANALYZER_COLLECTION)
 def size(x, reduce_instance_dims=True, name=None):
   """Computes the total size of instances in a `Tensor` over the whole dataset.
 
@@ -479,6 +484,7 @@ def size(x, reduce_instance_dims=True, name=None):
     return sum(ones_like_x, reduce_instance_dims)
 
 
+@common.log_api_use(common.ANALYZER_COLLECTION)
 def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
   """Computes the mean of the values of a `Tensor` over the whole dataset.
 
@@ -502,6 +508,7 @@ def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
     return _mean_and_var(x, reduce_instance_dims, output_dtype)[0]
 
 
+@common.log_api_use(common.ANALYZER_COLLECTION)
 def var(x, reduce_instance_dims=True, name=None, output_dtype=None):
   """Computes the variance of the values of a `Tensor` over the whole dataset.
 
@@ -904,6 +911,7 @@ class _VocabOrderingType(object):
 # workaround for the inability to appropriately rebalance sharded variables on
 # TF 1.0. The following TF 2.0 proposal should address this issue in the future
 # https://github.com/tensorflow/community/blob/master/rfcs/20190116-embedding-partitioned-variable.md#goals
+@common.log_api_use(common.ANALYZER_COLLECTION)
 def vocabulary(x,
                top_k=None,
                frequency_threshold=None,
@@ -1152,6 +1160,7 @@ def calculate_recommended_min_diff_from_avg(dataset_size):
 
 
 @deprecation.deprecated(None, 'Use `tft.vocabulary()` instead.')
+@common.log_api_use(common.ANALYZER_COLLECTION)
 def uniques(x,
             top_k=None,
             frequency_threshold=None,
@@ -1578,6 +1587,7 @@ class _QuantilesGraphStateProvider(object):
 _global_quantiles_graph_state_provider = _QuantilesGraphStateProvider()
 
 
+@common.log_api_use(common.ANALYZER_COLLECTION)
 def quantiles(x, num_buckets, epsilon, weights=None, reduce_instance_dims=True,
               always_return_num_quantiles=True, name=None):
   """Computes the quantile boundaries of a `Tensor` over the whole dataset.
@@ -1836,6 +1846,7 @@ class CovarianceCombiner(analyzer_nodes.Combiner):
     ]
 
 
+@common.log_api_use(common.ANALYZER_COLLECTION)
 def covariance(x, dtype, name=None):
   """Computes the covariance matrix over the whole dataset.
 
@@ -1911,6 +1922,7 @@ class PCACombiner(CovarianceCombiner):
       return [sorted_vecs[:, :self._output_dim]]
 
 
+@common.log_api_use(common.ANALYZER_COLLECTION)
 def pca(x, output_dim, dtype, name=None):
   """Computes PCA on the dataset using biased covariance.
 
@@ -2001,6 +2013,7 @@ def pca(x, output_dim, dtype, name=None):
     return result
 
 
+@common.log_api_use(common.ANALYZER_COLLECTION)
 def ptransform_analyzer(inputs, output_dtypes, output_shapes, ptransform,
                         name=None):
   """Applies a user-provided PTransform over the whole dataset.
