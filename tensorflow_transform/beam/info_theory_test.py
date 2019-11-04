@@ -19,6 +19,7 @@ from __future__ import print_function
 
 # GOOGLE-INITIALIZATION
 
+from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensorflow_transform.beam import info_theory
 from tensorflow_transform.beam import tft_unit
 
@@ -27,6 +28,23 @@ import unittest
 
 
 EPSILON = 1e-4
+
+
+def _make_hypergeometric_pmf_sum_up_to_one_parameters():
+  start = 1000
+  end = 10000
+  range_length = end - start
+  num_chunks = 15
+  assert range_length % num_chunks == 0
+  chunk_size = int(range_length / num_chunks)
+  sub_ranges = [(x, x + chunk_size) for x in xrange(start, end, chunk_size)]
+  return [  # pylint: disable=g-complex-comprehension
+      dict(
+          testcase_name='{}_to_{}'.format(a, b),
+          test_range=xrange(a, b),
+          n=end,
+          y_j=start) for a, b in sub_ranges
+  ]
 
 
 class InfoTheoryTest(tft_unit.TransformTestCase):
@@ -46,35 +64,49 @@ class InfoTheoryTest(tft_unit.TransformTestCase):
       self.assertEqual(expected_result[0], result[0])
       self.assertNear(expected_result[1], result[1], EPSILON)
 
-  def testHypergeometricPmf_SumUpToOne(self):
-    for x in range(1000, 10000):
-      probs = [
-          prob for _, prob in info_theory._hypergeometric_pmf(10000, x, 1000)
-      ]
+  @tft_unit.named_parameters(
+      *_make_hypergeometric_pmf_sum_up_to_one_parameters())
+  def test_hypergeometric_pmf_sum_up_to_one(self, test_range, n, y_j):
+    for x in test_range:
+      probs = [prob for _, prob in info_theory._hypergeometric_pmf(n, x, y_j)]
       sum_prob = sum(probs)
       self.assertNear(sum_prob, 1.0, EPSILON)
 
-  def testCalculatePartialExpectedMutualInformation(self):
-
-    # The two values co-occur in all observations, EMI is 0.
+  @tft_unit.named_parameters(
+      dict(
+          testcase_name='all_co_occur',
+          n=10,
+          x_i=10,
+          y_j=10,
+          expected=0,
+      ),
+      dict(
+          testcase_name='2_co_occur_no_observations',
+          n=10,
+          x_i=0,
+          y_j=0,
+          expected=0,
+      ),
+      dict(
+          testcase_name='2_values_appear_half_the_time',
+          n=10,
+          x_i=5,
+          y_j=5,
+          expected=0.215411,
+      ),
+      dict(
+          testcase_name='2_values_differing_frequencies',
+          n=10,
+          x_i=2,
+          y_j=4,
+          expected=0.524209,
+      ),
+  )
+  def test_calculate_partial_expected_mutual_information(
+      self, n, x_i, y_j, expected):
     self.assertNear(
-        info_theory.calculate_partial_expected_mutual_information(10, 10, 10),
-        0, EPSILON)
-
-    # The two values co-occur no observations, EMI is 0
-    self.assertNear(
-        info_theory.calculate_partial_expected_mutual_information(10, 0, 0), 0,
-        EPSILON)
-
-    # The two values each appear 50% of the time.
-    self.assertNear(
-        info_theory.calculate_partial_expected_mutual_information(10, 5, 5),
-        .215411, EPSILON)
-
-    # The two values have differing frequencies.
-    self.assertNear(
-        info_theory.calculate_partial_expected_mutual_information(10, 2, 4),
-        0.524209, EPSILON)
+        info_theory.calculate_partial_expected_mutual_information(n, x_i, y_j),
+        expected, EPSILON)
 
   @tft_unit.named_parameters(
       dict(
