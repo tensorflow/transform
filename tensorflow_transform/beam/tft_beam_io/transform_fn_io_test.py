@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import tempfile
 
 # GOOGLE-INITIALIZATION
 
@@ -26,12 +27,15 @@ from apache_beam.testing import util as beam_test_util
 import tensorflow as tf
 
 import tensorflow_transform as tft
+from tensorflow_transform.beam import context
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform.beam.tft_beam_io import test_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 
-from tensorflow.python.lib.io import file_io
+from tensorflow.python.lib.io import file_io  # pylint: disable=g-direct-tensorflow-import
+
+mock = tf.compat.v1.test.mock
 
 
 class BeamMetadataIoTest(tf.test.TestCase):
@@ -47,32 +51,35 @@ class BeamMetadataIoTest(tf.test.TestCase):
     metadata_io.write_metadata(test_metadata.COMPLETE_METADATA,
                                transformed_metadata_dir)
 
-    with beam.Pipeline() as pipeline:
-      saved_model_dir_pcoll, metadata = (
-          pipeline | transform_fn_io.ReadTransformFn(path))
-      beam_test_util.assert_that(
-          saved_model_dir_pcoll, beam_test_util.equal_to([transform_fn_dir]),
-          label='AssertSavedModelDir')
-      # NOTE: metadata is currently read in a non-deferred manner.
-      self.assertEqual(metadata, test_metadata.COMPLETE_METADATA)
+    with context.Context(temp_dir=tempfile.mkdtemp()):
+      with beam.Pipeline() as pipeline:
+        saved_model_dir_pcoll, metadata = (
+            pipeline | transform_fn_io.ReadTransformFn(path))
+        beam_test_util.assert_that(
+            saved_model_dir_pcoll,
+            beam_test_util.equal_to([transform_fn_dir]),
+            label='AssertSavedModelDir')
+        # NOTE: metadata is currently read in a non-deferred manner.
+        self.assertEqual(metadata, test_metadata.COMPLETE_METADATA)
 
   def testWriteTransformFn(self):
     transform_output_dir = os.path.join(self.get_temp_dir(), 'output')
 
-    with beam.Pipeline() as pipeline:
-      # Create an empty directory for the source saved model dir.
-      saved_model_dir = os.path.join(self.get_temp_dir(), 'source')
-      file_io.recursive_create_dir(saved_model_dir)
-      saved_model_dir_pcoll = (
-          pipeline | 'CreateSavedModelDir' >> beam.Create([saved_model_dir]))
-      # Combine test metadata with a dict of PCollections resolving futures.
-      deferred_metadata = pipeline | 'CreateDeferredMetadata' >> beam.Create(
-          [test_metadata.COMPLETE_METADATA])
-      metadata = beam_metadata_io.BeamDatasetMetadata(
-          test_metadata.INCOMPLETE_METADATA, deferred_metadata)
+    with context.Context(temp_dir=tempfile.mkdtemp()):
+      with beam.Pipeline() as pipeline:
+        # Create an empty directory for the source saved model dir.
+        saved_model_dir = os.path.join(self.get_temp_dir(), 'source')
+        file_io.recursive_create_dir(saved_model_dir)
+        saved_model_dir_pcoll = (
+            pipeline | 'CreateSavedModelDir' >> beam.Create([saved_model_dir]))
+        # Combine test metadata with a dict of PCollections resolving futures.
+        deferred_metadata = pipeline | 'CreateDeferredMetadata' >> beam.Create(
+            [test_metadata.COMPLETE_METADATA])
+        metadata = beam_metadata_io.BeamDatasetMetadata(
+            test_metadata.INCOMPLETE_METADATA, deferred_metadata)
 
-      _ = ((saved_model_dir_pcoll, metadata)
-           | transform_fn_io.WriteTransformFn(transform_output_dir))
+        _ = ((saved_model_dir_pcoll, metadata)
+             | transform_fn_io.WriteTransformFn(transform_output_dir))
 
     # Test reading with TFTransformOutput
     tf_transform_output = tft.TFTransformOutput(transform_output_dir)
@@ -82,6 +89,31 @@ class BeamMetadataIoTest(tf.test.TestCase):
     transform_fn_dir = tf_transform_output.transform_savedmodel_dir
     self.assertTrue(file_io.file_exists(transform_fn_dir))
     self.assertTrue(file_io.is_directory(transform_fn_dir))
+
+  def testWriteTransformFnIsIdempotent(self):
+    transform_output_dir = os.path.join(self.get_temp_dir(), 'output')
+
+    def mock_write_metadata_expand(self, unused_metadata):
+      file_io.recursive_create_dir(self._path)
+      file_io.write_string_to_file(
+          os.path.join(self._path, 'metadata'), 'metadata')
+      raise ArithmeticError('Some error')
+
+    with context.Context(temp_dir=tempfile.mkdtemp()):
+      with beam.Pipeline() as pipeline:
+        # Create an empty directory for the source saved model dir.
+        saved_model_dir = os.path.join(self.get_temp_dir(), 'source')
+        saved_model_dir_pcoll = (
+            pipeline | 'CreateSavedModelDir' >> beam.Create([saved_model_dir]))
+
+        with mock.patch.object(transform_fn_io.beam_metadata_io.WriteMetadata,
+                               'expand', mock_write_metadata_expand):
+          with self.assertRaisesRegexp(ArithmeticError, 'Some error'):
+            _ = ((saved_model_dir_pcoll, object())
+                 | transform_fn_io.WriteTransformFn(transform_output_dir))
+
+    self.assertFalse(file_io.file_exists(transform_output_dir))
+
 
 if __name__ == '__main__':
   tf.test.main()

@@ -21,6 +21,8 @@ import os
 
 import apache_beam as beam
 import tensorflow_transform as tft
+from tensorflow_transform.beam import common
+from tensorflow_transform.beam import context
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.tf_metadata import metadata_io
 
@@ -68,27 +70,31 @@ class WriteTransformFn(beam.PTransform):
   def expand(self, transform_fn):
     saved_model_dir, metadata = transform_fn
 
-    metadata_path = os.path.join(self._path,
-                                 tft.TFTransformOutput.TRANSFORMED_METADATA_DIR)
+    temp_metadata_path = os.path.join(
+        common.get_unique_temp_path(context.Context.create_base_temp_dir()),
+        tft.TFTransformOutput.TRANSFORMED_METADATA_DIR)
     pipeline = saved_model_dir.pipeline
     write_metadata_done = (
         metadata
-        | 'WriteMetadata'
-        >> beam_metadata_io.WriteMetadata(metadata_path, pipeline))
+        | 'WriteMetadata' >> beam_metadata_io.WriteMetadata(
+            temp_metadata_path, pipeline))
 
+    metadata_path = os.path.join(self._path,
+                                 tft.TFTransformOutput.TRANSFORMED_METADATA_DIR)
     transform_fn_path = os.path.join(self._path,
                                      tft.TFTransformOutput.TRANSFORM_FN_DIR)
-    write_transform_fn_done = (
-        saved_model_dir
-        | 'WriteTransformFn' >> beam.Map(_copy_tree, transform_fn_path))
+
+    def publish_outputs(saved_model_dir, unused_metadata_done):
+      _copy_tree(temp_metadata_path, metadata_path)
+      _copy_tree(saved_model_dir, transform_fn_path)
 
     # TODO(KesterTong): Move this "must follows" logic into a TFT wide helper
     # function or into Beam.
     return (
-        write_transform_fn_done
-        | 'WaitOnWriteMetadataDone' >> beam.Map(
-            lambda x, dummy: x,
-            dummy=beam.pvalue.AsSingleton(write_metadata_done)))
+        saved_model_dir
+        | 'WriteTransformFn' >> beam.Map(
+            publish_outputs,
+            unused_metadata_done=beam.pvalue.AsSingleton(write_metadata_done)))
 
 
 class ReadTransformFn(beam.PTransform):
