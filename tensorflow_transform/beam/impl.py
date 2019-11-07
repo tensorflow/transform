@@ -398,8 +398,8 @@ def _create_tensor_bindings_impl(inputs, operation, extra_args):
       _TensorBinding, operation.tensor, operation.is_asset_filepath)
 
 
-def _replace_tensors_with_constant_values(saved_model_dir, tensor_bindings,
-                                          base_temp_dir):
+def _replace_tensors_with_constant_values(saved_model_dir, base_temp_dir,
+                                          *tensor_bindings):
   """Replaces specified `Tensor`s with constant values.
 
   Constants are accepted as Python values; these are automatically
@@ -413,8 +413,8 @@ def _replace_tensors_with_constant_values(saved_model_dir, tensor_bindings,
       graph.  The MetaGraphDef and signature are selected from the
       SavedModel using keys defined in `../constants.py` ('transform'
       and 'transform_signature', respectively).
-    tensor_bindings: An iterable of `_TensorBinding`s.
     base_temp_dir: Base temp dir for storage of new model.
+    *tensor_bindings: An iterable of `_TensorBinding`s.
 
   Returns:
     The directory name containing the updated SavedModel.
@@ -425,12 +425,24 @@ def _replace_tensors_with_constant_values(saved_model_dir, tensor_bindings,
   """
   with tf.compat.v1.Graph().as_default() as graph:
     tensor_replacement_map = {}
-    for value, tensor_name, is_asset_filepath in tensor_bindings:
-      replacement_tensor = tf.constant(value)
-      if is_asset_filepath:
+    for tensor_binding in tensor_bindings:
+      # TODO(b/34792459): Make this an assertion and remove nested code once TFT
+      # doesn't allow missing tensor bindings (once combiner defaults are used).
+      if not isinstance(tensor_binding, _TensorBinding):
+        tf.compat.v1.logging.error(
+            'Encountered an empty tensor value binding, '
+            'is the analysis dataset empty? Tensor bindings: %s',
+            tensor_bindings)
+        assert isinstance(tensor_binding,
+                          beam.pvalue.EmptySideInput), tensor_binding
+        beam.metrics.Metrics.counter(beam_common.METRICS_NAMESPACE,
+                                     'empty_tensor_bindings').inc()
+        continue
+      replacement_tensor = tf.constant(tensor_binding.value)
+      if tensor_binding.is_asset_filepath:
         graph.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
                                 replacement_tensor)
-      tensor_replacement_map[tensor_name] = replacement_tensor
+      tensor_replacement_map[tensor_binding.tensor_name] = replacement_tensor
 
     with tf.compat.v1.Session(graph=graph) as session:
       temp_dir = beam_common.get_unique_temp_path(base_temp_dir)
@@ -483,12 +495,9 @@ class _BindTensors(beam.PTransform):
     if not inputs:
       return saved_model_dir_pcoll
 
-    flattened_tensor_bindings = (
-        inputs | 'Flatten' >> beam.Flatten(pipeline=self.pipeline))
     return saved_model_dir_pcoll | 'BindTensors' >> beam.Map(
-        _replace_tensors_with_constant_values,
-        tensor_bindings=beam.pvalue.AsIter(flattened_tensor_bindings),
-        base_temp_dir=self._base_temp_dir)
+        _replace_tensors_with_constant_values, self._base_temp_dir,
+        *[beam.pvalue.AsSingleton(pcoll) for pcoll in inputs])
 
 
 @beam_common.register_ptransform(beam_nodes.ApplySavedModel)
