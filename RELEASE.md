@@ -2,6 +2,7 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
+* Add a new version of the census example to demonstrate usage in TF 2.0.
 
 ## Bug Fixes and Other Changes
 * Added beam counters to log analyzer and mapper usage.
