@@ -5,8 +5,6 @@
 
 ## Bug Fixes and Other Changes
 * Added beam counters to log analyzer and mapper usage.
-* `tft_beam.WriteTransformFn` has been made idempotent to allow retrying it in
-  case of a failure.
 
 ## Breaking changes
 
