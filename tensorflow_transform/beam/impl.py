@@ -417,10 +417,11 @@ class _RunMetaGraphDoFn(beam.DoFn):
     try:
       outputs_list = self._graph_state.callable_get_outputs(*feed_list)
     except Exception as e:
-      tf.compat.v1.logging.error(
-          '%s while applying transform function for tensors %s', e,
-          self._graph_state.outputs_tensor_keys)
-      raise ValueError('bad inputs: {}'.format(feed_list))
+      raise ValueError(
+          """An error occured while trying to apply the transformation: "{}".
+          Batch instances: {},
+          Fetching the values for the following Tensor keys: {}.""".format(
+              str(e), batch, self._graph_state.outputs_tensor_keys))
 
     assert len(self._graph_state.outputs_tensor_keys) == len(outputs_list)
     result = {

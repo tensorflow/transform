@@ -3925,6 +3925,29 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # We check that that call is not logged.
     self.assertMetricsCounterEqual(metrics, 'tft_mapper_apply_vocabulary', 0)
 
+  def testHandleBatchError(self):
+
+    def preprocessing_fn(inputs):
+      return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
+
+    metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([], tf.float32),
+    })
+    pipeline = self._makeTestPipeline()
+    input_data = pipeline | 'CreateTrainingData' >> beam.Create([{
+        'x': 1
+    }, {
+        'x': [4, 1]
+    }])
+    with beam_impl.Context(temp_dir=self.get_temp_dir()):
+      _ = ((input_data, metadata)
+           | 'AnalyzeDataset' >> beam_impl.AnalyzeDataset(preprocessing_fn))
+    # Exception type depends on the running being used.
+    with self.assertRaisesRegexp(
+        (RuntimeError, ValueError),
+        'An error occured while trying to apply the transformation:'):
+      pipeline.run()
+
 
 if __name__ == '__main__':
   tft_unit.main()
