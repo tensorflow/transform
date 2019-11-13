@@ -229,15 +229,6 @@ def _create_graph_with_tf_function_while():
   return {'x': x, 'y': larger_than_100(x)}
 
 
-class _SubStrMatcher(collections.namedtuple('_EitherMatcher', ['sub'])):
-
-  def __eq__(self, other):
-    if self.sub in other:
-      return True
-    tf.compat.v1.logging.error('{} is not in {}'.format(self.sub, other))
-    return False
-
-
 class _Matcher(object):
 
   __metaclass__ = abc.ABCMeta
@@ -920,6 +911,8 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           }),
       dict(
           testcase_name='_y_function_of_x_with_raw_ops_while',
+          should_skip_test=not os.environ.get('TEST_WORKSPACE',
+                                              '').startswith('google'),
           create_graph_fn=_create_graph_with_y_function_of_x_with_tf_while,
           feeds=['x'],
           replaced_tensors_ready={'x': False},
@@ -928,17 +921,41 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                   mock.call('x$tensor'),
                   mock.call(_OpMatcher('Const'), parents=[]),
                   mock.call(_TensorMatcher('Const:0'), parents=[u'Const']),
-                  # This part was edited manually, the path includes random
-                  # strings since the body and cond FuncGraphs lack information.
-                  # The empty strings below will match these random strings.
-                  mock.call(_SubStrMatcher('')),
-                  mock.call(_SubStrMatcher('')),
+                  mock.call(_OpMatcher('Less/y'), parents=[]),
+                  mock.call(_TensorMatcher('Less/y:0'), parents=[u'Less/y']),
+                  mock.call('FuncGraphInput[0]'),
+                  mock.call(
+                      _OpMatcher('Less'),
+                      parents=[u'FuncGraphInput[0]', 'Less/y:0']),
+                  mock.call(_TensorMatcher('Less:0'), parents=[u'Less']),
+                  mock.call(_OpMatcher('Identity'), parents=[u'Less:0']),
+                  mock.call(
+                      _TensorMatcher('Identity:0'), parents=[u'Identity']),
+                  mock.call(_OpMatcher('Add/y'), parents=[]),
+                  mock.call(_TensorMatcher('Add/y:0'), parents=[u'Add/y']),
+                  mock.call('FuncGraphInput[0]'),
+                  mock.call(
+                      _OpMatcher('Add'),
+                      parents=[u'FuncGraphInput[0]', 'Add/y:0']),
+                  mock.call(_TensorMatcher('Add:0'), parents=[u'Add']),
+                  mock.call(_OpMatcher('Identity'), parents=[u'Add:0']),
+                  mock.call(
+                      _TensorMatcher('Identity:0'), parents=[u'Identity']),
+                  mock.call(_OpMatcher('Add_1/y'), parents=[]),
+                  mock.call(_TensorMatcher('Add_1/y:0'), parents=[u'Add_1/y']),
+                  mock.call('FuncGraphInput[1]'),
+                  mock.call(
+                      _OpMatcher('Add_1'),
+                      parents=[u'FuncGraphInput[1]', 'Add_1/y:0']),
+                  mock.call(_TensorMatcher('Add_1:0'), parents=[u'Add_1']),
+                  mock.call(_OpMatcher('Identity_1'), parents=[u'Add_1:0']),
+                  mock.call(
+                      _TensorMatcher('Identity_1:0'), parents=[u'Identity_1']),
                   mock.call(
                       _OpMatcher('While'),
                       parents=[
-                          u'Const:0', 'x$tensor',
-                          _SubStrMatcher(''),
-                          _SubStrMatcher('')
+                          u'Const:0', 'x$tensor', 'Identity:0', 'Identity:0',
+                          'Identity_1:0'
                       ]),
                   mock.call(_TensorMatcher('While:1'), parents=[u'While']),
               ],
