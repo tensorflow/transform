@@ -317,7 +317,6 @@ class _VocabularyOrderAndWriteImpl(beam.PTransform):
         | 'OrderElements' >> beam.ParDo(
             _OrderElementsFn(self._store_frequency, self._fingerprint_shuffle,
                              self._input_dtype),
-            # Using AsIter instead of AsList to reduce max memory usage.
             counts_iter=beam.pvalue.AsIter(counts))
         # TODO(b/62379925) For now force a single file. Should
         # `InitializeTableFromTextFile` operate on a @N set of files?
