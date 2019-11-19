@@ -139,10 +139,9 @@ def transform_data(train_data_file, test_data_file, working_dir):
     for key in OPTIONAL_NUMERIC_FEATURE_KEYS:
       # This is a SparseTensor because it is optional. Here we fill in a default
       # value when it is missing.
-      dense = tf.compat.v1.sparse_to_dense(
-          outputs[key].indices, [outputs[key].dense_shape[0], 1],
-          outputs[key].values,
-          default_value=0.)
+      sparse = tf.sparse.SparseTensor(outputs[key].indices, outputs[key].values,
+                                      [outputs[key].dense_shape[0], 1])
+      dense = tf.sparse.to_dense(sp_input=sparse, default_value=0.)
       # Reshaping from a batch of vectors of size 1 to a batch to scalars.
       dense = tf.squeeze(dense, axis=1)
       outputs[key] = tft.scale_to_0_1(dense)

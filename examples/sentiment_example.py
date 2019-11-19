@@ -103,7 +103,7 @@ def ReadAndShuffleData(pcoll, filepatterns):
   # pylint: disable=no-value-for-parameter
   shuffled_examples = (
       all_examples
-      | 'RemoveDuplicates' >> beam.RemoveDuplicates()
+      | 'Distinct' >> beam.Distinct()
       | 'Shuffle' >> Shuffle())
 
   # Put the data in the format that can be accepted directly by tf.Transform.

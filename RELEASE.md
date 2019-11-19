@@ -6,6 +6,7 @@
 
 ## Bug Fixes and Other Changes
 * Added beam counters to log analyzer and mapper usage.
+* Cleanup deprecated APIs used in census and sentiment examples.
 
 ## Breaking changes
 
