@@ -186,10 +186,6 @@ class _OptimizationView(
     self._validate_fine_grained_view(fine_grained_view)
     super(_OptimizationView, self).__init__()
 
-  def __str__(self):
-    return '{}[{}]'.format(self.parent_operation.operation_def.label,
-                           self.value_index)
-
   def _validate_flattened_view(self, view):
     assert view is self.flattened_view
     assert view is not None
