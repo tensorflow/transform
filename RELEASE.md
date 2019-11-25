@@ -7,6 +7,7 @@
 ## Bug Fixes and Other Changes
 * Added beam counters to log analyzer and mapper usage.
 * Cleanup deprecated APIs used in census and sentiment examples.
+* Support windows style paths in `analyzer_cache`.
 
 ## Breaking changes
 

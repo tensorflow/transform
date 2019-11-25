@@ -34,6 +34,17 @@ _CACHE_VERSION_NUMBER = 1
 _CACHE_VERSION = tf.compat.as_bytes('__v{}__{}.{}_'.format(
     _CACHE_VERSION_NUMBER, sys.version_info.major, sys.version_info.minor))
 
+_CACHE_COMPONENT_CHARACTER_REPLACEMENTS = (
+    ('/', '-'),
+    ('\\', '-'),
+    ('*', 'STAR'),
+    ('@', 'AT'),
+    ('[', '--'),
+    (']', '--'),
+    (':', 'P'),
+    ('=', 'E'),
+)
+
 
 def _get_dataset_cache_path(base_dir, dataset_key):
   return os.path.join(base_dir, make_dataset_key(dataset_key))
@@ -245,5 +256,7 @@ def make_dataset_key(dataset_key):
 
 
 def _make_valid_cache_component(name):
-  return name.replace('/', '-').replace('*', 'STAR').replace('@', 'AT').replace(
-      '[', '--').replace(']', '--').replace(':', 'P').replace('=', 'E')
+  result = name
+  for unsupported_char, replacement in _CACHE_COMPONENT_CHARACTER_REPLACEMENTS:
+    result = result.replace(unsupported_char, replacement)
+  return result
