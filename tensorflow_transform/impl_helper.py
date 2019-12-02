@@ -58,12 +58,13 @@ def feature_spec_as_batched_placeholders(feature_spec):
   """
   result = {}
   valid_scope_regex = re.compile('^[A-Za-z0-9]*$')
+  invalid_char = re.compile('[^A-Za-z0-9_.\\-/>]')
+
   for name, spec in six.iteritems(feature_spec):
     if spec.dtype not in (tf.int64, tf.float32, tf.string):
       raise ValueError('Feature {} ({}) had invalid dtype'.format(name, spec))
-    scope_name = name
-    # If the feature name is not a valid TF scope name, add a prefix to
-    # make it acceptable as a variable scope.
+    # If the feature name is not a valid TF scope name, make it conformant.
+    scope_name = invalid_char.sub('_', name)
     if not valid_scope_regex.match(scope_name):
       scope_name = 'F_{}'.format(scope_name)
     if isinstance(spec, tf.io.FixedLenFeature):
