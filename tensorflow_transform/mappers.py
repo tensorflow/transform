@@ -130,17 +130,18 @@ def scale_by_min_max(x,
     ValueError: If output_min, output_max have the wrong order.
   """
   with tf.compat.v1.name_scope(name, 'scale_by_min_max'):
-    return scale_by_min_max_per_key(x,
-                                    key=None,
-                                    output_min=output_min,
-                                    output_max=output_max,
-                                    elementwise=elementwise,
-                                    name=name)
+    return _scale_by_min_max_internal(
+        x,
+        key=None,
+        output_min=output_min,
+        output_max=output_max,
+        elementwise=elementwise,
+        name=name)
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_by_min_max_per_key(x,
-                             key=None,
+                             key,
                              output_min=0.0,
                              output_max=1.0,
                              elementwise=False,
@@ -171,48 +172,65 @@ def scale_by_min_max_per_key(x,
     InvalidArgumentError: If indices of sparse x and key do not match.
   """
   with tf.compat.v1.name_scope(name, 'scale_by_min_max_per_key'):
-    if output_min >= output_max:
-      raise ValueError('output_min must be less than output_max')
-
-    x = tf.cast(x, tf.float32)
     if key is None:
-      min_x_value, max_x_value = analyzers._min_and_max(  # pylint: disable=protected-access
-          x, reduce_instance_dims=not elementwise)
-    else:
-      if elementwise:
-        raise NotImplementedError('Per-key elementwise reduction not supported')
-      key_vocab, min_x_value, max_x_value = analyzers._min_and_max_per_key(  # pylint: disable=protected-access
-          x, key, reduce_instance_dims=not elementwise)
+      tf.errors.InvalidArgumentError(
+          'key is None, call `tft.scale_by_min_max` instead')
+    return _scale_by_min_max_internal(
+        x,
+        key=key,
+        output_min=output_min,
+        output_max=output_max,
+        elementwise=elementwise,
+        name=name)
 
-      min_x_value, max_x_value = tf_utils.map_per_key_reductions(
-          (min_x_value, max_x_value), key, key_vocab, x)
 
-    compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
-    x_values = x
-    if isinstance(x, tf.SparseTensor):
-      if elementwise:
-        # Only supports SparseTensors with rank 2.
-        x.get_shape().assert_has_rank(2)
-        min_x_value = tf.gather(min_x_value, x.indices[:, 1])
-        max_x_value = tf.gather(max_x_value, x.indices[:, 1])
-      x_values = x.values
+def _scale_by_min_max_internal(x, key, output_min, output_max, elementwise,
+                               name):
+  """Implementation for scale_by_min_max."""
+  del name
+  if output_min >= output_max:
+    raise ValueError('output_min must be less than output_max')
 
-    x_shape = tf.shape(input=x_values)
+  x = tf.cast(x, tf.float32)
+  if key is None:
+    min_x_value, max_x_value = analyzers._min_and_max(  # pylint: disable=protected-access
+        x,
+        reduce_instance_dims=not elementwise)
+  else:
+    if elementwise:
+      raise NotImplementedError('Per-key elementwise reduction not supported')
+    key_vocab, min_x_value, max_x_value = (
+        analyzers._min_and_max_per_key(  # pylint: disable=protected-access
+            x, key, reduce_instance_dims=not elementwise))
 
-    # If min==max, the result will be the mean of the requested range.
-    # Note that both the options of tf.where are computed, which means that this
-    # will compute unused NaNs.
-    numerator = tf.cast(x_values, min_x_value.dtype) - min_x_value
-    where_cond = min_x_value < max_x_value
-    where_cond = tf.cast(
-        tf.zeros_like(numerator) + tf.cast(where_cond, numerator.dtype),
-        dtype=tf.bool)
-    scaled_result = tf.where(where_cond,
-                             numerator / (max_x_value - min_x_value),
-                             tf.fill(x_shape, 0.5))
+    min_x_value, max_x_value = tf_utils.map_per_key_reductions(
+        (min_x_value, max_x_value), key, key_vocab, x)
 
-    return compose_result_fn(
-        (scaled_result * (output_max - output_min)) + output_min)
+  compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
+  x_values = x
+  if isinstance(x, tf.SparseTensor):
+    if elementwise:
+      # Only supports SparseTensors with rank 2.
+      x.get_shape().assert_has_rank(2)
+      min_x_value = tf.gather(min_x_value, x.indices[:, 1])
+      max_x_value = tf.gather(max_x_value, x.indices[:, 1])
+    x_values = x.values
+
+  x_shape = tf.shape(input=x_values)
+
+  # If min==max, the result will be the mean of the requested range.
+  # Note that both the options of tf.where are computed, which means that this
+  # will compute unused NaNs.
+  numerator = tf.cast(x_values, min_x_value.dtype) - min_x_value
+  where_cond = min_x_value < max_x_value
+  where_cond = tf.cast(
+      tf.zeros_like(numerator) + tf.cast(where_cond, numerator.dtype),
+      dtype=tf.bool)
+  scaled_result = tf.where(where_cond, numerator / (max_x_value - min_x_value),
+                           tf.fill(x_shape, 0.5))
+
+  return compose_result_fn((scaled_result * (output_max - output_min)) +
+                           output_min)
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
@@ -227,7 +245,14 @@ def scale_to_0_1(x, elementwise=False, name=None):
   Returns:
     A `Tensor` containing the input column scaled to [0, 1].
   """
-  return scale_by_min_max(x, 0, 1, elementwise=elementwise, name=name)
+  with tf.compat.v1.name_scope(name, 'scale_to_0_1'):
+    return _scale_by_min_max_internal(
+        x,
+        key=None,
+        output_min=0,
+        output_max=1,
+        elementwise=elementwise,
+        name=name)
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
@@ -243,7 +268,17 @@ def scale_to_0_1_per_key(x, key, elementwise=False, name=None):
   Returns:
     A `Tensor` containing the input column scaled to [0, 1], per key.
   """
-  return scale_by_min_max_per_key(x, key, 0, 1, elementwise, name=name)
+  with tf.compat.v1.name_scope(name, 'scale_to_0_1_per_key'):
+    if key is None:
+      tf.errors.InvalidArgumentError(
+          'key is None, call `tft.scale_to_0_1` instead')
+    return _scale_by_min_max_internal(
+        x,
+        key=key,
+        output_min=0,
+        output_max=1,
+        elementwise=elementwise,
+        name=name)
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
@@ -271,15 +306,19 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
     this scaler's output may be necessary.
   """
   with tf.compat.v1.name_scope(name, 'scale_to_z_score'):
-    return scale_to_z_score_per_key(x=x,
-                                    key=None,
-                                    elementwise=elementwise,
-                                    name=name,
-                                    output_dtype=output_dtype)
+    return _scale_to_z_score_internal(
+        x=x,
+        key=None,
+        elementwise=elementwise,
+        name=name,
+        output_dtype=output_dtype)
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def scale_to_z_score_per_key(x, key=None, elementwise=False, name=None,
+def scale_to_z_score_per_key(x,
+                             key,
+                             elementwise=False,
+                             name=None,
                              output_dtype=None):
   """Returns a standardized column with mean 0 and variance 1, grouped per key.
 
@@ -314,47 +353,62 @@ def scale_to_z_score_per_key(x, key=None, elementwise=False, name=None,
     this scaler's output may be necessary.
   """
   with tf.compat.v1.name_scope(name, 'scale_to_z_score_per_key'):
-    # x_mean will be float16, float32, or float64, depending on type of x
-
     if key is None:
-      x_mean, x_var = analyzers._mean_and_var(  # pylint: disable=protected-access
-          x, reduce_instance_dims=not elementwise, output_dtype=output_dtype)
-    else:
-      if elementwise:
-        raise NotImplementedError('Per-key elementwise reduction not supported')
+      tf.errors.InvalidArgumentError(
+          'key is None, call `tft.scale_to_z_score` instead')
+    return _scale_to_z_score_internal(
+        x=x,
+        key=key,
+        elementwise=elementwise,
+        name=name,
+        output_dtype=output_dtype)
 
-      key_vocab, key_means, key_vars = analyzers._mean_and_var_per_key(  # pylint: disable=protected-access
-          x, key, output_dtype=output_dtype)
 
-      x_mean, x_var = tf_utils.map_per_key_reductions(
-          (key_means, key_vars), key, key_vocab, x)
+def _scale_to_z_score_internal(x, key, elementwise, name, output_dtype):
+  """Implementation for scale_to_z_score."""
+  del name
+  # x_mean will be float16, float32, or float64, depending on type of x
+  if key is None:
+    x_mean, x_var = analyzers._mean_and_var(  # pylint: disable=protected-access
+        x,
+        reduce_instance_dims=not elementwise,
+        output_dtype=output_dtype)
+  else:
+    if elementwise:
+      raise NotImplementedError('Per-key elementwise reduction not supported')
 
-    compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
-    x_values = x
+    key_vocab, key_means, key_vars = analyzers._mean_and_var_per_key(  # pylint: disable=protected-access
+        x, key, output_dtype=output_dtype)
 
-    if isinstance(x, tf.SparseTensor):
-      x_values = x.values
-      if elementwise:
-        # Only supports SparseTensors with rank 2.
-        x.get_shape().assert_has_rank(2)
+    x_mean, x_var = tf_utils.map_per_key_reductions((key_means, key_vars), key,
+                                                    key_vocab, x)
 
-        x_mean = tf.gather(x_mean, x.indices[:, 1])
-        x_var = tf.gather(x_var, x.indices[:, 1])
+  compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
+  x_values = x
 
-    numerator = tf.cast(x_values, x_mean.dtype) - x_mean
-    denominator = tf.sqrt(x_var)
-    cond = tf.not_equal(denominator, 0)
+  if isinstance(x, tf.SparseTensor):
+    x_values = x.values
+    if elementwise:
+      # Only supports SparseTensors with rank 2.
+      x.get_shape().assert_has_rank(2)
 
-    if cond.shape.as_list() != x_values.shape.as_list():
-      # Repeats cond when necessary across the batch dimension for it to be
-      # compatible with the shape of numerator.
-      cond = tf.cast(
-          tf.zeros_like(numerator) + tf.cast(cond, numerator.dtype),
-          dtype=tf.bool)
+      x_mean = tf.gather(x_mean, x.indices[:, 1])
+      x_var = tf.gather(x_var, x.indices[:, 1])
 
-    deviation_values = tf.where(cond, tf.divide(numerator, denominator),
-                                numerator)
-    return compose_result_fn(deviation_values)
+  numerator = tf.cast(x_values, x_mean.dtype) - x_mean
+  denominator = tf.sqrt(x_var)
+  cond = tf.not_equal(denominator, 0)
+
+  if cond.shape.as_list() != x_values.shape.as_list():
+    # Repeats cond when necessary across the batch dimension for it to be
+    # compatible with the shape of numerator.
+    cond = tf.cast(
+        tf.zeros_like(numerator) + tf.cast(cond, numerator.dtype),
+        dtype=tf.bool)
+
+  deviation_values = tf.where(cond, tf.divide(numerator, denominator),
+                              numerator)
+  return compose_result_fn(deviation_values)
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
