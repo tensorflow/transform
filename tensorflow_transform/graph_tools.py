@@ -77,15 +77,19 @@ def _decompose_tensor(tensor):
 
 def _get_func_graph_for_name(graph, func_name):
   """Returns the FuncGraph associated to the given func_name if possible."""
-  func = graph._get_function(str(func_name))  # pylint: disable=protected-access
-  if not func:
-    raise ValueError(
-        'Function {} does not exist in the graph.'.format(func_name))
-  if not hasattr(func, 'graph'):
-    # This is a _DefinedFunction.
-    return function_def_to_graph.function_def_to_graph(func.definition)
-  else:
-    return func.graph
+  while graph is not None:
+    func = graph._get_function(str(func_name))  # pylint: disable=protected-access
+    if func is not None:
+      if hasattr(func, 'graph'):
+        return func.graph
+      func_graph = function_def_to_graph.function_def_to_graph(func.definition)
+      if func_graph is not None:
+        return func_graph
+    if hasattr(graph, 'outer_graph'):
+      graph = graph.outer_graph
+    else:
+      raise ValueError(
+          'Function {} does not exist in the graph.'.format(func_name))
 
 
 class _UnexpectedPlaceholderError(Exception):
