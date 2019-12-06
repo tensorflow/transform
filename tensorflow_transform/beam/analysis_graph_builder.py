@@ -460,6 +460,26 @@ class _InspectVisitor(nodes.Visitor):
     assert isinstance(value, nodes.ValueNode)
 
 
+def _build_analysis_graph_for_inspection(
+    preprocessing_fn, feature_spec, dataset_keys, input_cache):
+  """Builds the analysis graph for inspection."""
+  with tf.compat.v1.Graph().as_default() as graph:
+    with tf.compat.v1.name_scope('inputs'):
+      input_signature = impl_helper.feature_spec_as_batched_placeholders(
+          feature_spec)
+      # TODO(b/34288791): This needs to be exactly the same as in impl.py
+      copied_inputs = impl_helper.copy_tensors(input_signature)
+
+    output_signature = preprocessing_fn(copied_inputs)
+  transform_fn_future, cache_dict = build(
+      graph,
+      input_signature,
+      output_signature,
+      dataset_keys=dataset_keys,
+      cache_dict=input_cache)
+  return transform_fn_future, cache_dict
+
+
 def get_analysis_dataset_keys(preprocessing_fn, feature_spec, dataset_keys,
                               input_cache):
   """Computes the dataset keys that are required in order to perform analysis.
@@ -478,20 +498,8 @@ def get_analysis_dataset_keys(preprocessing_fn, feature_spec, dataset_keys,
         dataset is required. See the `flat_data` input to
         `AnalyzeDatasetWithCache`.
   """
-  with tf.compat.v1.Graph().as_default() as graph:
-    with tf.compat.v1.name_scope('inputs'):
-      input_signature = impl_helper.feature_spec_as_batched_placeholders(
-          feature_spec)
-      # TODO(b/34288791): This needs to be exactly the same as in impl.py
-      copied_inputs = impl_helper.copy_tensors(input_signature)
-
-    output_signature = preprocessing_fn(copied_inputs)
-  transform_fn_future, _ = build(
-      graph,
-      input_signature,
-      output_signature,
-      dataset_keys=dataset_keys,
-      cache_dict=input_cache)
+  transform_fn_future, _ = _build_analysis_graph_for_inspection(
+      preprocessing_fn, feature_spec, dataset_keys, input_cache)
 
   required_dataset_keys_result = set()
   inspect_visitor = _InspectVisitor(required_dataset_keys_result)
@@ -504,6 +512,23 @@ def get_analysis_dataset_keys(preprocessing_fn, feature_spec, dataset_keys,
   if flat_data_required:
     required_dataset_keys_result = dataset_keys
   return required_dataset_keys_result, flat_data_required
+
+
+def get_analysis_cache_entry_keys(preprocessing_fn, feature_spec, dataset_keys):
+  """Computes the cache entry keys that would be useful for analysis.
+
+  Args:
+    preprocessing_fn: A tf.transform preprocessing_fn.
+    feature_spec: A dict of feature name to feature specification.
+    dataset_keys: A set of strings which are dataset keys, they uniquely
+      identify these datasets across analysis runs.
+
+  Returns:
+    A set of cache entry keys which would be useful for analysis.
+  """
+  _, cache_dict = _build_analysis_graph_for_inspection(
+      preprocessing_fn, feature_spec, dataset_keys, {})
+  return set([cache_key for _, cache_key in cache_dict.keys()])
 
 
 _CombinerOpWrapper = collections.namedtuple('_CombinerOpWrapper',

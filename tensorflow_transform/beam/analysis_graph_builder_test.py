@@ -450,6 +450,27 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
     self.assertCountEqual(expected_dataset_keys, dataset_keys)
     self.assertEqual(expected_flat_data_required, flat_data_required)
 
+  def test_get_analysis_cache_entry_keys(self):
+    full_dataset_keys = ['a', 'b']
+    def preprocessing_fn(inputs):
+      return {'x': tft.scale_to_0_1(inputs['x'])}
+    mocked_cache_entry_key = 'A'
+    def mocked_make_cache_entry_key(_):
+      return mocked_cache_entry_key
+    feature_spec = {'x': tf.io.FixedLenFeature([], tf.float32)}
+    with mock.patch(
+        'tensorflow_transform.beam.analysis_graph_builder.'
+        'analyzer_cache.make_cache_entry_key',
+        side_effect=mocked_make_cache_entry_key):
+      cache_entry_keys = (
+          analysis_graph_builder.get_analysis_cache_entry_keys(
+              preprocessing_fn, feature_spec, full_dataset_keys))
+
+    dot_string = nodes.get_dot_graph([analysis_graph_builder._ANALYSIS_GRAPH
+                                     ]).to_string()
+    self.WriteRenderedDotFile(dot_string)
+    self.assertCountEqual(cache_entry_keys, [mocked_cache_entry_key])
+
 
 if __name__ == '__main__':
   test_case.main()
