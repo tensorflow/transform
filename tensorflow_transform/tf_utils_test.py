@@ -654,6 +654,107 @@ class TFUtilsTest(test_case.TransformTestCase):
     self.assertAllEqual(x_minus_min, expected_x_minus_min)
     self.assertAllEqual(x_max, expected_x_max)
 
+  @test_case.named_parameters(test_case.cross_with_function_handlers([
+      dict(
+          testcase_name='sparse',
+          input_signature=[tf.SparseTensorSpec([None, None], tf.int64)],
+          x=tf.compat.v1.SparseTensorValue(
+              indices=[[0, 0], [1, 1], [2, 2], [3, 1]],
+              values=[3, 2, -1, 3],
+              dense_shape=[4, 5]),
+          expected_sum=[4, 3],
+          expected_count=[3, 1]),
+      dict(
+          testcase_name='float',
+          input_signature=[tf.TensorSpec([None, None], tf.float32)],
+          x=[[1], [5], [2], [3]],
+          expected_sum=[8, 3],
+          expected_count=[3, 1]),
+      dict(
+          testcase_name='float3dims',
+          input_signature=[tf.TensorSpec([None, None, None], tf.float32)],
+          x=[[[1, 5], [1, 1]],
+             [[5, 1], [5, 5]],
+             [[2, 2], [2, 5]],
+             [[3, -3], [3, 3]]],
+          expected_sum=[35, 6],
+          expected_count=[3, 1]),
+  ]))
+  def test_reduce_batch_count_or_sum_per_key(
+      self, x, input_signature, expected_sum, expected_count,
+      function_handler):
+    key = ['a', 'a', 'a', 'b']
+    input_signature = input_signature + [tf.TensorSpec([None], tf.string)]
+    expected_key_vocab = [b'a', b'b']
+
+    @function_handler(input_signature=input_signature)
+    def _reduce_batch_sum_per_key(x, key):
+      return tf_utils.reduce_batch_count_or_sum_per_key(x, key, True)
+
+    @function_handler(input_signature=[tf.TensorSpec([None], tf.string)])
+    def _reduce_batch_count_per_key(key):
+      return tf_utils.reduce_batch_count_or_sum_per_key(None, key, True)
+
+    key_vocab, key_sums = _reduce_batch_sum_per_key(x, key)
+    key_vocab, key_counts = _reduce_batch_count_per_key(key)
+
+    self.assertAllEqual(key_vocab, expected_key_vocab)
+    self.assertAllEqual(key_sums, expected_sum)
+    self.assertAllEqual(key_counts, expected_count)
+
+  @test_case.named_parameters(test_case.cross_with_function_handlers([
+      dict(
+          testcase_name='full',
+          bucket_vocab=['1', '2', '0'],
+          counts=[3, 1, 4],
+          boundary_size=3,
+          expected_counts=[4, 3, 1]),
+      dict(
+          testcase_name='missing',
+          bucket_vocab=['1', '3', '0'],
+          counts=[3, 1, 4],
+          boundary_size=5,
+          expected_counts=[4, 3, 0, 1, 0]),
+  ]))
+  def test_reorder_histogram(
+      self, bucket_vocab, counts, boundary_size,
+      expected_counts, function_handler):
+    input_signature = [tf.TensorSpec([None], tf.string),
+                       tf.TensorSpec([None], tf.int64),
+                       tf.TensorSpec([], tf.int32)]
+    @function_handler(input_signature=input_signature)
+    def _reorder_histogram(bucket_vocab, counts, boundary_size):
+      return tf_utils.reorder_histogram(bucket_vocab, counts, boundary_size)
+
+    counts = _reorder_histogram(bucket_vocab, counts, boundary_size)
+    self.assertAllEqual(counts, expected_counts)
+
+  @test_case.named_parameters(test_case.cross_with_function_handlers([
+      # TODO(b/138799370): Remove or alter this test.
+      dict(
+          testcase_name='broken_bucket',
+          x=[0.0, 2.0, 3.5, 4.0],
+          boundaries=[[1.0, 2.0, 3.0, 3.9]],
+          remove_left=False,
+          expected_buckets=[0, 1, 3, 3]),  # old behavior: [0, 1, 3, 4]
+      dict(
+          testcase_name='remove_boundary',
+          x=[0.0, 4.0, 3.5, 2.0, 1.7],
+          boundaries=[[-1.0, 1.0, 2.0, 3.0, 5.0]],
+          remove_left=True,
+          expected_buckets=[0, 3, 3, 1, 1]),
+  ]))
+  def test_apply_bucketize_op(self, x, boundaries,
+                              remove_left, expected_buckets, function_handler):
+    input_signature = [tf.TensorSpec([None], tf.float32),
+                       tf.TensorSpec([1, None], tf.float32)]
+    @function_handler(input_signature=input_signature)
+    def _apply_bucketize_op(x, boundaries):
+      return tf_utils.apply_bucketize_op(x, boundaries, remove_left)
+
+    buckets = _apply_bucketize_op(x, boundaries)
+    self.assertAllEqual(buckets, expected_buckets)
+
   def test_sparse_indices(self):
     exception_cls = tf.errors.InvalidArgumentError
     error_string = 'Condition x == y did not hold element-wise:'
@@ -681,11 +782,11 @@ class TFUtilsTest(test_case.TransformTestCase):
         values=[3, 2, -1, 3],
         dense_shape=[4, 5])
     dense = tf.constant(['a', 'b', 'c', 'd'])
-    x, key = tf_utils._get_dense_value_key_inputs(sparse, sparse)
+    x, key = tf_utils._validate_and_get_dense_value_key_inputs(sparse, sparse)
     self.assertAllEqual(self.evaluate(x), sparse.values)
     self.assertAllEqual(self.evaluate(key), sparse.values)
 
-    x, key = tf_utils._get_dense_value_key_inputs(sparse, dense)
+    x, key = tf_utils._validate_and_get_dense_value_key_inputs(sparse, dense)
     self.assertAllEqual(self.evaluate(x), sparse.values)
     self.assertAllEqual(self.evaluate(key), dense)
 
@@ -703,7 +804,8 @@ class TFUtilsTest(test_case.TransformTestCase):
 
       with tf.compat.v1.Session() as sess:
         with self.assertRaisesRegexp(exception_cls, error_string):
-          sess.run(tf_utils._get_dense_value_key_inputs(sparse1, sparse2),
+          sess.run(tf_utils._validate_and_get_dense_value_key_inputs(sparse1,
+                                                                     sparse2),
                    feed_dict={sparse1: sparse_value1, sparse2: sparse_value2})
 
   @test_case.named_parameters(

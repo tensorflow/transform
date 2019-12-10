@@ -1449,7 +1449,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_metadata = tft_unit.metadata_from_feature_spec({
         'x': tf.io.FixedLenFeature([1], tf.int64)
     })
-    # The expected data has 2 boundaries that divides the data into 3 buckets.
     expected_outputs = {
         'mean': np.float32(50.5),
         'var': np.float32(833.25)
@@ -1479,7 +1478,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x': tf.io.FixedLenFeature([1], tf.int64),
         'key': tf.io.FixedLenFeature([], tf.string)
     })
-    # The expected data has 2 boundaries that divides the data into 3 buckets.
     expected_outputs = {
         'key_vocab': np.array([b'a', b'b'], np.object),
         'mean': np.array([25, 75], np.float32),
@@ -1491,6 +1489,154 @@ class BeamImplTest(tft_unit.TransformTestCase):
         analyzer_fn,
         expected_outputs,
         desired_batch_size=10)
+
+  def testCountElements(self):
+    def analyzer_fn(inputs):
+      elements, counts = analyzers.count_elements(inputs['key'])
+      return {
+          'elements': elements,
+          'counts': counts
+      }
+
+    # NOTE: We force 10 batches: data has 100 elements and we request a batch
+    # size of 10.
+    input_data = [{'key': 'a' if x < 25 else 'b'} for x in range(100)]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'key': tf.io.FixedLenFeature([], tf.string)
+    })
+    expected_outputs = {
+        'elements': np.array([b'a', b'b'], np.object),
+        'counts': np.array([25, 75], np.int64)
+    }
+    self.assertAnalyzerOutputs(
+        input_data,
+        input_metadata,
+        analyzer_fn,
+        expected_outputs,
+        desired_batch_size=10)
+
+  @tft_unit.named_parameters([
+      {'testcase_name': '_uniform',
+       'input_data': [{'x': [x]} for x in range(10, 100)],
+       'feature_spec': {'x': tf.io.FixedLenFeature([1], tf.int64)},
+       'boundaries': 10 * np.arange(11, dtype=np.float32),
+       'categorical': False,
+       'expected_outputs': {'hist': 10 * np.array([0] + [1] * 9, np.int64),
+                            'boundaries': 10 * np.arange(
+                                11, dtype=np.float32).reshape((1, 11))}
+      },
+      {'testcase_name': '_categorical_string',
+       'input_data': [{'x': [str(x % 10) + '_']} for x in range(1, 101)],
+       'feature_spec': {'x': tf.io.FixedLenFeature([1], tf.string)},
+       'boundaries': None,
+       'categorical': True,
+       'expected_outputs': {
+           'hist': 10 * np.ones(10, np.int64),
+           'boundaries': np.sort([tf.compat.as_bytes(str(x % 10) + '_')
+                                  for x in range(10)])},
+      },
+      {'testcase_name': '_categorical_int',
+       'input_data': [{'x': [(x % 10)]} for x in range(1, 101)],
+       'feature_spec': {'x': tf.io.FixedLenFeature([1], tf.int64)},
+       'boundaries': None,
+       'categorical': True,
+       'expected_outputs': {'hist': 10 * np.ones(10, np.int64),
+                            'boundaries': np.arange(10)}
+      },
+  ])
+  def testHistograms(self, input_data, feature_spec, boundaries, categorical,
+                     expected_outputs):
+    def analyzer_fn(inputs):
+      counts, bucket_boundaries = analyzers.histogram(tf.stack(inputs['x']),
+                                                      categorical=categorical,
+                                                      boundaries=boundaries)
+      if not categorical:
+        bucket_boundaries = tf.math.round(bucket_boundaries)
+      return {'hist': counts, 'boundaries': bucket_boundaries}
+
+    input_metadata = tft_unit.metadata_from_feature_spec(feature_spec)
+    self.assertAnalyzerOutputs(input_data,
+                               input_metadata,
+                               analyzer_fn,
+                               expected_outputs)
+
+  def testProbCategorical(self):
+    def preprocessing_fn(inputs):
+      return {'probs': tft.estimated_probability_density(inputs['x'],
+                                                         categorical=True)}
+
+    # NOTE: We force 10 batches: data has 100 elements and we request a batch
+    # size of 10.
+    input_data = [{'x': [str(x % 10) + '_']} for x in range(1, 101)]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([1], tf.string)
+    })
+    expected_outputs = [{
+        'probs': np.array(np.ones((1)) / 10.0, np.float32)
+    } for _ in range(100)]
+    self.assertAnalyzeAndTransformResults(input_data,
+                                          input_metadata,
+                                          preprocessing_fn,
+                                          expected_outputs,
+                                          desired_batch_size=10)
+
+  def testProbTenBoundaries(self):
+    # If we draw uniformly from a range (0, 100], the expected density is 0.01.
+    def preprocessing_fn(inputs):
+      return {'probs': tft.estimated_probability_density(
+          inputs['x'], boundaries=list(range(0, 101, 10)))}
+
+    # NOTE: We force 10 batches: data has 100 elements and we request a batch
+    # size of 10.
+    input_data = [{'x': [x]} for x in range(100)]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([1], tf.int64)
+    })
+    expected_outputs = [{
+        'probs': np.array(np.ones((1)) / (100.0), np.float32)
+    } for _ in range(100)]
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_outputs,
+        desired_batch_size=10)
+
+  @tft_unit.named_parameters([
+      {'testcase_name': 'uniform',
+       'boundaries': 6,
+       'input_data': [{'x': [x]} for x in range(100)],
+       'expected_outputs': [{'probs': np.array(np.ones((1)) / 99.0, np.float32)
+                            } for _ in range(100)]
+      },
+      {'testcase_name': 'nonuniform_with_zeros',
+       'boundaries': 5,
+       'input_data': [{'x': [x]} for x in list(range(25)) + (
+           list(range(50, 75)) + list(range(50, 75)) + list(range(75, 100)))],
+       'expected_outputs': [{'probs': np.ones((1), np.float32) / 99.0 * (
+           2.0 if 24 < i < 75 else 1.0)} for i in range(100)]
+      },
+      {'testcase_name': 'empty',
+       'boundaries': 5,
+       'input_data': [],
+       'expected_outputs': []
+      },
+  ])
+  def testProbUnknownBoundaries(self, input_data, expected_outputs, boundaries):
+    # Test 1 has 100 points over a range of 99; test 2 is an uneven distribution
+    def preprocessing_fn(inputs):
+      return {'probs': tft.estimated_probability_density(inputs['x'],
+                                                         boundaries=boundaries)}
+
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([1], tf.int64)
+    })
+
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_outputs)
 
   @tft_unit.named_parameters(('Int64In', tf.int64, {
       'min': tf.int64,

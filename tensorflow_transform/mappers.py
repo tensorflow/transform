@@ -1703,9 +1703,7 @@ def _assign_buckets(x_values, bucket_boundaries):
     # BoostedTreesBucketize assigns to lower bound instead of upper bound, so
     # we need to reverse both boundaries and x_values and make them negative
     # to make cases exactly at the boundary consistent.
-    buckets = tf.cast(tf.raw_ops.BoostedTreesBucketize(
-        float_values=[-x_values],
-        bucket_boundaries=tf.unstack(bucket_boundaries))[0], dtype=tf.int64)
+    buckets = tf_utils.apply_bucketize_op(-x_values, bucket_boundaries)
     # After reversing the inputs, the assigned buckets are exactly reversed
     # and need to be re-reversed to their original index.
     buckets = tf.subtract(max_value, buckets)
@@ -1752,3 +1750,85 @@ def _annotate_buckets(x, bucket_boundaries):
 
   type_url = os.path.join(schema_inference.ANNOTATION_PREFIX_URL, message_type)
   schema_inference.annotate(type_url, message_proto, tensor=x)
+
+
+@common.log_api_use(common.MAPPER_COLLECTION)
+def estimated_probability_density(x, boundaries=None, categorical=False,
+                                  name=None):
+  """Computes an approximate probability density at each x, given the bins.
+
+  Using this type of fixed-interval method has several benefits compared to
+    bucketization, although may not always be preferred.
+    1. Quantiles does not work on categorical data.
+    2. The quantiles algorithm does not currently operate on multiple features
+    jointly, only independently.
+
+  Ex: Outlier detection in a multi-modal or arbitrary distribution.
+    Imagine a value x where a simple model is highly predictive of a target y
+    within certain densely populated ranges. Outside these ranges, we may want
+    to treat the data differently, but there are too few samples for the model
+    to detect them by case-by-case treatment.
+    One option would be to use the density estimate for this purpose:
+
+    outputs['x_density'] = tft.estimated_prob(inputs['x'], bins=100)
+    outputs['outlier_x'] = tf.where(outputs['x_density'] < OUTLIER_THRESHOLD,
+                                    tf.constant([1]), tf.constant([0]))
+
+    This exercise uses a single variable for illustration, but a direct density
+    metric would become more useful with higher dimensions.
+
+  Note that we normalize by average bin_width to arrive at a probability density
+  estimate. The result resembles a pdf, not the probability that a value falls
+  in the bucket (except in the categorical case).
+
+  Args:
+    x: A `Tensor`.
+    boundaries: (Optional) A `Tensor` or int used to approximate the density.
+        If possible provide boundaries as a Tensor of multiple sorted values.
+        Will default to 10 intervals over the 0-1 range, or find the min/max
+        if an int is provided (not recommended because multi-phase analysis is
+        inefficient). If the boundaries are known as potentially arbitrary
+        interval boundaries, sizes are assumed to be equal. If the sizes are
+        unequal, density may be inaccurate. Ignored if `categorical` is true.
+    categorical: (Optional) A `bool` that will treat x as categorical if true.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    A `Tensor` the same shape as x, the probability density estimate at x (or
+    probability mass estimate if `categorical` is True).
+
+  Raises:
+    NotImplementedError: If `x` is SparseTensor.
+  """
+  with tf.compat.v1.name_scope(name, 'estimated_probability_density'):
+    if isinstance(x, tf.SparseTensor):
+      raise NotImplementedError(
+          'estimated probability density does not support Sparse Tensors')
+    if x.get_shape().ndims > 1 and x.shape[-1] > 1:
+      raise NotImplementedError(
+          'estimated probability density does not support multiple dimensions')
+
+    counts, boundaries = analyzers.histogram(x, boundaries=boundaries,
+                                             categorical=categorical)
+
+    xdims = x.get_shape().ndims
+    counts = tf.cast(counts, tf.float32)
+    probabilities = counts / tf.reduce_sum(counts)
+
+    x = tf.reshape(x, [-1])
+
+    if categorical:
+      bucket_indices = tf_utils.lookup_key(x, boundaries)
+      bucket_densities = probabilities
+    else:
+      # We need to compute the bin width so that density does not depend on
+      # number of intervals.
+      bin_width = tf.cast(boundaries[0, -1] - boundaries[0, 0], tf.float32) / (
+          tf.cast(tf.size(probabilities), tf.float32))
+      bucket_densities = probabilities / bin_width
+
+      bucket_indices = tf_utils.apply_bucketize_op(
+          tf.cast(x, tf.float32), boundaries, True)
+
+    bucket_indices = tf_utils._align_dims(bucket_indices, xdims)  # pylint: disable=protected-access
+    return tf.gather(bucket_densities, bucket_indices)

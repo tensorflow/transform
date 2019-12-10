@@ -2,7 +2,14 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
-* Add a new version of the census example to demonstrate usage in TF 2.0.
+* Added a new version of the census example to demonstrate usage in TF 2.0.
+* New mapper `estimated_probability_density` to compute either exact
+  probabilities (for discrete categorical variable) or approximate density over
+  fixed intervals (continuous variables). 
+* New analyzers `count_elements` and `histogram` to return counts of unique
+  elements or values within predefined ranges. Calling `tft.histogram` on 
+  non-categorical value will assign each data point to the appropriate fixed
+  bucket and then count for each bucket.
 
 ## Bug Fixes and Other Changes
 * Added beam counters to log analyzer and mapper usage.

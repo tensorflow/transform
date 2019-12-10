@@ -48,7 +48,9 @@ from tensorflow.python.ops import resources
 from tensorflow.python.util import deprecation
 
 __all__ = [
+    'count_elements',
     'covariance',
+    'histogram',
     'max',
     'mean',
     'min',
@@ -368,6 +370,11 @@ def _min_and_max_per_key(x, key, reduce_instance_dims=True, name=None):
   In the case of a `SparseTensor` missing values will be used in return value:
   for float, NaN is used and for other dtypes the min is used.
 
+  This function operates under the assumption that the size of the key set
+  is small enough to fit in memory. Anything above a certain size larger is not
+  guaranteed to be handled properly, but support for larger key sets may be
+  available in a future version.
+
   Args:
     x: A `Tensor` or `SparseTensor`.
     key: A Tensor or `SparseTensor` of dtype tf.string.  If `x` is
@@ -459,6 +466,70 @@ def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
+def histogram(x, boundaries=None, categorical=False, name=None):
+  """Computes a histogram over x, given the bin boundaries or bin count.
+
+  Ex (1):
+  counts, boundaries = histogram([0, 1, 0, 1, 0, 3, 0, 1], range(5))
+  counts: [4, 3, 0, 1, 0]
+  boundaries: [0, 1, 2, 3, 4]
+
+  Ex (2):
+  Can be used to compute class weights.
+  counts, classes = histogram([0, 1, 0, 1, 0, 3, 0, 1], categorical=True)
+  probabilities = counts / tf.reduce_sum(counts)
+  class_weights = dict(map(lambda (a, b): (a.numpy(), 1.0 / b.numpy()),
+                           zip(classes, probabilities)))
+
+  Args:
+    x: A `Tensor` or `SparseTensor`.
+    boundaries: (Optional) A `Tensor` or `int` used to build the histogram;
+        ignored if `categorical` is True. If possible, provide boundaries as
+        multiple sorted values.  Default to 10 intervals over the 0-1 range,
+        or find the min/max if an int is provided (not recommended because
+        multi-phase analysis is inefficient).
+    categorical: (Optional) A `bool` that treats `x` as discrete values if true.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    counts: The histogram, as counts per bin.
+    boundaries: A `Tensor` used to build the histogram representing boundaries.
+  """
+
+  with tf.compat.v1.name_scope(name, 'histogram'):
+    # We need to flatten because BoostedTreesBucketize expects a rank-1 input
+    x = x.values if isinstance(x, tf.SparseTensor) else tf.reshape(x, [-1])
+    if categorical:
+      x_dtype = x.dtype
+      x = x if x_dtype == tf.string else tf.strings.as_string(x)
+      elements, counts = count_elements(x)
+      if x_dtype != elements.dtype:
+        elements = tf.strings.to_number(elements, tf.int64)
+      return counts, elements
+
+    if boundaries is None:
+      boundaries = tf.range(11, dtype=tf.float32) / 10.0
+    elif isinstance(boundaries, int) or tf.rank(boundaries) == 0:
+      min_value, max_value = _min_and_max(x, True)
+      boundaries = tf.linspace(tf.cast(min_value, tf.float32),
+                               tf.cast(max_value, tf.float32),
+                               boundaries)
+
+    # Shift the boundaries slightly to account for floating point errors,
+    # and due to the fact that the rightmost boundary is essentially ignored.
+    boundaries = tf.expand_dims(tf.cast(boundaries, tf.float32), 0) - 0.0001
+
+    bucket_indices = tf_utils.apply_bucketize_op(tf.cast(x, tf.float32),
+                                                 boundaries,
+                                                 remove_leftmost_boundary=True)
+
+    bucket_vocab, counts = count_elements(tf.strings.as_string(bucket_indices))
+    counts = tf_utils.reorder_histogram(bucket_vocab, counts,
+                                        tf.size(boundaries) - 1)
+    return counts, boundaries
+
+
+@common.log_api_use(common.ANALYZER_COLLECTION)
 def size(x, reduce_instance_dims=True, name=None):
   """Computes the total size of instances in a `Tensor` over the whole dataset.
 
@@ -482,6 +553,31 @@ def size(x, reduce_instance_dims=True, name=None):
     else:
       ones_like_x = tf.ones_like(x, dtype=tf.int64)
     return sum(ones_like_x, reduce_instance_dims)
+
+
+@common.log_api_use(common.ANALYZER_COLLECTION)
+def count_elements(x, name=None):
+  """Computes the count of each element of a `Tensor`.
+
+  Args:
+    x: A Tensor or `SparseTensor` of dtype tf.string.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    Two `Tensor`s: one the key vocab with dtype tf.string;
+        the other the count for each key, dtype tf.int64.
+
+  Raises:
+    TypeError: If the type of `x` is not supported.
+  """
+
+  with tf.compat.v1.name_scope(name, 'count_elements'):
+    elements, counts = tf_utils.reduce_batch_count_or_sum_per_key(
+        x=None, key=x, reduce_instance_dims=True)
+
+    output_dtype, sum_fn = _sum_combine_fn_and_dtype(tf.int64)
+    return _numeric_combine([counts], sum_fn, True, [output_dtype],
+                            key=elements)
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
@@ -569,8 +665,15 @@ def _mean_and_var(x, reduce_instance_dims=True, output_dtype=None):
   return x_mean, x_var
 
 
-def _mean_and_var_per_key(x, key, reduce_instance_dims=True, output_dtype=None):
-  """`mean_and_var` by group, specified by key."""
+# pylint: disable=g-doc-return-or-yield
+def _mean_and_var_per_key(x, key, reduce_instance_dims=True, output_dtype=None):  # pylint: disable=g-doc-args
+  """`mean_and_var` by group, specified by key.
+
+  This function operates under the assumption that the size of the key set
+  is small enough to fit in memory. Anything above a certain size larger is not
+  guaranteed to be handled properly, but support for larger key sets may be
+  available in a future version.
+  """
   if output_dtype is None:
     output_dtype = _MEAN_OUTPUT_DTYPE_MAP.get(x.dtype)
     if output_dtype is None:

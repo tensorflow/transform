@@ -326,6 +326,110 @@ def reduce_batch_count(x, reduce_instance_dims):
   return tf.fill(x_shape[1:], x_shape[0])
 
 
+def reduce_batch_count_or_sum_per_key(x, key, reduce_instance_dims):
+  """Computes per-key sums or counts in the given tensor.
+
+  Args:
+    x: A `Tensor` or `SparseTensor`.  If x is None, return count per key.
+    key: A `Tensor` or `SparseTensor` (cannot be None).
+        Must meet one of the following conditions:
+        1. Both x and key are dense,
+        2. Both x and key are sparse and `key` must exactly match `x` in
+        everything except values,
+        3. The axis=1 index of each x matches its index of dense key.
+    reduce_instance_dims: A bool, if True - collapses the batch and instance
+        dimensions to arrive at a single scalar output. Otherwise, only
+        collapses the batch dimension and outputs a `Tensor` of the same shape
+        as the input. Not supported for `SparseTensor`s.
+
+  Returns:
+    A 2-tuple containing the `Tensor`s (key_vocab, count-or-sum).
+  """
+  if isinstance(x, tf.SparseTensor) and not reduce_instance_dims:
+    raise NotImplementedError(
+        'Sum per key only supports reduced dims for SparseTensors')
+
+  if x is not None:
+    x, key = _validate_and_get_dense_value_key_inputs(x, key)
+    unique = tf.unique(key, out_idx=tf.int64)
+    if reduce_instance_dims and x.get_shape().ndims > 1:
+      sums = tf.math.reduce_sum(x, axis=list(range(1, x.get_shape().ndims)))
+    else:
+      sums = x
+    sums = tf.math.unsorted_segment_sum(sums, unique.idx, tf.size(unique.y))
+  else:
+    key.set_shape([None])
+    unique = tf.unique_with_counts(key, out_idx=tf.int64)
+    sums = unique.count
+
+  return unique.y, sums
+
+
+def reorder_histogram(bucket_vocab, counts, boundary_size):
+  """Return the histogram counts in indexed order, and zero out missing values.
+
+  The count_elements analyzer returns counts in alphanumeric order, only for the
+  values that are present. To construct a well-formed histogram, we need to
+  rearrange them in numerical order, and fill in the missing values.
+
+  Ex: The data contains values in the following form: [0, 1, 0, 1, 0, 3, 0, 1]
+  bucket_indices happen to be the same as these values, and
+  count_elements(tf.strings.as_string(bucket_indices)) returns:
+    bucket_vocab=['1', '3', '0'],
+    counts=[3, 1, 4]
+
+  If boundaries=[0, 1, 2, 3, 4], we expect counts=[4, 3, 0, 1, 0],
+  which this function will return.
+
+  Args:
+    bucket_vocab: A `Tensor` that names the buckets corresponding to the count
+        information returned.
+    counts: A `Tensor` that matches the bucket_vocab.
+    boundary_size: A scalar that provides information about how big the returned
+        counts should be.
+
+  Returns:
+    counts: A `Tensor` of size boundary_size corresponding to counts of all
+        available buckets.
+  """
+  if bucket_vocab.dtype == tf.string:
+    bucket_vocab = tf.strings.to_number(bucket_vocab, tf.int32)
+  # counts/bucket_vocab may be out of order and missing values (empty buckets).
+  ordering = tf.argsort(
+      tf.concat([bucket_vocab,
+                 tf.sets.difference([tf.range(boundary_size)],
+                                    [bucket_vocab]).values], axis=-1))
+  counts = tf.pad(counts, [[0, boundary_size - tf.size(counts)]])
+  return tf.gather(counts, ordering)
+
+
+def apply_bucketize_op(x, boundaries, remove_leftmost_boundary=False):
+  """Applies the bucketize op to every value in x.
+
+  x and boundaries are expected to be in final form (before turning to lists).
+
+  Args:
+    x: a `Tensor` of dtype float32 with no more than one dimension.
+    boundaries:  The bucket boundaries represented as a rank 2 `Tensor`
+        of tf.int32|64. Should be sorted.
+    remove_leftmost_boundary (Optional): Remove lowest boundary if True.
+        BoostedTreesBucketize op assigns according to upper bound, and therefore
+        the leftmost boundary is assumed to be the upper bound of the first
+        bucket. If a lower bound is present, the indexes will be off by 1.
+
+  Returns:
+    A `Tensor` of dtype int64 with the same shape as `x`, and each element in
+    the returned tensor representing the bucketized value. Bucketized value is
+    in the range [0, len(bucket_boundaries)].
+  """
+  if remove_leftmost_boundary:
+    boundaries = boundaries[:, 1:]
+  bucket_indices = tf.cast(tf.raw_ops.BoostedTreesBucketize(
+      float_values=[x],
+      bucket_boundaries=tf.unstack(boundaries))[0], dtype=tf.int64)
+  return bucket_indices
+
+
 def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
   """Computes element count, mean and var for the given tensor.
 
@@ -377,7 +481,7 @@ def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
   return (x_count, x_mean, x_variance)
 
 
-def _get_dense_value_key_inputs(x, key):
+def _validate_and_get_dense_value_key_inputs(x, key):
   """Validate x and key and returns dense representations if feasible.
 
   Check if sparse x and sparse key have identical indices, map key if dense.
@@ -469,7 +573,7 @@ def map_per_key_reductions(tensors_to_map, key, key_vocab, original_input):
     For the sparse case, it is enough for output to match original_input.values.
   """
 
-  _, key = _get_dense_value_key_inputs(original_input, key)
+  _, key = _validate_and_get_dense_value_key_inputs(original_input, key)
   key_indices = lookup_key(key, key_vocab)
 
   ndims = None if isinstance(
@@ -505,7 +609,7 @@ def reduce_batch_count_mean_and_var_per_key(x, key, reduce_instance_dims):
       raise NotImplementedError(
           'Mean and var per key only support reduced dims for SparseTensors')
 
-  x, key = _get_dense_value_key_inputs(x, key)
+  x, key = _validate_and_get_dense_value_key_inputs(x, key)
 
   unique = tf.unique_with_counts(key, out_idx=tf.int64)
   x_count = unique.count
@@ -746,7 +850,7 @@ def reduce_batch_minus_min_and_max_per_key(x, key):
   elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
     raise TypeError('Tensor type %r is not supported' % x.dtype)
 
-  x, key = _get_dense_value_key_inputs(x, key)
+  x, key = _validate_and_get_dense_value_key_inputs(x, key)
 
   def get_batch_max_per_key(tensor, key_uniques, dtype):  # pylint: disable=missing-docstring
     if tensor.get_shape().ndims < 2:
