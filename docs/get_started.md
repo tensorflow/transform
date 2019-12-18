@@ -426,7 +426,7 @@ def _make_training_input_fn(tf_transform_output, transformed_examples,
   ...
   def input_fn():
     """Input function for training and eval."""
-    dataset = tf.experimental.data.make_batched_features_dataset(
+    dataset = tf.data.experimental.make_batched_features_dataset(
         ..., tf_transform_output.transformed_feature_spec(), ...)
 
     transformed_features = dataset.make_one_shot_iterator().get_next()
