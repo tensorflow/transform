@@ -24,6 +24,7 @@ from __future__ import print_function
 import collections
 
 import apache_beam as beam
+from tensorflow_transform.beam import common
 from tensorflow_transform.tf_metadata import metadata_io
 
 
@@ -41,17 +42,32 @@ class BeamDatasetMetadata(
     return self.dataset_metadata.schema
 
 
+# TODO(b/70899285): Make WriteMetadata idempotent.
 class WriteMetadata(beam.PTransform):
   """A PTransform to write Metadata to disk.
 
   Input can either be a DatasetMetadata or a tuple of properties.
+
+  Depending on the optional `write_to_unique_subdirectory`, writes the given
+  metadata to either `path` or a new unique subdirectory under `path`.
+
+  Returns a singleton with the path to which the metadata was written.
   """
 
   # NOTE: The pipeline metadata is required by PTransform given that all the
   # inputs may be non-deferred.
-  def __init__(self, path, pipeline):
+  def __init__(self, path, pipeline, write_to_unique_subdirectory=False):
+    """Init method.
+
+    Args:
+      path: A str, the default path that the metadata should be written to.
+      pipeline: A beam Pipeline.
+      write_to_unique_subdirectory: (Optional) A bool indicating whether to
+        write the metadata out to `path` or a unique subdirectory under `path`.
+    """
     super(WriteMetadata, self).__init__()
     self._path = path
+    self._write_to_unique_subdirectory = write_to_unique_subdirectory
     self.pipeline = pipeline
 
   def _extract_input_pvalues(self, metadata):
@@ -65,5 +81,12 @@ class WriteMetadata(beam.PTransform):
       metadata_pcoll = metadata.deferred_metadata
     else:
       metadata_pcoll = self.pipeline | beam.Create([metadata])
-    return metadata_pcoll | 'WriteMetadata' >> beam.Map(
-        metadata_io.write_metadata, self._path)
+
+    def write_metadata_output(metadata):
+      output_path = self._path
+      if self._write_to_unique_subdirectory:
+        output_path = common.get_unique_temp_path(self._path)
+      metadata_io.write_metadata(metadata, output_path)
+      return output_path
+
+    return metadata_pcoll | 'WriteMetadata' >> beam.Map(write_metadata_output)

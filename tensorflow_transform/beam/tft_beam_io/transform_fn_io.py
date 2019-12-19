@@ -21,6 +21,7 @@ import os
 
 import apache_beam as beam
 import tensorflow_transform as tft
+from tensorflow_transform.beam import common
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.tf_metadata import metadata_io
 
@@ -28,6 +29,13 @@ from tensorflow_transform.tf_metadata import metadata_io
 # compatibility only.
 TRANSFORMED_METADATA_DIR = tft.TFTransformOutput.TRANSFORMED_METADATA_DIR
 TRANSFORM_FN_DIR = tft.TFTransformOutput.TRANSFORM_FN_DIR
+
+
+def _copy_tree_to_unique_temp_dir(source, base_temp_dir_path):
+  """Copies from source to a unique sub directory under base_temp_dir_path."""
+  destination = common.get_unique_temp_path(base_temp_dir_path)
+  _copy_tree(source, destination)
+  return destination
 
 
 def _copy_tree(source, destination):
@@ -67,28 +75,47 @@ class WriteTransformFn(beam.PTransform):
 
   def expand(self, transform_fn):
     saved_model_dir, metadata = transform_fn
+    pipeline = saved_model_dir.pipeline
+
+    # Using a temp dir within `path` ensures that the source and dstination
+    # paths for the rename below are in the same file system.
+    base_temp_dir = os.path.join(self._path, 'transform_tmp')
+    temp_metadata_path = (
+        metadata
+        | 'WriteMetadataToTemp' >> beam_metadata_io.WriteMetadata(
+            base_temp_dir, pipeline, write_to_unique_subdirectory=True))
+
+    temp_transform_fn_path = (
+        saved_model_dir
+        | 'WriteTransformFnToTemp' >> beam.Map(_copy_tree_to_unique_temp_dir,
+                                               base_temp_dir))
 
     metadata_path = os.path.join(self._path,
                                  tft.TFTransformOutput.TRANSFORMED_METADATA_DIR)
-    pipeline = saved_model_dir.pipeline
-    write_metadata_done = (
-        metadata
-        | 'WriteMetadata'
-        >> beam_metadata_io.WriteMetadata(metadata_path, pipeline))
-
     transform_fn_path = os.path.join(self._path,
                                      tft.TFTransformOutput.TRANSFORM_FN_DIR)
-    write_transform_fn_done = (
-        saved_model_dir
-        | 'WriteTransformFn' >> beam.Map(_copy_tree, transform_fn_path))
 
-    # TODO(KesterTong): Move this "must follows" logic into a TFT wide helper
+    def publish_outputs(unused_element, metadata_source_path,
+                        transform_fn_source_path):
+      import tensorflow as tf  # pylint: disable=g-import-not-at-top
+      if not tf.io.gfile.exists(self._path):
+        tf.io.gfile.makedirs(self._path)
+
+      tf.io.gfile.rename(metadata_source_path, metadata_path, overwrite=True)
+      tf.io.gfile.rename(
+          transform_fn_source_path, transform_fn_path, overwrite=True)
+      tf.io.gfile.rmtree(base_temp_dir)
+
+    # TODO(KesterTong): Move this "must follows" logic into a tfx_bsl helper
     # function or into Beam.
     return (
-        write_transform_fn_done
-        | 'WaitOnWriteMetadataDone' >> beam.Map(
-            lambda x, dummy: x,
-            dummy=beam.pvalue.AsSingleton(write_metadata_done)))
+        pipeline
+        | 'CreateSole' >> beam.Create([None])
+        | 'PublishMetadataAndTransformFn' >> beam.Map(
+            publish_outputs,
+            metadata_source_path=beam.pvalue.AsSingleton(temp_metadata_path),
+            transform_fn_source_path=beam.pvalue.AsSingleton(
+                temp_transform_fn_path)))
 
 
 class ReadTransformFn(beam.PTransform):
