@@ -33,11 +33,7 @@ from tensorflow_metadata.proto.v0 import schema_pb2
 
 
 class TFTransformOutput(object):
-  """A wrapper around the output of the tf.Transform.
-
-  Args:
-    transform_output_dir: The directory containig tf.Transform output.
-  """
+  """A wrapper around the output of the tf.Transform."""
 
   # Locations relative to the base output directory, where outputs of
   # tf.Transform should be written in order to be read by TFTransformOutput.
@@ -46,6 +42,11 @@ class TFTransformOutput(object):
   TRANSFORM_FN_DIR = 'transform_fn'
 
   def __init__(self, transform_output_dir):
+    """Init method for TFTransformOutput.
+
+    Args:
+      transform_output_dir: The directory containig tf.Transform output.
+    """
     self._transform_output_dir = transform_output_dir
 
     # Lazily constructed properties.
@@ -101,12 +102,14 @@ class TFTransformOutput(object):
 
   def vocabulary_size_by_name(self, vocab_filename):
     """Like vocabulary_file_by_name, but returns the size of vocabulary."""
-    with tf.io.gfile.GFile(self.vocabulary_file_by_name(vocab_filename)) as f:
+    with tf.io.gfile.GFile(self.vocabulary_file_by_name(vocab_filename),
+                           'rb') as f:
       return sum(1 for _ in f)
 
   def vocabulary_by_name(self, vocab_filename):
     """Like vocabulary_file_by_name but returns a list."""
-    with tf.io.gfile.GFile(self.vocabulary_file_by_name(vocab_filename)) as f:
+    with tf.io.gfile.GFile(self.vocabulary_file_by_name(vocab_filename),
+                           'rb') as f:
       return [l.rstrip() for l in f]
 
   # TODO(KesterTong): Add test for this in output_wrapper_test.py

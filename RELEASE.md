@@ -7,7 +7,7 @@
   probabilities (for discrete categorical variable) or approximate density over
   fixed intervals (continuous variables). 
 * New analyzers `count_elements` and `histogram` to return counts of unique
-  elements or values within predefined ranges. Calling `tft.histogram` on 
+  elements or values within predefined ranges. Calling `tft.histogram` on
   non-categorical value will assign each data point to the appropriate fixed
   bucket and then count for each bucket.
 
@@ -21,6 +21,10 @@
   and returns the path to which metadata was written. If
   `write_to_unique_subdir` is True, metadata is written to a unique subdirectory
   under `path`, otherwise it is written to `path`.
+* Support non utf-8 characters when reading vocabularies in
+  `tft.TFTransformOutput`
+* `tft.TFTransformOutput.vocabulary_by_name` now returns bytes instead of str
+  with python 3.
 
 ## Breaking changes
 
