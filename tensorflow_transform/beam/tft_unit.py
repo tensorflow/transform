@@ -285,6 +285,7 @@ class TransformTestCase(test_case.TransformTestCase):
       transformed_schema = schema_pb2.Schema()
       transformed_schema.CopyFrom(
           tf_transform_output.transformed_metadata.schema)
+      transformed_schema.ClearField('annotation')
       for feature in transformed_schema.feature:
         feature.ClearField('annotation')
       self.assertEqual(expected_metadata.schema, transformed_schema)

@@ -18,15 +18,22 @@ from __future__ import print_function
 
 from six.moves import copyreg
 import tensorflow as tf
+from tensorflow_transform import common
 from tensorflow_metadata.proto.v0 import schema_pb2
 from tensorflow_metadata.proto.v0 import statistics_pb2
 
+if common.IS_ANNOTATIONS_PB_AVAILABLE:
+  from tensorflow_transform import annotations_pb2  # pylint: disable=g-import-not-at-top
+
+_ANNOTATION_CLASSES = [
+    annotations_pb2.VocabularyMetadata, annotations_pb2.BucketBoundaries
+] if common.IS_ANNOTATIONS_PB_AVAILABLE else []
 
 _PROTO_CLASSES = [
     tf.compat.v1.ConfigProto,
     schema_pb2.Schema,
-    statistics_pb2.DatasetFeatureStatistics
-]
+    statistics_pb2.DatasetFeatureStatistics,
+] + _ANNOTATION_CLASSES
 
 
 _PROTO_CLS_BY_NAME = {proto_cls.DESCRIPTOR.name: proto_cls

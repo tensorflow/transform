@@ -30,6 +30,7 @@ from __future__ import print_function
 
 import collections
 import itertools
+import os
 import pickle
 import random
 import re
@@ -41,9 +42,10 @@ import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import common
 from tensorflow_transform import nodes
+from tensorflow_transform import schema_inference
 from tensorflow_transform import tf_utils
 
-
+from google.protobuf import descriptor_pb2
 from tensorflow.python.ops import resources
 from tensorflow.python.util import deprecation
 
@@ -1227,8 +1229,17 @@ def vocabulary(x,
         fingerprint_shuffle=fingerprint_shuffle,
         input_dtype=x.dtype.name)
 
-    vocab_filename = analyzer_nodes.wrap_as_tensor(vocab_filename_node)
-    return vocab_filename
+    total_vocab_size_node = nodes.apply_operation(
+        analyzer_nodes.VocabularyCount, merge_output_value_node)
+    _maybe_annotate_vocab_metadata(
+        vocab_filename,
+        analyzer_nodes.bind_future_as_tensor(
+            total_vocab_size_node,
+            analyzer_nodes.TensorInfo(tf.int32, [], False),
+            name='{}_unpruned_vocab_size'.format(vocab_filename)))
+
+    vocab_filename_tensor = analyzer_nodes.wrap_as_tensor(vocab_filename_node)
+    return vocab_filename_tensor
 
 
 def calculate_recommended_min_diff_from_avg(dataset_size):
@@ -2160,3 +2171,39 @@ def ptransform_analyzer(inputs, output_dtypes, output_shapes, ptransform,
         *inputs,
         ptransform=ptransform,
         output_tensor_info_list=output_tensor_infos)
+
+
+def _maybe_annotate_vocab_metadata(vocab_filename, unfiltered_vocabulary_size):
+  """Annotates a bucketized tensor with the boundaries that were applied.
+
+  Creates a deferred annotation for the specified tensor.
+
+  Args:
+    vocab_filename: The name of the vocabulary.
+    unfiltered_vocabulary_size: A tf.int32 tensor containing the unfiltered
+      vocab size.
+  """
+  if not common.IS_ANNOTATIONS_PB_AVAILABLE:
+    return
+
+  from tensorflow_transform import annotations_pb2  # pylint: disable=g-import-not-at-top
+  message_type = annotations_pb2.VocabularyMetadata.DESCRIPTOR.full_name
+  unfiltered_vocabulary_size = tf.expand_dims(unfiltered_vocabulary_size, 0)
+  file_name = tf.convert_to_tensor([vocab_filename])
+  descriptor_source = descriptor_pb2.FileDescriptorSet()
+  annotations_pb2.VocabularyMetadata.DESCRIPTOR.file.CopyToProto(
+      descriptor_source.file.add())
+  descriptor_source_str = b'bytes://' + descriptor_source.SerializeToString()
+  message_proto = tf_utils._encode_proto(  # pylint: disable=protected-access
+      {
+          'unfiltered_vocabulary_size': unfiltered_vocabulary_size,
+          'file_name': file_name,
+      }, message_type, descriptor_source=descriptor_source_str)
+  assert message_proto.shape == [1]
+  message_proto = message_proto[0]
+
+  # Note: we annotate globally here (tied to a vocabulary by filename) rather
+  # than attaching to a tensor, because this annotation is tied to an analysis
+  # output not a final tensor produced by a mapper.
+  type_url = os.path.join(common.ANNOTATION_PREFIX_URL, message_type)
+  schema_inference.annotate(type_url, message_proto)

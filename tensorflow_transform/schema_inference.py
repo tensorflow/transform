@@ -29,14 +29,13 @@ import collections
 
 import six
 import tensorflow as tf
+from tensorflow_transform import common
 from tensorflow_transform import tf_utils
 from tensorflow_transform.tf_metadata import schema_utils
 
 from google.protobuf import any_pb2
 
 from tensorflow_metadata.proto.v0 import schema_pb2
-
-ANNOTATION_PREFIX_URL = 'type.googleapis.com'
 
 
 def _feature_spec_from_batched_tensors(tensors):
@@ -296,6 +295,8 @@ def _get_schema_annotations(graph, session):
   """
   tensor_annotations = collections.defaultdict(list)
   global_annotations = []
+  if not common.IS_ANNOTATIONS_PB_AVAILABLE:
+    return tensor_annotations, global_annotations
   tensors = graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION)
   type_urls = session.run(
       graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION_TYPE_URL))

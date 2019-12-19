@@ -34,14 +34,19 @@ from six.moves import range
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import analyzers
+from tensorflow_transform import common
 from tensorflow_transform import schema_inference
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from google.protobuf import text_format
+import unittest
 from tensorflow.core.example import example_pb2
 from tensorflow.python.ops import lookup_ops
 from tensorflow_metadata.proto.v0 import schema_pb2
+
+if common.IS_ANNOTATIONS_PB_AVAILABLE:
+  from tensorflow_transform import annotations_pb2  # pylint: disable=g-import-not-at-top
 
 
 _SCALE_TO_Z_SCORE_TEST_CASES = [
@@ -3956,25 +3961,38 @@ class BeamImplTest(tft_unit.TransformTestCase):
     check_asset_file_contents(assets_path, outfile,
                               '4 1_X_a\n2 2_X_b\n1 4_X_c\n')
 
+  @unittest.skipIf(not common.IS_ANNOTATIONS_PB_AVAILABLE,
+                     'Schema annotations are not available')
   def testSavedModelWithAnnotations(self):
     """Test serialization/deserialization as a saved model with annotations."""
-    # TODO(b/132098015): Schema annotations aren't yet supported in OSS builds.
-    try:
-      from tensorflow_transform import annotations_pb2  # pylint: disable=g-import-not-at-top
-    except ImportError:
-      return
     def preprocessing_fn(inputs):
       # Bucketization applies annotations to the output schema
       return {
           'x_bucketized': tft.bucketize(inputs['x'], num_buckets=4),
+          'y_vocab': tft.compute_and_apply_vocabulary(inputs['y']),
       }
 
-    input_data = [{'x': 1}, {'x': 2}, {'x': 3}, {'x': 4}]
+    input_data = [{
+        'x': 1,
+        'y': 'foo',
+    }, {
+        'x': 2,
+        'y': 'bar',
+    }, {
+        'x': 3,
+        'y': 'foo',
+    }, {
+        'x': 4,
+        'y': 'foo',
+    }]
     input_metadata = tft_unit.metadata_from_feature_spec({
         'x': tf.io.FixedLenFeature([], tf.float32),
+        'y': tf.io.FixedLenFeature([], tf.string),
     })
     temp_dir = self.get_temp_dir()
-    with beam_impl.Context(temp_dir=temp_dir):
+    # Force a batch size of 1 to ensure that occurences are correctly aggregated
+    # across batches when computing the total vocabulary size.
+    with beam_impl.Context(temp_dir=temp_dir, desired_batch_size=1):
       transform_fn = ((input_data, input_metadata)
                       | beam_impl.AnalyzeDataset(preprocessing_fn))
       #  Write transform_fn to serialize annotation collections to SavedModel
@@ -3984,20 +4002,29 @@ class BeamImplTest(tft_unit.TransformTestCase):
     tf_transform_output = tft.TFTransformOutput(temp_dir)
     savedmodel_dir = tf_transform_output.transform_savedmodel_dir
     schema = beam_impl._infer_metadata_from_saved_model(savedmodel_dir)._schema
-    self.assertLen(schema.feature, 1)
+    self.assertLen(schema.feature, 2)
     for feature in schema.feature:
-      self.assertLen(feature.annotation.extra_metadata, 1)
-      for annotation in feature.annotation.extra_metadata:
-        message = annotations_pb2.BucketBoundaries()
-        annotation.Unpack(message)
-        self.assertAllClose(list(message.boundaries), [2, 3, 4])
+      if feature.name == 'x_bucketized':
+        self.assertLen(feature.annotation.extra_metadata, 1)
+        for annotation in feature.annotation.extra_metadata:
+          message = annotations_pb2.BucketBoundaries()
+          annotation.Unpack(message)
+          self.assertAllClose(list(message.boundaries), [2, 3, 4])
+      elif feature.name == 'y_vocab':
+        self.assertLen(feature.annotation.extra_metadata, 0)
+      else:
+        raise ValueError('Unexpected feature with metadata: {}'.format(
+            feature.name))
+    # Vocabularies create a top-level schema annotation for each vocab file.
+    self.assertLen(schema.annotation.extra_metadata, 1)
+    message = annotations_pb2.VocabularyMetadata()
+    annotation = schema.annotation.extra_metadata[0]
+    annotation.Unpack(message)
+    self.assertEqual(message.unfiltered_vocabulary_size, 2)
 
+  @unittest.skipIf(not common.IS_ANNOTATIONS_PB_AVAILABLE,
+                     'Schema annotations are not available')
   def testSavedModelWithGlobalAnnotations(self):
-    # TODO(b/132098015): Schema annotations aren't yet supported in OSS builds.
-    try:
-      from tensorflow_transform import annotations_pb2  # pylint: disable=g-import-not-at-top
-    except ImportError:
-      return
     def preprocessing_fn(inputs):
       # Add some arbitrary annotation data at the global schema level.
       boundaries = tf.constant([[1.0]])

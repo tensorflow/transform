@@ -29,6 +29,15 @@ from tensorflow.python.util import tf_decorator  # pylint: disable=g-direct-tens
 ANALYZER_COLLECTION = 'tft_analyzer_use'
 MAPPER_COLLECTION = 'tft_mapper_use'
 
+ANNOTATION_PREFIX_URL = 'type.googleapis.com'
+
+# TODO(b/132098015): Schema annotations aren't yet supported in OSS builds.
+try:
+  from tensorflow_transform import annotations_pb2  # pylint: disable=g-import-not-at-top, unused-import
+  IS_ANNOTATIONS_PB_AVAILABLE = True
+except ImportError:
+  IS_ANNOTATIONS_PB_AVAILABLE = False
+
 _in_logging_context = False
 
 

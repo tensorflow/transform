@@ -569,6 +569,27 @@ class _VocabularyAccumulatorCoder(_BaseKVCoder):
     return token, value
 
 
+class VocabularyCount(
+    collections.namedtuple('VocabularyCount', ['label']), nodes.OperationDef):
+  """An operation counts the total number of tokens in a vocabulary.
+
+  This operation takes in the output of VocabularyAccumulate and is implemented
+  by `tensorflow_transform.beam.analyzer_impls._VocabularyCountImpl`.
+
+  The output of this operation is a singleton Integer.
+  """
+
+  def __new__(cls, label=None):
+    if label is None:
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
+      label = '{}[{}]'.format(cls.__name__, scope)
+    return super(VocabularyCount, cls).__new__(cls, label=label)
+
+  @property
+  def num_outputs(self):
+    return 1
+
+
 class VocabularyMerge(
     collections.namedtuple('VocabularyMerge', [
         'vocab_ordering_type', 'use_adjusted_mutual_info', 'min_diff_from_avg',

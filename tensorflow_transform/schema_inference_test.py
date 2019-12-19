@@ -22,6 +22,8 @@ import os
 
 import tensorflow as tf
 
+from tensorflow_transform import analyzers
+from tensorflow_transform import common
 from tensorflow_transform import mappers
 from tensorflow_transform import schema_inference
 from tensorflow_transform import test_case
@@ -31,6 +33,10 @@ from tensorflow_transform.tf_metadata import schema_utils
 from google.protobuf import text_format
 import unittest
 from tensorflow_metadata.proto.v0 import schema_pb2
+
+
+if common.IS_ANNOTATIONS_PB_AVAILABLE:
+  from tensorflow_transform import annotations_pb2  # pylint: disable=g-import-not-at-top
 
 
 def _make_tensors_with_override():
@@ -98,14 +104,32 @@ class SchemaInferenceTest(test_case.TransformTestCase):
     with self.assertRaises(ValueError):
       schema_inference.infer_feature_schema(tensors, graph)
 
+  @unittest.skipIf(not common.IS_ANNOTATIONS_PB_AVAILABLE,
+                     'Schema annotations are not available')
+  def test_vocab_annotation(self):
+    with tf.compat.v1.Graph().as_default() as graph:
+      tensors = {
+          'foo': tf.convert_to_tensor([0, 1, 2, 3], dtype=tf.int64),
+      }
+      analyzers._maybe_annotate_vocab_metadata('file1',
+                                               tf.constant(100, dtype=tf.int64))
+      analyzers._maybe_annotate_vocab_metadata('file2',
+                                               tf.constant(200, dtype=tf.int64))
+      # Create a session to actually evaluate the annotations and extract the
+      # the output schema with annotations applied.
+      with tf.compat.v1.Session(graph=graph) as session:
+        schema = schema_inference.infer_feature_schema(tensors, graph, session)
+        self.assertLen(schema.annotation.extra_metadata, 2)
+        sizes = {}
+        for annotation in schema.annotation.extra_metadata:
+          message = annotations_pb2.VocabularyMetadata()
+          annotation.Unpack(message)
+          sizes[message.file_name] = message.unfiltered_vocabulary_size
+        self.assertDictEqual(sizes, {'file1': 100, 'file2': 200})
+
+  @unittest.skipIf(not common.IS_ANNOTATIONS_PB_AVAILABLE,
+                     'Schema annotations are not available')
   def test_bucketization_annotation(self):
-    # TODO(b/132098015): Schema annotations aren't yet supported in OSS builds.
-    # pylint: disable=g-import-not-at-top
-    try:
-      from tensorflow_transform import annotations_pb2
-    except ImportError:
-      return
-    # pylint: enable=g-import-not-at-top
     with tf.compat.v1.Graph().as_default() as graph:
       inputs = {
           'foo': tf.convert_to_tensor([0, 1, 2, 3]),
@@ -140,13 +164,9 @@ class SchemaInferenceTest(test_case.TransformTestCase):
             else:
               raise RuntimeError('Unexpected features in schema')
 
+  @unittest.skipIf(not common.IS_ANNOTATIONS_PB_AVAILABLE,
+                     'Schema annotations are not available')
   def test_global_annotation(self):
-    # TODO(b/132098015): Schema annotations aren't yet supported in OSS builds.
-    # pylint: disable=g-import-not-at-top
-    try:
-      from tensorflow_transform import annotations_pb2
-    except ImportError:
-      return
     # pylint: enable=g-import-not-at-top
     with tf.compat.v1.Graph().as_default() as graph:
       outputs = {

@@ -71,14 +71,6 @@ from tensorflow.python.ops import check_ops
 from tensorflow.python.util import deprecation
 # pylint: enable=g-direct-tensorflow-import
 
-# TODO(b/132098015): Schema annotations aren't yet supported in OSS builds.
-# pylint: disable=g-import-not-at-top
-try:
-  from tensorflow_transform import annotations_pb2
-except ImportError:
-  pass
-# pylint: enable=g-import-not-at-top
-
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def sparse_tensor_to_dense_with_shape(x, shape, default_value=0):
@@ -1730,10 +1722,11 @@ def _annotate_buckets(x, bucket_boundaries):
   """
   # The annotations proto currently isn't available in OSS builds, so schema
   # annotations are not supported.
-  try:
-    message_type = annotations_pb2.BucketBoundaries.DESCRIPTOR.full_name
-  except NameError:
+  if not common.IS_ANNOTATIONS_PB_AVAILABLE:
     return
+  from tensorflow_transform import annotations_pb2  # pylint: disable=g-import-not-at-top
+  message_type = annotations_pb2.BucketBoundaries.DESCRIPTOR.full_name
+
   # The BucketBoundaries annotation expects a float field.
   bucket_boundaries = tf.cast(bucket_boundaries, tf.float32)
   # Some callers provide rank 2 boundaries like [[.25], [.5], [.75], [1.]],
@@ -1748,7 +1741,7 @@ def _annotate_buckets(x, bucket_boundaries):
   assert message_proto.shape == [1]
   message_proto = message_proto[0]
 
-  type_url = os.path.join(schema_inference.ANNOTATION_PREFIX_URL, message_type)
+  type_url = os.path.join(common.ANNOTATION_PREFIX_URL, message_type)
   schema_inference.annotate(type_url, message_proto, tensor=x)
 
 

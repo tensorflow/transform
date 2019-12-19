@@ -243,6 +243,10 @@ node [shape=Mrecord];
 "TensorSource[x]" -> "VocabularyAccumulate[x]";
 "VocabularyMerge[x]" [label="{VocabularyMerge|vocab_ordering_type: 1|use_adjusted_mutual_info: False|min_diff_from_avg: None|label: VocabularyMerge[x]}"];
 "VocabularyAccumulate[x]" -> "VocabularyMerge[x]";
+"VocabularyCount[x]" [label="{VocabularyCount|label: VocabularyCount[x]}"];
+"VocabularyMerge[x]" -> "VocabularyCount[x]";
+"CreateTensorBinding[x/vocab_x_unpruned_vocab_size]" [label="{CreateTensorBinding|tensor: x/vocab_x_unpruned_vocab_size:0|is_asset_filepath: False|label: CreateTensorBinding[x/vocab_x_unpruned_vocab_size]}"];
+"VocabularyCount[x]" -> "CreateTensorBinding[x/vocab_x_unpruned_vocab_size]";
 "VocabularyPrune[x]" [label="{VocabularyPrune|top_k: None|frequency_threshold: None|coverage_top_k: None|coverage_frequency_threshold: None|key_fn: None|label: VocabularyPrune[x]}"];
 "VocabularyMerge[x]" -> "VocabularyPrune[x]";
 "VocabularyOrderAndWrite[x]" [label="{VocabularyOrderAndWrite|vocab_filename: vocab_x|store_frequency: False|input_dtype: string|label: VocabularyOrderAndWrite[x]|fingerprint_shuffle: False}"];
@@ -250,6 +254,7 @@ node [shape=Mrecord];
 "CreateTensorBinding[x/Placeholder]" [label="{CreateTensorBinding|tensor: x/Placeholder:0|is_asset_filepath: True|label: CreateTensorBinding[x/Placeholder]}"];
 "VocabularyOrderAndWrite[x]" -> "CreateTensorBinding[x/Placeholder]";
 CreateSavedModel [label="{CreateSavedModel|table_initializers: 1|output_signature: OrderedDict([('x_integerized', \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\")])|label: CreateSavedModel}"];
+"CreateTensorBinding[x/vocab_x_unpruned_vocab_size]" -> CreateSavedModel;
 "CreateTensorBinding[x/Placeholder]" -> CreateSavedModel;
 }
 """)

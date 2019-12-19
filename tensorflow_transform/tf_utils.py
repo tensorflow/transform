@@ -645,7 +645,7 @@ _DEFAULT_VALUE_BY_DTYPE = {
 }
 
 
-def _encode_proto(values_dict, message_type):
+def _encode_proto(values_dict, message_type, descriptor_source=''):
   """A wrapper around tf.raw_ops.EncodeProto."""
   field_names = []
   sizes = []
@@ -666,10 +666,12 @@ def _encode_proto(values_dict, message_type):
     sizes.append(size)
 
   sizes = tf.stack(sizes, axis=1)
-  return tf.raw_ops.EncodeProto(sizes=sizes,
-                                values=values,
-                                field_names=field_names,
-                                message_type=message_type)
+  return tf.raw_ops.EncodeProto(
+      sizes=sizes,
+      values=values,
+      field_names=field_names,
+      message_type=message_type,
+      descriptor_source=descriptor_source)
 
 
 def _serialize_feature(values):
