@@ -50,7 +50,7 @@ from tensorflow.python.ops import resources
 from tensorflow.python.util import deprecation
 
 __all__ = [
-    'count_elements',
+    'count_per_key',
     'covariance',
     'histogram',
     'max',
@@ -504,7 +504,7 @@ def histogram(x, boundaries=None, categorical=False, name=None):
     if categorical:
       x_dtype = x.dtype
       x = x if x_dtype == tf.string else tf.strings.as_string(x)
-      elements, counts = count_elements(x)
+      elements, counts = count_per_key(x)
       if x_dtype != elements.dtype:
         elements = tf.strings.to_number(elements, tf.int64)
       return counts, elements
@@ -525,7 +525,7 @@ def histogram(x, boundaries=None, categorical=False, name=None):
                                                  boundaries,
                                                  remove_leftmost_boundary=True)
 
-    bucket_vocab, counts = count_elements(tf.strings.as_string(bucket_indices))
+    bucket_vocab, counts = count_per_key(tf.strings.as_string(bucket_indices))
     counts = tf_utils.reorder_histogram(bucket_vocab, counts,
                                         tf.size(boundaries) - 1)
     return counts, boundaries
@@ -558,28 +558,35 @@ def size(x, reduce_instance_dims=True, name=None):
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def count_elements(x, name=None):
+def count_per_key(key, name=None):
   """Computes the count of each element of a `Tensor`.
 
   Args:
-    x: A Tensor or `SparseTensor` of dtype tf.string.
+    key: A Tensor or `SparseTensor` of dtype tf.string or tf.int.
     name: (Optional) A name for this operation.
 
   Returns:
-    Two `Tensor`s: one the key vocab with dtype tf.string;
+    Two `Tensor`s: one the key vocab with dtype of input;
         the other the count for each key, dtype tf.int64.
 
   Raises:
     TypeError: If the type of `x` is not supported.
   """
 
-  with tf.compat.v1.name_scope(name, 'count_elements'):
-    elements, counts = tf_utils.reduce_batch_count_or_sum_per_key(
-        x=None, key=x, reduce_instance_dims=True)
+  with tf.compat.v1.name_scope(name, 'count_per_key'):
+    key_dtype = key.dtype
+    is_key_string = key_dtype == tf.string
+    if not is_key_string:
+      key = tf.strings.as_string(key)
+    batch_keys, batch_counts = tf_utils.reduce_batch_count_or_sum_per_key(
+        x=None, key=key, reduce_instance_dims=True)
 
     output_dtype, sum_fn = _sum_combine_fn_and_dtype(tf.int64)
-    return _numeric_combine([counts], sum_fn, True, [output_dtype],
-                            key=elements)
+    keys, counts = _numeric_combine([batch_counts], sum_fn, True,
+                                    [output_dtype], key=batch_keys)
+    if not is_key_string:
+      keys = tf.strings.to_number(keys, key_dtype)
+    return keys, counts
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)

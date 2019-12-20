@@ -1495,30 +1495,38 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_outputs,
         desired_batch_size=10)
 
-  def testCountElements(self):
+  @tft_unit.named_parameters([
+      {'testcase_name': '_string',
+       'input_data': [{'key': 'a' if x < 25 else 'b'} for x in range(100)],
+       'input_metadata': tft_unit.metadata_from_feature_spec(
+           {'key': tf.io.FixedLenFeature([], tf.string)}),
+       'expected_outputs': {
+           'elements': np.array([b'a', b'b'], np.object),
+           'counts': np.array([25, 75], np.int64)
+       }
+      },
+      {'testcase_name': '_int',
+       'input_data': [{'key': 0 if x < 25 else 1} for x in range(100)],
+       'input_metadata': tft_unit.metadata_from_feature_spec(
+           {'key': tf.io.FixedLenFeature([], tf.int64)}),
+       'expected_outputs': {
+           'elements': np.array([0, 1], np.int64),
+           'counts': np.array([25, 75], np.int64)
+       }
+      },
+  ])
+  def testCountPerKey(self, input_data, input_metadata, expected_outputs):
     def analyzer_fn(inputs):
-      elements, counts = analyzers.count_elements(inputs['key'])
+      elements, counts = analyzers.count_per_key(inputs['key'])
       return {
           'elements': elements,
           'counts': counts
       }
-
-    # NOTE: We force 10 batches: data has 100 elements and we request a batch
-    # size of 10.
-    input_data = [{'key': 'a' if x < 25 else 'b'} for x in range(100)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'key': tf.io.FixedLenFeature([], tf.string)
-    })
-    expected_outputs = {
-        'elements': np.array([b'a', b'b'], np.object),
-        'counts': np.array([25, 75], np.int64)
-    }
     self.assertAnalyzerOutputs(
         input_data,
         input_metadata,
         analyzer_fn,
-        expected_outputs,
-        desired_batch_size=10)
+        expected_outputs)
 
   @tft_unit.named_parameters([
       {'testcase_name': '_uniform',

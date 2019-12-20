@@ -5,8 +5,8 @@
 * Added a new version of the census example to demonstrate usage in TF 2.0.
 * New mapper `estimated_probability_density` to compute either exact
   probabilities (for discrete categorical variable) or approximate density over
-  fixed intervals (continuous variables). 
-* New analyzers `count_elements` and `histogram` to return counts of unique
+  fixed intervals (continuous variables).
+* New analyzers `count_per_key` and `histogram` to return counts of unique
   elements or values within predefined ranges. Calling `tft.histogram` on
   non-categorical value will assign each data point to the appropriate fixed
   bucket and then count for each bucket.
@@ -15,16 +15,6 @@
 * Added beam counters to log analyzer and mapper usage.
 * Cleanup deprecated APIs used in census and sentiment examples.
 * Support windows style paths in `analyzer_cache`.
-* `tft_beam.WriteTransformFn` has been made idempotent to allow retrying it in
-  case of a failure.
-* `tft_beam.WriteMetadata` takes an optional argument `write_to_unique_subdir`
-  and returns the path to which metadata was written. If
-  `write_to_unique_subdir` is True, metadata is written to a unique subdirectory
-  under `path`, otherwise it is written to `path`.
-* Support non utf-8 characters when reading vocabularies in
-  `tft.TFTransformOutput`
-* `tft.TFTransformOutput.vocabulary_by_name` now returns bytes instead of str
-  with python 3.
 
 ## Breaking changes
 
