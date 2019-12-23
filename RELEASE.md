@@ -15,6 +15,16 @@
 * Added beam counters to log analyzer and mapper usage.
 * Cleanup deprecated APIs used in census and sentiment examples.
 * Support windows style paths in `analyzer_cache`.
+* `tft_beam.WriteTransformFn` has been made idempotent to allow retrying it in
+  case of a failure.
+* `tft_beam.WriteMetadata` takes an optional argument `write_to_unique_subdir`
+  and returns the path to which metadata was written. If
+  `write_to_unique_subdir` is True, metadata is written to a unique subdirectory
+  under `path`, otherwise it is written to `path`.
+* Support non utf-8 characters when reading vocabularies in
+  `tft.TFTransformOutput`
+* `tft.TFTransformOutput.vocabulary_by_name` now returns bytes instead of str
+  with python 3.
 
 ## Breaking changes
 
