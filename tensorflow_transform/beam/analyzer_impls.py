@@ -213,7 +213,7 @@ class _VocabularyAccumulateImpl(beam.PTransform):
 
 @common.register_ptransform(analyzer_nodes.VocabularyCount)
 @beam.typehints.with_input_types(KV[np.str, Union[int, float]])
-@beam.typehints.with_output_types(int)
+@beam.typehints.with_output_types(np.int64)
 class _VocabularyCountImpl(beam.PTransform):
   """Counts the total number of tokens in the vocabulary."""
 
@@ -223,7 +223,8 @@ class _VocabularyCountImpl(beam.PTransform):
   def expand(self, inputs):
     pcoll, = inputs
 
-    return pcoll | 'TotalVocabSize' >> beam.combiners.Count.Globally()
+    return pcoll | 'TotalVocabSize' >> beam.combiners.Count.Globally(
+    ) | 'ToInt64' >> beam.Map(np.int64)
 
 
 @common.register_ptransform(analyzer_nodes.VocabularyMerge)

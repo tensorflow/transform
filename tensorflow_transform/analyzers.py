@@ -1242,7 +1242,7 @@ def vocabulary(x,
         vocab_filename,
         analyzer_nodes.bind_future_as_tensor(
             total_vocab_size_node,
-            analyzer_nodes.TensorInfo(tf.int32, [], False),
+            analyzer_nodes.TensorInfo(tf.int64, [], False),
             name='{}_unpruned_vocab_size'.format(vocab_filename)))
 
     vocab_filename_tensor = analyzer_nodes.wrap_as_tensor(vocab_filename_node)

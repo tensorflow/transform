@@ -13,5 +13,5 @@ message VocabularyMetadata {
   optional string file_name = 1;
   // The original size of the vocabulary, prior to any filtering (e.g.
   // filtering to top_k).
-  optional int32 unfiltered_vocabulary_size = 2;
+  optional int64 unfiltered_vocabulary_size = 2;
 }
