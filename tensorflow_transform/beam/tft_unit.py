@@ -245,7 +245,8 @@ class TransformTestCase(test_case.TransformTestCase):
     with beam_pipeline or self._makeTestPipeline() as pipeline:
       with beam_impl.Context(
           temp_dir=temp_dir, desired_batch_size=desired_batch_size):
-        input_data = pipeline | 'CreateInput' >> beam.Create(input_data)
+        input_data = pipeline | 'CreateInput' >> beam.Create(
+            input_data, reshuffle=False)
         if test_data is None:
           (transformed_data, transformed_metadata), transform_fn = (
               (input_data, input_metadata)
