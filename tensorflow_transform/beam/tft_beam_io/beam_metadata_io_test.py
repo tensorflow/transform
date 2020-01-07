@@ -22,12 +22,16 @@ from __future__ import print_function
 import apache_beam as beam
 import tensorflow as tf
 
+from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import test_metadata
+import tensorflow_transform.test_case as tft_test_case
 from tensorflow_transform.tf_metadata import metadata_io
 
+mock = tf.compat.v1.test.mock
 
-class BeamMetadataIoTest(tf.test.TestCase):
+
+class BeamMetadataIoTest(tft_unit.TransformTestCase):
 
   def testWriteMetadataNonDeferred(self):
     # Write metadata to disk using WriteMetadata PTransform.
@@ -54,6 +58,34 @@ class BeamMetadataIoTest(tf.test.TestCase):
     # Load from disk and check that it is as expected.
     metadata = metadata_io.read_metadata(path)
     self.assertEqual(metadata, test_metadata.COMPLETE_METADATA)
+
+  def testWriteMetadataIsRetryable(self):
+    tft_test_case.skip_if_internal_environment(
+        'Retries are currently not available on this environment.')
+    original_write_metadata = beam_metadata_io.metadata_io.write_metadata
+    write_metadata_called_list = []
+
+    def mock_write_metadata(metadata, path):
+      """Mocks metadata_io.write_metadata to fail the first time it is called by this test, thus forcing a retry which should succeed."""
+      if not write_metadata_called_list:
+        write_metadata_called_list.append(True)
+        original_write_metadata(metadata, path)
+        raise ArithmeticError('Some error')
+      return original_write_metadata(metadata, path)
+
+    # Write metadata to disk using WriteMetadata PTransform.
+    with mock.patch(
+        'tensorflow_transform.tf_metadata.metadata_io.write_metadata',
+        mock_write_metadata):
+      with self._makeTestPipeline() as pipeline:
+        path = self.get_temp_dir()
+        _ = (
+            test_metadata.COMPLETE_METADATA
+            | beam_metadata_io.WriteMetadata(path, pipeline))
+
+      # Load from disk and check that it is as expected.
+      metadata = metadata_io.read_metadata(path)
+      self.assertEqual(metadata, test_metadata.COMPLETE_METADATA)
 
 
 if __name__ == '__main__':

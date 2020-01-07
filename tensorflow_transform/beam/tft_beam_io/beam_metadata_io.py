@@ -42,7 +42,6 @@ class BeamDatasetMetadata(
     return self.dataset_metadata.schema
 
 
-# TODO(b/70899285): Make WriteMetadata idempotent.
 class WriteMetadata(beam.PTransform):
   """A PTransform to write Metadata to disk.
 

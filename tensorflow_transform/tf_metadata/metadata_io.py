@@ -124,7 +124,7 @@ def write_metadata(metadata, path):
     file_io.recursive_create_dir(path)
   schema_file = os.path.join(path, 'schema.pbtxt')
   ascii_proto = text_format.MessageToString(metadata.schema)
-  file_io.write_string_to_file(schema_file, ascii_proto)
+  file_io.atomic_write_string_to_file(schema_file, ascii_proto, overwrite=True)
 
 
 def _convert_scalar_or_list(fn, scalar_or_list):

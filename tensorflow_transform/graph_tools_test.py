@@ -19,7 +19,6 @@ from __future__ import print_function
 
 import abc
 import collections
-import os
 
 # GOOGLE-INITIALIZATION
 
@@ -28,7 +27,6 @@ import six
 import tensorflow as tf
 from tensorflow_transform import graph_tools
 from tensorflow_transform import test_case
-import unittest
 
 from tensorflow.python.ops import control_flow_ops  # pylint: disable=g-direct-tensorflow-import
 
@@ -911,8 +909,7 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           }),
       dict(
           testcase_name='_y_function_of_x_with_raw_ops_while',
-          should_skip_test=not os.environ.get('TEST_WORKSPACE',
-                                              '').startswith('google'),
+          skip_test_check_fn=test_case.skip_if_internal_environment,
           create_graph_fn=_create_graph_with_y_function_of_x_with_tf_while,
           feeds=['x'],
           replaced_tensors_ready={'x': False},
@@ -962,8 +959,7 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           }),
       dict(
           testcase_name='_y_function_of_x_with_tf_while',
-          should_skip_test=not os.environ.get('TEST_WORKSPACE',
-                                              '').startswith('google'),
+          skip_test_check_fn=test_case.skip_if_internal_environment,
           create_graph_fn=_create_graph_with_tf_function_while,
           feeds=['x'],
           replaced_tensors_ready={'x': False},
@@ -1098,13 +1094,12 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                         feeds,
                         replaced_tensors_ready,
                         expected_calls_dict,
-                        should_skip_test=False):
+                        skip_test_check_fn=None):
 
     # TODO(b/138934800): Remove this once TF 1.15 has the same results in all
     # environments.
-    if should_skip_test:
-      raise unittest.SkipTest(
-          'This test is not currently supported.')
+    if skip_test_check_fn:
+      skip_test_check_fn('This test is not currently supported.')
 
     with tf.compat.v1.Graph().as_default() as graph:
       tensors = create_graph_fn()

@@ -19,7 +19,7 @@ from __future__ import print_function
 
 import inspect
 import itertools
-
+import os
 # GOOGLE-INITIALIZATION
 
 from absl.testing import parameterized
@@ -29,6 +29,7 @@ import numpy as np
 import six
 import tensorflow as tf
 
+import unittest
 from tensorflow.python.eager import context  # pylint: disable=g-direct-tensorflow-import
 
 main = tf.test.main
@@ -214,6 +215,11 @@ FUNCTION_HANDLERS = [
     dict(testcase_name='tf_function',
          function_handler=_tf_function_function_handler)
 ]
+
+
+def skip_if_internal_environment(reason):
+  if not os.environ.get('TEST_WORKSPACE', '').startswith('google'):
+    raise unittest.SkipTest(reason)
 
 
 def cross_with_function_handlers(parameters_list):

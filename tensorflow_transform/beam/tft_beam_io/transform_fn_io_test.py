@@ -30,15 +30,15 @@ from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform.beam.tft_beam_io import test_metadata
 from tensorflow_transform.tf_metadata import metadata_io
-import unittest
 
 from tensorflow.python.lib.io import file_io  # pylint: disable=g-direct-tensorflow-import
 
 mock = tf.compat.v1.test.mock
+# TODO(varshaan): Remove global variable and use a class attribute.
 _COPY_TREE_TO_UNIQUE_TEMP_DIR_CALLED = False
 
 
-class BeamMetadataIoTest(tft_unit.TransformTestCase):
+class TransformFnIoTest(tft_unit.TransformTestCase):
 
   def testReadTransformFn(self):
     path = self.get_temp_dir()
@@ -108,16 +108,14 @@ class BeamMetadataIoTest(tft_unit.TransformTestCase):
 
     self.assertFalse(file_io.file_exists(transform_output_dir))
 
-  @unittest.skipIf(
-      not os.environ.get('TEST_WORKSPACE', '').startswith('google'),
-      'Retries are currently not available on this environment.')
   def testWriteTransformFnIsRetryable(self):
-    transform_output_dir = os.path.join(self.get_temp_dir(), 'output')
-
+    tft.test_case.skip_if_internal_environment(
+        'Retries are currently not available on this environment.')
     original_copy_tree_to_unique_temp_dir = (
         transform_fn_io._copy_tree_to_unique_temp_dir)
 
     def mock_copy_tree_to_unique_temp_dir(source, base_temp_dir_path):
+      """Mocks transform_fn_io._copy_tree to fail the first time it is called by this test, thus forcing a retry which should succeed."""
       global _COPY_TREE_TO_UNIQUE_TEMP_DIR_CALLED
       if not _COPY_TREE_TO_UNIQUE_TEMP_DIR_CALLED:
         _COPY_TREE_TO_UNIQUE_TEMP_DIR_CALLED = True
@@ -126,6 +124,7 @@ class BeamMetadataIoTest(tft_unit.TransformTestCase):
       return original_copy_tree_to_unique_temp_dir(source, base_temp_dir_path)
 
     with self._makeTestPipeline() as pipeline:
+      transform_output_dir = os.path.join(self.get_temp_dir(), 'output')
       # Create an empty directory for the source saved model dir.
       saved_model_dir = os.path.join(self.get_temp_dir(), 'source')
       file_io.recursive_create_dir(saved_model_dir)
@@ -139,7 +138,6 @@ class BeamMetadataIoTest(tft_unit.TransformTestCase):
           [test_metadata.COMPLETE_METADATA])
       metadata = beam_metadata_io.BeamDatasetMetadata(
           test_metadata.INCOMPLETE_METADATA, deferred_metadata)
-
       with mock.patch.object(transform_fn_io, '_copy_tree_to_unique_temp_dir',
                              mock_copy_tree_to_unique_temp_dir):
         _ = ((saved_model_dir_pcoll, metadata)
