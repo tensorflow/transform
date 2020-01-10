@@ -295,8 +295,12 @@ class TransformTestCase(parameterized.TestCase, tf.test.TestCase):
         word_and_frequency_list = []
         for content in file_lines:
           frequency, word = content.split(b' ', 1)
+          # Split by comma for when the vocabulary file stores the result of
+          # per-key analyzers.
+          values = list(map(float, frequency.strip(b'\n').split(b',')))
           word_and_frequency_list.append(
-              (word.strip(b'\n'), float(frequency.strip(b'\n'))))
+              (word.strip(b'\n'), values[0] if len(values) == 1 else values))
+
         expected_words, expected_frequency = zip(*word_and_frequency_list)
         actual_words, actual_frequency = zip(*file_contents)
         self.assertAllEqual(expected_words, actual_words)

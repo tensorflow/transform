@@ -406,7 +406,7 @@ class CacheableCombinePerKeyAccumulate(
 
 class CacheableCombinePerKeyMerge(
     collections.namedtuple('CacheableCombinePerKeyMerge',
-                           ['combiner', 'label']), AnalyzerDef):
+                           ['combiner', 'label']), nodes.OperationDef):
   """An analyzer that runs `beam.CombinePerKey` to only merge accumulators.
 
   This analyzer reduces the values that it accepts as inputs, using the
@@ -428,6 +428,30 @@ class CacheableCombinePerKeyMerge(
     return super(CacheableCombinePerKeyMerge, cls).__new__(
         cls, combiner=combiner, label=label)
 
+
+class CacheableCombinePerKeyFormatKeys(
+    collections.namedtuple('CacheableCombinePerKeyFormatKeys',
+                           ['combiner', 'label']), AnalyzerDef):
+  """An analyzer that formats output for the non-stored per-key case.
+
+  This analyzer converts the (key, output) pairs into a tuple of keys (of type
+  string) and outputs.
+
+  This analyzer is implemented by
+  `tensorflow_transform.beam.analyzer_impls._CombinePerKeyFormatKeysImpl`
+
+  Fields:
+    combiner: The Combiner to use for extracting outputs.
+    label: A unique label for this operation.
+  """
+
+  def __new__(cls, combiner, label=None):
+    if label is None:
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
+      label = '{}[{}]'.format(cls.__name__, scope)
+    return super(CacheableCombinePerKeyFormatKeys, cls).__new__(
+        cls, combiner=combiner, label=label)
+
   @property
   def output_tensor_infos(self):
     # Returns a key vocab and one output per combiner output.
@@ -435,6 +459,29 @@ class CacheableCombinePerKeyMerge(
         TensorInfo(info.dtype, (None,) + info.shape, info.is_asset_filepath)
         for info in self.combiner.output_tensor_infos()
     ]
+
+
+class CacheableCombinePerKeyFormatLarge(
+    collections.namedtuple('CacheableCombinePerKeyFormatLarge', [
+        'label'
+    ]), nodes.OperationDef):
+  """An analyzer that formats output prior to writing to file for per-key case.
+
+  This operation operates on the output of CacheableCombinePerKeyAccumulate and
+  is implemented by `tensorflow_transform.beam.analyzer_impls.
+  _CombinePerKeyFormatLargeImpl`.
+  """
+
+  def __new__(cls, label=None):
+    if label is None:
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
+      label = '{}[{}]'.format(cls.__name__, scope)
+    return super(CacheableCombinePerKeyFormatLarge, cls).__new__(
+        cls, label=label)
+
+  @property
+  def num_outputs(self):
+    return 1
 
 
 class ScaleAndFlattenPerKeyBucketBouandaries(

@@ -154,12 +154,51 @@ def _apply_cacheable_combiner_per_key(combiner, *tensor_inputs):
       input_values_node,
       combiner=combiner)
 
-  output_value_nodes = nodes.apply_multi_output_operation(
+  merge_output_value_node = nodes.apply_operation(
       analyzer_nodes.CacheableCombinePerKeyMerge,
       *accumulate_outputs_value_nodes,
       combiner=combiner)
 
+  output_value_nodes = nodes.apply_multi_output_operation(
+      analyzer_nodes.CacheableCombinePerKeyFormatKeys,
+      merge_output_value_node,
+      combiner=combiner)
+
   return tuple(map(analyzer_nodes.wrap_as_tensor, output_value_nodes))
+
+
+def _apply_cacheable_combiner_per_key_large(combiner, key_vocabulary_filename,
+                                            *tensor_inputs):
+  """Similar to above but saves the combined result to a file."""
+  input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
+      tensor_inputs)
+
+  accumulate_outputs_value_node = nodes.apply_operation(
+      analyzer_nodes.CacheableCombinePerKeyAccumulate,
+      input_values_node,
+      combiner=combiner)
+
+  merge_output_value_node = nodes.apply_operation(
+      analyzer_nodes.CacheableCombinePerKeyMerge,
+      accumulate_outputs_value_node,
+      combiner=combiner)
+
+  keys_and_values_node = nodes.apply_operation(
+      analyzer_nodes.CacheableCombinePerKeyFormatLarge,
+      merge_output_value_node)
+
+  # `store_frequency` is True by default because we want to write some values
+  # alongside the key "vocabulary". Without doing so it would be equivalent to
+  # vanilla vocabulary analzyer. `fingerprint_shuffle` is not as important but
+  # signifies that the values are not required to be ordered here.
+  key_vocabulary_filename_node = nodes.apply_operation(
+      analyzer_nodes.VocabularyOrderAndWrite,
+      keys_and_values_node,
+      vocab_filename=key_vocabulary_filename,
+      store_frequency=True,
+      fingerprint_shuffle=True)
+
+  return analyzer_nodes.wrap_as_tensor(key_vocabulary_filename_node)
 
 
 class NumPyCombiner(analyzer_nodes.Combiner):
@@ -246,7 +285,8 @@ def _numeric_combine(inputs,
                      fn,
                      reduce_instance_dims=True,
                      output_dtypes=None,
-                     key=None):
+                     key=None,
+                     key_vocabulary_filename=None):
   """Apply a reduction, defined by a numpy function to multiple inputs.
 
   Args:
@@ -259,11 +299,19 @@ def _numeric_combine(inputs,
     output_dtypes: (Optional) A list of dtypes of the output tensors. If None,
         the output tensor has the same type as the input one.
     key: (Optional) Apply the same operation, but on a per-key basis.
+    key_vocabulary_filename: (Optional) The file name for the key-output mapping
+      file. If None and key are provided, this combiner assumes the keys fit in
+      memory and will not store the result in a file. If empty string, a file
+      name will be chosen based on the current scope. If not an empty string,
+      should be unique within a given preprocessing function.
 
   Returns:
-     A list of tensors with the same length as `inputs`, representing the
-         input tensors that have been reduced by `fn` across instances and
-         batches.
+      Either:
+      (A) A list of Tensors with the same length as `inputs`, representing the
+          input Tensors that have been reduced by `fn` across instances and
+          batches (if key_vocabulary_filename is None).
+      (B) A Tensor with the filename where the key-value mapping is stored (if
+          key_vocabulary_filename is not None).
   """
   for x in inputs:
     if not isinstance(x, tf.Tensor):
@@ -281,6 +329,14 @@ def _numeric_combine(inputs,
       fn, [dtype.as_numpy_dtype for dtype in output_dtypes], output_shapes)
   if key is None:
     return _apply_cacheable_combiner(combiner, *inputs)
+  if key_vocabulary_filename is not None:
+    if not key_vocabulary_filename:
+      key_vocabulary_filename = _get_vocab_filename(vocab_filename=None,
+                                                    store_frequency=False)
+
+    return _apply_cacheable_combiner_per_key_large(
+        combiner, key_vocabulary_filename, key, *inputs)
+
   return _apply_cacheable_combiner_per_key(combiner, key, *inputs)
 
 
@@ -366,7 +422,8 @@ def _min_and_max(x, reduce_instance_dims=True, name=None):
     return tf.cast(0 - minus_x_min, output_dtype), tf.cast(x_max, output_dtype)
 
 
-def _min_and_max_per_key(x, key, reduce_instance_dims=True, name=None):
+def _min_and_max_per_key(x, key, reduce_instance_dims=True,
+                         key_vocabulary_filename=None, name=None):
   """Computes the min and max of the values of a `Tensor` or `SparseTensor`.
 
   In the case of a `SparseTensor` missing values will be used in return value:
@@ -385,15 +442,31 @@ def _min_and_max_per_key(x, key, reduce_instance_dims=True, name=None):
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
+        The False case is not currently supported for _min_and_max_per_key.
+    key_vocabulary_filename: (Optional) The file name for the key-output mapping
+      file. If None and key are provided, this combiner assumes the keys fit in
+      memory and will not store the result in a file. If empty string, a file
+      name will be chosen based on the current scope. If not an empty string,
+      should be unique within a given preprocessing function.
     name: (Optional) A name for this operation.
 
   Returns:
-    Two `Tensor`s. Both have the same type as `x`.
+    Either:
+    (A) Three `Tensor`s. The first is the key vocab of type tf.string, and the
+        second two have same type as `x` (if key_vocabulary_filename is None).
+    (B) The filename where the key-value mapping is stored (if
+        key_vocabulary_filename is not None).
 
   Raises:
     TypeError: If the type of `x` is not supported.
   """
-  with tf.compat.v1.name_scope(name, 'min_and_max'):
+  if key is None:
+    raise ValueError('A key is required for _mean_and_var_per_key')
+
+  if not reduce_instance_dims:
+    raise NotImplementedError('Per-key elementwise reduction not supported')
+
+  with tf.compat.v1.name_scope(name, 'min_and_max_per_key'):
     combine_fn = np.max
     if (not reduce_instance_dims and isinstance(x, tf.SparseTensor) and
         x.dtype.is_floating):
@@ -404,11 +477,17 @@ def _min_and_max_per_key(x, key, reduce_instance_dims=True, name=None):
     key_vocab, x_batch_minus_min, x_batch_max = (
         tf_utils.reduce_batch_minus_min_and_max_per_key(x, key))
 
-    key, minus_x_min, x_max = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
+    key_values = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
         [x_batch_minus_min, x_batch_max],
         combine_fn,
         reduce_instance_dims,
-        key=key_vocab)
+        key=key_vocab,
+        key_vocabulary_filename=key_vocabulary_filename)
+
+    if key_vocabulary_filename is not None:
+      return key_values
+
+    key, minus_x_min, x_max = key_values
     return (
         key,
         tf.cast(0 - minus_x_min, output_dtype),
@@ -1096,9 +1175,9 @@ def vocabulary(x,
       full vocabulary is generated.  Absolute frequency means the number of
       occurrences of the element in the dataset, as opposed to the proportion of
       instances that contain that element.
-    vocab_filename: The file name for the vocabulary file. If none, the
-      "uniques" scope name in the context of this graph will be used as the file
-      name. If not None, should be unique within a given preprocessing function.
+    vocab_filename: The file name for the vocabulary file. If None, a file
+      name will be chosen based on the current scope. If not None, should be
+      unique within a given preprocessing function.
       NOTE To make your pipelines resilient to implementation details please
       set `vocab_filename` when you are using the vocab_filename on a downstream
       component.
@@ -1845,9 +1924,14 @@ def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
         input_values_node,
         combiner=combiner)
 
-    key_value_node, bucket_boundaries = nodes.apply_multi_output_operation(
+    merge_output_value_node = nodes.apply_operation(
         analyzer_nodes.CacheableCombinePerKeyMerge,
         *accumulate_outputs_value_nodes,
+        combiner=combiner)
+
+    key_value_node, bucket_boundaries = nodes.apply_multi_output_operation(
+        analyzer_nodes.CacheableCombinePerKeyFormatKeys,
+        merge_output_value_node,
         combiner=combiner)
 
     boundaries, scale_factor, shift, num_buckets_node = (

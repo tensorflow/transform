@@ -128,6 +128,7 @@ def scale_by_min_max(x,
         output_min=output_min,
         output_max=output_max,
         elementwise=elementwise,
+        key_vocabulary_filename=None,
         name=name)
 
 
@@ -137,6 +138,7 @@ def scale_by_min_max_per_key(x,
                              output_min=0.0,
                              output_max=1.0,
                              elementwise=False,
+                             key_vocabulary_filename=None,
                              name=None):
   """Scale a numerical column into a predefined range on a per-key basis.
 
@@ -152,6 +154,11 @@ def scale_by_min_max_per_key(x,
     output_min: The minimum of the range of output values.
     output_max: The maximum of the range of output values.
     elementwise: If true, scale each element of the tensor independently.
+    key_vocabulary_filename: (Optional) The file name for the per-key file.
+      If None, this combiner will assume the keys fit in memory and will not
+      store the analyzer result in a file. If '', the "uniques" scope name in
+      the context of this graph will be used as the file name. If not '', it
+      should be unique within a given preprocessing function.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -173,11 +180,12 @@ def scale_by_min_max_per_key(x,
         output_min=output_min,
         output_max=output_max,
         elementwise=elementwise,
+        key_vocabulary_filename=key_vocabulary_filename,
         name=name)
 
 
 def _scale_by_min_max_internal(x, key, output_min, output_max, elementwise,
-                               name):
+                               key_vocabulary_filename, name):
   """Implementation for scale_by_min_max."""
   del name
   if output_min >= output_max:
@@ -191,12 +199,17 @@ def _scale_by_min_max_internal(x, key, output_min, output_max, elementwise,
   else:
     if elementwise:
       raise NotImplementedError('Per-key elementwise reduction not supported')
-    key_vocab, min_x_value, max_x_value = (
-        analyzers._min_and_max_per_key(  # pylint: disable=protected-access
-            x, key, reduce_instance_dims=not elementwise))
-
-    min_x_value, max_x_value = tf_utils.map_per_key_reductions(
-        (min_x_value, max_x_value), key, key_vocab, x)
+    key_values = analyzers._min_and_max_per_key(  # pylint: disable=protected-access
+        x, key, reduce_instance_dims=not elementwise,
+        key_vocabulary_filename=key_vocabulary_filename)
+    if key_vocabulary_filename is None:
+      key_vocab, min_x_value, max_x_value = key_values
+      min_x_value, max_x_value = tf_utils.map_per_key_reductions(
+          (min_x_value, max_x_value), key, key_vocab, x)
+    else:
+      minus_min_max_for_key = tf_utils.apply_per_key_vocabulary(key_values, key)
+      min_x_value, max_x_value = (
+          -minus_min_max_for_key[:, 0, :], minus_min_max_for_key[:, 1, :])
 
   compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
   x_values = x
@@ -244,17 +257,24 @@ def scale_to_0_1(x, elementwise=False, name=None):
         output_min=0,
         output_max=1,
         elementwise=elementwise,
+        key_vocabulary_filename=None,
         name=name)
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def scale_to_0_1_per_key(x, key, elementwise=False, name=None):
+def scale_to_0_1_per_key(
+    x, key, elementwise=False, key_vocabulary_filename=None, name=None):
   """Returns a column which is the input column scaled to have range [0,1].
 
   Args:
     x: A numeric `Tensor`.
     key: A `Tensor` of type string.
     elementwise: If true, scale each element of the tensor independently.
+    key_vocabulary_filename: (Optional) The file name for the per-key file.
+      If None, this combiner will assume the keys fit in memory and will not
+      store the analyzer result in a file. If '', the "uniques" scope name in
+      the context of this graph will be used as the file name. If not '', it
+      should be unique within a given preprocessing function.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -270,6 +290,7 @@ def scale_to_0_1_per_key(x, key, elementwise=False, name=None):
         output_min=0,
         output_max=1,
         elementwise=elementwise,
+        key_vocabulary_filename=key_vocabulary_filename,
         name=name)
 
 

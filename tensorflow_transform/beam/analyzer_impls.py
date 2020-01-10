@@ -312,7 +312,7 @@ class _VocabularyPruneImpl(beam.PTransform):
 
 
 @common.register_ptransform(analyzer_nodes.VocabularyOrderAndWrite)
-@beam.typehints.with_input_types(KV[Union[int, float], np.str])
+@beam.typehints.with_input_types(KV[Union[bytes, int, float], np.str])
 @beam.typehints.with_output_types(np.ndarray)
 class _VocabularyOrderAndWriteImpl(beam.PTransform):
   """Writes the computed vocabulary file."""
@@ -1067,21 +1067,54 @@ class _MergeAccumulatorsCombinePerKeyImpl(beam.PTransform):
 
   def expand(self, inputs):
     pcoll, = inputs
-    output_keys = (
-        ['key'
-        ] + [str(i) for i in range(len(self._combiner.output_tensor_infos()))])
-    outputs_tuple = (
+    return (
         pcoll
         | 'MergeCombinePerKey' >> beam.CombinePerKey(
             _CombinerWrapper(
                 self._combiner,
                 self._tf_config,
-                is_combining_accumulators=True))
+                is_combining_accumulators=True)))
+
+
+@common.register_ptransform(analyzer_nodes.CacheableCombinePerKeyFormatKeys)
+class _CombinePerKeyFormatKeysImpl(beam.PTransform):
+  """An analyzer that formats output for the non-stored per-key case."""
+
+  def __init__(self, operation, extra_args):
+    self._combiner = operation.combiner
+    self._tf_config = extra_args.tf_config
+
+  def expand(self, inputs):
+    pcoll, = inputs
+    output_keys = (
+        ['key'
+        ] + [str(i) for i in range(len(self._combiner.output_tensor_infos()))])
+    outputs_tuple = (
+        pcoll
         | 'ToList' >> beam.combiners.ToList()
         | 'MergeByKey' >> beam.FlatMap(_merge_outputs_by_key, [
             info.dtype for info in self._combiner.output_tensor_infos()
         ]).with_outputs(*output_keys))
     return tuple(outputs_tuple[key] for key in output_keys)
+
+
+@common.register_ptransform(analyzer_nodes.CacheableCombinePerKeyFormatLarge)
+class _CombinePerKeyFormatLargeImpl(beam.PTransform):
+  """An analyzer that formats output before writing to file for per-key case."""
+
+  def __init__(self, operation, extra_args):
+    super(_CombinePerKeyFormatLargeImpl, self).__init__()
+
+  def expand(self, inputs):
+
+    def _encode_values(k, v):
+      return (k, tf.compat.as_str_any(','.join(map(tf.compat.as_str_any, v))))
+
+    pcoll, = inputs
+    return (
+        pcoll
+        | 'EncodeValues' >> beam.MapTuple(_encode_values)
+        | 'SwapKeysAndValues' >> beam.KvSwap())
 
 
 @common.register_ptransform(analyzer_nodes.PTransform)

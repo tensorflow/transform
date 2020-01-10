@@ -430,6 +430,37 @@ def apply_bucketize_op(x, boundaries, remove_leftmost_boundary=False):
   return bucket_indices
 
 
+def apply_per_key_vocabulary(per_key_filename, key, default_value=None):
+  """Apply a stored key-value mapping to a set of keys.
+
+  Args:
+    per_key_filename:  The file name for the per-key file.
+    key: A Tensor` of dtype tf.string, which will determine which values are
+        returned.
+    default_value: (Optional) A string that determines the default output for
+        keys that are not found.
+
+  Returns:
+    A `Tensor` representing the mapped values of shape [None, k, 1], where k is
+    the number of separate values computed by the analyzer.
+  """
+  initializer = tf.lookup.TextFileInitializer(per_key_filename,
+                                              key_dtype=tf.string,
+                                              key_index=1,
+                                              value_dtype=tf.string,
+                                              value_index=0,
+                                              delimiter=' ')
+
+  if default_value is None:
+    default_value = ''
+  table = tf.lookup.StaticHashTable(initializer, default_value=default_value)
+
+  result = tf.compat.v1.strings.split(table.lookup(key), sep=',')
+  result = tf.strings.to_number(tf.sparse.to_dense(result))
+
+  return tf.expand_dims(result, -1)
+
+
 def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
   """Computes element count, mean and var for the given tensor.
 

@@ -10,6 +10,10 @@
   elements or values within predefined ranges. Calling `tft.histogram` on
   non-categorical value will assign each data point to the appropriate fixed
   bucket and then count for each bucket.
+* Provided capability for per-key analyzers to analyze larger sets of keys that
+  would not fit in memory, by storing the key-value pairs in vocabulary files.
+  This is enabled by passing a `per_key_filename` to
+  `tft.scale_by_min_max_per_key` and `tft.scale_to_0_1_per_key`.
 
 ## Bug Fixes and Other Changes
 * Added beam counters to log analyzer and mapper usage.

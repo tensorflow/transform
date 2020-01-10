@@ -888,8 +888,15 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
 
-  @tft_unit.parameters((False,))
-  def testScaleMinMaxPerKey(self, elementwise=False):
+  @tft_unit.named_parameters([
+      dict(testcase_name='_empty_filename',
+           key_vocabulary_filename=''),
+      dict(testcase_name='_nonempty_filename',
+           key_vocabulary_filename='per_key'),
+      dict(testcase_name='_none_filename',
+           key_vocabulary_filename=None)
+  ])
+  def testScaleMinMaxPerKey(self, key_vocabulary_filename):
 
     def preprocessing_fn(inputs):
       outputs = {}
@@ -902,7 +909,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
                   inputs['key'],
                   output_min=-1,
                   output_max=1,
-                  elementwise=False),
+                  elementwise=False,
+                  key_vocabulary_filename=key_vocabulary_filename),
               axis=1)):
         outputs[col + '_scaled'] = scaled_t
       return outputs
@@ -961,9 +969,15 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x_scaled': tf.io.FixedLenFeature([], tf.float32),
         'y_scaled': tf.io.FixedLenFeature([], tf.float32)
     })
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data,
-                                          expected_metadata)
+    if key_vocabulary_filename:
+      per_key_vocab_contents = {key_vocabulary_filename:
+                                    [(b'a', [-1.0, 9.0]), (b'b', [2.0, 2.0])]}
+    else:
+      per_key_vocab_contents = None
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata, preprocessing_fn, expected_data,
+        expected_metadata,
+        expected_vocab_file_contents=per_key_vocab_contents)
 
   @tft_unit.named_parameters(
       dict(

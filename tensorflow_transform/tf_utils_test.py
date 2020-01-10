@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import os
 # GOOGLE-INITIALIZATION
 import numpy as np
 import tensorflow as tf
@@ -341,6 +342,26 @@ class TFUtilsTest(test_case.TransformTestCase):
         sess.run(tf.compat.v1.tables_initializer())
         output = sess.run(key_indices)
         self.assertAllEqual([0, 0, 0, 1, 1, 1, 1], output)
+
+  def testApplyPerKeyVocab(self):
+    with tf.compat.v1.Graph().as_default():
+      input_tensor = tf.constant(['a', 'b', 'c', 'd', 'e'])
+      vocab_filename = os.path.join(self.get_temp_dir(), 'test.txt')
+      vocab_data = [('0,0', 'a'), ('1,-1', 'b'), ('-1,1', 'c'), ('-2,2', 'd')]
+      encoded_vocab = '\n'.join([' '.join(pair) for pair in vocab_data])
+      with tf.io.gfile.GFile(vocab_filename, 'w') as f:
+        f.write(encoded_vocab)
+
+      output_tensor = tf_utils.apply_per_key_vocabulary(
+          tf.constant(vocab_filename), input_tensor, default_value='0,-5')
+
+      with tf.compat.v1.Session() as sess:
+        sess.run(tf.compat.v1.tables_initializer())
+        output = output_tensor.eval()
+
+      expected_data = [[[0], [0]], [[1], [-1]], [[-1], [1]], [[-2], [2]],
+                       [[0], [-5]]]
+      self.assertAllEqual(output, expected_data)
 
   @test_case.named_parameters(test_case.cross_with_function_handlers([
       dict(
