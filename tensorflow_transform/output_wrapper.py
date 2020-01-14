@@ -157,7 +157,6 @@ class TFTransformOutput(object):
     unbounded_raw_features, transformed_features = (
         saved_transform_io.partially_apply_saved_transform_internal(
             self.transform_savedmodel_dir, raw_features))
-    # TODO(b/124051570): Consider making drop_unused_features default to true.
     if drop_unused_features:
       graph = tf.compat.v1.get_default_graph()
       graph_analyzer = graph_tools.InitializableGraphAnalyzer(
