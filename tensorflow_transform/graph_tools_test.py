@@ -909,7 +909,7 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           }),
       dict(
           testcase_name='_y_function_of_x_with_raw_ops_while',
-          skip_test_check_fn=test_case.skip_if_internal_environment,
+          skip_test_check_fn=test_case.skip_if_external_environment,
           create_graph_fn=_create_graph_with_y_function_of_x_with_tf_while,
           feeds=['x'],
           replaced_tensors_ready={'x': False},
@@ -959,7 +959,7 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           }),
       dict(
           testcase_name='_y_function_of_x_with_tf_while',
-          skip_test_check_fn=test_case.skip_if_internal_environment,
+          skip_test_check_fn=test_case.skip_if_external_environment,
           create_graph_fn=_create_graph_with_tf_function_while,
           feeds=['x'],
           replaced_tensors_ready={'x': False},

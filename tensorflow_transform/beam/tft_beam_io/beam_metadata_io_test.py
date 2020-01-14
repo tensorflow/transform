@@ -60,7 +60,7 @@ class BeamMetadataIoTest(tft_unit.TransformTestCase):
     self.assertEqual(metadata, test_metadata.COMPLETE_METADATA)
 
   def testWriteMetadataIsRetryable(self):
-    tft_test_case.skip_if_internal_environment(
+    tft_test_case.skip_if_external_environment(
         'Retries are currently not available on this environment.')
     original_write_metadata = beam_metadata_io.metadata_io.write_metadata
     write_metadata_called_list = []

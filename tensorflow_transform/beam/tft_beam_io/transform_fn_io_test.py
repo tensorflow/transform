@@ -109,7 +109,7 @@ class TransformFnIoTest(tft_unit.TransformTestCase):
     self.assertFalse(file_io.file_exists(transform_output_dir))
 
   def testWriteTransformFnIsRetryable(self):
-    tft.test_case.skip_if_internal_environment(
+    tft.test_case.skip_if_external_environment(
         'Retries are currently not available on this environment.')
     original_copy_tree_to_unique_temp_dir = (
         transform_fn_io._copy_tree_to_unique_temp_dir)

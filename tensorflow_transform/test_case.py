@@ -217,8 +217,12 @@ FUNCTION_HANDLERS = [
 ]
 
 
-def skip_if_internal_environment(reason):
-  if not os.environ.get('TEST_WORKSPACE', '').startswith('google'):
+def is_external_environment():
+  return not os.environ.get('TEST_WORKSPACE', '').startswith('google')
+
+
+def skip_if_external_environment(reason):
+  if is_external_environment():
     raise unittest.SkipTest(reason)
 
 
