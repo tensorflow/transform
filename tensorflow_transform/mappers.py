@@ -128,8 +128,7 @@ def scale_by_min_max(x,
         output_min=output_min,
         output_max=output_max,
         elementwise=elementwise,
-        key_vocabulary_filename=None,
-        name=name)
+        key_vocabulary_filename=None)
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
@@ -180,14 +179,12 @@ def scale_by_min_max_per_key(x,
         output_min=output_min,
         output_max=output_max,
         elementwise=elementwise,
-        key_vocabulary_filename=key_vocabulary_filename,
-        name=name)
+        key_vocabulary_filename=key_vocabulary_filename)
 
 
 def _scale_by_min_max_internal(x, key, output_min, output_max, elementwise,
-                               key_vocabulary_filename, name):
+                               key_vocabulary_filename):
   """Implementation for scale_by_min_max."""
-  del name
   if output_min >= output_max:
     raise ValueError('output_min must be less than output_max')
 
@@ -257,8 +254,7 @@ def scale_to_0_1(x, elementwise=False, name=None):
         output_min=0,
         output_max=1,
         elementwise=elementwise,
-        key_vocabulary_filename=None,
-        name=name)
+        key_vocabulary_filename=None)
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
@@ -290,8 +286,7 @@ def scale_to_0_1_per_key(
         output_min=0,
         output_max=1,
         elementwise=elementwise,
-        key_vocabulary_filename=key_vocabulary_filename,
-        name=name)
+        key_vocabulary_filename=key_vocabulary_filename)
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
@@ -323,7 +318,6 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
         x=x,
         key=None,
         elementwise=elementwise,
-        name=name,
         output_dtype=output_dtype)
 
 
@@ -373,13 +367,11 @@ def scale_to_z_score_per_key(x,
         x=x,
         key=key,
         elementwise=elementwise,
-        name=name,
         output_dtype=output_dtype)
 
 
-def _scale_to_z_score_internal(x, key, elementwise, name, output_dtype):
+def _scale_to_z_score_internal(x, key, elementwise, output_dtype):
   """Implementation for scale_to_z_score."""
-  del name
   # x_mean will be float16, float32, or float64, depending on type of x
   if key is None:
     x_mean, x_var = analyzers._mean_and_var(  # pylint: disable=protected-access
@@ -746,8 +738,7 @@ def compute_and_apply_vocabulary(
         coverage_top_k=coverage_top_k,
         coverage_frequency_threshold=coverage_frequency_threshold,
         key_fn=key_fn,
-        fingerprint_shuffle=fingerprint_shuffle,
-        name=name)
+        fingerprint_shuffle=fingerprint_shuffle)
     return apply_vocabulary(
         x, deferred_vocab_and_filename, default_value, num_oov_buckets)
 

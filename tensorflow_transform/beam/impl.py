@@ -558,11 +558,7 @@ class _Flatten(beam.PTransform):
   """PTransform to flatten PCollections."""
 
   def __init__(self, operation, extra_args):
-    del extra_args  # unused
-    self._label = operation.label
-
-  def default_label(self):
-    return self._label
+    del operation, extra_args  # unused
 
   def expand(self, inputs):
     return inputs | beam.Flatten()

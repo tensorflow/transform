@@ -1130,17 +1130,16 @@ class _EncodeCacheImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     self._coder = operation.coder
-    self._label = operation.label
 
   def expand(self, inputs):
     pcoll, = inputs
 
     return (pcoll
-            | 'Encode[%s]' % self._label >> beam.Map(self._coder.encode_cache)
-            | 'Count[%s]' % self._label >>
-            common.IncrementCounter('cache_entries_encoded'))
+            | 'Encode' >> beam.Map(self._coder.encode_cache)
+            | 'Count' >> common.IncrementCounter('cache_entries_encoded'))
 
 
+# TODO(b/147736398): Look into making this a PTransform as well.
 @common.register_ptransform(analyzer_nodes.DecodeCache)
 def _decode_cache_impl(inputs, operation, extra_args):
   """A PTransform-like method that extracts and decodes a cache object."""
