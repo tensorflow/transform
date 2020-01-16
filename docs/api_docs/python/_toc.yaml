@@ -28,16 +28,22 @@ toc:
       path: /tfx/transform/api_docs/python/tft/bucketize_per_key
     - title: compute_and_apply_vocabulary
       path: /tfx/transform/api_docs/python/tft/compute_and_apply_vocabulary
+    - title: count_per_key
+      path: /tfx/transform/api_docs/python/tft/count_per_key
     - title: covariance
       path: /tfx/transform/api_docs/python/tft/covariance
     - title: deduplicate_tensor_per_row
       path: /tfx/transform/api_docs/python/tft/deduplicate_tensor_per_row
+    - title: estimated_probability_density
+      path: /tfx/transform/api_docs/python/tft/estimated_probability_density
     - title: get_analyze_input_columns
       path: /tfx/transform/api_docs/python/tft/get_analyze_input_columns
     - title: get_transform_input_columns
       path: /tfx/transform/api_docs/python/tft/get_transform_input_columns
     - title: hash_strings
       path: /tfx/transform/api_docs/python/tft/hash_strings
+    - title: histogram
+      path: /tfx/transform/api_docs/python/tft/histogram
     - title: max
       path: /tfx/transform/api_docs/python/tft/max
     - title: mean
@@ -104,8 +110,6 @@ toc:
       path: /tfx/transform/api_docs/python/tft_beam/AnalyzeDataset
     - title: AnalyzeDatasetWithCache
       path: /tfx/transform/api_docs/python/tft_beam/AnalyzeDatasetWithCache
-    - title: Context
-      path: /tfx/transform/api_docs/python/tft_beam/Context
     - title: ReadTransformFn
       path: /tfx/transform/api_docs/python/tft_beam/ReadTransformFn
     - title: TransformDataset
@@ -128,6 +132,12 @@ toc:
       path: /tfx/transform/api_docs/python/tft_beam/analyzer_cache/validate_dataset_keys
     - title: WriteAnalysisCacheToFS
       path: /tfx/transform/api_docs/python/tft_beam/analyzer_cache/WriteAnalysisCacheToFS
+  - title: tft_beam.context
+    section:
+    - title: Overview
+      path: /tfx/transform/api_docs/python/tft_beam/context
+    - title: Context
+      path: /tfx/transform/api_docs/python/tft_beam/context/Context
   - title: tft_beam.info_theory
     section:
     - title: Overview

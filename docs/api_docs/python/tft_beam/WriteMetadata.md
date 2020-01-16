@@ -38,16 +38,29 @@ A PTransform to write Metadata to disk.
 
 Input can either be a DatasetMetadata or a tuple of properties.
 
+Depending on the optional `write_to_unique_subdirectory`, writes the given
+metadata to either `path` or a new unique subdirectory under `path`.
+
+Returns a singleton with the path to which the metadata was written.
+
 <h2 id="__init__"><code>__init__</code></h2>
 
 ``` python
 __init__(
     path,
-    pipeline
+    pipeline,
+    write_to_unique_subdirectory=False
 )
 ```
 
-Initialize self.  See help(type(self)) for accurate signature.
+Init method.
+
+#### Args:
+
+* <b>`path`</b>: A str, the default path that the metadata should be written to.
+* <b>`pipeline`</b>: A beam Pipeline.
+* <b>`write_to_unique_subdirectory`</b>: (Optional) A bool indicating whether to
+    write the metadata out to `path` or a unique subdirectory under `path`.
 
 
 

@@ -97,6 +97,9 @@ A `Tensor` or `SparseTensor` where each string value is mapped to an
 integer. Each unique string value that appears in the vocabulary
 is mapped to a different integer and integers are consecutive starting from
 zero. String value not in the vocabulary is assigned default_value.
+Alternatively, if num_oov_buckets is specified, out of vocabulary strings
+are hashed to values in [vocab_size, vocab_size + num_oov_buckets) for an
+overall range of [0, vocab_size + num_oov_buckets).
 
 
 #### Raises:

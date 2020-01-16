@@ -8,7 +8,7 @@
 ``` python
 tft.scale_to_z_score_per_key(
     x,
-    key=None,
+    key,
     elementwise=False,
     name=None,
     output_dtype=None

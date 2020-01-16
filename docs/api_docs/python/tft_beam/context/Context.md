@@ -1,5 +1,5 @@
 <div itemscope itemtype="http://developers.google.com/ReferenceObject">
-<meta itemprop="name" content="tft_beam.Context" />
+<meta itemprop="name" content="tft_beam.context.Context" />
 <meta itemprop="path" content="Stable" />
 <meta itemprop="property" content="__enter__"/>
 <meta itemprop="property" content="__exit__"/>
@@ -10,11 +10,13 @@
 <meta itemprop="property" content="get_use_deep_copy_optimization"/>
 </div>
 
-# tft_beam.Context
+# tft_beam.context.Context
 
 ## Class `Context`
 
 
+
+**Aliases**: `tft_beam.Context`, `tft_beam.context.Context`
 
 Context manager for tensorflow-transform.
 

@@ -11,6 +11,8 @@ Module level imports for tensorflow_transform.beam.
 
 [`analyzer_cache`](./tft_beam/analyzer_cache.md) module: Module which allows a pipeilne to define and utilize cached analyzers.
 
+[`context`](./tft_beam/context.md) module: Context manager for tensorflow-transform.
+
 [`info_theory`](./tft_beam/info_theory.md) module: Utilities for information-theoretic preprocessing algorithms.
 
 ## Classes
@@ -21,7 +23,7 @@ Module level imports for tensorflow_transform.beam.
 
 [`class AnalyzeDatasetWithCache`](./tft_beam/AnalyzeDatasetWithCache.md): Takes a preprocessing_fn and computes the relevant statistics.
 
-[`class Context`](./tft_beam/Context.md): Context manager for tensorflow-transform.
+[`class Context`](./tft_beam/context/Context.md): Context manager for tensorflow-transform.
 
 [`class ReadTransformFn`](./tft_beam/ReadTransformFn.md): Reads a TransformFn written by WriteTransformFn.
 

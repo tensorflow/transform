@@ -83,9 +83,9 @@ within each vocabulary entry (b/117796748).
     full vocabulary is generated.  Absolute frequency means the number of
     occurrences of the element in the dataset, as opposed to the proportion of
     instances that contain that element.
-* <b>`vocab_filename`</b>: The file name for the vocabulary file. If none, the
-    "uniques" scope name in the context of this graph will be used as the file
-    name. If not None, should be unique within a given preprocessing function.
+* <b>`vocab_filename`</b>: The file name for the vocabulary file. If None, a file
+    name will be chosen based on the current scope. If not None, should be
+    unique within a given preprocessing function.
     NOTE To make your pipelines resilient to implementation details please
     set `vocab_filename` when you are using the vocab_filename on a downstream
     component.

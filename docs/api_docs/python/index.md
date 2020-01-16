@@ -17,11 +17,14 @@
 *  <a href="./tft/coders/CsvCoder.md"><code>tft.coders.CsvCoder</code></a>
 *  <a href="./tft/coders/ExampleProtoCoder.md"><code>tft.coders.ExampleProtoCoder</code></a>
 *  <a href="./tft/compute_and_apply_vocabulary.md"><code>tft.compute_and_apply_vocabulary</code></a>
+*  <a href="./tft/count_per_key.md"><code>tft.count_per_key</code></a>
 *  <a href="./tft/covariance.md"><code>tft.covariance</code></a>
 *  <a href="./tft/deduplicate_tensor_per_row.md"><code>tft.deduplicate_tensor_per_row</code></a>
+*  <a href="./tft/estimated_probability_density.md"><code>tft.estimated_probability_density</code></a>
 *  <a href="./tft/get_analyze_input_columns.md"><code>tft.get_analyze_input_columns</code></a>
 *  <a href="./tft/get_transform_input_columns.md"><code>tft.get_transform_input_columns</code></a>
 *  <a href="./tft/hash_strings.md"><code>tft.hash_strings</code></a>
+*  <a href="./tft/histogram.md"><code>tft.histogram</code></a>
 *  <a href="./tft/max.md"><code>tft.max</code></a>
 *  <a href="./tft/mean.md"><code>tft.mean</code></a>
 *  <a href="./tft/min.md"><code>tft.min</code></a>
@@ -49,7 +52,7 @@
 *  <a href="./tft_beam/AnalyzeAndTransformDataset.md"><code>tft_beam.AnalyzeAndTransformDataset</code></a>
 *  <a href="./tft_beam/AnalyzeDataset.md"><code>tft_beam.AnalyzeDataset</code></a>
 *  <a href="./tft_beam/AnalyzeDatasetWithCache.md"><code>tft_beam.AnalyzeDatasetWithCache</code></a>
-*  <a href="./tft_beam/Context.md"><code>tft_beam.Context</code></a>
+*  <a href="./tft_beam/context/Context.md"><code>tft_beam.Context</code></a>
 *  <a href="./tft_beam/ReadTransformFn.md"><code>tft_beam.ReadTransformFn</code></a>
 *  <a href="./tft_beam/TransformDataset.md"><code>tft_beam.TransformDataset</code></a>
 *  <a href="./tft_beam/WriteMetadata.md"><code>tft_beam.WriteMetadata</code></a>
@@ -60,6 +63,8 @@
 *  <a href="./tft_beam/analyzer_cache/make_cache_entry_key.md"><code>tft_beam.analyzer_cache.make_cache_entry_key</code></a>
 *  <a href="./tft_beam/analyzer_cache/make_dataset_key.md"><code>tft_beam.analyzer_cache.make_dataset_key</code></a>
 *  <a href="./tft_beam/analyzer_cache/validate_dataset_keys.md"><code>tft_beam.analyzer_cache.validate_dataset_keys</code></a>
+*  <a href="./tft_beam/context.md"><code>tft_beam.context</code></a>
+*  <a href="./tft_beam/context/Context.md"><code>tft_beam.context.Context</code></a>
 *  <a href="./tft_beam/info_theory.md"><code>tft_beam.info_theory</code></a>
 *  <a href="./tft_beam/info_theory/calculate_partial_expected_mutual_information.md"><code>tft_beam.info_theory.calculate_partial_expected_mutual_information</code></a>
 *  <a href="./tft_beam/info_theory/calculate_partial_mutual_information.md"><code>tft_beam.info_theory.calculate_partial_mutual_information</code></a>

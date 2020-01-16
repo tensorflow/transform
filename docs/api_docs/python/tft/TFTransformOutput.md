@@ -32,17 +32,17 @@
 
 A wrapper around the output of the tf.Transform.
 
-#### Args:
-
-* <b>`transform_output_dir`</b>: The directory containig tf.Transform output.
-
 <h2 id="__init__"><code>__init__</code></h2>
 
 ``` python
 __init__(transform_output_dir)
 ```
 
-Initialize self.  See help(type(self)) for accurate signature.
+Init method for TFTransformOutput.
+
+#### Args:
+
+* <b>`transform_output_dir`</b>: The directory containig tf.Transform output.
 
 
 

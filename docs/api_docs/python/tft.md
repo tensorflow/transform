@@ -41,15 +41,21 @@ Init module for TF.Transform.
 
 [`compute_and_apply_vocabulary(...)`](./tft/compute_and_apply_vocabulary.md): Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
+[`count_per_key(...)`](./tft/count_per_key.md): Computes the count of each element of a `Tensor`.
+
 [`covariance(...)`](./tft/covariance.md): Computes the covariance matrix over the whole dataset.
 
 [`deduplicate_tensor_per_row(...)`](./tft/deduplicate_tensor_per_row.md): Deduplicates each row (0-th dimension) of the provided tensor.
+
+[`estimated_probability_density(...)`](./tft/estimated_probability_density.md): Computes an approximate probability density at each x, given the bins.
 
 [`get_analyze_input_columns(...)`](./tft/get_analyze_input_columns.md): Return columns that are required inputs of `AnalyzeDataset`.
 
 [`get_transform_input_columns(...)`](./tft/get_transform_input_columns.md): Return columns that are required inputs of `TransformDataset`.
 
 [`hash_strings(...)`](./tft/hash_strings.md): Hash strings into buckets.
+
+[`histogram(...)`](./tft/histogram.md): Computes a histogram over x, given the bin boundaries or bin count.
 
 [`max(...)`](./tft/max.md): Computes the maximum of the values of a `Tensor` over the whole dataset.
 
