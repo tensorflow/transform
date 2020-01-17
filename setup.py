@@ -28,14 +28,14 @@ def _make_required_install_packages():
   # six, and protobuf) with TF.
   return [
       'absl-py>=0.7,<0.9',
-      'apache-beam[gcp]>=2.16,<3',
+      'apache-beam[gcp]>=2.17,<3',
       'numpy>=1.16,<2',
       'protobuf>=3.7,<4',
       'pydot>=1.2,<2',
-      'six>=1.10,<2',
-      'tensorflow-metadata>=0.15,<0.16',
+      'six>=1.12,<2',
+      'tensorflow-metadata>=0.21,<0.22',
       'tensorflow>=1.15,<2.2',
-      'tfx-bsl>=0.15,<0.17',
+      'tfx-bsl>=0.21,<0.22',
   ]
 
 # TODO(b/121329572): Remove the following comment after we can guarantee the

@@ -1,5 +1,5 @@
 <!-- mdformat off(mdformat causes unwanted indentation changes) -->
-# Current version (not yet released; still in development)
+# Release 0.21.0
 
 ## Major Features and Improvements
 * Added a new version of the census example to demonstrate usage in TF 2.0.
