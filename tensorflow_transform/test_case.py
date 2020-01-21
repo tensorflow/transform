@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import inspect
 import itertools
 import os
@@ -118,6 +119,12 @@ def parameters(*testcases):
     return parameterized.parameters(*testcases_with_names)(fn)
 
   return wrapper
+
+
+def cross_parameters(*args):
+  """Cross a sequence of sequences of parameters suitable for @parameters."""
+  for p in itertools.product(*args):
+    yield functools.reduce(lambda x, y: x + y, p)
 
 
 def _make_placeholder(tensor_spec):

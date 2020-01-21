@@ -90,6 +90,7 @@ from apache_beam.typehints import with_input_types
 from apache_beam.typehints import with_output_types
 
 import numpy as np
+import pyarrow as pa
 import six
 import tensorflow as tf
 from tensorflow_transform import common
@@ -108,6 +109,7 @@ from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
 from tfx_bsl.beam import shared
+from tfx_bsl.tfxio.tensor_adapter import TensorAdapter
 
 Context = context.Context
 
@@ -180,7 +182,7 @@ def _BatchElements(pcoll):  # pylint: disable=invalid-name
 
 
 # TODO(b/36223892): Verify that these type hints work and make needed fixes.
-@with_input_types(List[_DATASET_ELEMENT_TYPE], str)
+@with_input_types(Union[List[_DATASET_ELEMENT_TYPE], pa.RecordBatch], str)
 @with_output_types(Dict[str, Union[np.ndarray, tf.compat.v1.SparseTensorValue]])
 class _RunMetaGraphDoFn(beam.DoFn):
   """Maps a PCollection of dicts to a PCollection of dicts via a TF graph.
@@ -205,7 +207,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
   class _GraphState(object):
     """A container for a shared graph state."""
 
-    def __init__(self, saved_model_dir, input_schema, exclude_outputs,
+    def __init__(self, saved_model_dir, input_tensor_names, exclude_outputs,
                  tf_config):
       self.saved_model_dir = saved_model_dir
       with tf.compat.v1.Graph().as_default() as graph:
@@ -218,11 +220,10 @@ class _RunMetaGraphDoFn(beam.DoFn):
         self._session.run(tf.compat.v1.tables_initializer())
         graph.finalize()
 
-        input_schema_keys = schema_utils.schema_as_feature_spec(
-            input_schema).feature_spec.keys()
-        if set(input_schema_keys).difference(inputs.keys()):
-          raise ValueError('Input schema contained keys not in graph: %s' %
-                           input_schema_keys)
+        if set(input_tensor_names).difference(inputs.keys()):
+          raise ValueError(
+              'Input tensor names contained tensors not in graph: %s' %
+              input_tensor_names)
         if set(exclude_outputs).difference(outputs.keys()):
           raise ValueError('Excluded outputs contained keys not in graph: %s' %
                            exclude_outputs)
@@ -240,28 +241,43 @@ class _RunMetaGraphDoFn(beam.DoFn):
             fetches, feed_list=tensor_inputs_list)
 
   def __init__(self,
-               input_schema,
                tf_config,
                shared_graph_state_handle,
                passthrough_keys,
+               use_tfxio,
+               input_schema=None,
+               input_tensor_adapter_config=None,
                exclude_outputs=None):
     super(_RunMetaGraphDoFn, self).__init__()
+    self._use_tfxio = use_tfxio
     self._input_schema = input_schema
+    self._input_tensor_adapter_config = input_tensor_adapter_config
+    if self._use_tfxio:
+      assert self._input_tensor_adapter_config is not None
+    else:
+      assert self._input_schema is not None
     self._exclude_outputs = (
         exclude_outputs if exclude_outputs is not None else [])
     self._tf_config = tf_config
-    self._passthrough_keys = set(passthrough_keys)
-    schema_keys = set(
-        schema_utils.schema_as_feature_spec(input_schema).feature_spec.keys())
-    if self._passthrough_keys - schema_keys != self._passthrough_keys:
+    passthrough_keys = set(passthrough_keys)
+    schema_keys = self._get_input_tensor_names()
+    if passthrough_keys - schema_keys != passthrough_keys:
       raise ValueError(
           'passthrough_keys overlap with schema keys: {}, {}'.format(
-              self._passthrough_keys, schema_keys))
+              passthrough_keys, schema_keys))
+    self._passthrough_keys = sorted(passthrough_keys)
 
     # The shared graph state handle allows us to load the graph once and share
     # it across multiple threads in the current process.
     self._shared_graph_state_handle = shared_graph_state_handle
+
+    # Initialized in process().
     self._graph_state = None
+    # Initialized in setup().
+    self._tensor_adapter = None
+    # i-th element in this list contains the index of the column corresponding
+    # to self._passthrough_keys[i].
+    self._passthrough_column_indices = None
 
     # Metrics.
     self._graph_load_seconds_distribution = beam.metrics.Metrics.distribution(
@@ -271,23 +287,61 @@ class _RunMetaGraphDoFn(beam.DoFn):
     self._num_instances = beam.metrics.Metrics.counter(
         beam_common.METRICS_NAMESPACE, 'num_instances')
 
-  def _handle_batch(self, batch):
+  def _get_input_tensor_names(self):
+    if self._use_tfxio:
+      return set(
+          self._input_tensor_adapter_config.tensor_representations.keys())
+
+    return set(schema_utils.schema_as_feature_spec(self._input_schema)
+               .feature_spec.keys())
+
+  def _update_metrics(self, batch):
+    if self._use_tfxio:
+      self._batch_size_distribution.update(batch.num_rows)
+      self._num_instances.inc(batch.num_rows)
+      return
+
     self._batch_size_distribution.update(len(batch))
     self._num_instances.inc(len(batch))
 
-    # Making a copy of batch because mutating PCollection elements is not
-    # allowed.
-    if self._passthrough_keys:
+  def _make_feed_list(self, batch):
+    if self._use_tfxio:
+      feed_by_name = self._tensor_adapter.ToBatchTensors(
+          batch, produce_eager_tensors=False)
+      return [
+          feed_by_name[name] for name in self._graph_state.inputs_tensor_keys]
+
+    return impl_helper.make_feed_list(
+        self._graph_state.inputs_tensor_keys, self._input_schema, batch)
+
+  def _get_passthrough_data_from_recordbatch(self, batch):
+    result = {}
+    for passthrough_key, column_index in zip(
+        self._passthrough_keys, self._passthrough_column_indices):
+      result[passthrough_key] = np.asarray(batch.column(column_index).flatten())
+    return result
+
+  def _handle_batch(self, batch):
+    self._update_metrics(batch)
+    # Remove passthrough keys from the input data to make sure preprocessing_fn
+    # won't see them. Making a copy of batch because mutating PCollection
+    # elements is not allowed.
+    # No need to remove (and cannot remove) the passthrough columns if
+    # tfxio is used:
+    # 1) The TensorAdapter expects the RecordBatch to be of the same schema as
+    # statically determined by the TFXIO implementation the yields the
+    # TensorAdapter.
+    # 2) It's not possible to leak passthrough columns through TensorAdapter
+    # because they are not going to be converted to Tensors.
+    passthrough_data = None
+    if self._passthrough_keys and not self._use_tfxio:
       batch = [copy.copy(x) for x in batch]
-    # Extract passthrough data.
-    passthrough_data = {
-        key: [instance.pop(key) for instance in batch
-             ] for key in self._passthrough_keys
-    }
+      passthrough_data = {
+          key: [instance.pop(key) for instance in batch
+               ] for key in self._passthrough_keys
+      }
 
-    feed_list = impl_helper.make_feed_list(self._graph_state.inputs_tensor_keys,
-                                           self._input_schema, batch)
-
+    feed_list = self._make_feed_list(batch)
     try:
       outputs_list = self._graph_state.callable_get_outputs(*feed_list)
     except Exception as e:
@@ -303,18 +357,27 @@ class _RunMetaGraphDoFn(beam.DoFn):
                                          outputs_list)
     }
 
-    for key, value in six.iteritems(passthrough_data):
-      result[key] = value
+    if self._use_tfxio:
+      result.update(self._get_passthrough_data_from_recordbatch(batch))
+    elif passthrough_data is not None:
+      result.update(passthrough_data)
 
     return result
 
   def _make_graph_state(self, saved_model_dir):
     start = datetime.datetime.now()
-    result = self._GraphState(saved_model_dir, self._input_schema,
+    result = self._GraphState(saved_model_dir, self._get_input_tensor_names(),
                               self._exclude_outputs, self._tf_config)
     self._graph_load_seconds_distribution.update(
         int((datetime.datetime.now() - start).total_seconds()))
     return result
+
+  def setup(self):
+    if self._input_tensor_adapter_config is not None:
+      self._tensor_adapter = TensorAdapter(self._input_tensor_adapter_config)
+      arrow_schema = self._input_tensor_adapter_config.arrow_schema
+      self._passthrough_column_indices = [
+          arrow_schema.get_field_index(k) for k in self._passthrough_keys]
 
   def process(self, batch, saved_model_dir):
     """Runs the given graph to realize the output `Tensor` or `SparseTensor`s.
@@ -506,7 +569,9 @@ class _ApplySavedModelImpl(beam.PTransform):
   """PTransform to apply a SavedModel to data."""
 
   def __init__(self, operation, extra_args):
+    self._use_tfxio = extra_args.use_tfxio
     self._input_schema = extra_args.input_schema
+    self._input_tensor_adapter_config = extra_args.input_tensor_adapter_config
     self._tf_config = extra_args.tf_config
     self._phase = operation.phase
     if operation.dataset_key is None:
@@ -528,16 +593,18 @@ class _ApplySavedModelImpl(beam.PTransform):
     else:
       input_values = self._input_values_pcoll
 
-    return (
-        input_values
-        | 'BatchInputs' >> _BatchElements()
-        | 'ApplySavedModel' >> beam.ParDo(
-            _RunMetaGraphDoFn(
-                self._input_schema,
-                self._tf_config,
-                shared_graph_state_handle=shared.Shared(),
-                passthrough_keys=Context.get_passthrough_keys()),
-            saved_model_dir=beam.pvalue.AsSingleton(inputs[0])))
+    if not self._use_tfxio:
+      input_values |= 'BatchInputs' >> _BatchElements()
+
+    return (input_values | 'ApplySavedModel' >> beam.ParDo(
+        _RunMetaGraphDoFn(
+            self._tf_config,
+            use_tfxio=self._use_tfxio,
+            input_schema=self._input_schema,
+            input_tensor_adapter_config=self._input_tensor_adapter_config,
+            shared_graph_state_handle=shared.Shared(),
+            passthrough_keys=Context.get_passthrough_keys()),
+        saved_model_dir=beam.pvalue.AsSingleton(inputs[0])))
 
 
 def _extract_keys_fn(inp, operation):
@@ -621,6 +688,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
   def __init__(self, preprocessing_fn, pipeline=None):
     self._preprocessing_fn = preprocessing_fn
     self.pipeline = pipeline
+    self._use_tfxio = Context.get_use_tfxio()
     _assert_tensorflow_version()
 
   def _extract_input_pvalues(self, dataset):
@@ -659,17 +727,24 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     """
     (flattened_pcoll, input_values_pcoll_dict, dataset_cache_dict,
      input_metadata) = dataset
-    input_schema = input_metadata.schema
+    if self._use_tfxio:
+      input_schema = None
+      input_tensor_adapter_config = input_metadata
+    else:
+      input_schema = input_metadata.schema
+      input_tensor_adapter_config = None
 
     input_values_pcoll_dict = input_values_pcoll_dict or dict()
 
     with tf.compat.v1.Graph().as_default() as graph:
 
       with tf.compat.v1.name_scope('inputs'):
-        feature_spec = schema_utils.schema_as_feature_spec(
-            input_schema).feature_spec
-        input_signature = impl_helper.feature_spec_as_batched_placeholders(
-            feature_spec)
+        if self._use_tfxio:
+          input_signature = impl_helper.batched_placeholders_from_typespecs(
+              TensorAdapter(input_tensor_adapter_config).TypeSpecs())
+        else:
+          input_signature = impl_helper.feature_spec_as_batched_placeholders(
+              schema_utils.schema_as_feature_spec(input_schema).feature_spec)
         # In order to avoid a bug where import_graph_def fails when the
         # input_map and return_elements of an imported graph are the same
         # (b/34288791), we avoid using the placeholder of an input column as an
@@ -714,6 +789,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
         graph=graph,
         input_signature=input_signature,
         input_schema=input_schema,
+        input_tensor_adapter_config=input_tensor_adapter_config,
+        use_tfxio=self._use_tfxio,
         cache_pcoll_dict=dataset_cache_dict)
 
     transform_fn_future, cache_value_nodes = analysis_graph_builder.build(
@@ -899,6 +976,7 @@ class TransformDataset(beam.PTransform):
   """
 
   def __init__(self, exclude_outputs=None):
+    self._use_tfxio = Context.get_use_tfxio()
     self._exclude_outputs = exclude_outputs
     _assert_tensorflow_version()
 
@@ -926,6 +1004,13 @@ class TransformDataset(beam.PTransform):
     (input_values, input_metadata), (transform_fn, output_metadata) = (
         dataset_and_transform_fn)
 
+    if self._use_tfxio:
+      input_schema = None
+      input_tensor_adapter_config = input_metadata
+    else:
+      input_schema = input_metadata.schema
+      input_tensor_adapter_config = None
+
     # If exclude_outputs is set, update the output metadata.
     if self._exclude_outputs is not None:
       if isinstance(output_metadata, beam_metadata_io.BeamDatasetMetadata):
@@ -943,13 +1028,16 @@ class TransformDataset(beam.PTransform):
 
     tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_BEAM_RUNNER_TYPE.get(
         type(self.pipeline.runner))
+    if not self._use_tfxio:
+      input_values |= 'Batch' >> _BatchElements()
     output_instances = (
         input_values
-        | 'Batch' >> _BatchElements()
         | 'Transform' >> beam.ParDo(
             _RunMetaGraphDoFn(
-                input_metadata.schema,
                 tf_config,
+                input_schema=input_schema,
+                input_tensor_adapter_config=input_tensor_adapter_config,
+                use_tfxio=self._use_tfxio,
                 shared_graph_state_handle=shared.Shared(),
                 passthrough_keys=Context.get_passthrough_keys(),
                 exclude_outputs=self._exclude_outputs),

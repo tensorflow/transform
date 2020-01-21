@@ -45,6 +45,16 @@ class TftUnitTest(test_case.TransformTestCase):
         test_case.cross_named_parameters(test_cases_1, test_cases_2),
         expected_cross)
 
+  def testCrossParameters(self):
+    test_cases_1 = [('a', 1), ('b', 2)]
+    test_cases_2 = [(True,), (False,)]
+    expected_cross = [
+        ('a', 1, True), ('b', 2, True),
+        ('a', 1, False), ('b', 2, False),
+    ]
+    self.assertCountEqual(
+        test_case.cross_parameters(test_cases_1, test_cases_2), expected_cross)
+
   def testAssertDataCloseOrEqual(self):
     self.assertDataCloseOrEqual([{'a': 'first',
                                   'b': 1.0,

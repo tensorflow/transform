@@ -31,6 +31,8 @@ import tensorflow as tf
 from tensorflow_transform.tf_metadata import schema_utils
 
 _CACHED_EMPTY_ARRAY_BY_DTYPE = {}
+_VALID_SCOPE_REGEX = re.compile('^[A-Za-z0-9]*$')
+_INVALID_SCOPE_CHAR = re.compile('[^A-Za-z0-9_.\\-/>]')
 
 
 def _get_empty_array(dtype):
@@ -39,6 +41,34 @@ def _get_empty_array(dtype):
     empty_array.setflags(write=False)
     _CACHED_EMPTY_ARRAY_BY_DTYPE[dtype] = empty_array
   return _CACHED_EMPTY_ARRAY_BY_DTYPE[dtype]
+
+
+def batched_placeholders_from_typespecs(typespecs):
+  """Returns placeholders for the given tf.TypeSpecs.
+
+  Args:
+    typespecs: a Dict[Text, tf.TypeSpec]
+  Returns:
+    a Dict[Text, placeholder]
+  Raises:
+    ValueError: If not supported.
+  """
+  result = {}
+  for name, spec in six.iteritems(typespecs):
+    scope_name = _INVALID_SCOPE_CHAR.sub('_', name)
+    if not _VALID_SCOPE_REGEX.match(scope_name):
+      scope_name = 'F_{}'.format(scope_name)
+    if isinstance(spec, tf.TensorSpec):
+      result[name] = tf.compat.v1.placeholder(
+          spec.dtype, spec.shape, name=scope_name)
+    elif isinstance(spec, tf.SparseTensorSpec):
+      # BUGGY TF
+      result[name] = tf.compat.v1.sparse_placeholder(
+          spec.dtype, spec.shape.as_list(), name=scope_name)
+    else:
+      raise ValueError('Unsupported tensor spec: {}'.format(spec))
+
+  return result
 
 
 def feature_spec_as_batched_placeholders(feature_spec):
@@ -57,15 +87,13 @@ def feature_spec_as_batched_placeholders(feature_spec):
     ValueError: If the feature spec contains feature types not supported.
   """
   result = {}
-  valid_scope_regex = re.compile('^[A-Za-z0-9]*$')
-  invalid_char = re.compile('[^A-Za-z0-9_.\\-/>]')
 
   for name, spec in six.iteritems(feature_spec):
     if spec.dtype not in (tf.int64, tf.float32, tf.string):
       raise ValueError('Feature {} ({}) had invalid dtype'.format(name, spec))
     # If the feature name is not a valid TF scope name, make it conformant.
-    scope_name = invalid_char.sub('_', name)
-    if not valid_scope_regex.match(scope_name):
+    scope_name = _INVALID_SCOPE_CHAR.sub('_', name)
+    if not _VALID_SCOPE_REGEX.match(scope_name):
       scope_name = 'F_{}'.format(scope_name)
     if isinstance(spec, tf.io.FixedLenFeature):
       result[name] = tf.compat.v1.placeholder(

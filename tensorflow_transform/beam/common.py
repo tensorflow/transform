@@ -113,6 +113,8 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
           'graph',
           'input_signature',
           'input_schema',
+          'input_tensor_adapter_config',
+          'use_tfxio',
           'cache_pcoll_dict',
       ])
 

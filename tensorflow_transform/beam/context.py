@@ -41,6 +41,9 @@ class Context(object):
         information should be attached to instances in the pipeline which should
         not be part of the transformation graph, instance keys is one such
         example.
+    use_tfxio: (Optional) If True, TFT's public APIs (e.g. AnalyzeDataset) will
+        accept `PCollection[pa.RecordBatch]` and `tfxio.TensorAdapterConfig`
+        as the input dataset.
 
   Note that the temp dir should be accessible to worker jobs, e.g. if running
   with the Cloud Dataflow runner, the temp dir should be on GCS and should have
@@ -53,6 +56,7 @@ class Context(object):
           'desired_batch_size',
           'passthrough_keys',
           'use_deep_copy_optimization',
+          'use_tfxio',
       ])):
     pass
 
@@ -73,7 +77,8 @@ class Context(object):
                temp_dir=None,
                desired_batch_size=None,
                passthrough_keys=None,
-               use_deep_copy_optimization=None):
+               use_deep_copy_optimization=None,
+               use_tfxio=False):
     state = getattr(self._thread_local, 'state', None)
     if not state:
       self._thread_local.state = self._StateStack()
@@ -84,6 +89,7 @@ class Context(object):
     self._desired_batch_size = desired_batch_size
     self._passthrough_keys = passthrough_keys
     self._use_deep_copy_optimization = use_deep_copy_optimization
+    self._use_tfxio = use_tfxio
 
   def __enter__(self):
     # Previous State's properties are inherited if not explicitly specified.
@@ -100,7 +106,7 @@ class Context(object):
             use_deep_copy_optimization=self._use_deep_copy_optimization
             if self._use_deep_copy_optimization is not None else
             last_frame.use_deep_copy_optimization,
-        ))
+            use_tfxio=self._use_tfxio))
 
   def __exit__(self, *exn_info):
     self._thread_local.state.frames.pop()
@@ -151,3 +157,12 @@ class Context(object):
     if state is not None and state.use_deep_copy_optimization is not None:
       return state.use_deep_copy_optimization
     return False
+
+  @classmethod
+  def get_use_tfxio(cls):
+    """Retrieves flag use_tfxio."""
+    state = cls._get_topmost_state_frame()
+    if state is not None:
+      return state.use_tfxio
+    return False
+
