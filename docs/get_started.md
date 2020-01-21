@@ -200,28 +200,29 @@ Here's the definition of the schema for the example data:
 
 ```python
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_transform.tf_metadata import schema_utils
 
 raw_data_metadata = dataset_metadata.DatasetMetadata(
-    dataset_schema.from_feature_spec({
-        's': tf.FixedLenFeature([], tf.string),
-        'y': tf.FixedLenFeature([], tf.float32),
-        'x': tf.FixedLenFeature([], tf.float32),
+      schema_utils.schema_from_feature_spec({
+        's': tf.io.FixedLenFeature([], tf.string),
+        'y': tf.io.FixedLenFeature([], tf.float32),
+        'x': tf.io.FixedLenFeature([], tf.float32),
     }))
 ```
 
 The `dataset_schema.Schema` class contains the information needed to parse the
 data from its on-disk or in-memory format, into tensors.  It is typically
-constructed by calling `dataset_schema.from_feature_spec` with a dict mapping
-feature keys to `tf.FixedLenFeature`, `tf.VarLenFeature`, and `tf.SparseFeature`
-values.  See the documentation for
+constructed by calling `schema_utils.schema_from_feature_spec` with a dict
+mapping feature keys to `tf.io.FixedLenFeature`, `tf.io.VarLenFeature`, and
+`tf.io.SparseFeature` values.  See the documentation for
 [`tf.parse_example`](https://www.tensorflow.org/api_docs/python/tf/parse_example)
 for more details.
 
-Above we use `tf.FixedLenFeature` to indicate that each feature contains a fixed
-number of values, in this case a single scalar value.  Because `tf.Transform`
-batches instances, the actual `Tensor` representing the feature will have shape
-`(None,)` where the unknown dimension is the batch dimension.
+Above we use `tf.io.FixedLenFeature` to indicate that each feature contains a
+fixed number of values, in this case a single scalar value.
+Because `tf.Transform` batches instances, the actual `Tensor` representing the
+feature will have shape `(None,)` where the unknown dimension is the batch
+dimension.
 
 ## Input and output with Apache Beam
 
@@ -263,7 +264,7 @@ Beam transforms are removed since they're already done when reading from the CSV
 file. Each CSV row is converted to an instance in the in-memory format.
 
 In this example we allow the `education-num` feature to be missing. This means
-that it is represented as a `tf.VarLenFeature` in the feature_spec, and as a
+that it is represented as a `tf.io.VarLenFeature` in the feature_spec, and as a
 `tf.SparseTensor` in the preprocessing_fn.
 To handle the possibly missing feature value we fill in missing instances with a
 default value, in this case 0.
@@ -298,9 +299,9 @@ def preprocessing_fn(inputs):
   for key in OPTIONAL_NUMERIC_FEATURE_KEYS:
     # This is a SparseTensor because it is optional. Here we fill in a default
     # value when it is missing.
-    dense = tf.sparse_to_dense(outputs[key].indices,
-                               [outputs[key].dense_shape[0], 1],
-                               outputs[key].values, default_value=0.)
+      sparse = tf.sparse.SparseTensor(outputs[key].indices, outputs[key].values,
+                                      [outputs[key].dense_shape[0], 1])
+      dense = tf.sparse.to_dense(sp_input=sparse, default_value=0.)
     # Reshaping from a batch of vectors of size 1 to a batch to scalars.
     dense = tf.squeeze(dense, axis=1)
     outputs[key] = tft.scale_to_0_1(dense)
@@ -395,24 +396,24 @@ data is used to train a model. See the
 for details. The first step is to construct an `Estimator` which requires a
 description of the preprocessed columns. Each numeric column is described as a
 `real_valued_column` that is a wrapper around a dense vector with a fixed
-size (`1` in this example). Each categorical column is described as a
-`sparse_column_with_integerized_feature`. This indicates the mapping
-from string to integers has already been done. Provide the bucket size which is
-the max index contained in the column. We already know the values for the census
-data, but it's preferred to compute them using `tf.Transform`. Future versions
-of `tf.Transform` will write this information out as part of the metadata that
-can then be used here.
+size (`1` in this example). Each categorical column is mapped from string to
+integers and then gets passed into `indicator_column`.
+`tft.TFTransformOutput` is used to find the vocabulary file path for each
+categorical feature.
 
 ```python
 real_valued_columns = [feature_column.real_valued_column(key)
-                       for key in NUMERIC_COLUMNS]
+                       for key in NUMERIC_FEATURE_KEYS]
 
 one_hot_columns = [
-    feature_column.sparse_column_with_integerized_feature(
-        key, bucket_size=bucket_size)
-    for key, bucket_size in zip(CATEGORICAL_COLUMNS, BUCKET_SIZES)]
+    tf.feature_column.indicator_column(
+        tf.feature_column.categorical_column_with_vocabulary_file(
+            key=key,
+            vocabulary_file=tf_transform_output.vocabulary_file_by_name(
+                vocab_filename=key)))
+    for key in CATEGORICAL_FEATURE_KEYS]
 
-estimator = learn.LinearClassifier(real_valued_columns + one_hot_columns)
+estimator = tf.estimator.LinearClassifier(real_valued_columns + one_hot_columns)
 ```
 
 The next step is to create a builder to generate the input function for training
@@ -429,7 +430,8 @@ def _make_training_input_fn(tf_transform_output, transformed_examples,
     dataset = tf.data.experimental.make_batched_features_dataset(
         ..., tf_transform_output.transformed_feature_spec(), ...)
 
-    transformed_features = dataset.make_one_shot_iterator().get_next()
+    transformed_features = tf.compat.v1.data.make_one_shot_iterator(
+        dataset).get_next()
     ...
 
   return input_fn
