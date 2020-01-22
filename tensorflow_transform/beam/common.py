@@ -92,6 +92,8 @@ def register_ptransform(operation_def_subclass):
   """
 
   def register(ptransform_class):
+    assert isinstance(ptransform_class, type)
+    assert issubclass(ptransform_class, beam.PTransform)
     assert operation_def_subclass not in _PTRANSFORM_BY_OPERATION_DEF_SUBCLASS
     _PTRANSFORM_BY_OPERATION_DEF_SUBCLASS[operation_def_subclass] = (
         ptransform_class)
@@ -128,22 +130,15 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
       raise ValueError('No implementation for {} was registered'.format(
           operation))
 
-    outputs = self._apply_operation(inputs, operation, ptransform)
+    # TODO(zoyahav): Consider extracting a single PCollection before passing to
+    # ptransform if len(inputs) == 1.
+    outputs = ((inputs or beam.pvalue.PBegin(self._extra_args.pipeline))
+               | operation.label >> ptransform(operation, self._extra_args))
 
     if isinstance(outputs, beam.pvalue.PCollection):
       return (outputs,)
     else:
       return outputs
-
-  def _apply_operation(self, inputs, operation, ptransform):
-    if isinstance(ptransform, type) and issubclass(ptransform,
-                                                   beam.PTransform):
-      outputs = (
-          inputs
-          | operation.label >> ptransform(operation, self._extra_args))
-    else:
-      outputs = ptransform(inputs, operation, self._extra_args)
-    return outputs
 
   def validate_value(self, value):
     if not isinstance(value, beam.pvalue.PCollection):

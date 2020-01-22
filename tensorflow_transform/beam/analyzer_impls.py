@@ -192,7 +192,7 @@ class _VocabularyAccumulateImpl(beam.PTransform):
       flatten_map_fn = _flatten_value_to_list
       combine_transform = beam.combiners.Count.PerElement()
 
-    raw_counts = (
+    result = (
         pcoll
         | 'FlattenTokensAndMaybeWeightsLabels' >> beam.FlatMap(flatten_map_fn)
         | 'CountPerToken' >> combine_transform)
@@ -204,11 +204,9 @@ class _VocabularyAccumulateImpl(beam.PTransform):
         string, _ = kv  # Ignore counts.
         return string and b'\n' not in string and b'\r' not in string
 
-      raw_counts = (
-          raw_counts
-          | 'FilterProblematicStrings' >> beam.Filter(is_problematic_string))
+      result |= 'FilterProblematicStrings' >> beam.Filter(is_problematic_string)
 
-    return raw_counts
+    return result
 
 
 @common.register_ptransform(analyzer_nodes.VocabularyCount)
@@ -223,8 +221,9 @@ class _VocabularyCountImpl(beam.PTransform):
   def expand(self, inputs):
     pcoll, = inputs
 
-    return pcoll | 'TotalVocabSize' >> beam.combiners.Count.Globally(
-    ) | 'ToInt64' >> beam.Map(np.int64)
+    return (pcoll
+            | 'TotalVocabSize' >> beam.combiners.Count.Globally()
+            | 'ToInt64' >> beam.Map(np.int64))
 
 
 @common.register_ptransform(analyzer_nodes.VocabularyMerge)
@@ -251,12 +250,9 @@ class _VocabularyMergeImpl(beam.PTransform):
 
     pcoll, = inputs
 
-    raw_counts = (
-        pcoll
-        | 'CountPerToken' >> combine_transform
-        | 'SwapTokensAndCounts' >> beam.KvSwap())
-
-    return raw_counts
+    return (pcoll
+            | 'CountPerToken' >> combine_transform
+            | 'SwapTokensAndCounts' >> beam.KvSwap())
 
 
 @common.register_ptransform(analyzer_nodes.VocabularyPrune)
@@ -291,7 +287,7 @@ class _VocabularyPruneImpl(beam.PTransform):
           'None, got {}.'.format(self._coverage_frequency_threshold))
     pcoll, = inputs
 
-    counts = (
+    result = (
         pcoll | 'ApplyFrequencyThresholdAndTopK' >> (
             _ApplyFrequencyThresholdAndTopK(  # pylint: disable=no-value-for-parameter
                 self._frequency_threshold, self._top_k, None)))
@@ -303,12 +299,11 @@ class _VocabularyPruneImpl(beam.PTransform):
                   self._coverage_frequency_threshold, self._coverage_top_k,
                   self._key_fn)))
 
-      counts = (
-          (counts, coverage_counts)
-          | 'MergeStandardAndCoverageArms' >> beam.Flatten()
-          | 'RemoveDuplicates' >> beam.RemoveDuplicates())
+      result = ((result, coverage_counts)
+                | 'MergeStandardAndCoverageArms' >> beam.Flatten()
+                | 'RemoveDuplicates' >> beam.RemoveDuplicates())
 
-    return counts
+    return result
 
 
 @common.register_ptransform(analyzer_nodes.VocabularyOrderAndWrite)
@@ -1118,13 +1113,21 @@ class _CombinePerKeyFormatLargeImpl(beam.PTransform):
 
 
 @common.register_ptransform(analyzer_nodes.PTransform)
-def _ptransform_impl(inputs, operation, extra_args):
-  del extra_args  # unused
-  pcoll, = inputs
-  return pcoll | operation.label >> operation.ptransform
+class _PTransformImpl(beam.PTransform):
+  """Implements a registered PTransform node by passing through the inputs."""
+
+  def __init__(self, operation, extra_args):
+    del extra_args  # unused
+    self._ptransform = operation.ptransform
+
+  def expand(self, inputs):
+    pcoll, = inputs
+    return pcoll | self._ptransform
 
 
 @common.register_ptransform(analyzer_nodes.EncodeCache)
+@beam.typehints.with_input_types(Any)
+@beam.typehints.with_output_types(bytes)
 class _EncodeCacheImpl(beam.PTransform):
   """A PTransform that encodes cache entries."""
 
@@ -1139,16 +1142,20 @@ class _EncodeCacheImpl(beam.PTransform):
             | 'Count' >> common.IncrementCounter('cache_entries_encoded'))
 
 
-# TODO(b/147736398): Look into making this a PTransform as well.
 @common.register_ptransform(analyzer_nodes.DecodeCache)
-def _decode_cache_impl(inputs, operation, extra_args):
-  """A PTransform-like method that extracts and decodes a cache object."""
-  # This is implemented as a PTransform-like function because its PCollection
-  # inputs were passed in from the user.
-  assert not inputs
+@beam.typehints.with_input_types(beam.pvalue.PBegin)
+@beam.typehints.with_output_types(Any)
+class _DecodeCacheImpl(beam.PTransform):
+  """A PTransform method that extracts and decodes a cache object."""
 
-  return (
-      extra_args.cache_pcoll_dict[operation.dataset_key][operation.cache_key]
-      | 'Decode[%s]' % operation.label >> beam.Map(operation.coder.decode_cache)
-      | 'Count[%s]' % operation.label >>
-      common.IncrementCounter('cache_entries_decoded'))
+  def __init__(self, operation, extra_args):
+    self._cache_pcoll = (
+        extra_args.cache_pcoll_dict[operation.dataset_key][operation.cache_key])
+    self._coder = operation.coder
+
+  def expand(self, pbegin):
+    del pbegin  # unused
+
+    return (self._cache_pcoll
+            | 'Decode' >> beam.Map(self._coder.decode_cache)
+            | 'Count' >> common.IncrementCounter('cache_entries_decoded'))

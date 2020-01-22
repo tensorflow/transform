@@ -84,7 +84,9 @@ from apache_beam.runners.portability import fn_api_runner
 from apache_beam.transforms import util
 from apache_beam.typehints import Any
 from apache_beam.typehints import Dict
+from apache_beam.typehints import Iterable
 from apache_beam.typehints import List
+from apache_beam.typehints import Tuple
 from apache_beam.typehints import Union
 from apache_beam.typehints import with_input_types
 from apache_beam.typehints import with_output_types
@@ -456,10 +458,21 @@ _TensorBinding = collections.namedtuple(
 
 
 @beam_common.register_ptransform(beam_nodes.CreateTensorBinding)
-def _create_tensor_bindings_impl(inputs, operation, extra_args):
-  del extra_args  # unused
-  return inputs[0] | operation.label >> beam.Map(
-      _TensorBinding, operation.tensor, operation.is_asset_filepath)
+@beam.typehints.with_input_types(Union[np.generic, np.ndarray,
+                                       Iterable[beam_common.PRIMITIVE_TYPE]])
+@beam.typehints.with_output_types(_TensorBinding)
+class _CreateTensorBindingsImpl(beam.PTransform):
+  """Maps a PCollection of data to a PCollection of `_TensorBinding`s."""
+
+  def __init__(self, operation, extra_args):
+    del extra_args
+    self._tensor = operation.tensor
+    self._is_asset_file = operation.is_asset_filepath
+
+  def expand(self, inputs):
+    pcoll, = inputs
+    return pcoll | 'ToTensorBinding' >> beam.Map(_TensorBinding, self._tensor,
+                                                 self._is_asset_file)
 
 
 def _replace_tensors_with_constant_values(saved_model_dir, base_temp_dir,
@@ -520,46 +533,57 @@ def _replace_tensors_with_constant_values(saved_model_dir, base_temp_dir,
 
 
 @beam_common.register_ptransform(beam_nodes.CreateSavedModel)
-def _create_saved_model_impl(inputs, operation, extra_args):
+@beam.typehints.with_input_types(_TensorBinding)
+@beam.typehints.with_output_types(str)
+class _CreateSavedModelImpl(beam.PTransform):
   """Create a SavedModel from a TF Graph."""
-  unbound_saved_model_dir = beam_common.get_unique_temp_path(
-      extra_args.base_temp_dir)
-  with extra_args.graph.as_default():
-    with tf.compat.v1.Session(graph=extra_args.graph) as session:
-      table_initializers_ref = tf.compat.v1.get_collection_ref(
-          tf.compat.v1.GraphKeys.TABLE_INITIALIZERS)
-      original_table_initializers = list(table_initializers_ref)
-      del table_initializers_ref[:]
-      table_initializers_ref.extend(operation.table_initializers)
-      # Initialize all variables so they can be saved.
-      session.run(tf.compat.v1.global_variables_initializer())
-      saved_transform_io.write_saved_transform_from_session(
-          session, extra_args.input_signature, operation.output_signature,
-          unbound_saved_model_dir)
-      del table_initializers_ref[:]
-      table_initializers_ref.extend(original_table_initializers)
-  return (inputs | operation.label >> _BindTensors(
-      extra_args.base_temp_dir, unbound_saved_model_dir, extra_args.pipeline)
-          | 'Count[%s]' % operation.label >>
-          beam_common.IncrementCounter('saved_models_created'))
+
+  def __init__(self, operation, extra_args):
+    self._base_temp_dir = extra_args.base_temp_dir
+    self._graph = extra_args.graph
+    self._input_signature = extra_args.input_signature
+    self._table_initializers = operation.table_initializers
+    self._output_signature = operation.output_signature
+
+  def expand(self, inputs):
+    unbound_saved_model_dir = beam_common.get_unique_temp_path(
+        self._base_temp_dir)
+    with self._graph.as_default():
+      with tf.compat.v1.Session(graph=self._graph) as session:
+        table_initializers_ref = tf.compat.v1.get_collection_ref(
+            tf.compat.v1.GraphKeys.TABLE_INITIALIZERS)
+        original_table_initializers = list(table_initializers_ref)
+        del table_initializers_ref[:]
+        table_initializers_ref.extend(self._table_initializers)
+        # Initialize all variables so they can be saved.
+        session.run(tf.compat.v1.global_variables_initializer())
+        saved_transform_io.write_saved_transform_from_session(
+            session, self._input_signature, self._output_signature,
+            unbound_saved_model_dir)
+        del table_initializers_ref[:]
+        table_initializers_ref.extend(original_table_initializers)
+    return (inputs
+            | 'BindTensors' >> _BindTensors(self._base_temp_dir,
+                                            unbound_saved_model_dir)
+            | 'Count' >> beam_common.IncrementCounter('saved_models_created'))
 
 
 class _BindTensors(beam.PTransform):
   """PTransform to bind tensor in a SavedModel."""
 
-  def __init__(self, base_temp_dir, unbound_saved_model_dir, pipeline):
+  def __init__(self, base_temp_dir, unbound_saved_model_dir):
     self._base_temp_dir = base_temp_dir
     self._unbound_saved_model_dir = unbound_saved_model_dir
-    self.pipeline = pipeline
 
   def expand(self, inputs):
-    saved_model_dir_pcoll = self.pipeline | 'CreateSavedModel' >> beam.Create(
+    pipeline = (inputs[0] if isinstance(inputs, tuple) else inputs).pipeline
+    saved_model_dir_pcoll = pipeline | 'CreateSavedModel' >> beam.Create(
         [self._unbound_saved_model_dir])
 
-    if not inputs:
+    if isinstance(inputs, beam.pvalue.PBegin):
       return saved_model_dir_pcoll
 
-    return saved_model_dir_pcoll | 'BindTensors' >> beam.Map(
+    return saved_model_dir_pcoll | 'ReplaceWithConstants' >> beam.Map(
         _replace_tensors_with_constant_values, self._base_temp_dir,
         *[beam.pvalue.AsSingleton(pcoll) for pcoll in inputs])
 
@@ -607,17 +631,26 @@ class _ApplySavedModelImpl(beam.PTransform):
         saved_model_dir=beam.pvalue.AsSingleton(inputs[0])))
 
 
-def _extract_keys_fn(inp, operation):
-  if isinstance(operation.keys, tuple):
-    return tuple(inp[key] for key in operation.keys)
-  return inp[operation.keys]
-
-
 @beam_common.register_ptransform(beam_nodes.ExtractFromDict)
-def _extract_from_dict_impl(inputs, operation, extra_args):
-  del extra_args  # unused
-  return inputs[0] | operation.label >> beam.Map(_extract_keys_fn,
-                                                 operation=operation)
+@beam.typehints.with_input_types(Dict[str,
+                                      Union[np.ndarray,
+                                            tf.compat.v1.SparseTensorValue]])
+@beam.typehints.with_output_types(Tuple[np.ndarray, ...])
+class _ExtractFromDictImpl(beam.PTransform):
+  """Implements ExtractFromDict by extracting the configured keys."""
+
+  def __init__(self, operation, extra_args):
+    del extra_args
+    self._keys = operation.keys
+
+  def expand(self, inputs):
+    pcoll, = inputs
+
+    def extract_keys(input_dict, keys):
+      return (tuple(input_dict[k] for k in keys)
+              if isinstance(keys, tuple) else input_dict[keys])
+
+    return pcoll | 'ExtractKeys' >> beam.Map(extract_keys, keys=self._keys)
 
 
 @beam_common.register_ptransform(beam_nodes.Flatten)
