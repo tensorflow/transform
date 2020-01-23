@@ -774,7 +774,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
       with tf.compat.v1.name_scope('inputs'):
         if self._use_tfxio:
           input_signature = impl_helper.batched_placeholders_from_typespecs(
-              TensorAdapter(input_tensor_adapter_config).TypeSpecs())
+              TensorAdapter(input_tensor_adapter_config).OriginalTypeSpecs())
         else:
           input_signature = impl_helper.feature_spec_as_batched_placeholders(
               schema_utils.schema_as_feature_spec(input_schema).feature_spec)

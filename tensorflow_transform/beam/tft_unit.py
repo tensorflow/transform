@@ -375,7 +375,7 @@ class _LegacyCompatibilityTFXIO(tf_example_record._TFExampleRecordBase):  # pyli
 
     return _ptransform_fn()  # pylint: disable=no-value-for-parameter
 
-  def Project(self, unused_tensor_names):
+  def _ProjectImpl(self, unused_tensor_names):
     return self
 
   def TensorFlowDataset(self):
