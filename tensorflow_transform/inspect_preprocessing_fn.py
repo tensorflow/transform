@@ -41,19 +41,20 @@ class _SourcedTensorsVisitor(nodes.Visitor):
     assert isinstance(value, nodes.ValueNode)
 
 
-def get_analyze_input_columns(preprocessing_fn, feature_spec):
+def get_analyze_input_columns(preprocessing_fn, specs):
   """Return columns that are required inputs of `AnalyzeDataset`.
 
   Args:
     preprocessing_fn: A tf.transform preprocessing_fn.
-    feature_spec: A dict of feature name to feature specification.
+    specs: A dict of feature name to feature specification or tf.TypeSpecs.
 
   Returns:
     A list of columns that are required inputs of analyzers.
   """
+
   with tf.compat.v1.Graph().as_default() as graph:
-    input_signature = impl_helper.feature_spec_as_batched_placeholders(
-        feature_spec)
+    input_signature = impl_helper.batched_placeholders_from_specs(
+        specs)
     _ = preprocessing_fn(input_signature.copy())
 
     tensor_sinks = graph.get_collection(analyzer_nodes.TENSOR_REPLACEMENTS)
@@ -66,20 +67,20 @@ def get_analyze_input_columns(preprocessing_fn, feature_spec):
     return analyze_input_tensors.keys()
 
 
-def get_transform_input_columns(preprocessing_fn, feature_spec):
+def get_transform_input_columns(preprocessing_fn, specs):
   """Return columns that are required inputs of `TransformDataset`.
 
   Args:
     preprocessing_fn: A tf.transform preprocessing_fn.
-    feature_spec: A dict of feature name to feature specification.
+    specs: A dict of feature name to feature specification or tf.TypeSpecs.
 
   Returns:
     A list of columns that are required inputs of the transform `tf.Graph`
     defined by `preprocessing_fn`.
   """
   with tf.compat.v1.Graph().as_default() as graph:
-    input_signature = impl_helper.feature_spec_as_batched_placeholders(
-        feature_spec)
+    input_signature = impl_helper.batched_placeholders_from_specs(
+        specs)
     output_signature = preprocessing_fn(input_signature.copy())
     transform_input_tensors = graph_tools.get_dependent_inputs(
         graph, input_signature, output_signature)

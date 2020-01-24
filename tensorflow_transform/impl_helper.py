@@ -43,71 +43,81 @@ def _get_empty_array(dtype):
   return _CACHED_EMPTY_ARRAY_BY_DTYPE[dtype]
 
 
-def batched_placeholders_from_typespecs(typespecs):
-  """Returns placeholders for the given tf.TypeSpecs.
+def batched_placeholders_from_specs(specs):
+  """Returns placeholders for the given tf.TypeSpecs or feature specs.
 
   Args:
-    typespecs: a Dict[Text, tf.TypeSpec]
-  Returns:
-    a Dict[Text, placeholder]
-  Raises:
-    ValueError: If not supported.
-  """
-  result = {}
-  for name, spec in six.iteritems(typespecs):
-    scope_name = _INVALID_SCOPE_CHAR.sub('_', name)
-    if not _VALID_SCOPE_REGEX.match(scope_name):
-      scope_name = 'F_{}'.format(scope_name)
-    if isinstance(spec, tf.TensorSpec):
-      result[name] = tf.compat.v1.placeholder(
-          spec.dtype, spec.shape, name=scope_name)
-    elif isinstance(spec, tf.SparseTensorSpec):
-      # BUGGY TF
-      result[name] = tf.compat.v1.sparse_placeholder(
-          spec.dtype, spec.shape.as_list(), name=scope_name)
-    else:
-      raise ValueError('Unsupported tensor spec: {}'.format(spec))
-
-  return result
-
-
-def feature_spec_as_batched_placeholders(feature_spec):
-  """Returns placeholders for the given feature spec.
-
-  Returns a dictionary of placeholders with the same type and shape as calling
-  tf.parse_example with the given feature spec.
-
-  Args:
-    feature_spec: A TensorFlow feature spec.
+    specs: a Dict[Text, Union[tf.TypeSpec, FeatureSpec]]. Note that the values
+      in this dict must be of the same type. Mixing is not allowed.
 
   Returns:
     A dictionary from strings to `Tensor` or `SparseTensor`s.
 
   Raises:
-    ValueError: If the feature spec contains feature types not supported.
+    ValueError: when the TypeSpec or feature spec has an unsupported dtype.
   """
-  result = {}
+  if not (all([_is_feature_spec(s) for s in six.itervalues(specs)]) or
+          all([isinstance(s, tf.TypeSpec) for s in six.itervalues(specs)])):
+    raise TypeError('Specs must be all tf.TypeSpecs or feature specs. '
+                    'Mixing is not allowed. Got: {}'.format(specs))
 
-  for name, spec in six.iteritems(feature_spec):
+  result = {}
+  for name, spec in six.iteritems(specs):
     if spec.dtype not in (tf.int64, tf.float32, tf.string):
-      raise ValueError('Feature {} ({}) had invalid dtype'.format(name, spec))
-    # If the feature name is not a valid TF scope name, make it conformant.
-    scope_name = _INVALID_SCOPE_CHAR.sub('_', name)
-    if not _VALID_SCOPE_REGEX.match(scope_name):
-      scope_name = 'F_{}'.format(scope_name)
-    if isinstance(spec, tf.io.FixedLenFeature):
-      result[name] = tf.compat.v1.placeholder(
-          spec.dtype, [None] + spec.shape, name=scope_name)
-    elif isinstance(spec, tf.io.VarLenFeature):
-      result[name] = tf.compat.v1.sparse_placeholder(
-          spec.dtype, [None, None], name=scope_name)
-    elif isinstance(spec, tf.io.SparseFeature):
-      result[name] = tf.compat.v1.sparse_placeholder(
-          spec.dtype, [None, spec.size], name=scope_name)
+      raise ValueError('Feature {} ({}, {}) had invalid dtype'
+                       .format(name, spec, type(spec)))
+    if isinstance(spec, tf.TypeSpec):
+      result[name] = _batched_placeholder_from_typespec(name, spec)
     else:
-      raise TypeError('Feature spec {} of type {} is not supported for feature '
-                      '{}'.format(spec, type(spec), name))
+      result[name] = _batched_placeholder_from_feature_spec(name, spec)
+
   return result
+
+
+def _is_feature_spec(spec):
+  return isinstance(spec, (
+      tf.io.VarLenFeature, tf.io.SparseFeature, tf.io.FixedLenFeature))
+
+
+def _sanitize_scope_name(name):
+  scope_name = _INVALID_SCOPE_CHAR.sub('_', name)
+  if not _VALID_SCOPE_REGEX.match(scope_name):
+    scope_name = 'F_{}'.format(scope_name)
+  return scope_name
+
+
+def _batched_placeholder_from_typespec(name, typespec):
+  """Creates a batched placeholder from a tf.TypeSpec."""
+  scope_name = _sanitize_scope_name(name)
+  if isinstance(typespec, tf.TensorSpec):
+    return tf.compat.v1.placeholder(
+        typespec.dtype, typespec.shape, name=scope_name)
+  if isinstance(typespec, tf.SparseTensorSpec):
+    return tf.compat.v1.sparse_placeholder(
+        typespec.dtype,
+        # BUGGY TF
+        typespec.shape.as_list(),
+        name=scope_name)
+
+  raise ValueError('Unsupported typespec: {}({}) for feature {}'.format(
+      typespec, type(typespec), name))
+
+
+def _batched_placeholder_from_feature_spec(name, feature_spec):
+  """Creates a batched placeholder from a feature spec."""
+  scope_name = _sanitize_scope_name(name)
+  if isinstance(feature_spec, tf.io.FixedLenFeature):
+    return tf.compat.v1.placeholder(
+        feature_spec.dtype, [None] + feature_spec.shape, name=scope_name)
+  elif isinstance(feature_spec, tf.io.VarLenFeature):
+    return tf.compat.v1.sparse_placeholder(
+        feature_spec.dtype, [None, None], name=scope_name)
+  elif isinstance(feature_spec, tf.io.SparseFeature):
+    return tf.compat.v1.sparse_placeholder(
+        feature_spec.dtype, [None, feature_spec.size], name=scope_name)
+
+  raise ValueError('Unsupported feature spec: {}({}) for feature {}'
+                   .format(feature_spec, type(feature_spec), name))
 
 
 def make_feed_list(column_names, schema, instances):

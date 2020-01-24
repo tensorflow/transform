@@ -322,7 +322,7 @@ _TO_INSTANCE_DICT_ERROR_CASES = [
 
 class ImplHelperTest(test_case.TransformTestCase):
 
-  def test_feature_spec_as_batched_placeholders(self):
+  def test_batched_placeholders_from_feature_spec(self):
     feature_spec = {
         'fixed_len_float': tf.io.FixedLenFeature([2, 3], tf.float32),
         'fixed_len_string': tf.io.FixedLenFeature([], tf.string),
@@ -330,7 +330,7 @@ class ImplHelperTest(test_case.TransformTestCase):
         'var_len_int': tf.io.VarLenFeature(tf.int64)
     }
     with tf.compat.v1.Graph().as_default():
-      features = impl_helper.feature_spec_as_batched_placeholders(feature_spec)
+      features = impl_helper.batched_placeholders_from_specs(feature_spec)
     self.assertCountEqual(features.keys(), [
         'fixed_len_float', 'fixed_len_string', 'var_len_int',
         '_var_len_underscored'
@@ -347,6 +347,51 @@ class ImplHelperTest(test_case.TransformTestCase):
     self.assertEqual(type(features['_var_len_underscored']), tf.SparseTensor)
     self.assertEqual(features['_var_len_underscored'].get_shape().as_list(),
                      [None, None])
+
+  def test_batched_placeholders_from_typespecs(self):
+    typespecs = {
+        'dense_float':
+            tf.TensorSpec(dtype=tf.float32, shape=[None, 2, 3]),
+        'dense_string':
+            tf.TensorSpec(shape=[None], dtype=tf.string),
+        '_sparse_underscored':
+            tf.SparseTensorSpec(dtype=tf.string, shape=[None, None]),
+    }
+    with tf.compat.v1.Graph().as_default():
+      features = impl_helper.batched_placeholders_from_specs(typespecs)
+    self.assertCountEqual(features.keys(), [
+        'dense_float',
+        'dense_string',
+        '_sparse_underscored',
+    ])
+    self.assertEqual(type(features['dense_float']), tf.Tensor)
+    self.assertEqual(features['dense_float'].get_shape().as_list(),
+                     [None, 2, 3])
+    self.assertEqual(features['dense_float'].dtype, tf.float32)
+
+    self.assertEqual(type(features['dense_string']), tf.Tensor)
+    self.assertEqual(features['dense_string'].get_shape().as_list(), [None])
+    self.assertEqual(features['dense_string'].dtype, tf.string)
+
+    self.assertEqual(type(features['_sparse_underscored']), tf.SparseTensor)
+    self.assertEqual(features['_sparse_underscored'].get_shape().as_list(),
+                     [None, None])
+    self.assertEqual(features['_sparse_underscored'].dtype, tf.string)
+
+  def test_batched_placeholders_from_specs_invalid_dtype(self):
+    with self.assertRaisesRegexp(ValueError, 'had invalid dtype'):
+      impl_helper.batched_placeholders_from_specs(
+          {'f': tf.TensorSpec(dtype=tf.int32, shape=[None])})
+    with self.assertRaisesRegexp(ValueError, 'had invalid dtype'):
+      impl_helper.batched_placeholders_from_specs(
+          {'f': tf.io.FixedLenFeature(dtype=tf.int32, shape=[None])})
+
+  def test_batched_placeholders_from_specs_invalid_mixing(self):
+    with self.assertRaisesRegexp(TypeError, 'Specs must be all'):
+      impl_helper.batched_placeholders_from_specs({
+          'f1': tf.TensorSpec(dtype=tf.int64, shape=[None]),
+          'f2': tf.io.FixedLenFeature(dtype=tf.int64, shape=[None]),
+      })
 
   @test_case.named_parameters(*(_ROUNDTRIP_CASES + _MAKE_FEED_DICT_CASES))
   def test_make_feed_list(self, feature_spec, instances, feed_dict):

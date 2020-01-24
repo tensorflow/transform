@@ -773,11 +773,10 @@ class _AnalyzeDatasetCommon(beam.PTransform):
 
       with tf.compat.v1.name_scope('inputs'):
         if self._use_tfxio:
-          input_signature = impl_helper.batched_placeholders_from_typespecs(
-              TensorAdapter(input_tensor_adapter_config).OriginalTypeSpecs())
+          specs = TensorAdapter(input_tensor_adapter_config).OriginalTypeSpecs()
         else:
-          input_signature = impl_helper.feature_spec_as_batched_placeholders(
-              schema_utils.schema_as_feature_spec(input_schema).feature_spec)
+          specs = schema_utils.schema_as_feature_spec(input_schema).feature_spec
+        input_signature = impl_helper.batched_placeholders_from_specs(specs)
         # In order to avoid a bug where import_graph_def fails when the
         # input_map and return_elements of an imported graph are the same
         # (b/34288791), we avoid using the placeholder of an input column as an
