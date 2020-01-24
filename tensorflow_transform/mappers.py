@@ -1514,7 +1514,8 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
   linearly interpolated within their respective bucket ranges. Finally, the
   interpolated values are normalized to the range [0, 1]. Values that are
   less than or equal to the lowest boundary, or greater than or equal to the
-  highest boundary, will be mapped to 0 and 1 respectively.
+  highest boundary, will be mapped to 0 and 1 respectively. NaN values will be
+  mapped to the middle of the range (.5).
 
   This is a non-linear approach to normalization that is less sensitive to
   outliers than min-max or z-score scaling. When outliers are present, standard
@@ -1593,6 +1594,11 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
     # Normalize the interpolated values to the range [0, 1].
     denominator = tf.cast(tf.maximum(num_boundaries - 1, 1), return_type)
     normalized_values = bucket_indices_with_interpolation / denominator
+    if x_values.dtype.is_floating:
+      # Impute NaNs with .5, the middle value of the normalized output range.
+      imputed_values = tf.ones_like(x_values, dtype=return_type) / 2.0
+      normalized_values = tf.where(
+          tf.math.is_nan(x_values), imputed_values, normalized_values)
     # If there is only one boundary, all values < the boundary are 0, all values
     # >= the boundary are 1.
     single_boundary_values = lambda: tf.where(  # pylint: disable=g-long-lambda
@@ -1679,6 +1685,8 @@ def _assign_buckets_all_shapes(x, bucket_boundaries):
     return buckets
 
 
+# TODO(b/148278398): Determine how NaN values should be assigned to buckets.
+# Currently it maps to the highest bucket.
 def _assign_buckets(x_values, bucket_boundaries):
   """Assigns every value in x to a bucket index defined by bucket_boundaries.
 

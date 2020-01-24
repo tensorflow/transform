@@ -642,6 +642,15 @@ class MappersTest(test_case.TransformTestCase):
     bucketized = mappers.apply_buckets(inputs, [quantiles])
     self.assertAllEqual(bucketized, expected_outputs)
 
+  def testApplyBucketsWithNans(self):
+    inputs = tf.constant([4.0, float('nan'), float('-inf'), 7.5, 10.0])
+    quantiles = tf.constant([2, 5, 8])
+    # TODO(b/148278398): NaN is mapped to the highest bucket. Determine
+    # if this is the right behavior.
+    expected_outputs = tf.constant([1, 3, 0, 2, 3], dtype=tf.int64)
+    bucketized = mappers.apply_buckets(inputs, [quantiles])
+    self.assertAllEqual(bucketized, expected_outputs)
+
   def testApplyBucketsWithKeys(self):
     with tf.compat.v1.Graph().as_default():
       values = tf.constant(
@@ -698,6 +707,16 @@ class MappersTest(test_case.TransformTestCase):
           x=[-10, 0, 0.1, 2.3, 4.5, 6.7, 8.9, 10, 100],
           boundaries=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
           expected_results=[0, 0, 0.01, 0.23, 0.45, 0.67, 0.89, 1, 1]),
+      dict(
+          testcase_name='float_input_with_nans',
+          x=[
+              float('-inf'), -10, 0, 0.1, 2.3,
+              float('nan'), 4.5, 6.7, 8.9, 10, 100,
+              float('inf')
+          ],
+          boundaries=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+          expected_results=[0, 0, 0, 0.01, 0.23, .5, 0.45, 0.67, 0.89, 1, 1,
+                            1]),
       dict(
           testcase_name='integer_boundaries',
           x=[15, 20, 25],

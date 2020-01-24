@@ -6,6 +6,9 @@
 
 ## Bug Fixes and Other Changes
 
+* `tft.apply_buckets_with_interpolation` now handles NaN values by imputing with
+  the middle of the normalized range.
+
 ## Breaking changes
 
 ## Deprecations
