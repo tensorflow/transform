@@ -430,19 +430,31 @@ def apply_bucketize_op(x, boundaries, remove_leftmost_boundary=False):
   return bucket_indices
 
 
-def apply_per_key_vocabulary(per_key_filename, key, default_value=None):
+def apply_per_key_vocabulary(per_key_filename,
+                             key,
+                             default_value=None,
+                             target_ndims=None):
   """Apply a stored key-value mapping to a set of keys.
 
+  We expect the values stored in per_key_filename to be comma-delimited numbers,
+  such that it has the following form:
+  a 1,3
+  b 2,4
+  if a and b are the keys corresponding to each row.
+
   Args:
-    per_key_filename:  The file name for the per-key file.
+    per_key_filename:  The file name for the per-key vocabulary file.
     key: A Tensor` of dtype tf.string, which will determine which values are
         returned.
     default_value: (Optional) A string that determines the default output for
         keys that are not found.
+    target_ndims: (Optional) The requested rank of each returned value (wrapped
+        in a single Tensor).
 
   Returns:
-    A `Tensor` representing the mapped values of shape [None, k, 1], where k is
-    the number of separate values computed by the analyzer.
+    A `Tensor` representing the mapped values of shape [None, d, ...], where d
+    is the number of separate values computed by the analyzer and with extra
+    dimensions added according to `target_dims`.
   """
   initializer = tf.lookup.TextFileInitializer(per_key_filename,
                                               key_dtype=tf.string,
@@ -455,10 +467,11 @@ def apply_per_key_vocabulary(per_key_filename, key, default_value=None):
     default_value = ''
   table = tf.lookup.StaticHashTable(initializer, default_value=default_value)
 
-  result = tf.compat.v1.strings.split(table.lookup(key), sep=',')
-  result = tf.strings.to_number(tf.sparse.to_dense(result))
-
-  return tf.expand_dims(result, -1)
+  sparse_result = tf.compat.v1.strings.split(table.lookup(key), sep=',')
+  numbers = tf.strings.to_number(tf.sparse.to_dense(sparse_result))
+  # We add 1 to represent the dimension of the multiple associated values found
+  # in the vocabulary file (the d values present for every key).
+  return numbers if not target_ndims else _align_dims(numbers, target_ndims + 1)
 
 
 def reduce_batch_count_mean_and_var(x, reduce_instance_dims):

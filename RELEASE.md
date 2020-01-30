@@ -3,6 +3,10 @@
 # Current version (not yet released; still in development)
 
 ## Major Features and Improvements
+* Expanded capability for per-key analyzers to analyze larger sets of keys that
+  would not fit in memory, by storing the key-value pairs in vocabulary files.
+  This is enabled by passing a `per_key_filename` to `tft.count_per_key` and
+  `tft.scale_to_z_score_per_key`.
 
 ## Bug Fixes and Other Changes
 

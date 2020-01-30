@@ -329,15 +329,13 @@ def _numeric_combine(inputs,
       fn, [dtype.as_numpy_dtype for dtype in output_dtypes], output_shapes)
   if key is None:
     return _apply_cacheable_combiner(combiner, *inputs)
-  if key_vocabulary_filename is not None:
-    if not key_vocabulary_filename:
-      key_vocabulary_filename = _get_vocab_filename(vocab_filename=None,
-                                                    store_frequency=False)
 
-    return _apply_cacheable_combiner_per_key_large(
-        combiner, key_vocabulary_filename, key, *inputs)
+  if key_vocabulary_filename is None:
+    return _apply_cacheable_combiner_per_key(combiner, key, *inputs)
 
-  return _apply_cacheable_combiner_per_key(combiner, key, *inputs)
+  return _apply_cacheable_combiner_per_key_large(
+      combiner, _maybe_get_per_key_vocab_filename(key_vocabulary_filename),
+      key, *inputs)
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
@@ -637,16 +635,25 @@ def size(x, reduce_instance_dims=True, name=None):
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def count_per_key(key, name=None):
+def count_per_key(key, key_vocabulary_filename=None, name=None):
   """Computes the count of each element of a `Tensor`.
 
   Args:
     key: A Tensor or `SparseTensor` of dtype tf.string or tf.int.
+    key_vocabulary_filename: (Optional) The file name for the key-output mapping
+      file. If None and key are provided, this combiner assumes the keys fit in
+      memory and will not store the result in a file. If empty string, a file
+      name will be chosen based on the current scope. If not an empty string,
+      should be unique within a given preprocessing function.
     name: (Optional) A name for this operation.
 
   Returns:
-    Two `Tensor`s: one the key vocab with dtype of input;
-        the other the count for each key, dtype tf.int64.
+    Either:
+    (A) Two `Tensor`s: one the key vocab with dtype of input;
+        the other the count for each key, dtype tf.int64. (if
+        key_vocabulary_filename is None).
+    (B) The filename where the key-value mapping is stored (if
+        key_vocabulary_filename is not None).
 
   Raises:
     TypeError: If the type of `x` is not supported.
@@ -661,8 +668,13 @@ def count_per_key(key, name=None):
         x=None, key=key, reduce_instance_dims=True)
 
     output_dtype, sum_fn = _sum_combine_fn_and_dtype(tf.int64)
-    keys, counts = _numeric_combine([batch_counts], sum_fn, True,
-                                    [output_dtype], key=batch_keys)
+    numeric_combine_result = _numeric_combine(
+        [batch_counts], sum_fn, True, [output_dtype], key=batch_keys,
+        key_vocabulary_filename=key_vocabulary_filename)
+
+    if key_vocabulary_filename is not None:
+      return numeric_combine_result
+    keys, counts = numeric_combine_result
     if not is_key_string:
       keys = tf.strings.to_number(keys, key_dtype)
     return keys, counts
@@ -754,13 +766,31 @@ def _mean_and_var(x, reduce_instance_dims=True, output_dtype=None):
 
 
 # pylint: disable=g-doc-return-or-yield
-def _mean_and_var_per_key(x, key, reduce_instance_dims=True, output_dtype=None):  # pylint: disable=g-doc-args
+def _mean_and_var_per_key(x, key, reduce_instance_dims=True, output_dtype=None,
+                          key_vocabulary_filename=None):
   """`mean_and_var` by group, specified by key.
 
-  This function operates under the assumption that the size of the key set
-  is small enough to fit in memory. Anything above a certain size larger is not
-  guaranteed to be handled properly, but support for larger key sets may be
-  available in a future version.
+  Args:
+    x: A `Tensor` or `SparseTensor`.
+    key: A Tensor or `SparseTensor` of dtype tf.string.  If `x` is
+      a `SparseTensor`, `key` must exactly match `x` in everything except
+      values.
+    reduce_instance_dims: (Optional) By default collapses the batch and instance
+        dimensions to arrive at a single scalar output. The False case is not
+        currently supported for _mean_and_var_per_key.
+    output_dtype: (Optional) Desired output dtype, otherwise inferred.
+    key_vocabulary_filename: (Optional) The file name for the key-output mapping
+      file. If None and key are provided, this combiner assumes the keys fit in
+      memory and will not store the result in a file. If empty string, a file
+      name will be chosen based on the current scope. If not an empty string,
+      should be unique within a given preprocessing function.
+
+  Returns:
+    Either:
+    (A) Three `Tensor`s. The first is the key vocab of type tf.string, and the
+        second two have same type as `x` (if key_vocabulary_filename is None).
+    (B) The filename where the key-value mapping is stored (if
+        key_vocabulary_filename is not None).
   """
   if output_dtype is None:
     output_dtype = _MEAN_OUTPUT_DTYPE_MAP.get(x.dtype)
@@ -787,10 +817,17 @@ def _mean_and_var_per_key(x, key, reduce_instance_dims=True, output_dtype=None):
         variance=key_variances,
         weight=tf.zeros_like(key_means, tf.float32))
 
-    key, key_mean, key_var = _apply_cacheable_combiner_per_key(
-        WeightedMeanAndVarCombiner(output_dtype.as_numpy_dtype, output_shape),
-        key_vocab,
-        *combine_inputs)
+    combiner = WeightedMeanAndVarCombiner(output_dtype.as_numpy_dtype,
+                                          output_shape)
+
+  if key_vocabulary_filename is not None:
+    key_vocabulary_filename = _maybe_get_per_key_vocab_filename(
+        key_vocabulary_filename)
+    return _apply_cacheable_combiner_per_key_large(
+        combiner, key_vocabulary_filename, key_vocab, *combine_inputs)
+
+  key, key_mean, key_var = _apply_cacheable_combiner_per_key(
+      combiner, key_vocab, *combine_inputs)
 
   return key, key_mean, key_var
 
@@ -1057,6 +1094,13 @@ def _get_vocab_filename(vocab_filename, store_frequency):
 
   # Make the file name path safe.
   return sanitized_vocab_filename(vocab_filename, prefix=prefix)
+
+
+def _maybe_get_per_key_vocab_filename(key_vocabulary_filename):
+  if key_vocabulary_filename == '':  # pylint: disable=g-explicit-bool-comparison
+    key_vocabulary_filename = _get_vocab_filename(vocab_filename=None,
+                                                  store_frequency=False)
+  return key_vocabulary_filename
 
 
 # TODO(b/116308354): frequency_threshold is misleading since this threshold can

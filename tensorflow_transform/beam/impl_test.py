@@ -1366,32 +1366,38 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           expected_metadata,
                                           use_tfxio=use_tfxio)
 
-  @tft_unit.parameters(*itertools.product([
-      tf.int16,
-      tf.int32,
-      tf.int64,
-      tf.float32,
-      tf.float64,
-  ], [True, False]))
-  def testScaleToZScorePerKey(self, input_dtype, use_tfxio):
+  @tft_unit.named_parameters(*tft_unit.cross_named_parameters([
+      dict(testcase_name='_empty_filename',
+           key_vocabulary_filename=''),
+      dict(testcase_name='_nonempty_filename',
+           key_vocabulary_filename='per_key'),
+      dict(testcase_name='_none_filename',
+           key_vocabulary_filename=None)
+  ], _TFXIO_NAMED_PARAMETERS))
+  def testScaleToZScorePerKey(self, key_vocabulary_filename, use_tfxio):
     self._SkipIfExternalEnvironmentAnd(
         use_tfxio, 'Skipping large test cases; b/147698868')
     # TODO(b/131852830) Add elementwise tests.
     def preprocessing_fn(inputs):
 
-      def scale_to_z_score_per_key(tensor, key):
+      def scale_to_z_score_per_key(tensor, key, var_name=''):
+        if key_vocabulary_filename is None:
+          filename = None
+        else:
+          filename = key_vocabulary_filename + var_name
         z_score = tft.scale_to_z_score_per_key(
-            tf.cast(tensor, input_dtype), key=key, elementwise=False)
-        self.assertEqual(z_score.dtype, _mean_output_dtype(input_dtype))
-        return tf.cast(z_score, tf.float32)
+            tf.cast(tensor, tf.float32), key=key, elementwise=False,
+            key_vocabulary_filename=filename)
+        self.assertEqual(z_score.dtype, tf.float32)
+        return z_score
 
       return {
-          'x_scaled': scale_to_z_score_per_key(inputs['x'], inputs['key']),
-          'y_scaled': scale_to_z_score_per_key(inputs['y'], inputs['key']),
-          's_scaled': scale_to_z_score_per_key(inputs['s'], inputs['key']),
+          'x_scaled': scale_to_z_score_per_key(inputs['x'], inputs['key'], 'x'),
+          'y_scaled': scale_to_z_score_per_key(inputs['y'], inputs['key'], 'y'),
+          's_scaled': scale_to_z_score_per_key(inputs['s'], inputs['key'], 's'),
       }
 
-    np_dtype = input_dtype.as_numpy_dtype
+    np_dtype = np.float32
     input_data = [{
         'x': np.array([-4], dtype=np_dtype),
         'y': np.array([0], dtype=np_dtype),
@@ -1465,9 +1471,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
 
     input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature([1], _canonical_dtype(input_dtype)),
-        'y': tf.io.FixedLenFeature([1], _canonical_dtype(input_dtype)),
-        's': tf.io.FixedLenFeature([], _canonical_dtype(input_dtype)),
+        'x': tf.io.FixedLenFeature([1], _canonical_dtype(tf.float32)),
+        'y': tf.io.FixedLenFeature([1], _canonical_dtype(tf.float32)),
+        's': tf.io.FixedLenFeature([], _canonical_dtype(tf.float32)),
         'key': tf.io.FixedLenFeature([], tf.string),
     })
     expected_metadata = tft_unit.metadata_from_feature_spec({

@@ -359,8 +359,7 @@ class TFUtilsTest(test_case.TransformTestCase):
         sess.run(tf.compat.v1.tables_initializer())
         output = output_tensor.eval()
 
-      expected_data = [[[0], [0]], [[1], [-1]], [[-1], [1]], [[-2], [2]],
-                       [[0], [-5]]]
+      expected_data = [[0, 0], [1, -1], [-1, 1], [-2, 2], [0, -5]]
       self.assertAllEqual(output, expected_data)
 
   @test_case.named_parameters(test_case.cross_with_function_handlers([

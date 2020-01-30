@@ -155,9 +155,9 @@ def scale_by_min_max_per_key(x,
     elementwise: If true, scale each element of the tensor independently.
     key_vocabulary_filename: (Optional) The file name for the per-key file.
       If None, this combiner will assume the keys fit in memory and will not
-      store the analyzer result in a file. If '', the "uniques" scope name in
-      the context of this graph will be used as the file name. If not '', it
-      should be unique within a given preprocessing function.
+      store the analyzer result in a file. If '', a file name will be chosen
+      based on the current TensorFlow scope. If not '', it should be unique
+      within a given preprocessing function.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -204,9 +204,10 @@ def _scale_by_min_max_internal(x, key, output_min, output_max, elementwise,
       min_x_value, max_x_value = tf_utils.map_per_key_reductions(
           (min_x_value, max_x_value), key, key_vocab, x)
     else:
-      minus_min_max_for_key = tf_utils.apply_per_key_vocabulary(key_values, key)
+      minus_min_max_for_key = tf_utils.apply_per_key_vocabulary(
+          key_values, key, target_ndims=x.get_shape().ndims)
       min_x_value, max_x_value = (
-          -minus_min_max_for_key[:, 0, :], minus_min_max_for_key[:, 1, :])
+          -minus_min_max_for_key[:, 0], minus_min_max_for_key[:, 1])
 
   compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
   x_values = x
@@ -268,9 +269,9 @@ def scale_to_0_1_per_key(
     elementwise: If true, scale each element of the tensor independently.
     key_vocabulary_filename: (Optional) The file name for the per-key file.
       If None, this combiner will assume the keys fit in memory and will not
-      store the analyzer result in a file. If '', the "uniques" scope name in
-      the context of this graph will be used as the file name. If not '', it
-      should be unique within a given preprocessing function.
+      store the analyzer result in a file. If '', a file name will be chosen
+      based on the current TensorFlow scope. If not '', it should be unique
+      within a given preprocessing function.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -318,6 +319,7 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
         x=x,
         key=None,
         elementwise=elementwise,
+        key_vocabulary_filename=None,
         output_dtype=output_dtype)
 
 
@@ -325,6 +327,7 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
 def scale_to_z_score_per_key(x,
                              key,
                              elementwise=False,
+                             key_vocabulary_filename=None,
                              name=None,
                              output_dtype=None):
   """Returns a standardized column with mean 0 and variance 1, grouped per key.
@@ -345,6 +348,11 @@ def scale_to_z_score_per_key(x,
     elementwise: If true, scales each element of the tensor independently;
         otherwise uses the mean and variance of the whole tensor.
         Currently, not supported for per-key operations.
+    key_vocabulary_filename: (Optional) The file name for the per-key file.
+      If None, this combiner will assume the keys fit in memory and will not
+      store the analyzer result in a file. If '', a file name will be chosen
+      based on the current TensorFlow scope. If not '', it should be unique
+      within a given preprocessing function.
     name: (Optional) A name for this operation.
     output_dtype: (Optional) If not None, casts the output tensor to this type.
 
@@ -367,10 +375,12 @@ def scale_to_z_score_per_key(x,
         x=x,
         key=key,
         elementwise=elementwise,
+        key_vocabulary_filename=key_vocabulary_filename,
         output_dtype=output_dtype)
 
 
-def _scale_to_z_score_internal(x, key, elementwise, output_dtype):
+def _scale_to_z_score_internal(
+    x, key, elementwise, key_vocabulary_filename, output_dtype):
   """Implementation for scale_to_z_score."""
   # x_mean will be float16, float32, or float64, depending on type of x
   if key is None:
@@ -382,11 +392,18 @@ def _scale_to_z_score_internal(x, key, elementwise, output_dtype):
     if elementwise:
       raise NotImplementedError('Per-key elementwise reduction not supported')
 
-    key_vocab, key_means, key_vars = analyzers._mean_and_var_per_key(  # pylint: disable=protected-access
-        x, key, output_dtype=output_dtype)
+    mean_and_var_per_key_result = analyzers._mean_and_var_per_key(  # pylint: disable=protected-access
+        x, key, key_vocabulary_filename=key_vocabulary_filename,
+        output_dtype=output_dtype)
 
-    x_mean, x_var = tf_utils.map_per_key_reductions((key_means, key_vars), key,
-                                                    key_vocab, x)
+    if key_vocabulary_filename is None:
+      key_vocab, key_means, key_vars = mean_and_var_per_key_result
+      x_mean, x_var = tf_utils.map_per_key_reductions((key_means, key_vars),
+                                                      key, key_vocab, x)
+    else:
+      mean_var_for_key = tf_utils.apply_per_key_vocabulary(
+          mean_and_var_per_key_result, key, target_ndims=x.get_shape().ndims)
+      x_mean, x_var = (mean_var_for_key[:, 0], mean_var_for_key[:, 1])
 
   compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
   x_values = x

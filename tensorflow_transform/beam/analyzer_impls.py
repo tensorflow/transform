@@ -1101,15 +1101,12 @@ class _CombinePerKeyFormatLargeImpl(beam.PTransform):
     super(_CombinePerKeyFormatLargeImpl, self).__init__()
 
   def expand(self, inputs):
-
-    def _encode_values(k, v):
-      return (k, tf.compat.as_str_any(','.join(map(tf.compat.as_str_any, v))))
-
+    to_str = tf.compat.as_str_any
     pcoll, = inputs
     return (
         pcoll
-        | 'EncodeValues' >> beam.MapTuple(_encode_values)
-        | 'SwapKeysAndValues' >> beam.KvSwap())
+        | 'EncodeValueAndSwapWithKey' >> beam.MapTuple(
+            lambda k, v: (to_str(','.join(map(to_str, v))), k)))
 
 
 @common.register_ptransform(analyzer_nodes.PTransform)
