@@ -38,25 +38,6 @@ main = tf.test.main
 named_parameters = parameterized.named_parameters
 
 
-def _are_static_asserts_enabled():
-  try:
-    with tf.compat.v1.Session():
-      tf.compat.v1.debugging.assert_less(2.0, 1.0).mark_used()
-    return False
-  except tf.errors.InvalidArgumentError:
-    return True
-
-
-# Some tests now depend on what nodes end up in the GraphDef. Depending on TF
-# version, assert_* operations sometimes perform the check when the python
-# tf.debuggin.assert_* functin is called. In this case, no actual operation is
-# generated or added to the GraphDef. This boolean allows the tests to expect
-# the right things in the GraphDef.
-# TODO(b/139135898) Remove this once tests no longer rely on exact op
-# implementations.
-TF_STATIC_ASSERTS_ENABLED = _are_static_asserts_enabled()
-
-
 def cross_named_parameters(*args):
   """Cross a list of lists of dicts suitable for @named_parameters.
 
