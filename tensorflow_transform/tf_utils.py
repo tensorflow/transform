@@ -247,12 +247,12 @@ def deref_tensor_or_op(tensor_or_op):
         values=deref_tensor_or_op(tensor_or_op.values),
         dense_shape=deref_tensor_or_op(tensor_or_op.dense_shape))
   if isinstance(tensor_or_op, _RaggedTensorRef):
-    # Using the private constructor because the factory methods create new
-    # tensors that do not match the original, even using the same method.
-    return tf.RaggedTensor(
+    # Setting validate=False here because validating entails adding many asserts
+    # to the graph every time it's called.
+    return tf.RaggedTensor.from_row_splits(
         values=deref_tensor_or_op(tensor_or_op.values),
         row_splits=deref_tensor_or_op(tensor_or_op.row_splits),
-        internal=True)
+        validate=False)
   return tensor_or_op
 
 
