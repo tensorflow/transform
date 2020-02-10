@@ -646,8 +646,6 @@ def _count_docs_with_term(term_frequency):
   return tf.expand_dims(out, 0)
 
 
-# TODO(b/116308354): frequency_threshold is misleading since this threshold can
-# be applied to mutual information rather than frequency.
 @common.log_api_use(common.MAPPER_COLLECTION)
 def compute_and_apply_vocabulary(
     x,
@@ -710,7 +708,9 @@ def compute_and_apply_vocabulary(
       Labels should be a discrete integerized tensor (If the label is numeric,
       it should first be bucketized; If the label is a string, an integer
       vocabulary should first be applied). Note: `SparseTensor` labels are not
-      yet supported (b/134931826).
+      yet supported (b/134931826). WARNING: when labels are provided, the
+      frequency_threshold argument functions as a mutual information threshold,
+      which is a float. TODO(b/116308354): Fix confusing naming.
     use_adjusted_mutual_info: If true, use adjusted mutual information.
     min_diff_from_avg: Mutual information of a feature will be adjusted to zero
       whenever the difference between count of the feature with any label and

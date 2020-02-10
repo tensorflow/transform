@@ -1140,8 +1140,6 @@ class _VocabOrderingType(object):
 
 # TODO(KesterTong): Once multiple outputs are supported, return indices too.
 # TODO(b/117796748): Add coverage key feature input as alternative to `key_fn`.
-# TODO(b/116308354): rename store_frequency to store_importance because it now
-# can return mutual information.
 # TODO(tensorflow/community) the experimental fingerprint_shuffle argument is a
 # workaround for the inability to appropriately rebalance sharded variables on
 # TF 1.0. The following TF 2.0 proposal should address this issue in the future
@@ -1243,7 +1241,9 @@ def vocabulary(x,
       Labels should be a discrete integerized tensor (If the label is numeric,
       it should first be bucketized; If the label is a string, an integer
       vocabulary should first be applied). Note: `SparseTensor` labels are not
-      yet supported (b/134931826).
+      yet supported (b/134931826). WARNING: When labels are provided, the
+      frequency_threshold argument functions as a mutual information threshold,
+      which is a float. TODO(b/116308354): Fix confusing naming.
     use_adjusted_mutual_info: If true, and labels are provided, calculate
       vocabulary using adjusted rather than raw mutual information.
     min_diff_from_avg: MI (or AMI) of a feature x label will be adjusted to zero
