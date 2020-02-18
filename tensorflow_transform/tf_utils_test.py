@@ -376,6 +376,12 @@ class TFUtilsTest(test_case.TransformTestCase):
           reduce_instance_dims=False,
           input_signature=[tf.TensorSpec(None, tf.int64)]),
       dict(
+          testcase_name='dense_elementwise_nan',
+          x=[[[1.], [2.]], [[1.], [2.]], [[np.nan], [3.]]],
+          expected_result=[[2], [3]],
+          reduce_instance_dims=False,
+          input_signature=[tf.TensorSpec(None, tf.float64)]),
+      dict(
           testcase_name='sparse',
           x=tf.compat.v1.SparseTensorValue(
               indices=[[0, 0, 0], [0, 2, 0], [1, 1, 0], [1, 2, 0]],
@@ -425,6 +431,14 @@ class TFUtilsTest(test_case.TransformTestCase):
           expected_count=[[2.], [2.]],
           expected_mean=[[2.], [3.]],
           expected_var=[[1.], [1.]],
+          reduce_instance_dims=False,
+          input_signature=[tf.TensorSpec(None, tf.float32)]),
+      dict(
+          testcase_name='dense_elementwise_nan',
+          x=[[[1], [2], [np.nan]], [[3], [4], [5]]],
+          expected_count=[[2.], [2.], [1.]],
+          expected_mean=[[2.], [3.], [5.]],
+          expected_var=[[1.], [1.], [0.]],
           reduce_instance_dims=False,
           input_signature=[tf.TensorSpec(None, tf.float32)]),
       dict(
