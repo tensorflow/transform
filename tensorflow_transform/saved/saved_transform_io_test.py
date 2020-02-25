@@ -64,12 +64,12 @@ class SavedTransformIOTest(tf.test.TestCase):
       with tf.compat.v1.Session().as_default() as session:
         input_floats = tf.constant([1237.0])  # tf.float32
         input_features = {'x': input_floats}
-        _, transformed_features = (
+        _, transformed_features, _ = (
             saved_transform_io.partially_apply_saved_transform_internal(
                 self._test_saved_model, input_features))
         self.assertEqual(['x_scaled'], list(transformed_features))
         result_tensor = transformed_features['x_scaled']
-        self.assertTrue(isinstance(result_tensor, tf.Tensor))
+        self.assertIsInstance(result_tensor, tf.Tensor)
 
         self.assertAllEqual(session.run(result_tensor), [247.0])
         self.assertEqual(graph.get_tensor_by_name('Const:0'), input_floats)
@@ -112,7 +112,7 @@ class SavedTransformIOTest(tf.test.TestCase):
         with tf.compat.v1.Session().as_default() as session:
           input_floats = tf.constant([1237.0])  # tf.float32
           input_features = {'x': input_floats}
-          _, transformed_features = (
+          _, transformed_features, _ = (
               saved_transform_io.partially_apply_saved_transform_internal(
                   self._test_saved_model, input_features))
           self.assertEqual(['x_scaled'], list(transformed_features))
@@ -125,7 +125,7 @@ class SavedTransformIOTest(tf.test.TestCase):
       with tf.compat.v1.name_scope('my_scope'):
         with tf.compat.v1.Session().as_default() as session:
           input_features = {'x': input_floats}
-          _, transformed_features = (
+          _, transformed_features, _ = (
               saved_transform_io.partially_apply_saved_transform_internal(
                   self._test_saved_model, input_features))
           self.assertEqual(['x_scaled'], list(transformed_features))
@@ -151,7 +151,7 @@ class SavedTransformIOTest(tf.test.TestCase):
         # Using a computed input gives confidence that the graphs are fused.
         input_float = tf.constant(25.0) * 2
         inputs = {'input': input_float}
-        _, outputs = (
+        _, outputs, _ = (
             saved_transform_io.partially_apply_saved_transform_internal(
                 export_path, inputs))
         result = session.run(outputs['output'])
@@ -184,7 +184,7 @@ class SavedTransformIOTest(tf.test.TestCase):
         # Using a computed input gives confidence that the graphs are fused.
         input_string = tf.constant('dog')
         inputs = {'input': input_string}
-        _, outputs = (
+        _, outputs, _ = (
             saved_transform_io.partially_apply_saved_transform_internal(
                 export_path, inputs))
         session.run(tf.compat.v1.tables_initializer())
@@ -213,11 +213,11 @@ class SavedTransformIOTest(tf.test.TestCase):
 
         # Using a computed input gives confidence that the graphs are fused
         inputs = {'input': input_sparse * 10}
-        _, outputs = (
+        _, outputs, _ = (
             saved_transform_io.partially_apply_saved_transform_internal(
                 export_path, inputs))
         output_sparse = outputs['output']
-        self.assertTrue(isinstance(output_sparse, tf.SparseTensor))
+        self.assertIsInstance(output_sparse, tf.SparseTensor)
         result = session.run(output_sparse)
 
         # indices and shape unchanged; values multiplied by 10 and divided by 5
@@ -249,7 +249,7 @@ class SavedTransformIOTest(tf.test.TestCase):
 
         # Using a computed input gives confidence that the graphs are fused
         inputs = {'input': input_ragged * 10}
-        _, outputs = (
+        _, outputs, _ = (
             saved_transform_io.partially_apply_saved_transform_internal(
                 export_path, inputs))
         output_ragged = outputs['output']
@@ -295,7 +295,7 @@ class SavedTransformIOTest(tf.test.TestCase):
         with tf.compat.v1.Session().as_default() as session:
           input_string = tf.constant('dog')
           inputs = {'input': input_string}
-          _, outputs = (
+          _, outputs, _ = (
               saved_transform_io.partially_apply_saved_transform_internal(
                   export_path, inputs))
 

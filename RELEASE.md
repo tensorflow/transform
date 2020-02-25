@@ -7,6 +7,9 @@
   would not fit in memory, by storing the key-value pairs in vocabulary files.
   This is enabled by passing a `per_key_filename` to `tft.count_per_key` and
   `tft.scale_to_z_score_per_key`.
+* Added `tft.TransformFeaturesLayer` and
+  `tft.TFTransformOutput.transform_features_layers` to allow transforming
+  features for a TensorFlow Keras model.
 
 ## Bug Fixes and Other Changes
 

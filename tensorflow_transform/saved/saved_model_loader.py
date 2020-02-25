@@ -27,9 +27,7 @@ from tensorflow.python.saved_model import loader_impl
 
 
 def parse_saved_model(saved_model_dir):
-  # pylint: disable=protected-access
-  return loader_impl._parse_saved_model(saved_model_dir)
-  # pylint: enable=protected-access
+  return loader_impl.parse_saved_model(saved_model_dir)
 
 
 def choose_meta_graph_def(saved_model, tags):

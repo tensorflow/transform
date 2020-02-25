@@ -90,8 +90,8 @@ def _load_transform_saved_model(transform_savedmodel_dir):
 
   Returns:
     A tuple with a `MetaGraphDef` proto, the input and outputs of a
-    `SignatureDef` proto, and a dict from tensor names to absolute paths for
-    asset filepaths.
+    `SignatureDef` proto, and a dict from tensor names to tf.saved_model.Assets
+    of absolute paths for asset filepaths.
   """
   saved_model = saved_model_loader.parse_saved_model(
       transform_savedmodel_dir)
@@ -110,19 +110,27 @@ def _load_transform_saved_model(transform_savedmodel_dir):
   input_signature = signature.inputs
   output_signature = signature.outputs
 
+  # TODO(zoyahav): Remove this branch when TFT no longer supports TF 1.15.
+  if hasattr(tf.saved_model, 'Asset'):
+    Asset = tf.saved_model.Asset  # pylint: disable=invalid-name
+  else:
+    from tensorflow.python.training.tracking import tracking  # pylint: disable=g-direct-tensorflow-import, g-import-not-at-top
+    Asset = tracking.TrackableAsset  # pylint: disable=invalid-name
+
   # asset_path_dict is {string: string}, mapping tensor names to absolute paths.
   asset_path_dict = saved_model_loader.get_asset_tensors(
       transform_savedmodel_dir, meta_graph_def)
+  assets_dict = {k: Asset(v) for k, v in asset_path_dict.items()}
 
-  return meta_graph_def, input_signature, output_signature, asset_path_dict
+  return meta_graph_def, input_signature, output_signature, assets_dict
 
 
 _PARTITIONED_VARIABLE_NAME_RE = re.compile(r'^(.*)/part_(\d*)$')
 
 
-def _partially_apply_saved_transform_impl(
-    saved_model_dir, logical_input_map, tensor_replacement_map=None,
-    fetch_tensor_names=None):
+def _partially_apply_saved_transform_impl(saved_model_dir,
+                                          logical_input_map,
+                                          tensor_replacement_map=None):
   """Shared code for partially_apply_saved_transform and fetch_tensor_values.
 
   This adds nodes to a graph that already contains Tensors representing the
@@ -144,15 +152,14 @@ def _partially_apply_saved_transform_impl(
       be a subset of those in the input signature of the transform graph, and
       the corresponding Tensors must have the expected types and shapes.
     tensor_replacement_map: a dict of tensor names to `Tensors`.
-    fetch_tensor_names: a list of tensor names.
 
   Returns:
-    A tuple of (unbound_inputs, outputs, fetched_tensors) where unbound_inputs
-    is a dict of logical name to Tensors that are yet to be mapped or fed,
-    outputs is a dict of logical name to Tensor, as provided by the output
-    signature of the transform graph, and fetched_tensors is a dict of tensor
-    names to `Tensor`s where the tensor names are the names given by
-    `fetched_tensor_names`.
+    A tuple of (unbound_inputs, outputs, assets_dict) where
+      * unbound_inputs is a dict of logical name to Tensors that are yet to be
+        mapped or fed
+      * outputs is a dict of logical name to Tensor, as provided by the output
+        signature of the transform graph
+      * assets_dict is a dict from name to tf.saved_model.Assets.
 
   Raises:
     ValueError: if the provided input_tensors dict has keys that are not part
@@ -165,10 +172,14 @@ def _partially_apply_saved_transform_impl(
   if graph is None:
     raise RuntimeError('apply_saved_transform() requires a default graph.')
 
-  meta_graph_def, input_signature, output_signature, asset_path_dict = (
+  meta_graph_def, input_signature, output_signature, assets_dict = (
       _load_transform_saved_model(saved_model_dir))
-  asset_tensor_dict = {k: ops.convert_to_tensor(v)
-                       for k, v in asset_path_dict.items()}
+
+  # We have to wrap the asset_path tensor with tf.identity to make sure it gets
+  # copied to the current graph.
+  asset_tensor_dict = {
+      k: tf.identity(assets_dict[k].asset_path) for k, v in assets_dict.items()
+  }
 
   # Check for inputs that were not part of the input signature.
   unexpected_inputs = (set(six.iterkeys(logical_input_map)) -
@@ -250,9 +261,9 @@ def _partially_apply_saved_transform_impl(
   for asset_path_tensor in current_assets:
     graph.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
                             asset_path_tensor)
-  for asset_path_tensor in asset_tensor_dict.values():
+  for asset in assets_dict.values():
     graph.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
-                            asset_path_tensor)
+                            asset.asset_path)
 
   if saver:
     checkpoint_path = os.path.join(
@@ -335,12 +346,8 @@ def _partially_apply_saved_transform_impl(
       logical_name: lookup_tensor_or_sparse_or_composite_tensor(tensor_info)
       for logical_name, tensor_info in six.iteritems(input_signature)
       if logical_name not in logical_input_map}
-  if fetch_tensor_names is None:
-    fetch_tensor_names = []
-  fetched_tensors = {
-      name: lookup_remapped_tensor(name) for name in fetch_tensor_names}
 
-  return unbound_inputs, outputs, fetched_tensors
+  return unbound_inputs, outputs, assets_dict
 
 
 def partially_apply_saved_transform(saved_model_dir, logical_input_map,
@@ -349,16 +356,18 @@ def partially_apply_saved_transform(saved_model_dir, logical_input_map,
   tf.compat.v1.logging.warn(
       'partially_apply_saved_transform is deprecated.  Use the '
       'transform_raw_features method of the TFTrandformOutput class instead.')
-  return partially_apply_saved_transform_internal(
+  unbound_inputs, outputs, _ = partially_apply_saved_transform_internal(
       saved_model_dir, logical_input_map, tensor_replacement_map)
+  return unbound_inputs, outputs
 
 
-def partially_apply_saved_transform_internal(saved_model_dir, logical_input_map,
+def partially_apply_saved_transform_internal(saved_model_dir,
+                                             logical_input_map,
                                              tensor_replacement_map=None):
   """Apply a transform graph, represented as a SavedModel, to existing Tensors.
 
-  For internal use only.  Users should use the transform_raw_features method
-  of the TFTrandformOutput class.
+  For internal use only.  Users should use the `transform_raw_features` or
+  `transform_raw_features_layer` method of the TFTrandformOutput class.
 
   This adds nodes to a graph that already contains Tensors representing the
   inputs.  These input Tensors may be placeholders that will be fed when the
@@ -381,10 +390,12 @@ def partially_apply_saved_transform_internal(saved_model_dir, logical_input_map,
     tensor_replacement_map: a dict of tensor names to `Tensors`.
 
   Returns:
-    A pair of (unbound_inputs, outputs) where unbound_inputs is a dict of
-    logical name to Tensors that are yet to be mapped or fed, and outputs is
-    a dict of logical name to Tensor, as provided by the output signature
-    of the transform graph
+    A tuple of (unbound_inputs, outputs, assets_dict) where
+      * unbound_inputs is a dict of logical name to Tensors that are yet to be
+        mapped or fed
+      * outputs is a dict of logical name to Tensor, as provided by the output
+        signature of the transform graph
+      * assets_dict is a dict from name to tf.saved_model.Assets.
 
   Raises:
     ValueError: if the provided input_tensors dict has keys that are not part
@@ -393,9 +404,9 @@ def partially_apply_saved_transform_internal(saved_model_dir, logical_input_map,
     RuntimeError: if there is no default graph available to which to apply the
       transform.
   """
-  unbound_inputs, outputs, _ = _partially_apply_saved_transform_impl(
+  unbound_inputs, outputs, assets_map = _partially_apply_saved_transform_impl(
       saved_model_dir, logical_input_map, tensor_replacement_map)
-  return unbound_inputs, outputs
+  return unbound_inputs, outputs, assets_map
 
 
 def write_saved_transform_from_session(
