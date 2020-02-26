@@ -20,7 +20,8 @@ Numeric values are first bucketized according to the provided boundaries, then
 linearly interpolated within their respective bucket ranges. Finally, the
 interpolated values are normalized to the range [0, 1]. Values that are
 less than or equal to the lowest boundary, or greater than or equal to the
-highest boundary, will be mapped to 0 and 1 respectively.
+highest boundary, will be mapped to 0 and 1 respectively. NaN values will be
+mapped to the middle of the range (.5).
 
 This is a non-linear approach to normalization that is less sensitive to
 outliers than min-max or z-score scaling. When outliers are present, standard

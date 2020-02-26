@@ -2,6 +2,7 @@
 
 *  <a href="./tft.md"><code>tft</code></a>
 *  <a href="./tft/TFTransformOutput.md"><code>tft.TFTransformOutput</code></a>
+*  <a href="./tft/TransformFeaturesLayer.md"><code>tft.TransformFeaturesLayer</code></a>
 *  <a href="./tft/apply_buckets.md"><code>tft.apply_buckets</code></a>
 *  <a href="./tft/apply_buckets_with_interpolation.md"><code>tft.apply_buckets_with_interpolation</code></a>
 *  <a href="./tft/apply_function.md"><code>tft.apply_function</code></a>

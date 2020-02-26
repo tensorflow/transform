@@ -34,9 +34,9 @@ Scale a numerical column into a predefined range on a per-key basis.
 * <b>`elementwise`</b>: If true, scale each element of the tensor independently.
 * <b>`key_vocabulary_filename`</b>: (Optional) The file name for the per-key file.
     If None, this combiner will assume the keys fit in memory and will not
-    store the analyzer result in a file. If '', the "uniques" scope name in
-    the context of this graph will be used as the file name. If not '', it
-    should be unique within a given preprocessing function.
+    store the analyzer result in a file. If '', a file name will be chosen
+    based on the current TensorFlow scope. If not '', it should be unique
+    within a given preprocessing function.
 * <b>`name`</b>: (Optional) A name for this operation.
 
 

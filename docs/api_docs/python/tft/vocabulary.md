@@ -107,7 +107,9 @@ within each vocabulary entry (b/117796748).
     Labels should be a discrete integerized tensor (If the label is numeric,
     it should first be bucketized; If the label is a string, an integer
     vocabulary should first be applied). Note: `SparseTensor` labels are not
-    yet supported (b/134931826).
+    yet supported (b/134931826). WARNING: When labels are provided, the
+    frequency_threshold argument functions as a mutual information threshold,
+    which is a float. TODO(b/116308354): Fix confusing naming.
 * <b>`use_adjusted_mutual_info`</b>: If true, and labels are provided, calculate
     vocabulary using adjusted rather than raw mutual information.
 * <b>`min_diff_from_avg`</b>: MI (or AMI) of a feature x label will be adjusted to zero

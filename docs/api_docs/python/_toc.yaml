@@ -84,6 +84,8 @@ toc:
       path: /tfx/transform/api_docs/python/tft/tfidf
     - title: TFTransformOutput
       path: /tfx/transform/api_docs/python/tft/TFTransformOutput
+    - title: TransformFeaturesLayer
+      path: /tfx/transform/api_docs/python/tft/TransformFeaturesLayer
     - title: uniques
       path: /tfx/transform/api_docs/python/tft/uniques
     - title: var

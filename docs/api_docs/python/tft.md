@@ -15,6 +15,8 @@ Init module for TF.Transform.
 
 [`class TFTransformOutput`](./tft/TFTransformOutput.md): A wrapper around the output of the tf.Transform.
 
+[`class TransformFeaturesLayer`](./tft/TransformFeaturesLayer.md): A Keras layer for applying a tf.Transform output to input layers.
+
 ## Functions
 
 [`apply_buckets(...)`](./tft/apply_buckets.md): Returns a bucketized column, with a bucket index assigned to each input.

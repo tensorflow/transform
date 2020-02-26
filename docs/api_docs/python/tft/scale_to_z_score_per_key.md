@@ -10,6 +10,7 @@ tft.scale_to_z_score_per_key(
     x,
     key,
     elementwise=False,
+    key_vocabulary_filename=None,
     name=None,
     output_dtype=None
 )
@@ -34,6 +35,11 @@ Note that the standard deviation computed here is based on the biased variance
 * <b>`elementwise`</b>: If true, scales each element of the tensor independently;
       otherwise uses the mean and variance of the whole tensor.
       Currently, not supported for per-key operations.
+* <b>`key_vocabulary_filename`</b>: (Optional) The file name for the per-key file.
+    If None, this combiner will assume the keys fit in memory and will not
+    store the analyzer result in a file. If '', a file name will be chosen
+    based on the current TensorFlow scope. If not '', it should be unique
+    within a given preprocessing function.
 * <b>`name`</b>: (Optional) A name for this operation.
 * <b>`output_dtype`</b>: (Optional) If not None, casts the output tensor to this type.
 

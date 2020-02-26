@@ -71,7 +71,9 @@ operation.
     Labels should be a discrete integerized tensor (If the label is numeric,
     it should first be bucketized; If the label is a string, an integer
     vocabulary should first be applied). Note: `SparseTensor` labels are not
-    yet supported (b/134931826).
+    yet supported (b/134931826). WARNING: when labels are provided, the
+    frequency_threshold argument functions as a mutual information threshold,
+    which is a float. TODO(b/116308354): Fix confusing naming.
 * <b>`use_adjusted_mutual_info`</b>: If true, use adjusted mutual information.
 * <b>`min_diff_from_avg`</b>: Mutual information of a feature will be adjusted to zero
     whenever the difference between count of the feature with any label and

@@ -11,6 +11,7 @@
 <meta itemprop="property" content="num_buckets_for_transformed_feature"/>
 <meta itemprop="property" content="raw_domains"/>
 <meta itemprop="property" content="raw_feature_spec"/>
+<meta itemprop="property" content="transform_features_layer"/>
 <meta itemprop="property" content="transform_raw_features"/>
 <meta itemprop="property" content="transformed_domains"/>
 <meta itemprop="property" content="transformed_feature_spec"/>
@@ -131,6 +132,27 @@ Returns a feature_spec for the raw features.
 #### Returns:
 
 A dict from feature names to FixedLenFeature/SparseFeature/VarLenFeature.
+
+<h3 id="transform_features_layer"><code>transform_features_layer</code></h3>
+
+``` python
+transform_features_layer(drop_unused_features=False)
+```
+
+Creates a TransformFeaturesLayer from this transform output.
+
+#### Args:
+
+* <b>`drop_unused_features`</b>: If True, the output of TransformFeaturesLayer will
+    be filtered. Only the features that are transformed from 'raw_features'
+    will be included in the returned result. If a feature is transformed
+    from multiple raw features (e.g, feature cross), it will only be
+    included if all its base raw features are present in `raw_features`.
+
+
+#### Returns:
+
+A TransformFeaturesLayer instance.
 
 <h3 id="transform_raw_features"><code>transform_raw_features</code></h3>
 

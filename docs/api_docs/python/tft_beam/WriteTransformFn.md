@@ -275,10 +275,10 @@ input_type_hint (type): An instance of an allowed built-in type, a custom
 
 #### Raises:
 
-~exceptions.TypeError: If **input_type_hint** is not a valid type-hint.
-  See
-  :obj:`apache_beam.typehints.typehints.validate_composite_type_param()`
-  for further details.
+* <b>`TypeError`</b>: If **input_type_hint** is not a valid type-hint.
+    See
+    :obj:`apache_beam.typehints.typehints.validate_composite_type_param()`
+    for further details.
 
 
 #### Returns:
@@ -303,9 +303,9 @@ type_hint (type): An instance of an allowed built-in type, a custom class,
 
 #### Raises:
 
-~exceptions.TypeError: If **type_hint** is not a valid type-hint. See
-  :obj:`~apache_beam.typehints.typehints.validate_composite_type_param()`
-  for further details.
+* <b>`TypeError`</b>: If **type_hint** is not a valid type-hint. See
+    :obj:`~apache_beam.typehints.typehints.validate_composite_type_param()`
+    for further details.
 
 
 #### Returns:

@@ -8,6 +8,7 @@
 <meta itemprop="property" content="get_desired_batch_size"/>
 <meta itemprop="property" content="get_passthrough_keys"/>
 <meta itemprop="property" content="get_use_deep_copy_optimization"/>
+<meta itemprop="property" content="get_use_tfxio"/>
 </div>
 
 # tft_beam.context.Context
@@ -33,6 +34,9 @@ All the attributes in this context are kept on a thread local state.
       information should be attached to instances in the pipeline which should
       not be part of the transformation graph, instance keys is one such
       example.
+* <b>`use_tfxio`</b>: (Optional) If True, TFT's public APIs (e.g. AnalyzeDataset) will
+      accept `PCollection[pa.RecordBatch]` and `tfxio.TensorAdapterConfig`
+      as the input dataset.
 
 Note that the temp dir should be accessible to worker jobs, e.g. if running
 with the Cloud Dataflow runner, the temp dir should be on GCS and should have
@@ -45,7 +49,8 @@ __init__(
     temp_dir=None,
     desired_batch_size=None,
     passthrough_keys=None,
-    use_deep_copy_optimization=None
+    use_deep_copy_optimization=None,
+    use_tfxio=False
 )
 ```
 
@@ -106,6 +111,15 @@ get_use_deep_copy_optimization(cls)
 ```
 
 Retrieves a user set use_deep_copy_optimization, None if not set.
+
+<h3 id="get_use_tfxio"><code>get_use_tfxio</code></h3>
+
+``` python
+@classmethod
+get_use_tfxio(cls)
+```
+
+Retrieves flag use_tfxio.
 
 
 
