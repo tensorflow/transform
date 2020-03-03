@@ -1,6 +1,6 @@
 <!-- mdformat off(mdformat causes unwanted indentation changes) -->
 
-# Current version (not yet released; still in development)
+# Release 0.21.1
 
 ## Major Features and Improvements
 * Expanded capability for per-key analyzers to analyze larger sets of keys that
@@ -15,6 +15,7 @@
 
 * `tft.apply_buckets_with_interpolation` now handles NaN values by imputing with
   the middle of the normalized range.
+* Depends on `tfx-bsl>=0.21.3,<0.22`.
 
 ## Breaking changes
 
