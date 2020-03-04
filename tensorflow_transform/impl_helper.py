@@ -74,6 +74,11 @@ def batched_placeholders_from_specs(specs):
   return result
 
 
+# Older TFX versions may refer to this function instead.
+# TODO(b/150721482): remove once TFX 0.21.1 is released.
+feature_spec_as_batched_placeholders = batched_placeholders_from_specs
+
+
 def _is_feature_spec(spec):
   return isinstance(spec, (
       tf.io.VarLenFeature, tf.io.SparseFeature, tf.io.FixedLenFeature))
