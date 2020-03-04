@@ -1,16 +1,6 @@
 <!-- mdformat off(mdformat causes unwanted indentation changes) -->
 
-# Current version (not yet released; still in development)
-
-## Major Features and Improvements
-
-## Bug Fixes and Other Changes
-
-## Breaking changes
-
-## Deprecations
-
-# Release 0.21.1
+# Release 0.21.2
 
 ## Major Features and Improvements
 * Expanded capability for per-key analyzers to analyze larger sets of keys that
@@ -30,6 +20,7 @@
 ## Breaking changes
 
 ## Deprecations
+
 
 # Release 0.21.0
 
