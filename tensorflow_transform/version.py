@@ -14,4 +14,4 @@
 """Contains the version string of TF.Transform."""
 
 # Note that setup.py uses this version.
-__version__ = '0.21.1'
+__version__ = '0.22.0dev'
