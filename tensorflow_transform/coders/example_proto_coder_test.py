@@ -67,6 +67,7 @@ def _binary_to_example(serialized_proto):
 class ExampleProtoCoderTest(test_case.TransformTestCase):
 
   def setUp(self):
+    super(ExampleProtoCoderTest, self).setUp()
     # Verify that the implementation we requested via the Flag is honoured.
     assert api_implementation.Type() == flags.FLAGS.proto_implementation_type
 

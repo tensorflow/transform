@@ -103,6 +103,14 @@ features {
         ascii_proto="""\
 features { feature { key: "varlen_feature" value {} } }""",
         instance={'varlen_feature': None}),
+    dict(
+        testcase_name='multivariate_string_to_varlen',
+        feature_spec={'varlen_string': tf.io.VarLenFeature(tf.string)},
+        ascii_proto="""\
+features {
+  feature { key: "varlen_string" value { bytes_list { value: [ "foo", "bar" ] } } }
+}""",
+        instance={'varlen_string': [b'foo', b'bar']}),
 ]
 
 ENCODE_ONLY_CASES = [
@@ -114,6 +122,22 @@ features {
   feature { key: "unicode_feature" value { bytes_list { value: [ "Hello κόσμε" ] } } }
 }""",
         instance={'unicode_feature': u'Hello κόσμε'}),
+    dict(
+        testcase_name='scalar_string_to_varlen',
+        feature_spec={'varlen_string': tf.io.VarLenFeature(tf.string)},
+        ascii_proto="""\
+features {
+  feature { key: "varlen_string" value { bytes_list { value: [ "foo" ] } } }
+}""",
+        instance={'varlen_string': 'foo'}),
+    dict(
+        testcase_name='scalar_int_to_varlen',
+        feature_spec={'varlen_int': tf.io.VarLenFeature(tf.int64)},
+        ascii_proto="""\
+features {
+  feature { key: "varlen_int" value { int64_list { value: [ 123 ] } } }
+}""",
+        instance={'varlen_int': 123}),
 ]
 
 DECODE_ONLY_CASES = []

@@ -64,10 +64,10 @@ def _make_cast_fn(np_dtype):
     if isinstance(x, (np.generic, np.ndarray)):
       # This works for both np.generic and np.array (of any shape).
       return x.tolist()
-    else:
-      # This works for python scalars (or lists thereof), which require no
-      # casting.
-      return x
+
+    # This works for python scalars (or lists thereof), which require no
+    # casting.
+    return x
 
   # This is in agreement with Tensorflow conversions for Unicode values for both
   # Python 2 and 3 (and also works for non-Unicode objects). It is also in
@@ -96,8 +96,8 @@ def _make_cast_fn(np_dtype):
       return identity
     except TypeError:
       return numeric_cast
-  else:
-    return string_cast
+
+  return string_cast
 
 
 def _make_feature_value_fn(dtype):
@@ -113,10 +113,11 @@ def _make_feature_value_fn(dtype):
   """
   if dtype.is_integer:
     return lambda feature: feature.int64_list.value
-  elif dtype.is_floating:
+
+  if dtype.is_floating:
     return lambda feature: feature.float_list.value
-  else:
-    return lambda feature: feature.bytes_list.value
+
+  return lambda feature: feature.bytes_list.value
 
 
 class _FixedLenFeatureHandler(object):
@@ -180,11 +181,12 @@ class _FixedLenFeatureHandler(object):
     if self._rank == 0:
       # Encode the values as a scalar if shape == [].
       return values[0]
-    elif self._rank == 1:
+
+    if self._rank == 1:
       # Short-circuit the reshaping logic needed for rank > 1.
       return np.asarray(values, dtype=self._np_dtype)
-    else:
-      return np.asarray(values, dtype=self._np_dtype).reshape(self._shape)
+
+    return np.asarray(values, dtype=self._np_dtype).reshape(self._shape)
 
   def encode_value(self, values):
     """Encodes a feature into its Example proto representation."""
@@ -226,16 +228,17 @@ class _VarLenFeatureHandler(object):
 
   def parse_value(self, feature_map):
     """Non-Mutating Decode of a feature into its TF.Transform representation."""
-    if self._name in feature_map:
-      feature = feature_map[self._name]
-      if feature.WhichOneof('kind') is None:
-        return None
-      else:
-        return list(self._value_fn(feature))
-    else:
+    if self._name not in feature_map:
       return None
 
+    feature = feature_map[self._name]
+    if feature.WhichOneof('kind') is None:
+      return None
+
+    return list(self._value_fn(feature))
+
   def encode_value(self, values):
+    """Encode values as tf.train.Feature."""
     if values is None:
       self._feature.Clear()
       # Note after Clear(), self._value no longer points to a submessage of
@@ -243,6 +246,9 @@ class _VarLenFeatureHandler(object):
       self._value = self._value_fn(self._feature)
     else:
       del self._value[:]
+
+      # Scalar must be length 1 array.
+      values = values if isinstance(values, (list, np.ndarray)) else [values]
       self._value.extend(self._cast_fn(values))
 
 
@@ -315,10 +321,10 @@ class ExampleProtoCoder(object):
 
     if self._serialized:
       return self._encode_example_cache.SerializeToString()
-    else:
-      result = tf.train.Example()
-      result.CopyFrom(self._encode_example_cache)
-      return result
+
+    result = tf.train.Example()
+    result.CopyFrom(self._encode_example_cache)
+    return result
 
   def decode(self, example_proto):
     """Decode tf.Example as a tf.transform encoded dict."""
