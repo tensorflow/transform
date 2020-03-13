@@ -419,7 +419,7 @@ def write_saved_transform_from_session(
   builder = tf.compat.v1.saved_model.builder.SavedModelBuilder(export_path)
   builder.add_meta_graph_and_variables(
       session, [constants.TRANSFORM_TAG],
-      signature_def_map={'transform_signature': predict_signature_def},
+      signature_def_map={constants.TRANSFORM_SIGNATURE: predict_signature_def},
       assets_collection=tf.compat.v1.get_collection(
           tf.compat.v1.GraphKeys.ASSET_FILEPATHS))
   builder.save(as_text)
