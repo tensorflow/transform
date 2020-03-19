@@ -975,65 +975,48 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                   mock.call(
                       _TensorMatcher('while/loop_counter:0'),
                       parents=[u'while/loop_counter']),
-                  mock.call(_OpMatcher('while/Less/y'), parents=[]),
-                  mock.call(
-                      _TensorMatcher('while/Less/y:0'),
-                      parents=[u'while/Less/y']),
+                  mock.call(_OpMatcher('Less/y'), parents=[]),
+                  mock.call(_TensorMatcher('Less/y:0'), parents=[u'Less/y']),
                   mock.call('FuncGraphInput[2]'),
                   mock.call(
-                      _OpMatcher('while/Less'),
-                      parents=['FuncGraphInput[2]', u'while/Less/y:0']),
+                      _OpMatcher('Less'),
+                      parents=['FuncGraphInput[2]', u'Less/y:0']),
+                  mock.call(_TensorMatcher('Less:0'), parents=[u'Less']),
+                  mock.call(_OpMatcher('Identity'), parents=[u'Less:0']),
                   mock.call(
-                      _TensorMatcher('while/Less:0'), parents=[u'while/Less']),
-                  mock.call(
-                      _OpMatcher('while/Identity'), parents=[u'while/Less:0']),
-                  mock.call(
-                      _TensorMatcher('while/Identity:0'),
-                      parents=[u'while/Identity']),
-                  mock.call(_OpMatcher('while/add/y'), parents=[]),
-                  mock.call(
-                      _TensorMatcher('while/add/y:0'),
-                      parents=[u'while/add/y']),
+                      _TensorMatcher('Identity:0'), parents=[u'Identity']),
+                  mock.call(_OpMatcher('add/y'), parents=[]),
+                  mock.call(_TensorMatcher('add/y:0'), parents=[u'add/y']),
                   mock.call('FuncGraphInput[0]'),
                   mock.call(
-                      _OpMatcher('while/add'),
-                      parents=['FuncGraphInput[0]', u'while/add/y:0']),
+                      _OpMatcher('add'),
+                      parents=['FuncGraphInput[0]', u'add/y:0']),
+                  mock.call(_TensorMatcher('add:0'), parents=[u'add']),
+                  mock.call(_OpMatcher('Identity'), parents=[u'add:0']),
                   mock.call(
-                      _TensorMatcher('while/add:0'), parents=[u'while/add']),
-                  mock.call(
-                      _OpMatcher('while/Identity'), parents=[u'while/add:0']),
-                  mock.call(
-                      _TensorMatcher('while/Identity:0'),
-                      parents=[u'while/Identity']),
+                      _TensorMatcher('Identity:0'), parents=[u'Identity']),
                   mock.call('FuncGraphInput[1]'),
                   mock.call(
-                      _OpMatcher('while/Identity_1'),
-                      parents=['FuncGraphInput[1]']),
+                      _OpMatcher('Identity_1'), parents=['FuncGraphInput[1]']),
                   mock.call(
-                      _TensorMatcher('while/Identity_1:0'),
-                      parents=[u'while/Identity_1']),
-                  mock.call(_OpMatcher('while/mul/y'), parents=[]),
-                  mock.call(
-                      _TensorMatcher('while/mul/y:0'),
-                      parents=[u'while/mul/y']),
+                      _TensorMatcher('Identity_1:0'), parents=[u'Identity_1']),
+                  mock.call(_OpMatcher('mul/y'), parents=[]),
+                  mock.call(_TensorMatcher('mul/y:0'), parents=[u'mul/y']),
                   mock.call('FuncGraphInput[2]'),
                   mock.call(
-                      _OpMatcher('while/mul'),
-                      parents=['FuncGraphInput[2]', u'while/mul/y:0']),
+                      _OpMatcher('mul'),
+                      parents=['FuncGraphInput[2]', u'mul/y:0']),
+                  mock.call(_TensorMatcher('mul:0'), parents=[u'mul']),
+                  mock.call(_OpMatcher('Identity_2'), parents=[u'mul:0']),
                   mock.call(
-                      _TensorMatcher('while/mul:0'), parents=[u'while/mul']),
-                  mock.call(
-                      _OpMatcher('while/Identity_2'), parents=[u'while/mul:0']),
-                  mock.call(
-                      _TensorMatcher('while/Identity_2:0'),
-                      parents=[u'while/Identity_2']),
+                      _TensorMatcher('Identity_2:0'), parents=[u'Identity_2']),
                   mock.call(
                       _OpMatcher('while'),
                       parents=[
                           u'while/loop_counter:0',
                           u'while/maximum_iterations:0', 'FuncGraphInput[0]',
-                          u'while/Identity:0', u'while/Identity:0',
-                          u'while/Identity_1:0', u'while/Identity_2:0'
+                          u'Identity:0', u'Identity:0', u'Identity_1:0',
+                          u'Identity_2:0'
                       ]),
                   mock.call(_TensorMatcher('while:2'), parents=[u'while']),
                   mock.call(_OpMatcher('Identity'), parents=[u'while:2']),
