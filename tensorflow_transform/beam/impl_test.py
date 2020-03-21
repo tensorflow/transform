@@ -17,11 +17,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import contextlib
 import itertools
-import math
 import os
-import random
 
 # GOOGLE-INITIALIZATION
 
@@ -92,67 +89,6 @@ _SCALE_TO_Z_SCORE_TEST_CASES = [
          output_data=np.array([[0, 0], [0, 0]], np.float32),
          elementwise=True),
 ]
-
-
-def _construct_test_bucketization_parameters():
-  args_without_dtype = (
-      (range(1, 10), [4, 7], False, None, False, False),
-      (range(1, 100), [25, 50, 75], False, None, False, False),
-
-      # The following is similar to range(1, 100) test above, except that
-      # only odd numbers are in the input; so boundaries differ (26 -> 27 and
-      # 76 -> 77).
-      (range(1, 100, 2), [24, 50, 75], False, None, False, False),
-
-      # Test some inversely sorted inputs, and with different strides, and
-      # boundaries/buckets.
-      (range(9, 0, -1), [4, 7], False, None, False, False),
-      (range(19, 0, -1), [10], False, None, False, False),
-      (range(99, 0, -1), [50], False, None, False, False),
-      (range(99, 0, -1), [34, 67], False, None, False, False),
-      (range(99, 0, -2), [33, 67], False, None, False, False),
-      (range(99, 0, -1), range(10, 100, 10), False, None, False, False),
-
-      # These tests do a random shuffle of the inputs, which must not affect the
-      # boundaries (or the computed buckets).
-      (range(99, 0, -1), range(10, 100, 10), True, None, False, False),
-      (range(1, 100), range(10, 100, 10), True, None, False, False),
-
-      # The following test is with multiple batches (3 batches with default
-      # batch of 1000).
-      (range(1, 3000), [1499], False, None, False, False),
-      (range(1, 3000), [1000, 2000], False, None, False, False),
-
-      # Test with specific error for bucket boundaries. This is same as the test
-      # above with 3 batches and a single boundary, but with a stricter error
-      # tolerance (0.001) than the default error (0.01). The result is that the
-      # computed boundary in the test below is closer to the middle (1501) than
-      # that computed by the boundary of 1503 above.
-      (range(1, 3000), [1500], False, 0.001, False, False),
-
-      # Test with specific error for bucket boundaries, with more relaxed error
-      # tolerance (0.1) than the default (0.01). Now the boundary diverges
-      # further to 1504 (compared to boundary of 1501 with error 0.001, and
-      # boundary of 1503 with error 0.01).
-      (range(1, 3000), [1503], False, 0.1, False, False),
-
-      # Tests for tft.apply_buckets.
-      (range(1, 100), [25, 50, 75], False, 0.00001, True, False),
-      # TODO(b/78569039): Enable this test.
-      # (range(1, 100), [26, 51, 76], False, 0.00001, True, True),
-  )
-  dtypes = (tf.int32, tf.int64, tf.float32, tf.float64, tf.double)
-  return (x + (dtype,) for x in args_without_dtype for dtype in dtypes)
-
-
-def _canonical_dtype(dtype):
-  """Returns int64 for int dtypes and float32 for float dtypes."""
-  if dtype.is_floating:
-    return tf.float32
-  elif dtype.is_integer:
-    return tf.int64
-  else:
-    raise ValueError('Bad dtype {}'.format(dtype))
 
 
 def sum_output_dtype(input_dtype):
@@ -1035,8 +971,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
           }],
           input_metadata=tft_unit.metadata_from_feature_spec({
               'x':
-                  tf.io.SparseFeature('idx', 'val', _canonical_dtype(
-                      tf.float32), 4),
+                  tf.io.SparseFeature(
+                      'idx', 'val', tft_unit.canonical_numeric_dtype(
+                          tf.float32), 4),
               'key':
                   tf.io.SparseFeature('key_idx', 'key', tf.string, 4)
           }),
@@ -1064,8 +1001,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
           }],
           input_metadata=tft_unit.metadata_from_feature_spec({
               'x':
-                  tf.io.SparseFeature('idx', 'val', _canonical_dtype(
-                      tf.float32), 4),
+                  tf.io.SparseFeature(
+                      'idx', 'val', tft_unit.canonical_numeric_dtype(
+                          tf.float32), 4),
               'key':
                   tf.io.FixedLenFeature([], tf.string)
           }),
@@ -1215,9 +1153,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data_dicts = [{'x': x} for x in input_data]
     expected_data_dicts = [{'x_scaled': x_scaled} for x_scaled in output_data]
     input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature(
-            input_data.shape[1:],
-            _canonical_dtype(tf.as_dtype(input_data.dtype))),
+        'x':
+            tf.io.FixedLenFeature(
+                input_data.shape[1:],
+                tft_unit.canonical_numeric_dtype(tf.as_dtype(
+                    input_data.dtype))),
     })
     expected_metadata = tft_unit.metadata_from_feature_spec({
         'x_scaled': tf.io.FixedLenFeature(output_data.shape[1:], tf.float32),
@@ -1254,7 +1194,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'idx': [0, 1], 'val': [2, 4]},
     ]
     input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.SparseFeature('idx', 'val', _canonical_dtype(input_dtype), 4)
+        'x':
+            tf.io.SparseFeature('idx', 'val',
+                                tft_unit.canonical_numeric_dtype(input_dtype),
+                                4)
     })
     if elementwise:
       # Mean(x) = [-1, 7]
@@ -1353,8 +1296,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
 
     input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.VarLenFeature(_canonical_dtype(input_dtype)),
-        'y': tf.io.VarLenFeature(_canonical_dtype(input_dtype)),
+        'x': tf.io.VarLenFeature(tft_unit.canonical_numeric_dtype(input_dtype)),
+        'y': tf.io.VarLenFeature(tft_unit.canonical_numeric_dtype(input_dtype)),
         'key': tf.io.FixedLenFeature([], tf.string),
     })
     expected_metadata = tft_unit.metadata_from_feature_spec({
@@ -1471,10 +1414,17 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
 
     input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature([1], _canonical_dtype(tf.float32)),
-        'y': tf.io.FixedLenFeature([1], _canonical_dtype(tf.float32)),
-        's': tf.io.FixedLenFeature([], _canonical_dtype(tf.float32)),
-        'key': tf.io.FixedLenFeature([], tf.string),
+        'x':
+            tf.io.FixedLenFeature([1],
+                                  tft_unit.canonical_numeric_dtype(tf.float32)),
+        'y':
+            tf.io.FixedLenFeature([1],
+                                  tft_unit.canonical_numeric_dtype(tf.float32)),
+        's':
+            tf.io.FixedLenFeature([],
+                                  tft_unit.canonical_numeric_dtype(tf.float32)),
+        'key':
+            tf.io.FixedLenFeature([], tf.string),
     })
     expected_metadata = tft_unit.metadata_from_feature_spec({
         'x_scaled': tf.io.FixedLenFeature([1], tf.float32),
@@ -1516,8 +1466,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'idx': [0, 1], 'val': [-1, 4], 'key_idx': [0, 1], 'key': ['b', 'a']},
     ]
     input_metadata = tft_unit.metadata_from_feature_spec({
-        'key': tf.io.SparseFeature('key_idx', 'key', tf.string, 4),
-        'x': tf.io.SparseFeature('idx', 'val', _canonical_dtype(input_dtype), 4)
+        'key':
+            tf.io.SparseFeature('key_idx', 'key', tf.string, 4),
+        'x':
+            tf.io.SparseFeature('idx', 'val',
+                                tft_unit.canonical_numeric_dtype(input_dtype),
+                                4)
     })
     # 'a':
     # Mean = 3
@@ -1887,7 +1841,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
       def assert_and_cast_dtype(tensor, out_dtype):
         self.assertEqual(tensor.dtype, out_dtype)
-        return tf.cast(tensor, _canonical_dtype(out_dtype))
+        return tf.cast(tensor, tft_unit.canonical_numeric_dtype(out_dtype))
 
       return {
           'min': assert_and_cast_dtype(tft.min(a),
@@ -1905,21 +1859,42 @@ class BeamImplTest(tft_unit.TransformTestCase):
       }
 
     input_data = [{'a': 4}, {'a': 1}]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'a': tf.io.FixedLenFeature([], _canonical_dtype(input_dtype))})
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'a':
+            tf.io.FixedLenFeature([],
+                                  tft_unit.canonical_numeric_dtype(input_dtype))
+    })
     expected_outputs = {
-        'min': np.array(
-            1, _canonical_dtype(output_dtypes['min']).as_numpy_dtype),
-        'max': np.array(
-            4, _canonical_dtype(output_dtypes['max']).as_numpy_dtype),
-        'sum': np.array(
-            5, _canonical_dtype(output_dtypes['sum']).as_numpy_dtype),
-        'size': np.array(
-            2, _canonical_dtype(output_dtypes['size']).as_numpy_dtype),
-        'mean': np.array(
-            2.5, _canonical_dtype(output_dtypes['mean']).as_numpy_dtype),
-        'var': np.array(
-            2.25, _canonical_dtype(output_dtypes['var']).as_numpy_dtype),
+        'min':
+            np.array(
+                1,
+                tft_unit.canonical_numeric_dtype(
+                    output_dtypes['min']).as_numpy_dtype),
+        'max':
+            np.array(
+                4,
+                tft_unit.canonical_numeric_dtype(
+                    output_dtypes['max']).as_numpy_dtype),
+        'sum':
+            np.array(
+                5,
+                tft_unit.canonical_numeric_dtype(
+                    output_dtypes['sum']).as_numpy_dtype),
+        'size':
+            np.array(
+                2,
+                tft_unit.canonical_numeric_dtype(
+                    output_dtypes['size']).as_numpy_dtype),
+        'mean':
+            np.array(
+                2.5,
+                tft_unit.canonical_numeric_dtype(
+                    output_dtypes['mean']).as_numpy_dtype),
+        'var':
+            np.array(
+                2.25,
+                tft_unit.canonical_numeric_dtype(
+                    output_dtypes['var']).as_numpy_dtype),
     }
 
     self.assertAnalyzerOutputs(
@@ -1957,13 +1932,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
       }
 
     input_val_dtype = input_dtype.as_numpy_dtype
-    output_dtype = _canonical_dtype(input_dtype).as_numpy_dtype
+    output_dtype = tft_unit.canonical_numeric_dtype(input_dtype).as_numpy_dtype
     input_data = [
         {'idx': [0, 1], 'val': np.array([0, 1], dtype=input_val_dtype)},
         {'idx': [1, 3], 'val': np.array([2, 3], dtype=input_val_dtype)},
     ]
     input_metadata = tft_unit.metadata_from_feature_spec({
-        'a': tf.io.SparseFeature('idx', 'val', _canonical_dtype(input_dtype), 4)
+        'a':
+            tf.io.SparseFeature('idx', 'val',
+                                tft_unit.canonical_numeric_dtype(input_dtype),
+                                4)
     })
     if reduce_instance_dims:
       expected_outputs = {
@@ -3372,516 +3350,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
     with self.assertRaises(ValueError):
       beam_impl.Context.create_base_temp_dir()
 
-  @tft_unit.parameters(
-      # Test for all integral types, each type is in a separate testcase to
-      # increase parallelism of test shards (and reduce test time from ~250
-      # seconds to ~80 seconds)
-      *tft_unit.cross_parameters(_construct_test_bucketization_parameters(),
-                                 [(True,), (False,)]))
-  def testBucketization(self, test_inputs, expected_boundaries, do_shuffle,
-                        epsilon, should_apply, is_manual_boundaries,
-                        input_dtype, use_tfxio):
-    test_inputs = list(test_inputs)
-
-    # Shuffle the input to add randomness to input generated with
-    # simple range().
-    if do_shuffle:
-      random.shuffle(test_inputs)
-
-    def preprocessing_fn(inputs):
-      x = tf.cast(inputs['x'], input_dtype)
-      num_buckets = len(expected_boundaries) + 1
-      if should_apply:
-        if is_manual_boundaries:
-          bucket_boundaries = expected_boundaries
-        else:
-          bucket_boundaries = tft.quantiles(inputs['x'], num_buckets, epsilon,
-                                            always_return_num_quantiles=True)
-        result = tft.apply_buckets(x, bucket_boundaries)
-      else:
-        result = tft.bucketize(x, num_buckets=num_buckets, epsilon=epsilon,
-                               always_return_num_quantiles=True)
-      return {'q_b': result}
-
-    input_data = [{'x': [x]} for x in test_inputs]
-
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'x': tf.io.FixedLenFeature([1], _canonical_dtype(input_dtype))})
-
-    # Sort the input based on value, index is used to create expected_data.
-    indexed_input = enumerate(test_inputs)
-
-    sorted_list = sorted(indexed_input, key=lambda p: p[1])
-
-    # Expected data has the same size as input, one bucket per input value.
-    expected_data = [None] * len(test_inputs)
-    bucket = 0
-    for (index, x) in sorted_list:
-      # Increment the bucket number when crossing the boundary
-      if (bucket < len(expected_boundaries) and
-          x >= expected_boundaries[bucket]):
-        bucket += 1
-      expected_data[index] = {'q_b': [bucket]}
-
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'q_b': tf.io.FixedLenFeature([1], tf.int64),
-    }, {
-        'q_b':
-            schema_pb2.IntDomain(
-                min=0, max=len(expected_boundaries), is_categorical=True),
-    })
-
-    @contextlib.contextmanager
-    def no_assert():
-      yield None
-
-    assertion = no_assert()
-    if input_dtype == tf.float16:
-      assertion = self.assertRaisesRegexp(
-          TypeError, '.*DataType float16 not in list of allowed values.*')
-
-    with assertion:
-      self.assertAnalyzeAndTransformResults(
-          input_data,
-          input_metadata,
-          preprocessing_fn,
-          expected_data,
-          expected_metadata,
-          desired_batch_size=1000,
-          # TODO(b/110855155): Remove this explicit use of DirectRunner.
-          beam_pipeline=beam.Pipeline(),
-          use_tfxio=use_tfxio)
-
-  @tft_unit.parameters(
-      # Test for all integral types, each type is in a separate testcase to
-      # increase parallelism of test shards (and reduce test time from ~250
-      # seconds to ~80 seconds)
-      *tft_unit.cross_parameters(
-          _construct_test_bucketization_parameters(), [(True,), (False,)]))
-  def testBucketizationElementwise(self, test_inputs, expected_boundaries,
-                                   do_shuffle, epsilon, should_apply,
-                                   is_manual_boundaries, input_dtype,
-                                   use_tfxio):
-    self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
-
-    test_inputs = list(test_inputs)
-
-    # Shuffle the input to add randomness to input generated with
-    # simple range().
-    if do_shuffle:
-      random.shuffle(test_inputs)
-
-    def preprocessing_fn(inputs):
-      x = tf.cast(inputs['x'], input_dtype)
-
-      num_buckets = len(expected_boundaries) + 1
-      if should_apply:
-        if is_manual_boundaries:
-          bucket_boundaries = [expected_boundaries,
-                               [2 * b for b in expected_boundaries]]
-        else:
-          bucket_boundaries = tft.quantiles(x, num_buckets, epsilon,
-                                            reduce_instance_dims=False,
-                                            always_return_num_quantiles=True)
-          bucket_boundaries = tf.unstack(bucket_boundaries, axis=0)
-
-        result = []
-        for i, boundaries in enumerate(bucket_boundaries):
-          boundaries = tf.cast(boundaries, tf.float32)
-          result.append(tft.apply_buckets(x[:, i],
-                                          tf.expand_dims(boundaries, axis=0)))
-        result = tf.stack(result, axis=1)
-
-      else:
-        result = tft.bucketize(x, num_buckets=num_buckets, epsilon=epsilon,
-                               elementwise=True,
-                               always_return_num_quantiles=True)
-      return {'q_b': result}
-
-    input_data = [{'x': [x, 2 * x]} for x in test_inputs]
-
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'x': tf.io.FixedLenFeature([2], _canonical_dtype(input_dtype))})
-
-    # Sort the input based on value, index is used to create expected_data.
-    sorted_list = sorted(enumerate(test_inputs), key=lambda p: p[1])
-
-    # Expected data has the same size as input, one bucket per input value.
-    expected_data = [[None, None]] * len(test_inputs)
-    bucket = 0
-
-    for (index, x) in sorted_list:
-      # Increment the bucket number when crossing the boundary
-      if (bucket < len(expected_boundaries) and
-          x >= expected_boundaries[bucket]):
-        bucket += 1
-      expected_data[index] = {'q_b': [bucket, bucket]}
-
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'q_b': tf.io.FixedLenFeature([2], tf.int64),
-    }, None)
-
-    @contextlib.contextmanager
-    def no_assert():
-      yield None
-
-    assertion = no_assert()
-    if input_dtype == tf.float16:
-      assertion = self.assertRaisesRegexp(
-          TypeError, '.*DataType float16 not in list of allowed values.*')
-
-    with assertion:
-      self.assertAnalyzeAndTransformResults(
-          input_data,
-          input_metadata,
-          preprocessing_fn,
-          expected_data,
-          expected_metadata,
-          desired_batch_size=1000,
-          # TODO(b/110855155): Remove this explicit use of DirectRunner.
-          beam_pipeline=beam.Pipeline(),
-          use_tfxio=use_tfxio)
-
-  @tft_unit.parameters(*itertools.product(
-      # Test for all numerical types, each type is in a separate testcase to
-      # increase parallelism of test shards and reduce test time.
-      [
-          tf.int32,
-          tf.int64,
-          tf.float32,
-          tf.float64,
-          tf.double,
-          # TODO(b/64836936): Enable test after bucket inconsistency is
-          # fixed.
-          # tf.float16
-      ],
-      [False, True]))
-  def testQuantileBucketsWithWeights(self, input_dtype, use_tfxio):
-    self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
-
-    def analyzer_fn(inputs):
-      return {
-          'q_b':
-              tft.quantiles(
-                  tf.cast(inputs['x'], input_dtype),
-                  num_buckets=3,
-                  epsilon=0.00001,
-                  weights=inputs['weights'],
-                  always_return_num_quantiles=True)
-      }
-
-    input_data = [{'x': [x], 'weights': [x / 100.]} for x in range(1, 3000)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature([1], _canonical_dtype(input_dtype)),
-        'weights': tf.io.FixedLenFeature([1], tf.float32)
-    })
-    # The expected data has 2 boundaries that divides the data into 3 buckets.
-    expected_outputs = {'q_b': np.array([[1732, 2449]], np.float32)}
-    self.assertAnalyzerOutputs(
-        input_data,
-        input_metadata,
-        analyzer_fn,
-        expected_outputs,
-        desired_batch_size=1000, use_tfxio=use_tfxio)
-
-  @tft_unit.parameters(*itertools.product(
-      # Test for all numerical types, each type is in a separate testcase to
-      # increase parallelism of test shards and reduce test time.
-      [
-          tf.int32,
-          tf.int64,
-          tf.float32,
-          tf.float64,
-          tf.double,
-          # TODO(b/64836936): Enable test after bucket inconsistency is
-          # fixed.
-          # tf.float16
-      ],
-      [False, True]))
-  def testElementwiseQuantileBucketsWithWeights(self, input_dtype, use_tfxio):
-    self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
-
-    def analyzer_fn(inputs):
-      return {
-          'q_b':
-              tft.quantiles(
-                  tf.cast(inputs['x'], input_dtype),
-                  num_buckets=3,
-                  epsilon=0.00001,
-                  weights=inputs['weights'],
-                  reduce_instance_dims=False)
-      }
-
-    input_data = [{'x': [[x, 2 * x], [2 * x, x]],
-                   'weights': [x / 100.]} for x in range(1, 3000)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature([2, 2], _canonical_dtype(input_dtype)),
-        'weights': tf.io.FixedLenFeature([1], tf.float32)
-    })
-    # The expected data has 2 boundaries that divides the data into 3 buckets.
-    expected_outputs = {'q_b': np.array([[[1732, 2449], [3464, 4898]],
-                                         [[3464, 4898], [1732, 2449]]],
-                                        np.float32)}
-    self.assertAnalyzerOutputs(
-        input_data,
-        input_metadata,
-        analyzer_fn,
-        expected_outputs,
-        desired_batch_size=1000,
-        use_tfxio=use_tfxio)
-
-  @tft_unit.parameters(*itertools.product(
-      # Test for all numerical types, each type is in a separate testcase to
-      # increase parallelism of test shards and reduce test time.
-      [
-          tf.int32,
-          tf.int64,
-          tf.float32,
-          tf.float64,
-          tf.double,
-          # TODO(b/64836936): Enable test after bucket inconsistency is
-          # fixed.
-          # tf.float16
-      ],
-      [False, True]))
-  def testQuantileBuckets(self, input_dtype, use_tfxio):
-    self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
-
-    def analyzer_fn(inputs):
-      return {
-          'q_b': tft.quantiles(tf.cast(inputs['x'], input_dtype),
-                               num_buckets=3, epsilon=0.00001,
-                               always_return_num_quantiles=True)
-      }
-
-    # NOTE: We force 3 batches: data has 3000 elements and we request a batch
-    # size of 1000.
-    input_data = [{'x': [x]} for  x in range(1, 3000)]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'x': tf.io.FixedLenFeature([1], _canonical_dtype(input_dtype))})
-    # The expected data has 2 boundaries that divides the data into 3 buckets.
-    expected_outputs = {'q_b': np.array([[1000, 2000]], np.float32)}
-    self.assertAnalyzerOutputs(
-        input_data,
-        input_metadata,
-        analyzer_fn,
-        expected_outputs,
-        desired_batch_size=1000,
-        use_tfxio=use_tfxio)
-
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testQuantilesPerKey(self, use_tfxio):
-    def analyzer_fn(inputs):
-      key_vocab, q_b, scale_factor_per_key, shift_per_key, num_buckets = (
-          analyzers._quantiles_per_key(
-              inputs['x'], inputs['key'], num_buckets=3, epsilon=0.00001))
-      return {
-          'key_vocab': key_vocab,
-          'q_b': q_b,
-          'scale_factor_per_key': scale_factor_per_key,
-          'shift_per_key': shift_per_key,
-          'num_buckets': num_buckets,
-      }
-
-    # NOTE: We force 10 batches: data has 100 elements and we request a batch
-    # size of 10.
-    input_data = [{'x': [x], 'key': 'a' if x < 50 else 'b'}
-                  for x in range(1, 100)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature([1], tf.int64),
-        'key': tf.io.FixedLenFeature([], tf.string)
-    })
-    # The expected data has 2 boundaries that divides the data into 3 buckets.
-    expected_outputs = {
-        'key_vocab': np.array([b'a', b'b'], np.object),
-        'q_b': np.array([0., 1., 2.], np.float32),
-        'scale_factor_per_key': np.array([0.0625, 0.05882353], np.float32),
-        'shift_per_key': np.array([-1.0625, -2.88235283], np.float32),
-        'num_buckets': np.array(3, np.int64),
-    }
-    self.assertAnalyzerOutputs(
-        input_data,
-        input_metadata,
-        analyzer_fn,
-        expected_outputs,
-        desired_batch_size=10,
-        use_tfxio=use_tfxio)
-
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testBucketizePerKey(self, use_tfxio):
-    def preprocessing_fn(inputs):
-      x_bucketized = tft.bucketize_per_key(
-          inputs['x'], inputs['key'], num_buckets=3, epsilon=0.00001)
-      return {
-          'x': inputs['x'],
-          'x_bucketized': x_bucketized
-      }
-
-    # NOTE: We force 10 batches: data has 100 elements and we request a batch
-    # size of 10.
-    input_data = [{'x': x, 'key': 'a' if x < 50 else 'b'}
-                  for x in range(1, 100)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature([], tf.float32),
-        'key': tf.io.FixedLenFeature([], tf.string)
-    })
-
-    def compute_quantile(instance):
-      if instance['key'] == 'a':
-        if instance['x'] < 17:
-          return 0
-        elif instance['x'] < 33:
-          return 1
-        else:
-          return 2
-      else:
-        if instance['x'] < 66:
-          return 0
-        elif instance['x'] < 83:
-          return 1
-        else:
-          return 2
-
-    expected_data = [{'x_bucketized': compute_quantile(instance),
-                      'x': instance['x']}
-                     for instance in input_data]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature([], tf.float32),
-        'x_bucketized': tf.io.FixedLenFeature([], tf.int64),
-    }, {
-        'x_bucketized': schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data,
-        input_metadata,
-        preprocessing_fn,
-        expected_data,
-        expected_metadata,
-        desired_batch_size=10,
-        use_tfxio=use_tfxio)
-
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testBucketizePerKeyWithInfrequentKeys(self, use_tfxio):
-    def preprocessing_fn(inputs):
-      x_bucketized = tft.bucketize_per_key(
-          inputs['x'], inputs['key'], num_buckets=4, epsilon=0.00001)
-      return {
-          'x': inputs['x'],
-          'x_bucketized': x_bucketized
-      }
-
-    input_data = [
-        {'x': [], 'key': []},
-        {'x': [5, 6], 'key': ['a', 'a']},
-        {'x': [7], 'key': ['a']},
-        {'x': [12], 'key': ['b']},
-        {'x': [13], 'key': ['b']},
-        {'x': [15], 'key': ['c']},
-        {'x': [2], 'key': ['d']},
-        {'x': [4], 'key': ['d']},
-        {'x': [6], 'key': ['d']},
-        {'x': [8], 'key': ['d']},
-        {'x': [2], 'key': ['e']},
-        {'x': [4], 'key': ['e']},
-        {'x': [6], 'key': ['e']},
-        {'x': [8], 'key': ['e']},
-        {'x': [10], 'key': ['e']},
-        {'x': [11], 'key': ['e']},
-        {'x': [12], 'key': ['e']},
-        {'x': [13], 'key': ['e']}
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.VarLenFeature(tf.float32),
-        'key': tf.io.VarLenFeature(tf.string)
-    })
-
-    expected_data = [
-        {'x': [], 'x_bucketized': []},
-        {'x': [5, 6], 'x_bucketized': [1, 2]},
-        {'x': [7], 'x_bucketized': [3]},
-        {'x': [12], 'x_bucketized': [1]},
-        {'x': [13], 'x_bucketized': [3]},
-        {'x': [15], 'x_bucketized': [1]},
-        {'x': [2], 'x_bucketized': [0]},
-        {'x': [4], 'x_bucketized': [1]},
-        {'x': [6], 'x_bucketized': [2]},
-        {'x': [8], 'x_bucketized': [3]},
-        {'x': [2], 'x_bucketized': [0]},
-        {'x': [4], 'x_bucketized': [0]},
-        {'x': [6], 'x_bucketized': [1]},
-        {'x': [8], 'x_bucketized': [1]},
-        {'x': [10], 'x_bucketized': [2]},
-        {'x': [11], 'x_bucketized': [2]},
-        {'x': [12], 'x_bucketized': [3]},
-        {'x': [13], 'x_bucketized': [2]}
-    ]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.VarLenFeature(tf.float32),
-        'x_bucketized': tf.io.VarLenFeature(tf.int64),
-    }, {
-        'x_bucketized': schema_pb2.IntDomain(min=0, max=3, is_categorical=True),
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data,
-        input_metadata,
-        preprocessing_fn,
-        expected_data,
-        expected_metadata,
-        desired_batch_size=10, use_tfxio=use_tfxio)
-
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testBucketizePerKeySparse(self, use_tfxio):
-    def preprocessing_fn(inputs):
-      x_bucketized = tft.bucketize_per_key(
-          inputs['x'], inputs['key'], num_buckets=3, epsilon=0.00001)
-      return {
-          'x_bucketized': x_bucketized
-      }
-
-    # NOTE: We force 10 batches: data has 100 elements and we request a batch
-    # size of 10.
-    input_data = [{'x': [x], 'key': ['a'] if x < 50 else ['b']}
-                  for x in range(1, 100)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.VarLenFeature(tf.float32),
-        'key': tf.io.VarLenFeature(tf.string)
-    })
-
-    def compute_quantile(instance):
-      if instance['key'][0] == 'a':
-        if instance['x'][0] < 17:
-          return 0
-        elif instance['x'][0] < 33:
-          return 1
-        else:
-          return 2
-      else:
-        if instance['x'][0] < 66:
-          return 0
-        elif instance['x'][0] < 83:
-          return 1
-        else:
-          return 2
-
-    expected_data = [{'x_bucketized': [compute_quantile(instance)]}
-                     for instance in input_data]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'x_bucketized': tf.io.VarLenFeature(tf.int64),
-    }, {
-        'x_bucketized': schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
-    })
-    self.assertAnalyzeAndTransformResults(
-        input_data,
-        input_metadata,
-        preprocessing_fn,
-        expected_data,
-        expected_metadata,
-        desired_batch_size=10, use_tfxio=use_tfxio)
-
   @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
   def testVocabularyWithFrequency(self, use_tfxio):
     outfile = 'vocabulary_with_frequency'
@@ -3998,124 +3466,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_outputs = {'y': np.array([[1, 0], [0, 1], [0, 0]], np.float32)}
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs,
-        use_tfxio=use_tfxio)
-
-  def _assert_quantile_boundaries(
-      self, test_inputs, expected_boundaries, input_dtype, num_buckets=None,
-      num_expected_buckets=None, use_tfxio=False):
-
-    if not num_buckets:
-      num_buckets = len(expected_boundaries) + 1
-    if not num_expected_buckets:
-      num_expected_buckets = num_buckets
-
-    def preprocessing_fn(inputs):
-      x = tf.cast(inputs['x'], input_dtype)
-      quantiles = tft.quantiles(x, num_buckets, epsilon=0.0001,
-                                always_return_num_quantiles=False)
-      quantiles.set_shape([1, num_expected_buckets - 1])
-      return {
-          'q_b': quantiles
-      }
-
-    input_data = [{'x': [x]} for x in test_inputs]
-
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'x': tf.io.FixedLenFeature([1], _canonical_dtype(input_dtype))})
-
-    # Expected data has the same size as input, one bucket per input value.
-    batch_size = 1000
-    expected_data = []
-    num_batches = int(math.ceil(len(test_inputs) / float(batch_size)))
-
-    for _ in range(num_batches):
-      expected_data += [{'q_b': expected_boundaries}]
-
-    expected_metadata = None
-
-    self.assertAnalyzeAndTransformResults(
-        input_data,
-        input_metadata,
-        preprocessing_fn,
-        expected_data,
-        expected_metadata,
-        desired_batch_size=batch_size,
-        # TODO(b/110855155): Remove this explicit use of DirectRunner.
-        beam_pipeline=beam.Pipeline(),
-        use_tfxio=use_tfxio)
-
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testBucketizationForTightSequence(self, use_tfxio):
-    # Divide a tight 1..N sequence into different number of buckets.
-    self._assert_quantile_boundaries(
-        [1, 2, 3, 4], [3], tf.int32, num_buckets=2, use_tfxio=use_tfxio)
-    self._assert_quantile_boundaries(
-        [1, 2, 3, 4], [3, 4], tf.int32, num_buckets=3, use_tfxio=use_tfxio)
-    self._assert_quantile_boundaries(
-        [1, 2, 3, 4], [2, 3, 4], tf.int32, num_buckets=4, use_tfxio=use_tfxio)
-    self._assert_quantile_boundaries(
-        [1, 2, 3, 4], [1, 2, 3, 4], tf.int32, num_buckets=5,
-        use_tfxio=use_tfxio)
-    # Request more number of buckets than there are inputs.
-    self._assert_quantile_boundaries(
-        [1, 2, 3, 4], [1, 2, 3, 4], tf.int32, num_buckets=6,
-        num_expected_buckets=5, use_tfxio=use_tfxio)
-    self._assert_quantile_boundaries(
-        [1, 2, 3, 4], [1, 2, 3, 4], tf.int32, num_buckets=10,
-        num_expected_buckets=5, use_tfxio=use_tfxio)
-
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testBucketizationEqualDistributionInSequence(self, use_tfxio):
-    # Input pattern is of the form [1, 1, 1, ..., 2, 2, 2, ..., 3, 3, 3, ...]
-    inputs = []
-    for i in range(1, 101):
-      inputs += [i] * 100
-    # Expect 100 equally spaced buckets.
-    expected_buckets = range(1, 101)
-    self._assert_quantile_boundaries(
-        inputs, expected_buckets, tf.int32, num_buckets=101,
-        use_tfxio=use_tfxio)
-
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testBucketizationEqualDistributionInterleaved(self, use_tfxio):
-    # Input pattern is of the form [1, 2, 3, ..., 1, 2, 3, ..., 1, 2, 3, ...]
-    sequence = range(1, 101)
-    inputs = []
-    for _ in range(1, 101):
-      inputs += sequence
-    # Expect 100 equally spaced buckets.
-    expected_buckets = range(1, 101)
-    self._assert_quantile_boundaries(
-        inputs, expected_buckets, tf.int32, num_buckets=101,
-        use_tfxio=use_tfxio)
-
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testBucketizationSpecificDistribution(self, use_tfxio):
-    # Distribution of input values.
-    # This distribution is taken from one of the user pipelines.
-    dist = (
-        # Format: ((<min-value-in-range>, <max-value-in-range>), num-values)
-        ((0.51, 0.67), 4013),
-        ((0.67, 0.84), 2321),
-        ((0.84, 1.01), 7145),
-        ((1.01, 1.17), 64524),
-        ((1.17, 1.34), 42886),
-        ((1.34, 1.51), 154809),
-        ((1.51, 1.67), 382678),
-        ((1.67, 1.84), 582744),
-        ((1.84, 2.01), 252221),
-        ((2.01, 2.17), 7299))
-
-    inputs = []
-    for (mn, mx), num in dist:
-      step = (mx - mn) / 100
-      for ix in range(num//100):
-        inputs += [mn + (ix * step)]
-
-    expected_boundaries = [2.30900002, 3.56439996, 5.09719992, 7.07259989]
-
-    self._assert_quantile_boundaries(
-        inputs, expected_boundaries, tf.float32, num_buckets=5,
         use_tfxio=use_tfxio)
 
   class _SumCombiner(beam.PTransform):

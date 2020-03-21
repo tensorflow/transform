@@ -65,6 +65,16 @@ def metadata_from_feature_spec(feature_spec, domains=None):
       schema_utils.schema_from_feature_spec(feature_spec, domains))
 
 
+def canonical_numeric_dtype(dtype):
+  """Returns int64 for int dtypes and float32 for float dtypes."""
+  if dtype.is_floating:
+    return tf.float32
+  elif dtype.is_integer:
+    return tf.int64
+  else:
+    raise ValueError('Bad dtype {}'.format(dtype))
+
+
 class TransformTestCase(test_case.TransformTestCase):
   """Base test class for testing tf-transform preprocessing functions."""
 
