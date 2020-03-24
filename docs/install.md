@@ -36,17 +36,19 @@ recommended way to install `tf.Transform`:
 pip install tensorflow-transform
 ```
 
-### Dependencies
+### Notable Dependencies
 
-`tf.Transform` requires TensorFlow but does not depend on the `tensorflow`
-[PyPI package](https://pypi.org/project/tensorflow/). See the
-[TensorFlow install guides](https://www.tensorflow.org/install/) for
-instructions.
+TensorFlow is required.
 
-[Apache Beam](https://beam.apache.org/) is required to run distributed analysis.
-By default, Apache Beam runs in local mode but can also run in distributed mode
-using [Google Cloud Dataflow](https://cloud.google.com/dataflow/).
-`tf.Transform` is designed to be extensible for other Apache Beam runners.
+[Apache Beam](https://beam.apache.org/) is required; it's the way that efficient
+distributed computation is supported. By default, Apache Beam runs in local
+mode but can also run in distributed mode using
+[Google Cloud Dataflow](https://cloud.google.com/dataflow/) and other Apache
+Beam
+[runners](https://beam.apache.org/documentation/runners/capability-matrix/).
+
+[Apache Arrow](https://arrow.apache.org/) is also required. TFT uses Arrow to
+represent data internally in order to make use of vectorized numpy functions.
 
 ## Compatible versions
 
