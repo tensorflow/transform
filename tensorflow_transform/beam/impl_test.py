@@ -1690,7 +1690,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x': tf.io.FixedLenFeature([1], tf.string)
     })
     expected_outputs = [{
-        'probs': np.array(np.ones((1)) / 10.0, np.float32)
+        'probs': np.array(np.ones(1) / 10.0, np.float32)
     } for _ in range(100)]
     self.assertAnalyzeAndTransformResults(input_data,
                                           input_metadata,
@@ -1713,7 +1713,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x': tf.io.FixedLenFeature([1], tf.int64)
     })
     expected_outputs = [{
-        'probs': np.array(np.ones((1)) / (100.0), np.float32)
+        'probs': np.array(np.ones(1) / (100.0), np.float32)
     } for _ in range(100)]
     self.assertAnalyzeAndTransformResults(
         input_data,

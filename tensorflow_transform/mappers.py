@@ -1457,6 +1457,10 @@ def _make_sparse_tensor_wrapper_if_sparse(x):
       indices=x.indices, values=values, dense_shape=x.dense_shape))
 
 
+def _fill_shape(value, shape, dtype):
+  return tf.cast(tf.fill(shape, value), dtype)
+
+
 def _apply_buckets_with_keys(x,
                              key,
                              key_vocab,
@@ -1479,7 +1483,8 @@ def _apply_buckets_with_keys(x,
     name: (Optional) A name for this operation.
 
   Returns:
-    A tensor with the same shape as `x` and dtype tf.int64
+    A tensor with the same shape as `x` and dtype tf.int64. If any value in
+    `key` is not present in `key_vocab` then the resulting bucket will be -1.
   """
   with tf.compat.v1.name_scope(name, 'apply_buckets_with_keys'):
     x_values = x.values if isinstance(x, tf.SparseTensor) else x
@@ -1490,11 +1495,15 @@ def _apply_buckets_with_keys(x,
     # since this uses a Table.
     key_indices = tf_utils.lookup_key(key_values, key_vocab)
 
+    adjusted_key_indices = tf.where(
+        key_indices < 0, _fill_shape(0, tf.shape(key_indices), tf.int64),
+        key_indices)
+
     # Apply the per-key offsets to x, which produces offset buckets (where the
     # bucket offset is an integer offset).  Then remove this offset to get the
     # actual per-key buckets for x.
-    scale_factors = tf.gather(scale_factor_per_key, key_indices)
-    shifts = tf.gather(shift_per_key, key_indices)
+    scale_factors = tf.gather(scale_factor_per_key, adjusted_key_indices)
+    shifts = tf.gather(shift_per_key, adjusted_key_indices)
 
     transformed_x = x_values * scale_factors + shifts
 
@@ -1505,8 +1514,13 @@ def _apply_buckets_with_keys(x,
 
     # Shift the bucket numbers back to the correct range [0, num_buckets].
     # We use max_bucket-1 due to different keys sharing 1 boundary.
-    corrected_buckets = offset_buckets - ((max_bucket - 1) * key_indices)
+    corrected_buckets = offset_buckets - (
+        (max_bucket - 1) * adjusted_key_indices)
     bucketized_values = tf.clip_by_value(corrected_buckets, 0, max_bucket)
+
+    # Set values with missing keys as -1.
+    bucketized_values = tf.where(key_indices < 0, key_indices,
+                                 bucketized_values)
 
     # Attach the relevant metadata to result, so that the corresponding
     # output feature will have this metadata set.
@@ -1861,4 +1875,13 @@ def estimated_probability_density(x, boundaries=None, categorical=False,
           tf.cast(x, tf.float32), boundaries, True)
 
     bucket_indices = tf_utils._align_dims(bucket_indices, xdims)  # pylint: disable=protected-access
-    return tf.gather(bucket_densities, bucket_indices)
+
+    # In the categorical case, when keys are missing, the indices may be -1,
+    # therefore we replace those with 0 in order to use tf.gather.
+    adjusted_bucket_indices = tf.where(
+        bucket_indices < 0, _fill_shape(0, tf.shape(bucket_indices), tf.int64),
+        bucket_indices)
+    bucket_densities = tf.gather(bucket_densities, adjusted_bucket_indices)
+    return tf.where(bucket_indices < 0,
+                    _fill_shape(0, tf.shape(bucket_indices), tf.float32),
+                    bucket_densities)

@@ -5,6 +5,12 @@
 ## Major Features and Improvements
 
 ## Bug Fixes and Other Changes
+* `tft.bucketize_per_key` no longer assumes that the keys during
+  transformation existed in the analysis dataset. If a key is missing then the
+  assigned bucket will be -1.
+* `tft.estimated_probability_density`, when `categorical=True`, no longer
+  assumes that the values during transformation existed in the analysis dataset,
+  and will assume 0 density in that case.
 
 ## Breaking changes
 

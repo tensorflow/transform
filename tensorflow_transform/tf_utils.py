@@ -573,9 +573,7 @@ def lookup_key(key, key_vocab):
       key_dtype=tf.string,
       value_dtype=tf.int64)
   table = tf.lookup.StaticHashTable(initializer, default_value=-1)
-  key_indices = table.lookup(key)
-  with tf.control_dependencies([tf.compat.v1.assert_non_negative(key_indices)]):
-    return tf.identity(key_indices)
+  return table.lookup(key)
 
 
 def _align_dims(tensor, target_ndims):

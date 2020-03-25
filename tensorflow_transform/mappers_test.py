@@ -20,9 +20,13 @@ from __future__ import print_function
 import sys
 # GOOGLE-INITIALIZATION
 
+import numpy as np
+
 import tensorflow as tf
 from tensorflow_transform import mappers
 from tensorflow_transform import test_case
+
+mock = tf.compat.v1.test.mock
 
 
 class MappersTest(test_case.TransformTestCase):
@@ -653,11 +657,13 @@ class MappersTest(test_case.TransformTestCase):
 
   def testApplyBucketsWithKeys(self):
     with tf.compat.v1.Graph().as_default():
-      values = tf.constant(
-          [-100, -0.05, 0.05, 0.25, 0.15, 100, -100, 4.3, 4.5, 4.4, 4.6, 100],
-          dtype=tf.float32)
-      keys = tf.constant(
-          ['a', 'a', 'a', 'a', 'a', 'a', 'b', 'b', 'b', 'b', 'b', 'b'])
+      values = tf.constant([
+          -100, -0.05, 0.05, 0.25, 0.15, 100, -100, 0, 4.3, 4.5, 4.4, 4.6, 100
+      ],
+                           dtype=tf.float32)
+      keys = tf.constant([
+          'a', 'a', 'a', 'a', 'a', 'a', 'b', 'missing', 'b', 'b', 'b', 'b', 'b'
+      ])
       key_vocab = tf.constant(['a', 'b'])
       # Pre-normalization boundaries: [[0, 0.1, 0.2], [4.33, 4.43, 4.53]]
       bucket_boundaries = tf.constant([0.0, 0.5, 1.0, 1.5, 2.0],
@@ -673,7 +679,7 @@ class MappersTest(test_case.TransformTestCase):
       with self.test_session() as sess:
         sess.run(tf.compat.v1.tables_initializer())
         output = sess.run(buckets)
-        self.assertAllEqual([0, 0, 1, 3, 2, 3, 0, 0, 2, 1, 3, 3], output)
+        self.assertAllEqual([0, 0, 1, 3, 2, 3, 0, -1, 0, 2, 1, 3, 3], output)
 
   @test_case.named_parameters(
       dict(
@@ -798,6 +804,25 @@ class MappersTest(test_case.TransformTestCase):
       sparse = tf.compat.v1.sparse_placeholder(tf.int64, shape=[None, None])
       dense = mappers.sparse_tensor_to_dense_with_shape(sparse, [None, 5])
       self.assertAllEqual(dense.get_shape().as_list(), [None, 5])
+
+  def testEstimatedProbabilityDensityMissingKey(self):
+    input_size = 5
+
+    with tf.compat.v1.Graph().as_default():
+      input_data = tf.constant([[str(x + 1)] for x in range(input_size)])
+
+      count = tf.constant([3] * input_size, tf.int64)
+      boundaries = tf.as_string(tf.range(input_size))
+      with mock.patch.object(
+          mappers.analyzers, 'histogram', side_effect=[(count, boundaries)]):
+
+        result = mappers.estimated_probability_density(
+            input_data, categorical=True)
+
+      expected = np.array([[0.2], [0.2], [0.2], [0.2], [0.]], np.float32)
+      with tf.compat.v1.Session() as sess:
+        sess.run(tf.compat.v1.tables_initializer())
+        self.assertAllEqual(expected, sess.run(result))
 
 
 if __name__ == '__main__':
