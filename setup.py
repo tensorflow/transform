@@ -35,7 +35,8 @@ def _make_required_install_packages():
       'six>=1.12,<2',
       'tensorflow-metadata>=0.21,<0.22',
       'tensorflow>=1.15,<2.2',
-      'tfx-bsl>=0.21.3,<0.22',
+      # TODO(b/148082271): Revisit this dependency before releasing.
+      'tfx-bsl>=0.21.3,<0.23',
   ]
 
 # TODO(b/121329572): Remove the following comment after we can guarantee the
