@@ -19,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 import argparse
+import math
 import os
 import pprint
 import tempfile
@@ -139,8 +140,8 @@ def transform_data(train_data_file, test_data_file, working_dir):
     for key in OPTIONAL_NUMERIC_FEATURE_KEYS:
       # This is a SparseTensor because it is optional. Here we fill in a default
       # value when it is missing.
-      sparse = tf.sparse.SparseTensor(outputs[key].indices, outputs[key].values,
-                                      [outputs[key].dense_shape[0], 1])
+      sparse = tf.sparse.SparseTensor(inputs[key].indices, inputs[key].values,
+                                      [inputs[key].dense_shape[0], 1])
       dense = tf.sparse.to_dense(sp_input=sparse, default_value=0.)
       # Reshaping from a batch of vectors of size 1 to a batch to scalars.
       dense = tf.squeeze(dense, axis=1)
@@ -155,15 +156,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
       outputs[key] = tft.compute_and_apply_vocabulary(inputs[key],
                                                       vocab_filename=key)
 
-    # For the label column we provide the mapping from string to index.
-    table_keys = ['>50K', '<=50K']
-    initializer = tf.lookup.KeyValueTensorInitializer(
-        keys=table_keys,
-        values=tf.cast(tf.range(len(table_keys)), tf.int64),
-        key_dtype=tf.string,
-        value_dtype=tf.int64)
-    table = tf.lookup.StaticHashTable(initializer, default_value=-1)
-    outputs[LABEL_KEY] = table.lookup(outputs[LABEL_KEY])
+    # TODO(b/149019258): Can't have the label depend on a table lookup op.
 
     return outputs
 
@@ -249,11 +242,11 @@ def transform_data(train_data_file, test_data_file, working_dir):
 # Functions for training
 
 
-def input_fn(tf_transform_output, transformed_examples, batch_size):
+def input_fn(feature_spec, transformed_examples, batch_size):
   """An input function reading from transformed data, converting to model input.
 
   Args:
-    tf_transform_output: Wrapper around output of tf.Transform.
+    feature_spec: FeatureSpec for the input data.
     transformed_examples: Base filename of examples.
     batch_size: Batch size.
 
@@ -263,50 +256,116 @@ def input_fn(tf_transform_output, transformed_examples, batch_size):
   dataset = tf.data.experimental.make_batched_features_dataset(
       file_pattern=transformed_examples,
       batch_size=batch_size,
-      features=tf_transform_output.transformed_feature_spec(),
+      features=feature_spec,
       reader=tf.data.TFRecordDataset,
+      label_key=LABEL_KEY,
       shuffle=True)
 
-  def format_dataset(data):
-    data_labels = data.pop(LABEL_KEY)
+  def format_dataset(data, data_labels):
+    """Transforms the label feature."""
+    # For the label column we provide the mapping from string to index.
+    table_keys = ['>50K', '<=50K']
+    initializer = tf.lookup.KeyValueTensorInitializer(
+        keys=table_keys,
+        values=tf.cast(tf.range(len(table_keys)), tf.int64),
+        key_dtype=tf.string,
+        value_dtype=tf.int64)
+    table = tf.lookup.StaticHashTable(initializer, default_value=-1)
+    data_labels = table.lookup(data_labels)
+    data_labels = tf.one_hot(
+        indices=data_labels, depth=len(table_keys), on_value=1.0, off_value=0.0)
     return (data, data_labels)
 
   return dataset.map(format_dataset)
 
 
-def train_and_evaluate(working_dir, num_train_instances=NUM_TRAIN_INSTANCES,
+def export_serving_model(tf_transform_output, model, output_dir):
+  """Exports a keras model for serving.
+
+  Args:
+    tf_transform_output: Wrapper around output of tf.Transform.
+    model: A keras model to export for serving.
+    output_dir: A directory where the model will be exported to.
+  """
+  # The layer has to be saved to the model for keras tracking purpases.
+  model.tft_layer = tf_transform_output.transform_features_layer()
+
+  @tf.function
+  def serve_tf_examples_fn(serialized_tf_examples):
+    """Serving tf.function model wrapper."""
+    feature_spec = RAW_DATA_FEATURE_SPEC.copy()
+    feature_spec.pop(LABEL_KEY)
+    parsed_features = tf.io.parse_example(serialized_tf_examples, feature_spec)
+    transformed_features = model.tft_layer(parsed_features)
+    transformed_features.pop(LABEL_KEY)
+    outputs = model(transformed_features)
+    classes_names = tf.constant([['0', '1']])
+    classes = tf.tile(classes_names, [tf.shape(outputs)[0], 1])
+    return {'classes': classes, 'scores': outputs}
+
+  concrete_serving_fn = serve_tf_examples_fn.get_concrete_function(
+      tf.TensorSpec(shape=[None], dtype=tf.string, name='inputs'))
+  signatures = {'serving_default': concrete_serving_fn}
+
+  # This is required in order to make this model servable with model_server.
+  versioned_output_dir = os.path.join(output_dir, '1')
+  model.save(versioned_output_dir, save_format='tf', signatures=signatures)
+
+
+def train_and_evaluate(train_data_path_pattern,
+                       eval_data_path_pattern,
+                       output_dir,
+                       transform_output_dir,
+                       num_train_instances=NUM_TRAIN_INSTANCES,
                        num_test_instances=NUM_TEST_INSTANCES):
   """Train the model on training data and evaluate on test data.
 
   Args:
-    working_dir: Directory to read transformed data and metadata from and to
-        write exported model to.
+    train_data_path_pattern: Pattern of train data file paths.
+    eval_data_path_pattern: Pattern of eval data file paths.
+    output_dir: A directory where the output should be exported to.
+    transform_output_dir: The location of the Transform output.
     num_train_instances: Number of instances in train set
     num_test_instances: Number of instances in test set
 
   Returns:
     The results from the estimator's 'evaluate' method
   """
-  tf_transform_output = tft.TFTransformOutput(working_dir)
+  tf_transform_output = tft.TFTransformOutput(transform_output_dir)
 
   train_dataset = input_fn(
-      tf_transform_output,
-      os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE + '*'),
+      tf_transform_output.transformed_feature_spec(),
+      train_data_path_pattern,
       batch_size=TRAIN_BATCH_SIZE)
 
   # Evaluate model on test dataset.
   validation_dataset = input_fn(
-      tf_transform_output,
-      os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE + '*'),
+      tf_transform_output.transformed_feature_spec(),
+      eval_data_path_pattern,
       batch_size=TRAIN_BATCH_SIZE)
 
-  feature_spec = tf_transform_output.transformed_feature_spec()
+  feature_spec = tf_transform_output.transformed_feature_spec().copy()
   feature_spec.pop(LABEL_KEY)
 
-  inputs = {key: tf.keras.layers.Input(shape=(), name=key)
-            for key in feature_spec.keys()}
-  stacked_inputs = tf.stack(list(inputs.values()), axis=-1)
-  output = tf.keras.layers.Dense(1, activation='softmax')(stacked_inputs)
+  inputs = {}
+  for key, spec in feature_spec.items():
+    if isinstance(spec, tf.io.VarLenFeature):
+      inputs[key] = tf.keras.layers.Input(
+          shape=spec.shape, name=key, dtype=spec.dtype, sparse=True)
+    elif isinstance(spec, tf.io.FixedLenFeature):
+      inputs[key] = tf.keras.layers.Input(
+          shape=spec.shape, name=key, dtype=spec.dtype)
+    else:
+      raise ValueError('Spec type is not supported: ', key, spec)
+
+  stacked_inputs = tf.stack([tf.cast(x, tf.float32) for x in inputs.values()],
+                            axis=-1)
+
+  output = tf.keras.layers.Dense(100, activation='relu')(stacked_inputs)
+  output = tf.keras.layers.Dense(70, activation='relu')(output)
+  output = tf.keras.layers.Dense(50, activation='relu')(output)
+  output = tf.keras.layers.Dense(20, activation='relu')(output)
+  output = tf.keras.layers.Dense(2, activation='sigmoid')(output)
   model = tf.keras.Model(inputs=inputs, outputs=output)
 
   model.compile(optimizer='adam',
@@ -316,15 +375,39 @@ def train_and_evaluate(working_dir, num_train_instances=NUM_TRAIN_INSTANCES,
 
   model.fit(train_dataset, validation_data=validation_dataset,
             epochs=TRAIN_NUM_EPOCHS,
-            steps_per_epoch=num_train_instances / TRAIN_BATCH_SIZE,
-            validation_steps=num_test_instances / TRAIN_BATCH_SIZE)
+            steps_per_epoch=math.ceil(num_train_instances / TRAIN_BATCH_SIZE),
+            validation_steps=math.ceil(num_test_instances / TRAIN_BATCH_SIZE))
 
-  # TODO(b/143530879) Export the model for serving.
+  # Export the model.
+  export_serving_model(tf_transform_output, model, output_dir)
 
   return model.evaluate(validation_dataset, steps=num_test_instances)
 
 
-def main():
+def main(input_data_dir,
+         working_dir,
+         num_train_instances=NUM_TRAIN_INSTANCES,
+         num_test_instances=NUM_TEST_INSTANCES):
+  if not working_dir:
+    working_dir = tempfile.mkdtemp(dir=input_data_dir)
+
+  train_data_file = os.path.join(input_data_dir, 'adult.data')
+  test_data_file = os.path.join(input_data_dir, 'adult.test')
+
+  transform_data(train_data_file, test_data_file, working_dir)
+
+  train_pattern = os.path.join(working_dir,
+                               TRANSFORMED_TRAIN_DATA_FILEBASE + '*')
+  eval_pattern = os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE + '*')
+  output_dir = os.path.join(working_dir, EXPORTED_MODEL_DIR)
+  results = train_and_evaluate(train_pattern, eval_pattern, output_dir,
+                               working_dir, num_train_instances,
+                               num_test_instances)
+
+  pprint.pprint(results)
+
+
+if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument(
       'input_data_dir',
@@ -333,20 +416,4 @@ def main():
       '--working_dir',
       help='optional, path to directory to hold transformed data')
   args = parser.parse_args()
-
-  if args.working_dir:
-    working_dir = args.working_dir
-  else:
-    working_dir = tempfile.mkdtemp(dir=args.input_data_dir)
-
-  train_data_file = os.path.join(args.input_data_dir, 'adult.data')
-  test_data_file = os.path.join(args.input_data_dir, 'adult.test')
-
-  transform_data(train_data_file, test_data_file, working_dir)
-
-  results = train_and_evaluate(working_dir)
-
-  pprint.pprint(results)
-
-if __name__ == '__main__':
-  main()
+  main(args.input_data_dir, args.working_dir)

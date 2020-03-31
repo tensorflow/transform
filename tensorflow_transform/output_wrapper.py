@@ -267,6 +267,16 @@ class TFTransformOutput(object):
         self._transform_output_dir, self.POST_TRANSFORM_FEATURE_STATS_PATH)
 
 
+# TODO(zoyahav): Use register_keras_serializable directly once we no longer support
+# TF<2.1.
+def _maybe_register_keras_serializable(package):
+  if hasattr(tf.keras.utils, 'register_keras_serializable'):
+    return tf.keras.utils.register_keras_serializable(package=package)
+  else:
+    return lambda cls: cls
+
+
+@_maybe_register_keras_serializable(package='TensorFlowTransform')
 class TransformFeaturesLayer(tf.keras.layers.Layer):
   """A Keras layer for applying a tf.Transform output to input layers."""
 
