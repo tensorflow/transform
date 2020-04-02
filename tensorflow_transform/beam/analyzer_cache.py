@@ -28,6 +28,8 @@ from apache_beam.internal import pickler
 import six
 import tensorflow as tf
 
+FLATTENED_DATASET_KEY = object()
+
 # This should be advanced whenever a non-backwards compatible change is made
 # that affects analyzer cache. For example, changing accumulator format.
 _CACHE_VERSION_NUMBER = 1

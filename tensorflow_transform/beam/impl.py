@@ -588,6 +588,30 @@ class _BindTensors(beam.PTransform):
         *[beam.pvalue.AsSingleton(pcoll) for pcoll in inputs])
 
 
+@beam_common.register_ptransform(beam_nodes.ExtractInputForSavedModel)
+class _ExtractInputForSavedModelImpl(beam.PTransform):
+  """Returns a PCollection for analysis based on the specified dataset_key."""
+
+  def __init__(self, operation, extra_args):
+    self._dataset_key = operation.dataset_key
+    self._flat_pcollection = extra_args.flat_pcollection
+    self._pcollection_dict = extra_args.pcollection_dict
+
+  def expand(self, pbegin):
+    # TODO(b/151921205): we have to do an identity map for unmodified
+    # PCollections below because otherwise we get an error from beam.
+    identity_map = 'Identity' >> beam.Map(lambda x: x)
+    if self._dataset_key is analyzer_cache.FLATTENED_DATASET_KEY:
+      if self._flat_pcollection:
+        return self._flat_pcollection | identity_map
+      else:
+        return (
+            list(self._pcollection_dict.values())
+            | 'FlattenAnalysisInputs' >> beam.Flatten(pipeline=pbegin.pipeline))
+    else:
+      return self._pcollection_dict[self._dataset_key] | identity_map
+
+
 @beam_common.register_ptransform(beam_nodes.ApplySavedModel)
 class _ApplySavedModelImpl(beam.PTransform):
   """PTransform to apply a SavedModel to data."""
@@ -598,13 +622,9 @@ class _ApplySavedModelImpl(beam.PTransform):
     self._input_tensor_adapter_config = extra_args.input_tensor_adapter_config
     self._tf_config = extra_args.tf_config
     self._phase = operation.phase
-    if operation.dataset_key is None:
-      self._input_values_pcoll = extra_args.flat_pcollection
-    else:
-      self._input_values_pcoll = extra_args.pcollection_dict[
-          operation.dataset_key]
 
   def expand(self, inputs):
+    saved_model_dir_pcol, input_values_pcol = inputs
 
     # We don't deep_copy pcollections used for the first phase, or when
     # the user defined `Context` disables it.
@@ -613,14 +633,12 @@ class _ApplySavedModelImpl(beam.PTransform):
       # safe to read more than once.
       tf.compat.v1.logging.info('Deep copying inputs for phase: %d',
                                 self._phase)
-      input_values = deep_copy.deep_copy(self._input_values_pcoll)
-    else:
-      input_values = self._input_values_pcoll
+      input_values_pcol = deep_copy.deep_copy(input_values_pcol)
 
     if not self._use_tfxio:
-      input_values |= 'BatchInputs' >> _BatchElements()
+      input_values_pcol |= 'BatchInputs' >> _BatchElements()
 
-    return (input_values | 'ApplySavedModel' >> beam.ParDo(
+    return (input_values_pcol | 'ApplySavedModel' >> beam.ParDo(
         _RunMetaGraphDoFn(
             self._tf_config,
             use_tfxio=self._use_tfxio,
@@ -628,7 +646,7 @@ class _ApplySavedModelImpl(beam.PTransform):
             input_tensor_adapter_config=self._input_tensor_adapter_config,
             shared_graph_state_handle=shared.Shared(),
             passthrough_keys=Context.get_passthrough_keys()),
-        saved_model_dir=beam.pvalue.AsSingleton(inputs[0])))
+        saved_model_dir=beam.pvalue.AsSingleton(saved_model_dir_pcol)))
 
 
 @beam_common.register_ptransform(beam_nodes.ExtractFromDict)
@@ -719,6 +737,13 @@ class _AnalyzeDatasetCommon(beam.PTransform):
   """Common implementation for AnalyzeDataset, with or without cache."""
 
   def __init__(self, preprocessing_fn, pipeline=None):
+    """Init method.
+
+    Args:
+      preprocessing_fn: A function that accepts and returns a dictionary from
+        strings to `Tensor` or `SparseTensor`s.
+      pipeline: (Optional) a beam Pipeline.
+    """
     self._preprocessing_fn = preprocessing_fn
     self.pipeline = pipeline
     self._use_tfxio = Context.get_use_tfxio()
@@ -728,7 +753,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     # This method returns all nested pvalues to inform beam of nested pvalues.
     flat_data, data_dict, dataset_cache_dict, metadata = dataset
     pvalues = []
-    # flat_data can be None if it's not going to be needed in the analysis.
+    # flat_data should be None when performing analysis with cache.
     if flat_data is not None:
       pvalues.append(flat_data)
     for value in data_dict.values():
@@ -879,16 +904,36 @@ class AnalyzeDatasetWithCache(_AnalyzeDatasetCommon):
   except this will not re-compute statistics when they are already cached, and
   will write out cache for statistics that it does compute whenever possible.
 
-  Args:
-    preprocessing_fn: A function that accepts and returns a dictionary from
-      strings to `Tensor` or `SparseTensor`s.
-    pipeline: (Optional) a beam Pipeline.
+  Example use:
+  ```
+  pcoll_cache_dict = (pipeline
+      | tft.analyzer_cache.ReadAnalysisCacheFromFS(cache_dir, dataset_keys))
+  transform_fn, cache_output = (
+      (input_data_pcoll_dict, pcoll_cache_dict, input_metadata)
+      | tft_beam.AnalyzeDatasetWithCache(preprocessing_fn))
+  _ = (
+      cache_output
+      | tft.analyzer_cache.WriteAnalysisCacheToFS(pipeline, cache_dir))
+  ```
   """
+
+  def _make_parent_dataset(self, dataset):
+    if len(dataset) > 3:
+      raise ValueError('This API no longer requires flattened_pcoll')
+    return (None,) + dataset
+
+  def _extract_input_pvalues(self, dataset):
+    # This method returns all nested pvalues to inform beam of nested pvalues.
+    super_dataset = self._make_parent_dataset(dataset)
+    _, pvalues = super(AnalyzeDatasetWithCache,
+                       self)._extract_input_pvalues(super_dataset)
+    return dataset, pvalues
 
   def expand(self, dataset):
     input_values_pcoll_dict = dataset[1] or dict()
     analyzer_cache.validate_dataset_keys(input_values_pcoll_dict.keys())
-    return super(AnalyzeDatasetWithCache, self).expand(dataset)
+    return super(AnalyzeDatasetWithCache,
+                 self).expand(self._make_parent_dataset(dataset))
 
 
 class AnalyzeDataset(_AnalyzeDatasetCommon):

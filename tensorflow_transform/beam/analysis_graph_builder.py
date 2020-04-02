@@ -312,29 +312,29 @@ class _OptimizeVisitor(nodes.Visitor):
             hashed_path=None) for flat in flattened_view)
 
   def _visit_partitionable_operation(self, operation_def, upstream_views):
-    # TODO(b/37788560) Possibly support partitionable operations with multiple
-    # inputs.
-    (upstream_view,) = upstream_views
 
     # This is a hint for whether or not the `fine_grained_view` should be used
     # downstream.  It should be set to true if either the upstream view has
     # cacheing operations that haven't been flattened yet, or the current
     # operation is cacheable.
+    all_fine_grained_views_available = all(
+        v.fine_grained_view for v in upstream_views)
     prefer_fine_grained_view = (
-        upstream_view.prefer_fine_grained_view or
-        upstream_view.fine_grained_view and
+        any(v.prefer_fine_grained_view for v in upstream_views) or
+        all_fine_grained_views_available and
         operation_def.cache_coder is not None)
 
     next_hashed_path = self._make_next_hashed_path(
         [v.hashed_path for v in upstream_views], operation_def)
-    if upstream_view.fine_grained_view:
+    if all_fine_grained_views_available:
       fine_grained_views = (self._apply_operation_on_fine_grained_view(
-          operation_def, upstream_view.fine_grained_view, next_hashed_path),)
+          operation_def, tuple(v.fine_grained_view for v in upstream_views),
+          next_hashed_path),)
     else:
       fine_grained_views = (None,) * operation_def.num_outputs
 
     flattened_views = nodes.OperationNode(
-        operation_def, (upstream_view.flattened_view,)).outputs
+        operation_def, tuple(v.flattened_view for v in upstream_views)).outputs
 
     assert len(fine_grained_views) == len(flattened_views)
     return tuple(
@@ -346,7 +346,7 @@ class _OptimizeVisitor(nodes.Visitor):
         for flat, fine in zip(flattened_views, fine_grained_views))
 
   def _apply_operation_on_fine_grained_view(self, operation_def,
-                                            fine_grained_view,
+                                            fine_grained_views,
                                             next_hashed_path):
     """Applies a shardable operation on a fine grained view.
 
@@ -354,7 +354,7 @@ class _OptimizeVisitor(nodes.Visitor):
 
     Args:
       operation_def: A shardable `OperationDef`.
-      fine_grained_view: A `_OptimizationView.fine_grained_view`.
+      fine_grained_views: A tuple of `_OptimizationView.fine_grained_view`s.
       next_hashed_path: The hashed path for the currently processed
         operation_def.
 
@@ -378,11 +378,11 @@ class _OptimizeVisitor(nodes.Visitor):
             label='DecodeCache[{}][{}]'.format(operation_def.label, infix))
         (op_output,) = nodes.OperationNode(decode_cache, tuple()).outputs
       else:
-        value_node = fine_grained_view[dataset_key]
+        value_nodes = tuple(v[dataset_key] for v in fine_grained_views)
         (op_output,) = nodes.OperationNode(
             operation_def._replace(
                 label='{}[{}]'.format(operation_def.label, infix)),
-            (value_node,)).outputs
+            value_nodes).outputs
         if operation_def.cache_coder:
           encode_cache = nodes.apply_operation(
               analyzer_nodes.EncodeCache,
@@ -395,24 +395,29 @@ class _OptimizeVisitor(nodes.Visitor):
     return result_fine_grained_view
 
   def _visit_apply_savedmodel_operation(self, operation_def, upstream_views):
-    (upstream_view,) = upstream_views
-    if upstream_view.fine_grained_view:
+    if any(v.fine_grained_view for v in upstream_views):
       raise ValueError(
           'Was not expecting a fine_grained_view input for ApplySavedModel')
+    (saved_model_path_upstream_view, input_upstream_view) = upstream_views
 
     fine_grained_view = collections.OrderedDict()
     for (dataset_idx, dataset_key) in enumerate(self._sorted_dataset_keys):
       infix = 'AnalysisIndex{}'.format(dataset_idx)
+      input_node = nodes.apply_operation(
+          beam_nodes.ExtractInputForSavedModel,
+          dataset_key=dataset_key,
+          label='ExtractInputForSavedModel[{}]'.format(infix))
       # We use an index for the label in order to make beam labels more stable.
       (fine_grained_view[dataset_key],) = (
           nodes.OperationNode(
               operation_def._replace(
-                  dataset_key=dataset_key,
                   label='{}[{}]'.format(operation_def.label, infix)),
-              (upstream_view.flattened_view,)).outputs)
+              (saved_model_path_upstream_view.flattened_view,
+               input_node)).outputs)
 
     (flattened_view,) = nodes.OperationNode(
-        operation_def, (upstream_view.flattened_view,)).outputs
+        operation_def, (saved_model_path_upstream_view.flattened_view,
+                        input_upstream_view.flattened_view)).outputs
 
     return (_OptimizationView(
         prefer_fine_grained_view=False,
@@ -452,7 +457,7 @@ class _InspectVisitor(nodes.Visitor):
     self._required_dataset_keys = required_dataset_keys_output
 
   def visit(self, operation_def, input_values):
-    if isinstance(operation_def, beam_nodes.ApplySavedModel):
+    if isinstance(operation_def, beam_nodes.ExtractInputForSavedModel):
       self._required_dataset_keys.add(operation_def.dataset_key)
     return nodes.OperationNode(operation_def, input_values).outputs
 
@@ -491,26 +496,21 @@ def get_analysis_dataset_keys(
     input_cache: A cache dictionary.
 
   Returns:
-    A pair of:
-      - A set of dataset keys that are required for analysis.
-      - A boolean indicating whether or not a flattened version of the entire
-        dataset is required. See the `flat_data` input to
-        `AnalyzeDatasetWithCache`.
+    A set of dataset keys that are required for analysis.
   """
   transform_fn_future, _ = _build_analysis_graph_for_inspection(
       preprocessing_fn, specs, dataset_keys, input_cache)
 
-  required_dataset_keys_result = set()
-  inspect_visitor = _InspectVisitor(required_dataset_keys_result)
+  result = set()
+  inspect_visitor = _InspectVisitor(result)
   inspect_traverser = nodes.Traverser(inspect_visitor)
   _ = inspect_traverser.visit_value_node(transform_fn_future)
 
   # If None is present this means that a flattened version of the entire dataset
   # is required, therefore this will be returning all of the given dataset_keys.
-  flat_data_required = None in required_dataset_keys_result
-  if flat_data_required:
-    required_dataset_keys_result = dataset_keys
-  return required_dataset_keys_result, flat_data_required
+  if analyzer_cache.FLATTENED_DATASET_KEY in result:
+    result = dataset_keys
+  return result
 
 
 def get_analysis_cache_entry_keys(preprocessing_fn, feature_spec, dataset_keys):
@@ -560,7 +560,7 @@ class _InspectCombineVisitor(nodes.Visitor):
         or isinstance(operation_def,
                       analyzer_nodes.CacheableCombinePerKeyAccumulate)):
       return
-    assert len(input_values) == 1
+    assert len(input_values) == 1, input_values
 
     # Get the ExtractFromDict parent node of the current
     # CacheableCombineAccumulate node.
@@ -758,6 +758,12 @@ def build(graph,
 
   analyzers_input_signature = {}
   graph_analyzer = None
+
+  extracted_input_node = nodes.apply_operation(
+      beam_nodes.ExtractInputForSavedModel,
+      dataset_key=analyzer_cache.FLATTENED_DATASET_KEY,
+      label='ExtractInputForSavedModel[FlattenedDataset]')
+
   while not all(sink_tensors_ready.values()):
     infix = 'Phase{}'.format(phase)
     # Determine which table init ops are ready to run in this phase
@@ -781,7 +787,7 @@ def build(graph,
     extracted_values_dict = nodes.apply_operation(
         beam_nodes.ApplySavedModel,
         saved_model_future,
-        dataset_key=None,
+        extracted_input_node,
         phase=phase,
         label='ApplySavedModel[{}]'.format(infix))
 

@@ -67,8 +67,10 @@ _ONE_ANALYZER_CASE = dict(
 directed=True;
 node [shape=Mrecord];
 "CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
-"ApplySavedModel[Phase0]" [label="{ApplySavedModel|dataset_key: None|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
+"ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: FlattenedDataset|label: ExtractInputForSavedModel[FlattenedDataset]}"];
+"ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
+"ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase0]";
 "TensorSource[x/mean_and_var]" [label="{ExtractFromDict|keys: ('x/mean_and_var/Cast', 'x/mean_and_var/truediv', 'x/mean_and_var/truediv_1', 'x/mean_and_var/zeros')|label: TensorSource[x/mean_and_var]|partitionable: True}"];
 "ApplySavedModel[Phase0]" -> "TensorSource[x/mean_and_var]";
 "CacheableCombineAccumulate[x/mean_and_var]" [label="{CacheableCombineAccumulate|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineAccumulate[x/mean_and_var]|partitionable: True}"];
@@ -97,15 +99,19 @@ def _preprocessing_fn_with_packable_analyzer_single_phase(inputs):
 
 _PACKABLE_ANALYZER_SINGLE_PHASE_CASE = dict(
     testcase_name='with_packable_analyzer_single_phase',
-    feature_spec={'x': tf.io.FixedLenFeature([], tf.float32),
-                  'y': tf.io.FixedLenFeature([], tf.float32)},
+    feature_spec={
+        'x': tf.io.FixedLenFeature([], tf.float32),
+        'y': tf.io.FixedLenFeature([], tf.float32)
+    },
     preprocessing_fn=_preprocessing_fn_with_packable_analyzer_single_phase,
     expected_dot_graph_str=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
 "CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
-"ApplySavedModel[Phase0]" [label="{ApplySavedModel|dataset_key: None|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
+"ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: FlattenedDataset|label: ExtractInputForSavedModel[FlattenedDataset]}"];
+"ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
+"ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase0]";
 "PackedCombineAccumulate[ApplySavedModel[Phase0]]" [label="{PackedCombineAccumulate|combiners: [_CombinerOpWrapper(combiner=\<WeightedMeanAndVarCombiner\>, keys=('x/mean_and_var/Cast', 'x/mean_and_var/truediv', 'x/mean_and_var/truediv_1', 'x/mean_and_var/zeros'), label='CacheableCombineAccumulate[x/mean_and_var]'), _CombinerOpWrapper(combiner=\<WeightedMeanAndVarCombiner\>, keys=('y/mean_and_var/Cast', 'y/mean_and_var/truediv', 'y/mean_and_var/truediv_1', 'y/mean_and_var/zeros'), label='CacheableCombineAccumulate[y/mean_and_var]')]|label: PackedCombineAccumulate[ApplySavedModel[Phase0]]|partitionable: True}"];
 "ApplySavedModel[Phase0]" -> "PackedCombineAccumulate[ApplySavedModel[Phase0]]";
 "CacheableCombineAccumulate[x/mean_and_var]" [label="{ExtractFromDict|keys: CacheableCombineAccumulate[x/mean_and_var]|label: CacheableCombineAccumulate[x/mean_and_var]|partitionable: True}"];
@@ -148,15 +154,19 @@ def _preprocessing_fn_with_packable_analyzer_two_phases(inputs):
 
 _PACKABLE_ANALYZER_TWO_PHASES_CASE = dict(
     testcase_name='with_packable_analyzer_two_phases',
-    feature_spec={'x': tf.io.FixedLenFeature([], tf.float32),
-                  'y': tf.io.FixedLenFeature([], tf.float32)},
+    feature_spec={
+        'x': tf.io.FixedLenFeature([], tf.float32),
+        'y': tf.io.FixedLenFeature([], tf.float32)
+    },
     preprocessing_fn=_preprocessing_fn_with_packable_analyzer_two_phases,
     expected_dot_graph_str=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
 "CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
-"ApplySavedModel[Phase0]" [label="{ApplySavedModel|dataset_key: None|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
+"ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: FlattenedDataset|label: ExtractInputForSavedModel[FlattenedDataset]}"];
+"ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
+"ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase0]";
 "PackedCombineAccumulate[ApplySavedModel[Phase0]]" [label="{PackedCombineAccumulate|combiners: [_CombinerOpWrapper(combiner=\<WeightedMeanAndVarCombiner\>, keys=('x/mean_and_var/Cast', 'x/mean_and_var/truediv', 'x/mean_and_var/truediv_1', 'x/mean_and_var/zeros'), label='CacheableCombineAccumulate[x/mean_and_var]'), _CombinerOpWrapper(combiner=\<WeightedMeanAndVarCombiner\>, keys=('y/mean_and_var/Cast', 'y/mean_and_var/truediv', 'y/mean_and_var/truediv_1', 'y/mean_and_var/zeros'), label='CacheableCombineAccumulate[y/mean_and_var]')]|label: PackedCombineAccumulate[ApplySavedModel[Phase0]]|partitionable: True}"];
 "ApplySavedModel[Phase0]" -> "PackedCombineAccumulate[ApplySavedModel[Phase0]]";
 "CacheableCombineAccumulate[x/mean_and_var]" [label="{ExtractFromDict|keys: CacheableCombineAccumulate[x/mean_and_var]|label: CacheableCombineAccumulate[x/mean_and_var]|partitionable: True}"];
@@ -180,8 +190,9 @@ node [shape=Mrecord];
 "CreateTensorBinding[x/mean_and_var/Placeholder_1]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
 "CreateTensorBinding[y/mean_and_var/Placeholder]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
 "CreateTensorBinding[y/mean_and_var/Placeholder_1]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
-"ApplySavedModel[Phase1]" [label="{ApplySavedModel|dataset_key: None|phase: 1|label: ApplySavedModel[Phase1]|partitionable: True}"];
+"ApplySavedModel[Phase1]" [label="{ApplySavedModel|phase: 1|label: ApplySavedModel[Phase1]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase1]" -> "ApplySavedModel[Phase1]";
+"ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase1]";
 "PackedCombineAccumulate[ApplySavedModel[Phase1]]" [label="{PackedCombineAccumulate|combiners: [_CombinerOpWrapper(combiner=\<WeightedMeanAndVarCombiner\>, keys=('x_square_deviations/mean_and_var/Cast', 'x_square_deviations/mean_and_var/truediv', 'x_square_deviations/mean_and_var/truediv_1', 'x_square_deviations/mean_and_var/zeros'), label='CacheableCombineAccumulate[x_square_deviations/mean_and_var]'), _CombinerOpWrapper(combiner=\<WeightedMeanAndVarCombiner\>, keys=('y_square_deviations/mean_and_var/Cast', 'y_square_deviations/mean_and_var/truediv', 'y_square_deviations/mean_and_var/truediv_1', 'y_square_deviations/mean_and_var/zeros'), label='CacheableCombineAccumulate[y_square_deviations/mean_and_var]')]|label: PackedCombineAccumulate[ApplySavedModel[Phase1]]|partitionable: True}"];
 "ApplySavedModel[Phase1]" -> "PackedCombineAccumulate[ApplySavedModel[Phase1]]";
 "CacheableCombineAccumulate[x_square_deviations/mean_and_var]" [label="{ExtractFromDict|keys: CacheableCombineAccumulate[x_square_deviations/mean_and_var]|label: CacheableCombineAccumulate[x_square_deviations/mean_and_var]|partitionable: True}"];
@@ -235,8 +246,10 @@ _WITH_TABLE_CASE = dict(
 directed=True;
 node [shape=Mrecord];
 "CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/Reshape', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
-"ApplySavedModel[Phase0]" [label="{ApplySavedModel|dataset_key: None|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
+"ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: FlattenedDataset|label: ExtractInputForSavedModel[FlattenedDataset]}"];
+"ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
+"ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase0]";
 "TensorSource[x]" [label="{ExtractFromDict|keys: ('x/Reshape',)|label: TensorSource[x]|partitionable: True}"];
 "ApplySavedModel[Phase0]" -> "TensorSource[x]";
 "VocabularyAccumulate[x]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|input_dtype: string|label: VocabularyAccumulate[x]|partitionable: True}"];
@@ -277,8 +290,10 @@ _TWO_PHASES_CASE = dict(
 directed=True;
 node [shape=Mrecord];
 "CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
-"ApplySavedModel[Phase0]" [label="{ApplySavedModel|dataset_key: None|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
+"ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: FlattenedDataset|label: ExtractInputForSavedModel[FlattenedDataset]}"];
+"ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
+"ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase0]";
 "TensorSource[x/mean_and_var]" [label="{ExtractFromDict|keys: ('x/mean_and_var/Cast', 'x/mean_and_var/truediv', 'x/mean_and_var/truediv_1', 'x/mean_and_var/zeros')|label: TensorSource[x/mean_and_var]|partitionable: True}"];
 "ApplySavedModel[Phase0]" -> "TensorSource[x/mean_and_var]";
 "CacheableCombineAccumulate[x/mean_and_var]" [label="{CacheableCombineAccumulate|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineAccumulate[x/mean_and_var]|partitionable: True}"];
@@ -292,8 +307,9 @@ node [shape=Mrecord];
 "CreateSavedModelForAnalyzerInputs[Phase1]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_square_deviations/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase1]}"];
 "CreateTensorBinding[x/mean_and_var/Placeholder]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
 "CreateTensorBinding[x/mean_and_var/Placeholder_1]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
-"ApplySavedModel[Phase1]" [label="{ApplySavedModel|dataset_key: None|phase: 1|label: ApplySavedModel[Phase1]|partitionable: True}"];
+"ApplySavedModel[Phase1]" [label="{ApplySavedModel|phase: 1|label: ApplySavedModel[Phase1]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase1]" -> "ApplySavedModel[Phase1]";
+"ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase1]";
 "TensorSource[x_square_deviations/mean_and_var]" [label="{ExtractFromDict|keys: ('x_square_deviations/mean_and_var/Cast', 'x_square_deviations/mean_and_var/truediv', 'x_square_deviations/mean_and_var/truediv_1', 'x_square_deviations/mean_and_var/zeros')|label: TensorSource[x_square_deviations/mean_and_var]|partitionable: True}"];
 "ApplySavedModel[Phase1]" -> "TensorSource[x_square_deviations/mean_and_var]";
 "CacheableCombineAccumulate[x_square_deviations/mean_and_var]" [label="{CacheableCombineAccumulate|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineAccumulate[x_square_deviations/mean_and_var]|partitionable: True}"];
@@ -347,8 +363,10 @@ _CHAINED_PTRANSFORMS_CASE = dict(
 directed=True;
 node [shape=Mrecord];
 "CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('inputs/x', \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
-"ApplySavedModel[Phase0]" [label="{ApplySavedModel|dataset_key: None|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
+"ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: FlattenedDataset|label: ExtractInputForSavedModel[FlattenedDataset]}"];
+"ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
+"ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase0]";
 "TensorSource[x]" [label="{ExtractFromDict|keys: ('inputs/x',)|label: TensorSource[x]|partitionable: True}"];
 "ApplySavedModel[Phase0]" -> "TensorSource[x]";
 "FakeChainable[x/ptransform1]" [label="{FakeChainable|label: FakeChainable[x/ptransform1]}"];
@@ -399,7 +417,6 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
           full_dataset_keys=['a', 'b'],
           cached_dataset_keys=['a'],
           expected_dataset_keys=['b'],
-          expected_flat_data_required=False,
       ),
       dict(
           testcase_name='all_datasets_cached_single_phase',
@@ -407,7 +424,6 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
           full_dataset_keys=['a', 'b'],
           cached_dataset_keys=['a', 'b'],
           expected_dataset_keys=[],
-          expected_flat_data_required=False,
       ),
       dict(
           testcase_name='mixed_single_phase',
@@ -417,7 +433,6 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
           full_dataset_keys=['a', 'b'],
           cached_dataset_keys=['a', 'b'],
           expected_dataset_keys=['a', 'b'],
-          expected_flat_data_required=True,
       ),
       dict(
           testcase_name='multi_phase',
@@ -425,12 +440,11 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
           full_dataset_keys=['a', 'b'],
           cached_dataset_keys=['a', 'b'],
           expected_dataset_keys=['a', 'b'],
-          expected_flat_data_required=True,
       ),
   )
   def test_get_analysis_dataset_keys(self, preprocessing_fn, full_dataset_keys,
-                                     cached_dataset_keys, expected_dataset_keys,
-                                     expected_flat_data_required):
+                                     cached_dataset_keys,
+                                     expected_dataset_keys):
     # We force all dataset keys with entries in the cache dict will have a cache
     # hit.
     mocked_cache_entry_key = b'M'
@@ -444,16 +458,14 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
         'tensorflow_transform.beam.analysis_graph_builder.'
         'analyzer_cache.make_cache_entry_key',
         return_value=mocked_cache_entry_key):
-      dataset_keys, flat_data_required = (
+      dataset_keys = (
           analysis_graph_builder.get_analysis_dataset_keys(
               preprocessing_fn, feature_spec, full_dataset_keys, input_cache))
 
     dot_string = nodes.get_dot_graph([analysis_graph_builder._ANALYSIS_GRAPH
                                      ]).to_string()
     self.WriteRenderedDotFile(dot_string)
-
     self.assertCountEqual(expected_dataset_keys, dataset_keys)
-    self.assertEqual(expected_flat_data_required, flat_data_required)
 
   def test_get_analysis_cache_entry_keys(self):
     full_dataset_keys = ['a', 'b']

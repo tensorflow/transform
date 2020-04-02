@@ -13,6 +13,9 @@
   and will assume 0 density in that case.
 
 ## Breaking changes
+* `tft.AnalyzeDatasetWithCache` no longer accepts a flat pcollection as an
+  input. Instead it will flatten the datasets in the `input_values_pcoll_dict`
+  input if needed.
 
 ## Deprecations
 

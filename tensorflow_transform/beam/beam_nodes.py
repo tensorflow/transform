@@ -124,9 +124,28 @@ class CreateSavedModel(
     return super(CreateSavedModel, self).get_field_str(field_name)
 
 
+class ExtractInputForSavedModel(
+    collections.namedtuple('ExtractInputForSavedModel',
+                           ['dataset_key', 'label']), nodes.OperationDef):
+  """An operation that forwards the requested dataset in PCollection form.
+
+  The resulting PCollection is either the dataset corresponding to
+  `dataset_key`, or a flattened PCollection if `dataset_key` is not specified.
+
+  Attributes:
+    dataset_key: (Optional) dataset key str.
+    label: A unique label for this operation.
+  """
+
+  def get_field_str(self, field_name):
+    if (field_name == 'dataset_key' and not isinstance(self.dataset_key,
+                                                       (str, bytes))):
+      return 'FlattenedDataset'
+    return super(ExtractInputForSavedModel, self).get_field_str(field_name)
+
+
 class ApplySavedModel(
-    collections.namedtuple('ApplySavedModel',
-                           ['dataset_key', 'phase', 'label']),
+    collections.namedtuple('ApplySavedModel', ['phase', 'label']),
     nodes.OperationDef):
   """An operation that represents applying a SavedModel as a `beam.ParDo`.
 
