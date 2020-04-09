@@ -601,7 +601,7 @@ class _ExtractInputForSavedModelImpl(beam.PTransform):
     # TODO(b/151921205): we have to do an identity map for unmodified
     # PCollections below because otherwise we get an error from beam.
     identity_map = 'Identity' >> beam.Map(lambda x: x)
-    if self._dataset_key is analyzer_cache.FLATTENED_DATASET_KEY:
+    if self._dataset_key.is_flattened_dataset_key():
       if self._flat_pcollection:
         return self._flat_pcollection | identity_map
       else:

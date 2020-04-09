@@ -508,7 +508,7 @@ def get_analysis_dataset_keys(
 
   # If None is present this means that a flattened version of the entire dataset
   # is required, therefore this will be returning all of the given dataset_keys.
-  if analyzer_cache.FLATTENED_DATASET_KEY in result:
+  if any(k.is_flattened_dataset_key() for k in result):
     result = dataset_keys
   return result
 
@@ -761,7 +761,7 @@ def build(graph,
 
   extracted_input_node = nodes.apply_operation(
       beam_nodes.ExtractInputForSavedModel,
-      dataset_key=analyzer_cache.FLATTENED_DATASET_KEY,
+      dataset_key=analyzer_cache._make_flattened_dataset_key(),  # pylint: disable=protected-access
       label='ExtractInputForSavedModel[FlattenedDataset]')
 
   while not all(sink_tensors_ready.values()):

@@ -83,7 +83,7 @@ _OPTIMIZE_TRAVERSAL_COMMON_CASE = dict(
 directed=True;
 node [shape=Mrecord];
 "CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('vocabulary/Reshape', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\"), ('x/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
-"ExtractInputForSavedModel[AnalysisIndex0]" [label="{ExtractInputForSavedModel|dataset_key: span-0|label: ExtractInputForSavedModel[AnalysisIndex0]}"];
+"ExtractInputForSavedModel[AnalysisIndex0]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='span-0')|label: ExtractInputForSavedModel[AnalysisIndex0]}"];
 "ApplySavedModel[Phase0][AnalysisIndex0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0][AnalysisIndex0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0][AnalysisIndex0]";
 "ExtractInputForSavedModel[AnalysisIndex0]" -> "ApplySavedModel[Phase0][AnalysisIndex0]";
@@ -91,7 +91,7 @@ node [shape=Mrecord];
 "ApplySavedModel[Phase0][AnalysisIndex0]" -> "TensorSource[vocabulary][AnalysisIndex0]";
 "VocabularyAccumulate[vocabulary][AnalysisIndex0]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|input_dtype: string|label: VocabularyAccumulate[vocabulary][AnalysisIndex0]|partitionable: True}"];
 "TensorSource[vocabulary][AnalysisIndex0]" -> "VocabularyAccumulate[vocabulary][AnalysisIndex0]";
-"ExtractInputForSavedModel[AnalysisIndex1]" [label="{ExtractInputForSavedModel|dataset_key: span-1|label: ExtractInputForSavedModel[AnalysisIndex1]}"];
+"ExtractInputForSavedModel[AnalysisIndex1]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='span-1')|label: ExtractInputForSavedModel[AnalysisIndex1]}"];
 "ApplySavedModel[Phase0][AnalysisIndex1]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0][AnalysisIndex1]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0][AnalysisIndex1]";
 "ExtractInputForSavedModel[AnalysisIndex1]" -> "ApplySavedModel[Phase0][AnalysisIndex1]";
@@ -114,7 +114,7 @@ node [shape=Mrecord];
 "VocabularyPrune[vocabulary]" -> "VocabularyOrderAndWrite[vocabulary]";
 "CreateTensorBinding[vocabulary/Placeholder]" [label="{CreateTensorBinding|tensor: vocabulary/Placeholder:0|is_asset_filepath: True|label: CreateTensorBinding[vocabulary/Placeholder]}"];
 "VocabularyOrderAndWrite[vocabulary]" -> "CreateTensorBinding[vocabulary/Placeholder]";
-"DecodeCache[CacheableCombineAccumulate[x/mean_and_var]][AnalysisIndex0]" [label="{DecodeCache|dataset_key: span-0|cache_key: \<bytes\>|coder: \<JsonNumpyCacheCoder\>|label: DecodeCache[CacheableCombineAccumulate[x/mean_and_var]][AnalysisIndex0]|partitionable: True}"];
+"DecodeCache[CacheableCombineAccumulate[x/mean_and_var]][AnalysisIndex0]" [label="{DecodeCache|dataset_key: DatasetKey(key='span-0')|cache_key: \<bytes\>|coder: \<JsonNumpyCacheCoder\>|label: DecodeCache[CacheableCombineAccumulate[x/mean_and_var]][AnalysisIndex0]|partitionable: True}"];
 "TensorSource[x/mean_and_var][AnalysisIndex1]" [label="{ExtractFromDict|keys: ('x/mean_and_var/Cast', 'x/mean_and_var/truediv', 'x/mean_and_var/truediv_1', 'x/mean_and_var/zeros')|label: TensorSource[x/mean_and_var][AnalysisIndex1]|partitionable: True}"];
 "ApplySavedModel[Phase0][AnalysisIndex1]" -> "TensorSource[x/mean_and_var][AnalysisIndex1]";
 "CacheableCombineAccumulate[x/mean_and_var][AnalysisIndex1]" [label="{CacheableCombineAccumulate|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineAccumulate[x/mean_and_var][AnalysisIndex1]|partitionable: True}"];
@@ -133,7 +133,7 @@ node [shape=Mrecord];
 "CreateTensorBinding[vocabulary/Placeholder]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
 "CreateTensorBinding[x/mean_and_var/Placeholder]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
 "CreateTensorBinding[x/mean_and_var/Placeholder_1]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
-"ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: FlattenedDataset|label: ExtractInputForSavedModel[FlattenedDataset]}"];
+"ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='FlattenedDataset')|label: ExtractInputForSavedModel[FlattenedDataset]}"];
 "ApplySavedModel[Phase1]" [label="{ApplySavedModel|phase: 1|label: ApplySavedModel[Phase1]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase1]" -> "ApplySavedModel[Phase1]";
 "ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase1]";
@@ -270,7 +270,7 @@ _OPTIMIZE_TRAVERSAL_GENERALIZED_CHAINED_PTRANSFORMS_CASE = dict(
 directed=True;
 node [shape=Mrecord];
 "CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('inputs/x', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
-"ExtractInputForSavedModel[AnalysisIndex0]" [label="{ExtractInputForSavedModel|dataset_key: span-0|label: ExtractInputForSavedModel[AnalysisIndex0]}"];
+"ExtractInputForSavedModel[AnalysisIndex0]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='span-0')|label: ExtractInputForSavedModel[AnalysisIndex0]}"];
 "ApplySavedModel[Phase0][AnalysisIndex0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0][AnalysisIndex0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0][AnalysisIndex0]";
 "ExtractInputForSavedModel[AnalysisIndex0]" -> "ApplySavedModel[Phase0][AnalysisIndex0]";
@@ -286,7 +286,7 @@ node [shape=Mrecord];
 "FakeChainablePartitionable[x/partitionable2][AnalysisIndex0]" -> "FakeChainableCacheable[x/cacheable2][AnalysisIndex0]";
 "FakeChainablePartitionable[x/partitionable3][AnalysisIndex0]" [label="{FakeChainablePartitionable|label: FakeChainablePartitionable[x/partitionable3][AnalysisIndex0]|partitionable: True}"];
 "FakeChainableCacheable[x/cacheable2][AnalysisIndex0]" -> "FakeChainablePartitionable[x/partitionable3][AnalysisIndex0]";
-"ExtractInputForSavedModel[AnalysisIndex1]" [label="{ExtractInputForSavedModel|dataset_key: span-1|label: ExtractInputForSavedModel[AnalysisIndex1]}"];
+"ExtractInputForSavedModel[AnalysisIndex1]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='span-1')|label: ExtractInputForSavedModel[AnalysisIndex1]}"];
 "ApplySavedModel[Phase0][AnalysisIndex1]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0][AnalysisIndex1]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0][AnalysisIndex1]";
 "ExtractInputForSavedModel[AnalysisIndex1]" -> "ApplySavedModel[Phase0][AnalysisIndex1]";
@@ -309,7 +309,7 @@ node [shape=Mrecord];
 "FlattenCache[FakeChainable[x/merge]]" -> "FakeChainable[x/merge]";
 "CreateTensorBinding[x/Placeholder]" [label="{CreateTensorBinding|tensor: x/Placeholder:0|is_asset_filepath: False|label: CreateTensorBinding[x/Placeholder]}"];
 "FakeChainable[x/merge]" -> "CreateTensorBinding[x/Placeholder]";
-"ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: FlattenedDataset|label: ExtractInputForSavedModel[FlattenedDataset]}"];
+"ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='FlattenedDataset')|label: ExtractInputForSavedModel[FlattenedDataset]}"];
 "ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
 "ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase0]";
@@ -417,7 +417,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
         # Wraps each value in input_data_dict as a PCollection.
         input_data_pcoll_dict = {}
         for a, b in input_data_dict.items():
-          pcoll = p | a >> beam.Create(b)
+          pcoll = p | a.key >> beam.Create(b)
           if use_tfxio:
             pcoll, input_metadata = self.convert_to_tfxio_api_inputs(
                 pcoll,
@@ -492,8 +492,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
   @tft_unit.named_parameters(_TFXIO_NAMED_PARAMETERS)
   @mock_out_cache_hash
   def test_single_phase_mixed_analyzer_run_once(self, use_tfxio):
-    span_0_key = 'span-0'
-    span_1_key = 'span-1'
+    span_0_key = analyzer_cache.DatasetKey('span-0')
+    span_1_key = analyzer_cache.DatasetKey('span-1')
 
     def preprocessing_fn(inputs):
 
@@ -603,8 +603,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
   @tft_unit.named_parameters(_TFXIO_NAMED_PARAMETERS)
   def test_single_phase_run_twice(self, use_tfxio):
 
-    span_0_key = 'span-0'
-    span_1_key = 'span-1'
+    span_0_key = analyzer_cache.DatasetKey('span-0')
+    span_1_key = analyzer_cache.DatasetKey('span-1')
 
     def preprocessing_fn(inputs):
 
@@ -757,8 +757,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
   @mock_out_cache_hash
   def test_caching_vocab_for_integer_categorical(self, use_tfxio):
 
-    span_0_key = 'span-0'
-    span_1_key = 'span-1'
+    span_0_key = analyzer_cache.DatasetKey('span-0')
+    span_1_key = analyzer_cache.DatasetKey('span-1')
 
     def preprocessing_fn(inputs):
       return {
@@ -872,8 +872,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
           name='with_weight')
       return inputs
 
-    span_0_key = 'span-0'
-    span_1_key = 'span-1'
+    span_0_key = analyzer_cache.DatasetKey('span-0')
+    span_1_key = analyzer_cache.DatasetKey('span-1')
 
     input_data = [
         dict(s='a', weight=1, label=1),
@@ -980,7 +980,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
   @mock_out_cache_hash
   def test_optimize_traversal(self, feature_spec, preprocessing_fn,
                               dataset_input_cache_dict, expected_dot_graph_str):
-    span_0_key, span_1_key = 'span-0', 'span-1'
+    span_0_key, span_1_key = analyzer_cache.DatasetKey(
+        'span-0'), analyzer_cache.DatasetKey('span-1')
     if dataset_input_cache_dict is not None:
       cache = {span_0_key: dataset_input_cache_dict}
     else:
@@ -1007,8 +1008,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
             dot_string, cache_output_dict.keys()))
 
   def test_no_data_needed(self):
-    span_0_key = 'span-0'
-    span_1_key = 'span-1'
+    span_0_key = analyzer_cache.DatasetKey('span-0')
+    span_1_key = analyzer_cache.DatasetKey('span-1')
 
     def preprocessing_fn(inputs):
       return {k: tf.identity(v) for k, v in six.iteritems(inputs)}
@@ -1051,7 +1052,9 @@ class CachedImplTest(tft_unit.TransformTestCase):
       }
 
     feature_spec = {'x': tf.io.FixedLenFeature([], tf.float32)}
-    input_data_dict = {'span-0': [dict(x=-2), dict(x=4)]}
+    input_data_dict = {
+        analyzer_cache.DatasetKey('span-0'): [dict(x=-2), dict(x=4)]
+    }
     run_result = self._run_pipeline(
         feature_spec, input_data_dict,
         functools.partial(preprocessing_fn, should_add_one=False),
@@ -1119,7 +1122,10 @@ class CachedImplTest(tft_unit.TransformTestCase):
       return preprocessing_fn
 
     feature_spec = {'s': tf.io.FixedLenFeature([], tf.string)}
-    input_data_dict = {'span-0': [dict(s='a'), dict(s='b')]}
+    input_data_dict = {
+        analyzer_cache.DatasetKey('span-0'): [dict(s='a'),
+                                              dict(s='b')]
+    }
 
     run_result = self._run_pipeline(feature_spec, input_data_dict,
                                     make_preprocessing_fn('1st_run'),

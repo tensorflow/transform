@@ -136,12 +136,7 @@ class ExtractInputForSavedModel(
     dataset_key: (Optional) dataset key str.
     label: A unique label for this operation.
   """
-
-  def get_field_str(self, field_name):
-    if (field_name == 'dataset_key' and not isinstance(self.dataset_key,
-                                                       (str, bytes))):
-      return 'FlattenedDataset'
-    return super(ExtractInputForSavedModel, self).get_field_str(field_name)
+  pass
 
 
 class ApplySavedModel(

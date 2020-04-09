@@ -56,10 +56,13 @@ def _get_quantiles_summary():
 class AnalyzerCacheTest(test_case.TransformTestCase):
 
   def test_validate_dataset_keys(self):
-    analyzer_cache.validate_dataset_keys(
-        {'foo', 'Foo', 'A1', 'A_1', 'A.1', 'A-1'})
+    analyzer_cache.validate_dataset_keys({
+        analyzer_cache.DatasetKey(k)
+        for k in ('foo', 'Foo', 'A1', 'A_1', 'A.1', 'A-1', 'foo@1', 'foo*',
+                  'foo[]', 'foo/goo')
+    })
 
-    for key in {'foo 1', 'foo@1', 'foo*', 'foo[]', 'foo/goo'}:
+    for key in {analyzer_cache.DatasetKey(k) for k in ('^foo^', 'foo 1')}:
       with self.assertRaisesRegexp(
           ValueError, 'Dataset key .* does not match allowed pattern:'):
         analyzer_cache.validate_dataset_keys({key})
@@ -120,8 +123,8 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
         os.environ.get('TEST_UNDECLARED_OUTPUTS_DIR', self.get_temp_dir()),
         self._testMethodName)
 
-    dataset_key_0 = 'dataset_key_0'
-    dataset_key_1 = 'dataset_key_1'
+    dataset_key_0 = analyzer_cache.DatasetKey('dataset_key_0')
+    dataset_key_1 = analyzer_cache.DatasetKey('dataset_key_1')
     dataset_keys = (dataset_key_0, dataset_key_1)
 
     with beam.Pipeline() as p:
@@ -143,15 +146,15 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
           base_test_dir, list(cache_pcoll_dict.keys()))
 
       beam_test_util.assert_that(
-          read_cache['dataset_key_0'][b'\x8a'],
+          read_cache[dataset_key_0][b'\x8a'],
           beam_test_util.equal_to([b'[1, 2, 3]']),
           label='AssertA')
       beam_test_util.assert_that(
-          read_cache['dataset_key_0'][b'\x8b'],
+          read_cache[dataset_key_0][b'\x8b'],
           beam_test_util.equal_to([b'[5]']),
           label='AssertB')
       beam_test_util.assert_that(
-          read_cache['dataset_key_1'][b'\x8c'],
+          read_cache[dataset_key_1][b'\x8c'],
           beam_test_util.equal_to([b'[9, 5, 2, 1]']),
           label='AssertC')
 
@@ -160,8 +163,8 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
         os.environ.get('TEST_UNDECLARED_OUTPUTS_DIR', self.get_temp_dir()),
         self._testMethodName)
 
-    dataset_key_0 = 'dataset_key_0'
-    dataset_key_1 = 'dataset_key_1'
+    dataset_key_0 = analyzer_cache.DatasetKey('dataset_key_0')
+    dataset_key_1 = analyzer_cache.DatasetKey('dataset_key_1')
     dataset_keys = (dataset_key_0, dataset_key_1)
     cache_keys = list('abcd')
 
@@ -231,7 +234,11 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
 
         return pcoll | beam.Map(write_to_file)
 
-    test_cache_dict = {'a': {'b': [bytes([17, 19, 27, 31])]}}
+    test_cache_dict = {
+        analyzer_cache.DatasetKey('a'): {
+            'b': [bytes([17, 19, 27, 31])]
+        }
+    }
 
     class LocalSource(beam.PTransform):
 

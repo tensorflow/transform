@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import os
 import re
 import sys
@@ -27,8 +28,6 @@ import apache_beam as beam
 from apache_beam.internal import pickler
 import six
 import tensorflow as tf
-
-FLATTENED_DATASET_KEY = object()
 
 # This should be advanced whenever a non-backwards compatible change is made
 # that affects analyzer cache. For example, changing accumulator format.
@@ -48,8 +47,46 @@ _CACHE_COMPONENT_CHARACTER_REPLACEMENTS = (
 )
 
 
+def _make_valid_cache_component(name):
+  result = name
+  for unsupported_char, replacement in _CACHE_COMPONENT_CHARACTER_REPLACEMENTS:
+    result = result.replace(unsupported_char, replacement)
+  return result
+
+
+class DatasetKey(collections.namedtuple('DatasetKey', ['key'])):
+  """A key for a dataset used for analysis."""
+  _FLATTENED_DATASET_KEY = object()
+
+  def __new__(cls, dataset_key):
+    if dataset_key is not DatasetKey._FLATTENED_DATASET_KEY:
+      dataset_key = _make_valid_cache_component(dataset_key)
+    return super(DatasetKey, cls).__new__(cls, key=dataset_key)
+
+  def __str__(self):
+    if self.is_flattened_dataset_key():
+      return str(DatasetKey('FlattenedDataset'))
+    else:
+      return super(DatasetKey, self).__str__()
+
+  def __hash__(self):
+    return hash(self.key)
+
+  def __eq__(self, other):
+    if self.key == other:
+      return True
+    return isinstance(other, DatasetKey) and self.key == other.key
+
+  def is_flattened_dataset_key(self):
+    return self.key == self._FLATTENED_DATASET_KEY
+
+
+def _make_flattened_dataset_key():
+  return DatasetKey(DatasetKey._FLATTENED_DATASET_KEY)  # pylint: disable=protected-access
+
+
 def _get_dataset_cache_path(base_dir, dataset_key):
-  return os.path.join(base_dir, make_dataset_key(dataset_key))
+  return os.path.join(base_dir, dataset_key.key)
 
 
 class _ManifestFile(object):
@@ -185,6 +222,8 @@ class WriteAnalysisCacheToFS(beam.PTransform):
         raise ValueError(
             'The dataset keys in the cache dictionary must be a subset of the '
             'keys in dataset_keys. Missing {}.'.format(missing_keys))
+    if not all(isinstance(d, DatasetKey) for d in sorted_dataset_keys_list):
+      raise ValueError('Expected dataset_keys to be of type DatasetKey')
 
     cache_is_written = []
     for dataset_key, cache_dict in dataset_cache_dict.items():
@@ -208,11 +247,13 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
 
     Args:
       cache_base_dir: A string, the path that the cache should be stored in.
-      dataset_keys: An iterable of strings.
+      dataset_keys: An iterable of `DatasetKey`s.
       source: (Optional) A PTransform class that takes a path argument in its
         constructor, and is used to read the cache.
     """
     self._cache_base_dir = cache_base_dir
+    if not all(isinstance(d, DatasetKey) for d in dataset_keys):
+      raise ValueError('Expected dataset_keys to be of type DatasetKey')
     self._sorted_dataset_keys = sorted(dataset_keys)
     # TODO(b/37788560): Possibly use Riegeli as a default file format once
     # possible.
@@ -240,25 +281,16 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
     return cache_dict
 
 
-def validate_dataset_keys(keys):
+def validate_dataset_keys(dataset_keys):
   regex = re.compile(r'^[a-zA-Z0-9\.\-_]+$')
-  for key in keys:
-    if not regex.match(key):
+  for dataset_key in dataset_keys:
+    if not isinstance(dataset_key, DatasetKey):
+      raise ValueError('Dataset key {} must be of type DatasetKey')
+    if not regex.match(dataset_key.key):
       raise ValueError(
           'Dataset key {!r} does not match allowed pattern: {!r}'.format(
-              key, regex.pattern))
+              dataset_key.key, regex.pattern))
 
 
 def make_cache_entry_key(cache_key):
   return _CACHE_VERSION + tf.compat.as_bytes(cache_key)
-
-
-def make_dataset_key(dataset_key):
-  return _make_valid_cache_component(dataset_key)
-
-
-def _make_valid_cache_component(name):
-  result = name
-  for unsupported_char, replacement in _CACHE_COMPONENT_CHARACTER_REPLACEMENTS:
-    result = result.replace(unsupported_char, replacement)
-  return result

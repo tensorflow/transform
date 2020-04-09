@@ -11,6 +11,8 @@
 * `tft.estimated_probability_density`, when `categorical=True`, no longer
   assumes that the values during transformation existed in the analysis dataset,
   and will assume 0 density in that case.
+* Switched analyzer cache representation of dataset keys from using a primitive
+  str to a DatasetKey class.
 
 ## Breaking changes
 * `tft.AnalyzeDatasetWithCache` no longer accepts a flat pcollection as an
