@@ -64,7 +64,7 @@ def get_analyze_input_columns(preprocessing_fn, specs):
 
     analyze_input_tensors = graph_tools.get_dependent_inputs(
         graph, input_signature, visitor.sourced_tensors)
-    return analyze_input_tensors.keys()
+    return list(analyze_input_tensors.keys())
 
 
 def get_transform_input_columns(preprocessing_fn, specs):
@@ -84,4 +84,4 @@ def get_transform_input_columns(preprocessing_fn, specs):
     output_signature = preprocessing_fn(input_signature.copy())
     transform_input_tensors = graph_tools.get_dependent_inputs(
         graph, input_signature, output_signature)
-    return transform_input_tensors.keys()
+    return list(transform_input_tensors.keys())
