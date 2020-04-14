@@ -78,7 +78,7 @@ class Context(object):
                desired_batch_size=None,
                passthrough_keys=None,
                use_deep_copy_optimization=None,
-               use_tfxio=False):
+               use_tfxio=None):
     state = getattr(self._thread_local, 'state', None)
     if not state:
       self._thread_local.state = self._StateStack()
@@ -106,7 +106,8 @@ class Context(object):
             use_deep_copy_optimization=self._use_deep_copy_optimization
             if self._use_deep_copy_optimization is not None else
             last_frame.use_deep_copy_optimization,
-            use_tfxio=self._use_tfxio))
+            use_tfxio=self._use_tfxio if self._use_tfxio is not None else
+            last_frame.use_tfxio))
 
   def __exit__(self, *exn_info):
     self._thread_local.state.frames.pop()
@@ -162,7 +163,7 @@ class Context(object):
   def get_use_tfxio(cls):
     """Retrieves flag use_tfxio."""
     state = cls._get_topmost_state_frame()
-    if state is not None:
+    if state is not None and state.use_tfxio is not None:
       return state.use_tfxio
     return False
 

@@ -46,11 +46,6 @@ if common.IS_ANNOTATIONS_PB_AVAILABLE:
   from tensorflow_transform import annotations_pb2  # pylint: disable=g-import-not-at-top
 
 
-_TFXIO_NAMED_PARAMETERS = [
-    dict(testcase_name='WithTFXIO', use_tfxio=True),
-    dict(testcase_name='NoTFXIO', use_tfxio=False),
-]
-
 _SCALE_TO_Z_SCORE_TEST_CASES = [
     dict(testcase_name='int16',
          input_data=np.array([[1], [1], [2], [2]], np.int16),
@@ -112,12 +107,19 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def tearDown(self):
     self._context.__exit__()
 
+  # impl_with_tfxio_test.py overrides this to True
+  def _UseTFXIO(self):
+    return False
+
   def _SkipIfExternalEnvironmentAnd(self, predicate, reason):
     if predicate and tft_unit.is_external_environment():
       raise unittest.SkipTest(reason)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testApplySavedModelSingleInput(self, use_tfxio):
+  def _MaybeConvertInputsToTFXIO(self, input_data, input_metadata,
+                                 unused_label=None):
+    return input_data, input_metadata
+
+  def testApplySavedModelSingleInput(self):
     def save_model_with_single_input(instance, export_dir):
       builder = tf.compat.v1.saved_model.builder.SavedModelBuilder(export_dir)
       with tf.compat.v1.Graph().as_default() as graph:
@@ -165,10 +167,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'out': tf.io.FixedLenFeature([3], tf.int64)})
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata, use_tfxio=use_tfxio)
+        expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testApplySavedModelWithHashTable(self, use_tfxio):
+  def testApplySavedModelWithHashTable(self):
     def save_model_with_hash_table(instance, export_dir):
       builder = tf.compat.v1.saved_model.builder.SavedModelBuilder(export_dir)
       with tf.compat.v1.Graph().as_default() as graph:
@@ -218,10 +219,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'out': tf.io.FixedLenFeature([], tf.string)})
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata, use_tfxio=use_tfxio)
+        expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testApplySavedModelMultiInputs(self, use_tfxio):
+  def testApplySavedModelMultiInputs(self):
 
     def save_model_with_multi_inputs(instance, export_dir):
       builder = tf.compat.v1.saved_model.builder.SavedModelBuilder(export_dir)
@@ -286,10 +286,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'sum': tf.io.FixedLenFeature([3], tf.int64)})
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata, use_tfxio=use_tfxio)
+        expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testApplyFunctionWithCheckpoint(self, use_tfxio):
+  def testApplyFunctionWithCheckpoint(self):
 
     def tensor_fn(input1, input2):
       initializer = tf.compat.v1.constant_initializer([1, 2, 3])
@@ -339,14 +338,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'out': tf.io.FixedLenFeature([3], tf.int64)})
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata, use_tfxio=use_tfxio)
+        expected_metadata)
 
-  @tft_unit.named_parameters(
-      *tft_unit.cross_named_parameters([
-          dict(testcase_name='NoDeepCopy', with_deep_copy=False),
-          dict(testcase_name='WithDeepCopy', with_deep_copy=True),
-      ], _TFXIO_NAMED_PARAMETERS))
-  def testMultipleLevelsOfAnalyzers(self, with_deep_copy, use_tfxio):
+  @tft_unit.named_parameters(*[
+      dict(testcase_name='NoDeepCopy', with_deep_copy=False),
+      dict(testcase_name='WithDeepCopy', with_deep_copy=True),
+  ])
+  def testMultipleLevelsOfAnalyzers(self, with_deep_copy):
     # Test a preprocessing function similar to scale_to_0_1 except that it
     # involves multiple interleavings of analyzers and transforms.
     def preprocessing_fn(inputs):
@@ -372,10 +370,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
       # tft.AnalyzeAndTransform is called, exercising the right code path.
       self.assertAnalyzeAndTransformResults(
           input_data, input_metadata, preprocessing_fn, expected_data,
-          expected_metadata, use_tfxio=use_tfxio)
+          expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testRawFeedDictInput(self, use_tfxio):
+  def testRawFeedDictInput(self):
     # Test the ability to feed raw data into AnalyzeDataset and TransformDataset
     # by using subclasses of these transforms which create batches of size 1.
     def preprocessing_fn(inputs):
@@ -447,10 +444,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata, desired_batch_size=1, use_tfxio=use_tfxio)
+        expected_metadata, desired_batch_size=1)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testTransformWithExcludedOutputs(self, use_tfxio):
+  def testTransformWithExcludedOutputs(self):
     def preprocessing_fn(inputs):
       return {
           'x_scaled': tft.scale_to_0_1(inputs['x']),
@@ -464,19 +460,19 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x': tf.io.FixedLenFeature([], tf.float32),
         'y': tf.io.FixedLenFeature([], tf.float32)
     })
-    with beam_impl.Context(temp_dir=self.get_temp_dir(), use_tfxio=use_tfxio):
-      if use_tfxio:
-        input_data, input_metadata = self.convert_to_tfxio_api_inputs(
-            input_data, input_metadata)
-      transform_fn = (
-          (input_data, input_metadata) | beam_impl.AnalyzeDataset(
-              preprocessing_fn))
+    with beam_impl.Context(temp_dir=self.get_temp_dir()):
+      input_data, input_metadata = self._MaybeConvertInputsToTFXIO(
+          input_data, input_metadata)
+      transform_fn = ((input_data, input_metadata)
+                      | beam_impl.AnalyzeDataset(preprocessing_fn))
 
     # Take the transform function and use TransformDataset to apply it to
     # some eval data, with missing 'y' column.
     eval_data = [{'x': 6}]
     eval_metadata = tft_unit.metadata_from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.float32)})
+    eval_data, eval_metadata = self._MaybeConvertInputsToTFXIO(
+        eval_data, eval_metadata)
     transformed_eval_data, transformed_eval_metadata = (
         ((eval_data, eval_metadata), transform_fn)
         | beam_impl.TransformDataset(exclude_outputs=['y_scaled']))
@@ -489,8 +485,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertEqual(transformed_eval_metadata.dataset_metadata,
                      expected_transformed_eval_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testMapWithCond(self, use_tfxio):
+  def testMapWithCond(self):
     def preprocessing_fn(inputs):
       return {
           'a':
@@ -520,10 +515,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': tf.io.FixedLenFeature([], tf.float32)})
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata, use_tfxio=use_tfxio)
+        expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testPyFuncs(self, use_tfxio):
+  def testPyFuncs(self):
     def my_multiply(x, y):
       return x*y
 
@@ -573,10 +567,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata, use_tfxio=use_tfxio)
+        expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testWithMoreThanDesiredBatchSize(self, use_tfxio):
+  def testWithMoreThanDesiredBatchSize(self):
     def preprocessing_fn(inputs):
       return {
           'ab': tf.multiply(inputs['a'], inputs['b']),
@@ -613,11 +606,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         preprocessing_fn,
         expected_data,
         expected_metadata,
-        desired_batch_size=batch_size,
-        use_tfxio=use_tfxio)
+        desired_batch_size=batch_size)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testWithUnicode(self, use_tfxio):
+  def testWithUnicode(self):
     def preprocessing_fn(inputs):
       return {'a b': tf.compat.v1.strings.join(
           [inputs['a'], inputs['b']], separator=' ')}
@@ -635,11 +626,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a b': tf.io.FixedLenFeature([], tf.string)})
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata, use_tfxio=use_tfxio)
+        expected_metadata)
 
-  @tft_unit.parameters(*tft_unit.cross_parameters(
-      [(True,), (False,)], [(True,), (False,)]))
-  def testScaleUnitInterval(self, elementwise, use_tfxio):
+  @tft_unit.parameters((True,), (False,))
+  def testScaleUnitInterval(self, elementwise):
 
     def preprocessing_fn(inputs):
       outputs = {}
@@ -705,11 +695,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
-                                          expected_metadata,
-                                          use_tfxio=use_tfxio)
+                                          expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testScaleUnitIntervalPerKey(self, use_tfxio):
+  def testScaleUnitIntervalPerKey(self):
 
     def preprocessing_fn(inputs):
       outputs = {}
@@ -780,14 +768,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
-                                          expected_metadata,
-                                          use_tfxio=use_tfxio)
+                                          expected_metadata)
 
-  @tft_unit.parameters(*tft_unit.cross_parameters(
-      [(True,), (False,)], [(True,), (False,)]))
-  def testScaleMinMax(self, elementwise, use_tfxio):
+  @tft_unit.parameters((True,), (False,))
+  def testScaleMinMax(self, elementwise):
     self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
+        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
 
     def preprocessing_fn(inputs):
       outputs = {}
@@ -857,17 +843,17 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
 
-  @tft_unit.named_parameters(*tft_unit.cross_named_parameters([
+  @tft_unit.named_parameters(*[
       dict(testcase_name='_empty_filename',
            key_vocabulary_filename=''),
       dict(testcase_name='_nonempty_filename',
            key_vocabulary_filename='per_key'),
       dict(testcase_name='_none_filename',
            key_vocabulary_filename=None)
-  ], _TFXIO_NAMED_PARAMETERS))
-  def testScaleMinMaxPerKey(self, key_vocabulary_filename, use_tfxio):
+  ])
+  def testScaleMinMaxPerKey(self, key_vocabulary_filename):
     self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
+        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
 
     def preprocessing_fn(inputs):
       outputs = {}
@@ -948,9 +934,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata,
-        expected_vocab_file_contents=per_key_vocab_contents, use_tfxio=True)
+        expected_vocab_file_contents=per_key_vocab_contents)
 
-  @tft_unit.named_parameters(*tft_unit.cross_named_parameters([
+  @tft_unit.named_parameters(*[
       dict(
           testcase_name='sparse_key',
           input_data=[{
@@ -1014,11 +1000,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
           }, {
               'x_scaled': [0., 1., 0, 0]
           }]),
-  ], _TFXIO_NAMED_PARAMETERS))
+  ])
   def testScaleMinMaxSparsePerKey(
-      self, input_data, input_metadata, expected_data, use_tfxio):
+      self, input_data, input_metadata, expected_data):
     self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
+        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
 
     def preprocessing_fn(inputs):
       x_scaled = tf.sparse.to_dense(
@@ -1031,11 +1017,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
-                                          expected_metadata,
-                                          use_tfxio=use_tfxio)
+                                          expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testScaleMinMaxConstant(self, use_tfxio):
+  def testScaleMinMaxConstant(self):
 
     def preprocessing_fn(inputs):
       return {'x_scaled': tft.scale_by_min_max(inputs['x'], 0, 10)}
@@ -1056,11 +1040,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x_scaled': tf.io.FixedLenFeature([], tf.float32)})
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
-                                          expected_metadata,
-                                          use_tfxio=use_tfxio)
+                                          expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testScaleMinMaxConstantElementwise(self, use_tfxio):
+  def testScaleMinMaxConstantElementwise(self):
 
     def preprocessing_fn(inputs):
       outputs = {}
@@ -1113,11 +1095,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
-                                          expected_metadata,
-                                          use_tfxio=use_tfxio)
+                                          expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testScaleMinMaxError(self, use_tfxio):
+  def testScaleMinMaxError(self):
 
     def preprocessing_fn(inputs):
       return {'x_scaled': tft.scale_by_min_max(inputs['x'], 2, 1)}
@@ -1131,17 +1111,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
     with self.assertRaises(ValueError) as context:
       self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                             preprocessing_fn, expected_data,
-                                            expected_metadata,
-                                            use_tfxio=use_tfxio)
+                                            expected_metadata)
     self.assertTrue(
         'output_min must be less than output_max' in str(context.exception))
 
-  @tft_unit.named_parameters(
-      *tft_unit.cross_named_parameters(_SCALE_TO_Z_SCORE_TEST_CASES,
-                                       _TFXIO_NAMED_PARAMETERS))
-  def testScaleToZScore(self, input_data, output_data, elementwise, use_tfxio):
+  @tft_unit.named_parameters(*_SCALE_TO_Z_SCORE_TEST_CASES)
+  def testScaleToZScore(self, input_data, output_data, elementwise):
     self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
+        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
 
     def preprocessing_fn(inputs):
       x = inputs['x']
@@ -1164,8 +1141,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertAnalyzeAndTransformResults(
         input_data_dicts, input_metadata,
-        preprocessing_fn, expected_data_dicts, expected_metadata,
-        use_tfxio=use_tfxio)
+        preprocessing_fn, expected_data_dicts, expected_metadata)
 
   @tft_unit.parameters(*itertools.product([
       tf.int16,
@@ -1173,10 +1149,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
       tf.int64,
       tf.float32,
       tf.float64,
-  ], (True, False), (True, False)))
-  def testScaleToZScoreSparse(self, input_dtype, elementwise, use_tfxio):
+  ], (True, False)))
+  def testScaleToZScoreSparse(self, input_dtype, elementwise):
     self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
+        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
 
     def preprocessing_fn(inputs):
       z_score = tf.sparse.to_dense(
@@ -1233,19 +1209,18 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x_scaled': tf.io.FixedLenFeature([4], tf.float32)})
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
-                                          expected_metadata,
-                                          use_tfxio=use_tfxio)
+                                          expected_metadata)
 
-  @tft_unit.parameters(*itertools.product([
-      tf.int16,
-      tf.int32,
-      tf.int64,
-      tf.float32,
-      tf.float64,
-  ], [True, False]))
-  def testScaleToZScoreSparsePerDenseKey(self, input_dtype, use_tfxio):
+  @tft_unit.parameters(
+      (tf.int16,),
+      (tf.int32,),
+      (tf.int64,),
+      (tf.float32,),
+      (tf.float64,),
+  )
+  def testScaleToZScoreSparsePerDenseKey(self, input_dtype):
     self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
+        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
     # TODO(b/131852830) Add elementwise tests.
     def preprocessing_fn(inputs):
 
@@ -1306,20 +1281,19 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
-                                          expected_metadata,
-                                          use_tfxio=use_tfxio)
+                                          expected_metadata)
 
-  @tft_unit.named_parameters(*tft_unit.cross_named_parameters([
+  @tft_unit.named_parameters(*[
       dict(testcase_name='_empty_filename',
            key_vocabulary_filename=''),
       dict(testcase_name='_nonempty_filename',
            key_vocabulary_filename='per_key'),
       dict(testcase_name='_none_filename',
            key_vocabulary_filename=None)
-  ], _TFXIO_NAMED_PARAMETERS))
-  def testScaleToZScorePerKey(self, key_vocabulary_filename, use_tfxio):
+  ])
+  def testScaleToZScorePerKey(self, key_vocabulary_filename):
     self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
+        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
     # TODO(b/131852830) Add elementwise tests.
     def preprocessing_fn(inputs):
 
@@ -1433,19 +1407,18 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
-                                          expected_metadata,
-                                          use_tfxio=use_tfxio)
+                                          expected_metadata)
 
-  @tft_unit.parameters(*itertools.product([
-      tf.int16,
-      tf.int32,
-      tf.int64,
-      tf.float32,
-      tf.float64,
-  ], [True, False]))
-  def testScaleToZScoreSparsePerKey(self, input_dtype, use_tfxio):
+  @tft_unit.parameters(
+      (tf.int16,),
+      (tf.int32,),
+      (tf.int64,),
+      (tf.float32,),
+      (tf.float64,),
+  )
+  def testScaleToZScoreSparsePerKey(self, input_dtype):
     self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
+        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
     # TODO(b/131852830) Add elementwise tests.
     def preprocessing_fn(inputs):
       z_score = tf.sparse.to_dense(
@@ -1500,11 +1473,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x_scaled': tf.io.FixedLenFeature([4], tf.float32)})
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
-                                          expected_metadata,
-                                          use_tfxio=use_tfxio)
+                                          expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testMeanAndVar(self, use_tfxio):
+  def testMeanAndVar(self):
     def analyzer_fn(inputs):
       mean, var = analyzers._mean_and_var(inputs['x'])
       return {
@@ -1528,11 +1499,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_metadata,
         analyzer_fn,
         expected_outputs,
-        desired_batch_size=10,
-        use_tfxio=use_tfxio)
+        desired_batch_size=10)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testMeanAndVarPerKey(self, use_tfxio):
+  def testMeanAndVarPerKey(self):
     def analyzer_fn(inputs):
       key_vocab, mean, var = analyzers._mean_and_var_per_key(
           inputs['x'], inputs['key'])
@@ -1560,10 +1529,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_metadata,
         analyzer_fn,
         expected_outputs,
-        desired_batch_size=10,
-        use_tfxio=use_tfxio)
+        desired_batch_size=10)
 
-  @tft_unit.named_parameters(*tft_unit.cross_named_parameters([
+  @tft_unit.named_parameters(*[
       {'testcase_name': '_string',
        'input_data': [{'key': 'a' if x < 25 else 'b'} for x in range(100)],
        'input_metadata': tft_unit.metadata_from_feature_spec(
@@ -1582,11 +1550,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
            'counts': np.array([25, 75], np.int64)
        }
       },
-  ], _TFXIO_NAMED_PARAMETERS))
-  def testCountPerKey(self, input_data, input_metadata, expected_outputs,
-                      use_tfxio):
+  ])
+  def testCountPerKey(self, input_data, input_metadata, expected_outputs):
     self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
+        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
 
     def analyzer_fn(inputs):
       elements, counts = analyzers.count_per_key(inputs['key'])
@@ -1598,10 +1565,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data,
         input_metadata,
         analyzer_fn,
-        expected_outputs,
-        use_tfxio=use_tfxio)
+        expected_outputs)
 
-  @tft_unit.named_parameters(*tft_unit.cross_named_parameters([
+  @tft_unit.named_parameters(*[
       {
           'testcase_name': '_uniform',
           'input_data': [{
@@ -1656,11 +1622,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
               'boundaries': np.arange(10)
           }
       },
-  ], _TFXIO_NAMED_PARAMETERS))
+  ])
   def testHistograms(self, input_data, feature_spec, boundaries, categorical,
-                     expected_outputs, use_tfxio):
+                     expected_outputs):
     self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
+        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
 
     def analyzer_fn(inputs):
       counts, bucket_boundaries = analyzers.histogram(tf.stack(inputs['x']),
@@ -1674,11 +1640,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzerOutputs(input_data,
                                input_metadata,
                                analyzer_fn,
-                               expected_outputs,
-                               use_tfxio=use_tfxio)
+                               expected_outputs)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testProbCategorical(self, use_tfxio):
+  def testProbCategorical(self):
     def preprocessing_fn(inputs):
       return {'probs': tft.estimated_probability_density(inputs['x'],
                                                          categorical=True)}
@@ -1696,11 +1660,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           input_metadata,
                                           preprocessing_fn,
                                           expected_outputs,
-                                          desired_batch_size=10,
-                                          use_tfxio=use_tfxio)
+                                          desired_batch_size=10)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testProbTenBoundaries(self, use_tfxio):
+  def testProbTenBoundaries(self):
     # If we draw uniformly from a range (0, 100], the expected density is 0.01.
     def preprocessing_fn(inputs):
       return {'probs': tft.estimated_probability_density(
@@ -1720,10 +1682,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_metadata,
         preprocessing_fn,
         expected_outputs,
-        desired_batch_size=10,
-        use_tfxio=use_tfxio)
+        desired_batch_size=10)
 
-  @tft_unit.named_parameters(*tft_unit.cross_named_parameters([
+  @tft_unit.named_parameters(*[
       {'testcase_name': 'uniform',
        'boundaries': 6,
        'input_data': [{'x': [x]} for x in range(100)],
@@ -1742,11 +1703,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
        'input_data': [],
        'expected_outputs': []
       },
-  ], _TFXIO_NAMED_PARAMETERS))
+  ])
   def testProbUnknownBoundaries(
-      self, input_data, expected_outputs, boundaries, use_tfxio):
+      self, input_data, expected_outputs, boundaries):
     self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
+        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
     # Test 1 has 100 points over a range of 99; test 2 is an uneven distribution
     def preprocessing_fn(inputs):
       return {'probs': tft.estimated_probability_density(inputs['x'],
@@ -1760,10 +1721,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data,
         input_metadata,
         preprocessing_fn,
-        expected_outputs,
-        use_tfxio=use_tfxio)
+        expected_outputs)
 
-  @tft_unit.named_parameters(*tft_unit.cross_named_parameters([
+  @tft_unit.named_parameters(*[
       dict(
           testcase_name='Int64In',
           input_dtype=tf.int64,
@@ -1830,11 +1790,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
               'mean': tf.float16,
               'var': tf.float16
           })
-  ], _TFXIO_NAMED_PARAMETERS))
+  ])
   def testNumericAnalyzersWithScalarInputs(
-      self, input_dtype, output_dtypes, use_tfxio):
+      self, input_dtype, output_dtypes):
     self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
+        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
 
     def analyzer_fn(inputs):
       a = tf.cast(inputs['a'], input_dtype)
@@ -1898,8 +1858,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     }
 
     self.assertAnalyzerOutputs(
-        input_data, input_metadata, analyzer_fn, expected_outputs,
-        use_tfxio=use_tfxio)
+        input_data, input_metadata, analyzer_fn, expected_outputs)
 
   @tft_unit.parameters(*itertools.product([
       tf.int16,
@@ -1909,11 +1868,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
       tf.float64,
       tf.uint8,
       tf.uint16,
-  ], (True, False), (True, False)))
+  ], (True, False)))
   def testNumericAnalyzersWithSparseInputs(self, input_dtype,
-                                           reduce_instance_dims, use_tfxio):
+                                           reduce_instance_dims):
     self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
+        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
 
     def analyzer_fn(inputs):
       return {
@@ -1968,10 +1927,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'var': np.array([0., 0.25, float('nan'), 0.], np.float32),
       }
     self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
-                               expected_outputs, use_tfxio=use_tfxio)
+                               expected_outputs)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testNumericAnalyzersWithInputsAndAxis(self, use_tfxio):
+  def testNumericAnalyzersWithInputsAndAxis(self):
     def analyzer_fn(inputs):
       return {
           'min': tft.min(inputs['a'], reduce_instance_dims=False),
@@ -1997,11 +1955,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'var': np.array([12.25, 12.25, 12.25, 12.25], np.float32),
     }
     self.assertAnalyzerOutputs(
-        input_data, input_metadata, analyzer_fn, expected_outputs,
-        use_tfxio=use_tfxio)
+        input_data, input_metadata, analyzer_fn, expected_outputs)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testNumericAnalyzersWithNDInputsAndAxis(self, use_tfxio):
+  def testNumericAnalyzersWithNDInputsAndAxis(self):
     def analyzer_fn(inputs):
       return {
           'min': tft.min(inputs['a'], reduce_instance_dims=False),
@@ -2026,11 +1982,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'var': np.array([[12.25, 12.25], [12.25, 12.25]], np.float32),
     }
     self.assertAnalyzerOutputs(
-        input_data, input_metadata, analyzer_fn, expected_outputs,
-        use_tfxio=use_tfxio)
+        input_data, input_metadata, analyzer_fn, expected_outputs)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testNumericAnalyzersWithShape1NDInputsAndAxis(self, use_tfxio):
+  def testNumericAnalyzersWithShape1NDInputsAndAxis(self):
 
     def analyzer_fn(inputs):
       return {
@@ -2054,10 +2008,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'var': np.array([[12.25, 12.25]], np.float32),
     }
     self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
-                               expected_outputs, use_tfxio=use_tfxio)
+                               expected_outputs)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testNumericAnalyzersWithNDInputs(self, use_tfxio):
+  def testNumericAnalyzersWithNDInputs(self):
     def analyzer_fn(inputs):
       return {
           'min': tft.min(inputs['a']),
@@ -2083,11 +2036,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'var': np.array(3.5, np.float32),
     }
     self.assertAnalyzerOutputs(
-        input_data, input_metadata, analyzer_fn, expected_outputs,
-        use_tfxio=use_tfxio)
+        input_data, input_metadata, analyzer_fn, expected_outputs)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testNumericMeanWithSparseTensorReduceFalseOverflow(self, use_tfxio):
+  def testNumericMeanWithSparseTensorReduceFalseOverflow(self):
 
     def analyzer_fn(inputs):
       return {'mean': tft.mean(tf.cast(inputs['sparse'], tf.int32), False)}
@@ -2102,10 +2053,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'mean': np.array([1., 1073741824., float('nan'), 3.], np.float32)
     }
     self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
-                               expected_outputs, use_tfxio=use_tfxio)
+                               expected_outputs)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testStringToTFIDF(self, use_tfxio):
+  def testStringToTFIDF(self):
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.compute_and_apply_vocabulary(
           tf.compat.v1.strings.split(inputs['a']))
@@ -2145,10 +2095,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn,
-        expected_transformed_data, expected_metadata, use_tfxio=use_tfxio)
+        expected_transformed_data, expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testTFIDFNoData(self, use_tfxio):
+  def testTFIDFNoData(self):
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.compute_and_apply_vocabulary(
           tf.compat.v1.strings.split(inputs['a']))
@@ -2167,10 +2116,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_transformed_data,
-        expected_metadata, use_tfxio=use_tfxio)
+        expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testStringToTFIDFEmptyDoc(self, use_tfxio):
+  def testStringToTFIDFEmptyDoc(self):
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.compute_and_apply_vocabulary(
           tf.compat.v1.strings.split(inputs['a']))
@@ -2207,10 +2155,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn,
-        expected_transformed_data, expected_metadata, use_tfxio=use_tfxio)
+        expected_transformed_data, expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testIntToTFIDF(self, use_tfxio):
+  def testIntToTFIDF(self):
     def preprocessing_fn(inputs):
       out_index, out_values = tft.tfidf(inputs['a'], 13)
       return {'tf_idf': out_values, 'index': out_index}
@@ -2238,10 +2185,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_schema, use_tfxio=use_tfxio)
+        expected_schema)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testIntToTFIDFWithoutSmoothing(self, use_tfxio):
+  def testIntToTFIDFWithoutSmoothing(self):
     def preprocessing_fn(inputs):
       out_index, out_values = tft.tfidf(inputs['a'], 13, smooth=False)
       return {'tf_idf': out_values, 'index': out_index}
@@ -2269,10 +2215,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_schema, use_tfxio=use_tfxio)
+        expected_schema)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testTFIDFWithOOV(self, use_tfxio):
+  def testTFIDFWithOOV(self):
     test_vocab_size = 3
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.compute_and_apply_vocabulary(
@@ -2312,10 +2257,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_transformed_data,
-        expected_metadata, use_tfxio=use_tfxio)
+        expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testTFIDFWithNegatives(self, use_tfxio):
+  def testTFIDFWithNegatives(self):
     def preprocessing_fn(inputs):
       out_index, out_values = tft.tfidf(inputs['a'], 14)
       return {
@@ -2348,7 +2292,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn,
-        expected_transformed_data, expected_metadata, use_tfxio=use_tfxio)
+        expected_transformed_data, expected_metadata)
 
   # From testVocabularyAnalyzerEmptyVocab
   _EMPTY_VOCABULARY_PARAMS = tft_unit.cross_named_parameters(
@@ -2369,7 +2313,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
                frequency_threshold=5),
       ])
 
-  @tft_unit.named_parameters(*tft_unit.cross_named_parameters([
+  @tft_unit.named_parameters(*(tft_unit.cross_named_parameters([
       # NOTE: Since these tests are a refactoring of existing tests, each test
       # case parameter (or parameters where the original test was parameterized
       # or tested multiple calls to tft.compute_and_apply_vocabulary) has a
@@ -2741,15 +2685,15 @@ class BeamImplTest(tft_unit.TransformTestCase):
            key_fn=lambda s: s[0],
            frequency_threshold=1.5,
            coverage_frequency_threshold=1),
-  ] + _EMPTY_VOCABULARY_PARAMS, _TFXIO_NAMED_PARAMETERS))
+  ] + _EMPTY_VOCABULARY_PARAMS)))
   def testComputeAndApplyVocabulary(
       self, x_data, x_feature_spec, index_data, index_feature_spec,
-      index_domain, use_tfxio, label_data=None, label_feature_spec=None,
+      index_domain, label_data=None, label_feature_spec=None,
       weight_data=None, weight_feature_spec=None,
       expected_vocab_file_contents=None, **kwargs):
     """Test tft.compute_and_apply_vocabulary with various inputs."""
     self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
+        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
 
     input_data = [{'x': x} for x in x_data]
     input_feature_spec = {'x': x_feature_spec}
@@ -2782,8 +2726,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata,
-        expected_vocab_file_contents=expected_vocab_file_contents,
-        use_tfxio=use_tfxio)
+        expected_vocab_file_contents=expected_vocab_file_contents)
 
   # From testVocabularyAnalyzerStringVsIntegerFeature
   _WITH_LABEL_PARAMS = tft_unit.cross_named_parameters(
@@ -2813,7 +2756,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
                store_frequency=True),
       ])
 
-  @tft_unit.named_parameters(*tft_unit.cross_named_parameters([
+  @tft_unit.named_parameters(*([
       # NOTE: Since these tests are a refactoring of existing tests, each test
       # case parameter (or parameters where the original test was parameterized
       # or tested multiple calls to tft.vocabulary) has a comment indicating the
@@ -3073,14 +3016,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
            x_data=[1, 2, 2, 3],
            x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
            expected_vocab_file_contents=[b'2', b'3', b'1']),
-  ] + _WITH_LABEL_PARAMS, _TFXIO_NAMED_PARAMETERS))
+  ] + _WITH_LABEL_PARAMS))
   def testVocabulary(
-      self, x_data, x_feature_spec, use_tfxio, label_data=None,
+      self, x_data, x_feature_spec, label_data=None,
       label_feature_spec=None, weight_data=None, weight_feature_spec=None,
       expected_vocab_file_contents=None, **kwargs):
     """Test tft.Vocabulary with various inputs."""
     self._SkipIfExternalEnvironmentAnd(
-        use_tfxio, 'Skipping large test cases; b/147698868')
+        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
 
     input_data = [{'x': x} for x in x_data]
     input_feature_spec = {'x': x_feature_spec}
@@ -3116,11 +3059,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data,  # expected output data is same as input data
         input_metadata,  # expected output metadata is ame as input metadata
         expected_vocab_file_contents={
-            'my_vocab': expected_vocab_file_contents},
-        use_tfxio=use_tfxio)
+            'my_vocab': expected_vocab_file_contents})
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testJointVocabularyForMultipleFeatures(self, use_tfxio):
+  def testJointVocabularyForMultipleFeatures(self):
     input_data = [
         {'a': 'hello', 'b': 'world', 'c': 'aaaaa'},
         {'a': 'good', 'b': '', 'c': 'hello'},
@@ -3162,12 +3103,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata, use_tfxio=use_tfxio)
+        expected_metadata)
 
   # Example on how to use the vocab frequency as part of the transform
   # function.
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testCreateVocabWithFrequency(self, use_tfxio):
+  def testCreateVocabWithFrequency(self):
     input_data = [
         {'a': 'hello', 'b': 'world', 'c': 'aaaaa'},
         {'a': 'good', 'b': '', 'c': 'hello'},
@@ -3259,10 +3199,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata, use_tfxio=use_tfxio)
+        expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testVocabularyAnalyzerWithTokenization(self, use_tfxio):
+  def testVocabularyAnalyzerWithTokenization(self):
     def preprocessing_fn(inputs):
       return {
           'index':
@@ -3282,10 +3221,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata, use_tfxio=use_tfxio)
+        expected_metadata)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testPipelineWithoutAutomaterialization(self, use_tfxio):
+  def testPipelineWithoutAutomaterialization(self):
     # Other tests pass lists instead of PCollections and thus invoke
     # automaterialization where each call to a beam PTransform will implicitly
     # run its own pipeline.
@@ -3311,11 +3249,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
           [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}])
       metadata = tft_unit.metadata_from_feature_spec(
           {'x': tf.io.FixedLenFeature([], tf.float32)})
-      with beam_impl.Context(temp_dir=self.get_temp_dir(), use_tfxio=use_tfxio):
-        if use_tfxio:
-          legacy_metadata = metadata
-          input_data, metadata = self.convert_to_tfxio_api_inputs(
-              input_data, metadata, 'input_data')
+      with beam_impl.Context(temp_dir=self.get_temp_dir()):
+        legacy_metadata = metadata
+        input_data, metadata = self._MaybeConvertInputsToTFXIO(
+            input_data, metadata, 'input_data')
         transform_fn = (
             (input_data, metadata)
             | 'AnalyzeDataset' >> beam_impl.AnalyzeDataset(preprocessing_fn))
@@ -3323,9 +3260,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         # Run transform_columns on some eval dataset.
         eval_data = pipeline | 'CreateEvalData' >> beam.Create(
             [{'x': 6}, {'x': 3}])
-        if use_tfxio:
-          eval_data, _ = self.convert_to_tfxio_api_inputs(
-              eval_data, legacy_metadata, 'eval_data')
+        eval_data, _ = self._MaybeConvertInputsToTFXIO(
+            eval_data, legacy_metadata, 'eval_data')
         transformed_eval_data, _ = (
             ((eval_data, metadata), transform_fn)
             | 'TransformDataset' >> beam_impl.TransformDataset())
@@ -3350,8 +3286,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     with self.assertRaises(ValueError):
       beam_impl.Context.create_base_temp_dir()
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testVocabularyWithFrequency(self, use_tfxio):
+  def testVocabularyWithFrequency(self):
     outfile = 'vocabulary_with_frequency'
     def preprocessing_fn(inputs):
 
@@ -3385,16 +3320,15 @@ class BeamImplTest(tft_unit.TransformTestCase):
     tft_tmp_dir = os.path.join(self.get_temp_dir(), 'temp_dir')
     transform_fn_dir = os.path.join(self.get_temp_dir(), 'export_transform_fn')
 
-    with beam_impl.Context(temp_dir=tft_tmp_dir, use_tfxio=use_tfxio):
+    with beam_impl.Context(temp_dir=tft_tmp_dir):
       with self._makeTestPipeline() as pipeline:
         input_data = pipeline | beam.Create([
             {'a': 'hello', 'b': 'hi'},
             {'a': 'world', 'b': 'ho ho'},
             {'a': 'hello', 'b': 'ho ho'},
         ])
-        if use_tfxio:
-          input_data, input_metadata = self.convert_to_tfxio_api_inputs(
-              input_data, input_metadata)
+        input_data, input_metadata = self._MaybeConvertInputsToTFXIO(
+            input_data, input_metadata)
         transform_fn = (
             (input_data, input_metadata)
             | beam_impl.AnalyzeDataset(preprocessing_fn))
@@ -3428,8 +3362,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
                               'vocab_compute_and_apply_vocabulary_vocabulary',
                               'hello\nworld\n')
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testCovarianceTwoDimensions(self, use_tfxio):
+  def testCovarianceTwoDimensions(self):
     def analyzer_fn(inputs):
       return {'y': tft.covariance(inputs['x'], dtype=tf.float32)}
 
@@ -3438,11 +3371,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x': tf.io.FixedLenFeature([2], tf.float32)})
     expected_outputs = {'y': np.array([[2, 0], [0, 2]], np.float32)}
     self.assertAnalyzerOutputs(
-        input_data, input_metadata, analyzer_fn, expected_outputs,
-        use_tfxio=use_tfxio)
+        input_data, input_metadata, analyzer_fn, expected_outputs)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testCovarianceOneDimension(self, use_tfxio):
+  def testCovarianceOneDimension(self):
     def analyzer_fn(inputs):
       return {'y': tft.covariance(inputs['x'], dtype=tf.float32)}
 
@@ -3451,11 +3382,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x': tf.io.FixedLenFeature([1], tf.float32)})
     expected_outputs = {'y': np.array([[5]], np.float32)}
     self.assertAnalyzerOutputs(
-        input_data, input_metadata, analyzer_fn, expected_outputs,
-        use_tfxio=use_tfxio)
+        input_data, input_metadata, analyzer_fn, expected_outputs)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testPCAThreeToTwoDimensions(self, use_tfxio):
+  def testPCAThreeToTwoDimensions(self):
     def analyzer_fn(inputs):
       return {'y': tft.pca(inputs['x'], 2, dtype=tf.float32)}
 
@@ -3465,8 +3394,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x': tf.io.FixedLenFeature([3], tf.float32)})
     expected_outputs = {'y': np.array([[1, 0], [0, 1], [0, 0]], np.float32)}
     self.assertAnalyzerOutputs(
-        input_data, input_metadata, analyzer_fn, expected_outputs,
-        use_tfxio=use_tfxio)
+        input_data, input_metadata, analyzer_fn, expected_outputs)
 
   class _SumCombiner(beam.PTransform):
 
@@ -3492,8 +3420,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           | beam.FlatMap(self._extract_outputs).with_outputs('0', '1'))
       return (output_tuple['0'], output_tuple['1'])
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testPTransformAnalyzer(self, use_tfxio):
+  def testPTransformAnalyzer(self):
 
     def analyzer_fn(inputs):
       outputs = analyzers.ptransform_analyzer([inputs['x'], inputs['y']],
@@ -3518,10 +3445,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_metadata,
         analyzer_fn,
         expected_outputs,
-        desired_batch_size=10, use_tfxio=use_tfxio)
+        desired_batch_size=10)
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testVocabularyWithKeyFnAndFrequency(self, use_tfxio):
+  def testVocabularyWithKeyFnAndFrequency(self):
     def key_fn(string):
       return string.split(b'_X_')[1]
 
@@ -3570,16 +3496,15 @@ class BeamImplTest(tft_unit.TransformTestCase):
     tft_tmp_dir = os.path.join(self.get_temp_dir(), 'temp_dir')
     transform_fn_dir = os.path.join(self.get_temp_dir(), 'export_transform_fn')
 
-    with beam_impl.Context(temp_dir=tft_tmp_dir, use_tfxio=use_tfxio):
+    with beam_impl.Context(temp_dir=tft_tmp_dir):
       with self._makeTestPipeline() as pipeline:
         input_data = pipeline | beam.Create([
             {'a': '1_X_a 1_X_a 2_X_a 1_X_b 2_X_b'},
             {'a': '1_X_a 1_X_a 2_X_a 2_X_a'},
             {'a': '2_X_b 3_X_c 4_X_c'}
         ])
-        if use_tfxio:
-          input_data, input_metadata = self.convert_to_tfxio_api_inputs(
-              input_data, input_metadata)
+        input_data, input_metadata = self._MaybeConvertInputsToTFXIO(
+            input_data, input_metadata)
         transform_fn = (
             (input_data, input_metadata)
             | beam_impl.AnalyzeDataset(preprocessing_fn))
@@ -3598,8 +3523,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   @unittest.skipIf(not common.IS_ANNOTATIONS_PB_AVAILABLE,
                      'Schema annotations are not available')
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testSavedModelWithAnnotations(self, use_tfxio):
+  def testSavedModelWithAnnotations(self):
     """Test serialization/deserialization as a saved model with annotations."""
     def preprocessing_fn(inputs):
       # Bucketization applies annotations to the output schema
@@ -3628,11 +3552,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     temp_dir = self.get_temp_dir()
     # Force a batch size of 1 to ensure that occurences are correctly aggregated
     # across batches when computing the total vocabulary size.
-    with beam_impl.Context(temp_dir=temp_dir, desired_batch_size=1,
-                           use_tfxio=use_tfxio):
-      if use_tfxio:
-        input_data, input_metadata = self.convert_to_tfxio_api_inputs(
-            input_data, input_metadata)
+    with beam_impl.Context(temp_dir=temp_dir, desired_batch_size=1):
+      input_data, input_metadata = self._MaybeConvertInputsToTFXIO(
+          input_data, input_metadata)
       transform_fn = ((input_data, input_metadata)
                       | beam_impl.AnalyzeDataset(preprocessing_fn))
       #  Write transform_fn to serialize annotation collections to SavedModel
@@ -3664,8 +3586,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   @unittest.skipIf(not common.IS_ANNOTATIONS_PB_AVAILABLE,
                      'Schema annotations are not available')
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testSavedModelWithGlobalAnnotations(self, use_tfxio):
+  def testSavedModelWithGlobalAnnotations(self):
     def preprocessing_fn(inputs):
       # Add some arbitrary annotation data at the global schema level.
       boundaries = tf.constant([[1.0]])
@@ -3686,6 +3607,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     temp_dir = self.get_temp_dir()
     with beam_impl.Context(temp_dir=temp_dir):
+      input_data, input_metadata = self._MaybeConvertInputsToTFXIO(
+          input_data, input_metadata)
       transform_fn = ((input_data, input_metadata)
                       | beam_impl.AnalyzeDataset(preprocessing_fn))
       #  Write transform_fn to serialize annotation collections to SavedModel
@@ -3701,8 +3624,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       annotation.Unpack(message)
       self.assertAllClose(list(message.boundaries), [1])
 
-  @tft_unit.named_parameters(*_TFXIO_NAMED_PARAMETERS)
-  def testPipelineAPICounters(self, use_tfxio):
+  def testPipelineAPICounters(self):
 
     def preprocessing_fn(inputs):
       _ = tft.vocabulary(inputs['a'])
@@ -3727,10 +3649,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'y': tf.io.FixedLenFeature([], tf.float32),
           'a': tf.io.FixedLenFeature([], tf.string)
       })
-      with beam_impl.Context(temp_dir=self.get_temp_dir(), use_tfxio=use_tfxio):
-        if use_tfxio:
-          input_data, metadata = self.convert_to_tfxio_api_inputs(
-              input_data, metadata)
+      with beam_impl.Context(temp_dir=self.get_temp_dir()):
+        input_data, metadata = self._MaybeConvertInputsToTFXIO(
+            input_data, metadata)
         _ = ((input_data, metadata)
              | 'AnalyzeDataset' >> beam_impl.AnalyzeDataset(preprocessing_fn))
 
@@ -3744,6 +3665,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(metrics, 'tft_mapper_apply_vocabulary', 0)
 
   def testHandleBatchError(self):
+    if self._UseTFXIO():
+      return
 
     def preprocessing_fn(inputs):
       return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
