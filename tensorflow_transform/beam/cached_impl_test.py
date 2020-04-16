@@ -163,7 +163,6 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signatur
 }
 """)
 
-
 _TFXIO_NAMED_PARAMETERS = [
     dict(testcase_name='WithTFXIO', use_tfxio=True),
     dict(testcase_name='NoTFXIO', use_tfxio=False),
@@ -361,6 +360,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
         os.environ.get('TEST_UNDECLARED_OUTPUTS_DIR', self.get_temp_dir()),
         self._testMethodName)
     self._cache_dir = os.path.join(self.base_test_dir, 'cache')
+    self._running_index = 0
 
     self._context = tft_beam.Context(temp_dir=self.get_temp_dir())
     self._context.__enter__()
@@ -368,6 +368,30 @@ class CachedImplTest(tft_unit.TransformTestCase):
   def tearDown(self):
     self._context.__exit__()
     super(CachedImplTest, self).tearDown()
+
+  def _get_running_index(self):
+    self._running_index += 1
+    return self._running_index
+
+  def _publish_rendered_dot_graph_file(self, preprocessing_fn, feature_spec,
+                                       dataset_keys, pcoll_cache_dict):
+    with tf.compat.v1.Graph().as_default() as graph:
+      with tf.compat.v1.name_scope('inputs'):
+        input_signature = impl_helper.batched_placeholders_from_specs(
+            feature_spec)
+      output_signature = preprocessing_fn(input_signature)
+      transform_fn_future, cache_output_dict = analysis_graph_builder.build(
+          graph, input_signature, output_signature, dataset_keys,
+          pcoll_cache_dict)
+    dot_string = nodes.get_dot_graph(
+        [transform_fn_future] +
+        sorted(cache_output_dict.values(), key=str)).to_string()
+    tf.io.gfile.makedirs(self.base_test_dir)
+    output_file = os.path.join(
+        self.base_test_dir,
+        'rendered_graph_{}.svg'.format(self._get_running_index()))
+    self.WriteRenderedDotFile(dot_string, output_file=output_file)
+    return dot_string
 
   _RunPipelineResult = collections.namedtuple(  # pylint: disable=invalid-name
       '_RunPipelineResult', ['cache_output', 'pipeline'])
@@ -444,6 +468,10 @@ class CachedImplTest(tft_unit.TransformTestCase):
           assert cache_dict is None
           pcoll_cache_dict = p | analyzer_cache.ReadAnalysisCacheFromFS(
               self._cache_dir, list(input_data_dict.keys()))
+
+        self._publish_rendered_dot_graph_file(preprocessing_fn, feature_spec,
+                                              set(input_data_dict.keys()),
+                                              pcoll_cache_dict)
 
         transform_fn, cache_output = (
             (input_data_pcoll_dict, pcoll_cache_dict, input_metadata)
@@ -580,10 +608,6 @@ class CachedImplTest(tft_unit.TransformTestCase):
         transform_fn_output_dir=os.path.join(self.base_test_dir,
                                              'transform_fn'),
         use_tfxio=use_tfxio)
-
-    dot_string = nodes.get_dot_graph([analysis_graph_builder._ANALYSIS_GRAPH
-                                     ]).to_string()
-    self.WriteRenderedDotFile(dot_string)
 
     # The output cache should not have entries for the cache that is present
     # in the input cache.
@@ -732,10 +756,6 @@ class CachedImplTest(tft_unit.TransformTestCase):
         transform_fn_output_dir=transform_fn_dir,
         use_tfxio=use_tfxio)
 
-    dot_string = nodes.get_dot_graph([analysis_graph_builder._ANALYSIS_GRAPH
-                                     ]).to_string()
-    self.WriteRenderedDotFile(dot_string)
-
     tf_transform_output = tft.TFTransformOutput(transform_fn_dir)
     vocab1_path = tf_transform_output.vocabulary_file_by_name('vocab1')
     self.AssertVocabularyContents(vocab1_path, expected_vocabulary_contents)
@@ -820,10 +840,6 @@ class CachedImplTest(tft_unit.TransformTestCase):
         datasets_to_transform=[span_1_key],
         expected_transform_data=expected_transformed_data,
         use_tfxio=use_tfxio)
-
-    dot_string = nodes.get_dot_graph([analysis_graph_builder._ANALYSIS_GRAPH
-                                     ]).to_string()
-    self.WriteRenderedDotFile(dot_string)
 
     self.assertNotIn(span_0_key, run_result.cache_output)
 
@@ -986,26 +1002,15 @@ class CachedImplTest(tft_unit.TransformTestCase):
       cache = {span_0_key: dataset_input_cache_dict}
     else:
       cache = {}
-
-    with tf.compat.v1.Graph().as_default() as graph:
-      with tf.compat.v1.name_scope('inputs'):
-        input_signature = impl_helper.batched_placeholders_from_specs(
-            feature_spec)
-      output_signature = preprocessing_fn(input_signature)
-      transform_fn_future, cache_output_dict = analysis_graph_builder.build(
-          graph, input_signature, output_signature, {span_0_key, span_1_key},
-          cache)
-
-    leaf_nodes = [transform_fn_future] + sorted(
-        cache_output_dict.values(), key=str)
-    dot_string = nodes.get_dot_graph(leaf_nodes).to_string()
-    self.WriteRenderedDotFile(dot_string)
+    dot_string = self._publish_rendered_dot_graph_file(preprocessing_fn,
+                                                       feature_spec,
+                                                       {span_0_key, span_1_key},
+                                                       cache)
 
     self.assertSameElements(
         expected_dot_graph_str.split('\n'),
         dot_string.split('\n'),
-        msg='Result dot graph is:\n{}\nCache output dict keys are: {}'.format(
-            dot_string, cache_output_dict.keys()))
+        msg='Result dot graph is:\n{}'.format(dot_string))
 
   def test_no_data_needed(self):
     span_0_key = analyzer_cache.DatasetKey('span-0')
