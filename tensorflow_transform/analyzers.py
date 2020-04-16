@@ -1303,73 +1303,124 @@ def vocabulary(x,
     vocab_filename = _get_vocab_filename(vocab_filename, store_frequency)
 
     if labels is not None:
-      labels = tf.reshape(labels, [-1])
       vocab_ordering_type = _VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION
-      reduced_batch = tf_utils.reduce_batch_weighted_cooccurrences(
-          x, labels, weights)
-      analyzer_inputs = [
-          reduced_batch.unique_x, reduced_batch.summed_weights_per_x,
-          reduced_batch.summed_positive_per_x_and_y, reduced_batch.counts_per_x
-      ]
     elif weights is not None:
       vocab_ordering_type = _VocabOrderingType.WEIGHTED_FREQUENCY
-      reduced_batch = tf_utils.reduce_batch_weighted_counts(x, weights)
-      assert reduced_batch.summed_positive_per_x_and_y is None
-      assert reduced_batch.counts_per_x is None
-      analyzer_inputs = [
-          reduced_batch.unique_x, reduced_batch.summed_weights_per_x
-      ]
     else:
       vocab_ordering_type = _VocabOrderingType.FREQUENCY
-      reduced_batch = tf_utils.reduce_batch_weighted_counts(x)
-      assert reduced_batch.summed_weights_per_x is None
-      assert reduced_batch.summed_positive_per_x_and_y is None
-      assert reduced_batch.counts_per_x is None
-      analyzer_inputs = [reduced_batch.unique_x]
-
-    input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
-        analyzer_inputs)
-
-    accumulate_output_value_node = nodes.apply_operation(
-        analyzer_nodes.VocabularyAccumulate,
-        input_values_node,
+    analyzer_inputs = _get_vocabulary_analyzer_inputs(
         vocab_ordering_type=vocab_ordering_type,
-        input_dtype=x.dtype.name)
-
-    merge_output_value_node = nodes.apply_operation(
-        analyzer_nodes.VocabularyMerge, accumulate_output_value_node,
+        x=x,
+        labels=labels,
+        weights=weights)
+    return _vocabulary_analyzer_nodes(
+        analyzer_inputs=analyzer_inputs,
+        input_dtype=x.dtype.name,
+        vocab_ordering_type=vocab_ordering_type,
+        vocab_filename=vocab_filename,
+        top_k=top_k,
+        frequency_threshold=frequency_threshold,
         use_adjusted_mutual_info=use_adjusted_mutual_info,
         min_diff_from_avg=min_diff_from_avg,
-        vocab_ordering_type=vocab_ordering_type)
-
-    filtered_value_node = nodes.apply_operation(
-        analyzer_nodes.VocabularyPrune,
-        merge_output_value_node,
-        coverage_top_k=coverage_top_k,
-        coverage_frequency_threshold=coverage_frequency_threshold,
-        key_fn=key_fn,
-        top_k=top_k,
-        frequency_threshold=frequency_threshold)
-
-    vocab_filename_node = nodes.apply_operation(
-        analyzer_nodes.VocabularyOrderAndWrite,
-        filtered_value_node,
-        vocab_filename=vocab_filename,
-        store_frequency=store_frequency,
         fingerprint_shuffle=fingerprint_shuffle,
-        input_dtype=x.dtype.name)
+        store_frequency=store_frequency,
+        key_fn=key_fn,
+        coverage_top_k=coverage_top_k,
+        coverage_frequency_threshold=coverage_frequency_threshold)
 
-    total_vocab_size_node = nodes.apply_operation(
-        analyzer_nodes.VocabularyCount, merge_output_value_node)
-    _maybe_annotate_vocab_metadata(
-        vocab_filename,
-        analyzer_nodes.bind_future_as_tensor(
-            total_vocab_size_node,
-            analyzer_nodes.TensorInfo(tf.int64, [], False),
-            name='{}_unpruned_vocab_size'.format(vocab_filename)))
 
-    vocab_filename_tensor = analyzer_nodes.wrap_as_tensor(vocab_filename_node)
-    return vocab_filename_tensor
+def _get_vocabulary_analyzer_inputs(vocab_ordering_type,
+                                    x,
+                                    labels=None,
+                                    weights=None):
+  """Helper for constructing analyzer inputs from tensors.
+
+  Args:
+    vocab_ordering_type: VocabOrderingType specifying how to select vocabulary.
+    x: Tensor to compute vocabulary over.
+    labels: Optional tensor of integerized labels.
+    weights: Optional tensor of weights.
+  Returns: A list of batch-reduced tensors to feed to vocabulary analysis.
+  """
+  if vocab_ordering_type == _VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION:
+    labels = tf.reshape(labels, [-1])
+    reduced_batch = tf_utils.reduce_batch_weighted_cooccurrences(
+        x, labels, weights)
+    return [
+        reduced_batch.unique_x, reduced_batch.summed_weights_per_x,
+        reduced_batch.summed_positive_per_x_and_y, reduced_batch.counts_per_x
+    ]
+  elif vocab_ordering_type == _VocabOrderingType.WEIGHTED_FREQUENCY:
+    reduced_batch = tf_utils.reduce_batch_weighted_counts(x, weights)
+    assert reduced_batch.summed_positive_per_x_and_y is None
+    assert reduced_batch.counts_per_x is None
+    return [reduced_batch.unique_x, reduced_batch.summed_weights_per_x]
+  else:
+    reduced_batch = tf_utils.reduce_batch_weighted_counts(x)
+    assert reduced_batch.summed_weights_per_x is None
+    assert reduced_batch.summed_positive_per_x_and_y is None
+    assert reduced_batch.counts_per_x is None
+    return [reduced_batch.unique_x]
+
+
+def _vocabulary_analyzer_nodes(analyzer_inputs,
+                               input_dtype,
+                               vocab_ordering_type,
+                               vocab_filename,
+                               top_k=None,
+                               frequency_threshold=None,
+                               use_adjusted_mutual_info=False,
+                               min_diff_from_avg=None,
+                               fingerprint_shuffle=False,
+                               store_frequency=False,
+                               key_fn=None,
+                               coverage_top_k=None,
+                               coverage_frequency_threshold=None):
+  """Internal helper for analyzing vocab. See `vocabulary` doc string."""
+  input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
+      analyzer_inputs)
+
+  accumulate_output_value_node = nodes.apply_operation(
+      analyzer_nodes.VocabularyAccumulate,
+      input_values_node,
+      vocab_ordering_type=vocab_ordering_type,
+      input_dtype=input_dtype)
+
+  merge_output_value_node = nodes.apply_operation(
+      analyzer_nodes.VocabularyMerge,
+      accumulate_output_value_node,
+      use_adjusted_mutual_info=use_adjusted_mutual_info,
+      min_diff_from_avg=min_diff_from_avg,
+      vocab_ordering_type=vocab_ordering_type)
+
+  filtered_value_node = nodes.apply_operation(
+      analyzer_nodes.VocabularyPrune,
+      merge_output_value_node,
+      coverage_top_k=coverage_top_k,
+      coverage_frequency_threshold=coverage_frequency_threshold,
+      key_fn=key_fn,
+      top_k=top_k,
+      frequency_threshold=frequency_threshold)
+
+  vocab_filename_node = nodes.apply_operation(
+      analyzer_nodes.VocabularyOrderAndWrite,
+      filtered_value_node,
+      vocab_filename=vocab_filename,
+      store_frequency=store_frequency,
+      fingerprint_shuffle=fingerprint_shuffle,
+      input_dtype=input_dtype)
+
+  total_vocab_size_node = nodes.apply_operation(analyzer_nodes.VocabularyCount,
+                                                merge_output_value_node)
+  _maybe_annotate_vocab_metadata(
+      vocab_filename,
+      analyzer_nodes.bind_future_as_tensor(
+          total_vocab_size_node,
+          analyzer_nodes.TensorInfo(tf.int64, [], False),
+          name='{}_unpruned_vocab_size'.format(vocab_filename)))
+
+  vocab_filename_tensor = analyzer_nodes.wrap_as_tensor(vocab_filename_node)
+  return vocab_filename_tensor
 
 
 def calculate_recommended_min_diff_from_avg(dataset_size):
