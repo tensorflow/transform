@@ -242,12 +242,19 @@ class WriteAnalysisCacheToFS(beam.PTransform):
 class ReadAnalysisCacheFromFS(beam.PTransform):
   """Reads cache from the FS written by WriteAnalysisCacheToFS."""
 
-  def __init__(self, cache_base_dir, dataset_keys, source=None):
+  def __init__(self,
+               cache_base_dir,
+               dataset_keys,
+               cache_entry_keys=None,
+               source=None):
     """Init method.
 
     Args:
       cache_base_dir: A string, the path that the cache should be stored in.
       dataset_keys: An iterable of `DatasetKey`s.
+      cache_entry_keys: (Optional) An iterable of cache entry key strings. If
+        provided, only cache entries that exist in `cache_entry_keys` will be
+        read.
       source: (Optional) A PTransform class that takes a path argument in its
         constructor, and is used to read the cache.
     """
@@ -255,9 +262,14 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
     if not all(isinstance(d, DatasetKey) for d in dataset_keys):
       raise ValueError('Expected dataset_keys to be of type DatasetKey')
     self._sorted_dataset_keys = sorted(dataset_keys)
+    self._filtered_cache_entry_keys = cache_entry_keys
     # TODO(b/37788560): Possibly use Riegeli as a default file format once
     # possible.
     self._source = source if source is not None else beam.io.ReadFromTFRecord
+
+  def _should_read_cache_entry_key(self, key):
+    return (self._filtered_cache_entry_keys is None or
+            key in self._filtered_cache_entry_keys)
 
   def expand(self, pvalue):
     cache_dict = {}
@@ -272,6 +284,8 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
         continue
       cache_dict[dataset_key] = {}
       for key, cache_key_idx in manifest.items():
+        if not self._should_read_cache_entry_key(key):
+          continue
         cache_dict[dataset_key][key] = (
             pvalue.pipeline
             | 'Read[AnalysisIndex{}][CacheKeyIndex{}]'.format(

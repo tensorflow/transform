@@ -13,6 +13,9 @@
   and will assume 0 density in that case.
 * Switched analyzer cache representation of dataset keys from using a primitive
   str to a DatasetKey class.
+* `tft_beam.analyzer_cache.ReadAnalysisCacheFromFS` can now filter cache entry
+  keys when given a `cache_entry_keys` parameter. `cache_entry_keys` can be
+  produced by utilizing `get_analysis_cache_entry_keys`.
 
 ## Breaking changes
 * `tft.AnalyzeDatasetWithCache` no longer accepts a flat pcollection as an

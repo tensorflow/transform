@@ -132,6 +132,7 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
           dataset_key_0: {
               b'\x8a': p | 'CreateA' >> beam.Create([b'[1, 2, 3]']),
               b'\x8b': p | 'CreateB' >> beam.Create([b'[5]']),
+              b'\x8b1': p | 'CreateB1' >> beam.Create([b'[6]']),
           },
           dataset_key_1: {
               b'\x8c': p | 'CreateC' >> beam.Create([b'[9, 5, 2, 1]']),
@@ -143,7 +144,8 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
 
     with beam.Pipeline() as p:
       read_cache = p | analyzer_cache.ReadAnalysisCacheFromFS(
-          base_test_dir, list(cache_pcoll_dict.keys()))
+          base_test_dir, list(cache_pcoll_dict.keys()),
+          [b'\x8a', b'\x8b', b'\x8c'])
 
       beam_test_util.assert_that(
           read_cache[dataset_key_0][b'\x8a'],
