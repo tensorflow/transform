@@ -262,7 +262,8 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
     if not all(isinstance(d, DatasetKey) for d in dataset_keys):
       raise ValueError('Expected dataset_keys to be of type DatasetKey')
     self._sorted_dataset_keys = sorted(dataset_keys)
-    self._filtered_cache_entry_keys = cache_entry_keys
+    self._filtered_cache_entry_keys = (None if cache_entry_keys is None else
+                                       set(cache_entry_keys))
     # TODO(b/37788560): Possibly use Riegeli as a default file format once
     # possible.
     self._source = source if source is not None else beam.io.ReadFromTFRecord
@@ -272,7 +273,7 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
             key in self._filtered_cache_entry_keys)
 
   def expand(self, pvalue):
-    cache_dict = {}
+    result = {}
 
     for dataset_key_idx, dataset_key in enumerate(self._sorted_dataset_keys):
 
@@ -282,17 +283,16 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
       manifest = manifest_file.read()
       if not manifest:
         continue
-      cache_dict[dataset_key] = {}
+      result[dataset_key] = {}
       for key, cache_key_idx in manifest.items():
-        if not self._should_read_cache_entry_key(key):
-          continue
-        cache_dict[dataset_key][key] = (
-            pvalue.pipeline
-            | 'Read[AnalysisIndex{}][CacheKeyIndex{}]'.format(
-                dataset_key_idx, cache_key_idx) >> self._source('{}{}'.format(
-                    os.path.join(dataset_cache_path, str(cache_key_idx)),
-                    '-*-of-*')))
-    return cache_dict
+        if self._should_read_cache_entry_key(key):
+          result[dataset_key][key] = (
+              pvalue.pipeline
+              | 'Read[AnalysisIndex{}][CacheKeyIndex{}]'.format(
+                  dataset_key_idx, cache_key_idx) >> self._source('{}{}'.format(
+                      os.path.join(dataset_cache_path, str(cache_key_idx)),
+                      '-*-of-*')))
+    return result
 
 
 def validate_dataset_keys(dataset_keys):
