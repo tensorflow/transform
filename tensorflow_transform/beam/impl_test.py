@@ -3689,6 +3689,39 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'An error occured while trying to apply the transformation:'):
       pipeline.run()
 
+  def testPassthroughKeys(self):
+    self.assertFalse(self._UseTFXIO())
+
+    passthrough_key = '__passthrough__'
+
+    def preprocessing_fn(inputs):
+      self.assertNotIn(passthrough_key, inputs)
+      return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
+
+    x_data = [0., 1., 2.]
+    passthrough_data = [1, 2, 3]
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'x': tf.io.FixedLenFeature([], tf.float32)})
+    expected_data = [{'x_scaled': x / 2.0, passthrough_key: p}
+                     for x, p in zip(x_data, passthrough_data)]
+
+    with self._makeTestPipeline() as pipeline:
+      input_data = (
+          pipeline | beam.Create([
+              {'x': x, passthrough_key: p}
+              for x, p in zip(x_data, passthrough_data)]))
+      with beam_impl.Context(
+          temp_dir=self.get_temp_dir(),
+          passthrough_keys=set([passthrough_key])):
+        (transformed_data, _), _ = (
+            (input_data, input_metadata)
+            | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
+
+        def _assert_fn(output_data):
+          self.assertDataCloseOrEqual(expected_data, output_data)
+
+        beam_test_util.assert_that(transformed_data, _assert_fn)
+
 
 if __name__ == '__main__':
   tft_unit.main()

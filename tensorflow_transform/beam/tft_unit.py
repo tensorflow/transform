@@ -291,10 +291,6 @@ class TransformTestCase(test_case.TransformTestCase):
           legacy_input_metadata = input_metadata
           input_data, input_metadata = self.convert_to_tfxio_api_inputs(
               input_data, input_metadata, label='input_data')
-          # tfxio_impl = LegacyCompatibilityTFXIO(input_metadata.schema)
-          # input_data |= ('LegacyFormatToTfxio[input_data]' >>
-          #                tfxio_impl.BeamSource(desired_batch_size))
-          # input_metadata = tfxio_impl.TensorAdapterConfig()
         if test_data is None:
           (transformed_data, transformed_metadata), transform_fn = (
               (input_data, input_metadata)
@@ -306,8 +302,6 @@ class TransformTestCase(test_case.TransformTestCase):
           if compatibility_tfxio_needed:
             test_data, _ = self.convert_to_tfxio_api_inputs(
                 test_data, legacy_input_metadata, label='test_data')
-            # test_data |= ('LegacyFormatToTfxio[test_data]' >>
-            #               tfxio_impl.BeamSource(desired_batch_size))
           transformed_data, transformed_metadata = (
               ((test_data, input_metadata), transform_fn)
               | beam_impl.TransformDataset())

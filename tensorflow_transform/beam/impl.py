@@ -318,9 +318,18 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
   def _get_passthrough_data_from_recordbatch(self, batch):
     result = {}
-    for passthrough_key, column_index in zip(
-        self._passthrough_keys, self._passthrough_column_indices):
-      result[passthrough_key] = np.asarray(batch.column(column_index).flatten())
+    for passthrough_key, column_index in zip(self._passthrough_keys,
+                                             self._passthrough_column_indices):
+      passthrough_data_column = batch.column(column_index)
+      # the passthrough column should be of list<primitive> type with each
+      # sub-list being either null or of length 1.
+      assert (
+          pa.types.is_list(passthrough_data_column.type) or
+          pa.types.is_large_list(passthrough_data_column.type))
+      result[passthrough_key] = [
+          None if elem is None else elem[0]
+          for elem in passthrough_data_column.to_pylist()
+      ]
     return result
 
   def _handle_batch(self, batch):
