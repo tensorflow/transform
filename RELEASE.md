@@ -16,6 +16,8 @@
 * `tft_beam.analyzer_cache.ReadAnalysisCacheFromFS` can now filter cache entry
   keys when given a `cache_entry_keys` parameter. `cache_entry_keys` can be
   produced by utilizing `get_analysis_cache_entry_keys`.
+* Reduced number of shuffles via packing multiple combine merges into a
+  single Beam combiner.
 
 ## Breaking changes
 * `tft.AnalyzeDatasetWithCache` no longer accepts a flat pcollection as an

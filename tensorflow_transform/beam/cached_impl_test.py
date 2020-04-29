@@ -122,12 +122,14 @@ node [shape=Mrecord];
 "FlattenCache[CacheableCombineMerge[x/mean_and_var]]" [label="{Flatten|label: FlattenCache[CacheableCombineMerge[x/mean_and_var]]|partitionable: True}"];
 "DecodeCache[CacheableCombineAccumulate[x/mean_and_var]][AnalysisIndex0]" -> "FlattenCache[CacheableCombineMerge[x/mean_and_var]]";
 "CacheableCombineAccumulate[x/mean_and_var][AnalysisIndex1]" -> "FlattenCache[CacheableCombineMerge[x/mean_and_var]]";
-"CacheableCombineMerge[x/mean_and_var]" [label="{CacheableCombineMerge|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineMerge[x/mean_and_var]|{<0>0|<1>1}}"];
+"CacheableCombineMerge[x/mean_and_var]" [label="{CacheableCombineMerge|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineMerge[x/mean_and_var]}"];
 "FlattenCache[CacheableCombineMerge[x/mean_and_var]]" -> "CacheableCombineMerge[x/mean_and_var]";
+"ExtractCombineMergeOutputs[x/mean_and_var]" [label="{ExtractCombineMergeOutputs|output_tensor_info_list: [TensorInfo(dtype=tf.float32, shape=(), is_asset_filepath=False), TensorInfo(dtype=tf.float32, shape=(), is_asset_filepath=False)]|label: ExtractCombineMergeOutputs[x/mean_and_var]|{<0>0|<1>1}}"];
+"CacheableCombineMerge[x/mean_and_var]" -> "ExtractCombineMergeOutputs[x/mean_and_var]";
 "CreateTensorBinding[x/mean_and_var/Placeholder]" [label="{CreateTensorBinding|tensor: x/mean_and_var/Placeholder:0|is_asset_filepath: False|label: CreateTensorBinding[x/mean_and_var/Placeholder]}"];
-"CacheableCombineMerge[x/mean_and_var]":0 -> "CreateTensorBinding[x/mean_and_var/Placeholder]";
+"ExtractCombineMergeOutputs[x/mean_and_var]":0 -> "CreateTensorBinding[x/mean_and_var/Placeholder]";
 "CreateTensorBinding[x/mean_and_var/Placeholder_1]" [label="{CreateTensorBinding|tensor: x/mean_and_var/Placeholder_1:0|is_asset_filepath: False|label: CreateTensorBinding[x/mean_and_var/Placeholder_1]}"];
-"CacheableCombineMerge[x/mean_and_var]":1 -> "CreateTensorBinding[x/mean_and_var/Placeholder_1]";
+"ExtractCombineMergeOutputs[x/mean_and_var]":1 -> "CreateTensorBinding[x/mean_and_var/Placeholder_1]";
 "CreateSavedModelForAnalyzerInputs[Phase1]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_square_deviations/mean_and_var/Cast', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/truediv', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/truediv_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase1]}"];
 "CreateTensorBinding[vocabulary/vocab_vocabulary_unpruned_vocab_size]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
 "CreateTensorBinding[vocabulary/Placeholder]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
@@ -141,12 +143,14 @@ node [shape=Mrecord];
 "ApplySavedModel[Phase1]" -> "TensorSource[x_square_deviations/mean_and_var]";
 "CacheableCombineAccumulate[x_square_deviations/mean_and_var]" [label="{CacheableCombineAccumulate|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineAccumulate[x_square_deviations/mean_and_var]|partitionable: True}"];
 "TensorSource[x_square_deviations/mean_and_var]" -> "CacheableCombineAccumulate[x_square_deviations/mean_and_var]";
-"CacheableCombineMerge[x_square_deviations/mean_and_var]" [label="{CacheableCombineMerge|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineMerge[x_square_deviations/mean_and_var]|{<0>0|<1>1}}"];
+"CacheableCombineMerge[x_square_deviations/mean_and_var]" [label="{CacheableCombineMerge|combiner: \<WeightedMeanAndVarCombiner\>|label: CacheableCombineMerge[x_square_deviations/mean_and_var]}"];
 "CacheableCombineAccumulate[x_square_deviations/mean_and_var]" -> "CacheableCombineMerge[x_square_deviations/mean_and_var]";
+"ExtractCombineMergeOutputs[x_square_deviations/mean_and_var]" [label="{ExtractCombineMergeOutputs|output_tensor_info_list: [TensorInfo(dtype=tf.float32, shape=(), is_asset_filepath=False), TensorInfo(dtype=tf.float32, shape=(), is_asset_filepath=False)]|label: ExtractCombineMergeOutputs[x_square_deviations/mean_and_var]|{<0>0|<1>1}}"];
+"CacheableCombineMerge[x_square_deviations/mean_and_var]" -> "ExtractCombineMergeOutputs[x_square_deviations/mean_and_var]";
 "CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder]" [label="{CreateTensorBinding|tensor: x_square_deviations/mean_and_var/Placeholder:0|is_asset_filepath: False|label: CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder]}"];
-"CacheableCombineMerge[x_square_deviations/mean_and_var]":0 -> "CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder]";
+"ExtractCombineMergeOutputs[x_square_deviations/mean_and_var]":0 -> "CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder]";
 "CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder_1]" [label="{CreateTensorBinding|tensor: x_square_deviations/mean_and_var/Placeholder_1:0|is_asset_filepath: False|label: CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder_1]}"];
-"CacheableCombineMerge[x_square_deviations/mean_and_var]":1 -> "CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder_1]";
+"ExtractCombineMergeOutputs[x_square_deviations/mean_and_var]":1 -> "CreateTensorBinding[x_square_deviations/mean_and_var/Placeholder_1]";
 CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_normalized', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\")])|label: CreateSavedModel}"];
 "CreateTensorBinding[vocabulary/vocab_vocabulary_unpruned_vocab_size]" -> CreateSavedModel;
 "CreateTensorBinding[vocabulary/Placeholder]" -> CreateSavedModel;
@@ -622,7 +626,10 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 8)
     self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
                                    _SINGLE_PHASE_NUM_SAVED_MODELS)
-    self.assertMetricsCounterEqual(p.metrics, 'num_packed_combiners', 1)
+    self.assertMetricsCounterEqual(
+        p.metrics, 'num_packed_accumulate_combiners', 1)
+    self.assertMetricsCounterEqual(
+        p.metrics, 'num_packed_merge_combiners', 1)
 
   @tft_unit.named_parameters(_TFXIO_NAMED_PARAMETERS)
   def test_single_phase_run_twice(self, use_tfxio):
@@ -1163,7 +1170,6 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(p2.metrics, 'cache_entries_encoded', 1)
     self.assertMetricsCounterEqual(p2.metrics, 'saved_models_created',
                                    _SINGLE_PHASE_NUM_SAVED_MODELS)
-
 
 if __name__ == '__main__':
   tft_unit.main()

@@ -251,13 +251,13 @@ class AnalyzerDef(nodes.OperationDef):
 
 
 # We do the packing of combiners after the caching optimization. Hence, we don't
-# name this operation as cacheable. The rationale behind doing the combiner
-# packing after the cache optimization is that this optimization is more of a
-# Beam execution level optimization and we want to keep it towards the end.
-# So that, once Beam can automatically pack combines, we can remove this.
+# name the packed operations as cacheable. The rationale behind doing the
+# combiner packing after the cache optimization is that this optimization is
+# more of a Beam execution level optimization and we want to keep it towards the
+# end. So that, once Beam can automatically pack combines, we can remove this.
 class PackedCombineAccumulate(
     collections.namedtuple('PackedCombineAccumulate', ['combiners', 'label']),
-    AnalyzerDef):
+    nodes.OperationDef):
   """An analyzer that packs a list of combiners into a single beam CombineFn.
 
   Fields:
@@ -283,9 +283,31 @@ class PackedCombineAccumulate(
     return True
 
 
+class PackedCombineMerge(
+    collections.namedtuple('PackedCombineMerge', ['combiners', 'label']),
+    nodes.OperationDef):
+  """An analyzer that packs a list of combiners into a single beam CombineFn.
+
+  Fields:
+    combiners:  A list of `analysis_graph_builder._CombinerOpWrapper` objects.
+    label: A unique label for this operation.
+  """
+
+  def __new__(cls, combiners, label=None):
+    if label is None:
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
+      label = '{}[{}]'.format(cls.__name__, scope)
+    return super(PackedCombineMerge, cls).__new__(
+        cls, combiners=combiners, label=label)
+
+  @property
+  def num_outputs(self):
+    return 1
+
+
 class CacheableCombineAccumulate(
     collections.namedtuple('CacheableCombineAccumulate', ['combiner', 'label']),
-    AnalyzerDef):
+    nodes.OperationDef):
   """An analyzer that runs a beam CombineFn to accumulate without merging.
 
   This analyzer reduces the values that it accepts as inputs, using the
@@ -319,7 +341,7 @@ class CacheableCombineAccumulate(
 
 class CacheableCombineMerge(
     collections.namedtuple('CacheableCombineMerge', ['combiner', 'label']),
-    AnalyzerDef):
+    nodes.OperationDef):
   """An analyzer that runs a beam CombineFn to only merge computed accumulators.
 
   This analyzer reduces the values that it accepts as inputs, using the
@@ -339,8 +361,8 @@ class CacheableCombineMerge(
         cls, combiner=combiner, label=label)
 
   @property
-  def output_tensor_infos(self):
-    return self.combiner.output_tensor_infos()
+  def num_outputs(self):
+    return 1
 
 
 class _CombinerPerKeyAccumulatorCoder(CacheCoder):
@@ -812,3 +834,70 @@ class DecodeCache(
   @property
   def is_partitionable(self):
     return True
+
+
+class AddKey(
+    collections.namedtuple('AddKey', ['key', 'label']), nodes.OperationDef):
+  """An operation that represents adding a key to a value.
+
+  This operation represents a `beam.Map` that is applied to a PCollection.
+  For each element of the PCollection, this corresponding element of the output
+  PCollection is a tuple of (key, value).
+
+  Attributes:
+    key: The key which should be added to each element of the input PCollection.
+    label: A unique label for this operation.
+  """
+
+  @property
+  def is_partitionable(self):
+    return True
+
+
+class ExtractCombineMergeOutputs(
+    collections.namedtuple('ExtractOutputs',
+                           ['output_tensor_info_list', 'label']),
+    AnalyzerDef):
+  """An operation that represents extracting outputs of a combine merge.
+
+  This operation represents a `beam.Map` that is applied to a PCollection.
+  For each element of the PCollection, this corresponding element of the output
+  PCollection is a tuple of outputs.
+
+  Attributes:
+    output_tensor_info_list: A list of `TensorInfo`s that defines the outputs of
+      this operation.
+    label: A unique label for this operation.
+  """
+
+  def __new__(cls, output_tensor_info_list, label=None):
+    if label is None:
+      scope = tf.compat.v1.get_default_graph().get_name_scope()
+      label = '{}[{}]'.format(cls.__name__, scope)
+    return super(ExtractCombineMergeOutputs, cls).__new__(
+        cls, output_tensor_info_list=output_tensor_info_list, label=label)
+
+  @property
+  def output_tensor_infos(self):
+    return self.output_tensor_info_list
+
+
+class ExtractPackedCombineMergeOutputs(
+    collections.namedtuple('ExtractOutputs',
+                           ['output_tensor_info_list', 'label']),
+    AnalyzerDef):
+  """An operation that represents extracting outputs of a packed combine merge.
+
+  This operation represents a `beam.Map` that is applied to a PCollection.
+  For each element of the PCollection, this corresponding element of the output
+  PCollection is a tuple of outputs.
+
+  Attributes:
+    output_tensor_info_list: A list of `TensorInfo`s that defines the outputs of
+      this operation.
+    label: A unique label for this operation.
+  """
+
+  @property
+  def output_tensor_infos(self):
+    return self.output_tensor_info_list

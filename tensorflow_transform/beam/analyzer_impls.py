@@ -31,7 +31,6 @@ from apache_beam.typehints import Dict
 from apache_beam.typehints import KV
 from apache_beam.typehints import Tuple
 from apache_beam.typehints import Union
-from apache_beam.typehints import with_input_types
 
 import numpy as np
 import six
@@ -649,7 +648,7 @@ class _WeightedMeanCombineFn(beam.CombineFn):
     return self._combiner.extract_output(accumulator)
 
 
-@with_input_types(Tuple[np.ndarray, ...])
+@beam.typehints.with_input_types(Tuple[np.ndarray, ...])
 class _CombinerWrapper(beam.CombineFn):
   """Class to wrap a analyzer_nodes.Combiner as a beam.CombineFn."""
 
@@ -701,37 +700,59 @@ class _CombinerWrapper(beam.CombineFn):
     return accumulator
 
 
-@beam.typehints.with_input_types(Dict[str, Any])
+@beam.typehints.with_input_types(Union[Dict[str, Any], Tuple[str, Any]])
 @beam.typehints.with_output_types(Dict[str, Any])
 class _PackedCombinerWrapper(beam.combiners.TupleCombineFn):
-  """Class to wrap a analyzer_nodes.Combiner as a beam.CombineFn."""
+  """Class to wrap a analyzer_nodes.Combiner as a beam.CombineFn.
 
-  # TODO(pachristopher): Add is_combining_accumulators and should_extract_output
-  # arguments to the constructor and propagate it to _CombineWrapper. Currently
-  # we set is_combining_accumulators to be False by default as packing is
-  # currently done only for CacheableCombineAccumulate nodes.
+  PackedCombineWrapper is used for combining input batches as well as
+  accumulators. When combining input batches, the input is a PCollection of
+  Dicts from feature keys to numpy arrays. When combining accumulators, the
+  input is a PCollection of tuples (key, accumulator), where the key represents
+  the individual combine label that is being packed.
+  """
+
   def __init__(self,
                combiner_ops,
-               tf_config):
+               tf_config,
+               is_combining_accumulators):
     """Init method for _PackedCombinerWrapper.
 
     Args:
       combiner_ops: A List `analysis_graph_builder._CombinerOpWrapper` objects.
       tf_config: A `tf.ConfigProto`.
+      is_combining_accumulators: A bool which indicates whether this is
+        combining single or batched inputs, or already accumulated objects.
     """
     super(_PackedCombinerWrapper, self).__init__(
         *[_CombinerWrapper(
-            c.combiner, tf_config, is_combining_accumulators=False)
+            c.combiner, tf_config, is_combining_accumulators)
           for c in combiner_ops
          ]
         )
-    self._combiner_keys = [c.keys for c in combiner_ops]
+    self._is_combining_accumulators = is_combining_accumulators
+    if self._is_combining_accumulators:
+      # When combining accumulators, we expect to have only a single key which
+      # represents the label of the individual combine.
+      for op in combiner_ops:
+        assert len(op.keys) == 1
+      self._combiner_label_to_index = {
+          op.keys[0]: index for index, op in enumerate(combiner_ops)}
+    else:
+      self._combiner_keys = [c.keys for c in combiner_ops]
     self._combiner_labels = [c.label for c in combiner_ops]
 
   def add_input(self, accumulator, element):
-    return super(_PackedCombinerWrapper, self).add_input(
-        accumulator,
-        [tuple(element[key] for key in keys) for keys in self._combiner_keys])
+    if self._is_combining_accumulators:
+      key, value = element
+      index = self._combiner_label_to_index[key]
+      accumulator[index] = self._combiners[index].add_input(
+          accumulator[index], value)
+      return accumulator
+    else:
+      return super(_PackedCombinerWrapper, self).add_input(
+          accumulator,
+          [tuple(element[key] for key in keys) for keys in self._combiner_keys])
 
   def extract_output(self, accumulator):
     outputs = super(_PackedCombinerWrapper, self).extract_output(accumulator)
@@ -941,14 +962,14 @@ class _ScaleAndFlattenPerKeyBucketBouandariesImpl(beam.PTransform):
 
 
 @common.register_ptransform(analyzer_nodes.PackedCombineAccumulate)
+@beam.typehints.with_input_types(Dict[str, Any])
+@beam.typehints.with_output_types(Dict[str, Any])
 class _IntermediateAccumulatePackedCombineImpl(beam.PTransform):
-  """Implement an analyzer based on a Combine."""
+  """Implement an packed analyzer accumulate based on a Combine."""
 
   def __init__(self, operation, extra_args):
     self._combiners = operation.combiners
     self._tf_config = extra_args.tf_config
-    self._num_outputs = operation.num_outputs
-    self._name = operation.label
 
   def expand(self, inputs):
     pcoll, = inputs
@@ -961,14 +982,41 @@ class _IntermediateAccumulatePackedCombineImpl(beam.PTransform):
         | 'InitialPackedCombineGlobally' >> beam.CombineGlobally(
             _PackedCombinerWrapper(
                 self._combiners,
-                self._tf_config
+                self._tf_config,
+                is_combining_accumulators=False
             )
         ).with_fanout(fanout).with_defaults(False)
-        | 'Count[InitialPackedCombineGlobally]' >>
-        common.IncrementCounter('num_packed_combiners'))
+        | 'Count' >>
+        common.IncrementCounter('num_packed_accumulate_combiners'))
+
+
+@common.register_ptransform(analyzer_nodes.PackedCombineMerge)
+@beam.typehints.with_input_types(Tuple[str, Any])
+@beam.typehints.with_output_types(Dict[str, Any])
+class _MergeAccumulatorsPackedCombineImpl(beam.PTransform):
+  """Implement an packed analyzer merge based on a Combine."""
+
+  def __init__(self, operation, extra_args):
+    self._combiners = operation.combiners
+    self._tf_config = extra_args.tf_config
+
+  def expand(self, inputs):
+    pcoll, = inputs
+
+    # TODO(b/34792459): Don't set with_defaults.
+    return (
+        pcoll
+        | 'MergePackedCombinesGlobally' >> beam.CombineGlobally(
+            _PackedCombinerWrapper(
+                self._combiners,
+                self._tf_config,
+                is_combining_accumulators=True)).with_defaults(False)
+        | 'Count' >>
+        common.IncrementCounter('num_packed_merge_combiners'))
 
 
 @common.register_ptransform(analyzer_nodes.CacheableCombineAccumulate)
+@beam.typehints.with_input_types(Tuple[np.ndarray, ...])
 class _IntermediateAccumulateCombineImpl(beam.PTransform):
   """Implement an analyzer based on a Combine."""
 
@@ -1001,23 +1049,12 @@ class _MergeAccumulatorsCombineImpl(beam.PTransform):
   def __init__(self, operation, extra_args):
     self._combiner = operation.combiner
     self._tf_config = extra_args.tf_config
-    self._num_outputs = operation.num_outputs
     self._name = operation.label
 
   def expand(self, inputs):
     pcoll, = inputs
 
-    def extract_outputs(outputs, num_outputs):
-      if len(outputs) != num_outputs:
-        raise ValueError(
-            'Analyzer has {} outputs but its implementation produced {} '
-            'values'.format(num_outputs, len(outputs)))
-      for i, output in enumerate(outputs):
-        yield beam.pvalue.TaggedOutput(str(i), output)
-
-    output_keys = [str(i) for i in range(self._num_outputs)]
-
-    outputs_tuple = (
+    return (
         pcoll
         | 'MergeCombinesGlobally' >> beam.CombineGlobally(
             _CombinerWrapper(
@@ -1027,10 +1064,7 @@ class _MergeAccumulatorsCombineImpl(beam.PTransform):
                 # for all combiners (even though QuantilesCombiner doesn't need
                 # it to be set) as after combiner packing we will have a single
                 # combiner and want a consistent behavior.
-                is_combining_accumulators=True)).with_defaults(False)
-        | 'ExtractOutputs' >> beam.FlatMap(
-            extract_outputs, self._num_outputs).with_outputs(*output_keys))
-    return tuple(outputs_tuple[key] for key in output_keys)
+                is_combining_accumulators=True)).with_defaults(False))
 
 
 @common.register_ptransform(analyzer_nodes.CacheableCombinePerKeyAccumulate)
@@ -1156,3 +1190,45 @@ class _DecodeCacheImpl(beam.PTransform):
     return (self._cache_pcoll
             | 'Decode' >> beam.Map(self._coder.decode_cache)
             | 'Count' >> common.IncrementCounter('cache_entries_decoded'))
+
+
+@common.register_ptransform(analyzer_nodes.AddKey)
+@beam.typehints.with_input_types(Any)
+@beam.typehints.with_output_types(Tuple[str, Any])
+class _AddKeyImpl(beam.PTransform):
+  """Implements AddKey."""
+
+  def __init__(self, operation, extra_args):
+    del extra_args  # unused
+    self._key = operation.key
+
+  def expand(self, inputs):
+    pcoll, = inputs
+    return pcoll | 'AddKey' >> beam.Map(lambda value: (self._key, value))
+
+
+@common.register_ptransform(analyzer_nodes.ExtractCombineMergeOutputs)
+@common.register_ptransform(analyzer_nodes.ExtractPackedCombineMergeOutputs)
+class _ExtractOutputImpl(beam.PTransform):
+  """Implements ExtractOutputs."""
+
+  def __init__(self, operation, extra_args):
+    del extra_args  # unused
+    self._num_outputs = operation.num_outputs
+
+  def expand(self, inputs):
+    pcoll, = inputs
+    def extract_outputs(outputs, num_outputs):
+      if len(outputs) != num_outputs:
+        raise ValueError(
+            'Analyzer has {} outputs but its implementation produced {} '
+            'values'.format(num_outputs, len(outputs)))
+      for i, output in enumerate(outputs):
+        yield beam.pvalue.TaggedOutput(str(i), output)
+
+    output_keys = [str(i) for i in range(self._num_outputs)]
+    outputs_tuple = (
+        pcoll |
+        'ExtractOutputs' >> beam.FlatMap(
+            extract_outputs, self._num_outputs).with_outputs(*output_keys))
+    return tuple(outputs_tuple[key] for key in output_keys)

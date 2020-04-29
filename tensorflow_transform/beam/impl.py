@@ -88,8 +88,6 @@ from apache_beam.typehints import Iterable
 from apache_beam.typehints import List
 from apache_beam.typehints import Tuple
 from apache_beam.typehints import Union
-from apache_beam.typehints import with_input_types
-from apache_beam.typehints import with_output_types
 
 import numpy as np
 import pyarrow as pa
@@ -172,8 +170,8 @@ def _clear_shared_state_after_barrier(pipeline, input_barrier):
 
 
 @beam.ptransform_fn
-@with_input_types(_DATASET_ELEMENT_TYPE)
-@with_output_types(List[_DATASET_ELEMENT_TYPE])
+@beam.typehints.with_input_types(_DATASET_ELEMENT_TYPE)
+@beam.typehints.with_output_types(List[_DATASET_ELEMENT_TYPE])
 def _BatchElements(pcoll):  # pylint: disable=invalid-name
   """Batches elements either automatically or to the given batch_size."""
   desired_batch_size = Context.get_desired_batch_size()
@@ -184,25 +182,16 @@ def _BatchElements(pcoll):  # pylint: disable=invalid-name
 
 
 # TODO(b/36223892): Verify that these type hints work and make needed fixes.
-@with_input_types(Union[List[_DATASET_ELEMENT_TYPE], pa.RecordBatch], str)
-@with_output_types(Dict[str, Union[np.ndarray, tf.compat.v1.SparseTensorValue]])
+@beam.typehints.with_input_types(
+    Union[List[_DATASET_ELEMENT_TYPE], pa.RecordBatch], str)
+@beam.typehints.with_output_types(
+    Dict[str, Union[np.ndarray, tf.compat.v1.SparseTensorValue]])
 class _RunMetaGraphDoFn(beam.DoFn):
   """Maps a PCollection of dicts to a PCollection of dicts via a TF graph.
 
   The TF graph may contain more inputs than the schema provided. In that case,
   a subset of the inputs will be fed, which may cause an error if the excluded
   inputs are required to produce the included outputs.
-
-  Args:
-    input_schema: A `Schema` representing the inputs of this transform phase.
-    tf_config: A tf.ConfigProto to use in sessions. None implies use Tensorflow
-      defaults.
-    shared_graph_state_handle: an instance of shared.Shared() that allows us to
-      load the graph once and share it across multiple threads in the current
-      process.
-    passthrough_keys: A set of strings that are keys to instances that
-      should pass through the pipeline and be hidden from the preprocessing_fn.
-    exclude_outputs: (Optional) A list of names of outputs to exclude.
   """
 
   # Thread-safe.
@@ -250,6 +239,21 @@ class _RunMetaGraphDoFn(beam.DoFn):
                input_schema=None,
                input_tensor_adapter_config=None,
                exclude_outputs=None):
+    """Initialize.
+
+    Args:
+      tf_config: A tf.ConfigProto to use in sessions. None implies use
+        Tensorflow defaults.
+      shared_graph_state_handle: an instance of shared.Shared() that allows us
+        to load the graph once and share it across multiple threads in the
+        current process.
+      passthrough_keys: A set of strings that are keys to instances that should
+        pass through the pipeline and be hidden from the preprocessing_fn.
+      use_tfxio: Boolean to indicate whether to use TFXIO.
+      input_schema: A `Schema` representing the inputs of this transform phase.
+      input_tensor_adapter_config: Tensor Adapter config.
+      exclude_outputs: (Optional) A list of names of outputs to exclude.
+    """
     super(_RunMetaGraphDoFn, self).__init__()
     self._use_tfxio = use_tfxio
     self._input_schema = input_schema
@@ -865,7 +869,6 @@ class _AnalyzeDatasetCommon(beam.PTransform):
         output_signature,
         input_values_pcoll_dict.keys(),
         cache_dict=dataset_cache_dict)
-
     traverser = nodes.Traverser(
         beam_common.ConstructBeamPipelineVisitor(extra_args))
     transform_fn_pcoll = traverser.visit_value_node(transform_fn_future)

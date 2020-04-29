@@ -136,10 +136,15 @@ def _apply_cacheable_combiner(combiner, *tensor_inputs):
       input_values_node,
       combiner=combiner)
 
-  outputs_value_nodes = nodes.apply_multi_output_operation(
+  merge_outputs_value_nodes = nodes.apply_multi_output_operation(
       analyzer_nodes.CacheableCombineMerge,
       *accumulate_outputs_value_nodes,
       combiner=combiner)
+
+  outputs_value_nodes = nodes.apply_multi_output_operation(
+      analyzer_nodes.ExtractCombineMergeOutputs,
+      *merge_outputs_value_nodes,
+      output_tensor_info_list=combiner.output_tensor_infos())
 
   return tuple(map(analyzer_nodes.wrap_as_tensor, outputs_value_nodes))
 

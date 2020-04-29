@@ -63,7 +63,7 @@ class CreateTensorBinding(
   combines the single element with the a tensor name and `is_asset_filepath`
   to create a tensor binding.
 
-  Fields:
+  Attributes:
     tensor: The name of the tensor that the given value should replace as a
         constant tensor.
     is_asset_filepath: If true, then the replaced value will be added to the
@@ -91,7 +91,7 @@ class CreateSavedModel(
   was constructed.
 
 
-  Fields:
+  Attributes:
     table_initializers: A list of table initializer ops that should be run as
         part of this SavedModel.
     output_signature: The output signature of this `SavedModel`, as a dictionary
