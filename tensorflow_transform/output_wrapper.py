@@ -26,9 +26,11 @@ import tensorflow as tf
 from tensorflow_transform import graph_tools
 from tensorflow_transform.analyzers import sanitized_vocab_filename
 from tensorflow_transform.saved import saved_transform_io
+from tensorflow_transform.saved import saved_transform_io_v2
 from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
 
+from tensorflow.python import tf2  # pylint: disable=g-direct-tensorflow-import
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 
@@ -131,21 +133,13 @@ class TFTransformOutput(object):
           name, domain.min))
     return domain.max + 1
 
-  def transform_features_layer(self,
-                               drop_unused_features=False):
+  def transform_features_layer(self):
     """Creates a TransformFeaturesLayer from this transform output.
-
-    Args:
-      drop_unused_features: If True, the output of TransformFeaturesLayer will
-        be filtered. Only the features that are transformed from 'raw_features'
-        will be included in the returned result. If a feature is transformed
-        from multiple raw features (e.g, feature cross), it will only be
-        included if all its base raw features are present in `raw_features`.
 
     Returns:
       A TransformFeaturesLayer instance.
     """
-    return TransformFeaturesLayer(self, drop_unused_features)
+    return TransformFeaturesLayer(self)
 
   def _transform_raw_features_internal(self,
                                        raw_features,
@@ -280,18 +274,37 @@ def _maybe_register_keras_serializable(package):
 class TransformFeaturesLayer(tf.keras.layers.Layer):
   """A Keras layer for applying a tf.Transform output to input layers."""
 
-  def __init__(self,
-               tft_output,
-               drop_unused_features=False):
+  def __init__(self, tft_output):
     super(TransformFeaturesLayer, self).__init__(trainable=False)
+    self._check_tensorflow_version()
     self._tft_output = tft_output
-    self._drop_unused_features = drop_unused_features
-    self._assets_dict = None
+    self._saved_model_loader = saved_transform_io_v2.SavedModelLoader(
+        tft_output.transform_savedmodel_dir)
+    # The model must be tracked by assigning to an attribute of the Keras layer.
+    # Hence, we track the attributes of _saved_model_loader here as well.
+    self._saved_model_loader_tracked_dict = self._saved_model_loader.__dict__
+
+  def _check_tensorflow_version(self):
+    """Check that we're using a compatible TF version.
+
+    Raises a warning if either Tensorflow version is less that 2.0 or TF 2.x is
+    not enabled.
+
+    If TF 2.x is enabled, but version is < TF 2.3, raises a warning to indicate
+    that resources may not be initialized.
+    """
+    major, minor, _ = tf.version.VERSION.split('.')
+    if not (int(major) >= 2 and tf2.enabled()):
+      tf.compat.v1.logging.warning(
+          'Tensorflow version (%s) found. TransformFeaturesLayer is supported '
+          'only for TF 2.x with TF 2.x behaviors enabled and may not work as '
+          'intended.', tf.version.VERSION)
+    elif int(major) == 2 and int(minor) < 3:
+      # TODO(varshaan): Log a more specific warning.
+      tf.compat.v1.logging.warning(
+          'Tensorflow version (%s) found. TransformFeaturesLayer may not work '
+          'as intended if the SavedModel contains an initialization op.',
+          tf.version.VERSION)
 
   def call(self, inputs):
-    transformed_features, assets_dict = (
-        self._tft_output._transform_raw_features_internal(  # pylint: disable=protected-access
-            inputs,
-            drop_unused_features=self._drop_unused_features))
-    self._assets_dict = assets_dict
-    return transformed_features
+    return self._saved_model_loader.apply_v1_transform_model_in_v2(inputs)

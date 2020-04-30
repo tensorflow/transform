@@ -125,6 +125,46 @@ def _load_transform_saved_model(transform_savedmodel_dir):
   return meta_graph_def, input_signature, output_signature, assets_dict
 
 
+def _expand_input_map(logical_input_map, input_signature):
+  """Expands user provided inputs to component tensors in the graph.
+
+  The user specified `logical_input_map` contains mappings from logical feature
+  names to `Tensor`s or `CompositeTensor`s. These are expanded into mappings
+  from component tensor names in the graph to their corresponding component
+  tensor value.
+
+  Args:
+    logical_input_map: a dict of logical name to Tensor.  The logical names must
+      be a subset of those in the input signature of the transform graph, and
+      the corresponding Tensors must have the expected types and shapes.
+    input_signature: The inputs of a `SignatureDef` proto for the graph to be
+      imported.
+
+  Returns:
+    A map from tensor names in `input_signature` to the tensors
+    specified in `logical_input_map`.
+  """
+  result = {}
+  for logical_name, replacement in six.iteritems(logical_input_map):
+    tensor_info = input_signature[logical_name]
+    encoding = tensor_info.WhichOneof('encoding')
+    if encoding == 'coo_sparse':
+      result[tensor_info.coo_sparse.indices_tensor_name] = replacement.indices
+      result[tensor_info.coo_sparse.values_tensor_name] = replacement.values
+      result[tensor_info.coo_sparse.dense_shape_tensor_name] = (
+          replacement.dense_shape)
+    elif encoding == 'composite_tensor':
+      component_infos = tensor_info.composite_tensor.components
+      component_tensors = nest.flatten(replacement, expand_composites=True)
+      for (info, tensor) in zip(component_infos, component_tensors):
+        result[info.name] = tensor
+    elif encoding == 'name':
+      result[tensor_info.name] = replacement
+    else:
+      raise ValueError('Unsupported TensorInfo encoding %s' % encoding)
+  return result
+
+
 _PARTITIONED_VARIABLE_NAME_RE = re.compile(r'^(.*)/part_(\d*)$')
 
 
@@ -190,25 +230,7 @@ def _partially_apply_saved_transform_impl(saved_model_dir,
 
   # Create a map from tensor names in the graph to be imported, to the tensors
   # specified in `input_tensors`.
-  input_map = {}
-  for logical_name, replacement in six.iteritems(logical_input_map):
-    tensor_info = input_signature[logical_name]
-    encoding = tensor_info.WhichOneof('encoding')
-    if encoding == 'coo_sparse':
-      input_map[tensor_info.coo_sparse.indices_tensor_name] = (
-          replacement.indices)
-      input_map[tensor_info.coo_sparse.values_tensor_name] = replacement.values
-      input_map[tensor_info.coo_sparse.dense_shape_tensor_name] = (
-          replacement.dense_shape)
-    elif encoding == 'composite_tensor':
-      component_infos = tensor_info.composite_tensor.components
-      component_tensors = nest.flatten(replacement, expand_composites=True)
-      for (info, tensor) in zip(component_infos, component_tensors):
-        input_map[info.name] = tensor
-    elif encoding == 'name':
-      input_map[tensor_info.name] = replacement
-    else:
-      raise ValueError('Unsupported TensorInfo encoding %s' % encoding)
+  input_map = _expand_input_map(logical_input_map, input_signature)
 
   input_map.update(asset_tensor_dict)
   if tensor_replacement_map:
@@ -278,7 +300,7 @@ def _partially_apply_saved_transform_impl(saved_model_dir,
     var_map = {}
     for var in tf.compat.v1.global_variables():
       var_name = var.op.name
-      if not var_name.startswith(scope):
+      if not var_name.startswith(scope + '/'):
         continue
 
       # Generate original name before importing into scope.

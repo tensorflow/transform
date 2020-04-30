@@ -31,7 +31,10 @@ import six
 import tensorflow as tf
 
 import unittest
-from tensorflow.python.eager import context  # pylint: disable=g-direct-tensorflow-import
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python import tf2
+from tensorflow.python.eager import context
+# pylint: enable=g-direct-tensorflow-import
 
 main = tf.test.main
 
@@ -211,6 +214,12 @@ def is_external_environment():
 
 def skip_if_external_environment(reason):
   if is_external_environment():
+    raise unittest.SkipTest(reason)
+
+
+def skip_if_not_tf2(reason):
+  major, _, _ = tf.version.VERSION.split('.')
+  if not (int(major) >= 2 and tf2.enabled()):
     raise unittest.SkipTest(reason)
 
 

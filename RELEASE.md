@@ -18,11 +18,16 @@
   produced by utilizing `get_analysis_cache_entry_keys`.
 * Reduced number of shuffles via packing multiple combine merges into a
   single Beam combiner.
+* Switch `tft.TransformFeaturesLayer` to use the TF 2 `tf.saved_model.load` API
+  to load a previously exported SavedModel.
 
 ## Breaking changes
 * `tft.AnalyzeDatasetWithCache` no longer accepts a flat pcollection as an
   input. Instead it will flatten the datasets in the `input_values_pcoll_dict`
   input if needed.
+* `tft.TransformFeaturesLayer` no longer takes a parameter
+  `drop_unused_features`. Its default behavior is now equivalent to having set
+  `drop_unused_features` to `True`.
 
 ## Deprecations
 

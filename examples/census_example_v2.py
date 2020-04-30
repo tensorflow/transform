@@ -156,7 +156,17 @@ def transform_data(train_data_file, test_data_file, working_dir):
       outputs[key] = tft.compute_and_apply_vocabulary(inputs[key],
                                                       vocab_filename=key)
 
-    # TODO(b/149019258): Can't have the label depend on a table lookup op.
+    # For the label column we provide the mapping from string to index.
+    table_keys = ['>50K', '<=50K']
+    initializer = tf.lookup.KeyValueTensorInitializer(
+        keys=table_keys,
+        values=tf.cast(tf.range(len(table_keys)), tf.int64),
+        key_dtype=tf.string,
+        value_dtype=tf.int64)
+    table = tf.lookup.StaticHashTable(initializer, default_value=-1)
+    data_labels = table.lookup(inputs[LABEL_KEY])
+    outputs[LABEL_KEY] = tf.one_hot(
+        indices=data_labels, depth=len(table_keys), on_value=1.0, off_value=0.0)
 
     return outputs
 
@@ -261,22 +271,7 @@ def input_fn(feature_spec, transformed_examples, batch_size):
       label_key=LABEL_KEY,
       shuffle=True)
 
-  def format_dataset(data, data_labels):
-    """Transforms the label feature."""
-    # For the label column we provide the mapping from string to index.
-    table_keys = ['>50K', '<=50K']
-    initializer = tf.lookup.KeyValueTensorInitializer(
-        keys=table_keys,
-        values=tf.cast(tf.range(len(table_keys)), tf.int64),
-        key_dtype=tf.string,
-        value_dtype=tf.int64)
-    table = tf.lookup.StaticHashTable(initializer, default_value=-1)
-    data_labels = table.lookup(data_labels)
-    data_labels = tf.one_hot(
-        indices=data_labels, depth=len(table_keys), on_value=1.0, off_value=0.0)
-    return (data, data_labels)
-
-  return dataset.map(format_dataset)
+  return dataset
 
 
 def export_serving_model(tf_transform_output, model, output_dir):
@@ -297,7 +292,6 @@ def export_serving_model(tf_transform_output, model, output_dir):
     feature_spec.pop(LABEL_KEY)
     parsed_features = tf.io.parse_example(serialized_tf_examples, feature_spec)
     transformed_features = model.tft_layer(parsed_features)
-    transformed_features.pop(LABEL_KEY)
     outputs = model(transformed_features)
     classes_names = tf.constant([['0', '1']])
     classes = tf.tile(classes_names, [tf.shape(outputs)[0], 1])

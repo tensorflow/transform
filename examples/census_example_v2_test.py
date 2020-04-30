@@ -25,6 +25,7 @@ import shutil
 import tensorflow.compat.v2 as tf
 import census_example_v2
 import local_model_server
+import tensorflow_transform.test_case as tft_test_case
 from google.protobuf import text_format
 
 # Use first row of test data set, which has high probability on label 1 (which
@@ -99,6 +100,10 @@ _CLASSIFICATION_REQUEST_TEXT_PB = """model_spec { name: "%s" }
 
 
 class CensusExampleV2Test(tf.test.TestCase):
+
+  def setUp(self):
+    super(CensusExampleV2Test, self).setUp()
+    tft_test_case.skip_if_not_tf2('Tensorflow 2.x required.')
 
   def _get_data_dir(self):
     return os.path.join(os.path.dirname(__file__), 'testdata/census')

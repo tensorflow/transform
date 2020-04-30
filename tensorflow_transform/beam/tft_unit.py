@@ -44,6 +44,7 @@ cross_parameters = test_case.cross_parameters
 named_parameters = test_case.named_parameters
 cross_named_parameters = test_case.cross_named_parameters
 is_external_environment = test_case.is_external_environment
+skip_if_not_tf2 = test_case.skip_if_not_tf2
 
 main = test_case.main
 
