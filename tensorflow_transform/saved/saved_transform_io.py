@@ -30,10 +30,23 @@ from tensorflow_transform.saved import saved_model_loader
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.core.protobuf import struct_pb2
 from tensorflow.python.framework import ops
+from tensorflow.python.ops import resource_variable_ops
 from tensorflow.python.saved_model import nested_structure_coder
 from tensorflow.python.training import saver as tf_saver
 from tensorflow.python.util import nest
 # pylint: enable=g-direct-tensorflow-import
+
+
+# TODO(b/148082271): Patch added to ensure variables are serialized properly.
+# Remove once TF 2.3 is released.
+def getter(self):
+  value = self._initializer_op  # pylint: disable=protected-access
+  if isinstance(value, list):
+    value = value[0]
+  return value
+
+
+resource_variable_ops.BaseResourceVariable.initializer = property(getter, None)
 
 _MANGLED_TENSOR_NAME_RE = re.compile(
     r'(.*)\$(indices|values|dense_shape|dense_tensor)$')
