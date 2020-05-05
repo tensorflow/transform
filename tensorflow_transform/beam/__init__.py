@@ -14,8 +14,13 @@
 """Module level imports for tensorflow_transform.beam."""
 
 # pylint: disable=wildcard-import
-# analyzer_impls registers implementation of analyzers.
+# The doc-generator's `explicit_package_contents_filter` requires that
+# sub-modules you want documented are explicitly imported.
+# Also: analyzer_impls registers implementation of analyzers.
+from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import analyzer_impls
+from tensorflow_transform.beam import info_theory
+
 from tensorflow_transform.beam.context import Context
 from tensorflow_transform.beam.impl import AnalyzeAndTransformDataset
 from tensorflow_transform.beam.impl import AnalyzeDataset
