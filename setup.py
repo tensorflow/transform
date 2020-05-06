@@ -28,6 +28,10 @@ def _make_required_install_packages():
   # six, and protobuf) with TF.
   return [
       'absl-py>=0.7,<0.9',
+      # TODO(b/149841057): This is a workaround for broken avro-python3
+      # release. Remove once avro has a healthy release.
+      ('avro-python3>=1.8.1,!=1.9.2.*,<2.0.0; '
+       'python_version=="3.5" and platform_system=="Darwin"'),
       'apache-beam[gcp]>=2.17,<3',
       'numpy>=1.16,<2',
       'protobuf>=3.7,<4',
@@ -38,13 +42,6 @@ def _make_required_install_packages():
       # TODO(b/148082271): Revisit this dependency before releasing.
       'tfx-bsl>=0.21.3,<0.23',
   ]
-
-# TODO(b/121329572): Remove the following comment after we can guarantee the
-# required versions of packages through kokoro release workflow.
-# Note: In order for the README to be rendered correctly, make sure to have the
-# following minimum required versions of the respective packages when building
-# and uploading the zip/wheel package to PyPI:
-# setuptools >= 38.6.0, wheel >= 0.31.0, twine >= 1.11.0
 
 # Get the long description from the README file.
 with open('README.md') as fp:
