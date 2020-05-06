@@ -39,14 +39,14 @@ from tensorflow.python.util import nest
 
 # TODO(b/148082271): Patch added to ensure variables are serialized properly.
 # Remove once TF 2.3 is released.
-def getter(self):
+def _getter(self):
   value = self._initializer_op  # pylint: disable=protected-access
   if isinstance(value, list):
     value = value[0]
   return value
 
+resource_variable_ops.BaseResourceVariable.initializer = property(_getter, None)
 
-resource_variable_ops.BaseResourceVariable.initializer = property(getter, None)
 
 _MANGLED_TENSOR_NAME_RE = re.compile(
     r'(.*)\$(indices|values|dense_shape|dense_tensor)$')
