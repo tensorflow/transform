@@ -1586,6 +1586,12 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
       raise ValueError(
           'Input tensor to be normalized must be numeric, got {}.'.format(
               x_values.dtype))
+    # Remove any non-finite boundaries.
+    if bucket_boundaries.dtype in (tf.float64, tf.float32):
+      bucket_boundaries = tf.expand_dims(
+          tf.gather_nd(bucket_boundaries,
+                       tf.where(tf.math.is_finite(bucket_boundaries))),
+          axis=0)
     return_type = tf.float64 if x.dtype == tf.float64 else tf.float32
     num_boundaries = tf.cast(tf.shape(bucket_boundaries)[1], dtype=tf.int64)
 

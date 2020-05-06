@@ -655,6 +655,13 @@ class MappersTest(test_case.TransformTestCase):
     bucketized = mappers.apply_buckets(inputs, [quantiles])
     self.assertAllEqual(bucketized, expected_outputs)
 
+  def testApplyBucketsWithInfBoundary(self):
+    inputs = tf.constant([4.0, float('-inf'), .8, 7.5, 10.0])
+    quantiles = tf.constant([float('-inf'), 2, 5, 8])
+    expected_outputs = tf.constant([2, 1, 1, 3, 4], dtype=tf.int64)
+    bucketized = mappers.apply_buckets(inputs, [quantiles])
+    self.assertAllEqual(bucketized, expected_outputs)
+
   def testApplyBucketsWithKeys(self):
     with tf.compat.v1.Graph().as_default():
       values = tf.constant([
@@ -723,6 +730,16 @@ class MappersTest(test_case.TransformTestCase):
           boundaries=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
           expected_results=[0, 0, 0, 0.01, 0.23, .5, 0.45, 0.67, 0.89, 1, 1,
                             1]),
+      dict(
+          testcase_name='float_input_with_inf_boundaries',
+          x=[
+              float('-inf'),
+              float('-inf'),
+              float(0),
+              float('-inf'),
+          ],
+          boundaries=[float('-inf'), 0],
+          expected_results=[0, 0, 1, 0]),
       dict(
           testcase_name='integer_boundaries',
           x=[15, 20, 25],
