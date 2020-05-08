@@ -63,7 +63,7 @@ class SavedTransformIOTest(tf.test.TestCase):
       with tf.compat.v1.Session().as_default() as session:
         input_floats = tf.constant([1237.0])  # tf.float32
         input_features = {'x': input_floats}
-        _, transformed_features, _ = (
+        _, transformed_features = (
             saved_transform_io.partially_apply_saved_transform_internal(
                 self._test_saved_model, input_features))
         self.assertEqual(['x_scaled'], list(transformed_features))
@@ -111,7 +111,7 @@ class SavedTransformIOTest(tf.test.TestCase):
         with tf.compat.v1.Session().as_default() as session:
           input_floats = tf.constant([1237.0])  # tf.float32
           input_features = {'x': input_floats}
-          _, transformed_features, _ = (
+          _, transformed_features = (
               saved_transform_io.partially_apply_saved_transform_internal(
                   self._test_saved_model, input_features))
           self.assertEqual(['x_scaled'], list(transformed_features))
@@ -124,7 +124,7 @@ class SavedTransformIOTest(tf.test.TestCase):
       with tf.compat.v1.name_scope('my_scope'):
         with tf.compat.v1.Session().as_default() as session:
           input_features = {'x': input_floats}
-          _, transformed_features, _ = (
+          _, transformed_features = (
               saved_transform_io.partially_apply_saved_transform_internal(
                   self._test_saved_model, input_features))
           self.assertEqual(['x_scaled'], list(transformed_features))
@@ -150,7 +150,7 @@ class SavedTransformIOTest(tf.test.TestCase):
         # Using a computed input gives confidence that the graphs are fused.
         input_float = tf.constant(25.0) * 2
         inputs = {'input': input_float}
-        _, outputs, _ = (
+        _, outputs = (
             saved_transform_io.partially_apply_saved_transform_internal(
                 export_path, inputs))
         result = session.run(outputs['output'])
@@ -183,7 +183,7 @@ class SavedTransformIOTest(tf.test.TestCase):
         # Using a computed input gives confidence that the graphs are fused.
         input_string = tf.constant('dog')
         inputs = {'input': input_string}
-        _, outputs, _ = (
+        _, outputs = (
             saved_transform_io.partially_apply_saved_transform_internal(
                 export_path, inputs))
         session.run(tf.compat.v1.tables_initializer())
@@ -212,7 +212,7 @@ class SavedTransformIOTest(tf.test.TestCase):
 
         # Using a computed input gives confidence that the graphs are fused
         inputs = {'input': input_sparse * 10}
-        _, outputs, _ = (
+        _, outputs = (
             saved_transform_io.partially_apply_saved_transform_internal(
                 export_path, inputs))
         output_sparse = outputs['output']
@@ -248,7 +248,7 @@ class SavedTransformIOTest(tf.test.TestCase):
 
         # Using a computed input gives confidence that the graphs are fused
         inputs = {'input': input_ragged * 10}
-        _, outputs, _ = (
+        _, outputs = (
             saved_transform_io.partially_apply_saved_transform_internal(
                 export_path, inputs))
         output_ragged = outputs['output']
@@ -294,7 +294,7 @@ class SavedTransformIOTest(tf.test.TestCase):
         with tf.compat.v1.Session().as_default() as session:
           input_string = tf.constant('dog')
           inputs = {'input': input_string}
-          _, outputs, _ = (
+          _, outputs = (
               saved_transform_io.partially_apply_saved_transform_internal(
                   export_path, inputs))
 

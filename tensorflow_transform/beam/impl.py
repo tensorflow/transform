@@ -204,7 +204,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
       with tf.compat.v1.Graph().as_default() as graph:
         self._session = tf.compat.v1.Session(graph=graph, config=tf_config)
         with self._session.as_default():
-          inputs, outputs, _ = (
+          inputs, outputs = (
               saved_transform_io.partially_apply_saved_transform_internal(
                   saved_model_dir, {}))
         self._session.run(tf.compat.v1.global_variables_initializer())
@@ -536,7 +536,7 @@ def _replace_tensors_with_constant_values(saved_model_dir, base_temp_dir,
 
     with tf.compat.v1.Session(graph=graph) as session:
       temp_dir = beam_common.get_unique_temp_path(base_temp_dir)
-      input_tensors, output_tensors, _ = (
+      input_tensors, output_tensors = (
           saved_transform_io.partially_apply_saved_transform_internal(
               saved_model_dir, {}, tensor_replacement_map))
       session.run(tf.compat.v1.global_variables_initializer())
@@ -699,7 +699,7 @@ def _infer_metadata_from_saved_model(saved_model_dir):
   """Infers a DatasetMetadata for outputs of a SavedModel."""
   with tf.compat.v1.Graph().as_default() as graph:
     with tf.compat.v1.Session(graph=graph) as session:
-      _, outputs, _ = (
+      _, outputs = (
           saved_transform_io.partially_apply_saved_transform_internal(
               saved_model_dir, {}))
 

@@ -141,25 +141,6 @@ class TFTransformOutput(object):
     """
     return TransformFeaturesLayer(self)
 
-  def _transform_raw_features_internal(self,
-                                       raw_features,
-                                       drop_unused_features=False):
-    """Transforms raw features and returns an asset_map as well."""
-    unbounded_raw_features, transformed_features, assets_map = (
-        saved_transform_io.partially_apply_saved_transform_internal(
-            self.transform_savedmodel_dir, raw_features))
-    if drop_unused_features:
-      graph = tf.compat.v1.get_default_graph()
-      graph_analyzer = graph_tools.InitializableGraphAnalyzer(
-          graph, raw_features,
-          [(t, False) for t in six.itervalues(unbounded_raw_features)])
-      transformed_features = {
-          name: feature
-          for name, feature in six.iteritems(transformed_features)
-          if graph_analyzer.ready_to_run(feature)
-      }
-    return transformed_features, assets_map
-
   def transform_raw_features(self, raw_features, drop_unused_features=False):
     """Takes a dict of tensors representing raw features and transforms them.
 
@@ -183,9 +164,21 @@ class TFTransformOutput(object):
       A dict whose keys are feature names and values are `Tensor`s or
           `SparseTensor`s representing transformed features.
     """
-    transformed_features, _ = self._transform_raw_features_internal(
-        raw_features, drop_unused_features)
-    return transformed_features
+    unbounded_raw_features, transformed_features = (
+        saved_transform_io.partially_apply_saved_transform_internal(
+            self.transform_savedmodel_dir, raw_features))
+    if drop_unused_features:
+      graph = tf.compat.v1.get_default_graph()
+      graph_analyzer = graph_tools.InitializableGraphAnalyzer(
+          graph, raw_features,
+          [(t, False) for t in six.itervalues(unbounded_raw_features)])
+      return {
+          name: feature
+          for name, feature in six.iteritems(transformed_features)
+          if graph_analyzer.ready_to_run(feature)
+      }
+    else:
+      return transformed_features
 
   def load_transform_graph(self):
     """Load the transform graph without replacing any placeholders.
