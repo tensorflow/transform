@@ -21,6 +21,8 @@
 * Switch `tft.TransformFeaturesLayer` to use the TF 2 `tf.saved_model.load` API
   to load a previously exported SavedModel.
 * Depends on `avro-python3>=1.8.1,!=1.9.2.*,<2.0.0` for Python3.5 + MacOS.
+* Adds `tft.sparse_tensor_left_align` as a utility which aligns
+ `tf.SparseTensor`s to the left.
 
 ## Breaking changes
 * `tft.AnalyzeDatasetWithCache` no longer accepts a flat pcollection as an

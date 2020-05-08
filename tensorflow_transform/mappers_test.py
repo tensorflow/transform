@@ -801,8 +801,7 @@ class MappersTest(test_case.TransformTestCase):
         self.assertAllClose(actual_results.values,
                             expected_results.values,
                             1e-6)
-        self.assertAllClose(
-            actual_results.indices, expected_results.indices, 1e-6)
+        self.assertAllEqual(actual_results.indices, expected_results.indices)
 
   def testBucketsWithInterpolationUnknownShapeBoundary(self):
     with tf.compat.v1.Graph().as_default():
@@ -821,6 +820,18 @@ class MappersTest(test_case.TransformTestCase):
       sparse = tf.compat.v1.sparse_placeholder(tf.int64, shape=[None, None])
       dense = mappers.sparse_tensor_to_dense_with_shape(sparse, [None, 5])
       self.assertAllEqual(dense.get_shape().as_list(), [None, 5])
+
+  def testSparseTensorLeftAlign(self):
+    with tf.compat.v1.Graph().as_default():
+      with self.test_session() as sess:
+        x = tf.SparseTensor(
+            indices=[[0, 3], [1, 2], [1, 4], [3, 2], [3, 4], [5, 0], [6, 1]],
+            values=[15, 10, 20, 17, -1111, 13, 21],
+            dense_shape=[7, 5])
+        y = mappers.sparse_tensor_left_align(x)
+        expected_indices = [[0, 0], [1, 0], [1, 1], [3, 0], [3, 1], [5, 0],
+                            [6, 0]]
+        self.assertAllEqual(sess.run(y.indices), expected_indices)
 
   def testEstimatedProbabilityDensityMissingKey(self):
     input_size = 5

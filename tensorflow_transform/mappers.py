@@ -101,6 +101,30 @@ def sparse_tensor_to_dense_with_shape(x, shape, default_value=0):
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
+def sparse_tensor_left_align(sparse_tensor):
+  """Re-arranges a `tf.SparseTensor` and returns a left-aligned version of it.
+
+  This mapper can be useful when returning a sparse tensor that may not be
+  left-aligned from a preprocessing_fn.
+
+  Args:
+    sparse_tensor: A `tf.SparseTensor`.
+
+  Returns:
+    A left-aligned version of sparse_tensor as a `tf.SparseTensor`.
+  """
+  reordered_tensor = tf.sparse.reorder(sparse_tensor)
+  transposed_indices = tf.transpose(reordered_tensor.indices)
+  row_indices = transposed_indices[0]
+  row_counts = tf.unique_with_counts(row_indices, out_idx=tf.int64).count
+  column_indices = tf.ragged.range(row_counts).flat_values
+  return tf.SparseTensor(
+      indices=tf.transpose(tf.stack([row_indices, column_indices])),
+      values=reordered_tensor.values,
+      dense_shape=reordered_tensor.dense_shape)
+
+
+@common.log_api_use(common.MAPPER_COLLECTION)
 def scale_by_min_max(x,
                      output_min=0.0,
                      output_max=1.0,
