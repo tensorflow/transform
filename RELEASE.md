@@ -1,6 +1,6 @@
 <!-- mdformat off(mdformat causes unwanted indentation changes) -->
 
-# Current version (not yet released; still in development)
+# Version 0.22.0
 
 ## Major Features and Improvements
 
@@ -20,9 +20,13 @@
   single Beam combiner.
 * Switch `tft.TransformFeaturesLayer` to use the TF 2 `tf.saved_model.load` API
   to load a previously exported SavedModel.
-* Depends on `avro-python3>=1.8.1,!=1.9.2.*,<2.0.0` for Python3.5 + MacOS.
 * Adds `tft.sparse_tensor_left_align` as a utility which aligns
  `tf.SparseTensor`s to the left.
+* Depends on `avro-python3>=1.8.1,!=1.9.2.*,<2.0.0` for Python3.5 + MacOS.
+* Depends on `apache-beam[gcp]>=2.20.0,<3`.
+* Depends on `tensorflow>=1.15,!=2.0.*,<2.3`.
+* Depends on `tensorflow-metadata>=0.22.0,<0.23.0`.
+* Depends on `tfx-bsl>=0.22.0,<0.23.0`.
 
 ## Breaking changes
 * `tft.AnalyzeDatasetWithCache` no longer accepts a flat pcollection as an
