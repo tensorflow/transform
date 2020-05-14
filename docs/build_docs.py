@@ -39,6 +39,7 @@ import tempfile
 from absl import app
 from absl import flags
 
+from tensorflow_docs import doc_controls
 from tensorflow_docs.api_generator import generate_lib
 from tensorflow_docs.api_generator import public_api
 import tensorflow_transform as transform
@@ -69,6 +70,8 @@ def main(args):
     raise ValueError('Unrecognized Command line args', args[1:])
 
   tft_out = pathlib.Path(tempfile.mkdtemp())
+
+  doc_controls.do_not_generate_docs(tft_beam.analyzer_impls)
 
   doc_generator = generate_lib.DocGenerator(
       root_title='TF-Transform',
