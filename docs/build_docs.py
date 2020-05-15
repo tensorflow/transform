@@ -39,7 +39,7 @@ import tempfile
 from absl import app
 from absl import flags
 
-from tensorflow_docs import doc_controls
+from tensorflow_docs.api_generator import doc_controls
 from tensorflow_docs.api_generator import generate_lib
 from tensorflow_docs.api_generator import public_api
 import tensorflow_transform as transform
