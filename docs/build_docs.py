@@ -65,14 +65,10 @@ FLAGS = flags.FLAGS
 
 
 def main(args):
-  print()
   if args[1:]:
     raise ValueError('Unrecognized Command line args', args[1:])
 
   tft_out = pathlib.Path(tempfile.mkdtemp())
-
-  doc_controls.do_not_generate_docs(tft_beam.analyzer_impls)
-
   doc_generator = generate_lib.DocGenerator(
       root_title='TF-Transform',
       py_modules=[('tft', transform)],
@@ -82,6 +78,8 @@ def main(args):
       callbacks=[public_api.explicit_package_contents_filter])
 
   doc_generator.build(tft_out)
+
+  doc_controls.do_not_generate_docs(tft_beam.analyzer_impls)
 
   tft_beam_out = pathlib.Path(tempfile.mkdtemp())
   doc_generator = generate_lib.DocGenerator(
@@ -118,7 +116,7 @@ def main(args):
       {'toc': [
           {'include': f'{FLAGS.site_path}/tft/_toc.yaml'},
           {'break': True},
-          {'include': f'{FLAGS.site_path}/tft/_toc.yaml'}]})
+          {'include': f'{FLAGS.site_path}/tft_beam/_toc.yaml'}]})
   toc_path.write_text(toc_text)
 
 
