@@ -1,3 +1,0 @@
-redirects:
-- from: /tfx/transform/api_docs/python/tft_beam/Context
-  to: /tfx/transform/api_docs/python/tft_beam/context/Context
