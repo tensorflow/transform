@@ -3,6 +3,7 @@
 # Current Version(Still in Development)
 
 ## Major Features and Improvements
+* Added EstimatedProbabilityDensityColumn feature column.
 
 ## Bug Fixes and Other Changes
 
