@@ -1547,11 +1547,17 @@ class BeamImplTest(tft_unit.TransformTestCase):
            'counts': np.array([25, 75], np.int64)
        }
       },
-  ])
+      {'testcase_name': '_int_sparse',
+       'input_data': [{'key': [0] if x < 25 else [1]} for x in range(100)],
+       'input_metadata': tft_unit.metadata_from_feature_spec(
+           {'key': tf.io.VarLenFeature(tf.int64)}),
+       'expected_outputs': {
+           'elements': np.array([0, 1], np.int64),
+           'counts': np.array([25, 75], np.int64)
+       }
+      },
+  ])  # pyformat: disable
   def testCountPerKey(self, input_data, input_metadata, expected_outputs):
-    self._SkipIfExternalEnvironmentAnd(
-        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
-
     def analyzer_fn(inputs):
       elements, counts = analyzers.count_per_key(inputs['key'])
       return {

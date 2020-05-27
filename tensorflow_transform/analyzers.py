@@ -666,9 +666,6 @@ def count_per_key(key, key_vocabulary_filename=None, name=None):
 
   with tf.compat.v1.name_scope(name, 'count_per_key'):
     key_dtype = key.dtype
-    is_key_string = key_dtype == tf.string
-    if not is_key_string:
-      key = tf.strings.as_string(key)
     batch_keys, batch_counts = tf_utils.reduce_batch_count_or_sum_per_key(
         x=None, key=key, reduce_instance_dims=True)
 
@@ -680,7 +677,7 @@ def count_per_key(key, key_vocabulary_filename=None, name=None):
     if key_vocabulary_filename is not None:
       return numeric_combine_result
     keys, counts = numeric_combine_result
-    if not is_key_string:
+    if key_dtype is not tf.string:
       keys = tf.strings.to_number(keys, key_dtype)
     return keys, counts
 

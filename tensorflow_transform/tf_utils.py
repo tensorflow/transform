@@ -326,6 +326,18 @@ def reduce_batch_count(x, reduce_instance_dims):
   return tf.fill(x_shape[1:], x_shape[0])
 
 
+def _to_string(x):
+  if x.dtype is tf.string:
+    return x
+  elif isinstance(x, tf.SparseTensor):
+    return tf.SparseTensor(
+        values=tf.strings.as_string(x.values),
+        indices=x.indices,
+        dense_shape=x.dense_shape)
+  else:
+    return tf.strings.as_string(x)
+
+
 def reduce_batch_count_or_sum_per_key(x, key, reduce_instance_dims):
   """Computes per-key sums or counts in the given tensor.
 
@@ -349,6 +361,8 @@ def reduce_batch_count_or_sum_per_key(x, key, reduce_instance_dims):
     raise NotImplementedError(
         'Sum per key only supports reduced dims for SparseTensors')
 
+  key = _to_string(key)
+
   if x is not None:
     x, key = _validate_and_get_dense_value_key_inputs(x, key)
     unique = tf.unique(key, out_idx=tf.int64)
@@ -358,6 +372,8 @@ def reduce_batch_count_or_sum_per_key(x, key, reduce_instance_dims):
       sums = x
     sums = tf.math.unsorted_segment_sum(sums, unique.idx, tf.size(unique.y))
   else:
+    if isinstance(key, tf.SparseTensor):
+      key = key.values
     key.set_shape([None])
     unique = tf.unique_with_counts(key, out_idx=tf.int64)
     sums = unique.count
