@@ -54,6 +54,7 @@ class TFTransformOutput(object):
     # Lazily constructed properties.
     self._transformed_metadata = None
     self._raw_metadata = None
+    self._transform_features_layer = None
 
   @property
   def transformed_metadata(self):
@@ -134,12 +135,17 @@ class TFTransformOutput(object):
     return domain.max + 1
 
   def transform_features_layer(self):
-    """Creates a TransformFeaturesLayer from this transform output.
+    """Creates a `TransformFeaturesLayer` from this transform output.
+
+    If a `TransformFeaturesLayer` has already been created for self, the same
+    one will be returned.
 
     Returns:
-      A TransformFeaturesLayer instance.
+      A `TransformFeaturesLayer` instance.
     """
-    return TransformFeaturesLayer(self)
+    if self._transform_features_layer is None:
+      self._transform_features_layer = TransformFeaturesLayer(self)
+    return self._transform_features_layer
 
   def transform_raw_features(self, raw_features, drop_unused_features=False):
     """Takes a dict of tensors representing raw features and transforms them.
