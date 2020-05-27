@@ -19,9 +19,15 @@ from __future__ import print_function
 
 import math
 
-import numpy as np
+# math.log2 was added in Python 3.3
+try:
+  log2 = math.log2
+except AttributeError:
+  log2 = lambda x: math.log(x, 2)
 
 
+# TODO(b/157302701): Evaluate optimizations or approximations for this function,
+# in particular the _hypergeometric_pmf.
 def calculate_partial_expected_mutual_information(n, x_i, y_j):
   """Calculates the partial expected mutual information (EMI) of two variables.
 
@@ -50,12 +56,14 @@ def calculate_partial_expected_mutual_information(n, x_i, y_j):
   Returns:
     Calculated expected mutual information for x_i, y_j.
   """
-  coefficient = (-np.log2(x_i) - np.log2(y_j) + np.log2(n))
+  if x_i == 0 or y_j == 0:
+    return 0
+  coefficient = (-log2(x_i) - log2(y_j) + log2(n))
   sum_probability = 0.0
   partial_result = 0.0
   for n_j, p_j in _hypergeometric_pmf(n, x_i, y_j):
     if n_j != 0:
-      partial_result += n_j * (coefficient + np.log2(n_j)) * p_j
+      partial_result += n_j * (coefficient + log2(n_j)) * p_j
     sum_probability += p_j
   # The values of p_j should sum to 1, but given approximate calculations for
   # log2(x) and exp2(x) with large x, the full pmf might not sum to exactly 1.
@@ -85,7 +93,8 @@ def calculate_partial_mutual_information(n_ij, x_i, y_j, n):
   """
   if n_ij == 0:
     return 0
-  return n_ij * ((np.log2(n_ij) + np.log2(n)) - (np.log2(x_i) + np.log2(y_j)))
+  return n_ij * ((log2(n_ij) + log2(n)) -
+                 (log2(x_i) + log2(y_j)))
 
 
 def _hypergeometric_pmf(n, x_i, y_j):
@@ -111,10 +120,11 @@ def _hypergeometric_pmf(n, x_i, y_j):
       _logfactorial(n) + _logfactorial(start) + _logfactorial(x_i - start) +
       _logfactorial(y_j - start) + _logfactorial(n - x_i - y_j + start))
   for n_j in range(start, end + 1):
-    p_j = np.exp(numerator - denominator)
-    denominator += (
-        np.log(n_j + 1) - np.log(x_i - n_j) - np.log(y_j - n_j) +
-        np.log(n - x_i - y_j + n_j + 1))
+    p_j = math.exp(numerator - denominator)
+    if n_j != end:
+      denominator += (
+          math.log(n_j + 1) - math.log(x_i - n_j) - math.log(y_j - n_j) +
+          math.log(n - x_i - y_j + n_j + 1))
     yield n_j, p_j
 
 
