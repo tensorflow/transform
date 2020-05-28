@@ -369,7 +369,7 @@ class TransformTestCase(test_case.TransformTestCase):
 class _LegacyCompatibilityTFXIO(tf_example_record._TFExampleRecordBase):  # pylint: disable=protected-access
   """A Legacy compatibility TFXIO."""
 
-  def _SerializedExamplesSource(self):
+  def _RawRecordBeamSourceInternal(self):
     """A PTransform that maps batched instances to RecordBatches."""
     @beam.ptransform_fn
     @beam.typehints.with_output_types(pa.RecordBatch)
@@ -379,6 +379,9 @@ class _LegacyCompatibilityTFXIO(tf_example_record._TFExampleRecordBase):  # pyli
                   example_proto_coder.ExampleProtoCoder(self._schema).encode))
 
     return _ptransform_fn()  # pylint: disable=no-value-for-parameter
+
+  # TODO(b/156761358): deprecated; remove after tfx-bsl 0.23 release.
+  _SerializedExamplesSource = _RawRecordBeamSourceInternal  # pylint: disable=invalid-name
 
   def _ProjectImpl(self, unused_tensor_names):
     return self
