@@ -1303,9 +1303,17 @@ def vocabulary(x,
 
   with tf.compat.v1.name_scope(name, 'vocabulary'):
     vocab_filename = _get_vocab_filename(vocab_filename, store_frequency)
-
+    informativeness_threshold = float('-inf')
+    coverage_informativeness_threshold = float('-inf')
     if labels is not None:
       vocab_ordering_type = _VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION
+      # Correct for the overloaded `frequency_threshold` API.
+      if frequency_threshold is not None:
+        informativeness_threshold = frequency_threshold
+      frequency_threshold = 0.0
+      if coverage_frequency_threshold is not None:
+        coverage_informativeness_threshold = coverage_frequency_threshold
+      coverage_frequency_threshold = 0.0
     elif weights is not None:
       vocab_ordering_type = _VocabOrderingType.WEIGHTED_FREQUENCY
     else:
@@ -1321,14 +1329,16 @@ def vocabulary(x,
         vocab_ordering_type=vocab_ordering_type,
         vocab_filename=vocab_filename,
         top_k=top_k,
-        frequency_threshold=frequency_threshold,
+        frequency_threshold=frequency_threshold or 0,
+        informativeness_threshold=informativeness_threshold,
         use_adjusted_mutual_info=use_adjusted_mutual_info,
         min_diff_from_avg=min_diff_from_avg,
         fingerprint_shuffle=fingerprint_shuffle,
         store_frequency=store_frequency,
         key_fn=key_fn,
         coverage_top_k=coverage_top_k,
-        coverage_frequency_threshold=coverage_frequency_threshold)
+        coverage_frequency_threshold=coverage_frequency_threshold or 0,
+        coverage_informativeness_threshold=coverage_informativeness_threshold)
 
 
 def _get_vocabulary_analyzer_inputs(vocab_ordering_type,
@@ -1365,19 +1375,22 @@ def _get_vocabulary_analyzer_inputs(vocab_ordering_type,
     return [reduced_batch.unique_x]
 
 
-def _vocabulary_analyzer_nodes(analyzer_inputs,
-                               input_dtype,
-                               vocab_ordering_type,
-                               vocab_filename,
-                               top_k=None,
-                               frequency_threshold=None,
-                               use_adjusted_mutual_info=False,
-                               min_diff_from_avg=None,
-                               fingerprint_shuffle=False,
-                               store_frequency=False,
-                               key_fn=None,
-                               coverage_top_k=None,
-                               coverage_frequency_threshold=None):
+def _vocabulary_analyzer_nodes(
+    analyzer_inputs,
+    input_dtype,
+    vocab_ordering_type,
+    vocab_filename,
+    top_k=None,
+    frequency_threshold=0,
+    informativeness_threshold=float('-inf'),
+    use_adjusted_mutual_info=False,
+    min_diff_from_avg=None,
+    fingerprint_shuffle=False,
+    store_frequency=False,
+    key_fn=None,
+    coverage_top_k=None,
+    coverage_frequency_threshold=0.0,
+    coverage_informativeness_threshold=float('-inf')):
   """Internal helper for analyzing vocab. See `vocabulary` doc string."""
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       analyzer_inputs)
@@ -1400,9 +1413,11 @@ def _vocabulary_analyzer_nodes(analyzer_inputs,
       merge_output_value_node,
       coverage_top_k=coverage_top_k,
       coverage_frequency_threshold=coverage_frequency_threshold,
+      coverage_informativeness_threshold=coverage_informativeness_threshold,
       key_fn=key_fn,
       top_k=top_k,
-      frequency_threshold=frequency_threshold)
+      frequency_threshold=frequency_threshold,
+      informativeness_threshold=informativeness_threshold)
 
   vocab_filename_node = nodes.apply_operation(
       analyzer_nodes.VocabularyOrderAndWrite,

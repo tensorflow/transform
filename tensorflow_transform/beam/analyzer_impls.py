@@ -43,6 +43,7 @@ from tensorflow_transform.beam import info_theory
 
 
 _VocabOrderingType = analyzers._VocabOrderingType  # pylint: disable=protected-access
+_VocabMergeOutputType = Union[float, int, Tuple[float, float]]
 
 
 class _OrderElementsFn(beam.DoFn):
@@ -99,15 +100,42 @@ class _OrderElementsFn(beam.DoFn):
 @ptransform_fn
 @beam.typehints.with_input_types(KV[float, str])
 @beam.typehints.with_output_types(KV[float, str])
-def _ApplyFrequencyThresholdAndTopK(  # pylint: disable=invalid-name
-    counts, frequency_threshold, top_k, key_fn):
+def _ApplyThresholdsAndTopK(  # pylint: disable=invalid-name
+    counts,
+    frequency_threshold,
+    top_k,
+    info_threshold=float('-inf'),
+    key_fn=None):
   """Applies `frequency_threshold` and `top_k` to (count, value) pairs."""
   # TODO(b/117796748): Filter frequency per-key when key feature input enabled.
   # Filter is cheaper than TopK computation and the two commute, so filter
   # first.
-  if frequency_threshold is not None:
-    counts |= ('FilterByFrequencyThreshold(%s)' % frequency_threshold >>
-               beam.Filter(lambda kv: kv[0] >= frequency_threshold))
+  if frequency_threshold > 0 or info_threshold > float('-inf'):
+
+    def filter_by_thresholds(values):
+      """Returns True if values are greater than specified thresholds."""
+      values, _ = values
+      # The values can be a single number (the frequency) or a tuple of the
+      # informativeness and the frequency.
+      if isinstance(values, tuple):
+        informativeness, freq = values
+      else:
+        informativeness = float('inf')
+        freq = values
+      if freq >= frequency_threshold and informativeness >= info_threshold:
+        return True
+      return False
+
+    counts |= ('FilterByThresholds(%s)' % frequency_threshold >>
+               beam.Filter(filter_by_thresholds))
+  # If a tuple of multiple metrics, flatten to only the first. This is needed
+  # for the case the accumulator has tracked informativeness and frequency.
+  def flatten_to_single_metric(values):
+    value, term = values
+    value = value[0] if isinstance(value, tuple) else value
+    return value, term
+
+  counts |= 'FlattenToSingleMetric' >> beam.Map(flatten_to_single_metric)
 
   if top_k is not None:
     # TODO(katsiapis): Perhaps enhance Beam's Top to accept an N that can
@@ -209,7 +237,7 @@ class _VocabularyAccumulateImpl(beam.PTransform):
 
 
 @common.register_ptransform(analyzer_nodes.VocabularyCount)
-@beam.typehints.with_input_types(KV[np.str, Union[int, float]])
+@beam.typehints.with_input_types(KV[_VocabMergeOutputType, np.str])
 @beam.typehints.with_output_types(np.int64)
 class _VocabularyCountImpl(beam.PTransform):
   """Counts the total number of tokens in the vocabulary."""
@@ -228,7 +256,8 @@ class _VocabularyCountImpl(beam.PTransform):
 @common.register_ptransform(analyzer_nodes.VocabularyMerge)
 @beam.typehints.with_input_types(KV[np.str, Union[int, float]])
 # TODO(b/123325923): Constrain the value type here to the right string type.
-@beam.typehints.with_output_types(KV[Union[int, float], Any])  # Any -> np.str?
+@beam.typehints.with_output_types(KV[_VocabMergeOutputType,
+                                     Any])  # Any -> np.str?
 class _VocabularyMergeImpl(beam.PTransform):
   """Merges vocabulary accumulators of (token, num) pairs."""
 
@@ -255,7 +284,7 @@ class _VocabularyMergeImpl(beam.PTransform):
 
 
 @common.register_ptransform(analyzer_nodes.VocabularyPrune)
-@beam.typehints.with_input_types(KV[Union[int, float], np.str])
+@beam.typehints.with_input_types(KV[_VocabMergeOutputType, np.str])
 # TODO(b/123325923): Constrain the value type here to the right string type.
 @beam.typehints.with_output_types(KV[Union[int, float], Any])  # Any -> np.str?
 class _VocabularyPruneImpl(beam.PTransform):
@@ -264,8 +293,11 @@ class _VocabularyPruneImpl(beam.PTransform):
   def __init__(self, operation, extra_args):
     self._top_k = operation.top_k
     self._frequency_threshold = operation.frequency_threshold
+    self._informativeness_threshold = operation.informativeness_threshold
     self._coverage_top_k = operation.coverage_top_k
     self._coverage_frequency_threshold = operation.coverage_frequency_threshold
+    self._coverage_informativeness_threshold = (
+        operation.coverage_informativeness_threshold)
     self._key_fn = operation.key_fn
 
   def expand(self, inputs):
@@ -287,16 +319,19 @@ class _VocabularyPruneImpl(beam.PTransform):
     pcoll, = inputs
 
     result = (
-        pcoll | 'ApplyFrequencyThresholdAndTopK' >> (
-            _ApplyFrequencyThresholdAndTopK(  # pylint: disable=no-value-for-parameter
-                self._frequency_threshold, self._top_k, None)))
+        pcoll | 'ApplyThresholdsAndTopK' >> (
+            _ApplyThresholdsAndTopK(  # pylint: disable=no-value-for-parameter
+                self._frequency_threshold, self._top_k,
+                self._informativeness_threshold, None)))
 
     if self._key_fn:
+      # Note: current APIs do not allow for specifying a coverage
+      # informativeness threshold.
       coverage_counts = (
-          pcoll | 'ApplyCoverageFrequencyThresholdAndTopK' >> (
-              _ApplyFrequencyThresholdAndTopK(  # pylint: disable=no-value-for-parameter
+          pcoll | 'ApplyCoverageThresholdAndTopK' >> (
+              _ApplyThresholdsAndTopK(  # pylint: disable=no-value-for-parameter
                   self._coverage_frequency_threshold, self._coverage_top_k,
-                  self._key_fn)))
+                  self._coverage_informativeness_threshold, self._key_fn)))
 
       result = ((result, coverage_counts)
                 | 'MergeStandardAndCoverageArms' >> beam.Flatten()
@@ -476,6 +511,7 @@ def _calculate_mutual_information_for_feature_value(feature_and_accumulator,
         it is the raw mutual information.
       The expected mutual information (EMI) if use_adjusted_mutual_info is
         True, otherwise NaN.
+      The total weighted sum for the feature value.
   """
   # Compute the frequency of each label value.
   global_label_counts = (
@@ -484,14 +520,14 @@ def _calculate_mutual_information_for_feature_value(feature_and_accumulator,
   feature_value, current_accumulator = feature_and_accumulator
   n = sum(global_label_counts)
   if n == 0:
-    return (feature_value, float('NaN'), float('NaN'))
+    return (feature_value, (float('NaN'), float('NaN'), 0))
 
   mutual_information = 0
   expected_mutual_information = 0 if use_adjusted_mutual_info else None
   x_i = (current_accumulator.count * current_accumulator.weight)
   # If x_i == n, the feature is a constant and thus has no information.
   if round(x_i) == round(n):
-    return feature_value, 0, 0
+    return feature_value, (0, 0, x_i)
   if x_i > n:
     raise ValueError(
         'Frequency of token {} higher than number of records {} > {}'.format(
@@ -521,10 +557,10 @@ def _calculate_mutual_information_for_feature_value(feature_and_accumulator,
   if use_adjusted_mutual_info:
     # TODO(b/127366670): Consider implementing the normalization step as per
     # AMI(x, y) = MI(x, y) - EMI(x, y) / (max(H(x), H(y)) - EMI(x, y))
-    return (feature_value, mutual_information - expected_mutual_information,
-            expected_mutual_information)
+    return (feature_value, (mutual_information - expected_mutual_information,
+                            expected_mutual_information, x_i))
   else:
-    return (feature_value, mutual_information, float('NaN'))
+    return (feature_value, (mutual_information, float('NaN'), x_i))
 
 
 @ptransform_fn
@@ -564,7 +600,7 @@ def _extract_sentinels(kv):
 @ptransform_fn
 @beam.typehints.with_input_types(
     KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
-@beam.typehints.with_output_types(KV[str, float])
+@beam.typehints.with_output_types(KV[str, Tuple[float, float]])
 def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
     pcol, use_adjusted_mutual_info, min_diff_from_avg):
   """Computes mutual information for each key using the given accumulators."""
@@ -583,14 +619,19 @@ def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
             acc.count * acc.weight)))
     min_diff_from_avg = beam.pvalue.AsSingleton(min_diff_from_avg)
 
+  def _extract_merged_values(term, results):
+    """Returns the key and tuple of (mutual information, frequency)."""
+    # Ignore the second value, which is the Expected Mutual Info.
+    (mi, _, frequency) = results
+    return term, (mi, frequency)
+
   return (accumulators_by_feature
           | 'CalculateMutualInformationPerToken' >> beam.Map(
               _calculate_mutual_information_for_feature_value,
               beam.pvalue.AsSingleton(global_accumulator),
               use_adjusted_mutual_info=use_adjusted_mutual_info,
               min_diff_from_avg=min_diff_from_avg)
-          # Ignore the third return value, which is the Expected Mutual Info.
-          | beam.Map(lambda mi_results: (mi_results[0], mi_results[1])))
+          | beam.MapTuple(_extract_merged_values))
 
 
 class _WeightedMeanCombineFn(beam.CombineFn):

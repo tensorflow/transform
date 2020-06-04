@@ -695,8 +695,9 @@ class VocabularyMerge(
 
 class VocabularyPrune(
     collections.namedtuple('VocabularyPrune', [
-        'top_k', 'frequency_threshold', 'coverage_top_k',
-        'coverage_frequency_threshold', 'key_fn', 'label'
+        'top_k', 'frequency_threshold', 'informativeness_threshold',
+        'coverage_top_k', 'coverage_frequency_threshold',
+        'coverage_informativeness_threshold', 'key_fn', 'label'
     ]), nodes.OperationDef):
   """An operation that filters and orders a computed vocabulary.
 
@@ -706,14 +707,15 @@ class VocabularyPrune(
   See `tft.vocabulary` for a description of the parameters.
   """
 
-  def __new__(
-      cls,
-      top_k,
-      frequency_threshold,
-      coverage_top_k,
-      coverage_frequency_threshold,
-      key_fn,
-      label=None):
+  def __new__(cls,
+              top_k,
+              frequency_threshold,
+              informativeness_threshold=float('-inf'),
+              coverage_top_k=None,
+              coverage_frequency_threshold=0,
+              coverage_informativeness_threshold=float('-inf'),
+              key_fn=None,
+              label=None):
     if label is None:
       scope = tf.compat.v1.get_default_graph().get_name_scope()
       label = '{}[{}]'.format(cls.__name__, scope)
@@ -721,8 +723,10 @@ class VocabularyPrune(
         cls,
         top_k=top_k,
         frequency_threshold=frequency_threshold,
+        informativeness_threshold=informativeness_threshold,
         coverage_top_k=coverage_top_k,
         coverage_frequency_threshold=coverage_frequency_threshold,
+        coverage_informativeness_threshold=coverage_informativeness_threshold,
         key_fn=key_fn,
         label=label)
 
