@@ -25,7 +25,7 @@ import shutil
 import tensorflow.compat.v2 as tf
 import census_example_v2
 import local_model_server
-import tensorflow_transform.test_case as tft_test_case
+import tensorflow_transform.google.test_case as tft_test_case
 from google.protobuf import text_format
 
 # Use first row of test data set, which has high probability on label 1 (which
@@ -99,7 +99,7 @@ _CLASSIFICATION_REQUEST_TEXT_PB = """model_spec { name: "%s" }
     }""" % (_MODEL_NAME, _PREDICT_TF_EXAMPLE_TEXT_PB)
 
 
-class CensusExampleV2Test(tf.test.TestCase):
+class CensusExampleV2Test(tft_test_case.TransformTestCase):
 
   def setUp(self):
     super(CensusExampleV2Test, self).setUp()
@@ -114,11 +114,17 @@ class CensusExampleV2Test(tf.test.TestCase):
         self._testMethodName)
 
   def _should_saved_model_load_work(self):
-    # TODO(b/148082271): Rely only on the TF version here once it's consistent.
-    from tensorflow.python.keras.utils import generic_utils  # pylint: disable=g-direct-tensorflow-import,g-import-not-at-top
-    return tf.__version__ >= '2.2' or hasattr(generic_utils, 'validate_config')
+    return tf.__version__ >= '2.2'
 
-  def testCensusExampleAccuracy(self):
+  @tft_test_case.named_parameters([
+      dict(
+          testcase_name='_read_raw_data_for_training',
+          read_raw_data_for_training=True),
+      dict(
+          testcase_name='_read_transformed_data_for_training',
+          read_raw_data_for_training=False),
+  ])
+  def testCensusExampleAccuracy(self, read_raw_data_for_training):
 
     if not self._should_saved_model_load_work():
       self.skipTest('The generated SavedModel cannot be read with TF<2.2')
@@ -131,14 +137,20 @@ class CensusExampleV2Test(tf.test.TestCase):
     census_example_v2.transform_data(train_data_file, test_data_file,
                                      working_dir)
 
-    train_pattern = os.path.join(
-        working_dir, census_example_v2.TRANSFORMED_TRAIN_DATA_FILEBASE + '*')
-    eval_pattern = os.path.join(
-        working_dir, census_example_v2.TRANSFORMED_TEST_DATA_FILEBASE + '*')
+    if read_raw_data_for_training:
+      raw_train_and_eval_patterns = (train_data_file, test_data_file)
+      transformed_train_and_eval_patterns = None
+    else:
+      train_pattern = os.path.join(
+          working_dir, census_example_v2.TRANSFORMED_TRAIN_DATA_FILEBASE + '*')
+      eval_pattern = os.path.join(
+          working_dir, census_example_v2.TRANSFORMED_TEST_DATA_FILEBASE + '*')
+      raw_train_and_eval_patterns = None
+      transformed_train_and_eval_patterns = (train_pattern, eval_pattern)
     output_dir = os.path.join(working_dir, census_example_v2.EXPORTED_MODEL_DIR)
     results = census_example_v2.train_and_evaluate(
-        train_pattern,
-        eval_pattern,
+        raw_train_and_eval_patterns,
+        transformed_train_and_eval_patterns,
         output_dir,
         working_dir,
         num_train_instances=1000,
@@ -192,6 +204,15 @@ class CensusExampleV2Test(tf.test.TestCase):
     census_example_v2.main(
         self._get_data_dir(),
         self._get_working_dir(),
+        read_raw_data_for_training=False,
+        num_train_instances=10,
+        num_test_instances=10)
+
+  def test_main_runs_raw_data(self):
+    census_example_v2.main(
+        self._get_data_dir(),
+        self._get_working_dir(),
+        read_raw_data_for_training=True,
         num_train_instances=10,
         num_test_instances=10)
 

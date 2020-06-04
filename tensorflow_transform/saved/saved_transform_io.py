@@ -154,6 +154,7 @@ def _expand_input_map(logical_input_map, input_signature):
     tensor_info = input_signature[logical_name]
     encoding = tensor_info.WhichOneof('encoding')
     if encoding == 'coo_sparse':
+      assert isinstance(replacement, tf.SparseTensor), logical_name
       result[tensor_info.coo_sparse.indices_tensor_name] = replacement.indices
       result[tensor_info.coo_sparse.values_tensor_name] = replacement.values
       result[tensor_info.coo_sparse.dense_shape_tensor_name] = (
