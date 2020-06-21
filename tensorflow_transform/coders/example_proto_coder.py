@@ -306,7 +306,7 @@ class ExampleProtoCoder(object):
       feature_handler.initialize_encode_cache(self._encode_example_cache)
 
   def __reduce__(self):
-    return ExampleProtoCoder, (self._schema, self._serialized)
+    return self.__class__, (self._schema, self._serialized)
 
   def encode(self, instance):
     """Encode a tf.transform encoded dict as tf.Example."""

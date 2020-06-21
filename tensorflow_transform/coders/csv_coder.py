@@ -424,8 +424,9 @@ class CsvCoder(object):
                 name, type(feature_spec)))
 
   def __reduce__(self):
-    return CsvCoder, (self._column_names, self._schema, self._delimiter,
-                      self._secondary_delimiter, self._multivalent_columns)
+    return self.__class__, (self._column_names, self._schema, self._delimiter,
+                            self._secondary_delimiter,
+                            self._multivalent_columns)
 
   def encode(self, instance):
     """Encode a tf.transform encoded dict to a csv-formatted string.

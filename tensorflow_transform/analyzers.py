@@ -845,9 +845,6 @@ class _WeightedMeanAndVarAccumulator(
         np.array(counts), np.nan_to_num(means), np.nan_to_num(variances),
         np.nan_to_num(weights))
 
-  def __reduce__(self):
-    return self.__class__, tuple(self)
-
 
 class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
   """Combines a PCollection of accumulators to compute mean and variance."""
@@ -1524,14 +1521,18 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     self._has_weights = has_weights
     self._output_shape = output_shape
     self._include_max_and_min = include_max_and_min
-    self._feature_shape = [] if feature_shape is None else feature_shape
-    if isinstance(self._feature_shape, int):
-      self._feature_shape = [self._feature_shape]
-    self._num_features = np.prod(self._feature_shape, dtype=np.int64)
+    if feature_shape is None:
+      self._feature_shape = []
+    elif isinstance(feature_shape, int):
+      self._feature_shape = [feature_shape]
+    else:
+      self._feature_shape = feature_shape
+    self._num_features = int(np.prod(self._feature_shape, dtype=np.int64))
     if not self._always_return_num_quantiles and self._num_features > 1:
       raise NotImplementedError(
           'Elementwise quantiles requires same boundary count.')
-    self._graph_state_options = None  # Initialized in initialize_local_state().
+    self._tf_config = None            # Assigned in initialize_local_state().
+    self._graph_state_options = None  # Lazily created in _get_graph_state().
 
   def initialize_local_state(self, tf_config):
     """Called by the CombineFnWrapper's __init__ method.
@@ -1541,18 +1542,20 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     Args:
       tf_config: A tf.ConfigProto
     """
-    random_slot = random.randint(0, 9)  # For thread contention amelioration.
-    self._graph_state_options = _QuantilesGraphStateOptions(
-        num_quantiles=self._num_quantiles,
-        epsilon=self._epsilon,
-        bucket_numpy_dtype=self._bucket_numpy_dtype,
-        always_return_num_quantiles=self._always_return_num_quantiles,
-        has_weights=self._has_weights,
-        num_features=self._num_features,
-        tf_config=tf_config,
-        random_slot=random_slot)
+    self._tf_config = tf_config
 
   def _get_graph_state(self):
+    if self._graph_state_options is None:
+      random_slot = random.randint(0, 9)  # For thread contention amelioration.
+      self._graph_state_options = _QuantilesGraphStateOptions(
+          num_quantiles=self._num_quantiles,
+          epsilon=self._epsilon,
+          bucket_numpy_dtype=self._bucket_numpy_dtype,
+          always_return_num_quantiles=self._always_return_num_quantiles,
+          has_weights=self._has_weights,
+          num_features=self._num_features,
+          tf_config=self._tf_config,
+          random_slot=random_slot)
     return _global_quantiles_graph_state_provider.get_graph_state(
         self._graph_state_options)
 
@@ -1680,7 +1683,7 @@ class _QuantilesGraphStateOptions(
   def __hash__(self):
     # Some options (like tf_config) are not hashable.
     # Hashing on just a few properties should suffice for the purpose of
-    # _GraphState caching.
+    # _QuantilesGraphState caching.
     return hash((self.num_quantiles, self.num_features, self.random_slot))
 
 
@@ -1875,6 +1878,11 @@ class _QuantilesGraphStateProvider(object):
   def __init__(self):
     self._graph_states_by_options = {}
 
+  def __reduce__(self):
+    # The values of _graph_states_by_options are not picklable and this is a
+    # lazy cache so we 'clear' it any time we need to pickle it.
+    return self.__class__, ()
+
   def get_graph_state(self, graph_state_options):  # pylint: disable=missing-docstring
     # Access to self._graph_states_by_options happens under GIL so this lazy
     # population is thread-safe (even if it might occasionally waste creation
@@ -1882,14 +1890,8 @@ class _QuantilesGraphStateProvider(object):
     result = self._graph_states_by_options.get(graph_state_options)
     if result is None:
       result = _QuantilesGraphState(graph_state_options)
-
       self._graph_states_by_options[graph_state_options] = result
     return result
-
-  def __reduce__(self):
-    # The values of _graph_states_by_options are not picklable and this is a
-    # lazy cache so we 'clear' it any time we need to pickle it.
-    return self.__class__, ()
 
 
 # TODO(b/134414978): Investigate removal of global _QuantilesGraphStateProvider
