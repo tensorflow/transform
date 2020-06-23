@@ -66,10 +66,7 @@ from tensorflow_transform import common
 from tensorflow_transform import schema_inference
 from tensorflow_transform import tf_utils
 
-# pylint: disable=g-direct-tensorflow-import
-from tensorflow.python.ops import check_ops
-from tensorflow.python.util import deprecation
-# pylint: enable=g-direct-tensorflow-import
+from tensorflow.python.util import deprecation  # pylint: disable=g-direct-tensorflow-import
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
@@ -1606,7 +1603,7 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
     compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
     if isinstance(x, tf.SparseTensor):
       x_values = x.values
-    if not check_ops.is_numeric_tensor(x_values):
+    if not (x_values.dtype.is_floating or x_values.dtype.is_integer):
       raise ValueError(
           'Input tensor to be normalized must be numeric, got {}.'.format(
               x_values.dtype))

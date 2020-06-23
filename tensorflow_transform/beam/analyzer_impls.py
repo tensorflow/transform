@@ -37,9 +37,9 @@ import six
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import analyzers
+from tensorflow_transform import info_theory
 from tensorflow_transform import tf_utils
 from tensorflow_transform.beam import common
-from tensorflow_transform.beam import info_theory
 
 
 _VocabOrderingType = analyzers._VocabOrderingType  # pylint: disable=protected-access

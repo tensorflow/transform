@@ -27,11 +27,8 @@ from tensorflow_transform.saved import saved_transform_io
 
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.core.protobuf import meta_graph_pb2
-from tensorflow.python.framework import ops
 from tensorflow.python.lib.io import file_io
 from tensorflow.python.ops import lookup_ops
-from tensorflow.python.platform import test
-from tensorflow.python.util import compat
 # pylint: enable=g-direct-tensorflow-import
 
 
@@ -261,7 +258,7 @@ class SavedTransformIOTest(tf.test.TestCase):
 
   def test_stale_asset_collections_are_cleaned(self):
     vocabulary_file = os.path.join(
-        compat.as_bytes(test.get_temp_dir()), compat.as_bytes('asset'))
+        tf.compat.as_bytes(self.get_temp_dir()), tf.compat.as_bytes('asset'))
     file_io.write_string_to_file(vocabulary_file, 'foo bar baz')
 
     export_path = os.path.join(tempfile.mkdtemp(), 'export')
@@ -299,12 +296,13 @@ class SavedTransformIOTest(tf.test.TestCase):
                   export_path, inputs))
 
           self.assertEqual(
-              1, len(g.get_collection(ops.GraphKeys.ASSET_FILEPATHS)))
+              1, len(g.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)))
           self.assertEqual(0, len(g.get_collection(tf.saved_model.ASSETS_KEY)))
 
           # Check that every ASSET_FILEPATHS refers to a Tensor in the graph.
           # If not, get_tensor_by_name() raises KeyError.
-          for asset_path in g.get_collection(ops.GraphKeys.ASSET_FILEPATHS):
+          for asset_path in g.get_collection(
+              tf.compat.v1.GraphKeys.ASSET_FILEPATHS):
             tensor_name = asset_path.name
             g.get_tensor_by_name(tensor_name)
 

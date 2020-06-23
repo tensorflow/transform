@@ -19,7 +19,6 @@
 # Also: analyzer_impls registers implementation of analyzers.
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import analyzer_impls
-from tensorflow_transform.beam import info_theory
 
 from tensorflow_transform.beam.context import Context
 from tensorflow_transform.beam.impl import AnalyzeAndTransformDataset

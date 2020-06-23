@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for tensorflow_transform.beam.info_theory."""
+"""Tests for tensorflow_transform.info_theory."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -20,8 +20,8 @@ from __future__ import print_function
 # GOOGLE-INITIALIZATION
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
-from tensorflow_transform.beam import info_theory
-from tensorflow_transform.beam import tft_unit
+from tensorflow_transform import info_theory
+from tensorflow_transform import test_case
 
 
 import unittest
@@ -47,7 +47,7 @@ def _make_hypergeometric_pmf_sum_up_to_one_parameters():
   ]
 
 
-class InfoTheoryTest(tft_unit.TransformTestCase):
+class InfoTheoryTest(test_case.TransformTestCase):
 
   def testHypergeometricPmf(self):
     expected_results = [(0, 0.75), (1, 0.25)]
@@ -64,7 +64,7 @@ class InfoTheoryTest(tft_unit.TransformTestCase):
       self.assertEqual(expected_result[0], result[0])
       self.assertNear(expected_result[1], result[1], EPSILON)
 
-  @tft_unit.named_parameters(
+  @test_case.named_parameters(
       *_make_hypergeometric_pmf_sum_up_to_one_parameters())
   def test_hypergeometric_pmf_sum_up_to_one(self, test_range, n, y_j):
     for x in test_range:
@@ -72,7 +72,7 @@ class InfoTheoryTest(tft_unit.TransformTestCase):
       sum_prob = sum(probs)
       self.assertNear(sum_prob, 1.0, EPSILON)
 
-  @tft_unit.named_parameters(
+  @test_case.named_parameters(
       dict(
           testcase_name='all_co_occur',
           n=10,
@@ -108,7 +108,7 @@ class InfoTheoryTest(tft_unit.TransformTestCase):
         info_theory.calculate_partial_expected_mutual_information(n, x_i, y_j),
         expected, EPSILON)
 
-  @tft_unit.named_parameters(
+  @test_case.named_parameters(
       dict(
           testcase_name='strongly_positive_mi',
           cell_count=2,
