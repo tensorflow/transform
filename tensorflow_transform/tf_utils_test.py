@@ -25,6 +25,8 @@ import tensorflow as tf
 from tensorflow_transform import tf_utils
 from tensorflow_transform import test_case
 
+from tensorflow.python.framework import composite_tensor  # pylint: disable=g-direct-tensorflow-import
+
 
 class _SparseTensorSpec(object):
 
@@ -37,6 +39,11 @@ if not hasattr(tf, 'SparseTensorSpec'):
 
 
 class TFUtilsTest(test_case.TransformTestCase):
+
+  def _assertCompositeRefEqual(self, left, right):
+    """Asserts that a two `tf_util._CompositeTensorRef`s are equal."""
+    self.assertEqual(left.type_spec, right.type_spec)
+    self.assertAllEqual(left.list_of_refs, right.list_of_refs)
 
   @test_case.named_parameters(test_case.cross_with_function_handlers([
       dict(
@@ -117,11 +124,23 @@ class TFUtilsTest(test_case.TransformTestCase):
       dict(testcase_name='op', get_value_fn=lambda: tf.identity),
       dict(testcase_name='int', get_value_fn=lambda: 4),
       dict(testcase_name='object', get_value_fn=object),
-      dict(testcase_name='sparse', get_value_fn=lambda: tf.SparseTensor(  # pylint: disable=g-long-lambda
-          indices=[[0, 0], [2, 1]], values=['a', 'b'], dense_shape=[4, 2])),
-      dict(testcase_name='ragged',
-           get_value_fn=lambda: tf.RaggedTensor.from_row_splits(  # pylint: disable=g-long-lambda
-               values=['a', 'b'], row_splits=[0, 1, 2]))
+      dict(
+          testcase_name='sparse',
+          get_value_fn=lambda: tf.SparseTensor(  # pylint: disable=g-long-lambda
+              indices=[[0, 0], [2, 1]],
+              values=['a', 'b'],
+              dense_shape=[4, 2])),
+      dict(
+          testcase_name='ragged',
+          get_value_fn=lambda: tf.RaggedTensor.from_row_splits(  # pylint: disable=g-long-lambda
+              values=['a', 'b'],
+              row_splits=[0, 1, 2])),
+      dict(
+          testcase_name='ragged_multi_dimension',
+          get_value_fn=lambda: tf.RaggedTensor.from_row_splits(  # pylint: disable=g-long-lambda
+              values=tf.RaggedTensor.from_row_splits(
+                  values=[[0, 1], [2, 3]], row_splits=[0, 1, 2]),
+              row_splits=[0, 2])),
   ])
   def test_hashable_tensor_or_op(self, get_value_fn):
     with tf.compat.v1.Graph().as_default():
@@ -129,8 +148,12 @@ class TFUtilsTest(test_case.TransformTestCase):
       input_ref = tf_utils.hashable_tensor_or_op(input_value)
       input_dict = {input_ref: input_value}
       input_deref = tf_utils.deref_tensor_or_op(input_ref)
-      self.assertAllEqual(input_ref,
-                          tf_utils.hashable_tensor_or_op(input_deref))
+      if isinstance(input_value, composite_tensor.CompositeTensor):
+        self._assertCompositeRefEqual(
+            input_ref, tf_utils.hashable_tensor_or_op(input_deref))
+      else:
+        self.assertAllEqual(input_ref,
+                            tf_utils.hashable_tensor_or_op(input_deref))
 
       if isinstance(input_value, tf.SparseTensor):
         input_deref = input_deref.values

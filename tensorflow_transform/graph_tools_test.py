@@ -113,6 +113,13 @@ def _create_graph_with_y_function_of_x_sparse():
   return {'x': x, 'y': y}
 
 
+def _create_graph_with_z_function_of_x_ragged():
+  x = tf.compat.v1.ragged.placeholder(tf.int64, 2)
+  y = x.to_sparse()
+  z = tf.sparse.reduce_sum(y) + 1
+  return {'x': x, 'y': y, 'z': z}
+
+
 def _create_graph_with_ragged_tensor():
   x1 = tf.compat.v1.placeholder(tf.int64, (1, 3, 3))
   x2 = tf.compat.v1.sparse.placeholder(tf.int64, (4, 3))
@@ -665,6 +672,12 @@ class GraphToolsTest(test_case.TransformTestCase):
           fetches=['y1', 'y2'],
           expected_dependent_inputs=['x1', 'x2']),
       dict(
+          testcase_name='_z_function_of_x_ragged',
+          create_graph_fn=_create_graph_with_z_function_of_x_ragged,
+          feeds=['x'],
+          fetches=['y', 'z'],
+          expected_dependent_inputs=['x']),
+      dict(
           testcase_name='z_function_of_x_y_with_control_dependencies',
           create_graph_fn=_create_graph_with_assert_equal,
           feeds=['x', 'y'],
@@ -848,8 +861,9 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                   mock.call(
                       _TensorMatcher('range/delta:0'),
                       parents=[u'range/delta']),
-                  mock.call('x$dense_shape'),
-                  mock.call(_OpMatcher('Rank'), parents=['x$dense_shape']),
+                  mock.call('x$composite_tensor_2'),
+                  mock.call(
+                      _OpMatcher('Rank'), parents=['x$composite_tensor_2']),
                   mock.call(_TensorMatcher('Rank:0'), parents=[u'Rank']),
                   mock.call(_OpMatcher('range/start'), parents=[]),
                   mock.call(
@@ -859,12 +873,13 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                       _OpMatcher('range'),
                       parents=[u'range/start:0', u'Rank:0', u'range/delta:0']),
                   mock.call(_TensorMatcher('range:0'), parents=[u'range']),
-                  mock.call('x$values'),
-                  mock.call('x$indices'),
+                  mock.call('x$composite_tensor_1'),
+                  mock.call('x$composite_tensor_0'),
                   mock.call(
                       _OpMatcher('SparseReduceSum'),
                       parents=[
-                          'x$indices', 'x$values', 'x$dense_shape', u'range:0'
+                          'x$composite_tensor_0', 'x$composite_tensor_1',
+                          'x$composite_tensor_2', u'range:0'
                       ]),
                   mock.call(
                       _TensorMatcher('SparseReduceSum:0'),
@@ -885,26 +900,87 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                   mock.call(_OpMatcher('ones/Const'), parents=[]),
                   mock.call(
                       _TensorMatcher('ones/Const:0'), parents=[u'ones/Const']),
-                  mock.call('x$dense_shape'),
+                  mock.call('x$composite_tensor_2'),
                   mock.call(
                       _OpMatcher('ones'),
-                      parents=['x$dense_shape', u'ones/Const:0']),
+                      parents=['x$composite_tensor_2', u'ones/Const:0']),
                   mock.call(_TensorMatcher('ones:0'), parents=[u'ones']),
                   mock.call(_OpMatcher('add/y'), parents=[]),
                   mock.call(_TensorMatcher('add/y:0'), parents=[u'add/y']),
-                  mock.call('x$values'),
+                  mock.call('x$composite_tensor_1'),
                   mock.call(
-                      _OpMatcher('add'), parents=['x$values', u'add/y:0']),
+                      _OpMatcher('add'),
+                      parents=['x$composite_tensor_1', u'add/y:0']),
                   mock.call(_TensorMatcher('add:0'), parents=[u'add']),
-                  mock.call('x$indices'),
+                  mock.call('x$composite_tensor_0'),
                   mock.call(
                       _OpMatcher('SparseTensorDenseAdd'),
                       parents=[
-                          'x$indices', u'add:0', 'x$dense_shape', u'ones:0'
+                          'x$composite_tensor_0', u'add:0',
+                          'x$composite_tensor_2', u'ones:0'
                       ]),
                   mock.call(
                       _TensorMatcher('SparseTensorDenseAdd:0'),
                       parents=[u'SparseTensorDenseAdd']),
+              ],
+          }),
+      dict(
+          testcase_name='_z_function_of_x_ragged',
+          create_graph_fn=_create_graph_with_z_function_of_x_ragged,
+          feeds=['x'],
+          replaced_tensors_ready={'x': False},
+          expected_calls_dict={
+              'z': [
+                  mock.call(_OpMatcher('add/y'), parents=[]),
+                  mock.call(_TensorMatcher('add/y:0'), parents=[u'add/y']),
+                  mock.call(_OpMatcher('range/delta'), parents=[]),
+                  mock.call(
+                      _TensorMatcher('range/delta:0'),
+                      parents=[u'range/delta']),
+                  mock.call('x$composite_tensor_0'),
+                  mock.call('x$composite_tensor_2'),
+                  mock.call('x$composite_tensor_1'),
+                  mock.call(
+                      _OpMatcher('RaggedToSparse/RaggedTensorToSparse'),
+                      parents=[
+                          'x$composite_tensor_1', 'x$composite_tensor_2',
+                          'x$composite_tensor_0'
+                      ]),
+                  mock.call(
+                      _TensorMatcher('RaggedToSparse/RaggedTensorToSparse:2'),
+                      parents=['RaggedToSparse/RaggedTensorToSparse']),
+                  mock.call(
+                      _OpMatcher('Rank'),
+                      parents=['RaggedToSparse/RaggedTensorToSparse:2']),
+                  mock.call(_TensorMatcher('Rank:0'), parents=[u'Rank']),
+                  mock.call(_OpMatcher('range/start'), parents=[]),
+                  mock.call(
+                      _TensorMatcher('range/start:0'),
+                      parents=[u'range/start']),
+                  mock.call(
+                      _OpMatcher('range'),
+                      parents=[u'range/start:0', u'Rank:0', u'range/delta:0']),
+                  mock.call(_TensorMatcher('range:0'), parents=[u'range']),
+                  mock.call(
+                      _TensorMatcher('RaggedToSparse/RaggedTensorToSparse:1'),
+                      parents=['RaggedToSparse/RaggedTensorToSparse']),
+                  mock.call(
+                      _TensorMatcher('RaggedToSparse/RaggedTensorToSparse:0'),
+                      parents=['RaggedToSparse/RaggedTensorToSparse']),
+                  mock.call(
+                      _OpMatcher('SparseReduceSum'),
+                      parents=[
+                          'RaggedToSparse/RaggedTensorToSparse:0',
+                          'RaggedToSparse/RaggedTensorToSparse:1',
+                          'RaggedToSparse/RaggedTensorToSparse:2', u'range:0'
+                      ]),
+                  mock.call(
+                      _TensorMatcher('SparseReduceSum:0'),
+                      parents=[u'SparseReduceSum']),
+                  mock.call(
+                      _OpMatcher('add'),
+                      parents=[u'SparseReduceSum:0', u'add/y:0']),
+                  mock.call(_TensorMatcher('add:0'), parents=[u'add']),
               ],
           }),
       dict(

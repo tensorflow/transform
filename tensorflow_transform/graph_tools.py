@@ -37,6 +37,7 @@ import six
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import tf_utils
+from tensorflow.python.framework import composite_tensor  # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.framework import function_def_to_graph  # pylint: disable=g-direct-tensorflow-import
 
 _INITIALIZABLE_TABLE_OP_TYPES = [
@@ -58,21 +59,23 @@ _TABLE_INIT_OP_TYPES = [
 ]
 
 
-def _decompose_tensor(tensor):
-  """Returns the raw components of a Tensor / SparseTensor / RaggedTensor."""
-  if isinstance(tensor, tf.SparseTensor):
-    yield tensor.indices
-    yield tensor.values
-    yield tensor.dense_shape
-  elif isinstance(tensor, tf.RaggedTensor):
-    yield tensor.row_splits
-    v = tensor.values  # values is a potentially ragged tensor.
-    while isinstance(v, tf.RaggedTensor):
-      yield v.row_splits
-      v = v.values
-    yield v
+def _decompose_tensor_or_op(tensor_or_op):
+  """Yields the raw components of a `tf.CompositeTensor`.
+
+  If tensor_or_op is a `tf.Operation`, or `tf.Tensor`, then
+  _decompose_tensor_or_op will act as a pass through.
+
+  Args:
+    tensor_or_op: `tf.Tensor`, `tf.CompositeTensor`, or `tf.Operation`.
+
+  Yields:
+    A tf.Tensor or tf.Operation, depending on what tensor_or_op is.
+  """
+  if isinstance(tensor_or_op, composite_tensor.CompositeTensor):
+    for component in tf.nest.flatten(tensor_or_op, expand_composites=True):
+      yield component
   else:
-    yield tensor
+    yield tensor_or_op
 
 
 def _get_func_graph_for_name(graph, func_name):
@@ -388,7 +391,7 @@ class _GraphAnalyzer(object):
     should not be encountered (in the case of analyzing the graph init run).
 
     Args:
-      tensor_or_op: A `Tensor`, `SparseTensor` or `Operation`
+      tensor_or_op: A `Tensor`, `SparseTensor`, `RaggedTensor` or `Operation`
 
     Returns:
       A bool indicating whether then tensor is ready to run.
@@ -398,13 +401,15 @@ class _GraphAnalyzer(object):
       _UnexpectedTableError: If an initializable table op is encountered.
       _UnexpectedPlaceholderError: If a placeholder is encountered.
     """
-    if not isinstance(tensor_or_op, (tf.Tensor, tf.SparseTensor, tf.Operation)):
+    if not isinstance(
+        tensor_or_op,
+        (tf.Tensor, tf.SparseTensor, tf.RaggedTensor, tf.Operation)):
       raise TypeError(
-          'Expected Tensor, SparseTensor or Operation got {} of type {}'.format(
-              tensor_or_op, type(tensor_or_op)))
+          'Expected Tensor, SparseTensor, RaggedTensor, or Operation got {} of type {}'
+          .format(tensor_or_op, type(tensor_or_op)))
     return all(
         self.analyze_tensor(component).is_ready_to_run
-        for component in _decompose_tensor(tensor_or_op))
+        for component in _decompose_tensor_or_op(tensor_or_op))
 
   def get_unique_path(self, tensor):
     """Gets the analyzed path from the tensor to its root(s).
@@ -464,11 +469,11 @@ class InitializableGraphAnalyzer(object):
 
     Args:
       graph: a `Graph`.
-      input_signature: A dict whose keys are strings and values are `Tensor`s or
-        `SparseTensor`s.
-      replaced_tensors_ready: a list of `Tensor` or `SparseTensor`, bool pairs
-        indicating whether the `Tensor` or `SparseTensor` is ready in this
-        phase.
+      input_signature: A dict whose keys are strings and values are `Tensor`s,
+        `SparseTensor`s, or `RaggedTensor`s.
+      replaced_tensors_ready: a list of `Tensor`, `SparseTensor`s, or
+        `RaggedTensor`s, bool pairs indicating whether the `Tensor`,
+        `SparseTensor`s, or `RaggedTensor`s is ready in this phase.
       translate_path_fn: (Optional) A function with the signature: (identifier,
         optional(parents)) -> Any which will be used to construct a unique path
         for a given `Tensor`.
@@ -524,36 +529,34 @@ class InitializableGraphAnalyzer(object):
     is ready to run and has a name determined by the signature.
 
     Args:
-      input_signature: A dict whose keys are strings and values are `Tensor`s or
-        `SparseTensor`s.
-      replaced_tensors_ready: a dict from `Tensor` or `SparseTensor` to bool
-        indicating whether the tensor is ready in this phase.
+      input_signature: A dict whose keys are strings and values are `Tensor`s,
+        `SparseTensor`s, or `RaggedTensor`s.
+      replaced_tensors_ready: a dict from `Tensor`, `SparseTensor`s, or
+      `RaggedTensor`s to bool indicating whether the tensor is ready in this
+      phase.
 
     Returns:
       a dictionary from source tensors to _SourceInfos.
     """
     result = {}
     for tensor_or_op, is_ready in six.iteritems(replaced_tensors_ready):
-      for component in _decompose_tensor(
+      for component in _decompose_tensor_or_op(
           tf_utils.deref_tensor_or_op(tensor_or_op)):
         result[tf_utils.hashable_tensor_or_op(component)] = _SourceInfo(
             is_ready, None)
 
     for name, tensor in six.iteritems(input_signature):
-      if isinstance(tensor, tf.SparseTensor):
-        _set_unique_value_in_dict(result, tensor.indices,
-                                  _SourceInfo(True, '{}$indices'.format(name)))
-        _set_unique_value_in_dict(result, tensor.values,
-                                  _SourceInfo(True, '{}$values'.format(name)))
-        _set_unique_value_in_dict(
-            result, tensor.dense_shape,
-            _SourceInfo(True, '{}$dense_shape'.format(name)))
-      elif isinstance(tensor, tf.Tensor):
+      if isinstance(tensor, tf.Tensor):
         _set_unique_value_in_dict(result, tensor,
                                   _SourceInfo(True, '{}$tensor'.format(name)))
+      elif isinstance(tensor, composite_tensor.CompositeTensor):
+        for idx, tensor_component in enumerate(_decompose_tensor_or_op(tensor)):
+          _set_unique_value_in_dict(
+              result, tensor_component,
+              _SourceInfo(True, '{}$composite_tensor_{}'.format(name, idx)))
       else:
         raise TypeError(
-            'Expected Tensor or SparseTensor, got {} of type {}'.format(
+            'Expected Tensor, or CompositeTensor, got {} of type {}'.format(
                 tensor, type(tensor)))
     return result
 
@@ -630,7 +633,7 @@ class InitializableGraphAnalyzer(object):
       tensor_or_op: A `Tensor`, `SparseTensor`, `RaggedTensor` or `Operation`.
 
     Returns:
-      A dict of name to `Tensor` or `SparseTensor` (sub-dict of
+      A dict of name to `Tensor`, `SparseTensor`, or `RaggedTensor` (sub-dict of
       `input_signature`) that the given `tensor_or_op` depends on.
 
     Raises:
@@ -644,14 +647,15 @@ class InitializableGraphAnalyzer(object):
           'type {}'.format(tensor_or_op, type(tensor_or_op)))
 
     dependents = set()
-    for component in _decompose_tensor(tensor_or_op):
+    for component in _decompose_tensor_or_op(tensor_or_op):
       dependents.update(
           self._graph_analyzer.analyze_tensor(component).dependent_sources)
 
     result = {}
     for name, tensor in six.iteritems(self._input_signature):
-      if any(tf_utils.hashable_tensor_or_op(component) in dependents
-             for component in _decompose_tensor(tensor)):
+      if any(
+          tf_utils.hashable_tensor_or_op(component) in dependents
+          for component in _decompose_tensor_or_op(tensor)):
         result[name] = tensor
     return result
 
@@ -663,17 +667,18 @@ def get_dependent_inputs(graph, input_tensors, output_tensors):
     graph: A `tf.Graph`. It could be the (intermediate) output tf graph in any
       transform phase (including phase 0 where no tensor replacement has yet
       happened).
-    input_tensors: A dict of logical name to `tf.Tensor` or `tf.SparseTensor`.
-      Logical name doesn't have any implications in this method and can be
-      anything. In some cases it is the feature name corresponding to the input
-      tensor.
-    output_tensors: A dict of logical name to `tf.Tensor`, `tf.SparseTensor` or
-      `tf.RaggedTensor`, or a list of `tf.Tensor`, `tf.SparseTensor` or
+    input_tensors: A dict of logical name to `tf.Tensor`, `tf.SparseTensor`, or
+      `tf.RaggedTensor`. Logical name doesn't have any implications in this
+      method and can be anything. In some cases it is the feature name
+      corresponding to the input tensor.
+    output_tensors: A dict of logical name to `tf.Tensor`, `tf.SparseTensor`, or
+      `tf.RaggedTensor`, or a list of `tf.Tensor`, `tf.SparseTensor`, or
       `tf.RaggedTensor`.
 
   Returns:
-    A dict of logical name to `tf.Tensor` or `tf.SparseTensor` that are
-    filtered from input_tensors (transitively) producing output_tensors
+    A dict of logical name to `tf.Tensor`, `tf.SparseTensor`, or
+    `tf.RaggedTensor` that are filtered from input_tensors (transitively)
+    producing output_tensors
   """
   if isinstance(output_tensors, list):
     output_iterator = output_tensors

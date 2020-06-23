@@ -22,6 +22,7 @@ import collections
 # GOOGLE-INITIALIZATION
 import tensorflow as tf
 
+from tensorflow.python.framework import composite_tensor  # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.util import object_identity  # pylint: disable=g-direct-tensorflow-import
 
 _FLOATING_NAN = float('nan')
@@ -34,11 +35,8 @@ ReducedBatchWeightedCounts = collections.namedtuple('ReducedBatchCounts', [
     'counts_per_x'
 ])
 
-_SparseTensorRef = collections.namedtuple('_SparseTensorRef', [
-    'indices', 'values', 'dense_shape'])
-
-_RaggedTensorRef = collections.namedtuple('_RaggedTensorRef', [
-    'values', 'row_splits'])
+_CompositeTensorRef = collections.namedtuple('_CompositeTensorRef',
+                                             ['type_spec', 'list_of_refs'])
 
 
 def reduce_batch_weighted_counts(x, weights=None):
@@ -205,54 +203,49 @@ def extend_reduced_batch_with_y_counts(reduced_batch, y, weights=None):
 
 
 def hashable_tensor_or_op(tensor_or_op):
-  """Returns a hashable reference to a Tensor if given a Tensor or SparseTensor.
+  """Returns a hashable reference to a Tensor if given a Tensor/CompositeTensor.
 
   Use deref_tensor_or_op on the result to get the Tensor (or SparseTensor).
 
   Args:
-    tensor_or_op: A `tf.Tensor`, `tf.SparseTensor` or other type.
+    tensor_or_op: A `tf.Tensor`, `tf.CompositeTensor`, or other type.
 
   Returns:
-    A hashable representation for the Tensor or SparseTensor, or the original
+    A hashable representation for the Tensor or CompositeTensor, or the original
     value for other types.
   """
   if isinstance(tensor_or_op, tf.Tensor):
     return tensor_or_op.experimental_ref()
-  if isinstance(tensor_or_op, tf.RaggedTensor):
-    return _RaggedTensorRef(
-        values=hashable_tensor_or_op(tensor_or_op.values),
-        row_splits=hashable_tensor_or_op(tensor_or_op.row_splits))
-  if isinstance(tensor_or_op, tf.SparseTensor):
-    return _SparseTensorRef(
-        indices=hashable_tensor_or_op(tensor_or_op.indices),
-        values=hashable_tensor_or_op(tensor_or_op.values),
-        dense_shape=hashable_tensor_or_op(tensor_or_op.dense_shape))
+  if isinstance(tensor_or_op, composite_tensor.CompositeTensor):
+    # TODO(b/156759471): Use tf.type_spec_from_value here.
+    return _CompositeTensorRef(
+        type_spec=tensor_or_op._type_spec,  # pylint: disable=protected-access
+        list_of_refs=tuple(
+            hashable_tensor_or_op(component) for component in tf.nest.flatten(
+                tensor_or_op, expand_composites=True)
+        ))
   return tensor_or_op
 
 
 def deref_tensor_or_op(tensor_or_op):
-  """Returns a Tensor or SparseTensor if given a reference, otherwise input.
+  """Returns a Tensor or CompositeTensor if given a reference, otherwise input.
 
   Args:
     tensor_or_op: An output of `hashable_tensor_or_op`.
 
   Returns:
-    A Tensor, SparseTensor, RaggedTensor, or the given tensor_or_op.
+    A Tensor, CompositeTensor, or the given tensor_or_op.
   """
   if isinstance(tensor_or_op, object_identity.Reference):
     return tensor_or_op.deref()
-  if isinstance(tensor_or_op, _SparseTensorRef):
-    return tf.SparseTensor(
-        indices=deref_tensor_or_op(tensor_or_op.indices),
-        values=deref_tensor_or_op(tensor_or_op.values),
-        dense_shape=deref_tensor_or_op(tensor_or_op.dense_shape))
-  if isinstance(tensor_or_op, _RaggedTensorRef):
-    # Setting validate=False here because validating entails adding many asserts
-    # to the graph every time it's called.
-    return tf.RaggedTensor.from_row_splits(
-        values=deref_tensor_or_op(tensor_or_op.values),
-        row_splits=deref_tensor_or_op(tensor_or_op.row_splits),
-        validate=False)
+  if isinstance(tensor_or_op, _CompositeTensorRef):
+    return tf.nest.pack_sequence_as(
+        structure=tensor_or_op.type_spec,
+        flat_sequence=[
+            deref_tensor_or_op(component)
+            for component in tensor_or_op.list_of_refs
+        ],
+        expand_composites=True)
   return tensor_or_op
 
 
@@ -263,6 +256,9 @@ def _broadcast_to_x_shape(x, y):
     x: An input feature.
     y: A feature that is either the same shape as x or has the same outer
       dimensions as x. If the latter, y is broadcast to the same shape as x.
+
+  Returns:
+    A Tensor that contains the broadcasted feature, y.
   """
   # The batch dimension of x and y must be the same, and y must be 1D.
   x_shape = tf.shape(input=x)
