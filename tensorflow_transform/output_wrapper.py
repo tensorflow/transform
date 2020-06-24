@@ -275,13 +275,15 @@ class TransformFeaturesLayer(tf.keras.layers.Layer):
 
   def __init__(self, tft_output):
     super(TransformFeaturesLayer, self).__init__(trainable=False)
-    self._check_tensorflow_version()
     self._tft_output = tft_output
-    self._saved_model_loader = saved_transform_io_v2.SavedModelLoader(
-        tft_output.transform_savedmodel_dir)
-    # The model must be tracked by assigning to an attribute of the Keras layer.
-    # Hence, we track the attributes of _saved_model_loader here as well.
-    self._saved_model_loader_tracked_dict = self._saved_model_loader.__dict__
+    if tf.compat.v1.executing_eagerly_outside_functions():
+      self._check_tensorflow_version()
+      self._saved_model_loader = saved_transform_io_v2.SavedModelLoader(
+          tft_output.transform_savedmodel_dir)
+      # The model must be tracked by assigning to an attribute of the Keras
+      # layer. Hence, we track the attributes of _saved_model_loader here as
+      # well.
+      self._saved_model_loader_tracked_dict = self._saved_model_loader.__dict__
 
   def _check_tensorflow_version(self):
     """Check that we're using a compatible TF version.
@@ -306,4 +308,9 @@ class TransformFeaturesLayer(tf.keras.layers.Layer):
           tf.version.VERSION)
 
   def call(self, inputs):
-    return self._saved_model_loader.apply_v1_transform_model_in_v2(inputs)
+    if tf.compat.v1.executing_eagerly_outside_functions():
+      return self._saved_model_loader.apply_v1_transform_model_in_v2(inputs)
+    else:
+      tf.compat.v1.logging.warning('Falling back to transform_raw_features...')
+      return self._tft_output.transform_raw_features(
+          inputs, drop_unused_features=True)
