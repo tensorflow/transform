@@ -32,7 +32,7 @@ def _make_required_install_packages():
       # release. Remove once avro has a healthy release.
       ('avro-python3>=1.8.1,!=1.9.2.*,<2.0.0; '
        'python_version=="3.5" and platform_system=="Darwin"'),
-      'apache-beam[gcp]>=2.20,<3',
+      'apache-beam[gcp]>=2.22,<3',
       'numpy>=1.16,<2',
       'protobuf>=3.7,<4',
       'pydot>=1.2,<2',

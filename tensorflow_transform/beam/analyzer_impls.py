@@ -709,14 +709,17 @@ class _CombinerWrapper(beam.CombineFn):
         combiner's extract_output method in extract_output. If not specified, we
         assume it's the same value as `should_extract_output`.
     """
-    if isinstance(combiner, analyzers.QuantilesCombiner):
-      combiner.initialize_local_state(tf_config)
     self._combiner = combiner
     self._tf_config = tf_config
     self._is_combining_accumulators = is_combining_accumulators
     if should_extract_output is None:
       should_extract_output = is_combining_accumulators
     self._should_extract_output = should_extract_output
+
+    # TODO(b/135541366): Move this to CombineFn.setup once it exists.
+    # That should help simplify several aspects of Quantiles state management.
+    if isinstance(combiner, analyzers.QuantilesCombiner):
+      combiner.initialize_local_state(tf_config)
 
   def create_accumulator(self):
     return self._combiner.create_accumulator()

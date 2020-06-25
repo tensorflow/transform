@@ -1490,13 +1490,17 @@ def uniques(x,
       name=name)
 
 
-# TODO(b/65627483): Make this an instantiation of a generic CombineFn based on
-# TF ops.
-#
 # Code related to this class is performance sensitive, so (micro-)benchmarks
 # should be run when it is updated.
 #
+# TODO(b/65627483): Make this an instantiation of a generic CombineFn based on
+# TF ops.
+#
 # TODO(zoyahav): Move the (micro-)benchmarks from TFDV to TFT.
+#
+# TODO(b/159581894): Perhaps we should switch to using (variants of)
+# beam.ApproximateQuantiles.Globally and beam.ApproximateQuantiles.PerKey
+# and remove the TF complexity, assuming performance is comparable?
 class QuantilesCombiner(analyzer_nodes.Combiner):
   """Computes quantiles on the PCollection.
 
@@ -1531,8 +1535,8 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     if not self._always_return_num_quantiles and self._num_features > 1:
       raise NotImplementedError(
           'Elementwise quantiles requires same boundary count.')
-    self._tf_config = None            # Assigned in initialize_local_state().
-    self._graph_state_options = None  # Lazily created in _get_graph_state().
+    self._tf_config = None    # Assigned in initialize_local_state().
+    self._graph_state = None  # Lazily created in _get_graph_state().
 
   def initialize_local_state(self, tf_config):
     """Called by the CombineFnWrapper's __init__ method.
@@ -1545,9 +1549,9 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     self._tf_config = tf_config
 
   def _get_graph_state(self):
-    if self._graph_state_options is None:
+    if self._graph_state is None:
       random_slot = random.randint(0, 9)  # For thread contention amelioration.
-      self._graph_state_options = _QuantilesGraphStateOptions(
+      graph_state_options = _QuantilesGraphStateOptions(
           num_quantiles=self._num_quantiles,
           epsilon=self._epsilon,
           bucket_numpy_dtype=self._bucket_numpy_dtype,
@@ -1556,8 +1560,9 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
           num_features=self._num_features,
           tf_config=self._tf_config,
           random_slot=random_slot)
-    return _global_quantiles_graph_state_provider.get_graph_state(
-        self._graph_state_options)
+      self._graph_state = _QuantilesGraphStateProvider.get_graph_state(
+          graph_state_options)
+    return self._graph_state
 
   def create_accumulator(self):
     graph_state = self._get_graph_state()
@@ -1653,16 +1658,18 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
 
   @property
   def accumulator_coder(self):
-    return _QuantilesAccumulatorCacheCoderV2()
+    return _QuantilesAccumulatorCacheCoder()
 
 
-class _QuantilesAccumulatorCacheCoderV2(analyzer_nodes.CacheCoder):
+class _QuantilesAccumulatorCacheCoder(analyzer_nodes.CacheCoder):
   """The quantiles accumulator is a list of already encoded bytes.
 
   It needs to be pickled into a cacheable form.
   """
 
   def encode_cache(self, accumulator):
+    # TODO(b/37788560): Should we be "intelligently" choosing the 'protocol'
+    # argument for 'dumps'?
     return pickle.dumps(accumulator)
 
   def decode_cache(self, encoded_accumulator):
@@ -1875,30 +1882,18 @@ class _QuantilesGraphStateProvider(object):
   that _QuantilesGraphState is returned.
   """
 
-  def __init__(self):
-    self._graph_states_by_options = {}
+  _graph_states_by_options = {}
 
-  def __reduce__(self):
-    # The values of _graph_states_by_options are not picklable and this is a
-    # lazy cache so we 'clear' it any time we need to pickle it.
-    return self.__class__, ()
-
-  def get_graph_state(self, graph_state_options):  # pylint: disable=missing-docstring
-    # Access to self._graph_states_by_options happens under GIL so this lazy
+  @classmethod
+  def get_graph_state(cls, graph_state_options):  # pylint: disable=missing-docstring
+    # Access to cls._graph_states_by_options happens under GIL so this lazy
     # population is thread-safe (even if it might occasionally waste creation
     # of some objects that might otherwise be avoided).
-    result = self._graph_states_by_options.get(graph_state_options)
+    result = cls._graph_states_by_options.get(graph_state_options)
     if result is None:
       result = _QuantilesGraphState(graph_state_options)
-      self._graph_states_by_options[graph_state_options] = result
+      cls._graph_states_by_options[graph_state_options] = result
     return result
-
-
-# TODO(b/134414978): Investigate removal of global _QuantilesGraphStateProvider
-# and instead pass in a single _QuantilesGraphStateProvider object, owned by the
-# packed combiner, to QuantilesCombiner, making sure that the provider object
-# remains shared across combiners during pipeline execution.
-_global_quantiles_graph_state_provider = _QuantilesGraphStateProvider()
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)

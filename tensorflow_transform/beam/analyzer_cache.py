@@ -19,13 +19,13 @@ from __future__ import print_function
 
 import collections
 import os
+import pickle
 import re
 import sys
 
 # GOOGLE-INITIALIZATION
 
 import apache_beam as beam
-from apache_beam.internal import pickler
 import six
 import tensorflow as tf
 
@@ -125,8 +125,14 @@ class _ManifestFile(object):
   def _get_manifest_contents(self, manifest_file_handle):
     manifest_file_handle.seek(0)
     try:
-      return pickler.loads(manifest_file_handle.read())
-    except ValueError as e:
+      result = pickle.loads(manifest_file_handle.read())
+      assert isinstance(result, dict)
+      return result
+    except Exception as e:  # pylint: disable=broad-except
+      # Any exception at this point would be an indication that the cache is
+      # likely invalidated. Returning an empty dict allows the pipeline to
+      # "gracefully" recover (by proceeding without cache) as opposed to
+      # entering a crash-loop it can't recover from.
       tf.compat.v1.logging.error('Can\'t load cache manifest contents: %s',
                                  str(e))
       return {}
@@ -149,7 +155,9 @@ class _ManifestFile(object):
     except tf.errors.NotFoundError:
       pass
     self._open()
-    self._file.write(pickler.dumps(manifest))
+    # Manifests are small, so writing in a semi-human readable form (protocol=0)
+    # is preferred over the efficiency gains of higher protocols.
+    self._file.write(pickle.dumps(manifest, protocol=0))
 
 
 class _WriteToTFRecordGzip(beam.io.WriteToTFRecord):

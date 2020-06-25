@@ -6,8 +6,10 @@
 * Added EstimatedProbabilityDensityColumn feature column.
 
 ## Bug Fixes and Other Changes
+* Depends on `apache-beam[gcp]>=2.22,<3`.
 
 ## Breaking changes
+* Existing caches (for all analyzers) are automatically invalidated.
 
 ## Deprecations
 
