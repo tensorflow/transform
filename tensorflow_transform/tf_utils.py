@@ -582,7 +582,7 @@ def lookup_key(key, key_vocab):
   initializer = tf.lookup.KeyValueTensorInitializer(
       keys=key_vocab,
       values=tf.cast(tf.range(tf.size(key_vocab)), tf.int64),
-      key_dtype=tf.string,
+      key_dtype=key_vocab.dtype,
       value_dtype=tf.int64)
   table = tf.lookup.StaticHashTable(initializer, default_value=-1)
   return table.lookup(key)

@@ -1645,6 +1645,26 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                analyzer_fn,
                                expected_outputs)
 
+  def testProbCategoricalInt(self):
+    def preprocessing_fn(inputs):
+      return {'probs': tft.estimated_probability_density(inputs['x'],
+                                                         categorical=True)}
+
+    # NOTE: We force 10 batches: data has 100 elements and we request a batch
+    # size of 10.
+    input_data = [{'x': [x % 10]} for x in range(1, 101)]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([1], tf.int64)
+    })
+    expected_outputs = [{
+        'probs': np.array(np.ones(1) / 10.0, np.float32)
+    } for _ in range(100)]
+    self.assertAnalyzeAndTransformResults(input_data,
+                                          input_metadata,
+                                          preprocessing_fn,
+                                          expected_outputs,
+                                          desired_batch_size=10)
+
   def testProbCategorical(self):
     def preprocessing_fn(inputs):
       return {'probs': tft.estimated_probability_density(inputs['x'],
