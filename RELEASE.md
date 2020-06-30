@@ -7,6 +7,7 @@
 
 ## Bug Fixes and Other Changes
 * Depends on `apache-beam[gcp]>=2.22,<3`.
+* Depends on `avro-python3>=1.8.1,<1.9.2` for Python3.5 + MacOS.
 
 ## Breaking changes
 * Existing caches (for all analyzers) are automatically invalidated.
