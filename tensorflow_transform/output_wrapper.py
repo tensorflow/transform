@@ -30,7 +30,10 @@ from tensorflow_transform.saved import saved_transform_io_v2
 from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
 
-from tensorflow.python import tf2  # pylint: disable=g-direct-tensorflow-import
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python import tf2
+from tensorflow.python.framework import ops
+# pylint: enable=g-direct-tensorflow-import
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 
@@ -276,7 +279,8 @@ class TransformFeaturesLayer(tf.keras.layers.Layer):
   def __init__(self, tft_output):
     super(TransformFeaturesLayer, self).__init__(trainable=False)
     self._tft_output = tft_output
-    if tf.compat.v1.executing_eagerly_outside_functions():
+    # TODO(b/160294509): Use tf.compat.v1 when we stop supporting TF 1.15.
+    if ops.executing_eagerly_outside_functions():
       self._check_tensorflow_version()
       self._saved_model_loader = saved_transform_io_v2.SavedModelLoader(
           tft_output.transform_savedmodel_dir)
@@ -308,7 +312,8 @@ class TransformFeaturesLayer(tf.keras.layers.Layer):
           tf.version.VERSION)
 
   def call(self, inputs):
-    if tf.compat.v1.executing_eagerly_outside_functions():
+    # TODO(b/160294509): Use tf.compat.v1 when we stop supporting TF 1.15.
+    if ops.executing_eagerly_outside_functions():
       return self._saved_model_loader.apply_v1_transform_model_in_v2(inputs)
     else:
       tf.compat.v1.logging.warning('Falling back to transform_raw_features...')

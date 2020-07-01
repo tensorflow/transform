@@ -24,8 +24,8 @@ import shutil
 
 import tensorflow.compat.v2 as tf
 import census_example_v2
+from tensorflow_transform import test_case as tft_test_case
 import local_model_server
-import tensorflow_transform.google.test_case as tft_test_case
 from google.protobuf import text_format
 
 # Use first row of test data set, which has high probability on label 1 (which
