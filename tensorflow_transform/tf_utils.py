@@ -75,7 +75,7 @@ def reduce_batch_weighted_cooccurrences(x_input,
                                         extend_with_sentinel_counts=True):
   """Performs batch-wise reduction to produce weighted co-occurrences.
 
-  Somputes the weighted co-occurrence of each feature value in x, for each value
+  Computes the weighted co-occurrence of each feature value in x, for each value
   in the range [0, max(y)). If extend_with_sentinel_counts is true, the return
   value will include an additional sentinel token (not in the true vocabulary)
   that is used to accumulate the global distribution of y values.
@@ -535,6 +535,219 @@ def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
         input_tensor=tf.square(x_minus_mean), axis=axis) / x_count
 
   return (x_count, x_mean, x_variance)
+
+
+def _num_terms_and_factors(num_samples, dtype):
+  """Computes counts and sample multipliers for the given number of samples.
+
+  Args:
+    num_samples: An integral type scalar `Tensor` containing the number of
+    samples used to compute the L-moments. This must be non-negative.
+    dtype: The dtype of the samples to process. This determines the output
+    `Tensor`s dtype.
+
+  Returns:
+    The tuple (current_samples, current_pairs, current_triplets,
+    current_quadruplets, l1_factors, l2_factors, l3_factors, l4_factors).
+    Entries are `Tensor`s with the given dtype containing counters for each
+    moment and the factors to use to compute the moments.
+  """
+  num_pairs = num_samples * (num_samples - 1) // 2
+  num_triplets = num_pairs * (num_samples - 2) // 3
+  num_quadruplets = num_triplets * (num_samples - 3) // 4
+
+  current_samples = tf.cast(num_samples, dtype=dtype)
+  current_pairs = tf.cast(num_pairs, dtype=dtype)
+  current_triplets = tf.cast(num_triplets, dtype=dtype)
+  current_quadruplets = tf.cast(num_quadruplets, dtype=dtype)
+
+  term_up = tf.range(0, num_samples, 1, dtype)
+  term_up_delay_1 = tf.range(-1, num_samples - 1, 1, dtype)
+  term_up_delay_2 = tf.range(-2, num_samples - 2, 1, dtype)
+  term_down = tf.range(num_samples - 1, -1, -1, dtype)
+  term_down_delay_1 = tf.range(num_samples - 2, -2, -1, dtype)
+  term_down_delay_2 = tf.range(num_samples - 3, -3, -1, dtype)
+
+  l1_denominator = tf.cond(num_samples > 0,
+                           lambda: current_samples,
+                           lambda: tf.constant(1, dtype))
+  l1_factors = tf.ones([num_samples], dtype=dtype) / l1_denominator
+  l2_denominator = tf.cond(num_pairs > 0,
+                           lambda: tf.cast(num_pairs * 2, dtype=dtype),
+                           lambda: tf.constant(1, dtype))
+  l2_factors = (term_up - term_down) / l2_denominator
+  l3_denominator = tf.cond(num_triplets > 0,
+                           lambda: tf.cast(num_triplets * 6, dtype=dtype),
+                           lambda: tf.constant(1, dtype))
+  l3_factors = ((term_up * term_up_delay_1 - 4.0 * term_up * term_down +
+                 term_down * term_down_delay_1) / l3_denominator)
+  l4_denominator = tf.cond(num_quadruplets > 0,
+                           lambda: tf.cast(num_quadruplets * 24, dtype=dtype),
+                           lambda: tf.constant(1, dtype))
+  l4_factors = ((term_up * term_up_delay_1 * term_up_delay_2 -
+                 9.0 * term_up * term_up_delay_1 * term_down +
+                 9.0 * term_up * term_down * term_down_delay_1 -
+                 term_down * term_down_delay_1 * term_down_delay_2) /
+                l4_denominator)
+  return (current_samples, current_pairs, current_triplets, current_quadruplets,
+          l1_factors, l2_factors, l3_factors, l4_factors)
+
+
+@tf.function
+def _condition_l_moments_sparse(
+    current_index, unused_l1_sum, unused_l2_sum, unused_l3_sum, unused_l4_sum,
+    unused_count_samples, unused_count_pairs, unused_count_triplets,
+    unused_count_quadruplets, x_rank_2):
+  """Condition for the loop that computes L-moments for a `SparseTensor`."""
+  return tf.less(current_index, x_rank_2.dense_shape[1])
+
+
+@tf.function
+def _iteration_l_moments_sparse(
+    current_index, l1_sum, l2_sum, l3_sum, l4_sum, count_samples,
+    count_pairs, count_triplets, count_quadruplets, x_rank_2):
+  """Process one column of a `SparseTensor` and updates L-moments variables."""
+  current_x = tf.boolean_mask(x_rank_2.values,
+                              x_rank_2.indices[:, 1] == current_index)
+  sorted_x = tf.sort(current_x, axis=0)
+  num_samples = tf.shape(current_x)[0]
+  (current_samples, current_pairs, current_triplets, current_quadruplets,
+   l1_factors, l2_factors, l3_factors,
+   l4_factors) = _num_terms_and_factors(num_samples, x_rank_2.values.dtype)
+
+  dim_1 = x_rank_2.dense_shape[1]
+  new_l1_sum = l1_sum + tf.scatter_nd(
+      [[current_index]],
+      [tf.reduce_sum(tf.multiply(sorted_x, l1_factors), axis=0)], [dim_1])
+  new_l2_sum = l2_sum + tf.scatter_nd(
+      [[current_index]],
+      [tf.reduce_sum(tf.multiply(sorted_x, l2_factors), axis=0)], [dim_1])
+  new_l3_sum = l3_sum + tf.scatter_nd(
+      [[current_index]],
+      [tf.reduce_sum(tf.multiply(sorted_x, l3_factors), axis=0)], [dim_1])
+  new_l4_sum = l4_sum + tf.scatter_nd(
+      [[current_index]],
+      [tf.reduce_sum(tf.multiply(sorted_x, l4_factors), axis=0)], [dim_1])
+
+  new_count_samples = count_samples + tf.scatter_nd(
+      [[current_index]], [current_samples], [dim_1])
+  new_count_pairs = count_pairs + tf.scatter_nd(
+      [[current_index]], [current_pairs], [dim_1])
+  new_count_triplets = count_triplets + tf.scatter_nd(
+      [[current_index]], [current_triplets], [dim_1])
+  new_count_quadruplets = count_quadruplets + tf.scatter_nd(
+      [[current_index]], [current_quadruplets], [dim_1])
+
+  return (tf.add(current_index, 1),
+          new_l1_sum, new_l2_sum, new_l3_sum, new_l4_sum,
+          new_count_samples, new_count_pairs, new_count_triplets,
+          new_count_quadruplets, x_rank_2)
+
+
+@tf.function
+def _condition_l_moments_dense(
+    current_index, unused_l1_sum, unused_l2_sum, unused_l3_sum, unused_l4_sum,
+    unused_l1_factors, unused_l2_factors, unused_l3_factors, unused_l4_factors,
+    x_rank_2):
+  """Condition for the loop that computes L-moments for a `Tensor`."""
+  return tf.less(current_index, tf.shape(x_rank_2)[1])
+
+
+@tf.function
+def _iteration_l_moments_dense(
+    current_index, l1_sum, l2_sum, l3_sum, l4_sum, l1_factors, l2_factors,
+    l3_factors, l4_factors, x_rank_2):
+  """Process one column of a `Tensor` and updates L-moments variables."""
+  current_x = x_rank_2[:, current_index]
+  sorted_x = tf.sort(current_x)
+
+  dim_1 = tf.shape(x_rank_2)[1]
+  new_l1_sum = l1_sum + tf.scatter_nd(
+      [[current_index]],
+      [tf.reduce_sum(tf.multiply(sorted_x, l1_factors), axis=0)], [dim_1])
+  new_l2_sum = l2_sum + tf.scatter_nd(
+      [[current_index]],
+      [tf.reduce_sum(tf.multiply(sorted_x, l2_factors), axis=0)], [dim_1])
+  new_l3_sum = l3_sum + tf.scatter_nd(
+      [[current_index]],
+      [tf.reduce_sum(tf.multiply(sorted_x, l3_factors), axis=0)], [dim_1])
+  new_l4_sum = l4_sum + tf.scatter_nd(
+      [[current_index]],
+      [tf.reduce_sum(tf.multiply(sorted_x, l4_factors), axis=0)], [dim_1])
+  return (tf.add(current_index, 1),
+          new_l1_sum, new_l2_sum, new_l3_sum, new_l4_sum, l1_factors,
+          l2_factors, l3_factors, l4_factors, x_rank_2)
+
+
+def reduce_batch_count_l_moments(x, reduce_instance_dims):
+  """Computes element first 4 L-moments and the corresponding counts.
+
+  Computes the first 4 L-moments (https://en.wikipedia.org/wiki/L-moment) and
+  the number of samples, pairs, etc. used to compute them.
+
+  Args:
+    x: A `Tensor` or `SparseTensor`.
+    reduce_instance_dims: A bool, if True - collapses the batch and instance
+        dimensions to arrive at a single scalar output. Otherwise, only
+        collapses the batch dimension and outputs a `Tensor` of the same shape
+        as the input.
+
+  Returns:
+    The tuple (count_samples, l1, count_pairs, l2, count_triplets, l3,
+    count_quadruplets, l4). Each entry is a `Tensor` with the same dtype as x.
+    If reduce_instnace_dims is True, the tensors are scalars; otherwise the
+    shape is x.shape[1:], i.e. the batch dimension is removed.
+  """
+  if isinstance(x, tf.SparseTensor) and reduce_instance_dims:
+    x = x.values
+
+  if isinstance(x, tf.SparseTensor):
+    batch_size = x.dense_shape[0]
+    x_rank_2 = tf.sparse.reshape(x, [batch_size, -1])
+    dim_1 = x_rank_2.dense_shape[1]
+    initial_values = tf.zeros([dim_1], dtype=x.dtype)
+    (unused_current_index, l1_sum, l2_sum, l3_sum, l4_sum,
+     count_samples, count_pairs, count_triplets,
+     count_quadruplets, unused_x_rank_2) = tf.while_loop(
+         _condition_l_moments_sparse,
+         _iteration_l_moments_sparse,
+         [tf.constant(0, dim_1.dtype)] + [initial_values] * 8 + [x_rank_2])
+    final_shape = (() if reduce_instance_dims else tf.shape(x)[1:])
+    l1 = tf.reshape(l1_sum, final_shape)
+    l2 = tf.reshape(l2_sum, final_shape)
+    l3 = tf.reshape(l3_sum, final_shape)
+    l4 = tf.reshape(l4_sum, final_shape)
+    count_l1 = tf.reshape(count_samples, final_shape)
+    count_l2 = tf.reshape(count_pairs, final_shape)
+    count_l3 = tf.reshape(count_triplets, final_shape)
+    count_l4 = tf.reshape(count_quadruplets, final_shape)
+
+  else:
+    num_samples = tf.size(x) if reduce_instance_dims else tf.shape(x)[0]
+    (count_samples, count_pairs, count_triplets, count_quadruplets,
+     l1_factors, l2_factors, l3_factors, l4_factors) = _num_terms_and_factors(
+         num_samples, x.dtype)
+    x_rank_2 = tf.reshape(x, [num_samples, -1])
+    dim_1 = tf.shape(x_rank_2)[1]
+    initial_moment_values = tf.zeros([dim_1], dtype=x.dtype)
+    (unused_current_index, l1_sum, l2_sum, l3_sum, l4_sum, unused_l1_factors,
+     unused_l2_factors, unused_l3_factors, unused_l4_factors,
+     unused_x_rank_2) = tf.while_loop(
+         _condition_l_moments_dense,
+         _iteration_l_moments_dense,
+         [tf.constant(0, dim_1.dtype)] + [initial_moment_values] * 4 +
+         [l1_factors, l2_factors, l3_factors, l4_factors, x_rank_2])
+    final_shape = (() if reduce_instance_dims else tf.shape(x)[1:])
+    l1 = tf.reshape(l1_sum, final_shape)
+    l2 = tf.reshape(l2_sum, final_shape)
+    l3 = tf.reshape(l3_sum, final_shape)
+    l4 = tf.reshape(l4_sum, final_shape)
+    count_l1 = tf.fill(final_shape, count_samples)
+    count_l2 = tf.fill(final_shape, count_pairs)
+    count_l3 = tf.fill(final_shape, count_triplets)
+    count_l4 = tf.fill(final_shape, count_quadruplets)
+
+  return  (count_l1, l1, count_l2, l2, count_l3, l3, count_l4, l4)
 
 
 def _validate_and_get_dense_value_key_inputs(x, key):
