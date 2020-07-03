@@ -496,32 +496,34 @@ class TFUtilsTest(test_case.TransformTestCase):
           testcase_name='num_samples_1',
           num_samples=1,
           dtype=tf.float32,
-          expected_counts=[1, 0, 0, 0],
-          expected_factors=[[1.0], [0.0], [0.0], [0.0]]),
+          expected_counts=np.array([1, 0, 0, 0], np.float32),
+          expected_factors=np.array([[1.0], [0.0], [0.0], [0.0]], np.float32)),
       dict(
           testcase_name='num_samples_2',
           num_samples=2,
           dtype=tf.float32,
-          expected_counts=[2, 1, 0, 0],
-          expected_factors=[
-              [1. / 2., 1. / 2.], [-1. / 2., 1. / 2.], [0., 0.], [0., 0.]]),
+          expected_counts=np.array([2, 1, 0, 0], np.float32),
+          expected_factors=np.array(
+              [[1. / 2., 1. / 2.], [-1. / 2., 1. / 2.], [0., 0.], [0., 0.]],
+              np.float32)),
       dict(
           testcase_name='num_samples_3',
           num_samples=3,
           dtype=tf.float32,
-          expected_counts=[3, 3, 1, 0],
-          expected_factors=[
-              [1. / 3., 1. / 3., 1. / 3.], [-1. / 3., 0., 1. / 3.],
-              [1. / 3., -2. / 3., 1. / 3.], [0., 0., 0.]]),
+          expected_counts=np.array([3, 3, 1, 0], np.float32),
+          expected_factors=np.array(
+              [[1. / 3., 1. / 3., 1. / 3.], [-1. / 3., 0., 1. / 3.],
+               [1. / 3., -2. / 3., 1. / 3.], [0., 0., 0.]], np.float32)),
       dict(
           testcase_name='num_samples_4',
           num_samples=4,
           dtype=tf.float32,
-          expected_counts=[4, 6, 4, 1],
-          expected_factors=[[1. / 4., 1. / 4., 1. / 4., 1. / 4.],
-                            [-3. / 12., -1. / 12., 1. / 12., 3. / 12.],
-                            [1. / 4., -1. / 4., -1. / 4., 1. / 4.],
-                            [-1. / 4., 3. / 4., -3. / 4., 1. / 4.]]),
+          expected_counts=np.array([4, 6, 4, 1], np.float32),
+          expected_factors=np.array(
+              [[1. / 4., 1. / 4., 1. / 4., 1. / 4.],
+               [-3. / 12., -1. / 12., 1. / 12., 3. / 12.],
+               [1. / 4., -1. / 4., -1. / 4., 1. / 4.],
+               [-1. / 4., 3. / 4., -3. / 4., 1. / 4.]], np.float32))
   ])
   def test_num_terms_and_factors(
       self, num_samples, dtype, expected_counts, expected_factors):
@@ -541,27 +543,29 @@ class TFUtilsTest(test_case.TransformTestCase):
   @test_case.named_parameters(test_case.cross_with_function_handlers([
       dict(
           testcase_name='dense',
-          x=[[[1], [2]], [[3], [4]]],  # shape 2x2x1  count: 2x1 Ls: 1x2x1
-          expected_counts=[4., 6., 4., 1.],
-          expected_moments=[2.5, 10.0 / 12.0, 0.0, 0.0],
+          x=[[[1], [2]], [[3], [4]]],
+          expected_counts=np.array([4., 6., 4., 1.], np.float32),
+          expected_moments=np.array([2.5, 10.0 / 12.0, 0.0, 0.0], np.float32),
           reduce_instance_dims=True,
           input_signature=[tf.TensorSpec(None, tf.float32)]),
       dict(
           testcase_name='dense_large',
           x=[2.0, 3.0, 4.0, 2.4, 5.5, 1.2, 5.4, 2.2, 7.1, 1.3, 1.5],
-          expected_counts=[11, 11 * 10 // 2, 11 * 10 * 9 // 6,
-                           11 * 10 * 9 * 8 // 24],
-          expected_moments=[3.2363636363636363, 1.141818181818182,
-                            0.31272727272727263, 0.026666666666666616],
+          expected_counts=np.array([11, 11 * 10 // 2, 11 * 10 * 9 // 6,
+                                    11 * 10 * 9 * 8 // 24], np.float32),
+          expected_moments=np.array(
+              [3.2363636363636363, 1.141818181818182,
+               0.31272727272727263, 0.026666666666666616], np.float32),
           reduce_instance_dims=True,
           input_signature=[tf.TensorSpec(None, tf.float32)]),
       dict(
           testcase_name='dense_elementwise',
           x=[[[1], [2]], [[3], [4]]],
-          expected_counts=[[[2], [2]], [[1], [1]], [[0], [0]], [[0], [0]]],
-          expected_moments=[
-              [[2.0], [3.0]], [[1.0], [1.0]], [[0.0], [0.0]],
-              [[0.0], [0.0]]],
+          expected_counts=np.array(
+              [[[2], [2]], [[1], [1]], [[0], [0]], [[0], [0]]], np.float32),
+          expected_moments=np.array(
+              [[[2.0], [3.0]], [[1.0], [1.0]], [[0.0], [0.0]],
+               [[0.0], [0.0]]], np.float32),
           reduce_instance_dims=False,
           input_signature=[tf.TensorSpec(None, tf.float32)]),
       dict(
@@ -570,8 +574,9 @@ class TFUtilsTest(test_case.TransformTestCase):
               indices=[[0, 0], [0, 2], [2, 0], [2, 2]],
               values=[1., 2., 3., 4.],
               dense_shape=[3, 4]),
-          expected_counts=[4., 6., 4., 1.],
-          expected_moments=[2.5, 10.0 / 12.0, 0.0, 0.0],
+          expected_counts=np.array([4, 6, 4, 1], np.float32),
+          expected_moments=np.array(
+              [2.5, 10.0 / 12.0, 0.0, 0.0], np.float32),
           reduce_instance_dims=True,
           input_signature=[
               tf.SparseTensorSpec([None, 4], tf.float32)
@@ -583,14 +588,16 @@ class TFUtilsTest(test_case.TransformTestCase):
                        [3, 3, 0]],
               values=[1., 2., 3., 4., 5.],
               dense_shape=[3, 5, 1]),
-          expected_counts=[[[2], [0], [2], [1], [0]],
-                           [[1], [0], [1], [0], [0]],
-                           [[0], [0], [0], [0], [0]],
-                           [[0], [0], [0], [0], [0]]],
-          expected_moments=[[[2.0], [0.0], [3.0], [5.0], [0.0]],
-                            [[1.0], [0.0], [1.0], [0.0], [0.0]],
-                            [[0.0], [0.0], [0.0], [0.0], [0.0]],
-                            [[0.0], [0.0], [0.0], [0.0], [0.0]]],
+          expected_counts=np.array(
+              [[[2], [0], [2], [1], [0]],
+               [[1], [0], [1], [0], [0]],
+               [[0], [0], [0], [0], [0]],
+               [[0], [0], [0], [0], [0]]], np.float32),
+          expected_moments=np.array(
+              [[[2.0], [0.0], [3.0], [5.0], [0.0]],
+               [[1.0], [0.0], [1.0], [0.0], [0.0]],
+               [[0.0], [0.0], [0.0], [0.0], [0.0]],
+               [[0.0], [0.0], [0.0], [0.0], [0.0]]], np.float32),
           reduce_instance_dims=False,
           input_signature=[
               tf.SparseTensorSpec([None, 4, 1], tf.float32)
@@ -608,9 +615,10 @@ class TFUtilsTest(test_case.TransformTestCase):
     count_and_moments = _reduce_batch_count_l_moments(x)
     counts = count_and_moments[0::2]
     moments = count_and_moments[1::2]
-
     for i in range(0, 4):
+      self.assertEqual(counts[i].dtype, expected_counts[i].dtype)
       self.assertAllClose(counts[i], expected_counts[i], rtol=1e-8)
+      self.assertEqual(moments[i].dtype, expected_moments[i].dtype)
       self.assertAllClose(moments[i], expected_moments[i], rtol=1e-8)
 
   @test_case.named_parameters(test_case.cross_with_function_handlers([

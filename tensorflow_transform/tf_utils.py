@@ -515,7 +515,7 @@ def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
 
     col_count, col_indices = x.dense_shape[1], x.indices[:, 1]
     x_sum = tf.math.unsorted_segment_sum(x.values, col_indices, col_count)
-    x_mean = tf.where(x_count > 0,
+    x_mean = tf.where(tf.math.greater(x_count, 0),
                       x_sum / x_count,
                       tf.zeros_like(x_count, dtype=x.dtype))
 
@@ -524,7 +524,7 @@ def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
 
     col_sum_of_squares = tf.math.unsorted_segment_sum(
         tf.square(x_minus_mean), col_indices, col_count)
-    x_variance = tf.where(x_count > 0,
+    x_variance = tf.where(tf.math.greater(x_count, 0),
                           col_sum_of_squares / x_count,
                           tf.zeros_like(x_count, dtype=x.dtype))
 
@@ -561,27 +561,27 @@ def _num_terms_and_factors(num_samples, dtype):
   current_triplets = tf.cast(num_triplets, dtype=dtype)
   current_quadruplets = tf.cast(num_quadruplets, dtype=dtype)
 
-  term_up = tf.range(0, num_samples, 1, dtype)
-  term_up_delay_1 = tf.range(-1, num_samples - 1, 1, dtype)
-  term_up_delay_2 = tf.range(-2, num_samples - 2, 1, dtype)
-  term_down = tf.range(num_samples - 1, -1, -1, dtype)
-  term_down_delay_1 = tf.range(num_samples - 2, -2, -1, dtype)
-  term_down_delay_2 = tf.range(num_samples - 3, -3, -1, dtype)
+  term_up = tf.range(0, current_samples, 1, dtype=dtype)
+  term_up_delay_1 = tf.range(-1, current_samples - 1, 1, dtype=dtype)
+  term_up_delay_2 = tf.range(-2, current_samples - 2, 1, dtype=dtype)
+  term_down = tf.range(current_samples - 1, -1, -1, dtype=dtype)
+  term_down_delay_1 = tf.range(current_samples - 2, -2, -1, dtype=dtype)
+  term_down_delay_2 = tf.range(current_samples - 3, -3, -1, dtype=dtype)
 
-  l1_denominator = tf.cond(num_samples > 0,
+  l1_denominator = tf.cond(tf.math.greater(num_samples, 0),
                            lambda: current_samples,
                            lambda: tf.constant(1, dtype))
   l1_factors = tf.ones([num_samples], dtype=dtype) / l1_denominator
-  l2_denominator = tf.cond(num_pairs > 0,
+  l2_denominator = tf.cond(tf.math.greater(num_pairs, 0),
                            lambda: tf.cast(num_pairs * 2, dtype=dtype),
                            lambda: tf.constant(1, dtype))
   l2_factors = (term_up - term_down) / l2_denominator
-  l3_denominator = tf.cond(num_triplets > 0,
+  l3_denominator = tf.cond(tf.math.greater(num_triplets, 0),
                            lambda: tf.cast(num_triplets * 6, dtype=dtype),
                            lambda: tf.constant(1, dtype))
   l3_factors = ((term_up * term_up_delay_1 - 4.0 * term_up * term_down +
                  term_down * term_down_delay_1) / l3_denominator)
-  l4_denominator = tf.cond(num_quadruplets > 0,
+  l4_denominator = tf.cond(tf.math.greater(num_quadruplets, 0),
                            lambda: tf.cast(num_quadruplets * 24, dtype=dtype),
                            lambda: tf.constant(1, dtype))
   l4_factors = ((term_up * term_up_delay_1 * term_up_delay_2 -
@@ -607,8 +607,9 @@ def _iteration_l_moments_sparse(
     current_index, l1_sum, l2_sum, l3_sum, l4_sum, count_samples,
     count_pairs, count_triplets, count_quadruplets, x_rank_2):
   """Process one column of a `SparseTensor` and updates L-moments variables."""
-  current_x = tf.boolean_mask(x_rank_2.values,
-                              x_rank_2.indices[:, 1] == current_index)
+  current_x = tf.boolean_mask(
+      x_rank_2.values,
+      tf.math.equal(x_rank_2.indices[:, 1], [current_index]))
   sorted_x = tf.sort(current_x, axis=0)
   num_samples = tf.shape(current_x)[0]
   (current_samples, current_pairs, current_triplets, current_quadruplets,
@@ -695,7 +696,7 @@ def reduce_batch_count_l_moments(x, reduce_instance_dims):
   Returns:
     The tuple (count_samples, l1, count_pairs, l2, count_triplets, l3,
     count_quadruplets, l4). Each entry is a `Tensor` with the same dtype as x.
-    If reduce_instnace_dims is True, the tensors are scalars; otherwise the
+    If reduce_instance_dims is True, the tensors are scalars; otherwise the
     shape is x.shape[1:], i.e. the batch dimension is removed.
   """
   if isinstance(x, tf.SparseTensor) and reduce_instance_dims:
