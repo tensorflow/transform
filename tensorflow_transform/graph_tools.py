@@ -37,8 +37,11 @@ import six
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import tf_utils
-from tensorflow.python.framework import composite_tensor  # pylint: disable=g-direct-tensorflow-import
-from tensorflow.python.framework import function_def_to_graph  # pylint: disable=g-direct-tensorflow-import
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.framework import composite_tensor
+from tensorflow.python.framework import function_def_to_graph
+from tensorflow.python.util import object_identity
+# pylint: enable=g-direct-tensorflow-import
 
 _INITIALIZABLE_TABLE_OP_TYPES = [
     'CuckooTable',
@@ -78,7 +81,40 @@ def _decompose_tensor_or_op(tensor_or_op):
     yield tensor_or_op
 
 
-def _get_func_graph_for_name(graph, func_name):
+def retrieve_sources(sinks):
+  """Captures subgraph between sources and sinks.
+
+  Walk a Graph backwards from `sinks` and return any sources encountered in the
+  subgraph. This util is refactored from `_map_subgraph` in
+  tensorflow/.../ops/op_selector.py.
+
+  Arguments:
+    sinks:  An iterable of Operations where the subgraph terminates.
+
+  Returns:
+    The set of placeholders upon which `sinks` depend. This could also contain
+    placeholders representing `captures` in the graph.
+  """
+  stop_at_tensors = object_identity.ObjectIdentitySet()
+  ops_to_visit = object_identity.ObjectIdentitySet(sinks)
+  visited_ops = object_identity.ObjectIdentitySet()
+  potential_extra_sources = object_identity.ObjectIdentitySet()
+  while ops_to_visit:
+    op = ops_to_visit.pop()
+    visited_ops.add(op)
+
+    if op.type == 'Placeholder':
+      potential_extra_sources.update(op.outputs)
+
+    input_ops = [t.op for t in op.inputs if t not in stop_at_tensors]
+    for input_op in itertools.chain(input_ops, op.control_inputs):
+      if input_op not in visited_ops:
+        ops_to_visit.add(input_op)
+
+  return potential_extra_sources
+
+
+def get_func_graph_for_name(graph, func_name):
   """Returns the FuncGraph associated to the given func_name if possible."""
   while graph is not None:
     func = graph._get_function(str(func_name))  # pylint: disable=protected-access
@@ -234,7 +270,7 @@ class _GraphAnalyzer(object):
         attr.name for attr in tensor_or_op.op_def.attr if attr.type == 'func'
     ]
     func_names = [tensor_or_op.get_attr(str(n)).name for n in func_attributes]
-    func_graphs = [_get_func_graph_for_name(self._graph, n) for n in func_names]
+    func_graphs = [get_func_graph_for_name(self._graph, n) for n in func_names]
 
     result = []
     for func_graph in func_graphs:

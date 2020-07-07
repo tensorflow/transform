@@ -17,7 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import itertools
+import copy
 
 # GOOGLE-INITIALIZATION
 
@@ -29,43 +29,8 @@ from tensorflow_transform.saved import saved_transform_io
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.framework import composite_tensor
 from tensorflow.python.framework import ops
-from tensorflow.python.util import nest
 from tensorflow.python.util import object_identity
 # pylint: enable=g-direct-tensorflow-import
-
-
-# TODO(varshaan): Move to graph_tools. This util is refactored from
-# ops/op_selector.py.
-def _map_subgraph(sources, sinks):
-  """Captures subgraph between sources and sinks.
-
-  Walk a Graph backwards from `sinks` to `sources` and returns any extra sources
-  encountered in the subgraph that were not specified in `sources`.
-
-  Arguments:
-    sources:  An iterable of Tensors where subgraph extraction should stop.
-    sinks:  An iterable of Operations where the subgraph terminates.
-
-  Returns:
-    The set of placeholders upon which `sinks` depend and are not in `sources`.
-  """
-  stop_at_tensors = object_identity.ObjectIdentitySet(sources)
-  ops_to_visit = object_identity.ObjectIdentitySet(sinks)
-  visited_ops = object_identity.ObjectIdentitySet()
-  potential_extra_sources = object_identity.ObjectIdentitySet()
-  while ops_to_visit:
-    op = ops_to_visit.pop()
-    visited_ops.add(op)
-
-    if op.type == 'Placeholder':
-      potential_extra_sources.update(op.outputs)
-
-    input_ops = [t.op for t in op.inputs if t not in stop_at_tensors]
-    for input_op in itertools.chain(input_ops, op.control_inputs):
-      if input_op not in visited_ops:
-        ops_to_visit.add(input_op)
-
-  return potential_extra_sources.difference(sources)
 
 
 class SavedModelLoader(object):
@@ -80,48 +45,129 @@ class SavedModelLoader(object):
         defined in `../constants.py` ('transform' and 'transform_signature',
         respectively).
     """
-    self._imported = tf.compat.v2.saved_model.load(saved_model_dir,
-                                                   [constants.TRANSFORM_TAG])
-    self._wrapped = self._imported.signatures[constants.TRANSFORM_SIGNATURE]
-    self._input_signature = self._get_input_signature(saved_model_dir)
+    self._imported = tf.compat.v2.saved_model.load(saved_model_dir)
+    self._load_v2_in_compat = (
+        constants.TRANSFORM_SIGNATURE in self._imported.signatures)
+    if self._load_v2_in_compat:
+      self._wrapped = self._imported.signatures[constants.TRANSFORM_SIGNATURE]
+      self._func_graph = self._wrapped.graph
+      self._structured_inputs = self._get_input_signature_from_v1_saved_model(
+          saved_model_dir)
+      structured_outputs = self._wrapped.structured_outputs
+    else:
+      self._wrapped = self._imported.transform_fn
+      self._func_graph = self._get_func_graph_from_v2_saved_model(
+          self._wrapped.get_concrete_function().graph)
+      self._structured_inputs = self._get_structured_inputs_from_func_graph(
+          self._func_graph)
+      structured_outputs = tf.nest.pack_sequence_as(
+          self._func_graph.structured_outputs,
+          self._func_graph.outputs,
+          expand_composites=True)
+    self._output_to_inputs_map = (
+        self._get_output_to_inputs_map(structured_outputs))
 
-  def _get_input_signature(self, saved_model_dir):
+  def _get_input_signature_from_v1_saved_model(self, saved_model_dir):
+    """Get structured inputs for a TF1 compat SavedModel."""
     saved_model = saved_model_loader.parse_saved_model(saved_model_dir)
     meta_graph_def = saved_model_loader.choose_meta_graph_def(
         saved_model, [constants.TRANSFORM_TAG])
     signature = meta_graph_def.signature_def[constants.TRANSFORM_SIGNATURE]
     return signature.inputs
 
+  def _get_func_graph_from_v2_saved_model(self, outer_graph):
+    """Retrieves nested func graph from `outer_graph`."""
+    # TODO(b/160550490): Remove local import.
+    from tensorflow_transform import graph_tools  # pylint: disable=g-import-not-at-top
+
+    # `outer_graph` represents the func graph of a TF function imported from a
+    # SavedModel. `outer_graph`'s graph_def contains a single
+    # StatefulPartitionedCall/PartitionedCall representing the TF function
+    # before export to a SavedModel. We extract the func graph of this attribute
+    # as this is the graph we want to walk.
+    functions = []
+    for node in outer_graph.as_graph_def().node:
+      if node.op not in ('PartitionedCall', 'StatefulPartitionedCall'):
+        continue
+      for key in node.attr:
+        if node.attr[key].func.name:
+          functions.append(node.attr[key].func.name)
+    # At the outermost level, there should only be one function.
+    assert len(functions) == 1
+    return graph_tools.get_func_graph_for_name(outer_graph, functions[0])
+
+  def _get_structured_inputs_from_func_graph(self, func_graph):
+    """Get structured inputs to a FuncGraph.
+
+    Args:
+      func_graph: A `FuncGraph` object.
+
+    Returns:
+      Input graph tensors of `func_graph` formatted as possibly-nested python
+      objects received by it.
+    """
+    # structured_input_signature is a tuple of (args, kwargs). [0][0] retrieves
+    # the structure of the first arg, which for the preprocessing function is
+    # the dictionary of features.
+    input_signature = func_graph.structured_input_signature[0][0]
+    # `func_graph.inputs` contains placeholders that represent regular inputs
+    # followed by captured inputs. We are only interested in the regular inputs.
+    num_captures = len(func_graph.internal_captures)
+    graph_inputs = copy.copy(func_graph.inputs)
+    if num_captures > 0:
+      graph_inputs = graph_inputs[:-num_captures]
+    return tf.nest.pack_sequence_as(
+        input_signature, graph_inputs, expand_composites=True)
+
+  def _get_output_to_inputs_map(self, output_signature):
+    # TODO(b/160550490): Remove local import.
+    from tensorflow_transform import graph_tools  # pylint: disable=g-import-not-at-top
+
+    result = {}
+    for name, output in six.iteritems(output_signature):
+      components = self._get_component_tensors(output)
+      sinks = [self._as_operation(component) for component in components]
+      result[name] = graph_tools.retrieve_sources(sinks)
+    return result
+
   def _as_operation(self, op_or_tensor):
     if isinstance(op_or_tensor, ops.Tensor):
       return op_or_tensor.op
     return op_or_tensor
 
-  def _get_component_tensor_ops(self, tensor):
-    """Get all component tensors as Tensorflow ops.
+  def _get_component_tensors(self, tensor):
+    """Get all component tensors.
 
     Args:
       tensor: A `Tensor` or `CompositeTensor`.
 
     Returns:
-      All `Tensor` component ops of `tensor`.
+      All `Tensor` components of `tensor`.
 
     Raises:
       ValueError if supplied `tensor` parameter is neither a `Tensor` nor a
       `CompositeTensor`.
     """
-    components = None
     if isinstance(tensor, ops.Tensor):
-      components = [tensor]
+      return [tensor]
     elif isinstance(tensor, composite_tensor.CompositeTensor):
-      components = nest.flatten(tensor, expand_composites=True)
+      return tf.nest.flatten(tensor, expand_composites=True)
     else:
       raise ValueError(
           'Unsupported tensor. Arg `tensor` is neither a `Tensor` nor a '
           '`CompositeTensor`: {}.'.format(tensor))
-    return [self._as_operation(component) for component in components]
 
-  def apply_v1_transform_model_in_v2(self, logical_input_map):
+  def _get_fetches(self, feeds):
+    result = {}
+    for name, output in six.iteritems(self._func_graph.structured_outputs):
+      extra_sources = self._output_to_inputs_map[name].difference(feeds)
+      # If output does not depend on an input placeholder that is not being fed,
+      # add it to fetches.
+      if not extra_sources.difference(self._func_graph.internal_captures):
+        result[name] = output
+    return result
+
+  def _apply_v1_transform_model_in_v2(self, logical_input_map):
     """Applies a V1 transform graph to `Tensor`s.
 
     This method applies the transformation graph as a pruned function to the
@@ -138,33 +184,86 @@ class SavedModelLoader(object):
       A dict of logical name to Tensor, as provided by the output signature of
       the transform graph.
     """
+    input_map = (
+        saved_transform_io._expand_input_map(  # pylint: disable=protected-access
+            logical_input_map, self._structured_inputs))
+
+    feeds = []
+    pruned_input_args = []
+    for name in six.iterkeys(input_map):
+      tensor = self._func_graph.get_tensor_by_name(name)
+      tensor.shape.assert_is_compatible_with(input_map[name].shape)
+      feeds.append(tensor)
+      pruned_input_args.append(input_map[name])
+
+    fetches = self._get_fetches(feeds)
+    pruned = self._wrapped.prune(feeds, fetches)
+    return pruned(*pruned_input_args)
+
+  def _apply_v2_transform_model(self, logical_input_map):
+    """Applies a V2 transform graph to `Tensor`s.
+
+    This method applies the transformation graph to the `logical_input_map` to
+    return only outputs that can be computed from the keys provided in
+    `logical_input_map`.
+
+    Args:
+      logical_input_map: a dict of logical name to Tensor.  The logical names
+        must be a subset of those in the input signature of the transform graph,
+        and the corresponding Tensors must have the expected types and shapes.
+
+    Returns:
+      A dict of logical name to Tensor, as provided by the output signature of
+      the transform graph.
+    """
+    # TODO(b/160550490): Remove local import.
+    from tensorflow_transform import tf2_utils  # pylint: disable=g-import-not-at-top
+
+    feeds = object_identity.ObjectIdentitySet(self._func_graph.inputs)
+    unfed_input_keys = (
+        set(six.iterkeys(self._structured_inputs)) -
+        set(six.iterkeys(logical_input_map)))
+    for input_key in unfed_input_keys:
+      unfed_input_components = self._get_component_tensors(
+          self._structured_inputs[input_key])
+      feeds = feeds.difference(unfed_input_components)
+
+    modified_inputs = copy.copy(logical_input_map)
+    if unfed_input_keys:
+      batch_size = 1
+      if logical_input_map:
+        an_input = next(six.itervalues(logical_input_map))
+        if tf.shape(an_input)[0] is not None:
+          batch_size = tf.shape(an_input)[0]
+      missing_inputs = (
+          tf2_utils.supply_missing_inputs(self._structured_inputs, batch_size,
+                                          unfed_input_keys))
+      modified_inputs.update(missing_inputs)
+
+    fetches = self._get_fetches(feeds)
+    transformed_features = self._wrapped(modified_inputs)
+    return {key: transformed_features[key] for key in fetches.keys()}
+
+  def apply_transform_model(self, logical_input_map):
+    """Applies a transform graph to `Tensor`s.
+
+    Args:
+      logical_input_map: a dict of logical name to Tensor.  The logical names
+        must be a subset of those in the input signature of the transform graph,
+        and the corresponding Tensors must have the expected types and shapes.
+
+    Returns:
+      A dict of logical name to Tensor, as provided by the output signature of
+      the transform graph.
+    """
     unexpected_inputs = (
         set(six.iterkeys(logical_input_map)) -
-        set(six.iterkeys(self._input_signature)))
+        set(six.iterkeys(self._structured_inputs)))
     if unexpected_inputs:
       raise ValueError(
           'Unexpected inputs to transform: {}'.format(unexpected_inputs))
 
-    input_map = (
-        saved_transform_io._expand_input_map(  # pylint: disable=protected-access
-            logical_input_map, self._input_signature))
-    remapped_inputs = {}
-    feeds = []
-    for name in six.iterkeys(input_map):
-      tensor = self._wrapped.graph.get_tensor_by_name(name)
-      tensor.shape.assert_is_compatible_with(input_map[name].shape)
-      remapped_inputs[tensor.op.name] = input_map[name]
-      feeds.append(tensor)
-
-    output_signature = self._wrapped.structured_outputs
-    fetches = {}
-    for name, output in six.iteritems(output_signature):
-      sinks = self._get_component_tensor_ops(output)
-      extra_sources = _map_subgraph(feeds, sinks)
-      # If output does not depend on an input placeholder that is not being fed,
-      # add it to fetches.
-      if not extra_sources.difference(self._wrapped.graph.internal_captures):
-        fetches[name] = output
-
-    pruned = self._wrapped.prune(feeds, fetches)
-    return pruned(**remapped_inputs)
+    if self._load_v2_in_compat:
+      return self._apply_v1_transform_model_in_v2(logical_input_map)
+    else:
+      return self._apply_v2_transform_model(logical_input_map)

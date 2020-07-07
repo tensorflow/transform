@@ -314,7 +314,7 @@ class TransformFeaturesLayer(tf.keras.layers.Layer):
   def call(self, inputs):
     # TODO(b/160294509): Use tf.compat.v1 when we stop supporting TF 1.15.
     if ops.executing_eagerly_outside_functions():
-      return self._saved_model_loader.apply_v1_transform_model_in_v2(inputs)
+      return self._saved_model_loader.apply_transform_model(inputs)
     else:
       tf.compat.v1.logging.warning('Falling back to transform_raw_features...')
       return self._tft_output.transform_raw_features(

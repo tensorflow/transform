@@ -165,18 +165,14 @@ class CensusExampleV2Test(tft_test_case.TransformTestCase):
 
     actual_model_path = os.path.join(model_path, '1')
     tf.keras.backend.clear_session()
-    with tf.compat.v1.Graph().as_default():
-      model = tf.keras.models.load_model(actual_model_path)
-      model.summary()
+    model = tf.keras.models.load_model(actual_model_path)
+    model.summary()
 
-      example = text_format.Parse(_PREDICT_TF_EXAMPLE_TEXT_PB,
-                                  tf.train.Example())
-      prediction = model.signatures['serving_default'](
-          tf.constant([example.SerializeToString()], tf.string))
-      with tf.compat.v1.keras.backend.get_session() as sess:
-        prediction = sess.run(prediction)
-      self.assertAllEqual([['0', '1']], prediction['classes'])
-      self.assertAllClose([[0, 1]], prediction['scores'], atol=0.001)
+    example = text_format.Parse(_PREDICT_TF_EXAMPLE_TEXT_PB, tf.train.Example())
+    prediction = model.signatures['serving_default'](
+        tf.constant([example.SerializeToString()], tf.string))
+    self.assertAllEqual([['0', '1']], prediction['classes'])
+    self.assertAllClose([[0, 1]], prediction['scores'], atol=0.001)
 
     # This is required in order to support the classify API for this Keras
     # model.

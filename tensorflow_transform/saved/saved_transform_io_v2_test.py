@@ -18,55 +18,125 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import shutil
 import tempfile
 
 # GOOGLE-INITIALIZATION
 import numpy as np
+import six
 import tensorflow as tf
+from tensorflow_transform import test_case
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.saved import saved_transform_io_v2
-import tensorflow_transform.test_case as tft_test_case
 
-from tensorflow.core.protobuf import meta_graph_pb2  # pylint: disable=g-direct-tensorflow-import
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.core.protobuf import meta_graph_pb2
+from tensorflow.python.lib.io import file_io
+from tensorflow.python.ops import lookup_ops
+from tensorflow.python.training.tracking import tracking
+# pylint: enable=g-direct-tensorflow-import
+
+_TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES = [
+    dict(testcase_name='_exported_in_tf1', exported_in_tf1=True),
+    dict(testcase_name='_exported_in_tf2', exported_in_tf1=False)
+]
 
 
 # TODO(b/123241798): Find an open-source compatible way to access
 # FLAGS.test_tmpdir.
-def _create_test_saved_model():
-  export_path = os.path.join(tempfile.mkdtemp(), 'export')
-
-  with tf.compat.v1.Graph().as_default():
-    with tf.compat.v1.Session().as_default() as session:
-      input_float = tf.compat.v1.placeholder(tf.float32, shape=[1])
-      output = (input_float - 2.0) / 5.0
-      inputs = {'x': input_float}
-      outputs = {'x_scaled': output}
-      saved_transform_io.write_saved_transform_from_session(
-          session, inputs, outputs, export_path)
-
+def _create_test_saved_model(export_in_tf1,
+                             input_specs,
+                             foo,
+                             export_path_suffix=None):
+  if not export_path_suffix:
+    export_path = os.path.join(tempfile.mkdtemp(), 'export')
+  else:
+    export_path = os.path.join(tempfile.mkdtemp(), export_path_suffix)
+  if export_in_tf1:
+    with tf.compat.v1.Graph().as_default():
+      with tf.compat.v1.Session().as_default() as session:
+        inputs = {}
+        for key in six.iterkeys(input_specs):
+          tensor_spec = input_specs[key]
+          if isinstance(tensor_spec, tf.TensorSpec):
+            inputs[key] = tf.compat.v1.placeholder(
+                tensor_spec.dtype, shape=tensor_spec.shape)
+          elif isinstance(tensor_spec, tf.SparseTensorSpec):
+            inputs[key] = tf.compat.v1.sparse_placeholder(
+                tensor_spec.dtype, shape=tensor_spec.shape)
+          elif isinstance(tensor_spec, tf.RaggedTensorSpec):
+            inputs[key] = tf.compat.v1.ragged.placeholder(
+                tensor_spec._dtype, tensor_spec._ragged_rank, [])
+          else:
+            raise ValueError(
+                'TypeSpecs specified should be one of `tf.TensorSpec`, '
+                '`tf.SparseTensorSpec`, `tf.RaggedTensorSpec`')
+        outputs = foo(inputs)
+        # show that unrelated & unmapped placeholders do not interfere
+        tf.compat.v1.placeholder(tf.int64)
+        saved_transform_io.write_saved_transform_from_session(
+            session, inputs, outputs, export_path)
+  else:
+    module = tf.Module()
+    module.transform_fn = tf.function(foo, input_signature=[input_specs])
+    resource_tracker = tracking.ResourceTracker()
+    with tracking.resource_tracker_scope(resource_tracker):
+      _ = module.transform_fn.get_concrete_function()
+    module.resources = resource_tracker.resources
+    # TODO(b/158011374) - Stop explicitly tracking initializers once tables
+    # track their initializers.
+    initializers = []
+    for resource in module.resources:
+      if isinstance(resource, lookup_ops.InitializableLookupTableBase):
+        initializers.append(resource._initializer)
+    module.initializers = initializers
+    tf.saved_model.save(module, export_path)
   return export_path
 
 
-class SavedTransformIOV2Test(tf.test.TestCase):
+class SavedTransformIOV2Test(test_case.TransformTestCase):
 
   @classmethod
   def setUpClass(cls):
-    tft_test_case.skip_if_not_tf2('Tensorflow 2.x required.')
-    cls._test_saved_model = _create_test_saved_model()
-    cls._saved_model_loader = saved_transform_io_v2.SavedModelLoader(
-        cls._test_saved_model)
+    test_case.skip_if_not_tf2('Tensorflow 2.x required.')
+    input_specs = {
+        'x': tf.TensorSpec([
+            None,
+        ], dtype=tf.float32)
+    }
 
-  def test_apply_saved_transform(self):
+    def foo(inputs):
+      output = (inputs['x'] - 2.0) / 5.0
+      return {'x_scaled': output}
+
+    cls._saved_model_path_v1 = _create_test_saved_model(True, input_specs, foo,
+                                                        'export_v1')
+    cls._saved_model_loader_v1 = saved_transform_io_v2.SavedModelLoader(
+        cls._saved_model_path_v1)
+    cls._saved_model_path_v2 = _create_test_saved_model(False, input_specs, foo,
+                                                        'export_v2')
+    cls._saved_model_loader_v2 = saved_transform_io_v2.SavedModelLoader(
+        cls._saved_model_path_v2)
+
+  def _get_saved_model_loader(self, exported_in_tf1):
+    if exported_in_tf1:
+      return self._saved_model_loader_v1
+    return self._saved_model_loader_v2
+
+  @test_case.named_parameters(*_TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES)
+  def test_apply_saved_transform(self, exported_in_tf1):
     input_floats = tf.constant([1237.0])  # tf.float32
     input_features = {'x': input_floats}
     transformed_features = (
-        self._saved_model_loader.apply_v1_transform_model_in_v2(input_features))
+        self._get_saved_model_loader(exported_in_tf1).apply_transform_model(
+            input_features))
     self.assertEqual(['x_scaled'], list(transformed_features))
     result_tensor = transformed_features['x_scaled']
     self.assertIsInstance(result_tensor, tf.Tensor)
     self.assertAllEqual(result_tensor.numpy(), [247.0])
 
-  def test_apply_transform_extra_features_no_passthrough(self):
+  @test_case.named_parameters(*_TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES)
+  def test_apply_transform_extra_features_no_passthrough(self, exported_in_tf1):
     with self.assertRaises(ValueError):
       input_floats = tf.constant([1237.0])  # tf.float32
       input_features = {
@@ -74,105 +144,105 @@ class SavedTransformIOV2Test(tf.test.TestCase):
           'extra_1': tf.constant('1'),
           'extra_2': tf.constant('2')
       }
-      self._saved_model_loader.apply_v1_transform_model_in_v2(input_features)
+      self._get_saved_model_loader(exported_in_tf1).apply_transform_model(
+          input_features)
 
-  def test_apply_transform_type_mismatch(self):
-    with self.assertRaises(tf.errors.InvalidArgumentError):
+  @test_case.named_parameters(*_TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES)
+  def test_apply_transform_type_mismatch(self, exported_in_tf1):
+    if exported_in_tf1:
+      exception_type = tf.errors.InvalidArgumentError
+    else:
+      exception_type = ValueError
+    with self.assertRaises(exception_type):
       input_strings = tf.constant(['bogus'])  # tf.string
       input_features = {'x': input_strings}
-      self._saved_model_loader.apply_v1_transform_model_in_v2(input_features)
+      self._get_saved_model_loader(exported_in_tf1).apply_transform_model(
+          input_features)
 
-  def test_apply_transform_shape_mismatch(self):
+  @test_case.named_parameters(*_TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES)
+  def test_apply_transform_shape_mismatch(self, exported_in_tf1):
     with self.assertRaises(ValueError):
       input_floats = tf.constant(1237.0)  # tf.float32
       input_features = {'x': input_floats}
-      self._saved_model_loader.apply_v1_transform_model_in_v2(input_features)
+      self._get_saved_model_loader(exported_in_tf1).apply_transform_model(
+          input_features)
 
-  def test_apply_saved_transform_to_tensor_inside_scope(self):
+  @test_case.named_parameters(*_TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES)
+  def test_apply_saved_transform_to_tensor_inside_scope(self, exported_in_tf1):
     with tf.compat.v1.name_scope('my_scope'):
       input_floats = tf.constant([1237.0])  # tf.float32
       input_features = {'x': input_floats}
       transformed_features = (
-          self._saved_model_loader.apply_v1_transform_model_in_v2(
+          self._get_saved_model_loader(exported_in_tf1).apply_transform_model(
               input_features))
       self.assertEqual(['x_scaled'], list(transformed_features))
       result_tensor = transformed_features['x_scaled']
       self.assertIsInstance(result_tensor, tf.Tensor)
       self.assertAllEqual(result_tensor.numpy(), [247.0])
 
-  def test_apply_saved_transform_to_tensor_outside_scope(self):
+  @test_case.named_parameters(*_TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES)
+  def test_apply_saved_transform_to_tensor_outside_scope(self, exported_in_tf1):
     input_floats = tf.constant([1237.0])  # tf.float32
     with tf.compat.v1.name_scope('my_scope'):
       input_features = {'x': input_floats}
       transformed_features = (
-          self._saved_model_loader.apply_v1_transform_model_in_v2(
+          self._get_saved_model_loader(exported_in_tf1).apply_transform_model(
               input_features))
       self.assertEqual(['x_scaled'], list(transformed_features))
       result_tensor = transformed_features['x_scaled']
       self.assertIsInstance(result_tensor, tf.Tensor)
       self.assertAllEqual(result_tensor.numpy(), [247.0])
 
-  def test_dense_roundtrip(self):
-    export_path = os.path.join(tempfile.mkdtemp(), 'export')
+  @test_case.named_parameters(*_TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES)
+  def test_dense_roundtrip(self, exported_in_tf1):
+    input_specs = {'input': tf.TensorSpec([], dtype=tf.float32)}
 
-    with tf.compat.v1.Graph().as_default():
-      with tf.compat.v1.Session().as_default() as session:
-        input_float = tf.compat.v1.placeholder(tf.float32)
-        # show that unrelated & unmapped placeholders do not interfere
-        tf.compat.v1.placeholder(tf.int64)
-        output = input_float / 5.0
-        inputs = {'input': input_float}
-        outputs = {'output': output}
-        saved_transform_io.write_saved_transform_from_session(
-            session, inputs, outputs, export_path)
+    def foo(inputs):
+      return {'output': inputs['input'] / 5.0}
+
+    export_path = _create_test_saved_model(exported_in_tf1, input_specs, foo)
 
     # Using a computed input gives confidence that the graphs are fused.
     input_float = tf.constant(25.0) * 2
     inputs = {'input': input_float}
     saved_model_loader = saved_transform_io_v2.SavedModelLoader(export_path)
-    outputs = saved_model_loader.apply_v1_transform_model_in_v2(inputs)
+    outputs = saved_model_loader.apply_transform_model(inputs)
     # (25 * 2) / 5 = 10
     self.assertEqual(10.0, outputs['output'].numpy())
 
-  def test_table_roundtrip(self):
-    export_path = os.path.join(tempfile.mkdtemp(), 'export')
+  @test_case.named_parameters(*_TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES)
+  def test_table_roundtrip(self, exported_in_tf1):
+    input_specs = {'input': tf.TensorSpec([], dtype=tf.string)}
 
-    with tf.compat.v1.Graph().as_default():
-      with tf.compat.v1.Session().as_default() as session:
-        input_string = tf.compat.v1.placeholder(tf.string)
-        # Map string through a table, in this case based on a constant tensor.
-        table_keys = ['cat', 'dog', 'giraffe']
-        initializer = tf.lookup.KeyValueTensorInitializer(
-            keys=table_keys,
-            values=tf.cast(tf.range(len(table_keys)), tf.int64),
-            key_dtype=tf.string,
-            value_dtype=tf.int64)
-        table = tf.lookup.StaticHashTable(initializer, default_value=-1)
+    def foo(inputs):
+      table_keys = ['cat', 'dog', 'giraffe']
+      initializer = tf.lookup.KeyValueTensorInitializer(
+          keys=table_keys,
+          values=tf.cast(tf.range(len(table_keys)), tf.int64),
+          key_dtype=tf.string,
+          value_dtype=tf.int64)
+      table = tf.lookup.StaticHashTable(initializer, default_value=-1)
+      return {'output': table.lookup(inputs['input'])}
 
-        output = table.lookup(input_string)
-        inputs = {'input': input_string}
-        outputs = {'output': output}
-        saved_transform_io.write_saved_transform_from_session(
-            session, inputs, outputs, export_path)
+    export_path = _create_test_saved_model(exported_in_tf1, input_specs, foo)
 
     # Using a computed input gives confidence that the graphs are fused.
     input_string = tf.constant('dog')
     inputs = {'input': input_string}
     saved_model_loader = saved_transform_io_v2.SavedModelLoader(export_path)
-    outputs = saved_model_loader.apply_v1_transform_model_in_v2(inputs)
+    outputs = saved_model_loader.apply_transform_model(inputs)
     self.assertEqual(1, outputs['output'].numpy())
 
-  def test_sparse_roundtrip(self):
-    export_path = os.path.join(tempfile.mkdtemp(), 'export')
+  @test_case.named_parameters(*_TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES)
+  def test_sparse_roundtrip(self, exported_in_tf1):
+    input_specs = {
+        'input': tf.SparseTensorSpec([None, None, None], dtype=tf.float32)
+    }
 
-    with tf.compat.v1.Graph().as_default():
-      with tf.compat.v1.Session().as_default() as session:
-        input_float = tf.compat.v1.sparse_placeholder(tf.float32)
-        output = input_float / 5.0
-        inputs = {'input': input_float}
-        outputs = {'output': output}
-        saved_transform_io.write_saved_transform_from_session(
-            session, inputs, outputs, export_path)
+    def foo(inputs):
+      return {'output': inputs['input'] / 5.0}
+
+    export_path = _create_test_saved_model(exported_in_tf1, input_specs, foo)
 
     indices = np.array([[3, 2, 0], [4, 5, 1]], dtype=np.int64)
     values = np.array([1.0, 2.0], dtype=np.float32)
@@ -183,7 +253,7 @@ class SavedTransformIOV2Test(tf.test.TestCase):
     # Using a computed input gives confidence that the graphs are fused
     inputs = {'input': input_sparse * 10}
     saved_model_loader = saved_transform_io_v2.SavedModelLoader(export_path)
-    outputs = saved_model_loader.apply_v1_transform_model_in_v2(inputs)
+    outputs = saved_model_loader.apply_transform_model(inputs)
     result = outputs['output']
     self.assertIsInstance(result, tf.SparseTensor)
 
@@ -192,21 +262,24 @@ class SavedTransformIOV2Test(tf.test.TestCase):
     self.assertEqual([2.0, 4.0], result.values.numpy().tolist())
     self.assertEqual(shape.tolist(), result.dense_shape.numpy().tolist())
 
-  def test_ragged_roundtrip(self):
+  @test_case.named_parameters(*_TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES)
+  def test_ragged_roundtrip(self, exported_in_tf1):
     if not hasattr(meta_graph_pb2.TensorInfo, 'CompositeTensor'):
       self.skipTest('This version of TensorFlow does not support '
                     'CompositeTenors in TensorInfo.')
-    export_path = os.path.join(tempfile.mkdtemp(), 'export')
+    input_specs = {
+        'input':
+            tf.RaggedTensorSpec(
+                shape=[None, None],
+                dtype=tf.float32,
+                ragged_rank=1,
+                row_splits_dtype=tf.int64)
+    }
 
-    with tf.compat.v1.Graph().as_default():
-      with tf.compat.v1.Session().as_default() as session:
-        input_float = tf.compat.v1.ragged.placeholder(tf.float32, ragged_rank=1,
-                                                      value_shape=[])
-        output = input_float / 2.0
-        inputs = {'input': input_float}
-        outputs = {'output': output}
-        saved_transform_io.write_saved_transform_from_session(
-            session, inputs, outputs, export_path)
+    def foo(inputs):
+      return {'output': inputs['input'] / 2.0}
+
+    export_path = _create_test_saved_model(exported_in_tf1, input_specs, foo)
 
     splits = np.array([0, 2, 3], dtype=np.int64)
     values = np.array([1.0, 2.0, 4.0], dtype=np.float32)
@@ -215,7 +288,7 @@ class SavedTransformIOV2Test(tf.test.TestCase):
     # Using a computed input gives confidence that the graphs are fused
     inputs = {'input': input_ragged * 10}
     saved_model_loader = saved_transform_io_v2.SavedModelLoader(export_path)
-    outputs = saved_model_loader.apply_v1_transform_model_in_v2(inputs)
+    outputs = saved_model_loader.apply_transform_model(inputs)
     result = outputs['output']
     self.assertIsInstance(result, tf.RaggedTensor)
 
@@ -223,6 +296,39 @@ class SavedTransformIOV2Test(tf.test.TestCase):
     self.assertAllEqual(splits, result.row_splits)
     self.assertEqual([5.0, 10.0, 20.0], result.values.numpy().tolist())
 
+  def test_stale_asset_collections_are_cleaned(self):
+    exported_in_tf_1 = False
+    vocabulary_file = os.path.join(tempfile.mkdtemp(), 'asset')
+    file_io.write_string_to_file(vocabulary_file, 'foo bar baz')
+
+    input_specs = {'input': tf.TensorSpec([], dtype=tf.string)}
+
+    def foo(inputs):
+      initializer = tf.lookup.TextFileInitializer(
+          vocabulary_file,
+          key_dtype=tf.string,
+          key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
+          value_dtype=tf.int64,
+          value_index=tf.lookup.TextFileIndex.LINE_NUMBER)
+      table = tf.lookup.StaticHashTable(initializer, default_value=12)
+      return {'output': table.lookup(inputs['input'])}
+
+    export_path = _create_test_saved_model(exported_in_tf_1, input_specs, foo)
+
+    # Load it and save it again repeatedly, verifying that the asset collections
+    # remain valid.
+    for it in [1, 2, 3]:
+      input_string = tf.constant('dog')
+      inputs = {'input': input_string}
+      saved_model_loader = saved_transform_io_v2.SavedModelLoader(export_path)
+      outputs = saved_model_loader.apply_transform_model(inputs)
+      self.assertEqual(12, outputs['output'])
+
+      new_export_path = os.path.join(tempfile.mkdtemp(), 'export_' + str(it))
+      tf.saved_model.save(saved_model_loader._imported, new_export_path)
+      shutil.rmtree(export_path)
+      export_path = new_export_path
+
 
 if __name__ == '__main__':
-  tf.test.main()
+  test_case.main()
