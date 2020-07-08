@@ -28,10 +28,6 @@ def _make_required_install_packages():
   # six, and protobuf) with TF.
   return [
       'absl-py>=0.7,<0.9',
-      # TODO(b/149841057): This is a workaround for broken avro-python3
-      # release. Remove once avro has a healthy release.
-      ('avro-python3>=1.8.1,<1.9.2; '
-       'python_version=="3.5" and platform_system=="Darwin"'),
       'apache-beam[gcp]>=2.22,<3',
       'numpy>=1.16,<2',
       'protobuf>=3.7,<4',
