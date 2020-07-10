@@ -114,6 +114,7 @@ class TransformTestCase(test_case.TransformTestCase):
                             input_metadata,
                             analyzer_fn,
                             expected_outputs,
+                            test_data=None,
                             desired_batch_size=None,
                             use_tfxio=False,
                             input_data_is_tfxio_format=False):
@@ -133,6 +134,11 @@ class TransformTestCase(test_case.TransformTestCase):
         dimension and broadcast across this batch dimension.
       expected_outputs: A dict whose keys are the same as those of the output of
         `analyzer_fn` and whose values are convertible to an ndarrays.
+      test_data: (optional) If this is provided then instead of calling
+        AnalyzeAndTransformDataset with input_data, this function will call
+        AnalyzeDataset with input_data and TransformDataset with test_data.
+        Must be provided if the input_data is empty. test_data should also
+        conform to input_metadata.
       desired_batch_size: (Optional) A batch size to batch elements by. If not
         provided, a batch size will be computed automatically.
       use_tfxio: If True, invoke AnalyzeAndTransformDataset using the new API
@@ -178,10 +184,15 @@ class TransformTestCase(test_case.TransformTestCase):
 
       return result
 
-    # Create test dataset by repeating the first instance a number of times.
-    num_test_instances = 3
-    test_data = [input_data[0]] * num_test_instances
-    expected_data = [expected_outputs] * num_test_instances
+    if input_data and not test_data:
+      # Create test dataset by repeating the first instance a number of times.
+      num_test_instances = 3
+      test_data = [input_data[0]] * num_test_instances
+      expected_data = [expected_outputs] * num_test_instances
+    else:
+      # Ensure that the test dataset is specified and is not empty.
+      assert test_data
+      expected_data = [expected_outputs] * len(test_data)
     expected_metadata = metadata_from_feature_spec({
         key: tf.io.FixedLenFeature(value.shape, tf.as_dtype(value.dtype))
         for key, value in six.iteritems(expected_outputs)

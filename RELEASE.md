@@ -7,6 +7,11 @@
 
 ## Bug Fixes and Other Changes
 * Enable `SavedModelLoader` to import and apply TF2 SavedModels.
+* `tft.min`, `tft.max`, `tft.sum`, `tft.covariance` and `tft.pca` now have
+  default output values to properly process empty analysis datasets.
+* `tft.scale_by_min_max`, `tft.scale_to_0_1` and the corresponding per-key
+  versions now apply a sigmoid function to scale tensors if the analysis dataset
+  is either empty or contains a single distinct value.
 * Depends on `apache-beam[gcp]>=2.22,<3`.
 * Stopped requiring `avro-python3`.
 

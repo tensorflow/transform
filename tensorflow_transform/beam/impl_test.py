@@ -1025,13 +1025,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_metadata = tft_unit.metadata_from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.float32)})
     expected_data = [{
-        'x_scaled': 5
+        'x_scaled': 9.8201379
     }, {
-        'x_scaled': 5
+        'x_scaled': 9.8201379
     }, {
-        'x_scaled': 5
+        'x_scaled': 9.8201379
     }, {
-        'x_scaled': 5
+        'x_scaled': 9.8201379
     }]
     expected_metadata = tft_unit.metadata_from_feature_spec(
         {'x_scaled': tf.io.FixedLenFeature([], tf.float32)})
@@ -1074,16 +1074,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'y': tf.io.FixedLenFeature([], tf.float32)
     })
     expected_data = [{
-        'x_scaled': 5,
+        'x_scaled': 9.8201379,
         'y_scaled': 0
     }, {
-        'x_scaled': 5,
+        'x_scaled': 9.8201379,
         'y_scaled': 0
     }, {
-        'x_scaled': 5,
+        'x_scaled': 9.8201379,
         'y_scaled': 10
     }, {
-        'x_scaled': 5,
+        'x_scaled': 9.8201379,
         'y_scaled': 10
     }]
     expected_metadata = tft_unit.metadata_from_feature_spec({
@@ -1111,6 +1111,37 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                             expected_metadata)
     self.assertTrue(
         'output_min must be less than output_max' in str(context.exception))
+
+  def testScaleMinMaxWithEmptyInputs(self):
+    # x is repeated `multiple` times to test elementwise mapping.
+    multiple = 3
+
+    def preprocessing_fn(inputs):
+      return {
+          'x_scaled':
+              tft.scale_by_min_max(inputs['x']),
+          'x_scaled_elementwise':
+              tft.scale_by_min_max(
+                  tf.tile(inputs['x'], [1, multiple]), elementwise=True)
+      }
+
+    input_data = []
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'x': tf.io.FixedLenFeature([1], tf.float32)})
+    test_data = [{'x': [100]}, {'x': [1]}, {'x': [12]}]
+    expected_data = [{'x_scaled': [v], 'x_scaled_elementwise': [v] * multiple}
+                     for v in [1., 0.7310585, 0.9999938]]
+    expected_metadata = tft_unit.metadata_from_feature_spec({
+        'x_scaled': tf.io.FixedLenFeature([1], tf.float32),
+        'x_scaled_elementwise': tf.io.FixedLenFeature([multiple], tf.float32)
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata,
+        test_data=test_data)
 
   @tft_unit.named_parameters(*_SCALE_TO_Z_SCORE_TEST_CASES)
   def testScaleToZScore(self, input_data, output_data, elementwise):
@@ -1471,6 +1502,37 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
+
+  def testScaleToZScoreWithEmptyInputs(self):
+    # x is repeated `multiple` times to test elementwise mapping.
+    multiple = 3
+
+    def preprocessing_fn(inputs):
+      return {
+          'x_scaled':
+              tft.scale_to_z_score(inputs['x']),
+          'x_scaled_elementwise':
+              tft.scale_to_z_score(
+                  tf.tile(inputs['x'], [1, multiple]), elementwise=True)
+      }
+
+    input_data = []
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'x': tf.io.FixedLenFeature([1], tf.float32)})
+    test_data = [{'x': [100]}, {'x': [1]}, {'x': [12]}]
+    expected_data = [{'x_scaled': [v], 'x_scaled_elementwise': [v] * multiple}
+                     for v in [100, 1, 12]]
+    expected_metadata = tft_unit.metadata_from_feature_spec({
+        'x_scaled': tf.io.FixedLenFeature([1], tf.float32),
+        'x_scaled_elementwise': tf.io.FixedLenFeature([multiple], tf.float32)
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata,
+        test_data=test_data)
 
   def testMeanAndVar(self):
     def analyzer_fn(inputs):
@@ -2061,6 +2123,68 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
+  @tft_unit.named_parameters(*tft_unit.cross_named_parameters(
+      [
+          dict(testcase_name='int64', input_dtype=tf.int64),
+          dict(testcase_name='float32', input_dtype=tf.float32)
+      ],
+      [
+          dict(testcase_name='scalar', input_shape=[]),
+          dict(testcase_name='ND', input_shape=[2, 3])
+      ],
+      [
+          dict(testcase_name='elementwise', reduce_instance_dims=False),
+          dict(testcase_name='not_elementwise', reduce_instance_dims=True)
+      ]))
+  def testNumericAnalyzersWithEmptyInputs(self, input_dtype, input_shape,
+                                          reduce_instance_dims):
+
+    def analyzer_fn(inputs):
+      return {
+          'min':
+              tft.min(inputs['a'], reduce_instance_dims=reduce_instance_dims),
+          'max':
+              tft.max(inputs['a'], reduce_instance_dims=reduce_instance_dims),
+          'sum':
+              tft.sum(inputs['a'], reduce_instance_dims=reduce_instance_dims),
+          'size':
+              tft.size(inputs['a'], reduce_instance_dims=reduce_instance_dims),
+          'mean':
+              tft.mean(inputs['a'], reduce_instance_dims=reduce_instance_dims),
+          'var':
+              tft.var(inputs['a'], reduce_instance_dims=reduce_instance_dims),
+      }
+
+    input_data = []
+    canonical_dtype = tft_unit.canonical_numeric_dtype(input_dtype)
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'a':
+            tf.io.FixedLenFeature(input_shape, canonical_dtype)
+    })
+    input_val_dtype = input_dtype.as_numpy_dtype
+    output_shape = [] if reduce_instance_dims else input_shape
+    output_dtype = canonical_dtype.as_numpy_dtype
+    default_min = np.inf if input_dtype.is_floating else canonical_dtype.max
+    default_max = -np.inf if input_dtype.is_floating else canonical_dtype.min
+    expected_outputs = {
+        'min': np.full(output_shape, default_min, output_dtype),
+        'max': np.full(output_shape, default_max, output_dtype),
+        'sum': np.full(output_shape, 0, output_dtype),
+        'size': np.full(output_shape, 0, np.int64),
+        'mean': np.full(output_shape, 0, np.float32),
+        'var': np.full(output_shape, 0, np.float32),
+    }
+    self.assertAnalyzerOutputs(
+        input_data,
+        input_metadata,
+        analyzer_fn,
+        expected_outputs,
+        test_data=[{
+            'a': np.zeros(input_shape, input_val_dtype)
+        }, {
+            'a': np.ones(input_shape, input_val_dtype)
+        }])
+
   def testNumericMeanWithSparseTensorReduceFalseOverflow(self):
 
     def analyzer_fn(inputs):
@@ -2356,6 +2480,22 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
+  def testCovarianceOneDimensionWithEmptyInputs(self):
+    def analyzer_fn(inputs):
+      return {'y': tft.covariance(inputs['x'], dtype=tf.float32)}
+
+    input_data = []
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'x': tf.io.FixedLenFeature([1], tf.float32)})
+    test_data = [{'x': [1]}, {'x': [2]}]
+    expected_outputs = {'y': np.array([[0]], dtype=np.float32)}
+    self.assertAnalyzerOutputs(
+        input_data,
+        input_metadata,
+        analyzer_fn,
+        expected_outputs,
+        test_data=test_data)
+
   def testPCAThreeToTwoDimensions(self):
     def analyzer_fn(inputs):
       return {'y': tft.pca(inputs['x'], 2, dtype=tf.float32)}
@@ -2367,6 +2507,23 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_outputs = {'y': np.array([[1, 0], [0, 1], [0, 0]], np.float32)}
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
+
+  def testPCAThreeToTwoDimensionsWithEmptyInputs(self):
+    def analyzer_fn(inputs):
+      return {'y': tft.pca(inputs['x'], 2, dtype=tf.float32)}
+
+    input_data = []
+    test_data = [{'x': x} for x in
+                 [[0, 0, 1], [4, 0, 1], [2, -1, 1], [2, 1, 1]]]
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'x': tf.io.FixedLenFeature([3], tf.float32)})
+    expected_outputs = {'y': np.array([[1, 0], [0, 1], [0, 0]], np.float32)}
+    self.assertAnalyzerOutputs(
+        input_data,
+        input_metadata,
+        analyzer_fn,
+        expected_outputs,
+        test_data=test_data)
 
   class _SumCombiner(beam.PTransform):
 

@@ -1020,7 +1020,6 @@ class _IntermediateAccumulatePackedCombineImpl(beam.PTransform):
     # We specify a fanout so that the packed combiner doesn't exhibit stragglers
     # during the 'reduce' phase when we have a lot of combine analyzers packed.
     fanout = int(math.ceil(math.sqrt(len(self._combiners))))
-    # TODO(b/34792459): Don't set with_defaults.
     return (
         pcoll
         | 'InitialPackedCombineGlobally' >> beam.CombineGlobally(
@@ -1029,7 +1028,7 @@ class _IntermediateAccumulatePackedCombineImpl(beam.PTransform):
                 self._tf_config,
                 is_combining_accumulators=False
             )
-        ).with_fanout(fanout).with_defaults(False)
+        ).with_fanout(fanout)
         | 'Count' >>
         common.IncrementCounter('num_packed_accumulate_combiners'))
 
@@ -1047,14 +1046,13 @@ class _MergeAccumulatorsPackedCombineImpl(beam.PTransform):
   def expand(self, inputs):
     pcoll, = inputs
 
-    # TODO(b/34792459): Don't set with_defaults.
     return (
         pcoll
         | 'MergePackedCombinesGlobally' >> beam.CombineGlobally(
             _PackedCombinerWrapper(
                 self._combiners,
                 self._tf_config,
-                is_combining_accumulators=True)).with_defaults(False)
+                is_combining_accumulators=True))
         | 'Count' >>
         common.IncrementCounter('num_packed_merge_combiners'))
 
@@ -1079,11 +1077,7 @@ class _IntermediateAccumulateCombineImpl(beam.PTransform):
             _CombinerWrapper(
                 self._combiner,
                 self._tf_config,
-                # TODO(b/34792459): Don't set with_defaults. We set it to False
-                # for all combiners (even though QuantilesCombiner doesn't need
-                # it to be set) as after combiner packing we will have a single
-                # combiner and want a consistent behavior.
-                is_combining_accumulators=False)).with_defaults(False))
+                is_combining_accumulators=False)))
 
 
 @common.register_ptransform(analyzer_nodes.CacheableCombineMerge)
@@ -1104,11 +1098,7 @@ class _MergeAccumulatorsCombineImpl(beam.PTransform):
             _CombinerWrapper(
                 self._combiner,
                 self._tf_config,
-                # TODO(b/34792459): Don't set with_defaults. We set it to False
-                # for all combiners (even though QuantilesCombiner doesn't need
-                # it to be set) as after combiner packing we will have a single
-                # combiner and want a consistent behavior.
-                is_combining_accumulators=True)).with_defaults(False))
+                is_combining_accumulators=True)))
 
 
 @common.register_ptransform(analyzer_nodes.CacheableCombinePerKeyAccumulate)

@@ -211,59 +211,78 @@ class NumPyCombiner(analyzer_nodes.Combiner):
 
   Args:
     fn: The numpy function representing the reduction to be done.
+    default_accumulator_value: The default value each accumulator entry is
+      initialized to.
     output_dtypes: The numpy dtype to cast each output to.
-    output_shapes: The shapes of the outputs.
+    output_shapes: List of tuples representing the shapes of the outputs or
+      Nones if the shapes are not fully defined.
   """
 
-  def __init__(self, fn, output_dtypes, output_shapes):
+  def __init__(self, fn, default_accumulator_value, output_dtypes,
+               output_shapes):
     self._fn = fn
+    self._default_accumulator_value = default_accumulator_value
+    self._default_sub_accumulator = np.array(default_accumulator_value)
     self._output_dtypes = output_dtypes
+    if not all(
+        isinstance(shape, (tuple, type(None))) for shape in output_shapes):
+      raise TypeError('Expected all tuples or Nones, but got %r' %
+                      output_shapes)
     self._output_shapes = output_shapes
 
-  # TODO(b/34792459): merge_accumulators and extract_output assume that not all
-  # accumulator(s) are None.  This only works when .without_defaults() is
-  # used but even in that case it is an implementation detail of Beam that we
-  # should not be relying on.  Instead we should use 0 or +-inf depending on the
-  # accumulator. Invoking self._fn(()) might also be a good way of determining
-  # the default (works for some but not all fns).
   def create_accumulator(self):
-    return None
+    return [
+        self._create_sub_accumulator(shape)
+        for shape in self._output_shapes
+    ]
+
+  def _create_sub_accumulator(self, shape):
+    # Returns a default subaccumulator of the given shape if it's fully defined
+    # and a 0-dim default array otherwise.
+    if shape is None:
+      return self._default_sub_accumulator
+    else:
+      return np.full(shape, self._default_accumulator_value)
 
   def add_input(self, accumulator, batch_values):
     # TODO(b/112414577): Go back to accepting only a single input.
     # See comment in _numeric_combine.
-    reduced_values = batch_values
-    if accumulator is None:
-      return reduced_values
-    else:
-      return [
-          self._fn((sub_accumulator, reduced_value), axis=0)
-          for sub_accumulator, reduced_value
-          in zip(accumulator, reduced_values)]
+    result = []
+    for sub_accumulator, batch_value in zip(accumulator, batch_values):
+      # Discard `sub_accumulator` that is default for an output with an unknown
+      # or a scalar shape. Note that `np.array_equal` below does at most
+      # per-element comparison of 0-dim arrays since `_default_sub_accumulator`
+      # is a 0-dim array, and `np.array_equal` exits early on a shape mismatch.
+      if np.array_equal(sub_accumulator, self._default_sub_accumulator):
+        result.append(batch_value)
+      else:
+        result.append(self._fn((sub_accumulator, batch_value), axis=0))
+    return result
 
   def merge_accumulators(self, accumulators):
-    non_empty_accumulators = [
-        accumulator for accumulator in accumulators if accumulator is not None
-    ]
-    if non_empty_accumulators:
-      return [
-          # numpy's sum, min, max, etc functions operate on array-like objects,
-          # but not arbitrary iterables. Convert the provided sub_accumulators
-          # into a list.
-          self._fn(list(sub_accumulators), axis=0)
-          for sub_accumulators in zip(*non_empty_accumulators)]
-    else:
-      return None
+    result = []
+    for sub_accumulators in zip(*accumulators):
+      # Filter out subaccumulators that are default for an unknown or a scalar
+      # output shape. Note that `np.array_equal` below does at most per-element
+      # comparison of 0-dim arrays since `_default_sub_accumulator` is a 0-dim
+      # array, and `np.array_equal` exits early on a shape mismatch.
+      non_default_sub_accumulators = [
+          sub_accumulator for sub_accumulator in sub_accumulators
+          if not np.array_equal(sub_accumulator, self._default_sub_accumulator)
+      ]
+      if non_default_sub_accumulators:
+        result.append(self._fn(non_default_sub_accumulators, axis=0))
+      else:
+        result.append(self._default_sub_accumulator)
+    return result
 
   def extract_output(self, accumulator):
-    if accumulator is None:
-      return None
-    else:
-      # For each output, cast that output to the specified type.  Note there
-      # will be one output for each input tensor to the analyzer.
-      return [sub_accumulator.astype(output_dtype)
-              for sub_accumulator, output_dtype
-              in zip(accumulator, self._output_dtypes)]
+    # For each output, cast that output to the specified type. Note there
+    # will be one output for each input tensor to the analyzer.
+    return [
+        sub_accumulator.astype(output_dtype) for sub_accumulator, output_dtype
+        in zip(accumulator, self._output_dtypes)
+    ]
 
   def output_tensor_infos(self):
     return [
@@ -288,6 +307,7 @@ def _get_output_shape_from_input(x):
 # with a single combiner.
 def _numeric_combine(inputs,
                      fn,
+                     default_accumulator_value,
                      reduce_instance_dims=True,
                      output_dtypes=None,
                      key=None,
@@ -298,6 +318,9 @@ def _numeric_combine(inputs,
     inputs: A list of tensors, which will be independently reduced.
     fn: A function to reduce tensors across instances/batches, to get a single
         output.
+    default_accumulator_value: The default scalar value that each accumulator
+        entry is initialized to. Must be properly processed by the reduction
+        function.
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
@@ -321,6 +344,8 @@ def _numeric_combine(inputs,
   for x in inputs:
     if not isinstance(x, tf.Tensor):
       raise TypeError('Expected a Tensor, but got %r' % x)
+  if not np.isscalar(default_accumulator_value):
+    raise TypeError('Expected a scalar, but got %r' % default_accumulator_value)
 
   if output_dtypes is None:
     output_dtypes = [x.dtype for x in inputs]
@@ -329,9 +354,13 @@ def _numeric_combine(inputs,
     output_shapes = [() for _ in inputs]
   else:
     # Reducing over batch dimensions.
-    output_shapes = [x.get_shape() for x in inputs]
-  combiner = NumPyCombiner(
-      fn, [dtype.as_numpy_dtype for dtype in output_dtypes], output_shapes)
+    output_shapes = [
+        (tuple(x.get_shape()) if x.get_shape().is_fully_defined() else None)
+        for x in inputs
+    ]
+  combiner = NumPyCombiner(fn, default_accumulator_value,
+                           [dtype.as_numpy_dtype for dtype in output_dtypes],
+                           output_shapes)
   if key is None:
     return _apply_cacheable_combiner(combiner, *inputs)
 
@@ -420,8 +449,14 @@ def _min_and_max(x, reduce_instance_dims=True, name=None):
     x_batch_minus_min, x_batch_max = tf_utils.reduce_batch_minus_min_and_max(
         x, reduce_instance_dims)
 
+    default_accumulator_value = (-np.inf if x.dtype.is_floating
+                                 else -output_dtype.max)
+
     minus_x_min, x_max = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
-        [x_batch_minus_min, x_batch_max], combine_fn, reduce_instance_dims)
+        inputs=[x_batch_minus_min, x_batch_max],
+        fn=combine_fn,
+        default_accumulator_value=default_accumulator_value,
+        reduce_instance_dims=reduce_instance_dims)
     return tf.cast(0 - minus_x_min, output_dtype), tf.cast(x_max, output_dtype)
 
 
@@ -480,10 +515,14 @@ def _min_and_max_per_key(x, key, reduce_instance_dims=True,
     key_vocab, x_batch_minus_min, x_batch_max = (
         tf_utils.reduce_batch_minus_min_and_max_per_key(x, key))
 
+    default_accumulator_value = (-np.inf if x.dtype.is_floating
+                                 else -output_dtype.max)
+
     key_values = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
-        [x_batch_minus_min, x_batch_max],
-        combine_fn,
-        reduce_instance_dims,
+        inputs=[x_batch_minus_min, x_batch_max],
+        fn=combine_fn,
+        default_accumulator_value=default_accumulator_value,
+        reduce_instance_dims=reduce_instance_dims,
         key=key_vocab,
         key_vocabulary_filename=key_vocabulary_filename)
 
@@ -545,8 +584,12 @@ def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
     else:
       x = tf.reduce_sum(input_tensor=x, axis=0)
     output_dtype, sum_fn = _sum_combine_fn_and_dtype(x.dtype)
-    return _numeric_combine([x], sum_fn, reduce_instance_dims,
-                            [output_dtype])[0]
+    return _numeric_combine(
+        inputs=[x],
+        fn=sum_fn,
+        default_accumulator_value=0,
+        reduce_instance_dims=reduce_instance_dims,
+        output_dtypes=[output_dtype])[0]
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
@@ -671,7 +714,12 @@ def count_per_key(key, key_vocabulary_filename=None, name=None):
 
     output_dtype, sum_fn = _sum_combine_fn_and_dtype(tf.int64)
     numeric_combine_result = _numeric_combine(
-        [batch_counts], sum_fn, True, [output_dtype], key=batch_keys,
+        inputs=[batch_counts],
+        fn=sum_fn,
+        default_accumulator_value=0,
+        reduce_instance_dims=True,
+        output_dtypes=[output_dtype],
+        key=batch_keys,
         key_vocabulary_filename=key_vocabulary_filename)
 
     if key_vocabulary_filename is not None:
@@ -1535,8 +1583,18 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     if not self._always_return_num_quantiles and self._num_features > 1:
       raise NotImplementedError(
           'Elementwise quantiles requires same boundary count.')
-    self._tf_config = None    # Assigned in initialize_local_state().
-    self._graph_state = None  # Lazily created in _get_graph_state().
+    # Assigned in initialize_local_state().
+    self._tf_config = None
+    # Lazily created in _get_graph_state(). It is explicitly reset to None in a
+    # pickled version of QuantilesCombiner.
+    self._graph_state = None
+
+  def __getstate__(self):
+    # Changes default pickling behavior to ignore self._graph_state. Note that
+    # default unpickling behavior is consistent with the current __init__ logic.
+    state = self.__dict__.copy()
+    state['_graph_state'] = None
+    return state
 
   def initialize_local_state(self, tf_config):
     """Called by the CombineFnWrapper's __init__ method.
@@ -2058,14 +2116,19 @@ def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
 class CovarianceCombiner(analyzer_nodes.Combiner):
   """Combines the PCollection to compute the biased covariance matrix."""
 
-  def __init__(self, numpy_dtype=np.float64, output_shape=None):
-    """Store the dtype for np arrays/matrices for precision."""
+  def __init__(self, output_shape, numpy_dtype=np.float64):
+    """Store the dtype and shape for np arrays/matrices for precision."""
     self._output_shape = output_shape
     self._numpy_dtype = numpy_dtype
 
   def create_accumulator(self):
     """Create an accumulator with all zero entries."""
-    return None
+    return [
+        np.zeros((self._output_shape[0], self._output_shape[0]),
+                 self._numpy_dtype),
+        np.zeros((self._output_shape[0],), self._numpy_dtype),
+        np.zeros((), self._numpy_dtype)
+    ]
 
   def add_input(self, accumulator, batch_values):
     """Compute sum of input cross-terms, sum of inputs, and count.
@@ -2099,32 +2162,21 @@ class CovarianceCombiner(analyzer_nodes.Combiner):
     batch_sum = np.array(np.sum(batch_value, axis=0), self._numpy_dtype)
     batch_count = np.shape(batch_value)[0]
 
-    if accumulator is None:
-      return [batch_cross_terms, batch_sum, batch_count]
-    else:
-      sum_product, sum_vectors, count = accumulator
-      return [sum_product + batch_cross_terms,
-              sum_vectors + batch_sum,
-              count + batch_count]
+    sum_product, sum_vectors, count = accumulator
+
+    return [
+        sum_product + batch_cross_terms, sum_vectors + batch_sum,
+        count + batch_count
+    ]
 
   def merge_accumulators(self, accumulators):
     """Sums values in each accumulator entry."""
-    accumulators = [
-        accumulator for accumulator in accumulators if accumulator is not None
+    products, vectors, counts = zip(*accumulators)
+    return [
+        np.sum(products, axis=0),
+        np.sum(vectors, axis=0),
+        np.sum(counts, axis=0)
     ]
-    if accumulators:
-      # Because each accumulator contains multiple arrays of different
-      # dimensions, the np.sum operation must be explicitly used across the
-      # entries within each accumulator. np.sum(list(accumulators)) does not
-      # work.
-      sum_product = np.sum(
-          [accumulator[0] for accumulator in accumulators], axis=0)
-      sum_vectors = np.sum(
-          [accumulator[1] for accumulator in accumulators], axis=0)
-      count = np.sum([accumulator[2] for accumulator in accumulators], axis=0)
-      return [sum_product, sum_vectors, count]
-    else:
-      return None
 
   def extract_output(self, accumulator):
     """Run covariance logic on sum_product, sum of input vectors, and count.
@@ -2144,9 +2196,10 @@ class CovarianceCombiner(analyzer_nodes.Combiner):
     """
 
     sum_product, sum_vectors, count = accumulator
+    if count == 0:
+      return [np.zeros(self._output_shape, self._numpy_dtype)]
     expected_cross_terms = sum_product / count
     expected_terms = sum_vectors / count
-
     return [
         np.ndarray.astype(
             expected_cross_terms - np.outer(expected_terms, expected_terms),
@@ -2193,18 +2246,16 @@ def covariance(x, dtype, name=None):
     shape = (input_dim, input_dim)
 
     (result,) = _apply_cacheable_combiner(
-        CovarianceCombiner(dtype.as_numpy_dtype, shape), x)
+        CovarianceCombiner(shape, dtype.as_numpy_dtype), x)
     return result
 
 
 class PCACombiner(CovarianceCombiner):
   """Compute PCA of accumulated data using the biased covariance matrix."""
 
-  def __init__(self, output_dim=None, numpy_dtype=np.float64,
-               output_shape=None):
-    """Store pca output dimension, and dtype for precision."""
-    super(PCACombiner, self).__init__(
-        numpy_dtype=numpy_dtype, output_shape=output_shape)
+  def __init__(self, output_shape, output_dim=None, numpy_dtype=np.float64):
+    """Store pca output dimension, shape and dtype for precision."""
+    super(PCACombiner, self).__init__(output_shape, numpy_dtype=numpy_dtype)
     self._output_dim = output_dim
 
   def extract_output(self, accumulator):
@@ -2223,6 +2274,11 @@ class PCACombiner(CovarianceCombiner):
       A list containing a matrix of shape (input_dim, output_dim).
     """
     sum_product, sum_vectors, count = accumulator
+    if count == 0:
+      # In this case all eigenvalues==0 and we output (possibly truncated) basis
+      # vectors. Note that if _output_dim is None, then M is set to N in np.eye.
+      return [np.eye(N=self._output_shape[0], M=self._output_dim,
+                     dtype=self._numpy_dtype)]
     expected_cross_terms = sum_product / count
     expected_terms = sum_vectors / count
     cov = np.ndarray.astype(
@@ -2323,7 +2379,7 @@ def pca(x, output_dim, dtype, name=None):
     shape = (input_dim, output_dim)
 
     (result,) = _apply_cacheable_combiner(
-        PCACombiner(output_dim, dtype.as_numpy_dtype, shape), x)
+        PCACombiner(shape, output_dim, dtype.as_numpy_dtype), x)
     return result
 
 

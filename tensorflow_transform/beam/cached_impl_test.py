@@ -636,6 +636,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
 
     span_0_key = analyzer_cache.DatasetKey('span-0')
     span_1_key = analyzer_cache.DatasetKey('span-1')
+    span_2_key = analyzer_cache.DatasetKey('span-2')
 
     def preprocessing_fn(inputs):
 
@@ -669,7 +670,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
         'label': tf.io.FixedLenFeature([], tf.int64),
     }
     input_data_dict = {
-        span_0_key: [{
+        span_0_key: [],
+        span_1_key: [{
             'x': -2,
             'y': 1,
             's': 'a',
@@ -690,7 +692,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
             's': u'ȟᎥ𝒋ǩľḿꞑȯ𝘱𝑞𝗋𝘴'.encode('utf-8'),
             'label': 1,
         }],
-        span_1_key: [{
+        span_2_key: [{
             'x': 12,
             'y': 1,
             's': u'ȟᎥ𝒋ǩľḿꞑȯ𝘱𝑞𝗋𝘴'.encode('utf-8'),
@@ -731,7 +733,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
         feature_spec,
         input_data_dict,
         preprocessing_fn,
-        datasets_to_transform=[span_1_key],
+        datasets_to_transform=[span_2_key],
         expected_transform_data=expected_transformed_data,
         transform_fn_output_dir=transform_fn_dir,
         use_tfxio=use_tfxio)
@@ -745,10 +747,12 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.AssertVocabularyContents(vocab1_path, expected_vocabulary_contents)
 
     p = first_run_result.pipeline
-    # 4 from analyzing 2 spans, and 2 from transform.
+    # 6 from analyzing 3 spans, and 2 from transform.
     self.assertMetricsCounterEqual(p.metrics, 'num_instances', 8)
     self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 0)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 16)
+    # 8 entries for each of 3 spans. Note that default values for the empty span
+    # are also encoded.
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 24)
     self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
                                    _SINGLE_PHASE_NUM_SAVED_MODELS)
 
@@ -758,7 +762,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
         input_data_dict,
         preprocessing_fn,
         should_read_cache=True,
-        datasets_to_transform=[span_1_key],
+        datasets_to_transform=[span_2_key],
         expected_transform_data=expected_transformed_data,
         transform_fn_output_dir=transform_fn_dir,
         use_tfxio=use_tfxio)
@@ -772,7 +776,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
     p = second_run_result.pipeline
     # Only 2 from transform.
     self.assertMetricsCounterEqual(p.metrics, 'num_instances', 2)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 16)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 24)
     self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 0)
 
     # The root CreateSavedModel is optimized away because the data doesn't get

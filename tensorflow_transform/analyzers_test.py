@@ -32,7 +32,10 @@ _NP_TYPES = (np.float32, np.float64, np.int32, np.int64)
 _SUM_TEST = dict(
     testcase_name='Sum',
     combiner=analyzers.NumPyCombiner(
-        np.sum, output_dtypes=[np.int64], output_shapes=[(None,)]),
+        fn=np.sum,
+        default_accumulator_value=0,
+        output_dtypes=[np.int64],
+        output_shapes=[None]),
     batches=[
         (np.array([1, 2, 3, 4, 5, 6]),),
         (np.array([1, 2, 3, 4, 5, 6]),),
@@ -43,7 +46,10 @@ _SUM_TEST = dict(
 _SUM_SCALAR_TEST = dict(
     testcase_name='SumScalar',
     combiner=analyzers.NumPyCombiner(
-        np.sum, output_dtypes=[np.int64], output_shapes=[(None,)]),
+        fn=np.sum,
+        default_accumulator_value=0,
+        output_dtypes=[np.int64],
+        output_shapes=[None]),
     batches=[
         (np.array(1),),
         (np.array(2),),
@@ -54,7 +60,10 @@ _SUM_SCALAR_TEST = dict(
 _SUM_OF_SIZE_ZERO_TENSORS_TEST = dict(
     testcase_name='SumOfSizeZeroTensors',
     combiner=analyzers.NumPyCombiner(
-        np.sum, output_dtypes=[np.int64], output_shapes=[(None, None)]),
+        fn=np.sum,
+        default_accumulator_value=0,
+        output_dtypes=[np.int64],
+        output_shapes=[None]),
     batches=[
         (np.array([]),),
         (np.array([]),),
@@ -64,7 +73,8 @@ _SUM_OF_SIZE_ZERO_TENSORS_TEST = dict(
 
 _COVARIANCE_SIZE_ZERO_TENSORS_TEST = dict(
     testcase_name='CovarianceSizeZeroTensors',
-    combiner=analyzers.CovarianceCombiner(numpy_dtype=np.float64),
+    combiner=analyzers.CovarianceCombiner(output_shape=(0, 0),
+                                          numpy_dtype=np.float64),
     batches=[
         (np.empty((1, 0)),),
         (np.empty((2, 0)),),
@@ -74,7 +84,8 @@ _COVARIANCE_SIZE_ZERO_TENSORS_TEST = dict(
 
 _COVARIANCE_WITH_DEGENERATE_COVARIANCE_MATRIX_TEST = dict(
     testcase_name='CovarianceWithDegenerateCovarianceMatrix',
-    combiner=analyzers.CovarianceCombiner(numpy_dtype=np.float64),
+    combiner=analyzers.CovarianceCombiner(output_shape=(3, 3),
+                                          numpy_dtype=np.float64),
     batches=[
         (np.array([[0, 0, 1]]),),
         (np.array([[4, 0, 1], [2, -1, 1]]),),
@@ -87,7 +98,8 @@ _COVARIANCE_WITH_DEGENERATE_COVARIANCE_MATRIX_TEST = dict(
 
 _COVARIANCE_WITH_LARGE_NUMBERS_TEST = dict(
     testcase_name='CovarianceWithLargeNumbers',
-    combiner=analyzers.CovarianceCombiner(numpy_dtype=np.float64),
+    combiner=analyzers.CovarianceCombiner(output_shape=(2, 2),
+                                          numpy_dtype=np.float64),
     batches=[
         (np.array([[2e15, 0], [1e15, 0]]),),
         (np.array([[-2e15, 0], [-1e15, 0]]),),
@@ -97,7 +109,8 @@ _COVARIANCE_WITH_LARGE_NUMBERS_TEST = dict(
 
 _PCA_WITH_DEGENERATE_COVARIANCE_MATRIX_TEST = dict(
     testcase_name='PCAWithDegenerateCovarianceMatrix',
-    combiner=analyzers.PCACombiner(numpy_dtype=np.float64),
+    combiner=analyzers.PCACombiner(output_shape=(3, 3),
+                                   numpy_dtype=np.float64),
     batches=[
         (np.array([[0, 0, 1]]),),
         (np.array([[4, 0, 1], [2, -1, 1]]),),

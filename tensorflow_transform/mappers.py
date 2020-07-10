@@ -138,6 +138,8 @@ def scale_by_min_max(x,
 
   Returns:
     A `Tensor` containing the input column scaled to [output_min, output_max].
+    If the analysis dataset is empty or contains a singe distinct value, then
+    `x` is scaled using a sigmoid function.
 
   Raises:
     ValueError: If output_min, output_max have the wrong order.
@@ -183,7 +185,9 @@ def scale_by_min_max_per_key(x,
 
   Returns:
     A `Tensor`  or `SparseTensor` containing the input column scaled to
-    [output_min, output_max] on a per-key basis if a key is provided.
+    [output_min, output_max] on a per-key basis if a key is provided. If the
+    analysis dataset is empty or contains a single distinct value, then `x` is
+    scaled using a sigmoid function.
 
   Raises:
     ValueError: If output_min, output_max have the wrong order.
@@ -240,18 +244,19 @@ def _scale_by_min_max_internal(x, key, output_min, output_max, elementwise,
       max_x_value = tf.gather(max_x_value, x.indices[:, 1])
     x_values = x.values
 
-  x_shape = tf.shape(input=x_values)
-
-  # If min==max, the result will be the mean of the requested range.
-  # Note that both the options of tf.where are computed, which means that this
-  # will compute unused NaNs.
+  # If min>=max, then the corresponding input to the min_and_max analyzer either
+  # was empty and the analyzer returned default values, or contained only one
+  # distinct value. In this case we scale x by applying a sigmoid function which
+  # is continuous, increasing and maps (-inf, inf) -> (0, 1). Its output is
+  # then projected on the requested range. Note that both the options of
+  # tf.where are computed, which means that this will compute unused NaNs.
   numerator = tf.cast(x_values, min_x_value.dtype) - min_x_value
   where_cond = min_x_value < max_x_value
   where_cond = tf.cast(
       tf.zeros_like(numerator) + tf.cast(where_cond, numerator.dtype),
       dtype=tf.bool)
   scaled_result = tf.where(where_cond, numerator / (max_x_value - min_x_value),
-                           tf.fill(x_shape, 0.5))
+                           tf.math.sigmoid(x_values))
 
   return compose_result_fn((scaled_result * (output_max - output_min)) +
                            output_min)
@@ -267,7 +272,9 @@ def scale_to_0_1(x, elementwise=False, name=None):
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` containing the input column scaled to [0, 1].
+    A `Tensor` containing the input column scaled to [0, 1]. If the analysis
+    dataset is empty or contains a single distinct value, then `x` is scaled
+    using a sigmoid function.
   """
   with tf.compat.v1.name_scope(name, 'scale_to_0_1'):
     return _scale_by_min_max_internal(
@@ -296,7 +303,9 @@ def scale_to_0_1_per_key(
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` containing the input column scaled to [0, 1], per key.
+    A `Tensor` containing the input column scaled to [0, 1], per key. If the
+    analysis dataset is empty or contains a single distinct value, then `x` is
+    scaled using a sigmoid function.
   """
   with tf.compat.v1.name_scope(name, 'scale_to_0_1_per_key'):
     if key is None:
@@ -330,7 +339,9 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
     A `Tensor` or `SparseTensor` containing the input column scaled to mean 0
     and variance 1 (standard deviation 1), given by: (x - mean(x)) / std_dev(x).
     If `x` is floating point, the mean will have the same type as `x`. If `x` is
-    integral, the output is cast to tf.float32.
+    integral, the output is cast to tf.float32. If the analysis dataset is empty
+    or contains a single distinct value, then the input is returned without
+    scaling.
 
     Note that TFLearn generally permits only tf.int64 and tf.float32, so casting
     this scaler's output may be necessary.
@@ -383,7 +394,9 @@ def scale_to_z_score_per_key(x,
 
     That is, for all keys k: (x - mean(x)) / std_dev(x) for all x with key k.
     If `x` is floating point, the mean will have the same type as `x`. If `x` is
-    integral, the output is cast to tf.float32.
+    integral, the output is cast to tf.float32. If the analysis dataset is empty
+    or contains a single distinct value, then the input is returned without
+    scaling.
 
     Note that TFLearn generally permits only tf.int64 and tf.float32, so casting
     this scaler's output may be necessary.
