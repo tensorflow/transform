@@ -112,8 +112,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     if predicate and tft_unit.is_external_environment():
       raise unittest.SkipTest(reason)
 
-  def _MaybeConvertInputsToTFXIO(self, input_data, input_metadata,
-                                 unused_label=None):
+  def _MaybeConvertInputsToTFXIO(self, input_data, input_metadata, label=None):
+    del label  # unused
     return input_data, input_metadata
 
   def testApplySavedModelSingleInput(self):
@@ -2721,7 +2721,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testHandleBatchError(self):
     if self._UseTFXIO():
-      return
+      raise unittest.SkipTest('Test disabled for TFXIO')
 
     def preprocessing_fn(inputs):
       return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
@@ -2776,6 +2776,51 @@ class BeamImplTest(tft_unit.TransformTestCase):
           self.assertDataCloseOrEqual(expected_data, output_data)
 
         beam_test_util.assert_that(transformed_data, _assert_fn)
+
+  def testPipelineWithoutAutomaterialization(self):
+    # Other tests pass lists instead of PCollections and thus invoke
+    # automaterialization where each call to a beam PTransform will implicitly
+    # run its own pipeline.
+    #
+    # In order to test the case where PCollections are not materialized in
+    # between calls to the tf.Transform PTransforms, we include a test that is
+    # not based on automaterialization.
+    def preprocessing_fn(inputs):
+      return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
+
+    def equal_to(expected):
+
+      def _equal(actual):
+        dict_key_fn = lambda d: sorted(d.items())
+        sorted_expected = sorted(expected, key=dict_key_fn)
+        sorted_actual = sorted(actual, key=dict_key_fn)
+        if sorted_expected != sorted_actual:
+          raise ValueError('Failed assert: %s == %s' % (expected, actual))
+      return _equal
+
+    with self._makeTestPipeline() as pipeline:
+      input_data = pipeline | 'CreateTrainingData' >> beam.Create(
+          [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}])
+      metadata = tft_unit.metadata_from_feature_spec(
+          {'x': tf.io.FixedLenFeature([], tf.float32)})
+      with beam_impl.Context(temp_dir=self.get_temp_dir()):
+        input_data, input_metadata = self._MaybeConvertInputsToTFXIO(
+            input_data, metadata)
+        transform_fn = (
+            (input_data, input_metadata)
+            | 'AnalyzeDataset' >> beam_impl.AnalyzeDataset(preprocessing_fn))
+
+        # Run transform_columns on some eval dataset.
+        eval_data = pipeline | 'CreateEvalData' >> beam.Create(
+            [{'x': 6}, {'x': 3}])
+        eval_data, eval_metadata = self._MaybeConvertInputsToTFXIO(
+            eval_data, metadata, label='eval_data')
+        transformed_eval_data, _ = (
+            ((eval_data, eval_metadata), transform_fn)
+            | 'TransformDataset' >> beam_impl.TransformDataset())
+        expected_data = [{'x_scaled': 1.25}, {'x_scaled': 0.5}]
+        beam_test_util.assert_that(
+            transformed_eval_data, equal_to(expected_data))
 
 
 if __name__ == '__main__':

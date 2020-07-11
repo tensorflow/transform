@@ -24,7 +24,6 @@ import os
 # GOOGLE-INITIALIZATION
 
 import apache_beam as beam
-from apache_beam.testing import util as beam_test_util
 import six
 
 import tensorflow as tf
@@ -1037,47 +1036,6 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
-
-  def testPipelineWithoutAutomaterialization(self):
-    # Other tests pass lists instead of PCollections and thus invoke
-    # automaterialization where each call to a beam PTransform will implicitly
-    # run its own pipeline.
-    #
-    # In order to test the case where PCollections are not materialized in
-    # between calls to the tf.Transform PTransforms, we include a test that is
-    # not based on automaterialization.
-    def preprocessing_fn(inputs):
-      return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
-
-    def equal_to(expected):
-
-      def _equal(actual):
-        dict_key_fn = lambda d: sorted(d.items())
-        sorted_expected = sorted(expected, key=dict_key_fn)
-        sorted_actual = sorted(actual, key=dict_key_fn)
-        if sorted_expected != sorted_actual:
-          raise ValueError('Failed assert: %s == %s' % (expected, actual))
-      return _equal
-
-    with self._makeTestPipeline() as pipeline:
-      input_data = pipeline | 'CreateTrainingData' >> beam.Create(
-          [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}])
-      metadata = tft_unit.metadata_from_feature_spec(
-          {'x': tf.io.FixedLenFeature([], tf.float32)})
-      with beam_impl.Context(temp_dir=self.get_temp_dir()):
-        transform_fn = (
-            (input_data, metadata)
-            | 'AnalyzeDataset' >> beam_impl.AnalyzeDataset(preprocessing_fn))
-
-        # Run transform_columns on some eval dataset.
-        eval_data = pipeline | 'CreateEvalData' >> beam.Create(
-            [{'x': 6}, {'x': 3}])
-        transformed_eval_data, _ = (
-            ((eval_data, metadata), transform_fn)
-            | 'TransformDataset' >> beam_impl.TransformDataset())
-        expected_data = [{'x_scaled': 1.25}, {'x_scaled': 0.5}]
-        beam_test_util.assert_that(
-            transformed_eval_data, equal_to(expected_data))
 
   def testVocabularyWithFrequency(self):
     outfile = 'vocabulary_with_frequency'
