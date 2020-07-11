@@ -38,14 +38,15 @@ mock = tf.compat.v1.test.mock
 
 def _get_quantiles_summary():
 
-  qcombiner = analyzers.QuantilesCombiner(num_quantiles=2,
-                                          epsilon=0.01,
-                                          bucket_numpy_dtype=tf.float32,
-                                          always_return_num_quantiles=False,
-                                          has_weights=False,
-                                          output_shape=None,
-                                          include_max_and_min=False,
-                                          feature_shape=[1])
+  qcombiner = analyzers.QuantilesCombiner(
+      num_quantiles=2,
+      epsilon=0.01,
+      bucket_numpy_dtype=tf.float32,
+      always_return_num_quantiles=True,
+      has_weights=False,
+      output_shape=None,
+      include_max_and_min=False,
+      feature_shape=[1])
   qcombiner.initialize_local_state(tf_config=None)
   accumulator = qcombiner.create_accumulator()
   add_input_op = qcombiner.add_input(accumulator, [np.array([1.0, 2.0, 3.0])])

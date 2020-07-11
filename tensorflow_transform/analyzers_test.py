@@ -200,11 +200,11 @@ _QUANTILES_NO_ELEMENTS_TEST = dict(
         num_quantiles=5,
         epsilon=0.00001,
         bucket_numpy_dtype=np.float32,
-        always_return_num_quantiles=False),
+        always_return_num_quantiles=True),
     batches=[
         (np.empty((0, 1), dtype=np.float32),),
     ],
-    expected_outputs=[np.zeros((0,), dtype=np.float32)],
+    expected_outputs=[np.zeros((4,), dtype=np.float32)],
 )
 
 _QUANTILES_EXACT_NO_ELEMENTS_TEST = dict(
@@ -242,7 +242,7 @@ _QUANTILES_SINGLE_BATCH_TESTS = [
             num_quantiles=5,
             epsilon=0.00001,
             bucket_numpy_dtype=np.float32,
-            always_return_num_quantiles=False),
+            always_return_num_quantiles=True),
         batches=[
             (np.linspace(1, 100, 100, dtype=np_type),),
             (np.linspace(101, 200, 100, dtype=np_type),),
@@ -281,11 +281,11 @@ _QUANTILES_MULTIPLE_BATCH_TESTS = [
             num_quantiles=3,
             epsilon=0.00001,
             bucket_numpy_dtype=np.float32,
-            always_return_num_quantiles=False),
+            always_return_num_quantiles=True),
         batches=[
             (np.linspace(1, 100, 100, np_type),),
         ],
-        expected_outputs=[np.array([35, 68], dtype=np.float32)],
+        expected_outputs=[np.array([34, 67], dtype=np.float32)],
     ) for np_type in _NP_TYPES
 ]
 
@@ -360,8 +360,7 @@ class AnalyzersTest(test_case.TransformTestCase):
     for output, expected_output, tensor_info in zip(
         outputs, expected_outputs, tensor_infos):
       self.assertEqual(output.dtype, expected_output.dtype)
-      self.assertEqual(tensor_info.dtype,
-                       tf.as_dtype(expected_output.dtype))
+      self.assertEqual(tensor_info.dtype, tf.as_dtype(expected_output.dtype))
       self.assertAllEqual(output, expected_output)
 
   @test_case.named_parameters(
