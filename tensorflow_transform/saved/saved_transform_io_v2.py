@@ -66,6 +66,7 @@ class SavedModelLoader(object):
           expand_composites=True)
     self._output_to_inputs_map = (
         self._get_output_to_inputs_map(structured_outputs))
+    saved_transform_io._maybe_register_addon_ops()  # pylint: disable=protected-access
 
   def _get_input_signature_from_v1_saved_model(self, saved_model_dir):
     """Get structured inputs for a TF1 compat SavedModel."""

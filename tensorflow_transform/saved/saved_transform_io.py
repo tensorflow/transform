@@ -174,6 +174,14 @@ def _expand_input_map(logical_input_map, input_signature):
 _PARTITIONED_VARIABLE_NAME_RE = re.compile(r'^(.*)/part_(\d*)$')
 
 
+# TODO(b/159982957): Replace this with a mechinism that registers any custom op.
+def _maybe_register_addon_ops():
+  try:
+    import tensorflow_text as _  # pylint: disable=g-import-not-at-top
+  except ImportError:
+    pass
+
+
 def _partially_apply_saved_transform_impl(saved_model_dir,
                                           logical_input_map,
                                           tensor_replacement_map=None):
@@ -213,6 +221,7 @@ def _partially_apply_saved_transform_impl(saved_model_dir,
     RuntimeError: if there is no default graph available to which to apply the
       transform.
   """
+  _maybe_register_addon_ops()
   graph = tf.compat.v1.get_default_graph()
   if graph is None:
     raise RuntimeError('apply_saved_transform() requires a default graph.')
