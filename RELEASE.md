@@ -13,7 +13,7 @@
   versions now apply a sigmoid function to scale tensors if the analysis dataset
   is either empty or contains a single distinct value.
 * Depends on `apache-beam[gcp]>=2.22,<3`.
-* Depends on `avro-python3>=1.8.1,<1.9.2` for Python3.5 + MacOS.
+* Stopped depending on `avro-python3`.
 * Added best-effort tf.text op registration when loading transformation graphs.
 
 ## Breaking changes
