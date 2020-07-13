@@ -552,14 +552,17 @@ def _num_terms_and_factors(num_samples, dtype):
     Entries are `Tensor`s with the given dtype containing counters for each
     moment and the factors to use to compute the moments.
   """
-  num_pairs = num_samples * (num_samples - 1) // 2
-  num_triplets = num_pairs * (num_samples - 2) // 3
-  num_quadruplets = num_triplets * (num_samples - 3) // 4
+  has_pairs = tf.math.greater(num_samples, 1)
+  has_triplets = tf.math.greater(num_samples, 2)
+  has_quadruplets = tf.math.greater(num_samples, 3)
 
   current_samples = tf.cast(num_samples, dtype=dtype)
-  current_pairs = tf.cast(num_pairs, dtype=dtype)
-  current_triplets = tf.cast(num_triplets, dtype=dtype)
-  current_quadruplets = tf.cast(num_quadruplets, dtype=dtype)
+  current_pairs = tf.cast(
+      current_samples * (current_samples - 1.0) / 2.0, dtype=dtype)
+  current_triplets = tf.cast(
+      current_pairs * (current_samples - 2.0) / 3.0, dtype=dtype)
+  current_quadruplets = tf.cast(
+      current_triplets * (current_samples - 3.0) / 4.0, dtype=dtype)
 
   term_up = tf.range(0, current_samples, 1, dtype=dtype)
   term_up_delay_1 = tf.range(-1, current_samples - 1, 1, dtype=dtype)
@@ -572,18 +575,19 @@ def _num_terms_and_factors(num_samples, dtype):
                            lambda: current_samples,
                            lambda: tf.constant(1, dtype))
   l1_factors = tf.ones([num_samples], dtype=dtype) / l1_denominator
-  l2_denominator = tf.cond(tf.math.greater(num_pairs, 0),
-                           lambda: tf.cast(num_pairs * 2, dtype=dtype),
+  l2_denominator = tf.cond(has_pairs,
+                           lambda: tf.cast(current_pairs * 2.0, dtype=dtype),
                            lambda: tf.constant(1, dtype))
   l2_factors = (term_up - term_down) / l2_denominator
-  l3_denominator = tf.cond(tf.math.greater(num_triplets, 0),
-                           lambda: tf.cast(num_triplets * 6, dtype=dtype),
+  l3_denominator = tf.cond(has_triplets,
+                           lambda: tf.cast(current_triplets * 6, dtype=dtype),
                            lambda: tf.constant(1, dtype))
   l3_factors = ((term_up * term_up_delay_1 - 4.0 * term_up * term_down +
                  term_down * term_down_delay_1) / l3_denominator)
-  l4_denominator = tf.cond(tf.math.greater(num_quadruplets, 0),
-                           lambda: tf.cast(num_quadruplets * 24, dtype=dtype),
-                           lambda: tf.constant(1, dtype))
+  l4_denominator = tf.cond(
+      has_quadruplets,
+      lambda: tf.cast(current_quadruplets * 24, dtype=dtype),
+      lambda: tf.constant(1, dtype))
   l4_factors = ((term_up * term_up_delay_1 * term_up_delay_2 -
                  9.0 * term_up * term_up_delay_1 * term_down +
                  9.0 * term_up * term_down * term_down_delay_1 -

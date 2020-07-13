@@ -559,6 +559,17 @@ class TFUtilsTest(test_case.TransformTestCase):
           reduce_instance_dims=True,
           input_signature=[tf.TensorSpec(None, tf.float32)]),
       dict(
+          testcase_name='dense_very_large',
+          x=-np.log(1.0 - np.arange(0, 1, 1e-6, dtype=np.float32)),
+          expected_counts=np.array(
+              [1000000, 499999500000.0, 1.66666166667e+17, 4.1666416667125e+22],
+              np.float32),
+          expected_moments=np.array(
+              [0.99999217330, 0.4999936732947, 0.166660839941, 0.0833278399134],
+              np.float32),
+          reduce_instance_dims=True,
+          input_signature=[tf.TensorSpec(None, tf.float32)]),
+      dict(
           testcase_name='dense_elementwise',
           x=[[[1], [2]], [[3], [4]]],
           expected_counts=np.array(
