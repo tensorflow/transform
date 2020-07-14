@@ -356,6 +356,14 @@ class ImplHelperTest(test_case.TransformTestCase):
             tf.TensorSpec(shape=[None], dtype=tf.string),
         '_sparse_underscored':
             tf.SparseTensorSpec(dtype=tf.string, shape=[None, None]),
+        'ragged_string':
+            tf.RaggedTensorSpec(
+                dtype=tf.string, ragged_rank=1, shape=[None, None]),
+        'ragged_multi_dimension':
+            tf.RaggedTensorSpec(
+                dtype=tf.int64,
+                ragged_rank=3,
+                shape=[None, None, None, None, 5]),
     }
     with tf.compat.v1.Graph().as_default():
       features = impl_helper.batched_placeholders_from_specs(typespecs)
@@ -363,6 +371,8 @@ class ImplHelperTest(test_case.TransformTestCase):
         'dense_float',
         'dense_string',
         '_sparse_underscored',
+        'ragged_string',
+        'ragged_multi_dimension',
     ])
     self.assertEqual(type(features['dense_float']), tf.Tensor)
     self.assertEqual(features['dense_float'].get_shape().as_list(),
@@ -377,6 +387,17 @@ class ImplHelperTest(test_case.TransformTestCase):
     self.assertEqual(features['_sparse_underscored'].get_shape().as_list(),
                      [None, None])
     self.assertEqual(features['_sparse_underscored'].dtype, tf.string)
+
+    self.assertEqual(type(features['ragged_string']), tf.RaggedTensor)
+    self.assertEqual(features['ragged_string'].shape.as_list(), [None, None])
+    self.assertEqual(features['ragged_string'].ragged_rank, 1)
+    self.assertEqual(features['ragged_string'].dtype, tf.string)
+
+    self.assertEqual(type(features['ragged_multi_dimension']), tf.RaggedTensor)
+    self.assertEqual(features['ragged_multi_dimension'].shape.as_list(),
+                     [None, None, None, None, 5])
+    self.assertEqual(features['ragged_multi_dimension'].ragged_rank, 3)
+    self.assertEqual(features['ragged_multi_dimension'].dtype, tf.int64)
 
   def test_batched_placeholders_from_specs_invalid_dtype(self):
     with self.assertRaisesRegexp(ValueError, 'had invalid dtype'):
@@ -434,10 +455,13 @@ class ImplHelperTest(test_case.TransformTestCase):
     with tf.compat.v1.Graph().as_default():
       tensors = {
           'dense':
-              tf.compat.v1.placeholder(tf.int64, (None,),
-                                       name='my_dense_input'),
+              tf.compat.v1.placeholder(
+                  tf.int64, (None,), name='my_dense_input'),
           'sparse':
-              tf.compat.v1.sparse_placeholder(tf.int64, name='my_sparse_input')
+              tf.compat.v1.sparse_placeholder(tf.int64, name='my_sparse_input'),
+          'ragged':
+              tf.compat.v1.ragged.placeholder(
+                  tf.int64, ragged_rank=2, name='my_ragged_input')
       }
       copied_tensors = impl_helper.copy_tensors(tensors)
 
@@ -449,15 +473,22 @@ class ImplHelperTest(test_case.TransformTestCase):
                           copied_tensors['sparse'].values)
       self.assertNotEqual(tensors['sparse'].dense_shape,
                           copied_tensors['sparse'].dense_shape)
+      self.assertNotEqual(tensors['ragged'].values,
+                          copied_tensors['ragged'].values)
+      self.assertNotEqual(tensors['ragged'].row_splits,
+                          copied_tensors['ragged'].row_splits)
 
   def test_copy_tensors_produces_equivalent_tensors(self):
     with tf.compat.v1.Graph().as_default():
       tensors = {
           'dense':
-              tf.compat.v1.placeholder(tf.int64, (None,),
-                                       name='my_dense_input'),
+              tf.compat.v1.placeholder(
+                  tf.int64, (None,), name='my_dense_input'),
           'sparse':
-              tf.compat.v1.sparse_placeholder(tf.int64, name='my_sparse_input')
+              tf.compat.v1.sparse_placeholder(tf.int64, name='my_sparse_input'),
+          'ragged':
+              tf.compat.v1.ragged.placeholder(
+                  tf.int64, ragged_rank=1, name='my_ragged_input')
       }
       copied_tensors = impl_helper.copy_tensors(tensors)
 
@@ -467,10 +498,16 @@ class ImplHelperTest(test_case.TransformTestCase):
             indices=[[0, 0], [0, 2], [1, 1]],
             values=[3, 4, 5],
             dense_shape=[2, 3])
-        sample_tensors = session.run(copied_tensors, feed_dict={
-            tensors['dense']: dense_value,
-            tensors['sparse']: sparse_value
-        })
+        ragged_value = tf.compat.v1.ragged.RaggedTensorValue(
+            values=np.array([3, 4, 5], dtype=np.int64),
+            row_splits=np.array([0, 2, 3], dtype=np.int64))
+        sample_tensors = session.run(
+            copied_tensors,
+            feed_dict={
+                tensors['dense']: dense_value,
+                tensors['sparse']: sparse_value,
+                tensors['ragged']: ragged_value
+            })
         self.assertAllEqual(sample_tensors['dense'], dense_value)
         self.assertAllEqual(sample_tensors['sparse'].indices,
                             sparse_value.indices)
@@ -478,6 +515,10 @@ class ImplHelperTest(test_case.TransformTestCase):
                             sparse_value.values)
         self.assertAllEqual(sample_tensors['sparse'].dense_shape,
                             sparse_value.dense_shape)
+        self.assertAllEqual(sample_tensors['ragged'].values,
+                            ragged_value.values)
+        self.assertAllEqual(sample_tensors['ragged'].row_splits,
+                            ragged_value.row_splits)
 
 
 def _subtract_ten_with_tf_while(x):

@@ -29,6 +29,7 @@ from six.moves import zip  # pylint: disable=redefined-builtin
 
 import tensorflow as tf
 from tensorflow_transform.tf_metadata import schema_utils
+from tensorflow.python.framework import composite_tensor  # pylint: disable=g-direct-tensorflow-import
 
 _CACHED_EMPTY_ARRAY_BY_DTYPE = {}
 _VALID_SCOPE_REGEX = re.compile('^[A-Za-z0-9]*$')
@@ -51,7 +52,7 @@ def batched_placeholders_from_specs(specs):
       in this dict must be of the same type. Mixing is not allowed.
 
   Returns:
-    A dictionary from strings to `Tensor` or `SparseTensor`s.
+    A dictionary from strings to `Tensor`, `SparseTensor`s, or `RaggedTensor`s.
 
   Raises:
     ValueError: when the TypeSpec or feature spec has an unsupported dtype.
@@ -63,7 +64,12 @@ def batched_placeholders_from_specs(specs):
 
   result = {}
   for name, spec in six.iteritems(specs):
-    if spec.dtype not in (tf.int64, tf.float32, tf.string):
+    if isinstance(spec, tf.RaggedTensorSpec):
+      # TODO(b/159717195): clean up protected-access
+      spec_dtype = spec._dtype  # pylint: disable=protected-access
+    else:
+      spec_dtype = spec.dtype
+    if spec_dtype not in (tf.int64, tf.float32, tf.string):
       raise ValueError('Feature {} ({}, {}) had invalid dtype'
                        .format(name, spec, type(spec)))
     if isinstance(spec, tf.TypeSpec):
@@ -93,16 +99,13 @@ def _sanitize_scope_name(name):
 
 def _batched_placeholder_from_typespec(name, typespec):
   """Creates a batched placeholder from a tf.TypeSpec."""
-  scope_name = _sanitize_scope_name(name)
-  if isinstance(typespec, tf.TensorSpec):
-    return tf.compat.v1.placeholder(
-        typespec.dtype, typespec.shape, name=scope_name)
-  if isinstance(typespec, tf.SparseTensorSpec):
-    return tf.compat.v1.sparse_placeholder(
-        typespec.dtype,
-        # BUGGY TF
-        typespec.shape.as_list(),
-        name=scope_name)
+  if isinstance(typespec,
+                (tf.TensorSpec, tf.SparseTensorSpec, tf.RaggedTensorSpec)):
+    with tf.name_scope(_sanitize_scope_name(name)):
+      return tf.nest.map_structure(
+          lambda tspec: tf.compat.v1.placeholder(tspec.dtype, tspec.shape),
+          typespec,
+          expand_composites=True)
 
   raise ValueError('Unsupported typespec: {}({}) for feature {}'.format(
       typespec, type(typespec), name))
@@ -371,29 +374,28 @@ def check_valid_sparse_tensor(indices, values, size, name):
 def copy_tensors(tensors):
   """Makes deep copies of a dict of tensors.
 
-  Makes deep copies (using tf.identity or its equivalent for `SparseTensor`s) of
-  the values of `tensors`.
+  Makes deep copies (using tf.identity or its equivalent for `CompositeTensor`s)
+  of the values of `tensors`.
 
   Args:
     tensors: A a dict whose keys are strings and values are `Tensors`s or
-        `SparseTensor`s.
+      `CompositeTensor`s.
 
   Returns:
     A copy of `tensors` with values replaced by tf.identity applied to the
-        value, or the equivalent for `SparseTensor`s.
+        value, or the equivalent for `CompositeTensor`s.
   """
-  return {name: _copy_tensor_or_sparse_tensor(tensor)
-          for name, tensor in six.iteritems(tensors)}
+  return {
+      name: _copy_tensor_or_composite_tensor(tensor)
+      for name, tensor in six.iteritems(tensors)
+  }
 
 
 def _copy_tensor(tensor):
   return tf.identity(tensor, name='{}_copy'.format(tensor.op.name))
 
 
-def _copy_tensor_or_sparse_tensor(tensor):
-  if isinstance(tensor, tf.SparseTensor):
-    indices = _copy_tensor(tensor.indices)
-    values = _copy_tensor(tensor.values)
-    dense_shape = _copy_tensor(tensor.dense_shape)
-    return tf.SparseTensor(indices, values, dense_shape)
+def _copy_tensor_or_composite_tensor(tensor):
+  if isinstance(tensor, composite_tensor.CompositeTensor):
+    return tf.nest.map_structure(_copy_tensor, tensor, expand_composites=True)
   return _copy_tensor(tensor)
