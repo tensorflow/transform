@@ -18,13 +18,15 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+
 # GOOGLE-INITIALIZATION
+
 import numpy as np
 import tensorflow as tf
-
 from tensorflow_transform import tf_utils
 from tensorflow_transform import test_case
 
+import unittest
 from tensorflow.python.framework import composite_tensor  # pylint: disable=g-direct-tensorflow-import
 
 
@@ -1188,7 +1190,123 @@ class TFUtilsTest(test_case.TransformTestCase):
                         np.array([2.0, 4.0, 7.0]))
 
 
+class VocabTFUtilsTest(test_case.TransformTestCase):
+
+  def setUp(self):
+    if (not hasattr(tf.lookup.experimental, 'DatasetInitializer') and
+        test_case.is_external_environment()):
+      raise unittest.SkipTest('Test requires DatasetInitializer')
+    super(VocabTFUtilsTest, self).setUp()
+
+  def _write_tfrecords(self, path, bytes_records):
+    with tf.io.TFRecordWriter(path, 'GZIP') as writer:
+      for record in bytes_records:
+        writer.write(record)
+
+  def test__split_vocabulary_entries(self):
+    x = tf.constant([b'1  a b ', b'2 c', b'3      . . .   '])
+    keys, values = tf_utils._split_vocabulary_entries(x)
+    expected_keys = [b' a b ', b'c', b'     . . .   ']
+    expected_values = [b'1', b'2', b'3']
+    self.assertAllEqual(self.evaluate(keys), np.array(expected_keys))
+    self.assertAllEqual(self.evaluate(values), np.array(expected_values))
+
+  def test_read_tfrecord_vocabulary_dataset(self):
+    vocab_file = os.path.join(self.get_temp_dir(), 'vocab.tfrecord.gz')
+    contents = [b'a', b'b', b'c']
+    self._write_tfrecords(vocab_file, contents)
+    self.AssertVocabularyContents(vocab_file, contents)
+
+    ds = tf_utils.read_tfrecord_vocabulary_dataset(vocab_file)
+    self.assertAllEqual(np.array(contents), list(ds.as_numpy_iterator()))
+
+  @test_case.named_parameters([
+      dict(
+          testcase_name='_common',
+          contents=[b'a', b'b', b' c '],
+          expected=[(b'a', 0), (b'b', 1), (b' c ', 2)],
+          key_dtype=tf.string,
+          value_dtype=tf.int64,
+          return_indicator_as_value=False,
+          has_indicator=False),
+      dict(
+          testcase_name='_dtypes',
+          contents=[b'17', b'42'],
+          expected=[(17, 0.), (42, 1.)],
+          key_dtype=tf.int64,
+          value_dtype=tf.float32,
+          return_indicator_as_value=False,
+          has_indicator=False),
+      dict(
+          testcase_name='_drop_indicator',
+          contents=[b'17 a', b'42 b'],
+          expected=[(b'a', 0), (b'b', 1)],
+          key_dtype=tf.string,
+          value_dtype=tf.int64,
+          return_indicator_as_value=False,
+          has_indicator=True),
+      dict(
+          testcase_name='_indicator_value',
+          contents=[b'17 a', b'42 b '],
+          expected=[(b'a', 17), (b'b ', 42)],
+          key_dtype=tf.string,
+          value_dtype=tf.int64,
+          return_indicator_as_value=True,
+          has_indicator=True),
+      dict(
+          testcase_name='_indicator_value_dtype',
+          contents=[b'17 a', b'42 b'],
+          expected=[(b'a', 17.), (b'b', 42.)],
+          key_dtype=tf.string,
+          value_dtype=tf.float32,
+          return_indicator_as_value=True,
+          has_indicator=True),
+  ])
+  def test__make_tfrecord_vocabulary_dataset(self, contents, expected,
+                                             key_dtype, value_dtype,
+                                             return_indicator_as_value,
+                                             has_indicator):
+    vocab_file = os.path.join(self.get_temp_dir(), 'vocab.tfrecord.gz')
+    self._write_tfrecords(vocab_file, contents)
+
+    ds = tf_utils._make_tfrecord_vocabulary_dataset(
+        vocab_file,
+        key_dtype=key_dtype,
+        value_dtype=value_dtype,
+        return_indicator_as_value=return_indicator_as_value,
+        has_indicator=has_indicator)
+
+    def validate_dtypes(key, value):
+      self.assertEqual(key.dtype, key_dtype)
+      self.assertEqual(value.dtype, value_dtype)
+      return key, value
+
+    ds = ds.map(validate_dtypes)
+
+    vocabulary = list(ds.as_numpy_iterator())
+    self.assertAllEqual(expected, vocabulary)
+
+  @test_case.named_parameters(test_case.FUNCTION_HANDLERS)
+  def test_make_tfrecord_vocabulary_lookup_initializer(self, function_handler):
+    vocab_file = os.path.join(self.get_temp_dir(), 'vocab.tfrecord.gz')
+    contents = [b'%i' % idx for idx in range(1000)]
+    self._write_tfrecords(vocab_file, contents)
+
+    input_signature = [tf.TensorSpec(None, tf.string)]
+
+    @function_handler(input_signature=input_signature)
+    def lookup(x):
+      initializer = tf_utils.make_tfrecord_vocabulary_lookup_initializer(
+          vocab_file)
+      table = tf.lookup.StaticHashTable(initializer, -1)
+      return table.lookup(x)
+
+    self.assertEqual(lookup('5'), 5)
+    self.assertEqual(lookup('1000'), -1)
+
+
 if __name__ == '__main__':
-  # TODO(b/133440043): Remove this once this is enabled by default.
+  # TODO(b/133440043): Remove this once this is enabled by default in all
+  # supported TF versions.
   tf.compat.v1.enable_v2_tensorshape()
   test_case.main()

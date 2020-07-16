@@ -442,6 +442,112 @@ def apply_bucketize_op(x, boundaries, remove_leftmost_boundary=False):
   return bucket_indices
 
 
+# TODO(b/62379925): Remove this once TF 2.3 is no longer supported.
+class _DatasetInitializerCompat(
+    getattr(tf.lookup.experimental, 'DatasetInitializer', object)):
+  """Extends DatasetInitializer when possible and registers the init_op."""
+
+  def __init__(self, *args, **kwargs):
+    if self.__class__.mro()[1] == object:
+      raise NotImplementedError(
+          'Cannot create a DatasetInitializer with this version of TF: {}'
+          .format(tf.__version__))
+    super(_DatasetInitializerCompat, self).__init__(*args, **kwargs)
+
+  def initialize(self, table):
+    init_op = super(_DatasetInitializerCompat, self).initialize(table)
+    collection_ref = tf.compat.v1.get_collection_ref(
+        tf.compat.v1.GraphKeys.TABLE_INITIALIZERS)
+    if init_op not in collection_ref:
+      collection_ref.append(init_op)
+    return init_op
+
+
+_DATASET_BATCH_SIZE = tf.int64.max
+
+
+def read_tfrecord_vocabulary_dataset(vocab_path):
+  """Creates a dataset from a compressed tfrecord file."""
+  return tf.data.TFRecordDataset(vocab_path, compression_type='GZIP')
+
+
+def _make_vocab_entry_to_dtype_fn(dtype):
+
+  def vocab_entry_to_dtype(key):
+    return key if dtype is tf.string else tf.strings.to_number(
+        key, out_type=dtype)
+
+  return vocab_entry_to_dtype
+
+
+def _make_tfrecord_vocabulary_dataset(vocab_path,
+                                      key_dtype=tf.string,
+                                      value_dtype=tf.int64,
+                                      return_indicator_as_value=False,
+                                      has_indicator=False):
+  """Makes a (key, value) dataset from a compressed tfrecord file."""
+  if not (value_dtype.is_floating or value_dtype.is_integer):
+    raise ValueError('value_dtype must be numeric. Got: %s' % value_dtype)
+  dataset = read_tfrecord_vocabulary_dataset(vocab_path)
+  key_dtype_fn = _make_vocab_entry_to_dtype_fn(key_dtype)
+  value_dtype_fn = _make_vocab_entry_to_dtype_fn(value_dtype)
+
+  if return_indicator_as_value:
+    assert has_indicator
+
+    def convert_dtype(k, v):
+      return key_dtype_fn(k), value_dtype_fn(v)
+
+    return dataset.batch(_DATASET_BATCH_SIZE).map(
+        _split_vocabulary_entries).map(convert_dtype).unbatch()
+
+  else:
+    if has_indicator:
+      drop_indicator = lambda k, v: k
+      dataset = dataset.batch(_DATASET_BATCH_SIZE).map(
+          _split_vocabulary_entries).map(drop_indicator).unbatch()
+
+    def convert_dtype_and_swap(v, k):
+      return key_dtype_fn(k), tf.cast(v, value_dtype)
+
+    return dataset.enumerate().map(convert_dtype_and_swap)
+
+
+def make_tfrecord_vocabulary_lookup_initializer(filename_tensor,
+                                                key_dtype=tf.string,
+                                                value_dtype=tf.int64,
+                                                return_indicator_as_value=False,
+                                                has_indicator=False):
+  """Makes a lookup table initializer from a compressed tfrecord file."""
+  dataset = _make_tfrecord_vocabulary_dataset(filename_tensor, key_dtype,
+                                              value_dtype,
+                                              return_indicator_as_value,
+                                              has_indicator)
+  return _DatasetInitializerCompat(dataset)
+
+
+def _split_vocabulary_entries(batched_vocab_lines):
+  """Splits vocabulary entries separated by a single space.
+
+  Vocabulary entries that include indicators are formatted as:
+  "<indicator><single space><key>"
+
+  Args:
+    batched_vocab_lines: A possible batched string tensor.
+
+  Returns:
+    A pair of (indicator, key) tensors.
+  """
+  # Setting maxsplit=1 allows the vocabulary entries to include space
+  # characters.
+  split = tf.strings.split(batched_vocab_lines, sep=' ', maxsplit=1)
+  if isinstance(split, tf.RaggedTensor):
+    split_tensor = split.to_tensor()
+    return split_tensor[:, 1], split_tensor[:, 0]
+  else:
+    return split[1], split[0]
+
+
 def apply_per_key_vocabulary(per_key_filename,
                              key,
                              default_value=None,

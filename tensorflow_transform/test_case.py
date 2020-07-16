@@ -17,18 +17,19 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from builtins import zip  # pylint: disable=redefined-builtin,g-importing-member
 import functools
 import inspect
 import itertools
 import os
+
 # GOOGLE-INITIALIZATION
 
 from absl.testing import parameterized
-from builtins import zip  # pylint: disable=redefined-builtin
-
 import numpy as np
 import six
 import tensorflow as tf
+from tensorflow_transform import tf_utils
 
 import unittest
 # pylint: disable=g-direct-tensorflow-import
@@ -141,6 +142,7 @@ def _graph_function_handler(input_signature):
         placeholders = list(map(_make_placeholder, input_signature))
         output_tensor = fn(*placeholders)
         with tf.compat.v1.Session() as sess:
+          sess.run(tf.compat.v1.tables_initializer())
           return sess.run(output_tensor,
                           feed_dict=dict(zip(placeholders, inputs)))
 
@@ -288,27 +290,31 @@ class TransformTestCase(parameterized.TestCase, tf.test.TestCase):
       raise
 
   def AssertVocabularyContents(self, vocab_file_path, file_contents):
-    with tf.io.gfile.GFile(vocab_file_path, 'rb') as f:
-      file_lines = f.readlines()
+    if vocab_file_path.endswith('.tfrecord.gz'):
+      file_lines = list(
+          tf_utils.read_tfrecord_vocabulary_dataset(
+              vocab_file_path).as_numpy_iterator())
+    else:
+      with tf.io.gfile.GFile(vocab_file_path, 'rb') as f:
+        file_lines = f.read().splitlines()
 
-      # Store frequency case.
-      if isinstance(file_contents[0], tuple):
-        word_and_frequency_list = []
-        for content in file_lines:
-          frequency, word = content.split(b' ', 1)
-          # Split by comma for when the vocabulary file stores the result of
-          # per-key analyzers.
-          values = list(map(float, frequency.strip(b'\n').split(b',')))
-          word_and_frequency_list.append(
-              (word.strip(b'\n'), values[0] if len(values) == 1 else values))
+    # Store frequency case.
+    if isinstance(file_contents[0], tuple):
+      word_and_frequency_list = []
+      for content in file_lines:
+        frequency, word = content.split(b' ', 1)
+        # Split by comma for when the vocabulary file stores the result of
+        # per-key analyzers.
+        values = list(map(float, frequency.split(b',')))
+        word_and_frequency_list.append(
+            (word, values[0] if len(values) == 1 else values))
 
-        expected_words, expected_frequency = zip(*word_and_frequency_list)
-        actual_words, actual_frequency = zip(*file_contents)
-        self.assertAllEqual(expected_words, actual_words)
-        np.testing.assert_almost_equal(expected_frequency, actual_frequency)
-      else:
-        file_lines = [content.strip(b'\n') for content in file_lines]
-        self.assertAllEqual(file_lines, file_contents)
+      expected_words, expected_frequency = zip(*word_and_frequency_list)
+      actual_words, actual_frequency = zip(*file_contents)
+      self.assertAllEqual(expected_words, actual_words)
+      np.testing.assert_almost_equal(expected_frequency, actual_frequency)
+    else:
+      self.assertAllEqual(file_lines, file_contents)
 
   def WriteRenderedDotFile(self, dot_string, output_file=None):
     tf.compat.v1.logging.info(
