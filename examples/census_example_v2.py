@@ -142,7 +142,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
 
     # Scale numeric columns to have range [0, 1].
     for key in NUMERIC_FEATURE_KEYS:
-      outputs[key] = tft.scale_to_0_1(outputs[key])
+      outputs[key] = tft.scale_to_0_1(inputs[key])
 
     for key in OPTIONAL_NUMERIC_FEATURE_KEYS:
       # This is a SparseTensor because it is optional. Here we fill in a default
@@ -160,7 +160,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
     # from a string to an integer id.
     for key in CATEGORICAL_FEATURE_KEYS:
       outputs[key] = tft.compute_and_apply_vocabulary(
-          tf.strings.strip(inputs[key]), vocab_filename=key)
+          tf.strings.strip(inputs[key]), num_oov_buckets=1, vocab_filename=key)
 
     # For the label column we provide the mapping from string to index.
     table_keys = ['>50K', '<=50K']
@@ -274,7 +274,7 @@ def input_fn(tf_transform_output, transformed_examples_pattern, batch_size):
       features=tf_transform_output.transformed_feature_spec(),
       reader=tf.data.TFRecordDataset,
       label_key=LABEL_KEY,
-      shuffle=True)
+      shuffle=True).prefetch(tf.data.experimental.AUTOTUNE)
 
 
 def input_fn_raw(tf_transform_output, raw_examples_pattern, batch_size):
@@ -422,9 +422,19 @@ def train_and_evaluate(raw_train_eval_data_path_pattern,
     else:
       raise ValueError('Spec type is not supported: ', key, spec)
 
-  stacked_inputs = tf.stack([tf.cast(x, tf.float32) for x in inputs.values()],
-                            axis=-1)
+  encoded_inputs = {}
+  for key in inputs:
+    feature = tf.expand_dims(inputs[key], -1)
+    if key in CATEGORICAL_FEATURE_KEYS:
+      num_buckets = tf_transform_output.num_buckets_for_transformed_feature(key)
+      encoding_layer = (
+          tf.keras.layers.experimental.preprocessing.CategoryEncoding(
+              max_tokens=num_buckets, output_mode='binary', sparse=False))
+      encoded_inputs[key] = encoding_layer(feature)
+    else:
+      encoded_inputs[key] = feature
 
+  stacked_inputs = tf.concat(tf.nest.flatten(encoded_inputs), axis=1)
   output = tf.keras.layers.Dense(100, activation='relu')(stacked_inputs)
   output = tf.keras.layers.Dense(70, activation='relu')(output)
   output = tf.keras.layers.Dense(50, activation='relu')(output)

@@ -26,7 +26,9 @@ import tensorflow.compat.v2 as tf
 import census_example_v2
 from tensorflow_transform import test_case as tft_test_case
 import local_model_server
+
 from google.protobuf import text_format
+from tensorflow.python import tf2  # pylint: disable=g-direct-tensorflow-import
 
 # Use first row of test data set, which has high probability on label 1 (which
 # corresponds to '<=50K').
@@ -103,7 +105,9 @@ class CensusExampleV2Test(tft_test_case.TransformTestCase):
 
   def setUp(self):
     super(CensusExampleV2Test, self).setUp()
-    tft_test_case.skip_if_not_tf2('Tensorflow 2.x required.')
+    if (not tf2.enabled() or
+        tft_test_case.is_external_environment() and tf.version.VERSION < '2.3'):
+      raise tft_test_case.SkipTest('This test requires TF version >= 2.3')
 
   def _get_data_dir(self):
     return os.path.join(os.path.dirname(__file__), 'testdata/census')

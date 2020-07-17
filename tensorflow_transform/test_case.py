@@ -40,6 +40,7 @@ from tensorflow.python.eager import context
 main = tf.test.main
 
 named_parameters = parameterized.named_parameters
+SkipTest = unittest.SkipTest
 
 
 def cross_named_parameters(*args):
