@@ -194,6 +194,216 @@ _MEAN_AND_VAR_ND_TEST = dict(
     ],
 )
 
+_L_MOMENTS_TESTS = [dict(
+    testcase_name='LMoments_one_batch',
+    combiner=analyzers._LMomentsCombiner(np.float32, output_shape=()),
+    batches=[
+        # Accumulator for the sequence:
+        # np.concatenate((np.power(2.0, np.arange(0, 10, 0.01)),
+        #                 -np.power(1.9, np.arange(0, 10, 0.01)))
+        analyzers._LMomentsAccumulator(
+            count_l1=np.float32(2000.),
+            count_l2=np.float32(1999000.),
+            count_l3=np.float32(1.331334e+09),
+            count_l4=np.float32(6.6466854e+11),
+            l1=np.float32(26.00855),
+            l2=np.float32(103.25489),
+            l3=np.float32(17.549286),
+            l4=np.float32(47.41136))
+    ],
+    expected_outputs=[
+        np.float32(5.769684),
+        np.float32(81.381424),
+        np.float32(0.39079103),
+        np.float32(0.55846965)
+    ],
+), dict(
+    testcase_name='LMoments_small_batch',
+    combiner=analyzers._LMomentsCombiner(np.float32, output_shape=()),
+    batches=[
+        # Accumulator for the sequence: [1., 1., 2., 2.].
+        analyzers._LMomentsAccumulator(
+            count_l1=np.float32(4.),
+            count_l2=np.float32(6.),
+            count_l3=np.float32(4.),
+            count_l4=np.float32(1.),
+            l1=np.float32(1.5),
+            l2=np.float32(0.33333334),
+            l3=np.float32(0.),
+            l4=np.float32(-0.5))
+    ],
+    expected_outputs=[
+        np.float32(1.5),
+        np.float32(np.sqrt(np.pi) / 3.0),
+        np.float32(0.0),
+        np.float32(0.0)
+    ],
+), dict(
+    testcase_name='LMoments_one_sample',
+    combiner=analyzers._LMomentsCombiner(np.float32, output_shape=()),
+    batches=[
+        # Accumulator for the sequence: [1.].
+        analyzers._LMomentsAccumulator(
+            count_l1=np.float32(1.),
+            count_l2=np.float32(0.),
+            count_l3=np.float32(-0.),
+            count_l4=np.float32(0.),
+            l1=np.float32(1.),
+            l2=np.float32(0.),
+            l3=np.float32(-0.),
+            l4=np.float32(0.))
+    ],
+    expected_outputs=[
+        np.float32(1.0),
+        np.float32(1.0),
+        np.float32(0.0),
+        np.float32(0.0)
+    ],
+), dict(
+    testcase_name='LMoments_two_samples',
+    combiner=analyzers._LMomentsCombiner(np.float32, output_shape=()),
+    batches=[
+        # Accumulator for the sequence: [1., 1.].
+        analyzers._LMomentsAccumulator(
+            count_l1=np.float32(2.),
+            count_l2=np.float32(1.),
+            count_l3=np.float32(0.),
+            count_l4=np.float32(-0.),
+            l1=np.float32(1.),
+            l2=np.float32(0.),
+            l3=np.float32(0.),
+            l4=np.float32(0.))
+    ],
+    expected_outputs=[
+        np.float32(1.0),
+        np.float32(1.0),
+        np.float32(0.0),
+        np.float32(0.0)
+    ],
+), dict(
+    testcase_name='LMoments_multiple_batches',
+    combiner=analyzers._LMomentsCombiner(np.float32, output_shape=()),
+    batches=[
+        # Accumulator for the sequence:
+        # np.concatenate((np.power(2.0, np.arange(0, 10, 0.02)),
+        #                 -np.power(1.9, np.arange(0, 10, 0.02)))
+        analyzers._LMomentsAccumulator(
+            count_l1=np.float32(1000.),
+            count_l2=np.float32(499500.),
+            count_l3=np.float32(1.66167e+08),
+            count_l4=np.float32(4.1417126e+10),
+            l1=np.float32(25.90623),
+            l2=np.float32(102.958664),
+            l3=np.float32(17.50719),
+            l4=np.float32(47.393063)),
+        # Accumulator for the sequence:
+        # np.concatenate((np.power(2.0, np.arange(0.01, 10, 0.02)),
+        #                 -np.power(1.9, np.arange(0.01, 10, 0.02)))
+        analyzers._LMomentsAccumulator(
+            count_l1=np.float32(1000.),
+            count_l2=np.float32(499500.),
+            count_l3=np.float32(1.66167e+08),
+            count_l4=np.float32(4.1417126e+10),
+            l1=np.float32(26.110888),
+            l2=np.float32(103.65407),
+            l3=np.float32(17.64386),
+            l4=np.float32(47.71353)),
+    ],
+    expected_outputs=[
+        np.float32(5.751478),
+        np.float32(81.16352),
+        np.float32(0.3923474),
+        np.float32(0.55972165)
+    ],
+)]
+
+_L_MOMENTS_ND_TESTS = [dict(
+    testcase_name='LMomentsOneBatchForNDVectors',
+    combiner=analyzers._LMomentsCombiner(np.float32, output_shape=(None, None)),
+    batches=[
+        # Accumulator for the sequence:
+        # np.concatenate((
+        #     np.concatenate((
+        #         np.power(2.0, np.arange(0, 10, 0.01)),
+        #         -np.power(1.9, np.arange(0, 10, 0.01)))).reshape(
+        #             [-1, 1, 1]),
+        #     np.concatenate((
+        #         np.power(1.9, np.arange(0, 10, 0.01)),
+        #         -np.power(2.0, np.arange(0, 10, 0.01)))).reshape(
+        #             [-1, 1, 1])), axis=2),
+        # axis=0),
+        analyzers._LMomentsAccumulator(
+            count_l1=np.array([[2000., 2000.]], dtype=np.float32),
+            count_l2=np.array([[1999000., 1999000.]], dtype=np.float32),
+            count_l3=np.array([[1.331334e+09, 1.331334e+09]], dtype=np.float32),
+            count_l4=np.array(
+                [[6.6466854e+11, 6.6466854e+11]], dtype=np.float32),
+            l1=np.array([[26.00855, -26.008562]], dtype=np.float32),
+            l2=np.array([[103.25489, 103.25489]], dtype=np.float32),
+            l3=np.array([[17.549286, -17.549274]], dtype=np.float32),
+            l4=np.array([[47.41136, 47.41136]], dtype=np.float32))
+    ],
+    expected_outputs=[
+        np.array([[5.7696896, -5.7697697]], dtype=np.float32),
+        np.array([[81.38142, 81.381386]], dtype=np.float32),
+        np.array([[0.39079103, 0.55846965]], dtype=np.float32),
+        np.array([[0.55846965, 0.39079177]], dtype=np.float32)
+    ],
+), dict(
+    testcase_name='LMomentsMultipleBatchesForNDVectors',
+    combiner=analyzers._LMomentsCombiner(np.float32, output_shape=(None, None)),
+    batches=[
+        # Accumulator for the sequence:
+        # np.concatenate((
+        #     np.concatenate((
+        #         np.power(2.0, np.arange(0, 10, 0.02)),
+        #         -np.power(1.9, np.arange(0., 10, 0.02)))).reshape(
+        #             [-1, 1, 1]),
+        #     np.concatenate((
+        #         np.power(1.9, np.arange(0, 10, 0.02)),
+        #         -np.power(2.0, np.arange(0., 10, 0.02)))).reshape(
+        #             [-1, 1, 1])), axis=2),
+        # axis=0)
+        analyzers._LMomentsAccumulator(
+            count_l1=np.array([[1000., 1000.]], dtype=np.float32),
+            count_l2=np.array([[499500., 499500.]], dtype=np.float32),
+            count_l3=np.array([[1.66167e+08, 1.66167e+08]], dtype=np.float32),
+            count_l4=np.array(
+                [[4.1417126e+10, 4.1417126e+10]], dtype=np.float32),
+            l1=np.array([[25.90623, -25.90623]], dtype=np.float32),
+            l2=np.array([[102.958664, 102.958664]], dtype=np.float32),
+            l3=np.array([[17.50719, -17.507195]], dtype=np.float32),
+            l4=np.array([[47.393063, 47.393066]], dtype=np.float32)),
+        # Accumulator for the sequence:
+        # np.concatenate((
+        #     np.concatenate((
+        #         np.power(2.0, np.arange(0.01, 10, 0.02)),
+        #         -np.power(1.9, np.arange(0.01, 10, 0.02)))).reshape(
+        #             [-1, 1, 1]),
+        #     np.concatenate((
+        #         np.power(1.9, np.arange(0.01, 10, 0.02)),
+        #         -np.power(2.0, np.arange(0.01, 10, 0.02)))).reshape(
+        #             [-1, 1, 1])), axis=2),
+        # axis=0)
+        analyzers._LMomentsAccumulator(
+            count_l1=np.array([[1000., 1000.]], dtype=np.float32),
+            count_l2=np.array([[499500., 499500.]], dtype=np.float32),
+            count_l3=np.array([[1.66167e+08, 1.66167e+08]], dtype=np.float32),
+            count_l4=np.array(
+                [[4.1417126e+10, 4.1417126e+10]], dtype=np.float32),
+            l1=np.array([[26.110888, -26.110888]], dtype=np.float32),
+            l2=np.array([[103.65407, 103.654076]], dtype=np.float32),
+            l3=np.array([[17.64386, -17.643852]], dtype=np.float32),
+            l4=np.array([[47.71353, 47.71353]], dtype=np.float32))
+    ],
+    expected_outputs=[
+        np.array([[5.751478, -5.751478]], dtype=np.float32),
+        np.array([[81.16352, 81.16352]], dtype=np.float32),
+        np.array([[0.3923474, 0.55972165]], dtype=np.float32),
+        np.array([[0.55972165, 0.3923474]], dtype=np.float32)
+    ],
+)]
+
 _QUANTILES_NO_ELEMENTS_TEST = dict(
     testcase_name='ComputeQuantilesNoElements',
     combiner=analyzers.QuantilesCombiner(
@@ -323,7 +533,8 @@ class AnalyzersTest(test_case.TransformTestCase):
       _QUANTILES_NO_ELEMENTS_TEST,
       _QUANTILES_NO_TRIM_TEST,
       _QUANTILES_EXACT_NO_ELEMENTS_TEST,
-  ] + _QUANTILES_SINGLE_BATCH_TESTS + _QUANTILES_MULTIPLE_BATCH_TESTS +
+  ] + _L_MOMENTS_TESTS + _L_MOMENTS_ND_TESTS + _QUANTILES_SINGLE_BATCH_TESTS +
+                              _QUANTILES_MULTIPLE_BATCH_TESTS +
                               _QUANTILES_ELEMENTWISE_TESTS +
                               _EXACT_NUM_QUANTILES_TESTS)
   def testCombiner(self, combiner, batches, expected_outputs):
@@ -360,6 +571,7 @@ class AnalyzersTest(test_case.TransformTestCase):
     for output, expected_output, tensor_info in zip(
         outputs, expected_outputs, tensor_infos):
       self.assertEqual(output.dtype, expected_output.dtype)
+
       self.assertEqual(tensor_info.dtype, tf.as_dtype(expected_output.dtype))
       self.assertAllEqual(output, expected_output)
 

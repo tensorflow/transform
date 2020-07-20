@@ -337,10 +337,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
-  @tft_unit.named_parameters(*[
+  @tft_unit.named_parameters(
       dict(testcase_name='NoDeepCopy', with_deep_copy=False),
       dict(testcase_name='WithDeepCopy', with_deep_copy=True),
-  ])
+  )
   def testMultipleLevelsOfAnalyzers(self, with_deep_copy):
     # Test a preprocessing function similar to scale_to_0_1 except that it
     # involves multiple interleavings of analyzers and transforms.
@@ -840,14 +840,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
 
-  @tft_unit.named_parameters(*[
+  @tft_unit.named_parameters(
       dict(testcase_name='_empty_filename',
            key_vocabulary_filename=''),
       dict(testcase_name='_nonempty_filename',
            key_vocabulary_filename='per_key'),
       dict(testcase_name='_none_filename',
            key_vocabulary_filename=None)
-  ])
+  )
   def testScaleMinMaxPerKey(self, key_vocabulary_filename):
     self._SkipIfExternalEnvironmentAnd(
         self._UseTFXIO(), 'Skipping large test cases; b/147698868')
@@ -933,7 +933,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_metadata,
         expected_vocab_file_contents=per_key_vocab_contents)
 
-  @tft_unit.named_parameters(*[
+  @tft_unit.named_parameters(
       dict(
           testcase_name='sparse_key',
           input_data=[{
@@ -997,7 +997,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           }, {
               'x_scaled': [0., 1., 0, 0]
           }]),
-  ])
+  )
   def testScaleMinMaxSparsePerKey(
       self, input_data, input_metadata, expected_data):
     self._SkipIfExternalEnvironmentAnd(
@@ -1311,14 +1311,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
 
-  @tft_unit.named_parameters(*[
+  @tft_unit.named_parameters(
       dict(testcase_name='_empty_filename',
            key_vocabulary_filename=''),
       dict(testcase_name='_nonempty_filename',
            key_vocabulary_filename='per_key'),
       dict(testcase_name='_none_filename',
            key_vocabulary_filename=None)
-  ])
+  )
   def testScaleToZScorePerKey(self, key_vocabulary_filename):
     self._SkipIfExternalEnvironmentAnd(
         self._UseTFXIO(), 'Skipping large test cases; b/147698868')
@@ -1590,7 +1590,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_outputs,
         desired_batch_size=10)
 
-  @tft_unit.named_parameters(*[
+  @tft_unit.named_parameters(
       {'testcase_name': '_string',
        'input_data': [{'key': 'a' if x < 25 else 'b'} for x in range(100)],
        'input_metadata': tft_unit.metadata_from_feature_spec(
@@ -1618,7 +1618,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
            'counts': np.array([25, 75], np.int64)
        }
       },
-  ])  # pyformat: disable
+  )  # pyformat: disable
   def testCountPerKey(self, input_data, input_metadata, expected_outputs):
     def analyzer_fn(inputs):
       elements, counts = analyzers.count_per_key(inputs['key'])
@@ -1632,7 +1632,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         analyzer_fn,
         expected_outputs)
 
-  @tft_unit.named_parameters(*[
+  @tft_unit.named_parameters(
       {
           'testcase_name': '_uniform',
           'input_data': [{
@@ -1687,7 +1687,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
               'boundaries': np.arange(10)
           }
       },
-  ])
+  )
   def testHistograms(self, input_data, feature_spec, boundaries, categorical,
                      expected_outputs):
     self._SkipIfExternalEnvironmentAnd(
@@ -1769,7 +1769,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_outputs,
         desired_batch_size=10)
 
-  @tft_unit.named_parameters(*[
+  @tft_unit.named_parameters(
       {'testcase_name': 'uniform',
        'boundaries': 6,
        'input_data': [{'x': [x]} for x in range(100)],
@@ -1788,7 +1788,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
        'input_data': [],
        'expected_outputs': []
       },
-  ])
+  )
   def testProbUnknownBoundaries(
       self, input_data, expected_outputs, boundaries):
     self._SkipIfExternalEnvironmentAnd(
@@ -1808,7 +1808,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         preprocessing_fn,
         expected_outputs)
 
-  @tft_unit.named_parameters(*[
+  @tft_unit.named_parameters(
       dict(
           testcase_name='Int64In',
           input_dtype=tf.int64,
@@ -1875,7 +1875,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
               'mean': tf.float16,
               'var': tf.float16
           })
-  ])
+  )
   def testNumericAnalyzersWithScalarInputs(
       self, input_dtype, output_dtypes):
     self._SkipIfExternalEnvironmentAnd(

@@ -41,6 +41,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import common
+from tensorflow_transform import gaussianization
 from tensorflow_transform import nodes
 from tensorflow_transform import schema_inference
 from tensorflow_transform import tf_utils
@@ -61,6 +62,9 @@ __all__ = [
     'quantiles',
     'size',
     'sum',
+    'tukey_location',
+    'tukey_scale',
+    'tukey_h_params',
     'uniques',
     'var',
     'vocabulary',
@@ -89,7 +93,7 @@ _SUM_OUTPUT_DTYPE_MAP = {
     tf.uint64: tf.uint64,
 }
 
-_MEAN_OUTPUT_DTYPE_MAP = {
+_FLOAT_OUTPUT_DTYPE_MAP = {
     tf.float16: tf.float16,
     tf.float32: tf.float32,
     tf.float64: tf.float64,
@@ -293,11 +297,11 @@ class NumPyCombiner(analyzer_nodes.Combiner):
 
 def _get_output_shape_from_input(x):
   if isinstance(x, tf.SparseTensor):
-    return x.get_shape()[1:]
+    return x.get_shape().as_list()[1:]
 
   # When reducing over batch dimensions, with known shape, the result will be
   # the same shape as the input, but without the batch.
-  if x.shape.dims is not None:
+  if x.shape.rank is not None:
     return x.shape.as_list()[1:]
   return (None,)
 
@@ -785,7 +789,7 @@ def var(x, reduce_instance_dims=True, name=None, output_dtype=None):
 def _mean_and_var(x, reduce_instance_dims=True, output_dtype=None):
   """More efficient combined `mean` and `var`.  See `var`."""
   if output_dtype is None:
-    output_dtype = _MEAN_OUTPUT_DTYPE_MAP.get(x.dtype)
+    output_dtype = _FLOAT_OUTPUT_DTYPE_MAP.get(x.dtype)
     if output_dtype is None:
       raise TypeError('Tensor type %r is not supported' % x.dtype)
 
@@ -813,6 +817,144 @@ def _mean_and_var(x, reduce_instance_dims=True, output_dtype=None):
         *combine_inputs)
 
   return x_mean, x_var
+
+
+@common.log_api_use(common.ANALYZER_COLLECTION)
+def tukey_location(x, reduce_instance_dims=True, output_dtype=None, name=None):
+  """Computes the location of the values of a `Tensor` over the whole dataset.
+
+  This computes the location of x, assuming a Tukey HH distribution, i.e.
+  (x - tukey_location) / tukey_scale is a Tukey HH distribution with parameters
+  tukey_h_params. See the following publication for the definition of the Tukey
+  HH distribution:
+
+  Todd C. Headrick, and Mohan D. Pant. "Characterizing Tukey h and
+  hh-Distributions through L-Moments and the L-Correlation," ISRN Applied
+  Mathematics, vol. 2012, 2012. doi:10.5402/2012/980153
+
+  Args:
+    x: A `Tensor` or `SparseTensor`. Its type must be floating point
+        (float{16|32|64}), or integral ([u]int{8|16|32|64}).
+    reduce_instance_dims: By default collapses the batch and instance dimensions
+        to arrive at a single scalar output. If False, only collapses the batch
+        dimension and outputs a vector of the same shape as the input.
+    output_dtype: (Optional) If not None, casts the output tensor to this type.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    A `Tensor` containing the location. If `x` is floating point, the location
+    will have the same type as `x`. If `x` is integral, the output is cast to
+    float32.
+
+  Raises:
+    TypeError: If the type of `x` is not supported.
+  """
+  with tf.compat.v1.name_scope(name, 'tukey_location'):
+    return _tukey_parameters(x, reduce_instance_dims, output_dtype)[0]
+
+
+@common.log_api_use(common.ANALYZER_COLLECTION)
+def tukey_scale(x, reduce_instance_dims=True, output_dtype=None, name=None):
+  """Computes the scale of the values of a `Tensor` over the whole dataset.
+
+  This computes the scale of x, assuming a Tukey HH distribution, i.e.
+  (x - tukey_location) / tukey_scale is a Tukey HH distribution with parameters
+  tukey_h_params. See the following publication for the definition of the Tukey
+  HH distribution:
+
+  Todd C. Headrick, and Mohan D. Pant. "Characterizing Tukey h and
+  hh-Distributions through L-Moments and the L-Correlation," ISRN Applied
+  Mathematics, vol. 2012, 2012. doi:10.5402/2012/980153
+
+
+  Args:
+    x: A `Tensor` or `SparseTensor`. Its type must be floating point
+        (float{16|32|64}), or integral ([u]int{8|16|32|64}).
+    reduce_instance_dims: By default collapses the batch and instance dimensions
+        to arrive at a single scalar output. If False, only collapses the batch
+        dimension and outputs a vector of the same shape as the input.
+    output_dtype: (Optional) If not None, casts the output tensor to this type.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    A `Tensor` containing the scale. If `x` is floating point, the location
+    will have the same type as `x`. If `x` is integral, the output is cast to
+    float32.
+
+  Raises:
+    TypeError: If the type of `x` is not supported.
+  """
+  with tf.compat.v1.name_scope(name, 'tukey_scale'):
+    return _tukey_parameters(x, reduce_instance_dims, output_dtype)[1]
+
+
+@common.log_api_use(common.ANALYZER_COLLECTION)
+def tukey_h_params(x, reduce_instance_dims=True, output_dtype=None, name=None):
+  """Computes the h parameters of the values of a `Tensor` over the dataset.
+
+  This computes the parameters (hl, hr) of the samples, assuming a Tukey HH
+  distribution, i.e. (x - tukey_location) / tukey_scale is a Tukey HH
+  distribution with parameters hl (left parameter) and hr (right parameter).
+  See the following publication for the definition of the Tukey HH distribution:
+
+  Todd C. Headrick, and Mohan D. Pant. "Characterizing Tukey h and
+  hh-Distributions through L-Moments and the L-Correlation," ISRN Applied
+  Mathematics, vol. 2012, 2012. doi:10.5402/2012/980153
+
+  Args:
+    x: A `Tensor` or `SparseTensor`. Its type must be floating point
+        (float{16|32|64}), or integral ([u]int{8|16|32|64}).
+    reduce_instance_dims: By default collapses the batch and instance dimensions
+        to arrive at a single scalar output. If False, only collapses the batch
+        dimension and outputs a vector of the same shape as the input.
+    output_dtype: (Optional) If not None, casts the output tensor to this type.
+    name: (Optional) A name for this operation.
+
+  Returns:
+    The tuple (hl, hr) containing two `Tensor` instances with the hl and hr
+    parameters. If `x` is floating point, each parameter will have the same type
+    as `x`. If `x` is integral, the output is cast to float32.
+
+  Raises:
+    TypeError: If the type of `x` is not supported.
+  """
+  with tf.compat.v1.name_scope(name, 'tukey_h_params'):
+    return _tukey_parameters(x, reduce_instance_dims, output_dtype)[2:]
+
+
+def _tukey_parameters(x, reduce_instance_dims=True, output_dtype=None):
+  """Efficient computation of L-moments."""
+  if output_dtype is None:
+    output_dtype = _FLOAT_OUTPUT_DTYPE_MAP.get(x.dtype)
+    if output_dtype is None:
+      raise TypeError('Tensor type %r is not supported' % x.dtype)
+
+  with tf.compat.v1.name_scope('tukey_parameters'):
+
+    x = tf.cast(x, output_dtype)
+
+    (count_l1, l1, count_l2, l2, count_l3, l3, count_l4, l4) = (
+        tf_utils.reduce_batch_count_l_moments(x, reduce_instance_dims))
+
+    combine_inputs = _LMomentsAccumulator(
+        count_l1=count_l1,
+        count_l2=count_l2,
+        count_l3=count_l3,
+        count_l4=count_l4,
+        l1=l1,
+        l2=l2,
+        l3=l3,
+        l4=l4)
+
+    output_shape = ()
+    if not reduce_instance_dims:
+      output_shape = _get_output_shape_from_input(x)
+
+    x_loc, x_scale, hl_param, hr_param = _apply_cacheable_combiner(
+        _LMomentsCombiner(output_dtype.as_numpy_dtype, output_shape),
+        *combine_inputs)
+
+  return x_loc, x_scale, hl_param, hr_param
 
 
 # pylint: disable=g-doc-return-or-yield
@@ -843,7 +985,7 @@ def _mean_and_var_per_key(x, key, reduce_instance_dims=True, output_dtype=None,
         key_vocabulary_filename is not None).
   """
   if output_dtype is None:
-    output_dtype = _MEAN_OUTPUT_DTYPE_MAP.get(x.dtype)
+    output_dtype = _FLOAT_OUTPUT_DTYPE_MAP.get(x.dtype)
     if output_dtype is None:
       raise TypeError('Tensor type %r is not supported' % x.dtype)
 
@@ -988,10 +1130,6 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
                                   False)
     ] * 2
 
-  def compute_running_update(self, total_count, current_count, update):
-    """Numerically stable way of computing a streaming batched update."""
-    return (current_count / total_count) * update
-
   def _combine_mean_and_var_accumulators(self, a, b):
     """Combines two mean and var accumulators.
 
@@ -1082,6 +1220,195 @@ def _pad_arrays_to_match(a, b):
   if padding_b:
     b = np.pad(b, padding_b, mode='constant')
   return a, b
+
+
+class _LMomentsAccumulator(
+    collections.namedtuple('LMomentsAccumulator',
+                           ['count_l1', 'count_l2', 'count_l3', 'count_l4',
+                            'l1', 'l2', 'l3', 'l4'])):
+  """Container for _LMomentsCombiner intermediate values."""
+
+  @classmethod
+  def make_nan_to_num(cls, count_l1, count_l2, count_l3, count_l4,
+                      l1, l2, l3, l4):
+    return cls(
+        np.array(count_l1), np.array(count_l2), np.array(count_l3),
+        np.array(count_l4), np.nan_to_num(l1), np.nan_to_num(l2),
+        np.nan_to_num(l3), np.nan_to_num(l4))
+
+  def __reduce__(self):
+    return self.__class__, tuple(self)
+
+
+class _LMomentsCombiner(analyzer_nodes.Combiner):
+  """Combines a PCollection of accumulators to compute L-moments."""
+
+  accumulator_class = _LMomentsAccumulator
+
+  def __init__(self, output_numpy_dtype, output_shape):
+    """Init method for _LMomentsCombiner.
+
+    Args:
+      output_numpy_dtype: A numpy dtype that the outputs are cast to.
+      output_shape: The shape of the resulting Tensors.
+    """
+    self._output_numpy_dtype = output_numpy_dtype
+    self._output_shape = output_shape
+
+  def create_accumulator(self):
+    """Create an accumulator with all zero entries."""
+
+    # If we know the exact shape, initialize accumulator values with zeros of
+    # the exact shape. For unknown dimensions, initialize with a 1D 0 array
+    # (this accumulator will be discarded by _combine_accumulators).
+    output_shape = () if None in self._output_shape else self._output_shape
+    initial_moment = np.zeros(output_shape, dtype=self._output_numpy_dtype)
+    initial_count = np.zeros(output_shape, dtype=self._output_numpy_dtype)
+    return _LMomentsAccumulator(
+        initial_count, initial_count, initial_count, initial_count,
+        initial_moment, initial_moment, initial_moment, initial_moment)
+
+  def add_input(self, accumulator, batch_values):
+    """Composes an accumulator from batch_values and calls merge_accumulators.
+
+    Args:
+      accumulator: The `_LMomentsAccumulator` computed so far.
+      batch_values: A `_LMomentsAccumulator` for the current batch.
+
+    Returns:
+      A `_LMomentsAccumulator` which is accumulator and batch_values combined.
+    """
+    new_accumulator = _LMomentsAccumulator(*batch_values)
+    return self._combine_accumulators(accumulator, new_accumulator)
+
+  def merge_accumulators(self, accumulators):
+    """Merges several `_LMomentsAccumulator`s to a single accumulator.
+
+    Args:
+      accumulators: A list of `_LMomentsAccumulator`s.
+
+    Returns:
+      The sole merged `_LMomentsAccumulator`.
+    """
+    result = self.create_accumulator()
+    for accumulator in accumulators:
+      result = self._combine_accumulators(result, accumulator)
+    return result
+
+  def extract_output(self, accumulator):
+    """Converts an accumulator into the output (loc, scale, hl, hr) tuple.
+
+    Estimates the parameters of a Tukey HH distribution, given estimates of the
+    first four L-moments. The parameters are: location, scale, hl, and hr. If
+    x is the input sample, then (x - location) / scale is distributed according
+    to the Tukey HH distribution with parameters hl (left parameter) and hr
+    (right parameter).
+
+    Args:
+      accumulator: the final `_LMomentsAccumulator` value.
+
+    Returns:
+      A 4-tuple composed of (location, scale, hl, hr).
+    """
+
+    # To compute kurtosis, we need positive scale and at least one quadruplet.
+    # If this is not the case, L-kewness and L-kurtosis are set to zero, which
+    # gives hl=0, hr=0 and samples are treated as in the Gaussian case.
+
+    valid_scale = accumulator.l2 > 0.0
+    valid_kurtosis = np.logical_and(valid_scale, accumulator.count_l4 > 0.0)
+
+    l_skewness = np.true_divide(accumulator.l3, accumulator.l2,
+                                where=valid_kurtosis,
+                                out=np.zeros_like(accumulator.l3))
+
+    l_kurtosis = np.true_divide(accumulator.l4, accumulator.l2,
+                                where=valid_kurtosis,
+                                out=np.zeros_like(accumulator.l4))
+    l_skewness_and_kurtosis = np.stack((l_skewness, l_kurtosis), axis=0)
+    h_params = np.apply_along_axis(
+        gaussianization.compute_tukey_hh_params, 0, l_skewness_and_kurtosis)
+    hh_l_mean, hh_l_scale = gaussianization.tukey_hh_l_mean_and_scale(h_params)
+
+    scale = np.true_divide(accumulator.l2, hh_l_scale,
+                           where=valid_scale, out=np.ones_like(accumulator.l2))
+    loc = accumulator.l1 - scale * hh_l_mean
+    hl = h_params[0, ...]
+    hr = h_params[1, ...]
+    return [self._output_numpy_dtype(x) for x in [loc, scale, hl, hr]]
+
+  def output_tensor_infos(self):
+    # The output is (loc, scale, hl, hr).
+    return [
+        analyzer_nodes.TensorInfo(tf.as_dtype(self._output_numpy_dtype),
+                                  self._output_shape,
+                                  False)
+    ] * 4
+
+  @property
+  def accumulator_coder(self):
+    return _LMomentsAccumulatorCacheCoder()
+
+  def _combine_accumulators(self, a, b):
+    """Combines two accumulators.
+
+    Args:
+      a: A _LMomentsAccumulator.
+      b: A _LMomentsAccumulator.
+
+    Returns:
+      A _LMomentsAccumulator computed as the combination of a and b.
+    """
+    # NaNs get preserved through division by a.count + b.count.
+    a = _LMomentsAccumulator.make_nan_to_num(*a)
+    b = _LMomentsAccumulator.make_nan_to_num(*b)
+
+    # If one accumulator is empty return the other.
+    if np.sum(a.count_l1) < np.sum(b.count_l1):
+      a, b = b, a
+    if np.sum(b.count_l1) == 0:
+      return a
+
+    a_count_l1, b_count_l1 = _pad_arrays_to_match(a.count_l1, b.count_l1)
+    a_l1, b_l1 = _pad_arrays_to_match(a.l1, b.l1)
+    a_count_l2, b_count_l2 = _pad_arrays_to_match(a.count_l2, b.count_l2)
+    a_l2, b_l2 = _pad_arrays_to_match(a.l2, b.l2)
+    a_count_l3, b_count_l3 = _pad_arrays_to_match(a.count_l3, b.count_l3)
+    a_l3, b_l3 = _pad_arrays_to_match(a.l3, b.l3)
+    a_count_l4, b_count_l4 = _pad_arrays_to_match(a.count_l4, b.count_l4)
+    a_l4, b_l4 = _pad_arrays_to_match(a.l4, b.l4)
+
+    combined_count_l1 = a_count_l1 + b_count_l1
+    combined_count_l2 = a_count_l2 + b_count_l2
+    combined_count_l3 = a_count_l3 + b_count_l3
+    combined_count_l4 = a_count_l4 + b_count_l4
+
+    combined_l1 = (a_l1 + np.true_divide(
+        b_count_l1, combined_count_l1, where=combined_count_l1 > 0,
+        out=np.zeros_like(a_l1)) * (b_l1 - a_l1))
+    combined_l2 = (a_l2 + np.true_divide(
+        b_count_l2, combined_count_l2, where=combined_count_l2 > 0,
+        out=np.zeros_like(a_l2)) * (b_l2 - a_l2))
+    combined_l3 = (a_l3 + np.true_divide(
+        b_count_l3, combined_count_l3, where=combined_count_l3 > 0,
+        out=np.zeros_like(a_l3)) * (b_l3 - a_l3))
+    combined_l4 = (a_l4 + np.true_divide(
+        b_count_l4, combined_count_l4, where=combined_count_l4 > 0,
+        out=np.zeros_like(a_l4)) * (b_l4 - a_l4))
+
+    return _LMomentsAccumulator(
+        combined_count_l1, combined_count_l2, combined_count_l3,
+        combined_count_l4, combined_l1, combined_l2, combined_l3, combined_l4)
+
+
+class _LMomentsAccumulatorCacheCoder(analyzer_nodes.CacheCoder):
+  """The _LMomentsAccumulator is a list of np. arrays."""
+
+  def encode_cache(self, accumulator):
+    return pickle.dumps(accumulator)
+
+  def decode_cache(self, encoded_accumulator):
+    return pickle.loads(encoded_accumulator)
 
 
 def sanitized_vocab_filename(filename=None, prefix=None):

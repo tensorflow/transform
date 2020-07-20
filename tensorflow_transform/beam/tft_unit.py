@@ -116,6 +116,7 @@ class TransformTestCase(test_case.TransformTestCase):
                             expected_outputs,
                             test_data=None,
                             desired_batch_size=None,
+                            beam_pipeline=None,
                             use_tfxio=False,
                             input_data_is_tfxio_format=False):
     """Assert that input data and metadata is transformed as expected.
@@ -141,6 +142,7 @@ class TransformTestCase(test_case.TransformTestCase):
         conform to input_metadata.
       desired_batch_size: (Optional) A batch size to batch elements by. If not
         provided, a batch size will be computed automatically.
+      beam_pipeline: (optional) A Beam Pipeline to use in this test.
       use_tfxio: If True, invoke AnalyzeAndTransformDataset using the new API
           that accepts standardized inputs (Arrow `RecordBatch`es). Otherwise
           use the old API that accepts Dicts.
@@ -206,6 +208,7 @@ class TransformTestCase(test_case.TransformTestCase):
         expected_metadata,
         test_data=test_data,
         desired_batch_size=desired_batch_size,
+        beam_pipeline=beam_pipeline,
         use_tfxio=use_tfxio,
         input_data_is_tfxio_format=input_data_is_tfxio_format)
 
