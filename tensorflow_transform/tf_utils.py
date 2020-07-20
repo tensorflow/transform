@@ -463,7 +463,7 @@ class _DatasetInitializerCompat(
     return init_op
 
 
-_DATASET_BATCH_SIZE = tf.int64.max
+_DATASET_BATCH_SIZE = tf.int32.max
 
 
 def read_tfrecord_vocabulary_dataset(vocab_path):
