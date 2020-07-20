@@ -35,9 +35,24 @@ class SentimentExampleTest(tf.test.TestCase):
     working_dir = self.get_temp_dir()
 
     # Copy data from raw data directory to `working_dir`
-    for filename in ['test_shuffled-00000-of-00001',
-                     'train_shuffled-00000-of-00001']:
-      shutil.copy(os.path.join(raw_data_dir, filename), working_dir)
+    try:
+      for filename in ['test_shuffled-00000-of-00001',
+                       'train_shuffled-00000-of-00001']:
+        shutil.copy(os.path.join(raw_data_dir, filename), working_dir)
+    except EnvironmentError:
+      # TODO(b/158288069): Change the except to FileNotFoundError when we drop
+      # py2 support.
+      train_neg_filepattern = os.path.join(raw_data_dir, 'train/neg/*')
+      train_pos_filepattern = os.path.join(raw_data_dir, 'train/pos/*')
+      test_neg_filepattern = os.path.join(raw_data_dir, 'test/neg/*')
+      test_pos_filepattern = os.path.join(raw_data_dir, 'test/pos/*')
+
+      # Writes the shuffled data under working_dir in TFRecord format.
+      sentiment_example.read_and_shuffle_data(train_neg_filepattern,
+                                              train_pos_filepattern,
+                                              test_neg_filepattern,
+                                              test_pos_filepattern,
+                                              working_dir)
 
     sentiment_example.transform_data(working_dir)
     results = sentiment_example.train_and_evaluate(
