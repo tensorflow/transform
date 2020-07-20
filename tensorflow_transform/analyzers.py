@@ -251,34 +251,37 @@ class NumPyCombiner(analyzer_nodes.Combiner):
   def add_input(self, accumulator, batch_values):
     # TODO(b/112414577): Go back to accepting only a single input.
     # See comment in _numeric_combine.
-    result = []
-    for sub_accumulator, batch_value in zip(accumulator, batch_values):
-      # Discard `sub_accumulator` that is default for an output with an unknown
-      # or a scalar shape. Note that `np.array_equal` below does at most
-      # per-element comparison of 0-dim arrays since `_default_sub_accumulator`
-      # is a 0-dim array, and `np.array_equal` exits early on a shape mismatch.
-      if np.array_equal(sub_accumulator, self._default_sub_accumulator):
-        result.append(batch_value)
-      else:
-        result.append(self._fn((sub_accumulator, batch_value), axis=0))
-    return result
+    # If the first subaccumulator is default, then the accumulator is default
+    # and can be discarded. Note that `np.array_equal` below does at most
+    # per-element comparison of 0-dim arrays since `_default_sub_accumulator`
+    # is a 0-dim array, and `np.array_equal` exits early on a shape mismatch.
+    if np.array_equal(accumulator[0], self._default_sub_accumulator):
+      return batch_values
+    else:
+      return [
+          self._fn((sub_accumulator, batch_value), axis=0)
+          for sub_accumulator, batch_value in zip(accumulator, batch_values)
+      ]
 
   def merge_accumulators(self, accumulators):
-    result = []
-    for sub_accumulators in zip(*accumulators):
-      # Filter out subaccumulators that are default for an unknown or a scalar
-      # output shape. Note that `np.array_equal` below does at most per-element
-      # comparison of 0-dim arrays since `_default_sub_accumulator` is a 0-dim
-      # array, and `np.array_equal` exits early on a shape mismatch.
-      non_default_sub_accumulators = [
-          sub_accumulator for sub_accumulator in sub_accumulators
-          if not np.array_equal(sub_accumulator, self._default_sub_accumulator)
+    # If the first subaccumulator is default, then the accumulator is default
+    # and can be discarded. Note that `np.array_equal` below does at most
+    # per-element comparison of 0-dim arrays since `_default_sub_accumulator`
+    # is a 0-dim array, and `np.array_equal` exits early on a shape mismatch.
+    non_default_accumulators = [
+        accumulator for accumulator in accumulators
+        if not np.array_equal(accumulator[0], self._default_sub_accumulator)
+    ]
+    if non_default_accumulators:
+      return [
+          # numpy's sum, min, max, etc functions operate on array-like objects,
+          # but not arbitrary iterables. Convert the provided sub_accumulators
+          # into a list.
+          self._fn(list(sub_accumulators), axis=0)
+          for sub_accumulators in zip(*non_default_accumulators)
       ]
-      if non_default_sub_accumulators:
-        result.append(self._fn(non_default_sub_accumulators, axis=0))
-      else:
-        result.append(self._default_sub_accumulator)
-    return result
+    else:
+      return self.create_accumulator()
 
   def extract_output(self, accumulator):
     # For each output, cast that output to the specified type. Note there
