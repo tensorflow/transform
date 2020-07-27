@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import numpy as np
+import tensorflow as tf
 
 # The expressions to compute the first L-moments from the parameters of the
 # Tukey HH distribution are taken from:
@@ -280,3 +281,77 @@ def compute_tukey_hh_params(l_skewness_and_kurtosis):
   if swap_params:
     result = result[::-1]
   return result
+
+
+def lambert_w(x):
+  """Computes the Lambert W function of a `Tensor`.
+
+  Computes the principal branch of the Lambert W function, i.e. the value w such
+  that w * exp(w) = x for a a given x. For the principal branch, x must be real
+  x >= -1 / e, and w >= -1.
+
+  Args:
+    x: A `Tensor` containing the values for which the principal branch of
+      the Lambert W function is computed.
+
+  Returns:
+    A `Tensor` with the same shape and dtype as x containing the value of the
+    Lambert W function.
+  """
+  dtype = x.dtype
+  e = tf.constant(np.exp(1.0), dtype)
+  inv_e = tf.constant(np.exp(-1.0), dtype)
+  s = (np.exp(1) - 1.0) / (np.exp(2) - 1.0)
+  slope = tf.constant(s, dtype)
+  c = tf.constant(1 / np.exp(1) * (1 - s), dtype)
+  log_s = tf.math.log(x)
+  w_init = tf.where(
+      x < inv_e,
+      x,
+      tf.where(x < e,
+               slope * x + c,
+               (log_s + (1.0 / log_s - 1.0) * tf.math.log(log_s))))
+
+  def newton_update(count, w):
+    expw = tf.math.exp(w)
+    wexpw = w * expw
+    return count + 1, w - (wexpw - x) / (expw + wexpw)
+
+  count = tf.constant(0, tf.int32)
+  num_iter = tf.constant(8)
+  (unused_final_count, w) = tf.while_loop(
+      lambda count, w: tf.less(count, num_iter),
+      newton_update,
+      [count, w_init])
+  return w
+
+
+def inverse_tukey_hh(x, hl, hr):
+  """Compute the inverse of the Tukey HH function.
+
+  The Tukey HH function transforms a standard Gaussian distribution into the
+  Tukey HH distribution and it's defined as:
+
+  x = u * exp(hl * u ^ 2) for u < 0 and x = u * exp(hr * u ^ 2) for u >= 0.
+
+  Given the values of x, this function computes the corresponding values of u.
+
+  Args:
+    x: The input `Tensor`.
+    hl: The "left" parameter of the distribution. It must have the same dtype
+      and shape of x (or a broadcastable shape) or be a scalar.
+    hr: The "right" parameter of the distribution. It must have the same dtype
+      and shape of x (or a broadcastable shape) or be a scalar.
+
+  Returns:
+    The inverse of the Tukey HH function.
+  """
+  def one_side(x, h):
+    h_x_square = tf.multiply(h, tf.square(x))
+    return tf.where(
+        # Prevents the 0 / 0 form for small values of x..
+        tf.less(h_x_square, 1.0e-7),
+        x,  # The error is < 1e-14 for this case.
+        tf.sqrt(tf.divide(lambert_w(h_x_square), h)))
+
+  return tf.where(tf.less(x, 0.0), -one_side(-x, hl), one_side(x, hr))

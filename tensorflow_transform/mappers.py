@@ -63,10 +63,109 @@ import six
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import common
+from tensorflow_transform import gaussianization
 from tensorflow_transform import schema_inference
 from tensorflow_transform import tf_utils
 
 from tensorflow.python.util import deprecation  # pylint: disable=g-direct-tensorflow-import
+
+
+@common.log_api_use(common.MAPPER_COLLECTION)
+def scale_to_gaussian(x, elementwise=False, name=None, output_dtype=None):
+  """Returns an (approximately) normal column with mean to 0 and variance 1.
+
+  We transform the column to values that are approximately distributed
+  according to a standard normal distribution.
+  The transformation is obtained by applying the moments method to estimate
+  the parameters of a Tukey HH distribution and applying the inverse of the
+  estimated function to the column values.
+  The method is partially described in
+
+  Georg M. Georgm "The Lambert Way to Gaussianize Heavy-Tailed Data with the
+  Inverse of Tukey's h Transformation as a Special Case," The Scientific World
+  Journal, Vol. 2015, Hindawi Publishing Corporation.
+
+  We use the L-moments instead of conventional moments to be able to deal with
+  long-tailed distributions. The expressions of the L-moments for the Tukey HH
+  distribution is in
+
+  Todd C. Headrick, and Mohan D. Pant. "Characterizing Tukey H and
+  HH-Distributions through L-Moments and the L-Correlation," ISRN Applied
+  Mathematics, vol. 2012, 2012. doi:10.5402/2012/980153
+
+  Note that the transformation to Gaussian is applied only if the column has
+  long-tails. If this is not the case, for instance if values are uniformly
+  distributed, the values are only normalized using the z score. This applies
+  also to the cases where only one of the tails is long; the other tail is only
+  rescaled but not non linearly transformed.
+  Also, if the analysis set is empty, the transformation is set to to leave the
+  input vaules unchanged.
+
+  Args:
+    x: A numeric `Tensor` or `SparseTensor`.
+    elementwise: If true, scales each element of the tensor independently;
+        otherwise uses the parameters of the whole tensor.
+    name: (Optional) A name for this operation.
+    output_dtype: (Optional) If not None, casts the output tensor to this type.
+
+  Returns:
+    A `Tensor` or `SparseTensor` containing the input column transformed to be
+    approximately standard distributed (i.e. a Gaussian with mean 0 and variance
+    1). If `x` is floating point, the mean will have the same type as `x`. If
+    `x` is integral, the output is cast to tf.float32.
+
+    Note that TFLearn generally permits only tf.int64 and tf.float32, so casting
+    this scaler's output may be necessary.
+  """
+  with tf.compat.v1.name_scope(name, 'scale_to_gaussian'):
+    return _scale_to_gaussian_internal(
+        x=x,
+        elementwise=elementwise,
+        output_dtype=output_dtype)
+
+
+def _scale_to_gaussian_internal(x, elementwise, output_dtype):
+  """Implementation for scale_to_gaussian."""
+  # x_mean will be float16, float32, or float64, depending on type of x.
+  # pylint: disable=protected-access
+  x_loc, x_scale, hl, hr = analyzers._tukey_parameters(
+      x, reduce_instance_dims=not elementwise, output_dtype=output_dtype)
+
+  compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
+  x_values = x
+
+  x_var = analyzers.var(x, reduce_instance_dims=not elementwise,
+                        output_dtype=output_dtype)
+
+  if isinstance(x, tf.SparseTensor):
+    x_values = x.values
+    if elementwise:
+      x_loc = tf.gather_nd(x_loc, x.indices[:, 1:])
+      x_scale = tf.gather_nd(x_scale, x.indices[:, 1:])
+      hl = tf.gather_nd(hl, x.indices[:, 1:])
+      hr = tf.gather_nd(hr, x.indices[:, 1:])
+      x_var = tf.gather_nd(x_var, x.indices[:, 1:])
+
+  numerator = tf.cast(x_values, x_loc.dtype) - x_loc
+  is_long_tailed = tf.math.logical_or(hl > 0.0, hr > 0.0)
+
+  # If the distribution is long-tailed, we apply the robust scale computed
+  # with L-moments; otherwise, we scale using the standard deviation so that
+  # we obtain the same result of scale_to_z_score.
+  denominator = tf.where(is_long_tailed, x_scale, tf.sqrt(x_var))
+  cond = tf.not_equal(denominator, 0)
+
+  if cond.shape.as_list() != x_values.shape.as_list():
+    # Repeats cond when necessary across the batch dimension for it to be
+    # compatible with the shape of numerator.
+    cond = tf.cast(
+        tf.zeros_like(numerator) + tf.cast(cond, numerator.dtype),
+        dtype=tf.bool)
+
+  scaled_values = tf.where(cond, tf.divide(numerator, denominator),
+                           numerator)
+  gaussianized_values = gaussianization.inverse_tukey_hh(scaled_values, hl, hr)
+  return compose_result_fn(gaussianized_values)
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)

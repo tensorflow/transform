@@ -4,6 +4,7 @@
 
 ## Major Features and Improvements
 * Added EstimatedProbabilityDensityColumn feature column.
+* Added `tft.scale_to_gaussian` to transform input to standard gaussian.
 
 ## Bug Fixes and Other Changes
 * Enable `SavedModelLoader` to import and apply TF2 SavedModels.

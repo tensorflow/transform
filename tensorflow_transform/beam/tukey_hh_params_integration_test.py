@@ -14,6 +14,8 @@
 # limitations under the License.
 """Tests for tft.tukey_* calls (Tukey HH parameters)."""
 
+import itertools
+
 # GOOGLE-INITIALIZATION
 
 import apache_beam as beam
@@ -22,7 +24,75 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform.beam import impl as beam_impl
+from tensorflow_transform.beam import impl_test  # Use attributes, but no tests.
 from tensorflow_transform.beam import tft_unit
+
+
+# The input_data in _SCALE_TO_Z_SCORE_TEST_CASES (this is defined in impl_tests
+# to test tft.scale_to_z_score) do not have long tails;
+# therefore, gaussianization produces the same result of z_score.
+
+_SCALE_TO_GAUSSIAN_TEST_CASES = impl_test._SCALE_TO_Z_SCORE_TEST_CASES + [
+    dict(testcase_name='gaussianization_int32',
+         input_data=np.array(
+             [516, -871, 737, 415, 584, 583, 152, 479, 576, 409,
+              591, 844, -16, 508, 669, 617, 502, 532, 517, 479],
+             dtype=np.int32),
+         output_data=np.array(
+             [-0.09304726, -2.24682532, 1.56900163, -0.78244931, 0.48285998,
+              0.47461339, -1.50929952, -0.39008015, 0.41659823, -0.81174337,
+              0.54027596, 2.11624695, -1.72816411, -0.16046759, 1.13320023,
+              0.74814557, -0.21014091, 0.04373742, -0.08454805, -0.39008015],
+             dtype=np.float32),
+         elementwise=False),
+    dict(testcase_name='gaussianization_float32',
+         input_data=np.array(
+             [516., -871., 737., 415., 584., 583., 152., 479., 576., 409.,
+              591., 844., -16., 508., 669., 617., 502., 532., 517., 479.],
+             dtype=np.float32),
+         output_data=np.array(
+             [-0.09304726, -2.24682532, 1.56900163, -0.78244931, 0.48285998,
+              0.47461339, -1.50929952, -0.39008015, 0.41659823, -0.81174337,
+              0.54027596, 2.11624695, -1.72816411, -0.16046759, 1.13320023,
+              0.74814557, -0.21014091, 0.04373742, -0.08454805, -0.39008015],
+             dtype=np.float32),
+         elementwise=False),
+    dict(testcase_name='gaussianization_vector',
+         input_data=np.array(
+             [[516., -871.], [737., 415.], [584., 583.], [152., 479.],
+              [576., 409.], [591., 844.], [-16., 508.], [669., 617.],
+              [502., 532.], [517., 479.]],
+             dtype=np.float32),
+         output_data=np.array(
+             [[-0.09304726, -2.24682532], [1.56900163, -0.78244931],
+              [0.48285998, 0.47461339], [-1.50929952, -0.39008015],
+              [0.41659823, -0.81174337], [0.54027596, 2.11624695],
+              [-1.72816411, -0.16046759], [1.13320023, 0.74814557],
+              [-0.21014091, 0.04373742], [-0.08454805, -0.39008015]],
+             dtype=np.float32),
+         elementwise=False),
+    dict(testcase_name='gaussianization_vector_elementwise',
+         input_data=np.array(
+             [[516., -479.], [-871., -517.], [737., -532.], [415., -502.],
+              [584., -617.], [583., -669.], [152., -508.], [479., 16.],
+              [576., -844.], [409., -591.], [591., -409.], [844., -576.],
+              [-16., -479.], [508., -152.], [669., -583.], [617., -584.],
+              [502., -415.], [532., -737.], [517., 871.], [479., -516.]],
+             dtype=np.float32),
+         output_data=np.array(
+             [[-0.09304726, 0.39008015], [-2.24682532, 0.08454805],
+              [1.56900163, -0.04373742], [-0.78244931, 0.21014091],
+              [0.48285998, -0.74814557], [0.47461339, -1.13320023],
+              [-1.50929952, 0.16046759], [-0.39008015, 1.72816411],
+              [0.41659823, -2.11624695], [-0.81174337, -0.54027596],
+              [0.54027596, 0.81174337], [2.11624695, -0.41659823],
+              [-1.72816411, 0.39008015], [-0.16046759, 1.50929952],
+              [1.13320023, -0.47461339], [0.74814557, -0.48285998],
+              [-0.21014091, 0.78244931], [0.04373742, -1.56900163],
+              [-0.08454805, 2.24682532], [-0.39008015, 0.09304726]],
+             dtype=np.float32),
+         elementwise=True),
+]
 
 
 class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
@@ -35,6 +105,92 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
   def tearDown(self):
     self._context.__exit__()
     super(TukeyHHParamsIntegrationTest, self).tearDown()
+
+  @tft_unit.named_parameters(*_SCALE_TO_GAUSSIAN_TEST_CASES)
+  def testGaussianize(self, input_data, output_data, elementwise):
+
+    def preprocessing_fn(inputs):
+      x = inputs['x']
+      x_cast = tf.cast(x, tf.as_dtype(input_data.dtype))
+      x_gaussianized = tft.scale_to_gaussian(x_cast, elementwise=elementwise)
+      self.assertEqual(x_gaussianized.dtype, tf.as_dtype(output_data.dtype))
+      return {'x_gaussianized': tf.cast(x_gaussianized, tf.float32)}
+
+    input_data_dicts = [{'x': x} for x in input_data]
+    expected_data_dicts = [
+        {'x_gaussianized': x_gaussianized} for x_gaussianized in output_data]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x':
+            tf.io.FixedLenFeature(
+                input_data.shape[1:],
+                tft_unit.canonical_numeric_dtype(tf.as_dtype(
+                    input_data.dtype))),
+    })
+    expected_metadata = tft_unit.metadata_from_feature_spec({
+        'x_gaussianized': tf.io.FixedLenFeature(
+            output_data.shape[1:], tf.float32),
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data_dicts, input_metadata, preprocessing_fn, expected_data_dicts,
+        expected_metadata, desired_batch_size=20, beam_pipeline=beam.Pipeline())
+
+  @tft_unit.parameters(*itertools.product([
+      tf.int16,
+      tf.int32,
+      tf.int64,
+      tf.float32,
+      tf.float64,
+  ], (True, False)))
+  def testGaussianizeSparse(self, input_dtype, elementwise):
+
+    def preprocessing_fn(inputs):
+      x_gaussianized = tf.sparse.to_dense(
+          tft.scale_to_gaussian(
+              tf.cast(inputs['x'], input_dtype), elementwise=elementwise),
+          default_value=np.nan)
+      x_gaussianized.set_shape([None, 4])
+      self.assertEqual(x_gaussianized.dtype,
+                       impl_test._mean_output_dtype(input_dtype))
+      return {
+          'x_gaussianized': tf.cast(x_gaussianized, tf.float32)
+      }
+
+    input_data_values = [516, -871, 737, 415, 584, 583, 152, 479, 576, 409, 591,
+                         844, -16, 508, 669, 617, 502, 532, 517, 479]
+    input_data = []
+    for idx, v in enumerate(input_data_values):
+      input_data.append({'idx': [0, 1],
+                         'val': [v] + [-input_data_values[-1 - idx]]})
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x':
+            tf.io.SparseFeature('idx', 'val',
+                                tft_unit.canonical_numeric_dtype(input_dtype),
+                                4)
+    })
+    if elementwise:
+      expected_data_values = [
+          -0.09304726, -2.24682532, 1.56900163, -0.78244931, 0.48285998,
+          0.47461339, -1.50929952, -0.39008015, 0.41659823, -0.81174337,
+          0.54027596, 2.11624695, -1.72816411, -0.16046759, 1.13320023,
+          0.74814557, -0.21014091, 0.04373742, -0.08454805, -0.39008015]
+    else:
+      expected_data_values = [
+          0.91555131, -1.54543642, 1.30767697, 0.73634456, 1.03620536,
+          1.03443104, 0.26969729, 0.84990131, 1.02201077, 0.72569862,
+          1.04862563, 1.49752966, -0.02838919, 0.90135672, 1.18702292,
+          1.09475806, 0.89071077, 0.9439405, 0.91732564, 0.84990131]
+    expected_data = []
+    for idx, v in enumerate(expected_data_values):
+      expected_data.append({
+          'x_gaussianized': ([v] + [-expected_data_values[-1 - idx]] +
+                             [float('nan'), float('nan')])
+      })
+
+    expected_metadata = tft_unit.metadata_from_feature_spec(
+        {'x_gaussianized': tf.io.FixedLenFeature([4], tf.float32)})
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata, preprocessing_fn, expected_data,
+        expected_metadata, desired_batch_size=20, beam_pipeline=beam.Pipeline())
 
   @tft_unit.named_parameters(
       dict(
@@ -175,10 +331,10 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
     input_data_values = [516, -871, 737, 415, 584, 583, 152, 479, 576, 409, 591,
                          844, -16, 508, 669, 617, 502, 532, 517, 479]
     input_data = []
-    for i, v in enumerate(input_data_values):
+    for idx, v in enumerate(input_data_values):
       input_data.append({'a': [
-          [v, -input_data_values[-1 - i]],
-          [2 * v, -2 * input_data_values[-1 - i]]]})
+          [v, -input_data_values[-1 - idx]],
+          [2 * v, -2 * input_data_values[-1 - idx]]]})
     input_metadata = tft_unit.metadata_from_feature_spec({
         'a': tf.io.FixedLenFeature([2, 2], tf.float32)
     })
@@ -295,9 +451,9 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
     input_data_values = [516, -871, 737, 415, 584, 583, 152, 479, 576, 409, 591,
                          844, -16, 508, 669, 617, 502, 532, 517, 479]
     input_data = []
-    for i, v in enumerate(input_data_values):
+    for idx, v in enumerate(input_data_values):
       input_data.append({'idx': [0, 1],
-                         'val': [v] + [-input_data_values[-1 - i]]})
+                         'val': [v] + [-input_data_values[-1 - idx]]})
     input_metadata = tft_unit.metadata_from_feature_spec({
         'a':
         tf.io.SparseFeature('idx', 'val',
