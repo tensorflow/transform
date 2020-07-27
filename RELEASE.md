@@ -13,12 +13,14 @@
 * `tft.scale_by_min_max`, `tft.scale_to_0_1` and the corresponding per-key
   versions now apply a sigmoid function to scale tensors if the analysis dataset
   is either empty or contains a single distinct value.
+* Added best-effort tf.text op registration when loading transformation graphs.
 * Depends on `apache-beam[gcp]>=2.22,<3`.
 * Stopped depending on `avro-python3`.
-* Added best-effort tf.text op registration when loading transformation graphs.
+* Depends on `tensorflow>=1.15.2,!=2.0.*,<2.3`.
 
 ## Breaking changes
 * Existing caches (for all analyzers) are automatically invalidated.
+* `tensorflow-transform` has removed support for Python 2.
 
 ## Deprecations
 
