@@ -516,18 +516,7 @@ def _replace_tensors_with_constant_values(saved_model_dir, base_temp_dir,
   with tf.compat.v1.Graph().as_default() as graph:
     tensor_replacement_map = {}
     for tensor_binding in tensor_bindings:
-      # TODO(b/34792459): Make this an assertion and remove nested code once TFT
-      # doesn't allow missing tensor bindings (once combiner defaults are used).
-      if not isinstance(tensor_binding, _TensorBinding):
-        tf.compat.v1.logging.error(
-            'Encountered an empty tensor value binding, '
-            'is the analysis dataset empty? Tensor bindings: %s',
-            tensor_bindings)
-        assert isinstance(tensor_binding,
-                          beam.pvalue.EmptySideInput), tensor_binding
-        beam.metrics.Metrics.counter(beam_common.METRICS_NAMESPACE,
-                                     'empty_tensor_bindings').inc()
-        continue
+      assert isinstance(tensor_binding, _TensorBinding), tensor_binding
       replacement_tensor = tf.constant(tensor_binding.value)
       if tensor_binding.is_asset_filepath:
         graph.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
