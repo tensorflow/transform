@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import enum
 import os
 import uuid
 
@@ -36,6 +37,18 @@ PRIMITIVE_TYPE = Union[NUMERIC_TYPE, Union[string_types], binary_type]
 METRICS_NAMESPACE = 'tfx.Transform'
 
 
+# Depending on the environment, (TF 1.x vs 2.x for e.g.,) we may want to
+# register different implementations of beam nodes for the TFT beam nodes. These
+# tags are used to identify the implementation to use under the current
+# environment.
+class EnvironmentTags(enum.Enum):
+  TF_COMPAT_V1 = 'tf_compat_v1'
+  TF_V2_ONLY = 'tf_v2_only'
+
+
+_ALLOWED_PTRANSFORM_TAGS = [tag.value for tag in EnvironmentTags]
+
+
 def get_unique_temp_path(base_temp_dir):
   """Return a path to a unique temp dir from given base temp dir.
 
@@ -51,10 +64,45 @@ def get_unique_temp_path(base_temp_dir):
   return os.path.join(base_temp_dir, uuid.uuid4().hex)
 
 
-_PTRANSFORM_BY_OPERATION_DEF_SUBCLASS = {}
+class _PtransformWrapper(object):
+  """A wrapper around registered implementations of beam nodes."""
+  _GENERAL_ENVIRONMENT_TAG = object()
+
+  def __init__(self):
+    self._ptransform_by_tag = {}
+
+  def add_ptransform(self, ptransform_class, tags):
+    """Add `ptransform_class` for all `tags`."""
+    # Many tags can refer to the same ptransform_class, but each
+    # ptransform_class should be registered only once.
+    tags = {self._GENERAL_ENVIRONMENT_TAG} if tags is None else tags
+    assert (tag not in self._ptransform_by_tag for tag in tags)
+    for tag in tags:
+      self._ptransform_by_tag[tag] = ptransform_class
+
+  def get_ptransform(self, tag):
+    """Retrieves ptransform for `tag`.
+
+    Args:
+      tag: A string key (or None) to retrieve corresponding ptransform.
+
+    Returns:
+      A registered beam.PTransform implementation.
+
+    Raises:
+      KeyError: If no registered PTransform implementation could be found.
+
+    """
+    if tag is None or tag not in self._ptransform_by_tag:
+      return self._ptransform_by_tag[self._GENERAL_ENVIRONMENT_TAG]
+    return self._ptransform_by_tag[tag]
 
 
-def register_ptransform(operation_def_subclass):
+_PTRANSFORM_BY_OPERATION_DEF_SUBCLASS = (
+    collections.defaultdict(_PtransformWrapper))
+
+
+def register_ptransform(operation_def_subclass, tags=None):
   """Decorator to register a PTransform as the implementation for an analyzer.
 
   This function is used to define implementations of the analyzers defined in
@@ -85,6 +133,8 @@ def register_ptransform(operation_def_subclass):
   Args:
     operation_def_subclass: The class of attributes that is being registered.
         Should be a subclass of `tensorflow_transform.nodes.OperationDef`.
+    tags: A set of string tags belonging to `EnvironmentTags`. If
+        provided, the PTransform will be registered against all of them.
 
   Returns:
     A class decorator that registers a PTransform or function as an
@@ -94,9 +144,9 @@ def register_ptransform(operation_def_subclass):
   def register(ptransform_class):
     assert isinstance(ptransform_class, type)
     assert issubclass(ptransform_class, beam.PTransform)
-    assert operation_def_subclass not in _PTRANSFORM_BY_OPERATION_DEF_SUBCLASS
-    _PTRANSFORM_BY_OPERATION_DEF_SUBCLASS[operation_def_subclass] = (
-        ptransform_class)
+    assert tags is None or (tag in _ALLOWED_PTRANSFORM_TAGS for tag in tags)
+    _PTRANSFORM_BY_OPERATION_DEF_SUBCLASS[
+        operation_def_subclass].add_ptransform(ptransform_class, tags)
     return ptransform_class
 
   return register
@@ -117,6 +167,7 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
           'input_schema',
           'input_tensor_adapter_config',
           'use_tfxio',
+          'environment_tag',
           'cache_pcoll_dict',
       ])
 
@@ -125,7 +176,10 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
 
   def visit(self, operation, inputs):
     try:
-      ptransform = _PTRANSFORM_BY_OPERATION_DEF_SUBCLASS[operation.__class__]
+      ptransform_wrapper = (
+          _PTRANSFORM_BY_OPERATION_DEF_SUBCLASS[operation.__class__])
+      ptransform = ptransform_wrapper.get_ptransform(
+          self._extra_args.environment_tag)
     except KeyError:
       raise ValueError('No implementation for {} was registered'.format(
           operation))

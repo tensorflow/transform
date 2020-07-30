@@ -129,30 +129,57 @@ def infer_feature_schema(features, graph, session=None):
     tensor_ranges = session.run(tensor_ranges)
     tensor_annotations, global_annotations = _get_schema_annotations(
         graph, session)
-
-  domains = {}
+  modified_tensor_ranges = {}
   feature_annotations = {}
-  feature_tags = collections.defaultdict(list)
   for name, tensor in six.iteritems(features):
     if isinstance(tensor, tf.SparseTensor):
       values = tensor.values
     elif isinstance(tensor, tf.RaggedTensor):
       values = tensor.flat_values
-      # Add the 'ragged_tensor' tag which will cause coder and
-      # schema_as_feature_spec to raise an error, as currently there is no
-      # feature spec for ragged tensors.
-      feature_tags[name].append(schema_utils.RAGGED_TENSOR_TAG)
     else:
       values = tensor
     values = tensor.values if isinstance(tensor, tf.SparseTensor) else tensor
     hashable_values = tf_utils.hashable_tensor_or_op(values)
     if hashable_values in tensor_ranges:
       assert values.dtype == tf.int64
-      min_value, max_value = tensor_ranges[hashable_values]
-      domains[name] = schema_pb2.IntDomain(
-          min=min_value, max=max_value, is_categorical=True)
+      modified_tensor_ranges[name] = tensor_ranges[hashable_values]
     # tensor_annotations is a defaultdict(list) so always returns a list.
     feature_annotations[name] = tensor_annotations.get(hashable_values, [])
+
+  return _infer_feature_schema_common(features, modified_tensor_ranges,
+                                      feature_annotations, global_annotations)
+
+
+def _infer_feature_schema_common(features, tensor_ranges, feature_annotations,
+                                 global_annotations):
+  """Given a dict of tensors, creates a `Schema`.
+
+  Args:
+    features: A dict mapping column names to `Tensor` or `SparseTensor`s. The
+      `Tensor` or `SparseTensor`s should have a 0'th dimension which is
+      interpreted as the batch dimension.
+    tensor_ranges: A dict mapping a tensor to a tuple containing its min and max
+      value.
+    feature_annotations: dictionary from feature name to list of any_pb2.Any
+      protos to be added as an annotation for that feature in the schema.
+    global_annotations: list of any_pb2.Any protos to be added at the global
+      schema level.
+
+  Returns:
+    A `Schema` proto.
+  """
+  domains = {}
+  feature_tags = collections.defaultdict(list)
+  for name, tensor in six.iteritems(features):
+    if isinstance(tensor, tf.RaggedTensor):
+      # Add the 'ragged_tensor' tag which will cause coder and
+      # schema_as_feature_spec to raise an error, as currently there is no
+      # feature spec for ragged tensors.
+      feature_tags[name].append(schema_utils.RAGGED_TENSOR_TAG)
+    if name in tensor_ranges:
+      min_value, max_value = tensor_ranges[name]
+      domains[name] = schema_pb2.IntDomain(
+          min=min_value, max=max_value, is_categorical=True)
   feature_spec = _feature_spec_from_batched_tensors(features)
 
   schema_proto = schema_utils.schema_from_feature_spec(feature_spec, domains)
@@ -293,24 +320,59 @@ def _get_schema_annotations(graph, session):
     global_annotations: list of any_pb2.Any protos to be added at the global
       schema level.
   """
-  tensor_annotations = collections.defaultdict(list)
-  global_annotations = []
-  if not common.IS_ANNOTATIONS_PB_AVAILABLE:
-    return tensor_annotations, global_annotations
   tensors = graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION)
   type_urls = session.run(
       graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION_TYPE_URL))
   proto_values = session.run(
       graph.get_collection(_TF_METADATA_EXTRA_ANNOTATION_PROTO))
-  for (tensor, type_url, proto_value) in zip(tensors, type_urls, proto_values):
-    annotation = any_pb2.Any(type_url=type_url, value=proto_value)
+  tensor_annotation_keys = []
+  for tensor in tensors:
     # Entries meant for the global schema annotation will have names like
     # tft_schema_override_global_sentinel:0 or
     # transform/tft_schema_override_global_sentinel_1:0
     tensor_name = tensor.name.split('/')[-1]
     if tensor_name.startswith(_TF_METADATA_EXTRA_ANNOTATION_GLOBAL):
+      tensor_annotation_keys.append(_TF_METADATA_EXTRA_ANNOTATION_GLOBAL)
+    else:
+      tensor_annotation_keys.append(tf_utils.hashable_tensor_or_op(tensor))
+  return _get_schema_annotations_common(tensor_annotation_keys, type_urls,
+                                        proto_values)
+
+
+def _get_schema_annotations_common(tensor_annotation_keys, type_urls,
+                                   proto_values):
+  """Fetch extra_metadata annotations to be applied to the schema.
+
+  Args:
+    tensor_annotation_keys: A list containing either
+      `_TF_METADATA_EXTRA_ANNOTATION_GLOBAL` or a hashed tensor representation
+      corresponding to each entry in `proto_values`. If an entry
+      is`_TF_METADATA_EXTRA_ANNOTATION_GLOBAL`, the corresponding any_pb2.Any
+      proto in `proto_values` is returned in `global_annotations`. Otherwise, it
+      is returned in `feature_annotations`.
+    type_urls: A list of type urls corresponding to the serialized protos in
+      `proto_values`.
+    proto_values: A list of serialized any_pb2.Any protos.
+
+  Returns:
+    A tuple of:
+    tensor_annotations: dictionary from tensor to list of any_pb2.Any protos to
+      be added as an annotation for that tensor's feature in the schema.
+    global_annotations: list of any_pb2.Any protos to be added at the global
+      schema level.
+  """
+  tensor_annotations = collections.defaultdict(list)
+  global_annotations = []
+  if not common.IS_ANNOTATIONS_PB_AVAILABLE:
+    return tensor_annotations, global_annotations
+  assert len(tensor_annotation_keys) == len(type_urls) == len(proto_values)
+  for (tensor_annotation_key, type_url,
+       proto_value) in zip(tensor_annotation_keys, type_urls, proto_values):
+    annotation = any_pb2.Any(type_url=type_url, value=proto_value)
+    if (isinstance(_TF_METADATA_EXTRA_ANNOTATION_GLOBAL,
+                   type(tensor_annotation_key)) and
+        tensor_annotation_key == _TF_METADATA_EXTRA_ANNOTATION_GLOBAL):
       global_annotations.append(annotation)
     else:
-      tensor_annotations[tf_utils.hashable_tensor_or_op(tensor)].append(
-          annotation)
+      tensor_annotations[tensor_annotation_key].append(annotation)
   return tensor_annotations, global_annotations

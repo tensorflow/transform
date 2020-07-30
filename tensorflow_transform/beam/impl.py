@@ -850,6 +850,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
         input_schema=input_schema,
         input_tensor_adapter_config=input_tensor_adapter_config,
         use_tfxio=self._use_tfxio,
+        environment_tag=beam_common.EnvironmentTags.TF_COMPAT_V1,
         cache_pcoll_dict=dataset_cache_dict)
 
     transform_fn_future, cache_value_nodes = analysis_graph_builder.build(
