@@ -21,18 +21,6 @@ from __future__ import print_function
 
 import tensorflow as tf
 
-_STRING_MISSING_VALUE = 'foo'
-_NUMERIC_MISSING_VALUE = 1
-
-
-def _get_default_value_for_dtype(dtype):
-  if dtype == tf.string:
-    return _STRING_MISSING_VALUE
-  elif dtype.is_floating or dtype.is_integer:
-    return _NUMERIC_MISSING_VALUE
-  else:
-    raise ValueError('Received unsupported input dtype: {}'.format(dtype))
-
 
 def _supply_missing_tensor(batch_size, tensor):
   """Supplies a `tf.Tensor` compatible with `tensor`.
@@ -57,9 +45,7 @@ def _supply_missing_tensor(batch_size, tensor):
       result_shape = result_shape + [1]
     else:
       result_shape = result_shape + [s]
-  return tf.cast(
-      tf.fill(result_shape, _get_default_value_for_dtype(tensor.dtype)),
-      tensor.dtype)
+  return tf.zeros(result_shape, dtype=tensor.dtype)
 
 
 def supply_missing_inputs(structured_inputs, batch_size, missing_keys):
