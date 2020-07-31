@@ -1874,8 +1874,6 @@ def uniques(x,
 # TODO(b/65627483): Make this an instantiation of a generic CombineFn based on
 # TF ops.
 #
-# TODO(zoyahav): Move the (micro-)benchmarks from TFDV to TFT.
-#
 # TODO(b/159581894): Perhaps we should switch to using (variants of)
 # beam.ApproximateQuantiles.Globally and beam.ApproximateQuantiles.PerKey
 # and remove the TF complexity, assuming performance is comparable?
