@@ -16,7 +16,7 @@
 * Added best-effort tf.text op registration when loading transformation graphs.
 * Depends on `apache-beam[gcp]>=2.22,<3`.
 * Stopped depending on `avro-python3`.
-* Depends on `tensorflow>=1.15.2,!=2.0.*,<2.3`.
+* Depends on `tensorflow>=1.15.2,!=2.0.*,<2.4`.
 
 ## Breaking changes
 * Existing caches (for all analyzers) are automatically invalidated.

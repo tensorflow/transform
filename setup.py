@@ -34,7 +34,7 @@ def _make_required_install_packages():
       'pydot>=1.2,<2',
       'six>=1.12,<2',
       'tensorflow-metadata>=0.22,<0.23',
-      'tensorflow>=1.15.2,!=2.0.*,<2.3',
+      'tensorflow>=1.15.2,!=2.0.*,<2.4',
       # TODO(b/148082271): Revisit this dependency before releasing.
       'tfx-bsl>=0.22,<0.23',
   ]
