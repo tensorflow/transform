@@ -800,6 +800,7 @@ def compute_and_apply_vocabulary(
     coverage_frequency_threshold=None,
     key_fn=None,
     fingerprint_shuffle=False,
+    file_format=analyzers.DEFAULT_VOCABULARY_FILE_FORMAT,
     name=None):
   r"""Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
@@ -865,6 +866,10 @@ def compute_and_apply_vocabulary(
       vocabularies by fingerprint instead of counts. This is useful for load
       balancing on the training parameter servers. Shuffle only happens while
       writing the files, so all the filters above will still take effect.
+    file_format: (Optional) A str. The format of the resulting vocabulary file.
+      Accepted formats are: 'tfrecord_gzip', 'text'. 'tfrecord_gzip' requires
+      tensorflow>=2.4.
+      The default value is 'text'.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -893,9 +898,14 @@ def compute_and_apply_vocabulary(
         coverage_top_k=coverage_top_k,
         coverage_frequency_threshold=coverage_frequency_threshold,
         key_fn=key_fn,
-        fingerprint_shuffle=fingerprint_shuffle)
+        fingerprint_shuffle=fingerprint_shuffle,
+        file_format=file_format)
     return apply_vocabulary(
-        x, deferred_vocab_and_filename, default_value, num_oov_buckets)
+        x,
+        deferred_vocab_and_filename,
+        default_value,
+        num_oov_buckets,
+        file_format=file_format)
 
 
 @deprecation.deprecated(None,
@@ -909,6 +919,7 @@ def string_to_int(x,
                   vocab_filename=None,
                   weights=None,
                   labels=None,
+                  file_format=analyzers.DEFAULT_VOCABULARY_FILE_FORMAT,
                   name=None):
   r"""See `tft.compute_and_apply_vocabulary`."""
   return compute_and_apply_vocabulary(
@@ -920,6 +931,7 @@ def string_to_int(x,
       vocab_filename=vocab_filename,
       weights=weights,
       labels=labels,
+      file_format=file_format,
       name=name)
 
 
@@ -929,16 +941,13 @@ def apply_vocabulary(x,
                      default_value=-1,
                      num_oov_buckets=0,
                      lookup_fn=None,
+                     file_format=analyzers.DEFAULT_VOCABULARY_FILE_FORMAT,
                      name=None):
   r"""Maps `x` to a vocabulary specified by the deferred tensor.
 
   This function also writes domain statistics about the vocabulary min and max
   values. Note that the min and max are inclusive, and depend on the vocab size,
   num_oov_buckets and default_value.
-
-  In case one of the tokens contains the '\n' or '\r' characters or is empty it
-  will be discarded since we are currently writing the vocabularies as text
-  files. This behavior will likely be fixed/improved in the future.
 
   Args:
     x: A categorical `Tensor` or `SparseTensor` of type tf.string or
@@ -955,6 +964,9 @@ def apply_vocabulary(x,
       and a deferred vocab filename as an input and return a lookup `op` along
       with the table size, by default `apply_vocab` constructs a StaticHashTable
       for the table lookup.
+    file_format: (Optional) A str. The format of the given vocabulary.
+      Accepted formats are: 'tfrecord_gzip', 'text'.
+      The default value is 'text'.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -964,6 +976,11 @@ def apply_vocabulary(x,
     starting from zero, and string value not in the vocabulary is
     assigned default_value.
   """
+  if (file_format == 'tfrecord_gzip' and
+      (not hasattr(tf.lookup.experimental, 'DatasetInitializer') or
+       tf.version.VERSION < '2.4')):
+    raise ValueError(
+        'Vocabulary file_format "tfrecord_gzip" requires TF version >= 2.4')
   with tf.compat.v1.name_scope(name, 'apply_vocab'):
     if x.dtype != tf.string and not x.dtype.is_integer:
       raise tf.errors.InvalidArgumentError(
@@ -977,12 +994,21 @@ def apply_vocabulary(x,
                          (six.binary_type, six.text_type))
               and not deferred_vocab_filename_tensor)):
         raise ValueError('`deferred_vocab_filename_tensor` must not be empty.')
-      initializer = tf.lookup.TextFileInitializer(
-          deferred_vocab_filename_tensor,
-          key_dtype=x.dtype,
-          key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
-          value_dtype=tf.int64,
-          value_index=tf.lookup.TextFileIndex.LINE_NUMBER)
+
+      if file_format == 'tfrecord_gzip':
+        initializer = tf_utils.make_tfrecord_vocabulary_lookup_initializer(
+            deferred_vocab_filename_tensor, x.dtype)
+      elif file_format == 'text':
+        initializer = tf.lookup.TextFileInitializer(
+            deferred_vocab_filename_tensor,
+            key_dtype=x.dtype,
+            key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
+            value_dtype=tf.int64,
+            value_index=tf.lookup.TextFileIndex.LINE_NUMBER)
+      else:
+        raise ValueError(
+            '"{}" is not an accepted file_format. It should be one of: {}'
+            .format(file_format, analyzers.ALLOWED_VOCABULRY_FILE_FORMATS))
 
       if num_oov_buckets > 0:
         table = tf.lookup.StaticVocabularyTable(initializer,
@@ -1019,6 +1045,7 @@ def apply_vocab(x,
                 default_value=-1,
                 num_oov_buckets=0,
                 lookup_fn=None,
+                file_format=analyzers.DEFAULT_VOCABULARY_FILE_FORMAT,
                 name=None):
   r"""See `tft.apply_vocabulary`."""
   return apply_vocabulary(
@@ -1027,6 +1054,7 @@ def apply_vocab(x,
       default_value=default_value,
       num_oov_buckets=num_oov_buckets,
       lookup_fn=lookup_fn,
+      file_format=file_format,
       name=name)
 
 

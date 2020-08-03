@@ -24,7 +24,6 @@ import os
 # GOOGLE-INITIALIZATION
 
 import apache_beam as beam
-import six
 
 import tensorflow as tf
 import tensorflow_transform as tft
@@ -36,10 +35,13 @@ from tensorflow_metadata.proto.v0 import schema_pb2
 
 class VocabularyIntegrationTest(tft_unit.TransformTestCase):
 
+  def _VocabFormat(self):
+    return 'text'
+
   # From testVocabularyAnalyzerStringVsIntegerFeature
   _WITH_LABEL_PARAMS = tft_unit.cross_named_parameters([
       dict(
-          testcase_name='string',
+          testcase_name='_string',
           x_data=[
               b'hello', b'hello', b'hello', b'goodbye', b'aaaaa', b'aaaaa',
               b'goodbye', b'goodbye', b'aaaaa', b'aaaaa', b'goodbye', b'goodbye'
@@ -49,7 +51,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
                                         (b'aaaaa', 1.6600708),
                                         (b'hello', 1.2450531)]),
       dict(
-          testcase_name='int64',
+          testcase_name='_int64',
           x_data=[3, 3, 3, 1, 2, 2, 1, 1, 2, 2, 1, 1],
           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
           expected_vocab_file_contents=[(b'1', 1.975322), (b'2', 1.6600708),
@@ -72,7 +74,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
       # TODO(KesterTong): Remove these annotations and the above comment.
       # From testVocabularyWithMutualInformation
       dict(
-          testcase_name='unadjusted_mi_binary_label',
+          testcase_name='_unadjusted_mi_binary_label',
           x_data=[
               b'informative', b'informative', b'informative', b'uninformative',
               b'uninformative', b'uninformative', b'uninformative',
@@ -90,7 +92,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           use_adjusted_mutual_info=False,
           store_frequency=True),
       dict(
-          testcase_name='unadjusted_mi_multi_class_label',
+          testcase_name='_unadjusted_mi_multi_class_label',
           x_data=[
               b'good_predictor_of_0', b'good_predictor_of_0',
               b'good_predictor_of_0', b'good_predictor_of_1',
@@ -114,7 +116,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           use_adjusted_mutual_info=False,
           store_frequency=True),
       dict(
-          testcase_name='unadjusted_mi_binary_label_with_weights',
+          testcase_name='_unadjusted_mi_binary_label_with_weights',
           x_data=[
               b'informative_1', b'informative_1', b'informative_0',
               b'informative_0', b'uninformative', b'uninformative',
@@ -138,7 +140,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           use_adjusted_mutual_info=False,
           store_frequency=True),
       dict(
-          testcase_name='unadjusted_mi_binary_label_min_diff_from_avg',
+          testcase_name='_unadjusted_mi_binary_label_min_diff_from_avg',
           x_data=[
               b'hello', b'hello', b'hello', b'goodbye', b'aaaaa', b'aaaaa',
               b'goodbye', b'goodbye', b'aaaaa', b'aaaaa', b'goodbye', b'goodbye'
@@ -156,7 +158,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           min_diff_from_avg=2.0,
           store_frequency=True),
       dict(
-          testcase_name='adjusted_mi_binary_label',
+          testcase_name='_adjusted_mi_binary_label',
           x_data=[
               b'hello', b'hello', b'hello', b'goodbye', b'aaaaa', b'aaaaa',
               b'goodbye', b'goodbye', b'aaaaa', b'aaaaa', b'goodbye', b'goodbye'
@@ -173,7 +175,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           use_adjusted_mutual_info=True,
           store_frequency=True),
       dict(
-          testcase_name='adjusted_mi_binary_label_int64_feature',
+          testcase_name='_adjusted_mi_binary_label_int64_feature',
           x_data=[3, 3, 3, 1, 2, 2, 1, 1, 2, 2, 1, 1],
           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
           label_data=[1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0],
@@ -187,7 +189,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           use_adjusted_mutual_info=True,
           store_frequency=True),
       dict(
-          testcase_name='adjusted_mi_multi_class_label',
+          testcase_name='_adjusted_mi_multi_class_label',
           x_data=[
               b'good_predictor_of_0', b'good_predictor_of_0',
               b'good_predictor_of_0', b'good_predictor_of_1',
@@ -212,7 +214,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           store_frequency=True),
       # TODO(b/128831096): Determine correct interaction between AMI and weights
       dict(
-          testcase_name='adjusted_mi_binary_label_with_weights',
+          testcase_name='_adjusted_mi_binary_label_with_weights',
           x_data=[
               b'informative_1', b'informative_1', b'informative_0',
               b'informative_0', b'uninformative', b'uninformative',
@@ -236,7 +238,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           use_adjusted_mutual_info=True,
           store_frequency=True),
       dict(
-          testcase_name='adjusted_mi_min_diff_from_avg',
+          testcase_name='_adjusted_mi_min_diff_from_avg',
           x_data=[
               b'good_predictor_of_0', b'good_predictor_of_0',
               b'good_predictor_of_0', b'good_predictor_of_1',
@@ -261,7 +263,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           store_frequency=True),
       # From testVocabularyAnalyzerWithLabelsWeightsAndFrequency
       dict(
-          testcase_name='labels_weight_and_frequency',
+          testcase_name='_labels_weight_and_frequency',
           x_data=[
               b'hello', b'hello', b'hello', b'goodbye', b'aaaaa', b'aaaaa',
               b'goodbye', b'goodbye', b'aaaaa', b'aaaaa', b'goodbye', b'goodbye'
@@ -291,50 +293,50 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
       # '2': 'da4b9237bacccdf19c0760cab7aec4a8359010b0'
       # '3': '77de68daecd823babbb58edb1c8e14d7106e83bb'
       dict(
-          testcase_name='string_feature_with_frequency_and_shuffle',
+          testcase_name='_string_feature_with_frequency_and_shuffle',
           x_data=[b'world', b'hello', b'hello'],
           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
           expected_vocab_file_contents=[(b'world', 1), (b'hello', 2)],
           fingerprint_shuffle=True,
           store_frequency=True),
       dict(
-          testcase_name='string_feature_with_frequency_and_no_shuffle',
+          testcase_name='_string_feature_with_frequency_and_no_shuffle',
           x_data=[b'hi', b'ho ho', b'ho ho'],
           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
           expected_vocab_file_contents=[(b'ho ho', 2), (b'hi', 1)],
           store_frequency=True),
       dict(
-          testcase_name='string_feature_with_no_frequency_and_shuffle',
+          testcase_name='_string_feature_with_no_frequency_and_shuffle',
           x_data=[b'world', b'hello', b'hello'],
           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
           expected_vocab_file_contents=[b'world', b'hello'],
           fingerprint_shuffle=True),
       dict(
-          testcase_name='string_feature_with_no_frequency_and_no_shuffle',
+          testcase_name='_string_feature_with_no_frequency_and_no_shuffle',
           x_data=[b'world', b'hello', b'hello'],
           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
           expected_vocab_file_contents=[b'hello', b'world']),
       dict(
-          testcase_name='int_feature_with_frequency_and_shuffle',
+          testcase_name='_int_feature_with_frequency_and_shuffle',
           x_data=[1, 2, 2, 3],
           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
           expected_vocab_file_contents=[(b'1', 1), (b'3', 1), (b'2', 2)],
           fingerprint_shuffle=True,
           store_frequency=True),
       dict(
-          testcase_name='int_feature_with_frequency_and_no_shuffle',
+          testcase_name='_int_feature_with_frequency_and_no_shuffle',
           x_data=[2, 1, 1, 1],
           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
           expected_vocab_file_contents=[(b'1', 3), (b'2', 1)],
           store_frequency=True),
       dict(
-          testcase_name='int_feature_with_no_frequency_and_shuffle',
+          testcase_name='_int_feature_with_no_frequency_and_shuffle',
           x_data=[1, 2, 2, 3],
           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
           expected_vocab_file_contents=[b'1', b'3', b'2'],
           fingerprint_shuffle=True),
       dict(
-          testcase_name='int_feature_with_no_frequency_and_no_shuffle',
+          testcase_name='_int_feature_with_no_frequency_and_no_shuffle',
           x_data=[1, 2, 2, 3],
           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
           expected_vocab_file_contents=[b'2', b'3', b'1']),
@@ -377,6 +379,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           labels=labels,
           weights=weights,
           vocab_filename='my_vocab',
+          file_format=self._VocabFormat(),
           **kwargs)
       return inputs
 
@@ -424,12 +427,19 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
     def preprocessing_fn(inputs):
       deferred_vocab_and_filename = tft.vocabulary(
           tf.concat([inputs['a'], inputs['b'], inputs['c']], 0),
-          vocab_filename=vocab_filename)
+          vocab_filename=vocab_filename,
+          file_format=self._VocabFormat())
       return {
           'index_a':
-              tft.apply_vocabulary(inputs['a'], deferred_vocab_and_filename),
+              tft.apply_vocabulary(
+                  inputs['a'],
+                  deferred_vocab_and_filename,
+                  file_format=self._VocabFormat()),
           'index_b':
-              tft.apply_vocabulary(inputs['b'], deferred_vocab_and_filename)
+              tft.apply_vocabulary(
+                  inputs['b'],
+                  deferred_vocab_and_filename,
+                  file_format=self._VocabFormat())
       }
 
     expected_data = [
@@ -457,23 +467,23 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
                                           expected_metadata)
 
   # From testVocabularyAnalyzerEmptyVocab
-  _EMPTY_VOCABULARY_PARAMS = tft_unit.cross_named_parameters(
-      [
-          dict(testcase_name='string',
-               x_data=['a', 'b'],
-               x_feature_spec=tf.io.FixedLenFeature([], tf.string)),
-          dict(testcase_name='int64',
-               x_data=[1, 2],
-               x_feature_spec=tf.io.FixedLenFeature([], tf.int64)),
-      ],
-      [
-          dict(testcase_name='empty_vocabulary',
-               index_data=[-1, -1],
-               index_feature_spec=tf.io.FixedLenFeature([], tf.int64),
-               index_domain=schema_pb2.IntDomain(min=-1, max=0,
-                                                 is_categorical=True),
-               frequency_threshold=5),
-      ])
+  _EMPTY_VOCABULARY_PARAMS = tft_unit.cross_named_parameters([
+      dict(
+          testcase_name='_string',
+          x_data=['a', 'b'],
+          x_feature_spec=tf.io.FixedLenFeature([], tf.string)),
+      dict(
+          testcase_name='_int64',
+          x_data=[1, 2],
+          x_feature_spec=tf.io.FixedLenFeature([], tf.int64)),
+  ], [
+      dict(
+          testcase_name='empty_vocabulary',
+          index_data=[-1, -1],
+          index_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+          index_domain=schema_pb2.IntDomain(min=-1, max=0, is_categorical=True),
+          frequency_threshold=5),
+  ])
 
   @tft_unit.named_parameters(*([
       # NOTE: Since these tests are a refactoring of existing tests, each test
@@ -485,7 +495,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
       # TODO(KesterTong): Remove these annotations and the above comment.
       # From testVocabularyAnalyzerWithLabelsAndTopK
       dict(
-          testcase_name='string_feature_with_label_top_2',
+          testcase_name='_string_feature_with_label_top_2',
           x_data=[
               b'hello', b'hello', b'hello', b'goodbye', b'aaaaa', b'aaaaa',
               b'goodbye', b'goodbye', b'aaaaa', b'aaaaa', b'goodbye', b'goodbye'
@@ -498,7 +508,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           index_domain=schema_pb2.IntDomain(min=-1, max=1, is_categorical=True),
           top_k=2),
       dict(
-          testcase_name='string_feature_with_label_top_1',
+          testcase_name='_string_feature_with_label_top_1',
           x_data=[
               b'hello', b'hello', b'hello', b'goodbye', b'aaaaa', b'aaaaa',
               b'goodbye', b'goodbye', b'aaaaa', b'aaaaa', b'goodbye', b'goodbye'
@@ -511,7 +521,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           index_domain=schema_pb2.IntDomain(min=-1, max=0, is_categorical=True),
           top_k=1),
       dict(
-          testcase_name='int_feature_with_label_top_2',
+          testcase_name='_int_feature_with_label_top_2',
           x_data=[3, 3, 3, 1, 2, 2, 1, 1, 2, 2, 1, 1],
           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
           label_data=[1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0],
@@ -522,7 +532,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           top_k=2),
       # From testVocabularyAnalyzerWithMultiDimensionalInputs
       dict(
-          testcase_name='varlen_feature',
+          testcase_name='_varlen_feature',
           x_data=[[b'world', b'hello', b'hello'], [b'hello', b'world', b'foo'],
                   [], [b'hello']],
           x_feature_spec=tf.io.VarLenFeature(tf.string),
@@ -533,7 +543,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           default_value=-99,
           top_k=2),
       dict(
-          testcase_name='vector_feature',
+          testcase_name='_vector_feature',
           x_data=[[b'world', b'hello', b'hello'], [b'hello', b'world', b'moo'],
                   [b'hello', b'hello', b'foo'], [b'world', b'foo', b'moo']],
           x_feature_spec=tf.io.FixedLenFeature([3], tf.string),
@@ -544,7 +554,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           default_value=-99,
           top_k=2),
       dict(
-          testcase_name='varlen_feature_with_labels',
+          testcase_name='_varlen_feature_with_labels',
           x_data=[[b'hello', b'world', b'bye', b'moo'],
                   [b'world', b'moo', b'foo'], [b'hello', b'foo', b'moo'],
                   [b'moo']],
@@ -558,7 +568,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           default_value=-99,
           top_k=2),
       dict(
-          testcase_name='vector_feature_with_labels',
+          testcase_name='_vector_feature_with_labels',
           x_data=[[b'world', b'hello', b'hi'], [b'hello', b'world', b'moo'],
                   [b'hello', b'bye', b'foo'], [b'world', b'foo', b'moo']],
           x_feature_spec=tf.io.FixedLenFeature([3], tf.string),
@@ -572,7 +582,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           default_value=-99,
           top_k=2),
       dict(
-          testcase_name='varlen_integer_feature_with_labels',
+          testcase_name='_varlen_integer_feature_with_labels',
           x_data=[[0, 1, 3, 2], [1, 2, 4], [0, 4, 2], [2]],
           x_feature_spec=tf.io.VarLenFeature(tf.int64),
           label_data=[1, 0, 1, 0],
@@ -584,7 +594,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           default_value=-99,
           top_k=2),
       dict(
-          testcase_name='varlen_feature_with_some_empty_feature_values',
+          testcase_name='_varlen_feature_with_some_empty_feature_values',
           x_data=[[b'world', b'hello', b'hi', b'moo'], [],
                   [b'world', b'hello', b'foo'], []],
           x_feature_spec=tf.io.VarLenFeature(tf.string),
@@ -598,7 +608,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           top_k=2),
       # From testSparseVocabularyWithMultiClassLabels
       dict(
-          testcase_name='varlen_with_multiclass_labels',
+          testcase_name='_varlen_with_multiclass_labels',
           x_data=[[1, 2, 3, 5], [1, 4, 5], [1, 2], [1, 2], [1, 3, 5], [1, 4, 3],
                   [1, 3]],
           x_feature_spec=tf.io.VarLenFeature(tf.int64),
@@ -611,7 +621,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           top_k=4),
       # From testVocabularyAnalyzerWithLabelsAndWeights
       dict(
-          testcase_name='labels_and_weights',
+          testcase_name='_labels_and_weights',
           x_data=[
               b'hello', b'hello', b'hello', b'goodbye', b'aaaaa', b'aaaaa',
               b'goodbye', b'goodbye', b'aaaaa', b'aaaaa', b'goodbye', b'goodbye'
@@ -629,7 +639,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
                                             is_categorical=True)),
       # From testVocabularyAnalyzerWithWeights
       dict(
-          testcase_name='string_feature_with_weights',
+          testcase_name='_string_feature_with_weights',
           x_data=[
               b'hello', b'world', b'goodbye', b'aaaaa', b'aaaaa', b'goodbye'
           ],
@@ -641,7 +651,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           index_domain=schema_pb2.IntDomain(min=-1, max=3,
                                             is_categorical=True)),
       dict(
-          testcase_name='int64_feature_with_weights',
+          testcase_name='_int64_feature_with_weights',
           x_data=[2, 1, 3, 4, 4, 3],
           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
           weight_data=[1.0, .5, 1.0, .26, .25, 1.5],
@@ -652,7 +662,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
                                             is_categorical=True)),
       # From testVocabularyAnalyzer
       dict(
-          testcase_name='whitespace_newlines_and_empty_strings',
+          testcase_name='_whitespace_newlines_and_empty_strings',
           x_data=[
               b'hello', b'world', b'hello', b'hello', b'goodbye', b'world',
               b'aaaaa', b' ', b'', b'\n', b'hi \n ho \n', '\r'
@@ -666,7 +676,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
                                             is_categorical=True)),
       # From testVocabularyAnalyzerOOV
       dict(
-          testcase_name='whitespace_newlines_and_empty_strings_oov_buckets',
+          testcase_name='_whitespace_newlines_and_empty_strings_oov_buckets',
           x_data=[
               b'hello', b'world', b'hello', b'hello', b'goodbye', b'world',
               b'aaaaa', b' ', b'', b'\n', b'hi \n ho \n', '\r'
@@ -684,7 +694,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           }),
       # From testVocabularyAnalyzerPositiveNegativeIntegers
       dict(
-          testcase_name='positive_and_negative_integers',
+          testcase_name='_positive_and_negative_integers',
           x_data=[13, 14, 13, 13, 12, 14, 11, 10, 10, -10, -10, -20],
           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
           index_data=[0, 1, 0, 0, 4, 1, 5, 2, 2, 3, 3, 6],
@@ -696,7 +706,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           }),
       # From testVocabularyAnalyzerWithNDInputs
       dict(
-          testcase_name='rank_2',
+          testcase_name='_rank_2',
           x_data=[[[b'some', b'say'], [b'the', b'world']],
                   [[b'will', b'end'], [b'in', b'fire']],
                   [[b'some', b'say'], [b'in', b'ice']]],
@@ -707,7 +717,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
                                             is_categorical=True)),
       # From testVocabularyAnalyzerWithTopK
       dict(
-          testcase_name='top_k',
+          testcase_name='_top_k',
           x_data=[[b'hello', b'hello', b'world'],
                   [b'hello', b'goodbye', b'world'],
                   [b'hello', b'goodbye', b'foo']],
@@ -719,7 +729,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           default_value=-99,
           top_k=2),
       dict(
-          testcase_name='top_k_specified_as_str',
+          testcase_name='_top_k_specified_as_str',
           x_data=[[b'hello', b'hello', b'world'],
                   [b'hello', b'goodbye', b'world'],
                   [b'hello', b'goodbye', b'foo']],
@@ -731,7 +741,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           top_k='2'),
       # From testVocabularyAnalyzerWithFrequencyThreshold
       dict(
-          testcase_name='frequency_threshold',
+          testcase_name='_frequency_threshold',
           x_data=[[b'hello', b'hello', b'world'],
                   [b'hello', b'goodbye', b'world'],
                   [b'hello', b'goodbye', b'foo']],
@@ -743,7 +753,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           default_value=-99,
           frequency_threshold=2),
       dict(
-          testcase_name='frequency_threshold_specified_with_str',
+          testcase_name='_frequency_threshold_specified_with_str',
           x_data=[[b'hello', b'hello', b'world'],
                   [b'hello', b'goodbye', b'world'],
                   [b'hello', b'goodbye', b'foo']],
@@ -755,7 +765,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           frequency_threshold='2'),
       # From testVocabularyAnalyzerWithFrequencyThresholdTooHigh
       dict(
-          testcase_name='empty_vocabulary_from_high_frequency_threshold',
+          testcase_name='_empty_vocabulary_from_high_frequency_threshold',
           x_data=[[b'hello', b'hello', b'world'],
                   [b'hello', b'goodbye', b'world'],
                   [b'hello', b'goodbye', b'foo']],
@@ -768,7 +778,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           frequency_threshold=77),
       # From testVocabularyAnalyzerWithHighFrequencyThresholdAndOOVBuckets
       dict(
-          testcase_name='top_k_and_oov',
+          testcase_name='_top_k_and_oov',
           x_data=[[b'hello', b'hello', b'world', b'world'],
                   [b'hello', b'tarkus', b'toccata'],
                   [b'hello', b'goodbye', b'foo']],
@@ -786,7 +796,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           num_oov_buckets=3),
       # From testVocabularyAnalyzerWithKeyFn
       dict(
-          testcase_name='key_fn',
+          testcase_name='_key_fn',
           x_data=[['a_X_1', 'a_X_1', 'a_X_2', 'b_X_1', 'b_X_2'],
                   ['a_X_1', 'a_X_1', 'a_X_2', 'a_X_2'], ['b_X_2']],
           x_feature_spec=tf.io.VarLenFeature(tf.string),
@@ -800,7 +810,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           frequency_threshold=3),
       # from testVocabularyAnalyzerWithKeyFnAndMultiCoverageTopK
       dict(
-          testcase_name='key_fn_and_multi_coverage_top_k',
+          testcase_name='_key_fn_and_multi_coverage_top_k',
           x_data=[['a_X_1', 'a_X_1', 'a_X_2', 'b_X_1', 'b_X_2'],
                   ['a_X_1', 'a_X_1', 'a_X_2', 'a_X_2', 'a_X_3'], ['b_X_2']],
           x_feature_spec=tf.io.VarLenFeature(tf.string),
@@ -814,7 +824,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           frequency_threshold=300),
       # from testVocabularyAnalyzerWithKeyFnAndTopK
       dict(
-          testcase_name='key_fn_and_top_k',
+          testcase_name='_key_fn_and_top_k',
           x_data=[['a_X_1', 'a_X_1', 'a_X_2', 'b_X_1', 'b_X_2'],
                   ['a_X_1', 'a_X_1', 'a_X_2', 'a_X_2'],
                   ['b_X_2', 'b_X_2', 'b_X_2', 'b_X_2', 'c_X_1']],
@@ -829,7 +839,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           top_k=2),
       # from testVocabularyAnalyzerWithKeyFnMultiCoverageTopK
       dict(
-          testcase_name='key_fn_multi_coverage_top_k',
+          testcase_name='_key_fn_multi_coverage_top_k',
           x_data=[
               ['0_X_a', '0_X_a', '5_X_a', '6_X_a', '6_X_a', '0_X_a'],
               ['0_X_a', '2_X_a', '2_X_a', '2_X_a', '0_X_a', '5_X_a'],
@@ -847,7 +857,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           frequency_threshold=4),
       # from testVocabularyAnalyzerWithKeyFnAndLabels
       dict(
-          testcase_name='key_fn_and_labels',
+          testcase_name='_key_fn_and_labels',
           x_data=[
               'aaa', 'aaa', 'aaa', 'aab', 'aba', 'aba', 'aab', 'aab', 'aba',
               'abc', 'abc', 'aab'
@@ -863,7 +873,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           frequency_threshold=3),
       # from testVocabularyAnalyzerWithKeyFnAndWeights
       dict(
-          testcase_name='key_fn_and_weights',
+          testcase_name='_key_fn_and_weights',
           x_data=['xa', 'xa', 'xb', 'ya', 'yb', 'yc'],
           x_feature_spec=tf.io.FixedLenFeature([], tf.string),
           weight_data=[1.0, 0.5, 3.0, 0.6, 0.25, 0.5],
@@ -908,7 +918,11 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
       labels = inputs.get('label')
       weights = inputs.get('weights')
       index = tft.compute_and_apply_vocabulary(
-          x, labels=labels, weights=weights, **kwargs)
+          x,
+          labels=labels,
+          weights=weights,
+          file_format=self._VocabFormat(),
+          **kwargs)
       return {'index': index}
 
     self.assertAnalyzeAndTransformResults(
@@ -950,57 +964,63 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
       deferred_vocab_and_filename = tft.vocabulary(
           tf.concat([inputs['a'], inputs['b'], inputs['c']], 0),
           vocab_filename=vocab_filename,
-          store_frequency=True)
+          store_frequency=True,
+          file_format=self._VocabFormat())
+
+      def _make_table_initializer(filename_tensor, is_frequency_value):
+        if self._VocabFormat() == 'text':
+          return tf.lookup.TextFileInitializer(
+              filename=filename_tensor,
+              key_dtype=tf.string,
+              key_index=1,
+              value_dtype=tf.int64,
+              value_index=(0 if is_frequency_value else
+                           tf.lookup.TextFileIndex.LINE_NUMBER),
+              delimiter=' ')
+        elif self._VocabFormat() == 'tfrecord_gzip':
+          return tft.tf_utils.make_tfrecord_vocabulary_lookup_initializer(
+              filename_tensor,
+              return_indicator_as_value=is_frequency_value,
+              has_indicator=True)
 
       def _apply_vocab(y, deferred_vocab_filename_tensor):
-        # NOTE: Please be aware that TextFileInitializer assigns a special
-        # meaning to the constant tf.lookup.TextFileIndex.LINE_NUMBER.
-        table = tf.lookup.StaticHashTable(
-            tf.lookup.TextFileInitializer(
-                deferred_vocab_filename_tensor,
-                tf.string,
-                1,
-                tf.int64,
-                tf.lookup.TextFileIndex.LINE_NUMBER,
-                delimiter=' '),
-            default_value=-1)
+        initializer = _make_table_initializer(deferred_vocab_filename_tensor,
+                                              False)
+        table = tf.lookup.StaticHashTable(initializer, default_value=-1)
         table_size = table.size()
         return table.lookup(y), table_size
 
       def _apply_frequency(y, deferred_vocab_filename_tensor):
-        table = tf.lookup.StaticHashTable(
-            tf.lookup.TextFileInitializer(
-                deferred_vocab_filename_tensor,
-                tf.string,
-                1,
-                tf.int64,
-                0,
-                delimiter=' '),
-            default_value=-1)
-        table_size = table.size()
-        return table.lookup(y), table_size
+        initializer = _make_table_initializer(deferred_vocab_filename_tensor,
+                                              True)
+        table = tf.lookup.StaticHashTable(initializer, default_value=-1)
+        return table.lookup(y), table.size()
 
       return {
           'index_a':
               tft.apply_vocabulary(
                   inputs['a'],
                   deferred_vocab_and_filename,
-                  lookup_fn=_apply_vocab),
+                  lookup_fn=_apply_vocab,
+                  file_format=self._VocabFormat()),
           'frequency_a':
               tft.apply_vocabulary(
                   inputs['a'],
                   deferred_vocab_and_filename,
-                  lookup_fn=_apply_frequency),
+                  lookup_fn=_apply_frequency,
+                  file_format=self._VocabFormat()),
           'index_b':
               tft.apply_vocabulary(
                   inputs['b'],
                   deferred_vocab_and_filename,
-                  lookup_fn=_apply_vocab),
+                  lookup_fn=_apply_vocab,
+                  file_format=self._VocabFormat()),
           'frequency_b':
               tft.apply_vocabulary(
                   inputs['b'],
                   deferred_vocab_and_filename,
-                  lookup_fn=_apply_frequency),
+                  lookup_fn=_apply_frequency,
+                  file_format=self._VocabFormat()),
       }
 
     expected_data = [
@@ -1020,7 +1040,9 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
       return {
           'index':
               tft.compute_and_apply_vocabulary(
-                  tf.compat.v1.strings.split(inputs['a']))
+                  tf.compat.v1.strings.split(inputs['a']),
+                  file_format=self._VocabFormat(),
+                  vocab_filename='my_vocab')
       }
 
     input_data = [{'a': 'hello hello world'}, {'a': 'hello goodbye world'}]
@@ -1033,9 +1055,14 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
     }, {
         'index': schema_pb2.IntDomain(min=-1, max=2, is_categorical=True),
     })
-    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn, expected_data,
-                                          expected_metadata)
+    expected_vocabulary = {'my_vocab': [b'hello', b'world', b'goodbye']}
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata=expected_metadata,
+        expected_vocab_file_contents=expected_vocabulary)
 
   def testVocabularyWithFrequency(self):
     outfile = 'vocabulary_with_frequency'
@@ -1044,24 +1071,23 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
       # Force the analyzer to be executed, and store the frequency file as a
       # side-effect.
       _ = tft.vocabulary(
-          inputs['a'], vocab_filename=outfile, store_frequency=True)
-      _ = tft.vocabulary(inputs['a'], store_frequency=True)
-      _ = tft.vocabulary(inputs['b'], store_frequency=True)
+          inputs['a'],
+          vocab_filename=outfile,
+          store_frequency=True,
+          file_format=self._VocabFormat())
+      _ = tft.vocabulary(
+          inputs['a'], store_frequency=True, file_format=self._VocabFormat())
+      _ = tft.vocabulary(
+          inputs['b'], store_frequency=True, file_format=self._VocabFormat())
 
       # The following must not produce frequency output, just the vocab words.
-      _ = tft.vocabulary(inputs['b'])
-      a_int = tft.compute_and_apply_vocabulary(inputs['a'])
+      _ = tft.vocabulary(inputs['b'], file_format=self._VocabFormat())
+      a_int = tft.compute_and_apply_vocabulary(
+          inputs['a'], file_format=self._VocabFormat())
 
       # Return input unchanged, this preprocessing_fn is a no-op except for
       # computing uniques.
       return {'a_int': a_int}
-
-    def check_asset_file_contents(assets_path, filename, expected):
-      assets_file = os.path.join(assets_path, filename)
-      with tf.io.gfile.GFile(assets_file, 'r') as f:
-        contents = f.read()
-
-      self.assertMultiLineEqual(expected, contents)
 
     input_metadata = tft_unit.metadata_from_feature_spec({
         'a': tf.io.FixedLenFeature([], tf.string),
@@ -1085,31 +1111,28 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
 
     self.assertTrue(os.path.isdir(tft_tmp_dir))
 
-    saved_model_path = os.path.join(transform_fn_dir,
-                                    tft.TFTransformOutput.TRANSFORM_FN_DIR)
-    assets_path = os.path.join(saved_model_path,
+    tft_output = tft.TFTransformOutput(transform_fn_dir)
+    assets_path = os.path.join(tft_output.transform_savedmodel_dir,
                                tf.saved_model.ASSETS_DIRECTORY)
     self.assertTrue(os.path.isdir(assets_path))
-    six.assertCountEqual(self, [
-        outfile, 'vocab_frequency_vocabulary_1', 'vocab_frequency_vocabulary_2',
-        'vocab_compute_and_apply_vocabulary_vocabulary', 'vocab_vocabulary_3'
-    ], os.listdir(assets_path))
 
-    check_asset_file_contents(assets_path, outfile,
-                              '2 hello\n1 world\n')
+    self.assertEqual([b'2 hello', b'1 world'],
+                     tft_output.vocabulary_by_name(outfile))
 
-    check_asset_file_contents(assets_path, 'vocab_frequency_vocabulary_1',
-                              '2 hello\n1 world\n')
+    self.assertEqual(
+        [b'2 hello', b'1 world'],
+        tft_output.vocabulary_by_name('vocab_frequency_vocabulary_1'))
 
-    check_asset_file_contents(assets_path, 'vocab_frequency_vocabulary_2',
-                              '2 ho ho\n1 hi\n')
+    self.assertEqual(
+        [b'2 ho ho', b'1 hi'],
+        tft_output.vocabulary_by_name('vocab_frequency_vocabulary_2'))
 
-    check_asset_file_contents(assets_path, 'vocab_vocabulary_3',
-                              'ho ho\nhi\n')
+    self.assertEqual([b'ho ho', b'hi'],
+                     tft_output.vocabulary_by_name('vocab_vocabulary_3'))
 
-    check_asset_file_contents(assets_path,
-                              'vocab_compute_and_apply_vocabulary_vocabulary',
-                              'hello\nworld\n')
+    self.assertEqual([b'hello', b'world'],
+                     tft_output.vocabulary_by_name(
+                         'vocab_compute_and_apply_vocabulary_vocabulary'))
 
   def testVocabularyWithKeyFnAndFrequency(self):
     def key_fn(string):
@@ -1128,31 +1151,27 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           key_fn=key_fn,
           frequency_threshold=4,
           vocab_filename=outfile,
-          store_frequency=True)
+          store_frequency=True,
+          file_format=self._VocabFormat())
 
       _ = tft.vocabulary(
           tf.compat.v1.strings.split(inputs['a']),
           coverage_top_k=1,
           key_fn=key_fn,
           frequency_threshold=4,
-          store_frequency=True)
+          store_frequency=True,
+          file_format=self._VocabFormat())
 
       a_int = tft.compute_and_apply_vocabulary(
           tf.compat.v1.strings.split(inputs['a']),
           coverage_top_k=1,
           key_fn=key_fn,
-          frequency_threshold=4)
+          frequency_threshold=4,
+          file_format=self._VocabFormat())
 
       # Return input unchanged, this preprocessing_fn is a no-op except for
       # computing uniques.
       return {'a_int': a_int}
-
-    def check_asset_file_contents(assets_path, filename, expected):
-      assets_file = os.path.join(assets_path, filename)
-      with tf.io.gfile.GFile(assets_file, 'r') as f:
-        contents = f.read()
-
-      self.assertMultiLineEqual(expected, contents)
 
     input_metadata = tft_unit.metadata_from_feature_spec(
         {'a': tf.io.FixedLenFeature([], tf.string)})
@@ -1174,14 +1193,13 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
 
     self.assertTrue(os.path.isdir(tft_tmp_dir))
 
-    saved_model_path = os.path.join(transform_fn_dir,
-                                    tft.TFTransformOutput.TRANSFORM_FN_DIR)
-    assets_path = os.path.join(saved_model_path,
+    tft_output = tft.TFTransformOutput(transform_fn_dir)
+    assets_path = os.path.join(tft_output.transform_savedmodel_dir,
                                tf.saved_model.ASSETS_DIRECTORY)
     self.assertTrue(os.path.isdir(assets_path))
 
-    check_asset_file_contents(assets_path, outfile,
-                              '4 1_X_a\n2 2_X_b\n1 4_X_c\n')
+    self.assertEqual([b'4 1_X_a', b'2 2_X_b', b'1 4_X_c'],
+                     tft_output.vocabulary_by_name(outfile))
 
 
 if __name__ == '__main__':

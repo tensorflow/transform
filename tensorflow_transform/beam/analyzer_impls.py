@@ -74,9 +74,9 @@ class _OrderElementsFn(beam.DoFn):
       # If the vocabulary is empty add a dummy value with count one so
       # the tensorflow index operations don't fail to initialize with empty
       # tensors downstream.
-      dummy_value = (
-          '49d0cd50-04bb-48c0-bc6f-5b575dce351a'
-          if tf.dtypes.as_dtype(self._input_dtype) == tf.string else -1)
+      dummy_value = (b'49d0cd50-04bb-48c0-bc6f-5b575dce351a'
+                     if tf.dtypes.as_dtype(self._input_dtype) == tf.string else
+                     b'-1')
       counts = [(1, dummy_value)]
 
     if self._fingerprint_shuffle:
@@ -352,10 +352,33 @@ class _VocabularyOrderAndWriteImpl(beam.PTransform):
     self._vocab_filename = operation.vocab_filename
     self._fingerprint_shuffle = operation.fingerprint_shuffle
     self._input_dtype = operation.input_dtype
+    self._file_format = operation.file_format
 
   def expand(self, inputs):
     counts, = inputs
     vocabulary_file = os.path.join(self._base_temp_dir, self._vocab_filename)
+
+    if self._input_dtype != tf.string.name:
+      counts |= 'EncodeNumericalKeys' >> beam.MapTuple(
+          lambda v, k: (v, tf.compat.as_bytes(tf.compat.as_str_any(k))))
+
+    # TODO(b/62379925) For now force a single file. We can write a sharded
+    # file instead.
+    # TODO(b/67863471) Here we are relying on fusion (an implementation
+    # detail) for the ordering to be maintained when the results are written
+    # to disk. Perform the write within the body of `OrderElements` maybe
+    # `OrderElementsAndWrite`. This would mean using TF IO instead of Beam
+    # IO so it's perhaps not great.
+    if self._file_format == 'text':
+      write_ptransform = 'WriteToText' >> beam.io.WriteToText(
+          vocabulary_file, shard_name_template='')
+    elif self._file_format == 'tfrecord_gzip':
+      # Setting the suffix as .gz ensures that the vocabulary would be written
+      # GZIP compression.
+      vocabulary_file = '{}.tfrecord.gz'.format(vocabulary_file)
+      write_ptransform = 'WriteToTFRecord' >> beam.io.WriteToTFRecord(
+          vocabulary_file, shard_name_template='')
+
     vocab_is_written = (
         counts.pipeline
         | 'Prepare' >> beam.Create([None])
@@ -363,15 +386,7 @@ class _VocabularyOrderAndWriteImpl(beam.PTransform):
             _OrderElementsFn(self._store_frequency, self._fingerprint_shuffle,
                              self._input_dtype),
             counts_iter=beam.pvalue.AsIter(counts))
-        # TODO(b/62379925) For now force a single file. Should
-        # `InitializeTableFromTextFile` operate on a @N set of files?
-        # TODO(b/67863471) Here we are relying on fusion (an implementation
-        # detail) for the ordering to be maintained when the results are written
-        # to disk. Perform the write within the body of `OrderElements` maybe
-        # `OrderElementsAndWrite`. This would mean using TF IO instead of Beam
-        # IO so it's perhaps not great.
-        | 'WriteToFile' >> beam.io.WriteToText(
-            vocabulary_file, shard_name_template=''))
+        | write_ptransform)
     # Return the vocabulary path.
     wait_for_vocabulary_transform = (
         counts.pipeline

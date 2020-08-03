@@ -5,6 +5,9 @@
 ## Major Features and Improvements
 * Added EstimatedProbabilityDensityColumn feature column.
 * Added `tft.scale_to_gaussian` to transform input to standard gaussian.
+* Vocabulary related analyzers and mappers now accept a `file_format` argument
+  allowing the vocabulary to be saved in TFRecord format. The default format
+  remains text (TFRecord format requires tensorflow>=2.4).
 
 ## Bug Fixes and Other Changes
 * Enable `SavedModelLoader` to import and apply TF2 SavedModels.
@@ -14,6 +17,9 @@
   versions now apply a sigmoid function to scale tensors if the analysis dataset
   is either empty or contains a single distinct value.
 * Added best-effort tf.text op registration when loading transformation graphs.
+* Vocabularies computed over numerical features will now assign values to
+  entries with equal frequency in reverse lexicographical order as well,
+  similarly to string features.
 * Depends on `apache-beam[gcp]>=2.22,<3`.
 * Stopped depending on `avro-python3`.
 * Depends on `tensorflow>=1.15.2,!=2.0.*,<2.4`.

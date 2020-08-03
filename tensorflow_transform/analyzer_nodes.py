@@ -737,11 +737,8 @@ class VocabularyPrune(
 
 class VocabularyOrderAndWrite(
     collections.namedtuple('VocabularyOrderAndWrite', [
-        'vocab_filename',
-        'store_frequency',
-        'input_dtype',
-        'label',
-        'fingerprint_shuffle',
+        'vocab_filename', 'store_frequency', 'input_dtype', 'label',
+        'fingerprint_shuffle', 'file_format'
     ]), AnalyzerDef):
   """An analyzer that writes vocabulary files from an accumulator.
 
@@ -755,6 +752,7 @@ class VocabularyOrderAndWrite(
               vocab_filename,
               store_frequency,
               fingerprint_shuffle,
+              file_format,
               input_dtype=tf.string.name,
               label=None):
     if label is None:
@@ -765,6 +763,7 @@ class VocabularyOrderAndWrite(
         vocab_filename=vocab_filename,
         store_frequency=store_frequency,
         fingerprint_shuffle=fingerprint_shuffle,
+        file_format=file_format,
         input_dtype=input_dtype,
         label=label)
 

@@ -24,6 +24,7 @@ import os
 import six
 import tensorflow as tf
 from tensorflow_transform import graph_tools
+from tensorflow_transform import tf_utils
 from tensorflow_transform.analyzers import sanitized_vocab_filename
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.saved import saved_transform_io_v2
@@ -35,6 +36,14 @@ from tensorflow.python import tf2
 from tensorflow.python.framework import ops
 # pylint: enable=g-direct-tensorflow-import
 from tensorflow_metadata.proto.v0 import schema_pb2
+
+
+def _get_tensor_value(tensor_or_eager_tensor):
+  if ops.executing_eagerly_outside_functions():
+    return tensor_or_eager_tensor.numpy()
+  else:
+    with tf.compat.v1.Session():
+      return tensor_or_eager_tensor.eval()
 
 
 class TFTransformOutput(object):
@@ -102,21 +111,62 @@ class TFTransformOutput(object):
     Args:
       vocab_filename: The relative filename to lookup.
     """
-    return os.path.join(self.transform_savedmodel_dir,
-                        tf.saved_model.ASSETS_DIRECTORY,
-                        sanitized_vocab_filename(filename=vocab_filename))
+    prefix = os.path.join(self.transform_savedmodel_dir,
+                          tf.saved_model.ASSETS_DIRECTORY,
+                          sanitized_vocab_filename(filename=vocab_filename))
+    files = tf.io.gfile.glob(prefix) + tf.io.gfile.glob(
+        '{}.tfrecord.gz'.format(prefix))
+    if not files:
+      return None
+    if len(files) != 1:
+      raise ValueError('Found too many vocabulary files: {}'.format(files))
+    return files[0]
 
   def vocabulary_size_by_name(self, vocab_filename):
     """Like vocabulary_file_by_name, but returns the size of vocabulary."""
-    with tf.io.gfile.GFile(self.vocabulary_file_by_name(vocab_filename),
-                           'rb') as f:
-      return sum(1 for _ in f)
+    actual_vocab_filename = sanitized_vocab_filename(vocab_filename)
+    vocab_path = self.vocabulary_file_by_name(actual_vocab_filename)
+    if not vocab_path:
+      raise ValueError(
+          'Could not compute vocabulary size for {}, does not exist'.format(
+              vocab_filename))
+    elif vocab_path.endswith(actual_vocab_filename):
+      with tf.io.gfile.GFile(vocab_path, 'rb') as f:
+        return sum(1 for _ in f)
+    elif vocab_path.endswith('tfrecord.gz'):
+      dataset = tf_utils.read_tfrecord_vocabulary_dataset(vocab_path)
+
+      def reduce_fn(accum, elem):
+        return tf.size(elem, tf.int64) + accum
+
+      return _get_tensor_value(
+          dataset.batch(tf.int32.max).reduce(
+              tf.constant(0, tf.int64), reduce_fn))
+    else:
+      raise ValueError('Could not find vocabulary: {} ({})'.format(
+          vocab_filename, vocab_path))
 
   def vocabulary_by_name(self, vocab_filename):
     """Like vocabulary_file_by_name but returns a list."""
-    with tf.io.gfile.GFile(self.vocabulary_file_by_name(vocab_filename),
-                           'rb') as f:
-      return [l.rstrip() for l in f]
+    actual_vocab_filename = sanitized_vocab_filename(vocab_filename)
+    vocab_path = self.vocabulary_file_by_name(actual_vocab_filename)
+    if not vocab_path:
+      raise ValueError('Could not read vocabulary: {}, does not exist'.format(
+          vocab_filename))
+    elif vocab_path.endswith(actual_vocab_filename):
+      with tf.io.gfile.GFile(
+          self.vocabulary_file_by_name(actual_vocab_filename), 'rb') as f:
+        return [l.rstrip() for l in f]
+    elif vocab_path.endswith('tfrecord.gz'):
+      dataset = tf_utils.read_tfrecord_vocabulary_dataset(vocab_path)
+      vocab_tensor = dataset.batch(tf.int32.max).reduce(
+          tf.constant([], dtype=tf.string),
+          lambda state, elem: tf.concat([state, elem], axis=-1))
+      # Using as_numpy_iterator only works when executing eagerly.
+      return _get_tensor_value(vocab_tensor).tolist()
+    else:
+      raise ValueError('Could not find vocabulary: {} ({})'.format(
+          vocab_filename, vocab_path))
 
   # TODO(KesterTong): Add test for this in output_wrapper_test.py
   def num_buckets_for_transformed_feature(self, name):

@@ -205,7 +205,9 @@ def _apply_cacheable_combiner_per_key_large(combiner, key_vocabulary_filename,
       keys_and_values_node,
       vocab_filename=key_vocabulary_filename,
       store_frequency=True,
-      fingerprint_shuffle=True)
+      fingerprint_shuffle=True,
+      # TODO(b/62379925): Use tfrecord.
+      file_format='text')
 
   return analyzer_nodes.wrap_as_tensor(key_vocabulary_filename_node)
 
@@ -1515,6 +1517,10 @@ class _VocabOrderingType(object):
   WEIGHTED_LABELS = 4
 
 
+DEFAULT_VOCABULARY_FILE_FORMAT = 'text'
+ALLOWED_VOCABULRY_FILE_FORMATS = ('text', 'tfrecord_gzip')
+
+
 # TODO(KesterTong): Once multiple outputs are supported, return indices too.
 # TODO(b/117796748): Add coverage key feature input as alternative to `key_fn`.
 # TODO(tensorflow/community) the experimental fingerprint_shuffle argument is a
@@ -1535,6 +1541,7 @@ def vocabulary(x,
                coverage_frequency_threshold=None,
                key_fn=None,
                fingerprint_shuffle=False,
+               file_format=DEFAULT_VOCABULARY_FILE_FORMAT,
                name=None):
   r"""Computes the unique values of a `Tensor` over the whole dataset.
 
@@ -1551,7 +1558,8 @@ def vocabulary(x,
   feature is not appropriate.
 
   The unique values are sorted by decreasing frequency and then reverse
-  lexicographical order (e.g. [('a', 5), ('c', 3), ('b', 3)]).
+  lexicographical order (e.g. [('a', 5), ('c', 3), ('b', 3)]). This is true even
+  if `x` is numerical dtype (e.g. [('3', 5), ('2', 3), ('111', 3)]).
 
   For large datasets it is highly recommended to either set frequency_threshold
   or top_k to control the size of the output, and also the run time of this
@@ -1642,6 +1650,10 @@ def vocabulary(x,
       balancing on the training parameter servers. Shuffle only happens while
       writing the files, so all the filters above (top_k, frequency_threshold,
       etc) will still take effect.
+    file_format: (Optional) A str. The format of the resulting vocabulary file.
+      Accepted formats are: 'tfrecord_gzip', 'text'. 'tfrecord_gzip' requires
+      tensorflow>=2.4.
+      The default value is 'text'.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1665,6 +1677,11 @@ def vocabulary(x,
     raise ValueError('You must specify `coverage_top_k`  or '
                      '`coverage_frequency_threshold` if you specify `key_fn` in'
                      ' `vocabulary`.')
+
+  if file_format not in ALLOWED_VOCABULRY_FILE_FORMATS:
+    raise ValueError(
+        '"{}" is not an accepted file_format. It should be one of: {}'.format(
+            file_format, ALLOWED_VOCABULRY_FILE_FORMATS))
 
   coverage_top_k, coverage_frequency_threshold = (
       _get_top_k_and_frequency_threshold(
@@ -1713,7 +1730,8 @@ def vocabulary(x,
         key_fn=key_fn,
         coverage_top_k=coverage_top_k,
         coverage_frequency_threshold=coverage_frequency_threshold or 0,
-        coverage_informativeness_threshold=coverage_informativeness_threshold)
+        coverage_informativeness_threshold=coverage_informativeness_threshold,
+        file_format=file_format)
 
 
 def _get_vocabulary_analyzer_inputs(vocab_ordering_type,
@@ -1750,23 +1768,28 @@ def _get_vocabulary_analyzer_inputs(vocab_ordering_type,
     return [reduced_batch.unique_x]
 
 
-def _vocabulary_analyzer_nodes(
-    analyzer_inputs,
-    input_dtype,
-    vocab_ordering_type,
-    vocab_filename,
-    top_k=None,
-    frequency_threshold=0,
-    informativeness_threshold=float('-inf'),
-    use_adjusted_mutual_info=False,
-    min_diff_from_avg=None,
-    fingerprint_shuffle=False,
-    store_frequency=False,
-    key_fn=None,
-    coverage_top_k=None,
-    coverage_frequency_threshold=0.0,
-    coverage_informativeness_threshold=float('-inf')):
+def _vocabulary_analyzer_nodes(analyzer_inputs,
+                               input_dtype,
+                               vocab_ordering_type,
+                               vocab_filename,
+                               top_k=None,
+                               frequency_threshold=0,
+                               informativeness_threshold=float('-inf'),
+                               use_adjusted_mutual_info=False,
+                               min_diff_from_avg=None,
+                               fingerprint_shuffle=False,
+                               store_frequency=False,
+                               key_fn=None,
+                               coverage_top_k=None,
+                               coverage_frequency_threshold=0.0,
+                               coverage_informativeness_threshold=float('-inf'),
+                               file_format=DEFAULT_VOCABULARY_FILE_FORMAT):
   """Internal helper for analyzing vocab. See `vocabulary` doc string."""
+  if (file_format == 'tfrecord_gzip' and
+      (not hasattr(tf.lookup.experimental, 'DatasetInitializer') or
+       tf.version.VERSION < '2.4')):
+    raise ValueError(
+        'Vocabulary file_format "tfrecord_gzip" requires TF version >= 2.4')
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       analyzer_inputs)
 
@@ -1800,7 +1823,8 @@ def _vocabulary_analyzer_nodes(
       vocab_filename=vocab_filename,
       store_frequency=store_frequency,
       fingerprint_shuffle=fingerprint_shuffle,
-      input_dtype=input_dtype)
+      input_dtype=input_dtype,
+      file_format=file_format)
 
   total_vocab_size_node = nodes.apply_operation(analyzer_nodes.VocabularyCount,
                                                 merge_output_value_node)

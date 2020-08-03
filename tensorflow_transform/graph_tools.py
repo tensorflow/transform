@@ -57,6 +57,7 @@ _TABLE_INIT_OP_TYPES = [
     'InitializeTableV2',
     'InitializeTableFromTextFile',
     'InitializeTableFromTextFileV2',
+    'InitializeTableFromDataset',
     'LookupTableImport',
     'LookupTableImportV2',
 ]
@@ -227,7 +228,13 @@ class _GraphAnalyzer(object):
       if tensor_or_op.type in _INITIALIZABLE_TABLE_OP_TYPES:
         raise _UnexpectedTableError(tensor_or_op, func_graph_name)
       if tensor_or_op.type == 'Placeholder':
-        raise _UnexpectedPlaceholderError(tensor_or_op, func_graph_name)
+        # If we're not in the context of a tf.function, this is an error.
+        if func_graph_name is None:
+          raise _UnexpectedPlaceholderError(tensor_or_op, func_graph_name)
+        # If we're in the context of a tf.function and this op is part of its
+        # inputs, that's expected.
+        if tensor_or_op not in [x.op for x in self._graph.inputs]:
+          raise _UnexpectedPlaceholderError(tensor_or_op, func_graph_name)
       parents = list(
           itertools.chain(tensor_or_op.inputs, tensor_or_op.control_inputs))
     elif isinstance(tensor_or_op, tf.Tensor):

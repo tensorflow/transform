@@ -128,7 +128,7 @@ node [shape=Mrecord];
 "VocabularyCount[x]" -> "CreateTensorBinding[x/vocab_x_unpruned_vocab_size]";
 "VocabularyPrune[x]" [label="{VocabularyPrune|top_k: None|frequency_threshold: 0|informativeness_threshold: -inf|coverage_top_k: None|coverage_frequency_threshold: 0|coverage_informativeness_threshold: -inf|key_fn: None|label: VocabularyPrune[x]}"];
 "VocabularyMerge[x]" -> "VocabularyPrune[x]";
-"VocabularyOrderAndWrite[x]" [label="{VocabularyOrderAndWrite|vocab_filename: vocab_x|store_frequency: False|input_dtype: string|label: VocabularyOrderAndWrite[x]|fingerprint_shuffle: False}"];
+"VocabularyOrderAndWrite[x]" [label="{VocabularyOrderAndWrite|vocab_filename: vocab_x|store_frequency: False|input_dtype: string|label: VocabularyOrderAndWrite[x]|fingerprint_shuffle: False|file_format: text}"];
 "VocabularyPrune[x]" -> "VocabularyOrderAndWrite[x]";
 "CreateTensorBinding[x/Placeholder]" [label="{CreateTensorBinding|tensor: x/Placeholder:0|is_asset_filepath: True|label: CreateTensorBinding[x/Placeholder]}"];
 "VocabularyOrderAndWrite[x]" -> "CreateTensorBinding[x/Placeholder]";
