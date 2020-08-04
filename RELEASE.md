@@ -20,6 +20,9 @@
 * Vocabularies computed over numerical features will now assign values to
   entries with equal frequency in reverse lexicographical order as well,
   similarly to string features.
+* Fixed an issue that causes the `TABLE_INITIALIZERS` graph collection to
+  contain a tensor instead of an op when a TF2 SavedModel or a TF2 Hub Module
+  containing a table is loaded inside the `preprocessing_fn`.  
 * Depends on `apache-beam[gcp]>=2.22,<3`.
 * Stopped depending on `avro-python3`.
 * Depends on `tensorflow>=1.15.2,!=2.0.*,<2.4`.

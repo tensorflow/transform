@@ -19,6 +19,8 @@ from __future__ import print_function
 
 import abc
 import collections
+import os
+import tempfile
 
 # GOOGLE-INITIALIZATION
 
@@ -59,6 +61,38 @@ def _create_graph_with_tf_function():
 
   a, b, c = foo(x, y)
   return {'x': x, 'y': y, 'z': a + b + c, 'r': a, 'q': foo(x, x)[0]}
+
+
+def _create_graph_with_tf2_saved_model_with_table():
+
+  def export_saved_model_v2():
+    root = tf.Module()
+
+    @tf.function(input_signature=[tf.TensorSpec(shape=[], dtype=tf.string)])
+    def lookup_fn(x):
+      table_keys = ['cat', 'dog', 'giraffe']
+      root.initializer = tf.lookup.KeyValueTensorInitializer(
+          keys=table_keys,
+          values=tf.cast(tf.range(len(table_keys)), tf.int64),
+          key_dtype=tf.string,
+          value_dtype=tf.int64)
+      root.table = tf.lookup.StaticHashTable(root.initializer, default_value=-1)
+      return root.table.lookup(x)
+
+    result = os.path.join(tempfile.mkdtemp(), 'export_path')
+    root.lookup_fn = lookup_fn
+    tf.compat.v2.saved_model.save(root, result)
+    return result
+
+  module_path = export_saved_model_v2()
+
+  def bar(x):
+    imported = tf.compat.v2.saved_model.load(module_path)
+    return imported.lookup_fn(x)
+
+  x = tf.compat.v1.placeholder(tf.string)
+  a = bar(x)
+  return {'x': x, 'a': a}
 
 
 def _create_graph_with_placeholder_in_tf_function():
@@ -688,6 +722,12 @@ class GraphToolsTest(test_case.TransformTestCase):
           create_graph_fn=_create_graph_with_y_function_of_x_with_tf_while,
           feeds=['x'],
           fetches=['y'],
+          expected_dependent_inputs=['x']),
+      dict(
+          testcase_name='_tf2_saved_model_with_table',
+          create_graph_fn=_create_graph_with_tf2_saved_model_with_table,
+          feeds=['x'],
+          fetches=['a'],
           expected_dependent_inputs=['x']),
   )
   def testGetDependentInputs(self, create_graph_fn, feeds, fetches,

@@ -60,6 +60,10 @@ _TABLE_INIT_OP_TYPES = [
     'InitializeTableFromDataset',
     'LookupTableImport',
     'LookupTableImportV2',
+    # If a TF 2 SavedModel/Hub module with tables is loaded inside the
+    # pre-processing fn, a StatefulPartitionedCall is added to the
+    # TABLE_INITIALIZERS collection.
+    'StatefulPartitionedCall',
 ]
 
 
@@ -545,23 +549,49 @@ class InitializableGraphAnalyzer(object):
     complete_source_info_dict = self._make_source_infos_dict(
         input_signature, replaced_tensors_ready)
 
-    for table_init_op in graph.get_collection(
+    for table_init_op_or_tensor in graph.get_collection(
         tf.compat.v1.GraphKeys.TABLE_INITIALIZERS):
+      table_init_op, table_input_ops = (
+          self._get_table_init_op_and_inputs(table_init_op_or_tensor))
       source_info = self._get_table_init_op_source_info(
           table_init_op, graph_analyzer_for_table_init, translate_path_fn)
 
-      # We are using the table init op information and the table op information,
-      # since that is a unique description of the table op.
-      table_op = table_init_op.inputs[0].op
-      complete_source_info_dict[
-          tf_utils.hashable_tensor_or_op(table_op)] = source_info
+      for key in table_input_ops:
+        complete_source_info_dict[tf_utils.hashable_tensor_or_op(
+            key)] = source_info
       if source_info.is_ready_to_run:
-        self._ready_table_initializers.append(table_init_op)
+        self._ready_table_initializers.append(table_init_op_or_tensor)
 
     # Now determine which tensors are ready to run once the table has been
     # initialized.
     self._graph_analyzer = _GraphAnalyzer(complete_source_info_dict,
                                           translate_path_fn, graph)
+
+  def _get_table_init_op_and_inputs(self, table_init_op_or_tensor):
+    """Get a tuple of table init op and keys for its input ops."""
+    # If a TF2 exported SavedModel with a table is loaded inside the
+    # preprocessing_fn, the TABLE_INITIALIZERS collection of the outer graph
+    # contains a Tensor whose parent op is of type StatefulPartitionedCall.
+    # The nested func graph for this StatefulPartitionedCall contains the
+    # table initializer.
+    if (isinstance(table_init_op_or_tensor, tf.Tensor) and
+        table_init_op_or_tensor.op.type == 'StatefulPartitionedCall'):
+      result = (table_init_op_or_tensor.op,
+                [input_t.op for input_t in table_init_op_or_tensor.op.inputs])
+    else:
+      assert isinstance(table_init_op_or_tensor, tf.Operation)
+      # We are using the table init op information and the table op information,
+      # since that is a unique description of the table op.
+      table_ops = []
+      for input_t in table_init_op_or_tensor.inputs:
+        # One of the inputs to the initializer op should be the table op. If
+        # no table op is found, (as in the case of a StatefulPartitionedCall)
+        # all inputs are added to the source dict.
+        if input_t.op.type in _INITIALIZABLE_TABLE_OP_TYPES:
+          table_ops.append(input_t.op)
+      assert len(table_ops) == 1
+      result = (table_init_op_or_tensor, [table_ops[0]])
+    return result
 
   def _make_source_infos_dict(self, input_signature, replaced_tensors_ready):
     """Builds a dictionary from source tensors to _SourceInfos.
