@@ -17,9 +17,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import copy
+
 # GOOGLE-INITIALIZATION
 
 import numpy as np
+import six
 import tensorflow as tf
 from tensorflow_transform import impl_helper
 from tensorflow_transform import test_case
@@ -45,7 +48,7 @@ _FEED_DICT = {
     'e':
         tf.compat.v1.SparseTensorValue(
             indices=np.array([(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]),
-            values=np.array(['doe', 'a', 'deer', 'a', 'female', 'deer']),
+            values=np.array([b'doe', b'a', b'deer', b'a', b'female', b'deer']),
             dense_shape=(2, 3)),
     'f':
         tf.compat.v1.SparseTensorValue(
@@ -63,19 +66,18 @@ _ROUNDTRIP_CASES = [
             'b': 1.0,
             'c': [2.0],
             'd': [[1.0, 2.0], [3.0, 4.0]],
-            'e': ['doe', 'a', 'deer'],
+            'e': [b'doe', b'a', b'deer'],
             'idx': [2, 4, 8],
             'val': [10.0, 20.0, 30.0],
-        },
-                   {
-                       'a': 100,
-                       'b': 2.0,
-                       'c': [4.0],
-                       'd': [[5.0, 6.0], [7.0, 8.0]],
-                       'e': ['a', 'female', 'deer'],
-                       'idx': [],
-                       'val': [],
-                   }],
+        }, {
+            'a': 100,
+            'b': 2.0,
+            'c': [4.0],
+            'd': [[5.0, 6.0], [7.0, 8.0]],
+            'e': [b'a', b'female', b'deer'],
+            'idx': [],
+            'val': [],
+        }],
         feed_dict=_FEED_DICT),
     dict(
         testcase_name='multiple_features_ndarrays',
@@ -85,19 +87,18 @@ _ROUNDTRIP_CASES = [
             'b': np.array(1.0, np.float32),
             'c': np.array([2.0], np.float32),
             'd': np.array([[1.0, 2.0], [3.0, 4.0]], np.float32),
-            'e': ['doe', 'a', 'deer'],
+            'e': [b'doe', b'a', b'deer'],
             'idx': np.array([2, 4, 8]),
             'val': np.array([10.0, 20.0, 30.0]),
-        },
-                   {
-                       'a': np.int64(100),
-                       'b': np.array(2.0, np.float32),
-                       'c': np.array([4.0], np.float32),
-                       'd': np.array([[5.0, 6.0], [7.0, 8.0]], np.float32),
-                       'e': ['a', 'female', 'deer'],
-                       'idx': np.array([], np.int32),
-                       'val': np.array([], np.float32),
-                   }],
+        }, {
+            'a': np.int64(100),
+            'b': np.array(2.0, np.float32),
+            'c': np.array([4.0], np.float32),
+            'd': np.array([[5.0, 6.0], [7.0, 8.0]], np.float32),
+            'e': [b'a', b'female', b'deer'],
+            'idx': np.array([], np.int32),
+            'val': np.array([], np.float32),
+        }],
         feed_dict=_FEED_DICT),
     dict(
         testcase_name='empty_var_len_feature',
@@ -156,11 +157,11 @@ _ROUNDTRIP_CASES = [
         testcase_name='some_empty_string_var_len_feature',
         feature_spec={'varlen': tf.io.VarLenFeature(tf.string)},
         instances=[{
-            'varlen': ['a']
+            'varlen': [b'a']
         }, {
             'varlen': []
         }, {
-            'varlen': ['b']
+            'varlen': [b'b']
         }, {
             'varlen': []
         }],
@@ -168,7 +169,7 @@ _ROUNDTRIP_CASES = [
             'varlen':
                 tf.compat.v1.SparseTensorValue(
                     indices=np.array([(0, 0), (2, 0)]),
-                    values=np.array(['a', 'b'], np.object),
+                    values=np.array([b'a', b'b'], np.object),
                     dense_shape=(4, 1)),
         }),
     dict(
@@ -320,6 +321,23 @@ _TO_INSTANCE_DICT_ERROR_CASES = [
 ]
 
 
+def _get_value_from_eager_tensors(eager_tensors):
+  """Given a list of eager tensors, get their values in a TF1 compat format."""
+  result = []
+  for tensor in eager_tensors:
+    if isinstance(tensor, tf.Tensor):
+      result.append(tensor.numpy())
+    elif isinstance(tensor, tf.sparse.SparseTensor):
+      result.append(
+          tf.compat.v1.SparseTensorValue(
+              indices=tensor.indices.numpy(),
+              values=tensor.values.numpy(),
+              dense_shape=tensor.dense_shape.numpy()))
+    else:
+      raise ValueError('Expected tf.Tensor or tf.SparseTensor')
+  return result
+
+
 class ImplHelperTest(test_case.TransformTestCase):
 
   def test_batched_placeholders_from_feature_spec(self):
@@ -414,14 +432,26 @@ class ImplHelperTest(test_case.TransformTestCase):
           'f2': tf.io.FixedLenFeature(dtype=tf.int64, shape=[None]),
       })
 
-  @test_case.named_parameters(*(_ROUNDTRIP_CASES + _MAKE_FEED_DICT_CASES))
-  def test_make_feed_list(self, feature_spec, instances, feed_dict):
+  @test_case.named_parameters(*test_case.cross_named_parameters(
+      (_ROUNDTRIP_CASES + _MAKE_FEED_DICT_CASES), [
+          dict(testcase_name='eager_tensors', produce_eager_tensors=True),
+          dict(testcase_name='feed_values', produce_eager_tensors=False)
+      ]))
+  def test_make_feed_list(self, feature_spec, instances, feed_dict,
+                          produce_eager_tensors):
+    if produce_eager_tensors:
+      test_case.skip_if_not_tf2('Tensorflow 2.x required')
     schema = schema_utils.schema_from_feature_spec(feature_spec)
     feature_names = list(feature_spec.keys())
     expected_feed_list = [feed_dict[key] for key in feature_names]
+    evaluated_feed_list = impl_helper.make_feed_list(
+        feature_names,
+        schema,
+        instances,
+        produce_eager_tensors=produce_eager_tensors)
     np.testing.assert_equal(
-        impl_helper.make_feed_list(feature_names, schema, instances),
-        expected_feed_list)
+        evaluated_feed_list if not produce_eager_tensors else
+        _get_value_from_eager_tensors(evaluated_feed_list), expected_feed_list)
 
   @test_case.named_parameters(*_MAKE_FEED_LIST_ERROR_CASES)
   def test_make_feed_list_error(self,
@@ -437,12 +467,25 @@ class ImplHelperTest(test_case.TransformTestCase):
       with self.assertRaisesRegexp(error_type, error_msg):
         impl_helper.make_feed_list(tensors, schema, instances)
 
-  @test_case.named_parameters(*_ROUNDTRIP_CASES)
-  def test_to_instance_dicts(self, feature_spec, instances, feed_dict):
+  @test_case.named_parameters(
+      *test_case.cross_named_parameters(_ROUNDTRIP_CASES, [
+          dict(testcase_name='eager_tensors', feed_eager_tensors=True),
+          dict(testcase_name='session_run_values', feed_eager_tensors=False)
+      ]))
+  def test_to_instance_dicts(self, feature_spec, instances, feed_dict,
+                             feed_eager_tensors):
+    if feed_eager_tensors:
+      test_case.skip_if_not_tf2('Tensorflow 2.x required')
     schema = schema_utils.schema_from_feature_spec(feature_spec)
+    feed_dict_local = copy.copy(feed_dict)
+    if feed_eager_tensors:
+      for key, value in six.iteritems(feed_dict_local):
+        if isinstance(value, tf.compat.v1.SparseTensorValue):
+          feed_dict_local[key] = tf.sparse.SparseTensor.from_value(value)
+        else:
+          feed_dict_local[key] = tf.constant(value)
     np.testing.assert_equal(
-        instances,
-        impl_helper.to_instance_dicts(schema, feed_dict))
+        instances, impl_helper.to_instance_dicts(schema, feed_dict_local))
 
   @test_case.named_parameters(*_TO_INSTANCE_DICT_ERROR_CASES)
   def test_to_instance_dicts_error(self, feature_spec, feed_dict, error_msg,

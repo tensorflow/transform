@@ -128,23 +128,33 @@ def _batched_placeholder_from_feature_spec(name, feature_spec):
                    .format(feature_spec, type(feature_spec), name))
 
 
-def make_feed_list(column_names, schema, instances):
+def make_feed_list(column_names,
+                   schema,
+                   instances,
+                   produce_eager_tensors=False):
   """Creates a feed list for passing data to the graph.
 
-  Converts a list of instances in the in-memory representation to a batch
-  suitable for passing to `tf.Session.run`.
+  This converts a list of instances in the in-memory representation to:
+  * If `produce_eager_tensors` is `False`: a batch suitable for passing to
+    `tf.Session.run`.
+  * If `produce_eager_tensors` is `True`: a batch of eager tensors for passing
+    as arguments to a `tf.function`.
 
   Args:
     column_names: A list of column names.
     schema: A `Schema` proto.
     instances: A list of instances, each of which is a map from column name to a
       python primitive, list, or ndarray.
+    produce_eager_tensors: (Optional) Boolean indicating whether eager tensors
+      should be returned. Default is `False`.
 
   Returns:
     A list of batches in the format required by a tf `Callable`.
 
   Raises:
     ValueError: If `schema` is invalid.
+    RuntimeError: If `produce_eager_tensors` is True, but eager mode is
+      disabled.
   """
   def make_batch_indices(instance_indices):
     """Converts a list of instance indices to the corresponding batch indices.
@@ -168,7 +178,7 @@ def make_feed_list(column_names, schema, instances):
     # batch, we return an empty ndarray with shape (0, 2).
     return batch_indices if batch_indices else np.empty([0, 2], dtype=np.int64)
 
-  def make_sparse_batch(instance_indices, instance_values, max_index):
+  def make_sparse_batch(instance_indices, instance_values, max_index, dtype):
     """Converts a list of sparse instances into a sparse batch.
 
     Takes lists representing the indices and values of N sparse instances and
@@ -180,16 +190,22 @@ def make_feed_list(column_names, schema, instances):
       instance_values: A list of N iterables, each containing the sparse tensor
         values for an instance.
       max_index: An int representing the maximum index in `instance_indices`.
+      dtype: dtype of the sparse tensor values.
 
     Returns:
       A `SparseTensorValue` representing a batch of N sparse instances.
     """
     batch_indices = make_batch_indices(instance_indices)
     batch_values = list(itertools.chain.from_iterable(instance_values))
+    if produce_eager_tensors:
+      batch_values = tf.constant(batch_values, dtype=dtype)
     batch_shape = (len(instance_indices), max_index)
-    return tf.compat.v1.SparseTensorValue(batch_indices, batch_values,
-                                          batch_shape)
+    return tf.compat.v1.SparseTensorValue(
+        indices=batch_indices, values=batch_values, dense_shape=batch_shape)
 
+  if produce_eager_tensors and not tf.executing_eagerly():
+    raise RuntimeError(
+        'Eager Tensors were requested but eager mode was not enabled.')
   result = []
   feature_spec = schema_utils.schema_as_feature_spec(schema).feature_spec
   for name in column_names:
@@ -203,7 +219,7 @@ def make_feed_list(column_names, schema, instances):
                 for instance in instances]
       indices = [range(len(value)) for value in values]
       max_index = max([len(value) for value in values])
-      feed_value = make_sparse_batch(indices, values, max_index)
+      feed_value = make_sparse_batch(indices, values, max_index, spec.dtype)
 
     elif isinstance(spec, tf.io.SparseFeature):
       # TODO(KesterTong): Add support for N-d SparseFeatures.
@@ -216,21 +232,30 @@ def make_feed_list(column_names, schema, instances):
             instance_indices, instance_values, max_index, name)
         indices.append(instance_indices)
         values.append(instance_values)
-      feed_value = make_sparse_batch(indices, values, max_index)
+      feed_value = make_sparse_batch(indices, values, max_index, spec.dtype)
 
     else:
       raise ValueError('Invalid feature spec {}.'.format(spec))
+    if produce_eager_tensors:
+      if isinstance(feed_value, tf.compat.v1.SparseTensorValue):
+        feed_value = tf.sparse.SparseTensor.from_value(feed_value)
+      else:
+        feed_value = tf.constant(feed_value, dtype=spec.dtype)
     result.append(feed_value)
 
   return result
 
 
 def to_instance_dicts(schema, fetches):
-  """Maps the values fetched by `tf.Session.run` to the internal batch format.
+  """Converts fetches to the internal batch format.
+
+  Maps the values fetched by `tf.Session.run` or returned by a tf.function to
+  the internal batch format.
 
   Args:
     schema: A `Schema` proto.
-    fetches: A dict representing a batch of data, as returned by `Session.run`.
+    fetches: A dict representing a batch of data, either as returned by
+      `Session.run` or eager tensors.
 
   Returns:
     A list of dicts where each dict is an in-memory representation of an
@@ -244,9 +269,9 @@ def to_instance_dicts(schema, fetches):
     """Decomposes a sparse batch into a list of sparse instances.
 
     Args:
-      sparse_value: A `SparseTensorValue` representing a batch of N sparse
-        instances. The indices of the SparseTensorValue are expected to be
-        sorted by row order.
+      sparse_value: A `SparseTensor` or `SparseTensorValue` representing a batch
+        of N sparse instances. The indices of the SparseTensorValue are expected
+        to be sorted by row order.
 
     Returns:
       A tuple (instance_indices, instance_values) where the elements are lists
@@ -254,9 +279,21 @@ def to_instance_dicts(schema, fetches):
       instances in the batch.
 
     Raises:
+      ValueError: If `sparse_value` is neither `SparseTensor` nor
+        `SparseTensorValue`.
       ValueError: If `sparse_value` contains out-of-order indices.
     """
-    batch_indices, batch_values, batch_shape = sparse_value
+    if isinstance(sparse_value, tf.sparse.SparseTensor):
+      batch_indices, batch_values, batch_shape = (
+          sparse_value.indices.numpy(), sparse_value.values.numpy(),
+          sparse_value.dense_shape.numpy())
+    elif isinstance(sparse_value, tf.compat.v1.SparseTensorValue):
+      batch_indices, batch_values, batch_shape = sparse_value
+    else:
+      raise ValueError(
+          'Expected SparseTensor or SparseTensorValue , but got {}'.format(
+              sparse_value))
+
     # Preallocate lists of length batch_size, initialized to empty ndarrays,
     # representing the indices and values of instances. We can reuse the return
     # value of _get_empty_array here because it is immutable.
@@ -303,31 +340,29 @@ def to_instance_dicts(schema, fetches):
   batch_dict = {}
   batch_sizes = {}
   feature_spec = schema_utils.schema_as_feature_spec(schema).feature_spec
-  for name, value in six.iteritems(fetches):
+  for name, tensor_or_value in six.iteritems(fetches):
     spec = feature_spec[name]
     if isinstance(spec, tf.io.FixedLenFeature):
+      value = tensor_or_value.numpy() if isinstance(
+          tensor_or_value, tf.Tensor) else tensor_or_value
       batch_dict[name] = [value[i] for i in range(value.shape[0])]
       batch_sizes[name] = value.shape[0]
 
     elif isinstance(spec, tf.io.VarLenFeature):
-      if not isinstance(value, tf.compat.v1.SparseTensorValue):
-        raise ValueError(
-            'Expected a SparseTensorValue, but got {}'.format(value))
-      instance_indices, instance_values = decompose_sparse_batch(value)
+      instance_indices, instance_values = decompose_sparse_batch(
+          tensor_or_value)
       for indices in instance_indices:
         if len(indices.shape) > 1 or np.any(indices != np.arange(len(indices))):
           raise ValueError('Encountered a SparseTensorValue that cannot be '
                            'decoded by ListColumnRepresentation.\n'
-                           '"{}" : {}'.format(name, value))
+                           '"{}" : {}'.format(name, tensor_or_value))
       batch_dict[name] = instance_values
       batch_sizes[name] = len(instance_values)
 
     elif isinstance(spec, tf.io.SparseFeature):
-      if not isinstance(value, tf.compat.v1.SparseTensorValue):
-        raise ValueError(
-            'Expected a SparseTensorValue, but got {}'.format(value))
       # TODO(abrao): Add support for N-d SparseFeatures.
-      instance_indices, instance_values = decompose_sparse_batch(value)
+      instance_indices, instance_values = decompose_sparse_batch(
+          tensor_or_value)
       batch_dict[spec.index_key] = instance_indices
       batch_dict[spec.value_key] = instance_values
       batch_sizes[name] = len(instance_values)
