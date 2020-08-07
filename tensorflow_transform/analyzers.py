@@ -29,6 +29,7 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import functools
 import itertools
 import os
 import pickle
@@ -550,10 +551,8 @@ def _sum_combine_fn_and_dtype(input_dtype):
   if output_dtype is None:
     raise TypeError('Tensor type %r is not supported' % input_dtype)
 
-  def sum_fn_with_dtype(a, axis=None):
-    return np.sum(a, axis=axis, dtype=output_dtype.as_numpy_dtype)
-
-  return output_dtype, sum_fn_with_dtype
+  return output_dtype, functools.partial(
+      np.sum, dtype=output_dtype.as_numpy_dtype)
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
@@ -645,11 +644,12 @@ def histogram(x, boundaries=None, categorical=False, name=None):
 
     if boundaries is None:
       boundaries = tf.range(11, dtype=tf.float32) / 10.0
-    elif isinstance(boundaries, int) or tf.rank(boundaries) == 0:
+    elif isinstance(boundaries, int) or (isinstance(boundaries, tf.Tensor) and
+                                         boundaries.get_shape().ndims == 0):
       min_value, max_value = _min_and_max(x, True)
-      boundaries = tf.linspace(tf.cast(min_value, tf.float32),
-                               tf.cast(max_value, tf.float32),
-                               boundaries)
+      boundaries = tf.linspace(
+          tf.cast(min_value, tf.float32), tf.cast(max_value, tf.float32),
+          tf.cast(boundaries, tf.int64))
 
     # Shift the boundaries slightly to account for floating point errors,
     # and due to the fact that the rightmost boundary is essentially ignored.

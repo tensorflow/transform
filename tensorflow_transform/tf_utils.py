@@ -893,23 +893,58 @@ def _validate_and_get_dense_value_key_inputs(x, key):
     return tf.identity(x.values), tf.identity(key.values)
 
 
-def lookup_key(key, key_vocab):
-  """Look up the index of a key.
+def lookup_key(query, key_vocab):
+  """Look up the index of each element in query in key_vocab.
 
   Args:
-    key: A `Tensor`.
-    key_vocab: A `Tensor` of unique keys that can be converted to a hash table.
+    query: A `Tensor`.
+    key_vocab: A 1-D `Tensor` of unique keys.
 
   Returns:
-    The indices of the keys in key, determined by position in key_vocab.
+    The indices of the keys in query, determined by position in key_vocab.
   """
-  initializer = tf.lookup.KeyValueTensorInitializer(
-      keys=key_vocab,
-      values=tf.cast(tf.range(tf.size(key_vocab)), tf.int64),
-      key_dtype=key_vocab.dtype,
-      value_dtype=tf.int64)
-  table = tf.lookup.StaticHashTable(initializer, default_value=-1)
-  return table.lookup(key)
+
+  def _lookup_key():
+    # Obtain 0-indexed int64 positions for the keys in key_vocab.
+    indices = tf.cast(tf.range(tf.size(key_vocab)), tf.int64)
+
+    expanded_vocab_size = tf.expand_dims(tf.size(key_vocab), axis=0)
+    matrix_shape = tf.concat([expanded_vocab_size, tf.shape(query)], axis=0)
+    # Expand dims of key_vocab to rank of query.
+    vocab_shape = tf.concat(
+        [expanded_vocab_size,
+         tf.ones(tf.rank(query), dtype=tf.int32)], axis=0)
+    # Make copies of key_vocab to fill matrix_shape.
+    expand_vocab = tf.broadcast_to(
+        tf.reshape(key_vocab, vocab_shape), matrix_shape)
+    # Make copies of indices to fill matrix_shape.
+    expand_indices = tf.broadcast_to(
+        tf.reshape(indices, vocab_shape), matrix_shape)
+    # Make copies of query to fill matrix_shape.
+    expand_query = tf.broadcast_to(query, matrix_shape)
+
+    # Indices where expand_query equals expand_vocab is set to the key's
+    # index. All the other indices are -1.
+    expand_result = tf.where(
+        tf.math.equal(expand_query, expand_vocab), expand_indices,
+        tf.cast(tf.fill(matrix_shape, -1), tf.int64))
+    # Reduce matrix above to desired 1-D shape.
+    result = tf.math.reduce_max(expand_result, axis=0)
+    result.set_shape(query.shape)
+    return result
+
+  def _check_vocab_size_and_lookup_key():
+    return tf.cond(
+        tf.math.equal(tf.size(key_vocab), 0),
+        lambda: tf.cast(tf.fill(tf.shape(query), -1), tf.int64), _lookup_key)
+
+  def _check_input_size_and_lookup_key():
+    return tf.cond(
+        tf.math.equal(tf.size(query),
+                      0), lambda: tf.constant([], dtype=tf.int64),
+        _check_vocab_size_and_lookup_key)
+
+  return _check_input_size_and_lookup_key()
 
 
 def _align_dims(tensor, target_ndims):
@@ -1181,7 +1216,9 @@ def reduce_batch_minus_min_and_max(x, reduce_instance_dims):
   """
   output_dtype = x.dtype
 
-  if x.dtype == tf.uint8 or x.dtype == tf.uint16:
+  # In TF < 2.3, neg(x) would throw an exception, if x was tf.int16. Hence, cast
+  # to tf.int32.
+  if x.dtype in (tf.uint8, tf.uint16, tf.int16):
     x = tf.cast(x, tf.int32)
 
   elif x.dtype == tf.uint32 or x.dtype == tf.uint64:

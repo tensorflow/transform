@@ -358,17 +358,56 @@ class TFUtilsTest(test_case.TransformTestCase):
     x_return = _assert_shape(input_list, input_list)
     self.assertAllEqual(x_return, input_list)
 
-  def test_lookup_key(self):
+  @test_case.named_parameters([
+      dict(
+          testcase_name='_all_keys_in_vocab',
+          query_list=['a', 'a', 'b', 'a', 'b'],
+          key_vocab_list=['a', 'b'],
+          query_shape=[None],
+          expected_output=[0, 0, 1, 0, 1]),
+      dict(
+          testcase_name='_missing_keys_in_vocab',
+          query_list=['a', 'c', 'b', 'a', 'b'],
+          key_vocab_list=['a', 'b'],
+          query_shape=[None],
+          expected_output=[0, -1, 1, 0, 1]),
+      dict(
+          testcase_name='_nd_keys',
+          query_list=[['a', 'c', 'b'], ['a', 'b', 'a']],
+          key_vocab_list=['a', 'b'],
+          query_shape=[None, None],
+          expected_output=[[0, -1, 1], [0, 1, 0]]),
+      dict(
+          testcase_name='_empty_vocab',
+          query_list=['a', 'c', 'b', 'a', 'b'],
+          key_vocab_list=[],
+          query_shape=[None],
+          expected_output=[-1, -1, -1, -1, -1]),
+      dict(
+          testcase_name='_empty_query',
+          query_list=[],
+          key_vocab_list=['a'],
+          query_shape=[None],
+          expected_output=[]),
+  ])
+  def test_lookup_key(self, query_list, key_vocab_list, query_shape,
+                      expected_output):
     with tf.compat.v1.Graph().as_default():
-      keys = tf.constant(['a', 'a', 'a', 'b', 'b', 'b', 'b'])
-      key_vocab = tf.constant(['a', 'b'])
-      key_indices = tf_utils.lookup_key(keys, key_vocab)
-      with self.test_session() as sess:
-        sess.run(tf.compat.v1.tables_initializer())
-        output = sess.run(key_indices)
-        self.assertAllEqual([0, 0, 0, 1, 1, 1, 1], output)
+      query_ph = tf.compat.v1.placeholder(
+          dtype=tf.string, shape=query_shape, name='query')
+      key_vocab_ph = tf.compat.v1.placeholder(
+          dtype=tf.string, shape=[None], name='key_vocab')
+      key_indices = tf_utils.lookup_key(query_ph, key_vocab_ph)
+      with tf.compat.v1.Session().as_default() as sess:
+        output = sess.run(
+            key_indices,
+            feed_dict={
+                query_ph.name: query_list,
+                key_vocab_ph.name: key_vocab_list
+            })
+        self.assertAllEqual(expected_output, output)
 
-  def testApplyPerKeyVocab(self):
+  def test_apply_per_key_vocab(self):
     with tf.compat.v1.Graph().as_default():
       input_tensor = tf.constant(['a', 'b', 'c', 'd', 'e'])
       vocab_filename = os.path.join(self.get_temp_dir(), 'test.txt')
