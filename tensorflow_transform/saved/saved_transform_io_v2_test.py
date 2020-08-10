@@ -136,6 +136,25 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
     self.assertAllEqual(result_tensor.numpy(), [247.0])
 
   @test_case.named_parameters(*_TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES)
+  def test_apply_saved_transform_dataset_map(self, exported_in_tf1):
+    ds = tf.data.Dataset.from_tensor_slices({'x': [[1237.0]]})
+    model_loader = self._get_saved_model_loader(exported_in_tf1)
+
+    def map_fn(inputs):
+      result = model_loader.apply_transform_model(inputs)
+      self.assertEqual(['x_scaled'], list(result))
+      result_tensor = result['x_scaled']
+      self.assertIsInstance(result_tensor, tf.Tensor)
+      self.assertEqual(result_tensor.shape.as_list(), [1])
+      return result
+
+    result_ds = ds.map(map_fn)
+    self.assertAllEqual(
+        list(result_ds.as_numpy_iterator()), [{
+            'x_scaled': [247.0]
+        }])
+
+  @test_case.named_parameters(*_TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES)
   def test_apply_transform_extra_features_no_passthrough(self, exported_in_tf1):
     with self.assertRaises(ValueError):
       input_floats = tf.constant([1237.0])  # tf.float32

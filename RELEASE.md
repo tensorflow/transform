@@ -22,7 +22,9 @@
   similarly to string features.
 * Fixed an issue that causes the `TABLE_INITIALIZERS` graph collection to
   contain a tensor instead of an op when a TF2 SavedModel or a TF2 Hub Module
-  containing a table is loaded inside the `preprocessing_fn`.  
+  containing a table is loaded inside the `preprocessing_fn`.
+* Fixes an issue where the output tensors of `tft.TransformFeaturesLayer` would
+  all have unknown shapes.
 * Depends on `apache-beam[gcp]>=2.22,<3`.
 * Stopped depending on `avro-python3`.
 * Depends on `tensorflow>=1.15.2,!=2.0.*,<2.4`.

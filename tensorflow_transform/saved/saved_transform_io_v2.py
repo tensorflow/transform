@@ -199,7 +199,13 @@ class SavedModelLoader(object):
 
     fetches = self._get_fetches(feeds)
     pruned = self._wrapped.prune(feeds, fetches)
-    return pruned(*pruned_input_args)
+    result = pruned(*pruned_input_args)
+    # TODO(b/163329414): Remove set_shape when calling pruned no longer produces
+    # tensors with unknown shapes.
+    for name, output in fetches.items():
+      if hasattr(result[name], 'set_shape'):
+        result[name].set_shape(output.shape)
+    return result
 
   def _apply_v2_transform_model(self, logical_input_map):
     """Applies a V2 transform graph to `Tensor`s.
