@@ -41,7 +41,7 @@ def _get_quantiles_summary():
   qcombiner = analyzers.QuantilesCombiner(
       num_quantiles=2,
       epsilon=0.01,
-      bucket_numpy_dtype=tf.float32,
+      bucket_numpy_dtype=np.float32,
       always_return_num_quantiles=True,
       has_weights=False,
       output_shape=None,

@@ -2370,7 +2370,7 @@ def quantiles(x, num_buckets, epsilon, weights=None, reduce_instance_dims=True,
     combiner = QuantilesCombiner(
         num_buckets,
         epsilon,
-        bucket_dtype,
+        bucket_dtype.as_numpy_dtype,
         always_return_num_quantiles=(
             not reduce_instance_dims or always_return_num_quantiles),
         has_weights=has_weights,
@@ -2432,7 +2432,7 @@ def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
     combiner = QuantilesCombiner(
         num_buckets,
         epsilon,
-        bucket_dtype,
+        bucket_dtype.as_numpy_dtype,
         always_return_num_quantiles=True,
         output_shape=(None,))
 
