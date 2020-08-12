@@ -20,10 +20,7 @@ from __future__ import print_function
 import math
 
 # math.log2 was added in Python 3.3
-try:
-  log2 = math.log2
-except AttributeError:
-  log2 = lambda x: math.log(x, 2)
+log2 = getattr(math, 'log2', lambda x: math.log(x, 2))
 
 
 # TODO(b/157302701): Evaluate optimizations or approximations for this function,

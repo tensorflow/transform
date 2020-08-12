@@ -32,6 +32,7 @@ import struct
 
 # GOOGLE-INITIALIZATION
 
+from future.utils import with_metaclass
 import numpy as np
 import tensorflow as tf
 from tensorflow_transform import nodes
@@ -178,10 +179,8 @@ class Combiner(object):
     return JsonNumpyCacheCoder()
 
 
-class CacheCoder(object):
+class CacheCoder(with_metaclass(abc.ABCMeta, object)):
   """A coder iterface for encoding and decoding cache items."""
-
-  __metaclass__ = abc.ABCMeta
 
   def __repr__(self):
     return '<{}>'.format(self.__class__.__name__)
@@ -217,7 +216,7 @@ class JsonNumpyCacheCoder(CacheCoder):
     return np.array(json.loads(tf.compat.as_text(encoded_accumulator)))
 
 
-class AnalyzerDef(nodes.OperationDef):
+class AnalyzerDef(with_metaclass(abc.ABCMeta, nodes.OperationDef)):
   """A subclass of OperationDef whose outputs can be constant tensors.
 
   An AnalyzerDef is an OperationDef that also provides enough information to
@@ -230,8 +229,6 @@ class AnalyzerDef(nodes.OperationDef):
   defined below that inherit from `AnalyzerDef` have there implementations
   registered in the module `tensorflow_transform.beam.analyzer_impls`.
   """
-
-  __metaclass__ = abc.ABCMeta
 
   @property
   @abc.abstractmethod
@@ -371,6 +368,7 @@ class _CombinerPerKeyAccumulatorCoder(CacheCoder):
   def __init__(self, value_coder):
     self._combiner_coder = value_coder
     self._vocabulary_coder = _BaseKVCoder()
+    super(_CombinerPerKeyAccumulatorCoder, self).__init__()
 
   def __repr__(self):
     return '<{}[{}[{}]]>'.format(self.__class__.__name__,
@@ -582,6 +580,7 @@ class _BaseKVCoder(CacheCoder):
   def __init__(self):
     self._lengths_prefix_format = 'qq'
     self._lengths_prefix_length = struct.calcsize(self._lengths_prefix_format)
+    super(_BaseKVCoder, self).__init__()
 
   def encode_cache(self, accumulator):
     token, value = accumulator

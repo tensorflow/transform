@@ -59,7 +59,7 @@ class ValueNode(collections.namedtuple(
     raise ValueError('ValueNode is not iterable')
 
 
-class OperationDef(object):
+class OperationDef(with_metaclass(abc.ABCMeta, object)):
   """The definition of an operation.
 
   This class contains all the information needed to run an operation, except
@@ -71,8 +71,6 @@ class OperationDef(object):
   An OperationDef is just a specification and does not contain the actual
   computation.
   """
-
-  __metaclass__ = abc.ABCMeta
 
   @property
   def num_outputs(self):
@@ -307,6 +305,7 @@ class _PrintGraphVisitor(Visitor):
     self._dot_graph.obj_dict = collections.OrderedDict(
         sorted(self._dot_graph.obj_dict.items(), key=lambda t: t[0]))
     self._dot_graph.set_node_defaults(shape='Mrecord')
+    super(_PrintGraphVisitor, self).__init__()
 
   def get_dot_graph(self):
     return self._dot_graph

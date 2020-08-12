@@ -15,13 +15,16 @@
 
 from __future__ import absolute_import
 from __future__ import division
+# Using Type Annotations.
 from __future__ import print_function
 
 import collections
 import contextlib
 import functools
+from typing import Any, Callable, Generator
 
 # GOOGLE-INITIALIZATION
+
 import tensorflow as tf
 
 from tensorflow.python.util import tf_decorator  # pylint: disable=g-direct-tensorflow-import
@@ -42,7 +45,7 @@ _in_logging_context = False
 
 
 @contextlib.contextmanager
-def logging_context():
+def logging_context() -> Generator[None, None, None]:
   global _in_logging_context
   _in_logging_context = True
   try:
@@ -51,7 +54,8 @@ def logging_context():
     _in_logging_context = False
 
 
-def log_api_use(collection_name):
+def log_api_use(
+    collection_name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
   """Creates a decorator that logs function calls in the tensorflow graph."""
 
   def decorator(fn):

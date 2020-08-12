@@ -2553,7 +2553,7 @@ class CovarianceCombiner(analyzer_nodes.Combiner):
     expected_cross_terms = sum_product / count
     expected_terms = sum_vectors / count
     return [
-        np.ndarray.astype(
+        np.ndarray.astype(  # TODO(b/64987151): # pytype: disable=attribute-error
             expected_cross_terms - np.outer(expected_terms, expected_terms),
             self._numpy_dtype)
     ]
@@ -2633,7 +2633,7 @@ class PCACombiner(CovarianceCombiner):
                      dtype=self._numpy_dtype)]
     expected_cross_terms = sum_product / count
     expected_terms = sum_vectors / count
-    cov = np.ndarray.astype(
+    cov = np.ndarray.astype(  # TODO(b/64987151): # pytype: disable=attribute-error
         expected_cross_terms - np.outer(expected_terms, expected_terms),
         self._numpy_dtype)
     vals, vecs = np.linalg.eigh(cov)

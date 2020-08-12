@@ -295,8 +295,7 @@ def scale_by_min_max_per_key(x,
   """
   with tf.compat.v1.name_scope(name, 'scale_by_min_max_per_key'):
     if key is None:
-      tf.errors.InvalidArgumentError(
-          'key is None, call `tft.scale_by_min_max` instead')
+      raise ValueError('key is None, call `tft.scale_by_min_max` instead')
     return _scale_by_min_max_internal(
         x,
         key=key,
@@ -408,8 +407,7 @@ def scale_to_0_1_per_key(
   """
   with tf.compat.v1.name_scope(name, 'scale_to_0_1_per_key'):
     if key is None:
-      tf.errors.InvalidArgumentError(
-          'key is None, call `tft.scale_to_0_1` instead')
+      raise ValueError('key is None, call `tft.scale_to_0_1` instead')
     return _scale_by_min_max_internal(
         x,
         key=key,
@@ -502,8 +500,7 @@ def scale_to_z_score_per_key(x,
   """
   with tf.compat.v1.name_scope(name, 'scale_to_z_score_per_key'):
     if key is None:
-      tf.errors.InvalidArgumentError(
-          'key is None, call `tft.scale_to_z_score` instead')
+      raise ValueError('key is None, call `tft.scale_to_z_score` instead')
     return _scale_to_z_score_internal(
         x=x,
         key=key,
@@ -983,8 +980,8 @@ def apply_vocabulary(x,
         'Vocabulary file_format "tfrecord_gzip" requires TF version >= 2.4')
   with tf.compat.v1.name_scope(name, 'apply_vocab'):
     if x.dtype != tf.string and not x.dtype.is_integer:
-      raise tf.errors.InvalidArgumentError(
-          'expected tf.string or tf.int[8|16|32|64] but got %r' % x.dtype)
+      raise ValueError('expected tf.string or tf.int[8|16|32|64] but got %r' %
+                       x.dtype)
 
     if lookup_fn:
       result, table_size = lookup_fn(x, deferred_vocab_filename_tensor)

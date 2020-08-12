@@ -47,7 +47,7 @@ def _get_variables(scope=None,
   Returns:
     a list of variables in collection with scope and suffix.
   """
-  if isinstance(scope, tf.compat.v1.VariableScope):
+  if scope is not None and isinstance(scope, tf.compat.v1.VariableScope):
     scope = scope.name
   if suffix is not None:
     if ':' not in suffix:
