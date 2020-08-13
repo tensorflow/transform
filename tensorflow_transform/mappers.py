@@ -1813,11 +1813,27 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
 def apply_buckets(x, bucket_boundaries, name=None):
   """Returns a bucketized column, with a bucket index assigned to each input.
 
+  Each element `e` in `x` is mapped to a positive index `i` for which
+  `bucket_boundaries[i-1] <= e < bucket_boundaries[i]`, if it exists.
+  If `e < bucket_boundaries[0]`, then `e` is mapped to `0`. If
+  `e >= bucket_boundaries[-1]`, then `e` is mapped to `len(bucket_boundaries)`.
+  NaNs are mapped to `len(bucket_boundaries)`.
+
+  Example:
+
+  >>> x = tf.constant([[4.0, float('nan'), 1.0], [float('-inf'), 7.5, 10.0]])
+  >>> bucket_boundaries = tf.constant([[2.0, 5.0, 10.0]])
+  >>> tft.apply_buckets(x, bucket_boundaries)
+  <tf.Tensor: shape=(2, 3), dtype=int64, numpy=
+  array([[1, 3, 0],
+         [0, 2, 3]])>
+
   Args:
     x: A numeric input `Tensor` or `SparseTensor` whose values should be mapped
         to buckets.  For `SparseTensor`s, the non-missing values will be mapped
         to buckets and missing value left missing.
-    bucket_boundaries: The bucket boundaries represented as a rank 2 `Tensor`.
+    bucket_boundaries: A rank 2 `Tensor` representing the bucket boundaries
+        sorted in ascending order.
     name: (Optional) A name for this operation.
 
   Returns:
