@@ -15,7 +15,7 @@
 
 # GOOGLE-INITIALIZATION
 
-from tensorflow.python.util import deprecation
+from tensorflow.python.util import deprecation  # pylint: disable=g-direct-tensorflow-import
 
 
 @deprecation.deprecated(

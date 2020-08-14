@@ -19,7 +19,7 @@ from __future__ import print_function
 
 # GOOGLE-INITIALIZATION
 
-from tensorflow.python.saved_model import loader_impl
+from tensorflow.python.saved_model import loader_impl  # pylint: disable=g-direct-tensorflow-import
 
 
 # This file is forked and refactored from saved_model/loader_impl.py

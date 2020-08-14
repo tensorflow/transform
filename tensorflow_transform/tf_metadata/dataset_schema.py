@@ -23,7 +23,7 @@ from six.moves import copyreg
 import tensorflow as tf
 from tensorflow_transform.tf_metadata import schema_utils
 
-from tensorflow.python.util import deprecation
+from tensorflow.python.util import deprecation  # pylint: disable=g-direct-tensorflow-import
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 

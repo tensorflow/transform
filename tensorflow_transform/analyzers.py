@@ -48,8 +48,10 @@ from tensorflow_transform import schema_inference
 from tensorflow_transform import tf_utils
 
 from google.protobuf import descriptor_pb2
+# pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.ops import resources
 from tensorflow.python.util import deprecation
+# pylint: enable=g-direct-tensorflow-import
 
 __all__ = [
     'count_per_key',

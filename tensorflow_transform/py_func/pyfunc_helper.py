@@ -22,8 +22,10 @@ import collections
 import dill
 import tensorflow as tf
 
+# pylint: disable=g-direct-tensorflow-import
 from tensorflow.core.framework import attr_value_pb2
 from tensorflow.python.framework import ops
+# pylint: enable=g-direct-tensorflow-import
 
 _PYFUNC_COLLECTION_KEY = 'pyfuncs'
 
