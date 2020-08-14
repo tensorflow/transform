@@ -1256,7 +1256,7 @@ class VocabTFUtilsTest(test_case.TransformTestCase):
     self._write_tfrecords(vocab_file, contents)
     self.AssertVocabularyContents(vocab_file, contents)
 
-    ds = tf_utils.read_tfrecord_vocabulary_dataset(vocab_file)
+    ds = tf.data.TFRecordDataset(vocab_file, compression_type='GZIP')
     self.assertAllEqual(np.array(contents), list(ds.as_numpy_iterator()))
 
   @test_case.named_parameters([

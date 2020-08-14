@@ -463,14 +463,6 @@ class _DatasetInitializerCompat(
     return init_op
 
 
-_DATASET_BATCH_SIZE = tf.int32.max
-
-
-def read_tfrecord_vocabulary_dataset(vocab_path):
-  """Creates a dataset from a compressed tfrecord file."""
-  return tf.data.TFRecordDataset(vocab_path, compression_type='GZIP')
-
-
 def _make_vocab_entry_to_dtype_fn(dtype):
 
   def vocab_entry_to_dtype(key):
@@ -488,7 +480,7 @@ def _make_tfrecord_vocabulary_dataset(vocab_path,
   """Makes a (key, value) dataset from a compressed tfrecord file."""
   if not (value_dtype.is_floating or value_dtype.is_integer):
     raise ValueError('value_dtype must be numeric. Got: %s' % value_dtype)
-  dataset = read_tfrecord_vocabulary_dataset(vocab_path)
+  dataset = tf.data.TFRecordDataset(vocab_path, compression_type='GZIP')
   key_dtype_fn = _make_vocab_entry_to_dtype_fn(key_dtype)
   value_dtype_fn = _make_vocab_entry_to_dtype_fn(value_dtype)
 
@@ -498,14 +490,16 @@ def _make_tfrecord_vocabulary_dataset(vocab_path,
     def convert_dtype(k, v):
       return key_dtype_fn(k), value_dtype_fn(v)
 
-    return dataset.batch(_DATASET_BATCH_SIZE).map(
-        _split_vocabulary_entries).map(convert_dtype).unbatch()
+    return dataset.map(
+        _split_vocabulary_entries,
+        num_parallel_calls=tf.data.experimental.AUTOTUNE).map(convert_dtype)
 
   else:
     if has_indicator:
       drop_indicator = lambda k, v: k
-      dataset = dataset.batch(_DATASET_BATCH_SIZE).map(
-          _split_vocabulary_entries).map(drop_indicator).unbatch()
+      dataset = dataset.map(
+          _split_vocabulary_entries,
+          num_parallel_calls=tf.data.experimental.AUTOTUNE).map(drop_indicator)
 
     def convert_dtype_and_swap(v, k):
       return key_dtype_fn(k), tf.cast(v, value_dtype)

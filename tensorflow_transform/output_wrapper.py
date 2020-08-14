@@ -24,7 +24,6 @@ import os
 import six
 import tensorflow as tf
 from tensorflow_transform import graph_tools
-from tensorflow_transform import tf_utils
 from tensorflow_transform.analyzers import sanitized_vocab_filename
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.saved import saved_transform_io_v2
@@ -134,7 +133,7 @@ class TFTransformOutput(object):
       with tf.io.gfile.GFile(vocab_path, 'rb') as f:
         return sum(1 for _ in f)
     elif vocab_path.endswith('tfrecord.gz'):
-      dataset = tf_utils.read_tfrecord_vocabulary_dataset(vocab_path)
+      dataset = tf.data.TFRecordDataset(vocab_path, compression_type='GZIP')
 
       def reduce_fn(accum, elem):
         return tf.size(elem, tf.int64) + accum
@@ -158,7 +157,7 @@ class TFTransformOutput(object):
           self.vocabulary_file_by_name(actual_vocab_filename), 'rb') as f:
         return [l.rstrip() for l in f]
     elif vocab_path.endswith('tfrecord.gz'):
-      dataset = tf_utils.read_tfrecord_vocabulary_dataset(vocab_path)
+      dataset = tf.data.TFRecordDataset(vocab_path, compression_type='GZIP')
       vocab_tensor = dataset.batch(tf.int32.max).reduce(
           tf.constant([], dtype=tf.string),
           lambda state, elem: tf.concat([state, elem], axis=-1))

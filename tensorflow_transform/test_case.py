@@ -29,7 +29,6 @@ from absl.testing import parameterized
 import numpy as np
 import six
 import tensorflow as tf
-from tensorflow_transform import tf_utils
 
 import unittest
 # pylint: disable=g-direct-tensorflow-import
@@ -293,8 +292,8 @@ class TransformTestCase(parameterized.TestCase, tf.test.TestCase):
   def AssertVocabularyContents(self, vocab_file_path, file_contents):
     if vocab_file_path.endswith('.tfrecord.gz'):
       file_lines = list(
-          tf_utils.read_tfrecord_vocabulary_dataset(
-              vocab_file_path).as_numpy_iterator())
+          tf.data.TFRecordDataset(vocab_file_path,
+                                  compression_type='GZIP').as_numpy_iterator())
     else:
       with tf.io.gfile.GFile(vocab_file_path, 'rb') as f:
         file_lines = f.read().splitlines()
