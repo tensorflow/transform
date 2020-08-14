@@ -193,7 +193,10 @@ class SavedModelLoader(object):
     pruned_input_args = []
     for name in six.iterkeys(input_map):
       tensor = self._func_graph.get_tensor_by_name(name)
-      tensor.shape.assert_is_compatible_with(input_map[name].shape)
+      try:
+        tensor.shape.assert_is_compatible_with(input_map[name].shape)
+      except ValueError as e:
+        raise ValueError('{}: {}'.format(name, e))
       feeds.append(tensor)
       pruned_input_args.append(input_map[name])
 

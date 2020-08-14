@@ -743,7 +743,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
 
     Args:
       preprocessing_fn: A function that accepts and returns a dictionary from
-        strings to `Tensor` or `SparseTensor`s.
+        strings to `Tensor` or 2D `SparseTensor`s.
       pipeline: (Optional) a beam Pipeline.
     """
     self._preprocessing_fn = preprocessing_fn
@@ -946,10 +946,6 @@ class AnalyzeDataset(_AnalyzeDatasetCommon):
   statistics required to run the transformation described by the
   preprocessing_fn, and returns a TransformFn representing the application of
   the preprocessing_fn.
-
-  Args:
-    preprocessing_fn: A function that accepts and returns a dictionary from
-      strings to `Tensor` or `SparseTensor`s.
   """
 
   def _extract_input_pvalues(self, dataset):
@@ -984,13 +980,15 @@ class AnalyzeAndTransformDataset(beam.PTransform):
   ```
 
   but may be more efficient since it avoids multiple passes over the data.
-
-  Args:
-    preprocessing_fn: A function that accepts and returns a dictionary from
-        strings to `Tensor` or `SparseTensor`s.
   """
 
   def __init__(self, preprocessing_fn):
+    """Init method.
+
+    Args:
+      preprocessing_fn: A function that accepts and returns a dictionary from
+          strings to `Tensor` or 2D `SparseTensor`s.
+    """
     self._preprocessing_fn = preprocessing_fn
     _assert_tensorflow_version()
 
