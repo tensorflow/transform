@@ -1490,8 +1490,8 @@ def _get_top_k_and_frequency_threshold(top_k, frequency_threshold):
   """Validate `top_k` and `frequency_threshold` values and convert to number."""
   if top_k is not None:
     top_k = int(top_k)
-    if top_k < 0:
-      raise ValueError('top_k must be non-negative, but got: %r' % top_k)
+    if top_k <= 0:
+      raise ValueError('top_k must be positive, but got: %r' % top_k)
 
   if frequency_threshold is not None:
     frequency_threshold = float(frequency_threshold)
