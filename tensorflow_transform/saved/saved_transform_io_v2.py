@@ -28,7 +28,6 @@ from tensorflow_transform.saved import saved_model_loader
 from tensorflow_transform.saved import saved_transform_io
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.framework import composite_tensor
-from tensorflow.python.framework import ops
 from tensorflow.python.util import object_identity
 # pylint: enable=g-direct-tensorflow-import
 
@@ -132,7 +131,7 @@ class SavedModelLoader(object):
     return result
 
   def _as_operation(self, op_or_tensor):
-    if isinstance(op_or_tensor, ops.Tensor):
+    if isinstance(op_or_tensor, tf.Tensor):
       return op_or_tensor.op
     return op_or_tensor
 
@@ -149,7 +148,7 @@ class SavedModelLoader(object):
       ValueError if supplied `tensor` parameter is neither a `Tensor` nor a
       `CompositeTensor`.
     """
-    if isinstance(tensor, ops.Tensor):
+    if isinstance(tensor, tf.Tensor):
       return [tensor]
     elif isinstance(tensor, composite_tensor.CompositeTensor):
       return tf.nest.flatten(tensor, expand_composites=True)

@@ -30,22 +30,9 @@ from tensorflow_transform.saved import saved_model_loader
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.core.protobuf import struct_pb2
 from tensorflow.python.framework import ops
-from tensorflow.python.ops import resource_variable_ops
 from tensorflow.python.saved_model import nested_structure_coder
 from tensorflow.python.training import saver as tf_saver
-from tensorflow.python.util import nest
 # pylint: enable=g-direct-tensorflow-import
-
-
-# TODO(b/148082271): Patch added to ensure variables are serialized properly.
-# Remove once TF 2.3 is released.
-def _getter(self):
-  value = self._initializer_op  # pylint: disable=protected-access
-  if isinstance(value, list):
-    value = value[0]
-  return value
-
-resource_variable_ops.BaseResourceVariable.initializer = property(_getter, None)
 
 
 _MANGLED_TENSOR_NAME_RE = re.compile(
@@ -161,7 +148,7 @@ def _expand_input_map(logical_input_map, input_signature):
           replacement.dense_shape)
     elif encoding == 'composite_tensor':
       component_infos = tensor_info.composite_tensor.components
-      component_tensors = nest.flatten(replacement, expand_composites=True)
+      component_tensors = tf.nest.flatten(replacement, expand_composites=True)
       for (info, tensor) in zip(component_infos, component_tensors):
         result[info.name] = tensor
     elif encoding == 'name':
@@ -229,7 +216,7 @@ def _partially_apply_saved_transform_impl(saved_model_dir,
   meta_graph_def, input_signature, output_signature, asset_path_dict = (
       _load_transform_saved_model(saved_model_dir))
   asset_tensor_dict = {
-      k: ops.convert_to_tensor(v) for k, v in asset_path_dict.items()
+      k: tf.convert_to_tensor(v) for k, v in asset_path_dict.items()
   }
 
   # Check for inputs that were not part of the input signature.

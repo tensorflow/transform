@@ -117,10 +117,10 @@ def _make_placeholder(tensor_spec):
 
   if isinstance(tensor_spec, tf.SparseTensorSpec):
     return tf.compat.v1.sparse_placeholder(
-        shape=tensor_spec._shape, dtype=tensor_spec._dtype)  # pylint: disable=protected-access
+        shape=tensor_spec.shape, dtype=tensor_spec.dtype)
   else:
     return tf.compat.v1.placeholder(
-        shape=tensor_spec.shape, dtype=tensor_spec.dtype)  # pylint: disable=protected-access
+        shape=tensor_spec.shape, dtype=tensor_spec.dtype)
 
 
 def _graph_function_handler(input_signature):
@@ -153,11 +153,10 @@ def _graph_function_handler(input_signature):
 def _wrap_as_constant(value, tensor_spec):
   """Wrap a value as a constant, using tensor_spec for shape and type info."""
   if isinstance(tensor_spec, tf.SparseTensorSpec):
-    result = tf.SparseTensor(indices=tf.constant(value.indices, dtype=tf.int64),
-                             values=tf.constant(value.values,
-                                                dtype=tensor_spec._dtype),  # pylint: disable=protected-access
-                             dense_shape=tf.constant(value.dense_shape,
-                                                     dtype=tf.int64))
+    result = tf.SparseTensor(
+        indices=tf.constant(value.indices, dtype=tf.int64),
+        values=tf.constant(value.values, dtype=tensor_spec.dtype),
+        dense_shape=tf.constant(value.dense_shape, dtype=tf.int64))
   else:
     result = tf.constant(value, dtype=tensor_spec.dtype)
     result.shape.assert_is_compatible_with(tensor_spec.shape)
