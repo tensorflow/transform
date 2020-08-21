@@ -51,6 +51,7 @@
 ## Deprecations
 
 *   Deprecating Py2 support.
+*   Note: We plan to remove Python 3.5 support after this release.
 
 # Version 0.22.0
 
