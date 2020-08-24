@@ -105,14 +105,18 @@ class Context(object):
     last_frame = self._get_topmost_state_frame()
     self._thread_local.state.frames.append(
         self._State(
-            temp_dir=self._temp_dir or last_frame.temp_dir,
-            desired_batch_size=self._desired_batch_size or
+            temp_dir=self._temp_dir
+            if self._temp_dir is not None else last_frame.temp_dir,
+            desired_batch_size=self._desired_batch_size
+            if self._desired_batch_size is not None else
             last_frame.desired_batch_size,
-            passthrough_keys=self._passthrough_keys or
-            last_frame.passthrough_keys,
-            use_deep_copy_optimization=self._use_deep_copy_optimization or
+            passthrough_keys=self._passthrough_keys if
+            self._passthrough_keys is not None else last_frame.passthrough_keys,
+            use_deep_copy_optimization=self._use_deep_copy_optimization
+            if self._use_deep_copy_optimization is not None else
             last_frame.use_deep_copy_optimization,
-            use_tfxio=self._use_tfxio or last_frame.use_tfxio))
+            use_tfxio=self._use_tfxio if self._use_tfxio is not None else
+            last_frame.use_tfxio))
 
   def __exit__(self, *exn_info):
     self._thread_local.state.frames.pop()
