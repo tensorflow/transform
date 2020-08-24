@@ -14,7 +14,6 @@
 
 ## Major Features and Improvements
 
-*   Added EstimatedProbabilityDensityColumn feature column.
 *   Added `tft.scale_to_gaussian` to transform input to standard gaussian.
 *   Vocabulary related analyzers and mappers now accept a `file_format` argument
     allowing the vocabulary to be saved in TFRecord format. The default format
