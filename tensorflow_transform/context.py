@@ -15,11 +15,13 @@
 
 from __future__ import absolute_import
 from __future__ import division
+# Using Type Annotations.
 from __future__ import print_function
 
 import collections
 import os
 import threading
+from typing import Iterable, Optional
 
 # GOOGLE-INITIALIZATION
 
@@ -41,6 +43,8 @@ class Context(object):
         information should be attached to instances in the pipeline which should
         not be part of the transformation graph, instance keys is one such
         example.
+    use_deep_copy_optimization: (Optional) If True, makes deep copies of
+        PCollections that are used in multiple TFT phases.
     use_tfxio: (Optional) If True, TFT's public APIs (e.g. AnalyzeDataset) will
         accept `PCollection[pa.RecordBatch]` and `tfxio.TensorAdapterConfig`
         as the input dataset.
@@ -58,7 +62,12 @@ class Context(object):
           'use_deep_copy_optimization',
           'use_tfxio',
       ])):
-    pass
+    """A named tuple to store attributes of `Context`."""
+
+    @classmethod
+    def make_empty(cls):
+      """Return `_State` object with all fields set to `None`."""
+      return cls(*(None,) * len(cls._fields))
 
   class _StateStack(object):
     """Stack of states for this context manager (found in thread-local storage).
@@ -74,11 +83,11 @@ class Context(object):
   _thread_local = threading.local()
 
   def __init__(self,
-               temp_dir=None,
-               desired_batch_size=None,
-               passthrough_keys=None,
-               use_deep_copy_optimization=None,
-               use_tfxio=None):
+               temp_dir: Optional[str] = None,
+               desired_batch_size: Optional[int] = None,
+               passthrough_keys: Optional[Iterable[str]] = None,
+               use_deep_copy_optimization: Optional[bool] = None,
+               use_tfxio: Optional[bool] = None):
     state = getattr(self._thread_local, 'state', None)
     if not state:
       self._thread_local.state = self._StateStack()
@@ -96,33 +105,29 @@ class Context(object):
     last_frame = self._get_topmost_state_frame()
     self._thread_local.state.frames.append(
         self._State(
-            temp_dir=self._temp_dir
-            if self._temp_dir is not None else last_frame.temp_dir,
-            desired_batch_size=self._desired_batch_size
-            if self._desired_batch_size is not None else
+            temp_dir=self._temp_dir or last_frame.temp_dir,
+            desired_batch_size=self._desired_batch_size or
             last_frame.desired_batch_size,
-            passthrough_keys=self._passthrough_keys if
-            self._passthrough_keys is not None else last_frame.passthrough_keys,
-            use_deep_copy_optimization=self._use_deep_copy_optimization
-            if self._use_deep_copy_optimization is not None else
+            passthrough_keys=self._passthrough_keys or
+            last_frame.passthrough_keys,
+            use_deep_copy_optimization=self._use_deep_copy_optimization or
             last_frame.use_deep_copy_optimization,
-            use_tfxio=self._use_tfxio if self._use_tfxio is not None else
-            last_frame.use_tfxio))
+            use_tfxio=self._use_tfxio or last_frame.use_tfxio))
 
   def __exit__(self, *exn_info):
     self._thread_local.state.frames.pop()
 
   @classmethod
-  def _get_topmost_state_frame(cls):
+  def _get_topmost_state_frame(cls) -> 'Context._State':
     if hasattr(cls._thread_local, 'state') and cls._thread_local.state.frames:
       return cls._thread_local.state.frames[-1]
-    return None
+    return cls._State.make_empty()
 
   @classmethod
-  def create_base_temp_dir(cls):
+  def create_base_temp_dir(cls) -> str:
     """Generate a temporary location."""
     state = cls._get_topmost_state_frame()
-    if state is None or not state.temp_dir:
+    if not state.temp_dir:
       raise ValueError(
           'A tf.Transform function that required a temp dir was called but no '
           'temp dir was set.  To set a temp dir use the impl.Context context '
@@ -134,36 +139,35 @@ class Context(object):
     return base_temp_dir
 
   @classmethod
-  def get_desired_batch_size(cls):
+  def get_desired_batch_size(cls) -> Optional[int]:
     """Retrieves a user set fixed batch size, None if not set."""
     state = cls._get_topmost_state_frame()
-    if state is not None and state.desired_batch_size is not None:
+    if state.desired_batch_size is not None:
       tf.compat.v1.logging.info('Using fixed batch size: %d',
                                 state.desired_batch_size)
       return state.desired_batch_size
     return None
 
   @classmethod
-  def get_passthrough_keys(cls):
+  def get_passthrough_keys(cls) -> Iterable[str]:
     """Retrieves a user set passthrough_keys, None if not set."""
     state = cls._get_topmost_state_frame()
-    if state is not None and state.passthrough_keys is not None:
+    if state.passthrough_keys is not None:
       return state.passthrough_keys
     return set()
 
   @classmethod
-  def get_use_deep_copy_optimization(cls):
+  def get_use_deep_copy_optimization(cls) -> bool:
     """Retrieves a user set use_deep_copy_optimization, None if not set."""
     state = cls._get_topmost_state_frame()
-    if state is not None and state.use_deep_copy_optimization is not None:
+    if state.use_deep_copy_optimization is not None:
       return state.use_deep_copy_optimization
     return False
 
   @classmethod
-  def get_use_tfxio(cls):
+  def get_use_tfxio(cls) -> bool:
     """Retrieves flag use_tfxio."""
     state = cls._get_topmost_state_frame()
-    if state is not None and state.use_tfxio is not None:
+    if state.use_tfxio is not None:
       return state.use_tfxio
     return False
-

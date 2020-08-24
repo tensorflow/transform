@@ -94,6 +94,7 @@ import pyarrow as pa
 import six
 import tensorflow as tf
 from tensorflow_transform import common
+from tensorflow_transform import context
 from tensorflow_transform import graph_tools
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
@@ -102,7 +103,6 @@ from tensorflow_transform.beam import analysis_graph_builder
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import beam_nodes
 from tensorflow_transform.beam import common as beam_common
-from tensorflow_transform.beam import context
 from tensorflow_transform.beam import deep_copy
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.saved import saved_transform_io
