@@ -6,9 +6,14 @@
 
 ## Bug Fixes and Other Changes
 
+*   Depends on `absl-py>=0.9,<0.11`.
+*   Depends on `protobuf>=3.9.2,<4`.
+
 ## Breaking changes
 
 ## Deprecations
+
+*   Deprecating Py3.5 support.
 
 # Version 0.23.0
 
