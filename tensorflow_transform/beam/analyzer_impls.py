@@ -33,7 +33,6 @@ from apache_beam.typehints import Tuple
 from apache_beam.typehints import Union
 
 import numpy as np
-import six
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import analyzers
@@ -86,13 +85,11 @@ class _OrderElementsFn(beam.DoFn):
 
     for count, entry in counts:
       if self._store_frequency:
-        # Converts bytes to unicode for PY3, otherwise the result will look like
-        # "b'real_string'". We convert everything to bytes afterwards.
-        if six.PY2:
-          yield '{} {}'.format(count, entry)
-        else:
-          yield tf.compat.as_bytes('{} {}'.format(count,
-                                                  tf.compat.as_str_any(entry)))
+        # Converts `entry` (bytes) to unicode first as otherwise the result will
+        # look like b"1 b'real_string'" in PY3. We convert everything to bytes
+        # afterwards to get b'1 real_string'.
+        yield tf.compat.as_bytes('{} {}'.format(count,
+                                                tf.compat.as_str_any(entry)))
       else:
         yield entry
 

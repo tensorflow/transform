@@ -39,9 +39,7 @@ class SentimentExampleTest(tf.test.TestCase):
       for filename in ['test_shuffled-00000-of-00001',
                        'train_shuffled-00000-of-00001']:
         shutil.copy(os.path.join(raw_data_dir, filename), working_dir)
-    except EnvironmentError:
-      # TODO(b/158288069): Change the except to FileNotFoundError when we drop
-      # py2 support.
+    except FileNotFoundError:
       train_neg_filepattern = os.path.join(raw_data_dir, 'train/neg/*')
       train_pos_filepattern = os.path.join(raw_data_dir, 'train/pos/*')
       test_neg_filepattern = os.path.join(raw_data_dir, 'test/neg/*')

@@ -37,15 +37,14 @@ def _to_bytes(x):
 def _to_string(x):
   """Converts x to string.
 
-  This will return bytes for Py2 and Unicode for Py3. This is needed as a
-  pre-processing step before calling csv reader/writer since it only supports
-  bytes for Py2 and Unicode for Py3.
+  This will return Unicode for Py3. This is needed as a pre-processing step
+  before calling csv reader/writer since it only supports Unicode for Py3.
 
   Args:
     x: The data to be converted.
 
   Returns:
-    Bytes representation of x for Py2 and Unicode representation for Py3.
+    Unicode representation for Py3.
 
   """
   return tf.compat.as_str_any(x)
@@ -281,11 +280,8 @@ class CsvCoder(object):
           self._line_generator, delimiter=_to_string(delimiter))
 
     def read_record(self, x):
-      """Reads out bytes for PY2 and Unicode for PY3."""
-      if six.PY2:
-        line = _to_bytes(x)
-      else:
-        line = _to_string(x)
+      """Reads out Unicode for PY3."""
+      line = _to_string(x)
       self._line_generator.push_line(line)
       return next(self._reader)
 
@@ -315,9 +311,9 @@ class CsvCoder(object):
     def encode_record(self, record):
       """Converts the record to bytes.
 
-      Since csv writer only supports bytes for PY2 and Unicode for PY3, we need
-      to convert them conditionally before calling csv writer. We always return
-      result in bytes format to be consistent with current behavior.
+      Since csv writer only supports Unicode for PY3, we need to convert them
+      conditionally before calling csv writer. We always return result in bytes
+      format to be consistent with current behavior.
 
       Args:
         record: The data to be converted.
