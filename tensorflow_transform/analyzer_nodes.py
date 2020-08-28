@@ -40,23 +40,31 @@ from tensorflow_transform import nodes
 TENSOR_REPLACEMENTS = 'tft_tensor_replacements'
 
 
-class TensorInfo(collections.namedtuple(
-    'TensorInfo', ['dtype', 'shape', 'is_asset_filepath'])):
+class TensorInfo(
+    collections.namedtuple('TensorInfo',
+                           ['dtype', 'shape', 'temporary_asset_value'])):
   """A container for attributes of output tensors from analyzers.
 
   Fields:
     dtype: The TensorFlow dtype.
     shape: The shape of the tensor.
-    is_asset_filepath: Whether it should be part of the filepath assets.
+    temporary_asset_value: A temporary value to write to an asset file while
+      tracing the TF graph.
   """
 
-  def __init__(self, dtype, shape, is_asset_filepath):
-    del shape, is_asset_filepath
-
+  def __new__(cls, dtype, shape, temporary_asset_value):
     if not isinstance(dtype, tf.DType):
       raise TypeError('dtype must be a TensorFlow dtype, got {}'.format(dtype))
-
-    super(TensorInfo, self).__init__()
+    if temporary_asset_value is not None and not isinstance(
+        temporary_asset_value, bytes):
+      raise TypeError(
+          'temporary_asset_value should be bytes or None, got {}'.format(
+              temporary_asset_value))
+    return super(TensorInfo, cls).__new__(
+        cls,
+        dtype=dtype,
+        shape=shape,
+        temporary_asset_value=temporary_asset_value)
 
 
 class TensorSource(
@@ -101,9 +109,9 @@ TensorSink = collections.namedtuple('TensorSink',
 def bind_future_as_tensor(future, tensor_info, name=None):
   """Bind a future value as a tensor."""
   result = tf.compat.v1.placeholder(tensor_info.dtype, tensor_info.shape, name)
-  tf.compat.v1.add_to_collection(
-      TENSOR_REPLACEMENTS,
-      TensorSink(result, future, tensor_info.is_asset_filepath))
+  is_asset_filepath = tensor_info.temporary_asset_value is not None
+  tf.compat.v1.add_to_collection(TENSOR_REPLACEMENTS,
+                                 TensorSink(result, future, is_asset_filepath))
   return result
 
 
@@ -475,8 +483,8 @@ class CacheableCombinePerKeyFormatKeys(
   @property
   def output_tensor_infos(self):
     # Returns a key vocab and one output per combiner output.
-    return [TensorInfo(tf.string, (None,), False)] + [
-        TensorInfo(info.dtype, (None,) + info.shape, info.is_asset_filepath)
+    return [TensorInfo(tf.string, (None,), None)] + [
+        TensorInfo(info.dtype, (None,) + info.shape, info.temporary_asset_value)
         for info in self.combiner.output_tensor_infos()
     ]
 
@@ -536,9 +544,8 @@ class ScaleAndFlattenPerKeyBucketBouandaries(
   @property
   def output_tensor_infos(self):
     # Boundaries, scale_factor_per_key, shift_per_key, num_buckets.
-    return [
-        TensorInfo(self.output_tensor_dtype, (None,), is_asset_filepath=False)
-    ] * 3 + [TensorInfo(tf.int64, (), is_asset_filepath=False)]
+    return [TensorInfo(self.output_tensor_dtype,
+                       (None,), None)] * 3 + [TensorInfo(tf.int64, (), None)]
 
 
 class VocabularyAccumulate(
@@ -768,7 +775,14 @@ class VocabularyOrderAndWrite(
 
   @property
   def output_tensor_infos(self):
-    return [TensorInfo(tf.string, [], True)]
+    # Define temporary data for this node to write to a file before the actual
+    # vocab file is evaluated and written out.
+    temporary_asset_value = (b'TEMPORARY_ASSET_VALUE' if tf.dtypes.as_dtype(
+        self.input_dtype) == tf.string else b'-777777')
+    if self.store_frequency:
+      temporary_asset_value = b'1 %s' % temporary_asset_value
+
+    return [TensorInfo(tf.string, [], temporary_asset_value)]
 
 
 class PTransform(

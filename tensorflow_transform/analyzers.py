@@ -298,7 +298,7 @@ class NumPyCombiner(analyzer_nodes.Combiner):
 
   def output_tensor_infos(self):
     return [
-        analyzer_nodes.TensorInfo(tf.as_dtype(dtype), shape, False)
+        analyzer_nodes.TensorInfo(tf.as_dtype(dtype), shape, None)
         for dtype, shape in zip(self._output_dtypes, self._output_shapes)
     ]
 
@@ -1132,9 +1132,8 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
   def output_tensor_infos(self):
     # The output is (mean, var).
     return [
-        analyzer_nodes.TensorInfo(tf.as_dtype(self._output_numpy_dtype),
-                                  self._output_shape,
-                                  False)
+        analyzer_nodes.TensorInfo(
+            tf.as_dtype(self._output_numpy_dtype), self._output_shape, None)
     ] * 2
 
   def _combine_mean_and_var_accumulators(self, a, b):
@@ -1347,9 +1346,8 @@ class _LMomentsCombiner(analyzer_nodes.Combiner):
   def output_tensor_infos(self):
     # The output is (loc, scale, hl, hr).
     return [
-        analyzer_nodes.TensorInfo(tf.as_dtype(self._output_numpy_dtype),
-                                  self._output_shape,
-                                  False)
+        analyzer_nodes.TensorInfo(
+            tf.as_dtype(self._output_numpy_dtype), self._output_shape, None)
     ] * 4
 
   @property
@@ -1834,7 +1832,7 @@ def _vocabulary_analyzer_nodes(analyzer_inputs,
       vocab_filename,
       analyzer_nodes.bind_future_as_tensor(
           total_vocab_size_node,
-          analyzer_nodes.TensorInfo(tf.int64, [], False),
+          analyzer_nodes.TensorInfo(tf.int64, [], None),
           name='{}_unpruned_vocab_size'.format(vocab_filename)))
 
   vocab_filename_tensor = analyzer_nodes.wrap_as_tensor(vocab_filename_node)
@@ -2065,7 +2063,7 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
   def output_tensor_infos(self):
     return [
         analyzer_nodes.TensorInfo(
-            tf.as_dtype(self._bucket_numpy_dtype), self._output_shape, False)
+            tf.as_dtype(self._bucket_numpy_dtype), self._output_shape, None)
     ]
 
   @property
@@ -2563,7 +2561,7 @@ class CovarianceCombiner(analyzer_nodes.Combiner):
   def output_tensor_infos(self):
     return [
         analyzer_nodes.TensorInfo(
-            tf.as_dtype(self._numpy_dtype), self._output_shape, False)
+            tf.as_dtype(self._numpy_dtype), self._output_shape, None)
     ]
 
 
@@ -2773,7 +2771,7 @@ def ptransform_analyzer(inputs, output_dtypes, output_shapes, ptransform,
                      ' lengths'.format(output_dtypes, output_shapes))
   with tf.compat.v1.name_scope(name, 'ptransform'):
     output_tensor_infos = [
-        analyzer_nodes.TensorInfo(dtype, shape, False)
+        analyzer_nodes.TensorInfo(dtype, shape, None)
         for dtype, shape in zip(output_dtypes, output_shapes)
     ]
     return apply_analyzer(
