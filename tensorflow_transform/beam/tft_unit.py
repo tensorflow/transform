@@ -23,19 +23,16 @@ import tempfile
 # GOOGLE-INITIALIZATION
 
 import apache_beam as beam
-import pyarrow as pa
 import six
 import tensorflow as tf
 import tensorflow_transform as tft
 
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
-from tensorflow_transform.coders import example_proto_coder
 from tensorflow_transform import test_case
 from tensorflow_transform.beam import test_helpers
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
-from tfx_bsl.tfxio import tf_example_record
 
 from tensorflow_metadata.proto.v0 import schema_pb2
 
@@ -116,19 +113,21 @@ class TransformTestCase(test_case.TransformTestCase):
                             expected_outputs,
                             test_data=None,
                             desired_batch_size=None,
-                            beam_pipeline=None,
-                            use_tfxio=False,
-                            input_data_is_tfxio_format=False):
+                            beam_pipeline=None):
     """Assert that input data and metadata is transformed as expected.
 
     This methods asserts transformed data and transformed metadata match
     with expected_data and expected_metadata.
 
     Args:
-      input_data: A sequence of dicts whose values are either strings, lists of
-        strings, numeric types or a pair of those. Must have at least one key so
-        that we can infer the batch size.
-      input_metadata: DatasetMetadata describing input_data.
+      input_data: Input data formatted in one of two ways:
+        * A sequence of dicts whose values are one of:
+          strings, lists of strings, numeric types or a pair of those.
+          Must have at least one key so that we can infer the batch size, or
+        * A sequence of pa.RecordBatch.
+      input_metadata: One of -
+        * DatasetMetadata describing input_data if `input_data` are dicts.
+        * TensorAdapterConfig otherwise.
       analyzer_fn: A function taking a dict of tensors and returning a dict of
         tensors.  Unlike a preprocessing_fn, this should emit the results of a
         call to an analyzer, while a preprocessing_fn must typically add a batch
@@ -143,14 +142,6 @@ class TransformTestCase(test_case.TransformTestCase):
       desired_batch_size: (Optional) A batch size to batch elements by. If not
         provided, a batch size will be computed automatically.
       beam_pipeline: (optional) A Beam Pipeline to use in this test.
-      use_tfxio: If True, invoke AnalyzeAndTransformDataset using the new API
-          that accepts standardized inputs (Arrow `RecordBatch`es). Otherwise
-          use the old API that accepts Dicts.
-      input_data_is_tfxio_format: If True, `input_data` and `test_data` are
-          Arrow `RecordBatch`es and the `input_metadata` is
-          `tfxio.tensor_adapter.TensorAdapterConfig`. Otherwise the input data
-          is a list of Dicts and input_metadata is a `DatasetMetadata`.
-
     Raises:
       AssertionError: If the expected output does not match the results of
           the analyzer_fn.
@@ -208,9 +199,7 @@ class TransformTestCase(test_case.TransformTestCase):
         expected_metadata,
         test_data=test_data,
         desired_batch_size=desired_batch_size,
-        beam_pipeline=beam_pipeline,
-        use_tfxio=use_tfxio,
-        input_data_is_tfxio_format=input_data_is_tfxio_format)
+        beam_pipeline=beam_pipeline)
 
   def assertAnalyzeAndTransformResults(self,
                                        input_data,
@@ -223,18 +212,21 @@ class TransformTestCase(test_case.TransformTestCase):
                                        test_data=None,
                                        desired_batch_size=None,
                                        beam_pipeline=None,
-                                       temp_dir=None,
-                                       use_tfxio=False,
-                                       input_data_is_tfxio_format=False):
+                                       temp_dir=None):
     """Assert that input data and metadata is transformed as expected.
 
     This methods asserts transformed data and transformed metadata match
     with expected_data and expected_metadata.
 
     Args:
-      input_data: A sequence of dicts whose values are
-          either strings, lists of strings, numeric types or a pair of those.
-      input_metadata: DatasetMetadata describing input_data.
+      input_data: Input data formatted in one of two ways:
+        * A sequence of dicts whose values are one of:
+          strings, lists of strings, numeric types or a pair of those.
+          Must have at least one key so that we can infer the batch size, or
+        * A sequence of pa.RecordBatch.
+      input_metadata: One of -
+        * DatasetMetadata describing input_data if `input_data` are dicts.
+        * TensorAdapterConfig otherwise.
       preprocessing_fn: A function taking a dict of tensors and returning
           a dict of tensors.
       expected_data: (optional) A dataset with the same type constraints as
@@ -258,13 +250,6 @@ class TransformTestCase(test_case.TransformTestCase):
       beam_pipeline: (optional) A Beam Pipeline to use in this test.
       temp_dir: If set, it is used as output directory, else a new unique
           directory is created.
-      use_tfxio: If True, invoke AnalyzeAndTransformDataset using the new API
-          that accepts standardized inputs (Arrow `RecordBatch`es). Otherwise
-          use the old API that accepts Dicts.
-      input_data_is_tfxio_format: If True, `input_data` and `test_data` are
-          Arrow `RecordBatch`es and the `input_metadata` is
-          `tfxio.tensor_adapter.TensorAdapterConfig`. Otherwise the input data
-          is a list of Dicts and input_metadata is a `DatasetMetadata`.
     Raises:
       AssertionError: if the expected data does not match the results of
           transforming input_data according to preprocessing_fn, or
@@ -285,10 +270,6 @@ class TransformTestCase(test_case.TransformTestCase):
         expected_vocab_file_contents or expected_asset_file_contents or {})
     del expected_asset_file_contents
 
-    if not use_tfxio and input_data_is_tfxio_format:
-      raise ValueError('Unable to feed TFXIO input format to the old, '
-                       'non-TFXIO API.')
-    compatibility_tfxio_needed = use_tfxio and not input_data_is_tfxio_format
     # Note: we don't separately test AnalyzeDataset and TransformDataset as
     # AnalyzeAndTransformDataset currently simply composes these two
     # transforms.  If in future versions of the code, the implementation
@@ -298,14 +279,9 @@ class TransformTestCase(test_case.TransformTestCase):
     with beam_pipeline or self._makeTestPipeline() as pipeline:
       with beam_impl.Context(
           temp_dir=temp_dir,
-          desired_batch_size=desired_batch_size,
-          use_tfxio=use_tfxio):
+          desired_batch_size=desired_batch_size):
         input_data = pipeline | 'CreateInput' >> beam.Create(input_data,
                                                              reshuffle=False)
-        if compatibility_tfxio_needed:
-          legacy_input_metadata = input_metadata
-          input_data, input_metadata = self.convert_to_tfxio_api_inputs(
-              input_data, input_metadata, label='input_data')
         if test_data is None:
           (transformed_data, transformed_metadata), transform_fn = (
               (input_data, input_metadata)
@@ -314,9 +290,6 @@ class TransformTestCase(test_case.TransformTestCase):
           transform_fn = ((input_data, input_metadata)
                           | beam_impl.AnalyzeDataset(preprocessing_fn))
           test_data = pipeline | 'CreateTest' >> beam.Create(test_data)
-          if compatibility_tfxio_needed:
-            test_data, _ = self.convert_to_tfxio_api_inputs(
-                test_data, legacy_input_metadata, label='test_data')
           transformed_data, transformed_metadata = (
               ((test_data, input_metadata), transform_fn)
               | beam_impl.TransformDataset())
@@ -356,49 +329,3 @@ class TransformTestCase(test_case.TransformTestCase):
     for filename, file_contents in six.iteritems(expected_vocab_file_contents):
       full_filename = tf_transform_output.vocabulary_file_by_name(filename)
       self.AssertVocabularyContents(full_filename, file_contents)
-
-  def convert_to_tfxio_api_inputs(
-      self, legacy_input_data, legacy_input_metadata, label='input_data'):
-    """Converts from the legacy TFT API inputs to TFXIO-based inputs.
-
-    Args:
-      legacy_input_data: a PCollection of instance dicts.
-      legacy_input_metadata: a tft.DatasetMetadata.
-      label: label for the PTransform that translates `legacy_input_data` into
-        the TFXIO input data. Set to different values if this method is called
-        multiple times in a beam Pipeline.
-    Returns:
-      A tuple of a PCollection of `pyarrow.RecordBatch` and a
-      `tensor_adapter.TensorAdapterConfig`. This tuple can be fed directly to
-      TFT's `{Analyze,Transform,AnalyzeAndTransform}Dataset` APIs.
-    """
-    tfxio_impl = _LegacyCompatibilityTFXIO(legacy_input_metadata.schema)
-    input_data = (
-        legacy_input_data |
-        ('LegacyFormatToTfxio[%s]' % label >> tfxio_impl.BeamSource(
-            beam_impl.Context.get_desired_batch_size())))
-    return input_data, tfxio_impl.TensorAdapterConfig()
-
-
-class _LegacyCompatibilityTFXIO(tf_example_record._TFExampleRecordBase):  # pylint: disable=protected-access
-  """A Legacy compatibility TFXIO."""
-
-  def _RawRecordBeamSourceInternal(self):
-    """A PTransform that maps batched instances to RecordBatches."""
-    @beam.ptransform_fn
-    @beam.typehints.with_output_types(pa.RecordBatch)
-    def _ptransform_fn(instances):
-      return (instances
-              | 'EncodeToTfExamples' >> beam.Map(
-                  example_proto_coder.ExampleProtoCoder(self._schema).encode))
-
-    return _ptransform_fn()  # pylint: disable=no-value-for-parameter
-
-  # TODO(b/156761358): deprecated; remove after tfx-bsl 0.23 release.
-  _SerializedExamplesSource = _RawRecordBeamSourceInternal  # pylint: disable=invalid-name
-
-  def _ProjectImpl(self, unused_tensor_names):
-    return self
-
-  def TensorFlowDataset(self):
-    raise ValueError('not implemented')

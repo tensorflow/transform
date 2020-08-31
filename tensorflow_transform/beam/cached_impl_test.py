@@ -167,11 +167,6 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signatur
 }
 """)
 
-_TFXIO_NAMED_PARAMETERS = [
-    dict(testcase_name='WithTFXIO', use_tfxio=True),
-    dict(testcase_name='NoTFXIO', use_tfxio=False),
-]
-
 
 def _preprocessing_fn_for_generalized_chained_ptransforms(inputs):
 
@@ -409,8 +404,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
                     datasets_to_transform=None,
                     expected_transform_data=None,
                     expected_cache=None,
-                    transform_fn_output_dir=None,
-                    use_tfxio=False):
+                    transform_fn_output_dir=None):
     """Runs an analysis pipeline with cache.
 
     Args:
@@ -428,29 +422,19 @@ class CachedImplTest(tft_unit.TransformTestCase):
       expected_cache: Dict[str, Dict[str, bytes]], expected encoded cache.
       transform_fn_output_dir: A directory where the output transform_fn should
         be written to, if not provided it will not be written.
-      use_tfxio: If True, invoke AnalyzeAndTransformDataset using the new API
-          that accepts standardized inputs (Arrow `RecordBatch`es). Otherwise
-          use the old API that accepts Dicts.
 
     Returns:
       A _RunPipelineResult.
     """
     input_metadata = dataset_metadata.DatasetMetadata(
         schema_utils.schema_from_feature_spec(feature_spec))
-    if use_tfxio:
-      legacy_input_metadata = input_metadata
     with self._TestPipeline() as p:
-      with tft_beam.Context(use_tfxio=use_tfxio):
+      with tft_beam.Context():
 
         # Wraps each value in input_data_dict as a PCollection.
         input_data_pcoll_dict = {}
         for a, b in input_data_dict.items():
           pcoll = p | a.key >> beam.Create(b)
-          if use_tfxio:
-            pcoll, input_metadata = self.convert_to_tfxio_api_inputs(
-                pcoll,
-                legacy_input_metadata,
-                label='ConvertToTFXIO[{}]'.format(a))
           input_data_pcoll_dict[a] = pcoll
 
         pcoll_cache_dict = {}
@@ -521,9 +505,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
 
         return self._RunPipelineResult(cache_output, p)
 
-  @tft_unit.named_parameters(_TFXIO_NAMED_PARAMETERS)
   @mock_out_cache_hash
-  def test_single_phase_mixed_analyzer_run_once(self, use_tfxio):
+  def test_single_phase_mixed_analyzer_run_once(self):
     span_0_key = analyzer_cache.DatasetKey('span-0')
     span_1_key = analyzer_cache.DatasetKey('span-1')
 
@@ -610,8 +593,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
         datasets_to_transform=[span_1_key],
         expected_transform_data=expected_transformed,
         transform_fn_output_dir=os.path.join(self.base_test_dir,
-                                             'transform_fn'),
-        use_tfxio=use_tfxio)
+                                             'transform_fn'))
 
     # The output cache should not have entries for the cache that is present
     # in the input cache.
@@ -631,8 +613,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(
         p.metrics, 'num_packed_merge_combiners', 1)
 
-  @tft_unit.named_parameters(_TFXIO_NAMED_PARAMETERS)
-  def test_single_phase_run_twice(self, use_tfxio):
+  def test_single_phase_run_twice(self):
 
     span_0_key = analyzer_cache.DatasetKey('span-0')
     span_1_key = analyzer_cache.DatasetKey('span-1')
@@ -735,8 +716,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
         preprocessing_fn,
         datasets_to_transform=[span_2_key],
         expected_transform_data=expected_transformed_data,
-        transform_fn_output_dir=transform_fn_dir,
-        use_tfxio=use_tfxio)
+        transform_fn_output_dir=transform_fn_dir)
 
     for key in input_data_dict:
       self.assertIn(key, first_run_result.cache_output)
@@ -764,8 +744,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
         should_read_cache=True,
         datasets_to_transform=[span_2_key],
         expected_transform_data=expected_transformed_data,
-        transform_fn_output_dir=transform_fn_dir,
-        use_tfxio=use_tfxio)
+        transform_fn_output_dir=transform_fn_dir)
 
     tf_transform_output = tft.TFTransformOutput(transform_fn_dir)
     vocab1_path = tf_transform_output.vocabulary_file_by_name('vocab1')
@@ -784,9 +763,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
                                    _ZERO_PHASE_NUM_SAVED_MODELS)
 
-  @tft_unit.named_parameters(_TFXIO_NAMED_PARAMETERS)
   @mock_out_cache_hash
-  def test_caching_vocab_for_integer_categorical(self, use_tfxio):
+  def test_caching_vocab_for_integer_categorical(self):
 
     span_0_key = analyzer_cache.DatasetKey('span-0')
     span_1_key = analyzer_cache.DatasetKey('span-1')
@@ -849,8 +827,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
         preprocessing_fn,
         cache_dict=cache_dict,
         datasets_to_transform=[span_1_key],
-        expected_transform_data=expected_transformed_data,
-        use_tfxio=use_tfxio)
+        expected_transform_data=expected_transformed_data)
 
     self.assertNotIn(span_0_key, run_result.cache_output)
 
@@ -862,9 +839,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
                                    _SINGLE_PHASE_NUM_SAVED_MODELS)
 
-  @tft_unit.named_parameters(_TFXIO_NAMED_PARAMETERS)
   @mock_out_cache_hash
-  def test_non_frequency_vocabulary_merge(self, use_tfxio):
+  def test_non_frequency_vocabulary_merge(self):
     """This test compares vocabularies produced with and without cache."""
 
     mi_vocab_name = 'mutual_information_vocab'
@@ -953,8 +929,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
         input_data_dict,
         preprocessing_fn,
         transform_fn_output_dir=transform_fn_with_cache_dir,
-        expected_cache=expected_cache,
-        use_tfxio=use_tfxio)
+        expected_cache=expected_cache)
 
     p = run_result.pipeline
     # 4 from analysis on each of the input spans.
@@ -965,14 +940,11 @@ class CachedImplTest(tft_unit.TransformTestCase):
                                    _SINGLE_PHASE_NUM_SAVED_MODELS)
 
     with self._TestPipeline() as p:
-      with tft_beam.Context(use_tfxio=use_tfxio):
+      with tft_beam.Context():
         flat_data = p | 'CreateInputData' >> beam.Create(input_data * 2)
 
         input_metadata = dataset_metadata.DatasetMetadata(
             schema_utils.schema_from_feature_spec(feature_spec))
-        if use_tfxio:
-          flat_data, input_metadata = self.convert_to_tfxio_api_inputs(
-              flat_data, input_metadata, 'ConvertToTFXIO[inputdata]')
         transform_fn_no_cache = ((flat_data, input_metadata)
                                  | tft_beam.AnalyzeDataset(preprocessing_fn))
 
@@ -1050,8 +1022,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
                              preprocessing_fn, pipeline=p))
       self.assertFalse(output_cache)
 
-  @tft_unit.named_parameters(_TFXIO_NAMED_PARAMETERS)
-  def test_tf_function_works_with_cache(self, use_tfxio):
+  def test_tf_function_works_with_cache(self):
 
     def preprocessing_fn(inputs, should_add_one):
 
@@ -1073,8 +1044,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
     }
     run_result = self._run_pipeline(
         feature_spec, input_data_dict,
-        functools.partial(preprocessing_fn, should_add_one=False),
-        use_tfxio=use_tfxio)
+        functools.partial(preprocessing_fn, should_add_one=False))
     first_cache_output, p1 = run_result.cache_output, run_result.pipeline
 
     for key in input_data_dict:
@@ -1092,7 +1062,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
         feature_spec,
         input_data_dict,
         functools.partial(preprocessing_fn, should_add_one=False),
-        should_read_cache=True, use_tfxio=use_tfxio)
+        should_read_cache=True)
     second_cache_output, p2 = run_result.cache_output, run_result.pipeline
 
     self.assertFalse(second_cache_output)
@@ -1113,7 +1083,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
         feature_spec,
         input_data_dict,
         functools.partial(preprocessing_fn, should_add_one=True),
-        should_read_cache=True, use_tfxio=use_tfxio)
+        should_read_cache=True)
     third_output_cache, p3 = run_result.cache_output, run_result.pipeline
 
     for key in input_data_dict:
@@ -1125,8 +1095,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(p3.metrics, 'cache_entries_encoded', 1)
     self.assertMetricsCounterEqual(p3.metrics, 'saved_models_created', 2)
 
-  @tft_unit.named_parameters(_TFXIO_NAMED_PARAMETERS)
-  def test_changing_constant_fails_cache(self, use_tfxio):
+  def test_changing_constant_fails_cache(self):
 
     def make_preprocessing_fn(string):
 
@@ -1144,8 +1113,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
     }
 
     run_result = self._run_pipeline(feature_spec, input_data_dict,
-                                    make_preprocessing_fn('1st_run'),
-                                    use_tfxio=use_tfxio)
+                                    make_preprocessing_fn('1st_run'))
     first_cache_output, p1 = run_result.cache_output, run_result.pipeline
 
     for key in input_data_dict:
@@ -1159,8 +1127,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
                                    _SINGLE_PHASE_NUM_SAVED_MODELS)
 
     run_result = self._run_pipeline(feature_spec, input_data_dict,
-                                    make_preprocessing_fn('2nd_run'),
-                                    use_tfxio=use_tfxio)
+                                    make_preprocessing_fn('2nd_run'))
     second_cache_output, p2 = run_result.cache_output, run_result.pipeline
 
     # We expect a full output cache again because tf.function in the

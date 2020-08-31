@@ -25,8 +25,8 @@ import os
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
 import numpy as np
+import pyarrow as pa
 from six.moves import range
-
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import analyzers
@@ -35,6 +35,7 @@ from tensorflow_transform import schema_inference
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
+from tfx_bsl.tfxio import tensor_adapter
 from google.protobuf import text_format
 import unittest
 from tensorflow_metadata.proto.v0 import schema_pb2
@@ -103,18 +104,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def tearDown(self):
     self._context.__exit__()
-
-  # impl_with_tfxio_test.py overrides this to True
-  def _UseTFXIO(self):
-    return False
-
-  def _SkipIfExternalEnvironmentAnd(self, predicate, reason):
-    if predicate and tft_unit.is_external_environment():
-      raise unittest.SkipTest(reason)
-
-  def _MaybeConvertInputsToTFXIO(self, input_data, input_metadata, label=None):
-    del label  # unused
-    return input_data, input_metadata
 
   def testApplySavedModelSingleInput(self):
     def save_model_with_single_input(instance, export_dir):
@@ -458,8 +447,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'y': tf.io.FixedLenFeature([], tf.float32)
     })
     with beam_impl.Context(temp_dir=self.get_temp_dir()):
-      input_data, input_metadata = self._MaybeConvertInputsToTFXIO(
-          input_data, input_metadata)
       transform_fn = ((input_data, input_metadata)
                       | beam_impl.AnalyzeDataset(preprocessing_fn))
 
@@ -468,8 +455,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
     eval_data = [{'x': 6}]
     eval_metadata = tft_unit.metadata_from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.float32)})
-    eval_data, eval_metadata = self._MaybeConvertInputsToTFXIO(
-        eval_data, eval_metadata)
     transformed_eval_data, transformed_eval_metadata = (
         ((eval_data, eval_metadata), transform_fn)
         | beam_impl.TransformDataset(exclude_outputs=['y_scaled']))
@@ -769,9 +754,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   @tft_unit.parameters((True,), (False,))
   def testScaleMinMax(self, elementwise):
-    self._SkipIfExternalEnvironmentAnd(
-        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
-
     def preprocessing_fn(inputs):
       outputs = {}
       cols = ('x', 'y')
@@ -849,9 +831,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
            key_vocabulary_filename=None)
   )
   def testScaleMinMaxPerKey(self, key_vocabulary_filename):
-    self._SkipIfExternalEnvironmentAnd(
-        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
-
     def preprocessing_fn(inputs):
       outputs = {}
       cols = ('x', 'y')
@@ -1000,9 +979,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
   )
   def testScaleMinMaxSparsePerKey(
       self, input_data, input_metadata, expected_data):
-    self._SkipIfExternalEnvironmentAnd(
-        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
-
     def preprocessing_fn(inputs):
       x_scaled = tf.sparse.to_dense(
           tft.scale_to_0_1_per_key(inputs['x'], inputs['key']))
@@ -1145,9 +1121,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   @tft_unit.named_parameters(*_SCALE_TO_Z_SCORE_TEST_CASES)
   def testScaleToZScore(self, input_data, output_data, elementwise):
-    self._SkipIfExternalEnvironmentAnd(
-        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
-
     def preprocessing_fn(inputs):
       x = inputs['x']
       x_cast = tf.cast(x, tf.as_dtype(input_data.dtype))
@@ -1179,9 +1152,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
       tf.float64,
   ], (True, False)))
   def testScaleToZScoreSparse(self, input_dtype, elementwise):
-    self._SkipIfExternalEnvironmentAnd(
-        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
-
     def preprocessing_fn(inputs):
       z_score = tf.sparse.to_dense(
           tft.scale_to_z_score(
@@ -1247,8 +1217,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
       (tf.float64,),
   )
   def testScaleToZScoreSparsePerDenseKey(self, input_dtype):
-    self._SkipIfExternalEnvironmentAnd(
-        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
     # TODO(b/131852830) Add elementwise tests.
     def preprocessing_fn(inputs):
 
@@ -1320,8 +1288,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
            key_vocabulary_filename=None)
   )
   def testScaleToZScorePerKey(self, key_vocabulary_filename):
-    self._SkipIfExternalEnvironmentAnd(
-        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
     # TODO(b/131852830) Add elementwise tests.
     def preprocessing_fn(inputs):
 
@@ -1445,8 +1411,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
       (tf.float64,),
   )
   def testScaleToZScoreSparsePerKey(self, input_dtype):
-    self._SkipIfExternalEnvironmentAnd(
-        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
     # TODO(b/131852830) Add elementwise tests.
     def preprocessing_fn(inputs):
       z_score = tf.sparse.to_dense(
@@ -1690,9 +1654,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
   )
   def testHistograms(self, input_data, feature_spec, boundaries, categorical,
                      expected_outputs):
-    self._SkipIfExternalEnvironmentAnd(
-        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
-
     def analyzer_fn(inputs):
       counts, bucket_boundaries = analyzers.histogram(tf.stack(inputs['x']),
                                                       categorical=categorical,
@@ -1791,8 +1752,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
   )
   def testProbUnknownBoundaries(
       self, input_data, expected_outputs, boundaries):
-    self._SkipIfExternalEnvironmentAnd(
-        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
     # Test 1 has 100 points over a range of 99; test 2 is an uneven distribution
     def preprocessing_fn(inputs):
       return {'probs': tft.estimated_probability_density(inputs['x'],
@@ -1878,9 +1837,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
   )
   def testNumericAnalyzersWithScalarInputs(
       self, input_dtype, output_dtypes):
-    self._SkipIfExternalEnvironmentAnd(
-        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
-
     def analyzer_fn(inputs):
       a = tf.cast(inputs['a'], input_dtype)
 
@@ -1956,9 +1912,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
   ], (True, False)))
   def testNumericAnalyzersWithSparseInputs(self, input_dtype,
                                            reduce_instance_dims):
-    self._SkipIfExternalEnvironmentAnd(
-        self._UseTFXIO(), 'Skipping large test cases; b/147698868')
-
     def analyzer_fn(inputs):
       return {
           'min':
@@ -2608,8 +2561,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # Force a batch size of 1 to ensure that occurences are correctly aggregated
     # across batches when computing the total vocabulary size.
     with beam_impl.Context(temp_dir=temp_dir, desired_batch_size=1):
-      input_data, input_metadata = self._MaybeConvertInputsToTFXIO(
-          input_data, input_metadata)
       transform_fn = ((input_data, input_metadata)
                       | beam_impl.AnalyzeDataset(preprocessing_fn))
       #  Write transform_fn to serialize annotation collections to SavedModel
@@ -2662,8 +2613,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     temp_dir = self.get_temp_dir()
     with beam_impl.Context(temp_dir=temp_dir):
-      input_data, input_metadata = self._MaybeConvertInputsToTFXIO(
-          input_data, input_metadata)
       transform_fn = ((input_data, input_metadata)
                       | beam_impl.AnalyzeDataset(preprocessing_fn))
       #  Write transform_fn to serialize annotation collections to SavedModel
@@ -2705,8 +2654,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'a': tf.io.FixedLenFeature([], tf.string)
       })
       with beam_impl.Context(temp_dir=self.get_temp_dir()):
-        input_data, metadata = self._MaybeConvertInputsToTFXIO(
-            input_data, metadata)
         _ = ((input_data, metadata)
              | 'AnalyzeDataset' >> beam_impl.AnalyzeDataset(preprocessing_fn))
 
@@ -2720,8 +2667,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(metrics, 'tft_mapper_apply_vocabulary', 0)
 
   def testHandleBatchError(self):
-    if self._UseTFXIO():
-      raise unittest.SkipTest('Test disabled for TFXIO')
 
     def preprocessing_fn(inputs):
       return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
@@ -2740,13 +2685,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
            | 'AnalyzeDataset' >> beam_impl.AnalyzeDataset(preprocessing_fn))
     # Exception type depends on the running being used.
     with self.assertRaisesRegexp(
-        (RuntimeError, ValueError),
-        'An error occured while trying to apply the transformation:'):
+        (RuntimeError, ValueError, TypeError), 'has type list'):
       pipeline.run()
 
   def testPassthroughKeys(self):
-    self.assertFalse(self._UseTFXIO())
-
     passthrough_key = '__passthrough__'
 
     def preprocessing_fn(inputs):
@@ -2754,26 +2696,32 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
 
     x_data = [0., 1., 2.]
-    passthrough_data = [1, 2, 3]
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'x': tf.io.FixedLenFeature([], tf.float32)})
+    passthrough_data = [1, None, 3]
+    input_record_batch = pa.RecordBatch.from_arrays([
+        pa.array([[x] for x in x_data], type=pa.list_(pa.float32())),
+        pa.array([None if p is None else [p] for p in passthrough_data],
+                 type=pa.list_(pa.int64())),
+    ], ['x', passthrough_key])
+    tensor_adapter_config = tensor_adapter.TensorAdapterConfig(
+        input_record_batch.schema,
+        {'x': text_format.Parse(
+            'dense_tensor { column_name: "x" shape {} }',
+            schema_pb2.TensorRepresentation())})
     expected_data = [{'x_scaled': x / 2.0, passthrough_key: p}
                      for x, p in zip(x_data, passthrough_data)]
 
     with self._makeTestPipeline() as pipeline:
       input_data = (
-          pipeline | beam.Create([
-              {'x': x, passthrough_key: p}
-              for x, p in zip(x_data, passthrough_data)]))
+          pipeline | beam.Create([input_record_batch]))
       with beam_impl.Context(
           temp_dir=self.get_temp_dir(),
           passthrough_keys=set([passthrough_key])):
         (transformed_data, _), _ = (
-            (input_data, input_metadata)
+            (input_data, tensor_adapter_config)
             | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
 
         def _assert_fn(output_data):
-          self.assertDataCloseOrEqual(expected_data, output_data)
+          self.assertCountEqual(expected_data, output_data)
 
         beam_test_util.assert_that(transformed_data, _assert_fn)
 
@@ -2804,19 +2752,15 @@ class BeamImplTest(tft_unit.TransformTestCase):
       metadata = tft_unit.metadata_from_feature_spec(
           {'x': tf.io.FixedLenFeature([], tf.float32)})
       with beam_impl.Context(temp_dir=self.get_temp_dir()):
-        input_data, input_metadata = self._MaybeConvertInputsToTFXIO(
-            input_data, metadata)
         transform_fn = (
-            (input_data, input_metadata)
+            (input_data, metadata)
             | 'AnalyzeDataset' >> beam_impl.AnalyzeDataset(preprocessing_fn))
 
         # Run transform_columns on some eval dataset.
         eval_data = pipeline | 'CreateEvalData' >> beam.Create(
             [{'x': 6}, {'x': 3}])
-        eval_data, eval_metadata = self._MaybeConvertInputsToTFXIO(
-            eval_data, metadata, label='eval_data')
         transformed_eval_data, _ = (
-            ((eval_data, eval_metadata), transform_fn)
+            ((eval_data, metadata), transform_fn)
             | 'TransformDataset' >> beam_impl.TransformDataset())
         expected_data = [{'x_scaled': 1.25}, {'x_scaled': 0.5}]
         beam_test_util.assert_that(

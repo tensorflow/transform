@@ -14,6 +14,9 @@
 ## Deprecations
 
 *   Deprecating Py3.5 support.
+*   Parameter `use_tfxio` in the initializer of `Context` is deprecated. TFT
+    Beam APIs now accepts both "instance dicts" and "TFXIO" input formats.
+    Setting it will have no effect and it will be removed in the next version.
 
 # Version 0.23.0
 
