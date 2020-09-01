@@ -2738,6 +2738,7 @@ def pca(x, output_dim, dtype, name=None):
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def ptransform_analyzer(inputs, output_dtypes, output_shapes, ptransform,
                         name=None):
+  # pylint: disable=line-too-long
   """Applies a user-provided PTransform over the whole dataset.
 
   WARNING: This is experimental.
@@ -2745,6 +2746,39 @@ def ptransform_analyzer(inputs, output_dtypes, output_shapes, ptransform,
   Note that in order to have asset files copied correctly, any outputs that
   represent asset filenames must be added to the `tf.GraphKeys.ASSET_FILEPATHS`
   collection by the caller.
+
+  Example:
+
+  >>> class MeanPerKey(beam.PTransform):
+  ...   def expand(self, pcoll):
+  ...     # Returning a single PCollection since this analyzer has 1 output.
+  ...     return (pcoll
+  ...             | 'TuplesOfArraysToTuples' >> beam.FlatMap(lambda kv: list(zip(*kv)))
+  ...             | 'MeanPerKey' >> beam.CombinePerKey(beam.combiners.MeanCombineFn())
+  ...             | 'ToList' >> beam.combiners.ToList()
+  ...             | 'ExtractMeans' >>
+  ...             beam.Map(lambda outputs: [v for _, v in sorted(outputs)]))
+  >>> def preprocessing_fn(inputs):
+  ...   outputs = tft.ptransform_analyzer(
+  ...       inputs=[inputs['s'], inputs['x']],
+  ...       output_dtypes=[tf.float32],
+  ...       output_shapes=[[2]],
+  ...       ptransform=MeanPerKey())
+  ...   (mean_per_key,) = outputs
+  ...   return { 'x/mean_a': inputs['x'] / mean_per_key[0] }
+  >>> raw_data = [dict(x=1, s='a'), dict(x=8, s='b'), dict(x=3, s='a')]
+  >>> feature_spec = dict(
+  ...     x=tf.io.FixedLenFeature([], tf.float32),
+  ...     s=tf.io.FixedLenFeature([], tf.string))
+  >>> raw_data_metadata = tft.tf_metadata.dataset_metadata.DatasetMetadata(
+  ...     tft.tf_metadata.schema_utils.schema_from_feature_spec(feature_spec))
+  >>> with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
+  ...   transformed_dataset, transform_fn = (
+  ...       (raw_data, raw_data_metadata)
+  ...       | tft_beam.AnalyzeAndTransformDataset(preprocessing_fn))
+  >>> transformed_data, transformed_metadata = transformed_dataset
+  >>> transformed_data
+  [{'x/mean_a': 0.5}, {'x/mean_a': 4.0}, {'x/mean_a': 1.5}]
 
   Args:
     inputs: A list of input `Tensor`s.
@@ -2766,6 +2800,7 @@ def ptransform_analyzer(inputs, output_dtypes, output_shapes, ptransform,
   Raises:
     ValueError: If output_dtypes and output_shapes have different lengths.
   """
+  # pylint: enable=line-too-long
   if len(output_dtypes) != len(output_shapes):
     raise ValueError('output_dtypes ({}) and output_shapes ({}) had different'
                      ' lengths'.format(output_dtypes, output_shapes))
