@@ -66,6 +66,7 @@ class TFTransformOutput(object):
     self._transformed_metadata = None
     self._raw_metadata = None
     self._transform_features_layer = None
+    self._v2_saved_model_loader = None
 
   @property
   def transformed_metadata(self):
@@ -222,6 +223,25 @@ class TFTransformOutput(object):
       A dict whose keys are feature names and values are `Tensor`s or
           `SparseTensor`s representing transformed features.
     """
+    if ops.executing_eagerly_outside_functions():
+      if self._v2_saved_model_loader is None:
+        self._v2_saved_model_loader = saved_transform_io_v2.SavedModelLoader(
+            self.transform_savedmodel_dir)
+
+    if (self._v2_saved_model_loader is not None and
+        not self._v2_saved_model_loader.load_v2_in_compat):
+      if not drop_unused_features:
+        tf.compat.v1.logging.warning(
+            'Unused features are always dropped in the TF 2.x '
+            'implementation. Ignoring value of drop_unused_features.')
+      return self._v2_saved_model_loader.apply_transform_model(raw_features)
+    else:
+      return self._transform_raw_features_compat_v1(raw_features,
+                                                    drop_unused_features)
+
+  def _transform_raw_features_compat_v1(self, raw_features,
+                                        drop_unused_features):
+    """Takes a dict of tensors representing raw features and transforms them."""
     unbounded_raw_features, transformed_features = (
         saved_transform_io.partially_apply_saved_transform_internal(
             self.transform_savedmodel_dir, raw_features))
@@ -366,5 +386,6 @@ class TransformFeaturesLayer(tf.keras.layers.Layer):
       return self._saved_model_loader.apply_transform_model(inputs)
     else:
       tf.compat.v1.logging.warning('Falling back to transform_raw_features...')
-      return self._tft_output.transform_raw_features(
-          inputs, drop_unused_features=True)
+      return self._tft_output._transform_raw_features_compat_v1(  # pylint: disable=protected-access
+          inputs,
+          drop_unused_features=True)

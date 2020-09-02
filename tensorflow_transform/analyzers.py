@@ -2745,7 +2745,7 @@ def ptransform_analyzer(inputs, output_dtypes, output_shapes, ptransform,
 
   Note that in order to have asset files copied correctly, any outputs that
   represent asset filenames must be added to the `tf.GraphKeys.ASSET_FILEPATHS`
-  collection by the caller.
+  collection by the caller if using Transform's APIs in compat v1 mode.
 
   Example:
 

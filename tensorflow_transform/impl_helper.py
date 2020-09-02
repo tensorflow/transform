@@ -18,8 +18,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import copy
 import itertools
 import re
+
 # GOOGLE-INITIALIZATION
 
 import numpy as np
@@ -28,8 +30,13 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
 
 import tensorflow as tf
+from tensorflow_transform import analyzer_nodes
+from tensorflow_transform import graph_context
 from tensorflow_transform.tf_metadata import schema_utils
-from tensorflow.python.framework import composite_tensor  # pylint: disable=g-direct-tensorflow-import
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.framework import composite_tensor
+from tensorflow.python.framework import ops
+# pylint: enable=g-direct-tensorflow-import
 
 _CACHED_EMPTY_ARRAY_BY_DTYPE = {}
 _VALID_SCOPE_REGEX = re.compile('^[A-Za-z0-9]*$')
@@ -434,3 +441,130 @@ def _copy_tensor_or_composite_tensor(tensor):
   if isinstance(tensor, composite_tensor.CompositeTensor):
     return tf.nest.map_structure(_copy_tensor, tensor, expand_composites=True)
   return _copy_tensor(tensor)
+
+
+# TODO(b/149997088): Split into two APIs one that will just trace the
+# `preprocessing_fn` using tf.function as is and another that will return
+# specific outputs requested for.
+def get_traced_transform_fn(preprocessing_fn,
+                            input_signature,
+                            base_temp_dir,
+                            tensor_replacement_map=None,
+                            output_keys_to_name_map=None):
+  """Get preprocessing_fn traced using tf.function.
+
+  Args:
+    preprocessing_fn: A user defined python function to be traced.
+    input_signature: `tf.TypeSpec`s describing the inputs to the
+      `preprocessing_fn`.
+    base_temp_dir: Base path to write any dummy assets to during tracing.
+    tensor_replacement_map: (Optional) A map from placeholder tensor names to
+      their evaluated replacement tensors.
+    output_keys_to_name_map: (Optional) A map from output dictionary keys to the
+      names of the tensors that they represent.
+
+  Returns:
+    A tf.function object representing a function with the same input signature
+    as `preprocessing_fn`.
+    If `output_keys_to_name_map` is None or there are no more TFT analyzers to
+    evaluate in the `preprocessing_fn`, the output signature of this
+    tf.function
+    is the same as the `preprocessing_fn`.
+    Otherwise, its output signature contains the keys in
+    `output_keys_to_name_map` and the tensor represented by the corresponding
+    dictionary values.
+  """
+
+  assert all(
+      [isinstance(s, tf.TypeSpec) for s in six.itervalues(input_signature)])
+
+  @tf.function(input_signature=[input_signature])
+  def transform_fn(inputs):
+    graph = ops.get_default_graph()
+    # If any analyzers have already been evaluated, pass them using the
+    # `graph_context.TFGraphContext`. This will be used in place of the analyzer
+    # nodes.
+    with graph_context.TFGraphContext(
+        temp_dir=base_temp_dir, evaluated_replacements=tensor_replacement_map):
+      transformed_features = preprocessing_fn(inputs)
+    # An empty `TENSOR_REPLACEMENTS` collection symbolizes that there is no
+    # analyzer left for Transform to evaluate. Either if this collection is
+    # empty or if no specific outputs have been requested, return
+    # the same output as `preprocessing_fn` (i.e, transformed_features).
+    if (output_keys_to_name_map is None or
+        not graph.get_collection(analyzer_nodes.TENSOR_REPLACEMENTS)):
+      return transformed_features
+    else:
+      return {
+          key: graph.get_tensor_by_name(value)
+          for key, value in six.iteritems(output_keys_to_name_map)
+      }
+
+  return transform_fn
+
+
+def _trace_preprocessing_fn_v1(preprocessing_fn, specs):
+  """Trace TF1 graph for `preprocessing_fn`."""
+  with tf.compat.v1.Graph().as_default() as graph:
+    with tf.compat.v1.name_scope('inputs'):
+      structured_inputs = batched_placeholders_from_specs(specs)
+      # In order to avoid a bug where import_graph_def fails when the
+      # input_map and return_elements of an imported graph are the same
+      # (b/34288791), we avoid using the placeholder of an input column as an
+      # output of a graph. We do this by applying tf.identity to all inputs of
+      # the preprocessing_fn.  Note this applies at the level of raw tensors.
+      # TODO(b/34288791): Remove this workaround and use a shallow copy of
+      # inputs instead.  A shallow copy is needed in case
+      # self._preprocessing_fn mutates its input.
+      copied_inputs = copy_tensors(structured_inputs)
+
+    structured_outputs = preprocessing_fn(copied_inputs)
+  return graph, structured_inputs, structured_outputs
+
+
+def _trace_preprocessing_fn_v2(preprocessing_fn, specs, base_temp_dir):
+  """Trace TF2 graph for `preprocessing_fn`."""
+  concrete_fn = get_traced_transform_fn(preprocessing_fn, specs,
+                                        base_temp_dir).get_concrete_function()
+  graph = concrete_fn.graph
+  num_captures = len(graph.internal_captures)
+  graph_inputs = copy.copy(graph.inputs)
+  # Only consider user provided inputs.
+  if num_captures > 0:
+    graph_inputs = graph_inputs[:-num_captures]
+  # Pack tensors in `graph_inputs` into the structure specified by `specs`.
+  structured_inputs = tf.nest.pack_sequence_as(
+      structure=specs, flat_sequence=graph_inputs, expand_composites=True)
+  return graph, structured_inputs, concrete_fn.structured_outputs
+
+
+def trace_preprocessing_function(preprocessing_fn,
+                                 input_specs,
+                                 use_tf_compat_v1,
+                                 base_temp_dir=None):
+  """Trace graph for `preprocessing_fn`.
+
+  Args:
+    preprocessing_fn: A user defined python function to be traced.
+    input_specs: A dictionary from input feature name to its FeatureSpec or
+      TypeSpec. If use_tf_compat_v1 is `False`, input_specs must be a dictionary
+      of TypeSpecs.
+    use_tf_compat_v1: (Optional) If `True`, the `preprocessing_fn` is traced as
+      a TF 1.x graph. Else, it is traced using tf.function.
+    base_temp_dir: (Optional) Base path to write any dummy assets to during
+      tracing. Required when `use_tf_compat_v1` is `False`.
+
+  Returns:
+    A tuple of:
+
+      0. the graph representing the traced `preprocessing_fn`
+      1. the graph's structured inputs
+      2. the graph's structured outputs
+
+  """
+  if use_tf_compat_v1:
+    return _trace_preprocessing_fn_v1(preprocessing_fn, input_specs)
+  else:
+    assert base_temp_dir
+    return _trace_preprocessing_fn_v2(preprocessing_fn, input_specs,
+                                      base_temp_dir)

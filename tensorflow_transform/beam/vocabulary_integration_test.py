@@ -35,6 +35,12 @@ from tensorflow_metadata.proto.v0 import schema_pb2
 
 class VocabularyIntegrationTest(tft_unit.TransformTestCase):
 
+  def setUp(self):
+    tf.compat.v1.logging.info('Starting test case: %s', self._testMethodName)
+    self._context = beam_impl.Context(force_tf_compat_v1=True)
+    self._context.__enter__()
+    super(VocabularyIntegrationTest, self).setUp()
+
   def _VocabFormat(self):
     return 'text'
 

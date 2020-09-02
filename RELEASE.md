@@ -4,6 +4,14 @@
 
 ## Major Features and Improvements
 
+*   Added native TF 2 implementation of Transform's Beam APIs -
+    `tft.AnalyzeDataset`, `tft.AnalyzeDatasetWithCache`,
+    `tft.AnalyzeAndTransformDataset` and `tft.TransformDataset`. The default
+    behavior will continue to use Tensorflow's compat.v1 APIs. This can be
+    overriden by setting `tft.Context.force_tf_compat_v1=False`. The default
+    behavior for TF 2 users will be switched to the new native implementation in
+    a future release.
+
 ## Bug Fixes and Other Changes
 
 *   Depends on `absl-py>=0.9,<0.11`.

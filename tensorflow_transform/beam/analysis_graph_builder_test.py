@@ -232,12 +232,12 @@ _CHAINED_PTRANSFORMS_CASE = dict(
     expected_dot_graph_str=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('inputs/x', \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
+"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('inputs/inputs/x_copy', \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
 "ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='FlattenedDataset')|label: ExtractInputForSavedModel[FlattenedDataset]}"];
 "ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
 "ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase0]";
-"TensorSource[x]" [label="{ExtractFromDict|keys: ('inputs/x',)|label: TensorSource[x]|partitionable: True}"];
+"TensorSource[x]" [label="{ExtractFromDict|keys: ('inputs/inputs/x_copy',)|label: TensorSource[x]|partitionable: True}"];
 "ApplySavedModel[Phase0]" -> "TensorSource[x]";
 "FakeChainable[x/ptransform1]" [label="{FakeChainable|label: FakeChainable[x/ptransform1]}"];
 "TensorSource[x]" -> "FakeChainable[x/ptransform1]";
@@ -263,13 +263,11 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
 
   @test_case.named_parameters(*_ANALYZE_TEST_CASES)
   def test_build(self, feature_spec, preprocessing_fn, expected_dot_graph_str):
-    with tf.compat.v1.Graph().as_default() as graph:
-      with tf.compat.v1.name_scope('inputs'):
-        input_signature = impl_helper.batched_placeholders_from_specs(
-            feature_spec)
-      output_signature = preprocessing_fn(input_signature)
-      transform_fn_future, unused_cache = analysis_graph_builder.build(
-          graph, input_signature, output_signature)
+    graph, structured_inputs, structured_outputs = (
+        impl_helper.trace_preprocessing_function(
+            preprocessing_fn, feature_spec, use_tf_compat_v1=True))
+    transform_fn_future, unused_cache = analysis_graph_builder.build(
+        graph, structured_inputs, structured_outputs)
 
     dot_string = nodes.get_dot_graph([transform_fn_future]).to_string()
     self.WriteRenderedDotFile(dot_string)

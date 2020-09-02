@@ -131,7 +131,8 @@ def _construct_test_bucketization_parameters():
 class BucketizeIntegrationTest(tft_unit.TransformTestCase):
 
   def setUp(self):
-    self._context = beam_impl.Context(use_deep_copy_optimization=True)
+    self._context = beam_impl.Context(
+        use_deep_copy_optimization=True, force_tf_compat_v1=True)
     self._context.__enter__()
     super(BucketizeIntegrationTest, self).setUp()
 

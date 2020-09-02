@@ -18,6 +18,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
 import collections
 import functools
 import os
@@ -167,6 +168,11 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signatur
 }
 """)
 
+_TF_VERSION_NAMED_PARAMETERS = [
+    dict(testcase_name='CompatV1', use_tf_compat_v1=True),
+    dict(testcase_name='V2', use_tf_compat_v1=False),
+]
+
 
 def _preprocessing_fn_for_generalized_chained_ptransforms(inputs):
 
@@ -267,12 +273,12 @@ _OPTIMIZE_TRAVERSAL_GENERALIZED_CHAINED_PTRANSFORMS_CASE = dict(
     expected_dot_graph_str=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('inputs/x', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
+"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('inputs/inputs/x_copy', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
 "ExtractInputForSavedModel[AnalysisIndex0]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='span-0')|label: ExtractInputForSavedModel[AnalysisIndex0]}"];
 "ApplySavedModel[Phase0][AnalysisIndex0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0][AnalysisIndex0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0][AnalysisIndex0]";
 "ExtractInputForSavedModel[AnalysisIndex0]" -> "ApplySavedModel[Phase0][AnalysisIndex0]";
-"TensorSource[x][AnalysisIndex0]" [label="{ExtractFromDict|keys: ('inputs/x',)|label: TensorSource[x][AnalysisIndex0]|partitionable: True}"];
+"TensorSource[x][AnalysisIndex0]" [label="{ExtractFromDict|keys: ('inputs/inputs/x_copy',)|label: TensorSource[x][AnalysisIndex0]|partitionable: True}"];
 "ApplySavedModel[Phase0][AnalysisIndex0]" -> "TensorSource[x][AnalysisIndex0]";
 "FakeChainablePartitionable[x/partitionable1][AnalysisIndex0]" [label="{FakeChainablePartitionable|label: FakeChainablePartitionable[x/partitionable1][AnalysisIndex0]|partitionable: True}"];
 "TensorSource[x][AnalysisIndex0]" -> "FakeChainablePartitionable[x/partitionable1][AnalysisIndex0]";
@@ -288,7 +294,7 @@ node [shape=Mrecord];
 "ApplySavedModel[Phase0][AnalysisIndex1]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0][AnalysisIndex1]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0][AnalysisIndex1]";
 "ExtractInputForSavedModel[AnalysisIndex1]" -> "ApplySavedModel[Phase0][AnalysisIndex1]";
-"TensorSource[x][AnalysisIndex1]" [label="{ExtractFromDict|keys: ('inputs/x',)|label: TensorSource[x][AnalysisIndex1]|partitionable: True}"];
+"TensorSource[x][AnalysisIndex1]" [label="{ExtractFromDict|keys: ('inputs/inputs/x_copy',)|label: TensorSource[x][AnalysisIndex1]|partitionable: True}"];
 "ApplySavedModel[Phase0][AnalysisIndex1]" -> "TensorSource[x][AnalysisIndex1]";
 "FakeChainablePartitionable[x/partitionable1][AnalysisIndex1]" [label="{FakeChainablePartitionable|label: FakeChainablePartitionable[x/partitionable1][AnalysisIndex1]|partitionable: True}"];
 "TensorSource[x][AnalysisIndex1]" -> "FakeChainablePartitionable[x/partitionable1][AnalysisIndex1]";
@@ -311,7 +317,7 @@ node [shape=Mrecord];
 "ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
 "ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase0]";
-"TensorSource[x]" [label="{ExtractFromDict|keys: ('inputs/x',)|label: TensorSource[x]|partitionable: True}"];
+"TensorSource[x]" [label="{ExtractFromDict|keys: ('inputs/inputs/x_copy',)|label: TensorSource[x]|partitionable: True}"];
 "ApplySavedModel[Phase0]" -> "TensorSource[x]";
 "FakeChainable[x/not-cacheable]" [label="{FakeChainable|label: FakeChainable[x/not-cacheable]}"];
 "TensorSource[x]" -> "FakeChainable[x/not-cacheable]";
@@ -372,16 +378,26 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self._running_index += 1
     return self._running_index
 
-  def _publish_rendered_dot_graph_file(self, preprocessing_fn, feature_spec,
-                                       dataset_keys, pcoll_cache_dict):
-    with tf.compat.v1.Graph().as_default() as graph:
-      with tf.compat.v1.name_scope('inputs'):
-        input_signature = impl_helper.batched_placeholders_from_specs(
-            feature_spec)
-      output_signature = preprocessing_fn(input_signature)
-      transform_fn_future, cache_output_dict = analysis_graph_builder.build(
-          graph, input_signature, output_signature, dataset_keys,
-          pcoll_cache_dict)
+  def _publish_rendered_dot_graph_file(self,
+                                       preprocessing_fn,
+                                       feature_spec,
+                                       dataset_keys,
+                                       pcoll_cache_dict,
+                                       use_tf_compat_v1=True):
+    specs = feature_spec
+    base_temp_dir = None
+    if not use_tf_compat_v1:
+      specs = tft_unit.feature_spec_as_type_spec(specs)
+      base_temp_dir = self.base_test_dir
+    graph, structured_inputs, structured_outputs = (
+        impl_helper.trace_preprocessing_function(
+            preprocessing_fn,
+            specs,
+            use_tf_compat_v1=use_tf_compat_v1,
+            base_temp_dir=base_temp_dir))
+    transform_fn_future, cache_output_dict = analysis_graph_builder.build(
+        graph, structured_inputs, structured_outputs, dataset_keys,
+        pcoll_cache_dict)
     dot_string = nodes.get_dot_graph(
         [transform_fn_future] +
         sorted(cache_output_dict.values(), key=str)).to_string()
@@ -404,7 +420,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
                     datasets_to_transform=None,
                     expected_transform_data=None,
                     expected_cache=None,
-                    transform_fn_output_dir=None):
+                    transform_fn_output_dir=None,
+                    use_tf_compat_v1=True):
     """Runs an analysis pipeline with cache.
 
     Args:
@@ -422,6 +439,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
       expected_cache: Dict[str, Dict[str, bytes]], expected encoded cache.
       transform_fn_output_dir: A directory where the output transform_fn should
         be written to, if not provided it will not be written.
+      use_tf_compat_v1: If True, TFT's public APIs (e.g. AnalyzeDataset) will
+        use Tensorflow in compat.v1 mode. Defaults to `True`.
 
     Returns:
       A _RunPipelineResult.
@@ -429,7 +448,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
     input_metadata = dataset_metadata.DatasetMetadata(
         schema_utils.schema_from_feature_spec(feature_spec))
     with self._TestPipeline() as p:
-      with tft_beam.Context():
+      with tft_beam.Context(force_tf_compat_v1=use_tf_compat_v1):
 
         # Wraps each value in input_data_dict as a PCollection.
         input_data_pcoll_dict = {}
@@ -457,9 +476,12 @@ class CachedImplTest(tft_unit.TransformTestCase):
           pcoll_cache_dict = p | analyzer_cache.ReadAnalysisCacheFromFS(
               self._cache_dir, list(input_data_dict.keys()))
 
-        self._publish_rendered_dot_graph_file(preprocessing_fn, feature_spec,
-                                              set(input_data_dict.keys()),
-                                              pcoll_cache_dict)
+        self._publish_rendered_dot_graph_file(
+            preprocessing_fn,
+            feature_spec,
+            set(input_data_dict.keys()),
+            pcoll_cache_dict,
+            use_tf_compat_v1=use_tf_compat_v1)
 
         transform_fn, cache_output = (
             (input_data_pcoll_dict, pcoll_cache_dict, input_metadata)
@@ -505,20 +527,21 @@ class CachedImplTest(tft_unit.TransformTestCase):
 
         return self._RunPipelineResult(cache_output, p)
 
+  @tft_unit.named_parameters(_TF_VERSION_NAMED_PARAMETERS)
   @mock_out_cache_hash
-  def test_single_phase_mixed_analyzer_run_once(self):
+  def test_single_phase_mixed_analyzer_run_once(self, use_tf_compat_v1):
+    if not use_tf_compat_v1:
+      tft_unit.skip_if_not_tf2('Tensorflow 2.x required.')
     span_0_key = analyzer_cache.DatasetKey('span-0')
     span_1_key = analyzer_cache.DatasetKey('span-1')
 
     def preprocessing_fn(inputs):
 
-      integerized_s = tft.compute_and_apply_vocabulary(inputs['s'])
-
       _ = tft.bucketize(inputs['x'], 2, name='bucketize')
 
       return {
           'integerized_s':
-              integerized_s,
+              tft.compute_and_apply_vocabulary(inputs['s']),
           'x_min':
               tft.min(inputs['x'], name='x') + tf.zeros_like(inputs['x']),
           'x_mean':
@@ -593,7 +616,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
         datasets_to_transform=[span_1_key],
         expected_transform_data=expected_transformed,
         transform_fn_output_dir=os.path.join(self.base_test_dir,
-                                             'transform_fn'))
+                                             'transform_fn'),
+        use_tf_compat_v1=use_tf_compat_v1)
 
     # The output cache should not have entries for the cache that is present
     # in the input cache.
@@ -613,8 +637,10 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(
         p.metrics, 'num_packed_merge_combiners', 1)
 
-  def test_single_phase_run_twice(self):
-
+  @tft_unit.named_parameters(_TF_VERSION_NAMED_PARAMETERS)
+  def test_single_phase_run_twice(self, use_tf_compat_v1):
+    if not use_tf_compat_v1:
+      tft_unit.skip_if_not_tf2('Tensorflow 2.x required.')
     span_0_key = analyzer_cache.DatasetKey('span-0')
     span_1_key = analyzer_cache.DatasetKey('span-1')
     span_2_key = analyzer_cache.DatasetKey('span-2')
@@ -716,7 +742,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
         preprocessing_fn,
         datasets_to_transform=[span_2_key],
         expected_transform_data=expected_transformed_data,
-        transform_fn_output_dir=transform_fn_dir)
+        transform_fn_output_dir=transform_fn_dir,
+        use_tf_compat_v1=use_tf_compat_v1)
 
     for key in input_data_dict:
       self.assertIn(key, first_run_result.cache_output)
@@ -744,7 +771,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
         should_read_cache=True,
         datasets_to_transform=[span_2_key],
         expected_transform_data=expected_transformed_data,
-        transform_fn_output_dir=transform_fn_dir)
+        transform_fn_output_dir=transform_fn_dir,
+        use_tf_compat_v1=use_tf_compat_v1)
 
     tf_transform_output = tft.TFTransformOutput(transform_fn_dir)
     vocab1_path = tf_transform_output.vocabulary_file_by_name('vocab1')
@@ -763,9 +791,11 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
                                    _ZERO_PHASE_NUM_SAVED_MODELS)
 
+  @tft_unit.named_parameters(_TF_VERSION_NAMED_PARAMETERS)
   @mock_out_cache_hash
-  def test_caching_vocab_for_integer_categorical(self):
-
+  def test_caching_vocab_for_integer_categorical(self, use_tf_compat_v1):
+    if not use_tf_compat_v1:
+      tft_unit.skip_if_not_tf2('Tensorflow 2.x required.')
     span_0_key = analyzer_cache.DatasetKey('span-0')
     span_1_key = analyzer_cache.DatasetKey('span-1')
 
@@ -827,7 +857,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
         preprocessing_fn,
         cache_dict=cache_dict,
         datasets_to_transform=[span_1_key],
-        expected_transform_data=expected_transformed_data)
+        expected_transform_data=expected_transformed_data,
+        use_tf_compat_v1=use_tf_compat_v1)
 
     self.assertNotIn(span_0_key, run_result.cache_output)
 
@@ -839,10 +870,12 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
                                    _SINGLE_PHASE_NUM_SAVED_MODELS)
 
+  @tft_unit.named_parameters(_TF_VERSION_NAMED_PARAMETERS)
   @mock_out_cache_hash
-  def test_non_frequency_vocabulary_merge(self):
+  def test_non_frequency_vocabulary_merge(self, use_tf_compat_v1):
     """This test compares vocabularies produced with and without cache."""
-
+    if not use_tf_compat_v1:
+      tft_unit.skip_if_not_tf2('Tensorflow 2.x required.')
     mi_vocab_name = 'mutual_information_vocab'
     adjusted_mi_vocab_name = 'adjusted_mutual_information_vocab'
     weighted_frequency_vocab_name = 'weighted_frequency_vocab'
@@ -929,7 +962,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
         input_data_dict,
         preprocessing_fn,
         transform_fn_output_dir=transform_fn_with_cache_dir,
-        expected_cache=expected_cache)
+        expected_cache=expected_cache,
+        use_tf_compat_v1=use_tf_compat_v1)
 
     p = run_result.pipeline
     # 4 from analysis on each of the input spans.
@@ -1022,7 +1056,10 @@ class CachedImplTest(tft_unit.TransformTestCase):
                              preprocessing_fn, pipeline=p))
       self.assertFalse(output_cache)
 
-  def test_tf_function_works_with_cache(self):
+  @tft_unit.named_parameters(_TF_VERSION_NAMED_PARAMETERS)
+  def test_tf_function_works_with_cache(self, use_tf_compat_v1):
+    if not use_tf_compat_v1:
+      tft_unit.skip_if_not_tf2('Tensorflow 2.x required.')
 
     def preprocessing_fn(inputs, should_add_one):
 
@@ -1043,8 +1080,10 @@ class CachedImplTest(tft_unit.TransformTestCase):
         analyzer_cache.DatasetKey('span-0'): [dict(x=-2), dict(x=4)]
     }
     run_result = self._run_pipeline(
-        feature_spec, input_data_dict,
-        functools.partial(preprocessing_fn, should_add_one=False))
+        feature_spec,
+        input_data_dict,
+        functools.partial(preprocessing_fn, should_add_one=False),
+        use_tf_compat_v1=use_tf_compat_v1)
     first_cache_output, p1 = run_result.cache_output, run_result.pipeline
 
     for key in input_data_dict:
@@ -1062,7 +1101,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
         feature_spec,
         input_data_dict,
         functools.partial(preprocessing_fn, should_add_one=False),
-        should_read_cache=True)
+        should_read_cache=True,
+        use_tf_compat_v1=use_tf_compat_v1)
     second_cache_output, p2 = run_result.cache_output, run_result.pipeline
 
     self.assertFalse(second_cache_output)
@@ -1083,7 +1123,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
         feature_spec,
         input_data_dict,
         functools.partial(preprocessing_fn, should_add_one=True),
-        should_read_cache=True)
+        should_read_cache=True,
+        use_tf_compat_v1=use_tf_compat_v1)
     third_output_cache, p3 = run_result.cache_output, run_result.pipeline
 
     for key in input_data_dict:
@@ -1095,7 +1136,10 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(p3.metrics, 'cache_entries_encoded', 1)
     self.assertMetricsCounterEqual(p3.metrics, 'saved_models_created', 2)
 
-  def test_changing_constant_fails_cache(self):
+  @tft_unit.named_parameters(_TF_VERSION_NAMED_PARAMETERS)
+  def test_changing_constant_fails_cache(self, use_tf_compat_v1):
+    if not use_tf_compat_v1:
+      tft_unit.skip_if_not_tf2('Tensorflow 2.x required.')
 
     def make_preprocessing_fn(string):
 
@@ -1112,8 +1156,11 @@ class CachedImplTest(tft_unit.TransformTestCase):
                                               dict(s='b')]
     }
 
-    run_result = self._run_pipeline(feature_spec, input_data_dict,
-                                    make_preprocessing_fn('1st_run'))
+    run_result = self._run_pipeline(
+        feature_spec,
+        input_data_dict,
+        make_preprocessing_fn('1st_run'),
+        use_tf_compat_v1=use_tf_compat_v1)
     first_cache_output, p1 = run_result.cache_output, run_result.pipeline
 
     for key in input_data_dict:
@@ -1126,8 +1173,11 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(p1.metrics, 'saved_models_created',
                                    _SINGLE_PHASE_NUM_SAVED_MODELS)
 
-    run_result = self._run_pipeline(feature_spec, input_data_dict,
-                                    make_preprocessing_fn('2nd_run'))
+    run_result = self._run_pipeline(
+        feature_spec,
+        input_data_dict,
+        make_preprocessing_fn('2nd_run'),
+        use_tf_compat_v1=use_tf_compat_v1)
     second_cache_output, p2 = run_result.cache_output, run_result.pipeline
 
     # We expect a full output cache again because tf.function in the

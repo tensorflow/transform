@@ -26,7 +26,7 @@ from typing import Any, Iterable, Optional
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
-
+from tensorflow.python import tf2  # pylint: disable=g-direct-tensorflow-import
 
 _DEPRECATED_SENTINEL = object()
 
@@ -49,6 +49,9 @@ class Context(object):
     use_deep_copy_optimization: (Optional) If True, makes deep copies of
         PCollections that are used in multiple TFT phases.
     use_tfxio: Deprecated. Do not set.
+    force_tf_compat_v1: (Optional) If True, TFT's public APIs
+        (e.g. AnalyzeDataset) will use Tensorflow in compat.v1 mode irrespective
+        of installed version of Tensorflow. Defaults to `True`.
 
   Note that the temp dir should be accessible to worker jobs, e.g. if running
   with the Cloud Dataflow runner, the temp dir should be on GCS and should have
@@ -61,6 +64,7 @@ class Context(object):
           'desired_batch_size',
           'passthrough_keys',
           'use_deep_copy_optimization',
+          'force_tf_compat_v1',
       ])):
     """A named tuple to store attributes of `Context`."""
 
@@ -88,7 +92,8 @@ class Context(object):
                desired_batch_size: Optional[int] = None,
                passthrough_keys: Optional[Iterable[str]] = None,
                use_deep_copy_optimization: Optional[bool] = None,
-               use_tfxio: Any = _DEPRECATED_SENTINEL):
+               use_tfxio: Any = _DEPRECATED_SENTINEL,
+               force_tf_compat_v1: Optional[bool] = None):
     if use_tfxio is not _DEPRECATED_SENTINEL:
       tf.compat.v1.logging.warning(
           'TFT beam APIs accept both the TFXIO format and the instance dict '
@@ -105,6 +110,7 @@ class Context(object):
     self._desired_batch_size = desired_batch_size
     self._passthrough_keys = passthrough_keys
     self._use_deep_copy_optimization = use_deep_copy_optimization
+    self._force_tf_compat_v1 = force_tf_compat_v1
 
   def __enter__(self):
     # Previous State's properties are inherited if not explicitly specified.
@@ -120,7 +126,10 @@ class Context(object):
             self._passthrough_keys is not None else last_frame.passthrough_keys,
             use_deep_copy_optimization=self._use_deep_copy_optimization
             if self._use_deep_copy_optimization is not None else
-            last_frame.use_deep_copy_optimization))
+            last_frame.use_deep_copy_optimization,
+            force_tf_compat_v1=self._force_tf_compat_v1
+            if self._force_tf_compat_v1 is not None else
+            last_frame.force_tf_compat_v1))
 
   def __exit__(self, *exn_info):
     self._thread_local.state.frames.pop()
@@ -171,3 +180,18 @@ class Context(object):
     if state.use_deep_copy_optimization is not None:
       return state.use_deep_copy_optimization
     return False
+
+  @classmethod
+  def _get_force_tf_compat_v1(cls) -> bool:
+    """Retrieves flag force_tf_compat_v1."""
+    state = cls._get_topmost_state_frame()
+    if state.force_tf_compat_v1 is not None:
+      return state.force_tf_compat_v1
+    return True
+
+  @classmethod
+  def get_use_tf_compat_v1(cls) -> bool:
+    """Computes use_tf_compat_v1 from TF environment and force_tf_compat_v1."""
+    force_tf_compat_v1 = cls._get_force_tf_compat_v1()
+    major, _, _ = tf.version.VERSION.split('.')
+    return force_tf_compat_v1 or int(major) < 2 or not tf2.enabled()

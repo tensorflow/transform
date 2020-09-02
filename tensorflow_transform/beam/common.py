@@ -164,9 +164,11 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
           'tf_config',
           'graph',
           'input_signature',
+          'input_specs',
           'input_tensor_adapter_config',
-          'environment_tag',
+          'use_tf_compat_v1',
           'cache_pcoll_dict',
+          'preprocessing_fn',
       ])
 
   def __init__(self, extra_args):
@@ -176,14 +178,17 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
     try:
       ptransform_wrapper = (
           _PTRANSFORM_BY_OPERATION_DEF_SUBCLASS[operation.__class__])
-      ptransform = ptransform_wrapper.get_ptransform(
-          self._extra_args.environment_tag)
+      environment_tag = (
+          EnvironmentTags.TF_COMPAT_V1
+          if self._extra_args.use_tf_compat_v1 else EnvironmentTags.TF_V2_ONLY)
+      ptransform = ptransform_wrapper.get_ptransform(environment_tag)
     except KeyError:
       raise ValueError('No implementation for {} was registered'.format(
           operation))
 
     # TODO(zoyahav): Consider extracting a single PCollection before passing to
     # ptransform if len(inputs) == 1.
+    # TODO(b/149997088): Add environment_tag if any to label.
     outputs = ((inputs or beam.pvalue.PBegin(self._extra_args.pipeline))
                | operation.label >> ptransform(operation, self._extra_args))
 

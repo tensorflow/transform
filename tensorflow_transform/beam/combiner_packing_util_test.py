@@ -363,24 +363,24 @@ class CombinerPackingUtilTest(test_case.TransformTestCase):
       self, feature_spec, preprocessing_fn, num_phases,
       expected_dot_graph_str_before_packing,
       expected_dot_graph_str_after_packing):
-    with tf.compat.v1.Graph().as_default() as graph:
-      with tf.compat.v1.name_scope('inputs'):
-        input_signature = impl_helper.feature_spec_as_batched_placeholders(
-            feature_spec)
-      output_signature = preprocessing_fn(input_signature)
 
-      def _side_effect_fn(
-          saved_model_future, cache_value_nodes, unused_num_phases):
-        return (saved_model_future, cache_value_nodes)
+    graph, structured_inputs, structured_outputs = (
+        impl_helper.trace_preprocessing_function(
+            preprocessing_fn, feature_spec, use_tf_compat_v1=True))
 
-      with mock.patch.object(
-          combiner_packing_util, 'perform_combiner_packing_optimization',
-          side_effect=_side_effect_fn):
-        transform_fn_future_before, unused_cache = analysis_graph_builder.build(
-            graph, input_signature, output_signature)
-      transform_fn_future_after, unused_cache = (
-          combiner_packing_util.perform_combiner_packing_optimization(
-              transform_fn_future_before, unused_cache, num_phases))
+    def _side_effect_fn(saved_model_future, cache_value_nodes,
+                        unused_num_phases):
+      return (saved_model_future, cache_value_nodes)
+
+    with mock.patch.object(
+        combiner_packing_util,
+        'perform_combiner_packing_optimization',
+        side_effect=_side_effect_fn):
+      transform_fn_future_before, unused_cache = analysis_graph_builder.build(
+          graph, structured_inputs, structured_outputs)
+    transform_fn_future_after, unused_cache = (
+        combiner_packing_util.perform_combiner_packing_optimization(
+            transform_fn_future_before, unused_cache, num_phases))
     dot_string_before = nodes.get_dot_graph(
         [transform_fn_future_before]).to_string()
     self.assertMultiLineEqual(

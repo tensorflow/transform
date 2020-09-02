@@ -98,12 +98,27 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def setUp(self):
     tf.compat.v1.logging.info('Starting test case: %s', self._testMethodName)
-
-    self._context = beam_impl.Context(use_deep_copy_optimization=True)
+    self._context = beam_impl.Context(
+        use_deep_copy_optimization=True, force_tf_compat_v1=True)
     self._context.__enter__()
+    super(BeamImplTest, self).setUp()
 
   def tearDown(self):
     self._context.__exit__()
+
+  def _UseTFCompatV1(self):
+    return True
+
+  # This is an override that passes force_tf_compat_v1 to the overridden method.
+  def assertAnalyzeAndTransformResults(self, *args, **kwargs):
+    kwargs['force_tf_compat_v1'] = self._UseTFCompatV1()
+    return super(BeamImplTest,
+                 self).assertAnalyzeAndTransformResults(*args, **kwargs)
+
+  # This is an override that passes force_tf_compat_v1 to the overridden method.
+  def assertAnalyzerOutputs(self, *args, **kwargs):
+    kwargs['force_tf_compat_v1'] = self._UseTFCompatV1()
+    return super(BeamImplTest, self).assertAnalyzerOutputs(*args, **kwargs)
 
   def testApplySavedModelSingleInput(self):
     def save_model_with_single_input(instance, export_dir):
@@ -500,6 +515,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_metadata)
 
   def testPyFuncs(self):
+    if not self._UseTFCompatV1():
+      raise unittest.SkipTest('Test disabled when TF 2.x behavior enabled.')
+
     def my_multiply(x, y):
       return x*y
 
@@ -2569,7 +2587,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # Ensure that the annotations survive the round trip to SavedModel.
     tf_transform_output = tft.TFTransformOutput(temp_dir)
     savedmodel_dir = tf_transform_output.transform_savedmodel_dir
-    schema = beam_impl._infer_metadata_from_saved_model(savedmodel_dir)._schema
+    schema = beam_impl._infer_metadata_from_saved_model(
+        savedmodel_dir, use_tf_compat_v1=self._UseTFCompatV1())._schema
     self.assertLen(schema.feature, 2)
     for feature in schema.feature:
       if feature.name == 'x_bucketized':
@@ -2621,7 +2640,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # Ensure that global annotations survive the round trip to SavedModel.
     tf_transform_output = tft.TFTransformOutput(temp_dir)
     savedmodel_dir = tf_transform_output.transform_savedmodel_dir
-    schema = beam_impl._infer_metadata_from_saved_model(savedmodel_dir)._schema
+    schema = beam_impl._infer_metadata_from_saved_model(
+        savedmodel_dir, use_tf_compat_v1=self._UseTFCompatV1())._schema
     self.assertLen(schema.annotation.extra_metadata, 1)
     for annotation in schema.annotation.extra_metadata:
       message = annotations_pb2.BucketBoundaries()
@@ -2671,22 +2691,23 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def preprocessing_fn(inputs):
       return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
 
-    metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature([], tf.float32),
-    })
-    pipeline = self._makeTestPipeline()
-    input_data = pipeline | 'CreateTrainingData' >> beam.Create([{
-        'x': 1
-    }, {
-        'x': [4, 1]
-    }])
-    with beam_impl.Context(temp_dir=self.get_temp_dir()):
-      _ = ((input_data, metadata)
-           | 'AnalyzeDataset' >> beam_impl.AnalyzeDataset(preprocessing_fn))
     # Exception type depends on the running being used.
     with self.assertRaisesRegexp(
         (RuntimeError, ValueError, TypeError), 'has type list'):
-      pipeline.run()
+      # TODO(b/149997088): Remove this explicit use of DirectRunner.
+      with beam.Pipeline() as pipeline:
+        metadata = tft_unit.metadata_from_feature_spec({
+            'x': tf.io.FixedLenFeature([], tf.float32),
+        })
+
+        input_data = pipeline | 'CreateTrainingData' >> beam.Create([{
+            'x': 1
+        }, {
+            'x': [4, 1]
+        }])
+        with beam_impl.Context(temp_dir=self.get_temp_dir()):
+          _ = ((input_data, metadata)
+               | 'AnalyzeDataset' >> beam_impl.AnalyzeDataset(preprocessing_fn))
 
   def testPassthroughKeys(self):
     passthrough_key = '__passthrough__'

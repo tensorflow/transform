@@ -59,7 +59,7 @@ entrypoints into our code where this happens and creating a
 "with ... .as_default()" block.  There are four places this happens.
 
 1) In AnalyzeDataset.expand() which is typically called from the main thread
-2) In _GraphState.__init__ which is called from the worker running
+2) In _GraphStateCommon.__init__ which is called from the worker running
    _RunMetaGraphDoFn
 3) In _replace_tensors_with_constant_values, which is called in a beam.Map.
 4) In extract_scalar_constants, which is called in a beam.Map.
@@ -91,12 +91,14 @@ import numpy as np
 import pyarrow as pa
 import six
 import tensorflow as tf
+from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import common
 from tensorflow_transform import context
 from tensorflow_transform import graph_tools
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
 from tensorflow_transform import schema_inference
+from tensorflow_transform import tf2_utils
 from tensorflow_transform.beam import analysis_graph_builder
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import beam_nodes
@@ -105,13 +107,21 @@ from tensorflow_transform.beam import deep_copy
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.coders import example_proto_coder
 from tensorflow_transform.saved import saved_transform_io
+from tensorflow_transform.saved import saved_transform_io_v2
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
 from tfx_bsl.beam import shared
 from tfx_bsl.tfxio import tf_example_record
 from tfx_bsl.tfxio.tensor_adapter import TensorAdapter
 
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.ops import lookup_ops
+from tensorflow.python.training.tracking import tracking
+# pylint: enable=g-direct-tensorflow-import
+
 Context = context.Context
+
+_CREATE_SAVED_MODEL_COUNTER_NAME = 'saved_models_created'
 
 # For some runners, we rely on Beam to manage concurrency, i.e. we expect it to
 # run one session per CPU--so we don't want to proliferate TF threads.
@@ -194,13 +204,22 @@ class _RunMetaGraphDoFn(beam.DoFn):
   inputs are required to produce the included outputs.
   """
 
-  # Thread-safe.
-  class _GraphState(object):
+  class _GraphStateCommon(object):
     """A container for a shared graph state."""
+
+    def __init__(self, saved_model_dir, input_tensor_keys, output_tensor_keys,
+                 callable_get_outputs):
+      self.saved_model_dir = saved_model_dir
+      self.inputs_tensor_keys = input_tensor_keys
+      self.outputs_tensor_keys = output_tensor_keys
+      self.callable_get_outputs = callable_get_outputs
+
+  # Thread-safe.
+  class _GraphStateCompatV1(_GraphStateCommon):
+    """A container for a shared TF1 graph state."""
 
     def __init__(self, saved_model_dir, input_tensor_names, exclude_outputs,
                  tf_config):
-      self.saved_model_dir = saved_model_dir
       with tf.compat.v1.Graph().as_default() as graph:
         self._session = tf.compat.v1.Session(graph=graph, config=tf_config)
         with self._session.as_default():
@@ -222,19 +241,34 @@ class _RunMetaGraphDoFn(beam.DoFn):
             set(outputs.keys()).difference(exclude_outputs))
         fetches = [outputs[key] for key in non_excluded_output_keys]
         tensor_inputs = graph_tools.get_dependent_inputs(graph, inputs, fetches)
-        self.inputs_tensor_keys = sorted(tensor_inputs.keys())
-        self.outputs_tensor_keys = non_excluded_output_keys
+        inputs_tensor_keys = sorted(tensor_inputs.keys())
+        outputs_tensor_keys = non_excluded_output_keys
 
-        tensor_inputs_list = [
-            tensor_inputs[key] for key in self.inputs_tensor_keys
-        ]
-        self.callable_get_outputs = self._session.make_callable(
+        tensor_inputs_list = [tensor_inputs[key] for key in inputs_tensor_keys]
+        callable_get_outputs = self._session.make_callable(
             fetches, feed_list=tensor_inputs_list)
+        super().__init__(saved_model_dir, inputs_tensor_keys,
+                         outputs_tensor_keys, callable_get_outputs)
+
+  # Thread-safe.
+  class _GraphStateV2(_GraphStateCommon):
+    """A container for a shared TF2 graph state."""
+
+    def __init__(self, saved_model_dir, input_tensor_names, exclude_outputs):
+      saved_model_loader = saved_transform_io_v2.SavedModelLoader(
+          saved_model_dir)
+      callable_get_outputs = saved_model_loader.apply_transform_model
+      inputs_tensor_keys, outputs_tensor_keys = (
+          saved_model_loader.get_dependent_input_output_keys(
+              input_tensor_names, exclude_outputs))
+      super().__init__(saved_model_dir, inputs_tensor_keys, outputs_tensor_keys,
+                       callable_get_outputs)
 
   def __init__(self,
                tf_config,
                shared_graph_state_handle,
                passthrough_keys,
+               use_tf_compat_v1,
                input_tensor_adapter_config,
                exclude_outputs=None):
     """Initialize.
@@ -247,10 +281,13 @@ class _RunMetaGraphDoFn(beam.DoFn):
         current process.
       passthrough_keys: A set of strings that are keys to instances that should
         pass through the pipeline and be hidden from the preprocessing_fn.
+      use_tf_compat_v1: Boolean to indicate whether TFT APIs should use TF in
+        compat.v1 mode.
       input_tensor_adapter_config: Tensor Adapter config.
       exclude_outputs: (Optional) A list of names of outputs to exclude.
     """
     super(_RunMetaGraphDoFn, self).__init__()
+    self._use_tf_compat_v1 = use_tf_compat_v1
     self._input_tensor_adapter_config = input_tensor_adapter_config
     self._exclude_outputs = (
         exclude_outputs if exclude_outputs is not None else [])
@@ -284,18 +321,21 @@ class _RunMetaGraphDoFn(beam.DoFn):
         beam_common.METRICS_NAMESPACE, 'num_instances')
 
   def _get_input_tensor_names(self):
-    return set(
-        self._input_tensor_adapter_config.tensor_representations.keys())
+    return set(self._input_tensor_adapter_config.tensor_representations.keys())
 
   def _update_metrics(self, batch):
     self._batch_size_distribution.update(batch.num_rows)
     self._num_instances.inc(batch.num_rows)
 
-  def _make_feed_list(self, batch):
+  def _make_feed_dict(self, batch):
+    # If self._use_tf_compat_v1 is True, do not produce eager tensors.
+    produce_eager_tensors = not self._use_tf_compat_v1
     feed_by_name = self._tensor_adapter.ToBatchTensors(
-        batch, produce_eager_tensors=False)
-    return [
-        feed_by_name[name] for name in self._graph_state.inputs_tensor_keys]
+        batch, produce_eager_tensors=produce_eager_tensors)
+    return {
+        name: feed_by_name[name]
+        for name in self._graph_state.inputs_tensor_keys
+    }
 
   def _get_passthrough_data_from_recordbatch(self, batch):
     result = {}
@@ -304,9 +344,8 @@ class _RunMetaGraphDoFn(beam.DoFn):
       passthrough_data_column = batch.column(column_index)
       # the passthrough column should be of list<primitive> type with each
       # sub-list being either null or of length 1.
-      assert (
-          pa.types.is_list(passthrough_data_column.type) or
-          pa.types.is_large_list(passthrough_data_column.type))
+      assert (pa.types.is_list(passthrough_data_column.type) or
+              pa.types.is_large_list(passthrough_data_column.type))
       result[passthrough_key] = [
           None if elem is None else elem[0]
           for elem in passthrough_data_column.to_pylist()
@@ -321,9 +360,29 @@ class _RunMetaGraphDoFn(beam.DoFn):
     # TensorAdapter.
     # 2) It's not possible to leak passthrough columns through TensorAdapter
     # because they are not going to be converted to Tensors.
-    feed_list = self._make_feed_list(batch)
+
+    feed_dict = self._make_feed_dict(batch)
     try:
-      outputs_list = self._graph_state.callable_get_outputs(*feed_list)
+      if self._use_tf_compat_v1:
+        # Use self._graph_state.inputs_tensor_keys and not the dictionary keys
+        # to maintain order of the feed list.
+        feed_list = [
+            feed_dict[name] for name in self._graph_state.inputs_tensor_keys
+        ]
+        outputs_list = self._graph_state.callable_get_outputs(*feed_list)
+        assert len(self._graph_state.outputs_tensor_keys) == len(outputs_list)
+        result = {
+            key: value for key, value in zip(
+                self._graph_state.outputs_tensor_keys, outputs_list)
+        }
+      else:
+        outputs_dict = self._graph_state.callable_get_outputs(feed_dict)
+        # outputs_dict will contain all output keys. Filter out output keys to
+        # exclude.
+        result = {
+            key: outputs_dict[key]
+            for key in self._graph_state.outputs_tensor_keys
+        }
     except Exception as e:
       raise ValueError(
           """An error occured while trying to apply the transformation: "{}".
@@ -331,20 +390,20 @@ class _RunMetaGraphDoFn(beam.DoFn):
           Fetching the values for the following Tensor keys: {}.""".format(
               str(e), batch, self._graph_state.outputs_tensor_keys))
 
-    assert len(self._graph_state.outputs_tensor_keys) == len(outputs_list)
-    result = {
-        key: value for key, value in zip(self._graph_state.outputs_tensor_keys,
-                                         outputs_list)
-    }
-
     result.update(self._get_passthrough_data_from_recordbatch(batch))
 
     return result
 
   def _make_graph_state(self, saved_model_dir):
     start = datetime.datetime.now()
-    result = self._GraphState(saved_model_dir, self._get_input_tensor_names(),
-                              self._exclude_outputs, self._tf_config)
+    if self._use_tf_compat_v1:
+      result = self._GraphStateCompatV1(saved_model_dir,
+                                        self._get_input_tensor_names(),
+                                        self._exclude_outputs, self._tf_config)
+    else:
+      result = self._GraphStateV2(saved_model_dir,
+                                  self._get_input_tensor_names(),
+                                  self._exclude_outputs)
     self._graph_load_seconds_distribution.update(
         int((datetime.datetime.now() - start).total_seconds()))
     return result
@@ -354,7 +413,8 @@ class _RunMetaGraphDoFn(beam.DoFn):
       self._tensor_adapter = TensorAdapter(self._input_tensor_adapter_config)
       arrow_schema = self._input_tensor_adapter_config.arrow_schema
       self._passthrough_column_indices = [
-          arrow_schema.get_field_index(k) for k in self._passthrough_keys]
+          arrow_schema.get_field_index(k) for k in self._passthrough_keys
+      ]
 
   def process(self, batch, saved_model_dir):
     """Runs the given graph to realize the output `Tensor` or `SparseTensor`s.
@@ -372,8 +432,8 @@ class _RunMetaGraphDoFn(beam.DoFn):
       names) to values.
     """
     if self._graph_state is None:
-      # If available, acquire will return a cached _GraphState, since calling
-      # _make_graph_state is expensive.
+      # If available, acquire will return a cached _GraphStateCommon, since
+      # calling _make_graph_state is expensive.
       self._graph_state = self._shared_graph_state_handle.acquire(
           lambda: self._make_graph_state(saved_model_dir))
 
@@ -450,6 +510,20 @@ class _CreateTensorBindingsImpl(beam.PTransform):
                                                  self._is_asset_file)
 
 
+def _get_tensor_replacement_map(graph, *tensor_bindings):
+  """Get Tensor replacement map."""
+  tensor_replacement_map = {}
+
+  for tensor_binding in tensor_bindings:
+    assert isinstance(tensor_binding, _TensorBinding), tensor_binding
+    replacement_tensor = tf.constant(tensor_binding.value)
+    if graph is not None and tensor_binding.is_asset_filepath:
+      graph.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
+                              replacement_tensor)
+    tensor_replacement_map[tensor_binding.tensor_name] = replacement_tensor
+  return tensor_replacement_map
+
+
 def _replace_tensors_with_constant_values(saved_model_dir, base_temp_dir,
                                           *tensor_bindings):
   """Replaces specified `Tensor`s with constant values.
@@ -476,14 +550,8 @@ def _replace_tensors_with_constant_values(saved_model_dir, base_temp_dir,
         apply the transform.
   """
   with tf.compat.v1.Graph().as_default() as graph:
-    tensor_replacement_map = {}
-    for tensor_binding in tensor_bindings:
-      assert isinstance(tensor_binding, _TensorBinding), tensor_binding
-      replacement_tensor = tf.constant(tensor_binding.value)
-      if tensor_binding.is_asset_filepath:
-        graph.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
-                                replacement_tensor)
-      tensor_replacement_map[tensor_binding.tensor_name] = replacement_tensor
+    tensor_replacement_map = (
+        _get_tensor_replacement_map(graph, *tensor_bindings))
 
     with tf.compat.v1.Session(graph=graph) as session:
       temp_dir = beam_common.get_unique_temp_path(base_temp_dir)
@@ -496,7 +564,9 @@ def _replace_tensors_with_constant_values(saved_model_dir, base_temp_dir,
     return temp_dir
 
 
-@beam_common.register_ptransform(beam_nodes.CreateSavedModel)
+@beam_common.register_ptransform(
+    beam_nodes.CreateSavedModel,
+    tags={beam_common.EnvironmentTags.TF_COMPAT_V1})
 @beam.typehints.with_input_types(_TensorBinding)
 @beam.typehints.with_output_types(str)
 class _CreateSavedModelImpl(beam.PTransform):
@@ -529,7 +599,114 @@ class _CreateSavedModelImpl(beam.PTransform):
     return (inputs
             | 'BindTensors' >> _BindTensors(self._base_temp_dir,
                                             unbound_saved_model_dir)
-            | 'Count' >> beam_common.IncrementCounter('saved_models_created'))
+            | 'Count' >>
+            beam_common.IncrementCounter(_CREATE_SAVED_MODEL_COUNTER_NAME))
+
+
+def _create_v2_saved_model(tensor_replacement_map, base_temp_dir,
+                           preprocessing_fn, input_signature,
+                           output_keys_to_name_map):
+  """Writes out a SavedModelV2 with preprocessing_fn traced using tf.function.
+
+  The SavedModel written contains a method called `transform_fn` that
+  represents the traced `preprocessing_fn`. Additionally, if this is the final
+  SavedModel being written out, it will contain a method called `metadata_fn`
+  that provides deferred schema annotations.
+
+  Args:
+    tensor_replacement_map: A map from placeholder tensor names to their
+      evaluated replacement tensors.
+    base_temp_dir: Base path to write SavedModel and temporary artifacts to.
+    preprocessing_fn: A user defined python function to be traced.
+    input_signature: TypeSpecs describing the inputs to the `preprocessing_fn`.
+    output_keys_to_name_map: A map from output dictionary keys to the names of
+      the tensors that they represent.
+
+  Returns:
+    Path to which SavedModel was written.
+  """
+  module = tf.Module()
+  module.transform_fn = impl_helper.get_traced_transform_fn(
+      preprocessing_fn,
+      input_signature,
+      base_temp_dir,
+      tensor_replacement_map=tensor_replacement_map,
+      output_keys_to_name_map=output_keys_to_name_map)
+
+  resource_tracker = tracking.ResourceTracker()
+  # TODO(b/164921571): Handle generic Trackable objects.
+  with tracking.resource_tracker_scope(resource_tracker):
+    concrete_transform_fn = module.transform_fn.get_concrete_function()
+    # If the `TENSOR_REPLACEMENTS` graph collection is empty, all TFT analyzers
+    # in the `preprocessing_fn` have already been evaluated.
+    if not concrete_transform_fn.graph.get_collection(
+        analyzer_nodes.TENSOR_REPLACEMENTS):
+      module.metadata_fn = schema_inference.get_traced_metadata_fn(
+          tensor_replacement_map,
+          preprocessing_fn,
+          input_signature,
+          base_temp_dir,
+          evaluate_schema_overrides=True)
+      # Trace the `metadata_fn` to gather any resources in it using the
+      # resource_tracker. These are then assigned to `module.resources` and
+      # tracked before exporting to SavedModel.
+      _ = module.metadata_fn.get_concrete_function()
+
+  # Resources need to be explicitly tracked.
+  module.resources = resource_tracker.resources
+  # TODO(b/158011374) - Stop explicitly tracking initializers. Tracking the
+  # table should be sufficient.
+  initializers = []
+  for resource in module.resources:
+    if isinstance(resource, lookup_ops.InitializableLookupTableBase):
+      initializers.append(resource._initializer)  # pylint: disable=protected-access
+  module.initializers = initializers
+  module.assets = concrete_transform_fn.graph.get_collection(
+      analyzer_nodes.ASSET_REPLACEMENTS)
+
+  saved_model_dir = beam_common.get_unique_temp_path(base_temp_dir)
+  tf.saved_model.save(module, saved_model_dir)
+  return saved_model_dir
+
+
+@beam_common.register_ptransform(
+    beam_nodes.CreateSavedModel, tags={beam_common.EnvironmentTags.TF_V2_ONLY})
+@beam.typehints.with_input_types(_TensorBinding)
+@beam.typehints.with_output_types(str)
+class _CreateSavedModelImplV2(beam.PTransform):
+  """Create a SavedModel from a TF Graph."""
+
+  def __init__(self, operation, extra_args):
+    self._base_temp_dir = extra_args.base_temp_dir
+    self._preprocessing_fn = extra_args.preprocessing_fn
+    self._input_signature = extra_args.input_specs
+    self._output_signature = operation.output_signature
+
+  def _maybe_get_output_tensor_names_dict(self):
+    # output_signature will contain CompositeTensors only if this is the final
+    # SavedModel export. In this scenario, we do not need the output_signature
+    # anymore as we will output everything that the preprocessing_fn returns.
+    if all(isinstance(v, tf.Tensor) for v in self._output_signature.values()):
+      return {k: v.name for k, v in self._output_signature.items()}
+    else:
+      return {}
+
+  def expand(self, inputs):
+    pipeline = (inputs[0] if isinstance(inputs, tuple) else inputs).pipeline
+
+    input_pcoll = pipeline | 'CreateSole' >> beam.Create([None])
+    if not isinstance(inputs, beam.pvalue.PBegin):
+      input_pcoll |= ('ReplaceWithConstants' >> beam.Map(
+          lambda _, *args: _get_tensor_replacement_map(None, *args),
+          *[beam.pvalue.AsSingleton(pcoll) for pcoll in inputs]))
+
+    return (
+        input_pcoll
+        | 'CreateSavedModel' >> beam.Map(
+            _create_v2_saved_model, self._base_temp_dir, self._preprocessing_fn,
+            self._input_signature, self._maybe_get_output_tensor_names_dict())
+        | 'Count' >>
+        beam_common.IncrementCounter(_CREATE_SAVED_MODEL_COUNTER_NAME))
 
 
 class _BindTensors(beam.PTransform):
@@ -581,6 +758,7 @@ class _ApplySavedModelImpl(beam.PTransform):
   """PTransform to apply a SavedModel to data."""
 
   def __init__(self, operation, extra_args):
+    self._use_tf_compat_v1 = extra_args.use_tf_compat_v1
     self._input_tensor_adapter_config = extra_args.input_tensor_adapter_config
     self._tf_config = extra_args.tf_config
     self._phase = operation.phase
@@ -597,13 +775,25 @@ class _ApplySavedModelImpl(beam.PTransform):
                                 self._phase)
       input_values_pcol = deep_copy.deep_copy(input_values_pcol)
 
-    return (input_values_pcol | 'ApplySavedModel' >> beam.ParDo(
-        _RunMetaGraphDoFn(
-            self._tf_config,
-            input_tensor_adapter_config=self._input_tensor_adapter_config,
-            shared_graph_state_handle=shared.Shared(),
-            passthrough_keys=Context.get_passthrough_keys()),
-        saved_model_dir=beam.pvalue.AsSingleton(saved_model_dir_pcol)))
+    def _convert_to_numpy(input_dict):
+      """Converts eager tensors to numpy arrays."""
+      return {
+          k: v.numpy() if isinstance(v, tf.Tensor) else v
+          for k, v in input_dict.items()
+      }
+
+    result = (
+        input_values_pcol | 'ApplySavedModel' >> beam.ParDo(
+            _RunMetaGraphDoFn(
+                self._tf_config,
+                use_tf_compat_v1=self._use_tf_compat_v1,
+                input_tensor_adapter_config=self._input_tensor_adapter_config,
+                shared_graph_state_handle=shared.Shared(),
+                passthrough_keys=Context.get_passthrough_keys()),
+            saved_model_dir=beam.pvalue.AsSingleton(saved_model_dir_pcol)))
+    if not self._use_tf_compat_v1:
+      result |= 'ConvertToNumpy' >> beam.Map(_convert_to_numpy)
+    return result
 
 
 @beam_common.register_ptransform(beam_nodes.ExtractFromDict)
@@ -639,8 +829,16 @@ class _Flatten(beam.PTransform):
     return inputs | beam.Flatten()
 
 
-def _infer_metadata_from_saved_model(saved_model_dir):
+def _infer_metadata_from_saved_model(saved_model_dir, use_tf_compat_v1=True):
   """Infers a DatasetMetadata for outputs of a SavedModel."""
+  if use_tf_compat_v1:
+    return _infer_metadata_from_saved_model_v1(saved_model_dir)
+  else:
+    return _infer_metadata_from_saved_model_v2(saved_model_dir)
+
+
+def _infer_metadata_from_saved_model_v1(saved_model_dir):
+  """Infers a DatasetMetadata for outputs of a TF1 SavedModel."""
   with tf.compat.v1.Graph().as_default() as graph:
     with tf.compat.v1.Session(graph=graph) as session:
       _, outputs = (
@@ -651,6 +849,48 @@ def _infer_metadata_from_saved_model(saved_model_dir):
       session.run(tf.compat.v1.tables_initializer())
       return dataset_metadata.DatasetMetadata(
           schema=schema_inference.infer_feature_schema(outputs, graph, session))
+
+
+def _infer_metadata_from_saved_model_v2(saved_model_dir):
+  """Infers a DatasetMetadata for outputs of a TF2 SavedModel."""
+  imported = tf.saved_model.load(saved_model_dir)
+  # Since `input_signature` was specified when exporting the tf function to
+  # `SavedModel`, there should be exactly one concrete function present on
+  # loading the `SavedModel`.
+  assert len(imported.transform_fn.concrete_functions) == 1
+  assert len(imported.metadata_fn.concrete_functions) == 1
+  concrete_transform_fn = imported.transform_fn.concrete_functions[0]
+  structured_outputs = tf.nest.pack_sequence_as(
+      structure=concrete_transform_fn.structured_outputs,
+      flat_sequence=concrete_transform_fn.outputs,
+      expand_composites=True)
+  return dataset_metadata.DatasetMetadata(
+      schema=_infer_feature_schema_from_concrete_function(
+          imported.metadata_fn.concrete_functions[0],
+          structured_outputs,
+          evaluate_schema_overrides=True))
+
+
+def _infer_feature_schema_from_concrete_function(metadata_fn,
+                                                 structured_outputs,
+                                                 evaluate_schema_overrides):
+  """Infers a DatasetMetadata from a tf.function `metadata_fn`."""
+  concrete_metadata_fn = metadata_fn
+  num_captures = len(concrete_metadata_fn.graph.internal_captures)
+  # Get only user provided inputs to the graph.
+  graph_inputs = copy.copy(concrete_metadata_fn.graph.inputs)
+  if num_captures > 0:
+    graph_inputs = graph_inputs[:-num_captures]
+  structured_inputs = tf.nest.pack_sequence_as(
+      concrete_metadata_fn.structured_input_signature[0][0],
+      graph_inputs,
+      expand_composites=True)
+  # Invoke metadata_fn with some dummy data.
+  inputs = tf2_utils.supply_missing_inputs(structured_inputs, batch_size=1)
+  metadata = collections.defaultdict(list, concrete_metadata_fn(inputs))
+
+  return schema_inference.infer_feature_schema_v2(structured_outputs, metadata,
+                                                  evaluate_schema_overrides)
 
 
 class _InstrumentAPI(beam.PTransform):
@@ -728,6 +968,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     """
     self._preprocessing_fn = preprocessing_fn
     self.pipeline = pipeline
+    self._use_tf_compat_v1 = Context.get_use_tf_compat_v1()
     _assert_tensorflow_version()
 
   def _extract_input_pvalues(self, dataset):
@@ -791,28 +1032,18 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     else:
       input_tensor_adapter_config = input_metadata
 
-    with tf.compat.v1.Graph().as_default() as graph:
-
-      with tf.compat.v1.name_scope('inputs'):
-        specs = TensorAdapter(input_tensor_adapter_config).OriginalTypeSpecs()
-        input_signature = impl_helper.batched_placeholders_from_specs(specs)
-        # In order to avoid a bug where import_graph_def fails when the
-        # input_map and return_elements of an imported graph are the same
-        # (b/34288791), we avoid using the placeholder of an input column as an
-        # output of a graph. We do this by applying tf.identity to all inputs of
-        # the preprocessing_fn.  Note this applies at the level of raw tensors.
-        # TODO(b/34288791): Remove this workaround and use a shallow copy of
-        # inputs instead.  A shallow copy is needed in case
-        # self._preprocessing_fn mutates its input.
-        copied_inputs = impl_helper.copy_tensors(input_signature)
-
-      output_signature = self._preprocessing_fn(copied_inputs)
+    specs = TensorAdapter(input_tensor_adapter_config).OriginalTypeSpecs()
+    base_temp_dir = Context.create_base_temp_dir()
+    graph, structured_inputs, structured_outputs = (
+        impl_helper.trace_preprocessing_function(self._preprocessing_fn, specs,
+                                                 self._use_tf_compat_v1,
+                                                 base_temp_dir))
 
     # At this point we check that the preprocessing_fn has at least one
     # output. This is because if we allowed the output of preprocessing_fn to
     # be empty, we wouldn't be able to determine how many instances to
     # "unbatch" the output into.
-    if not output_signature:
+    if not structured_outputs:
       raise ValueError('The preprocessing function returned an empty dict')
 
     if graph.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES):
@@ -832,21 +1063,23 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_BEAM_RUNNER_TYPE.get(
         type(pipeline.runner))
     extra_args = beam_common.ConstructBeamPipelineVisitor.ExtraArgs(
-        base_temp_dir=Context.create_base_temp_dir(),
+        base_temp_dir=base_temp_dir,
         tf_config=tf_config,
         pipeline=pipeline,
         flat_pcollection=flattened_pcoll,
         pcollection_dict=input_values_pcoll_dict,
         graph=graph,
-        input_signature=input_signature,
+        input_signature=structured_inputs,
+        input_specs=specs,
         input_tensor_adapter_config=input_tensor_adapter_config,
-        environment_tag=beam_common.EnvironmentTags.TF_COMPAT_V1,
-        cache_pcoll_dict=dataset_cache_dict)
+        use_tf_compat_v1=self._use_tf_compat_v1,
+        cache_pcoll_dict=dataset_cache_dict,
+        preprocessing_fn=self._preprocessing_fn)
 
     transform_fn_future, cache_value_nodes = analysis_graph_builder.build(
         graph,
-        input_signature,
-        output_signature,
+        structured_inputs,
+        structured_outputs,
         input_values_pcoll_dict.keys(),
         cache_dict=dataset_cache_dict)
     traverser = nodes.Traverser(
@@ -871,16 +1104,26 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     # depends on analyzer outputs. _infer_metadata_from_saved_model will use the
     # analyzer outputs stored in `transform_fn` to compute the metadata in a
     # deferred manner, once the analyzer outputs are known.
-    metadata = dataset_metadata.DatasetMetadata(
-        schema=schema_inference.infer_feature_schema(output_signature, graph))
-
+    if self._use_tf_compat_v1:
+      schema = schema_inference.infer_feature_schema(structured_outputs, graph)
+    else:
+      metadata_fn = schema_inference.get_traced_metadata_fn(
+          tensor_replacement_map={},
+          preprocessing_fn=self._preprocessing_fn,
+          input_signature=specs,
+          base_temp_dir=base_temp_dir,
+          evaluate_schema_overrides=False)
+      schema = _infer_feature_schema_from_concrete_function(
+          metadata_fn.get_concrete_function(),
+          structured_outputs,
+          evaluate_schema_overrides=False)
     deferred_metadata = (
         transform_fn_pcoll
-        |
-        'ComputeDeferredMetadata' >> beam.Map(_infer_metadata_from_saved_model))
+        | 'ComputeDeferredMetadata[compat_v1={}]'.format(self._use_tf_compat_v1)
+        >> beam.Map(_infer_metadata_from_saved_model, self._use_tf_compat_v1))
 
     full_metadata = beam_metadata_io.BeamDatasetMetadata(
-        metadata, deferred_metadata)
+        dataset_metadata.DatasetMetadata(schema=schema), deferred_metadata)
 
     _clear_shared_state_after_barrier(pipeline, transform_fn_pcoll)
 
@@ -1108,6 +1351,7 @@ class TransformDataset(beam.PTransform):
             _RunMetaGraphDoFn(
                 tf_config,
                 input_tensor_adapter_config=input_tensor_adapter_config,
+                use_tf_compat_v1=Context.get_use_tf_compat_v1(),
                 shared_graph_state_handle=shared.Shared(),
                 passthrough_keys=Context.get_passthrough_keys(),
                 exclude_outputs=self._exclude_outputs),

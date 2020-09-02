@@ -86,7 +86,7 @@ def _decompose_tensor_or_op(tensor_or_op):
     yield tensor_or_op
 
 
-def retrieve_sources(sinks):
+def retrieve_sources(sinks, ignore_control_dependencies=False):
   """Captures subgraph between sources and sinks.
 
   Walk a Graph backwards from `sinks` and return any sources encountered in the
@@ -95,6 +95,8 @@ def retrieve_sources(sinks):
 
   Arguments:
     sinks:  An iterable of Operations where the subgraph terminates.
+    ignore_control_dependencies: (Optional) If `True`, ignore any
+      `control_inputs` for all ops while walking the graph.
 
   Returns:
     The set of placeholders upon which `sinks` depend. This could also contain
@@ -112,7 +114,9 @@ def retrieve_sources(sinks):
       potential_extra_sources.update(op.outputs)
 
     input_ops = [t.op for t in op.inputs if t not in stop_at_tensors]
-    for input_op in itertools.chain(input_ops, op.control_inputs):
+    if not ignore_control_dependencies:
+      input_ops = itertools.chain(input_ops, op.control_inputs)
+    for input_op in input_ops:
       if input_op not in visited_ops:
         ops_to_visit.add(input_op)
 
@@ -294,8 +298,10 @@ class _GraphAnalyzer(object):
                 path=self._translate_path_fn(uuid.uuid4().hex),
                 dependent_sources={}))
         continue
-      assert len(tensor_or_op.inputs) == len(parent_analysis_results), (
-          tensor_or_op.inputs, parent_analysis_results)
+      op_inputs = list(
+          itertools.chain(tensor_or_op.inputs, tensor_or_op.control_inputs))
+      assert len(op_inputs) == len(parent_analysis_results), (
+          op_inputs, parent_analysis_results)
       func_graph_inputs_ready = [
           (next_input, r.is_ready_to_run)
           for (next_input, r) in zip(func_graph.inputs, parent_analysis_results)
@@ -587,7 +593,7 @@ class InitializableGraphAnalyzer(object):
         # One of the inputs to the initializer op should be the table op. If
         # no table op is found, (as in the case of a StatefulPartitionedCall)
         # all inputs are added to the source dict.
-        if input_t.op.type in _INITIALIZABLE_TABLE_OP_TYPES:
+        if input_t.dtype == tf.resource:
           table_ops.append(input_t.op)
       assert len(table_ops) == 1
       result = (table_init_op_or_tensor, [table_ops[0]])

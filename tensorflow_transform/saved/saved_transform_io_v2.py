@@ -44,27 +44,32 @@ class SavedModelLoader(object):
         defined in `../constants.py` ('transform' and 'transform_signature',
         respectively).
     """
+    # TODO(b/160294509): Stop using tf.compat.v2 when TF1.15 support is dropped.
     self._imported = tf.compat.v2.saved_model.load(saved_model_dir)
-    self._load_v2_in_compat = (
+    self.load_v2_in_compat = (
         constants.TRANSFORM_SIGNATURE in self._imported.signatures)
-    if self._load_v2_in_compat:
+    if self.load_v2_in_compat:
       self._wrapped = self._imported.signatures[constants.TRANSFORM_SIGNATURE]
       self._func_graph = self._wrapped.graph
       self._structured_inputs = self._get_input_signature_from_v1_saved_model(
           saved_model_dir)
-      structured_outputs = self._wrapped.structured_outputs
+      self._structured_outputs = self._wrapped.structured_outputs
     else:
-      self._wrapped = self._imported.transform_fn
-      self._func_graph = self._get_func_graph_from_v2_saved_model(
-          self._wrapped.get_concrete_function().graph)
+      # Since `input_signature` was specified when exporting the tf function to
+      # `SavedModel`, there should be exactly one concrete function present on
+      # loading the `SavedModel`.
+      concrete_functions = self._imported.transform_fn.concrete_functions
+      assert len(concrete_functions) == 1, concrete_functions
+      self._wrapped = concrete_functions[0]
+      self._func_graph = self._wrapped.graph
       self._structured_inputs = self._get_structured_inputs_from_func_graph(
           self._func_graph)
-      structured_outputs = tf.nest.pack_sequence_as(
+      self._structured_outputs = tf.nest.pack_sequence_as(
           self._func_graph.structured_outputs,
           self._func_graph.outputs,
           expand_composites=True)
     self._output_to_inputs_map = (
-        self._get_output_to_inputs_map(structured_outputs))
+        self._get_output_to_inputs_map(self._structured_outputs))
     saved_transform_io._maybe_register_addon_ops()  # pylint: disable=protected-access
 
   def _get_input_signature_from_v1_saved_model(self, saved_model_dir):
@@ -74,27 +79,6 @@ class SavedModelLoader(object):
         saved_model, [constants.TRANSFORM_TAG])
     signature = meta_graph_def.signature_def[constants.TRANSFORM_SIGNATURE]
     return signature.inputs
-
-  def _get_func_graph_from_v2_saved_model(self, outer_graph):
-    """Retrieves nested func graph from `outer_graph`."""
-    # TODO(b/160550490): Remove local import.
-    from tensorflow_transform import graph_tools  # pylint: disable=g-import-not-at-top
-
-    # `outer_graph` represents the func graph of a TF function imported from a
-    # SavedModel. `outer_graph`'s graph_def contains a single
-    # StatefulPartitionedCall/PartitionedCall representing the TF function
-    # before export to a SavedModel. We extract the func graph of this attribute
-    # as this is the graph we want to walk.
-    functions = []
-    for node in outer_graph.as_graph_def().node:
-      if node.op not in ('PartitionedCall', 'StatefulPartitionedCall'):
-        continue
-      for key in node.attr:
-        if node.attr[key].func.name:
-          functions.append(node.attr[key].func.name)
-    # At the outermost level, there should only be one function.
-    assert len(functions) == 1
-    return graph_tools.get_func_graph_for_name(outer_graph, functions[0])
 
   def _get_structured_inputs_from_func_graph(self, func_graph):
     """Get structured inputs to a FuncGraph.
@@ -120,6 +104,7 @@ class SavedModelLoader(object):
         input_signature, graph_inputs, expand_composites=True)
 
   def _get_output_to_inputs_map(self, output_signature):
+    """Get all graph inputs that the tensors in output_signature depend on."""
     # TODO(b/160550490): Remove local import.
     from tensorflow_transform import graph_tools  # pylint: disable=g-import-not-at-top
 
@@ -127,7 +112,10 @@ class SavedModelLoader(object):
     for name, output in six.iteritems(output_signature):
       components = self._get_component_tensors(output)
       sinks = [self._as_operation(component) for component in components]
-      result[name] = graph_tools.retrieve_sources(sinks)
+      # Ignore control dependencies when walking the graph as we only care about
+      # which user defined inputs this output depends on.
+      result[name] = graph_tools.retrieve_sources(
+          sinks, ignore_control_dependencies=True)
     return result
 
   def _as_operation(self, op_or_tensor):
@@ -272,7 +260,54 @@ class SavedModelLoader(object):
       raise ValueError(
           'Unexpected inputs to transform: {}'.format(unexpected_inputs))
 
-    if self._load_v2_in_compat:
+    if self.load_v2_in_compat:
       return self._apply_v1_transform_model_in_v2(logical_input_map)
     else:
       return self._apply_v2_transform_model(logical_input_map)
+
+  def get_dependent_input_output_keys(self, input_keys, exclude_output_keys):
+    """Determine inputs needed to get outputs excluding exclude_output_keys.
+
+    Args:
+      input_keys: A collection of all input keys available to supply to the
+        SavedModel.
+      exclude_output_keys: A collection of output keys returned by the
+        SavedModel that should be excluded.
+
+    Returns:
+      A pair of:
+        required_input_keys: A subset of the input features to this SavedModel
+          that are required to compute the set of output features excluding
+          `exclude_output_keys`. It is sorted to be deterministic.
+        output_keys: The set of output features excluding `exclude_output_keys`.
+          It is sorted to be deterministic.
+
+    """
+    # Assert inputs being fed and outputs being excluded are part of the
+    # SavedModel.
+    if set(input_keys).difference(self._structured_inputs.keys()):
+      raise ValueError(
+          'Input tensor names contained tensors not in graph: {}'.format(
+              input_keys))
+
+    if set(exclude_output_keys).difference(self._structured_outputs.keys()):
+      raise ValueError(
+          'Excluded outputs contained keys not in graph: {}'.format(
+              exclude_output_keys))
+
+    output_keys = (
+        set(self._structured_outputs.keys()).difference(exclude_output_keys))
+
+    # Get all the input tensors that are required to evaluate output_keys.
+    required_inputs = object_identity.ObjectIdentitySet()
+    for key in output_keys:
+      required_inputs.update(self._output_to_inputs_map[key])
+
+    # Get all the input feature names that have atleast one component tensor in
+    # required_inputs.
+    required_input_keys = []
+    for key, tensor in six.iteritems(self._structured_inputs):
+      if any(x in required_inputs for x in self._get_component_tensors(tensor)):
+        required_input_keys.append(key)
+
+    return sorted(required_input_keys), sorted(output_keys)

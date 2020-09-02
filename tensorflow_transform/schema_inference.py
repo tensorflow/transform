@@ -30,11 +30,12 @@ import collections
 import six
 import tensorflow as tf
 from tensorflow_transform import common
+from tensorflow_transform import graph_context
 from tensorflow_transform import tf_utils
 from tensorflow_transform.tf_metadata import schema_utils
 
 from google.protobuf import any_pb2
-
+from tensorflow.python.framework import ops  # pylint: disable=g-direct-tensorflow-import
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 
@@ -120,7 +121,7 @@ def infer_feature_schema(features, graph, session=None):
   Returns:
     A `Schema` proto.
   """
-  tensor_ranges = _get_tensor_schema_overrides(graph)
+  tensor_ranges = _get_tensor_ranges(graph)
   if session is None:
     tensor_ranges = {hashable: (None, None) for hashable in tensor_ranges}
     tensor_annotations = {}
@@ -148,6 +149,48 @@ def infer_feature_schema(features, graph, session=None):
 
   return _infer_feature_schema_common(features, modified_tensor_ranges,
                                       feature_annotations, global_annotations)
+
+
+def infer_feature_schema_v2(features, metadata, evaluate_schema_overrides):
+  """Given a dict of tensors, creates a `Schema`.
+
+  Infers a schema, in the format of a tf.Transform `Schema`, for the given
+  dictionary of tensors.
+
+  If there is an override specified, we override the inferred schema for the
+  given feature's tensor.  An override has the meaning that we should set
+  is_categorical=True.  If evaluate_schema_overrides is False then we just set
+  is_categorical=True, and if evaluate_schema_overrides is True then we also
+  compute values of the tensors representing the min and max values and set them
+  in the schema.
+
+  If annotations have been specified, they are added to the output schema.
+
+  Args:
+    features: A dict mapping column names to `Tensor` or `SparseTensor`s. The
+      `Tensor` or `SparseTensor`s should have a 0'th dimension which is
+      interpreted as the batch dimension.
+    metadata: A dictionary containing the deferred annotations added to the
+      graph.
+    evaluate_schema_overrides: A Boolean used to compute schema overrides. If
+      `False`, schema overrides will not be computed.
+
+  Returns:
+    A `Schema` proto.
+  """
+  if not evaluate_schema_overrides:
+    tensor_ranges = {
+        tensor.numpy().decode(): (None, None)
+        for tensor in metadata[_TF_METADATA_TENSOR_COLLECTION]
+    }
+    tensor_annotations = {}
+    global_annotations = []
+  else:
+    tensor_ranges = _get_tensor_ranges_v2(metadata)
+    tensor_annotations, global_annotations = _get_schema_annotations_v2(
+        metadata)
+  return _infer_feature_schema_common(features, tensor_ranges,
+                                      tensor_annotations, global_annotations)
 
 
 def _infer_feature_schema_common(features, tensor_ranges, feature_annotations,
@@ -251,7 +294,7 @@ def set_tensor_schema_override(tensor, min_value, max_value):
   tf.compat.v1.add_to_collection(_TF_METADATA_TENSOR_MAX_COLLECTION, max_value)
 
 
-def _get_tensor_schema_overrides(graph):
+def _get_tensor_ranges(graph):
   """Lookup overrides for `Tensor`s  or `SparseTensor`s."""
   tensors = graph.get_collection(_TF_METADATA_TENSOR_COLLECTION)
   min_values = graph.get_collection(_TF_METADATA_TENSOR_MIN_COLLECTION)
@@ -260,6 +303,19 @@ def _get_tensor_schema_overrides(graph):
   assert len(tensors) == len(max_values), '{} != {}'.format(tensors, max_values)
   return dict(zip(map(tf_utils.hashable_tensor_or_op, tensors),
                   zip(min_values, max_values)))
+
+
+def _get_tensor_ranges_v2(metadata):
+  """Lookup overrides for `Tensor`s  or `SparseTensor`s."""
+  tensors = metadata[_TF_METADATA_TENSOR_COLLECTION]
+  min_values = metadata[_TF_METADATA_TENSOR_MIN_COLLECTION]
+  max_values = metadata[_TF_METADATA_TENSOR_MAX_COLLECTION]
+  assert len(tensors) == len(min_values), '{} != {}'.format(tensors, min_values)
+  assert len(tensors) == len(max_values), '{} != {}'.format(tensors, max_values)
+  return {
+      tensor.numpy().decode(): (min_value.numpy(), max_value.numpy())
+      for (tensor, min_value, max_value) in zip(tensors, min_values, max_values)
+  }
 
 
 def annotate(type_url, proto_message, tensor=None):
@@ -339,6 +395,38 @@ def _get_schema_annotations(graph, session):
                                         proto_values)
 
 
+def _get_schema_annotations_v2(metadata):
+  """Fetch extra_metadata annotations to be applied to the schema.
+
+  Extracts any deferred annotations that have been added to the graph and
+  evaluates them to obtain any_pb2.Any proto messages.
+
+  Args:
+    metadata: A dictionary containing the deferred annotations added to the
+      graph.
+
+  Returns:
+    tensor_annotations: dictionary from tensor to list of any_pb2.Any protos to
+      be added as an annotation for that tensor's feature in the schema.
+    global_annotations: list of any_pb2.Any protos to be added at the global
+      schema level.
+  """
+  type_urls = [
+      type_url.numpy()
+      for type_url in metadata[_TF_METADATA_EXTRA_ANNOTATION_TYPE_URL]
+  ]
+  proto_values = [
+      proto_value.numpy()
+      for proto_value in metadata[_TF_METADATA_EXTRA_ANNOTATION_PROTO]
+  ]
+  tensor_annotation_keys = [
+      tensor.numpy().decode()
+      for tensor in metadata[_TF_METADATA_EXTRA_ANNOTATION]
+  ]
+  return _get_schema_annotations_common(tensor_annotation_keys, type_urls,
+                                        proto_values)
+
+
 def _get_schema_annotations_common(tensor_annotation_keys, type_urls,
                                    proto_values):
   """Fetch extra_metadata annotations to be applied to the schema.
@@ -376,3 +464,145 @@ def _get_schema_annotations_common(tensor_annotation_keys, type_urls,
     else:
       tensor_annotations[tensor_annotation_key].append(annotation)
   return tensor_annotations, global_annotations
+
+
+def _get_tensor_value_to_key_map(features_dict):
+  """Get reverse map from name of tensor values to key in `features_dict`."""
+  result = {}
+  for key, tensor in features_dict.items():
+    if isinstance(tensor, tf.SparseTensor):
+      values = tensor.values
+    elif isinstance(tensor, tf.RaggedTensor):
+      values = tensor.flat_values
+    else:
+      values = tensor
+    result[values.name] = key
+  return result
+
+
+def _get_schema_overrides(graph,
+                          tensor_name_to_key_map,
+                          tensor_collection_key,
+                          overrides_keys,
+                          default_tensor_name=None):
+  """Obtain schema overrides from graph collections.
+
+  For every tensor in the `tensor_collection_key` collection, the corresponding
+  feature name is in `tensor_name_to_key_map` and its schema overrides are in
+  the graph collections defined by keys in `overrides_keys`.
+  If a tensor does not exist in `tensor_name_to_key_map` but its name starts
+  with `default_tensor_name` (if provided), the overrides are returned with this
+  key.
+
+  Args:
+    graph: A `FuncGraph`.
+    tensor_name_to_key_map: A dictionary from tensor name to output feature key.
+    tensor_collection_key: Key for the graph collection that contains list of
+      tensors to annotate.
+    overrides_keys: A list of graph collection keys that contain schema
+      overrides/annotations.
+    default_tensor_name: (Optional) A String. If provided, use as feature key if
+      a tensor in the graph collections is not in `tensor_name_to_key_map`.
+
+  Returns:
+    A dictionary from graph collection keys to lists of features and their
+    schema overrides/annotations.
+
+  """
+  tensors = graph.get_collection(tensor_collection_key)
+  overrides_list = [graph.get_collection(k) for k in overrides_keys]
+
+  result = collections.defaultdict(list)
+  assert (len(tensors) == len(overrides_list[0]) and
+          all(len(lst) == len(overrides_list[0]) for lst in overrides_list))
+  for tensor, overrides_tuple in zip(tensors, zip(*overrides_list)):
+    if tensor.name in tensor_name_to_key_map:
+      result[tensor_collection_key].append(tensor_name_to_key_map[tensor.name])
+    else:
+      if default_tensor_name is None:
+        continue
+      tensor_name = tensor.name.split('/')[-1]
+      if tensor.dtype == tf.string and tensor_name.startswith(
+          default_tensor_name):
+        result[tensor_collection_key].append(default_tensor_name)
+      else:
+        continue
+
+    # If a feature name was added to the result list for tensor_collection_key,
+    # add its annotations as well.
+    assert len(overrides_keys) == len(overrides_tuple)
+    for overrides_key, override in zip(overrides_keys, overrides_tuple):
+      result[overrides_key].append(override)
+  return result
+
+
+def get_traced_metadata_fn(tensor_replacement_map, preprocessing_fn,
+                           input_signature, base_temp_dir,
+                           evaluate_schema_overrides):
+  """Get a tf.function that returns a dictionary of annotations.
+
+  Annotations are added to graph collections keyed by graph tensor names when
+  `preprocessing_fn` is being traced. The metadata fn defined by this method
+  converts the graph tensor names to output feature keys.
+
+  If `evaluate_schema_overrides` is True, tracing the `preprocessing_fn` will
+  add overrides for feature ranges (min/max) and/or feature protos to the graph
+  collection, if applicable. These overrides are returned when the function
+  returned by this method is invoked.
+
+  Args:
+    tensor_replacement_map: A map from placeholder tensor names to their
+      evaluated replacement tensors.
+    preprocessing_fn: A user defined python function to be traced.
+    input_signature: TypeSpecs describing the inputs to the `preprocessing_fn`.
+    base_temp_dir: Base path to write any dummy assets to during tracing.
+    evaluate_schema_overrides: If `False`, the returned dictionary contains a
+      single key `_TF_METADATA_TENSOR_COLLECTION` as all other annotations are
+      deferred. Else, the returned dictionary contains several deferred
+      annotations.
+
+  Returns:
+    A dictionary whose keys represent the types of annotations and the values
+    are collections of feature keys/annotations.
+  """
+
+  @tf.function(input_signature=[input_signature])
+  def metadata_fn(inputs):
+    graph = ops.get_default_graph()
+    with graph_context.TFGraphContext(
+        temp_dir=base_temp_dir, evaluated_replacements=tensor_replacement_map):
+      transformed_features = preprocessing_fn(inputs)
+
+    # Get a map from tensor value names to feature keys.
+    reversed_features = _get_tensor_value_to_key_map(transformed_features)
+
+    result = collections.defaultdict(list)
+    if not evaluate_schema_overrides:
+      schema_override_tensors = graph.get_collection(
+          _TF_METADATA_TENSOR_COLLECTION)
+      for tensor in schema_override_tensors:
+        if tensor.name in reversed_features:
+          result[_TF_METADATA_TENSOR_COLLECTION].append(
+              reversed_features[tensor.name])
+    else:
+      # Obtain schema overrides for feature tensor ranges.
+      result.update(
+          _get_schema_overrides(graph, reversed_features,
+                                _TF_METADATA_TENSOR_COLLECTION, [
+                                    _TF_METADATA_TENSOR_MIN_COLLECTION,
+                                    _TF_METADATA_TENSOR_MAX_COLLECTION
+                                ]))
+      # Obtain schema overrides for feature protos. If no feature tensor is in
+      # the `_TF_METADATA_EXTRA_ANNOTATION` collection for a specified
+      # annotation, `_TF_METADATA_EXTRA_ANNOTATION_GLOBAL` is used as the
+      # feature name to indicate that this annotation should be added to the
+      # global schema.
+      result.update(
+          _get_schema_overrides(graph, reversed_features,
+                                _TF_METADATA_EXTRA_ANNOTATION, [
+                                    _TF_METADATA_EXTRA_ANNOTATION_TYPE_URL,
+                                    _TF_METADATA_EXTRA_ANNOTATION_PROTO
+                                ], _TF_METADATA_EXTRA_ANNOTATION_GLOBAL))
+    return result
+
+  return metadata_fn

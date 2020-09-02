@@ -67,7 +67,7 @@ class CreateTensorBinding(
     tensor: The name of the tensor that the given value should replace as a
         constant tensor.
     is_asset_filepath: If true, then the replaced value will be added to the
-        ASSET_FILEPATHS collection.
+        ASSET_FILEPATHS collection if exporting a TF1 Graph.
     label: A unique label for this operation.
   """
   pass

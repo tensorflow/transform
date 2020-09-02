@@ -113,7 +113,8 @@ class TransformTestCase(test_case.TransformTestCase):
                             expected_outputs,
                             test_data=None,
                             desired_batch_size=None,
-                            beam_pipeline=None):
+                            beam_pipeline=None,
+                            force_tf_compat_v1=True):
     """Assert that input data and metadata is transformed as expected.
 
     This methods asserts transformed data and transformed metadata match
@@ -142,6 +143,9 @@ class TransformTestCase(test_case.TransformTestCase):
       desired_batch_size: (Optional) A batch size to batch elements by. If not
         provided, a batch size will be computed automatically.
       beam_pipeline: (optional) A Beam Pipeline to use in this test.
+      force_tf_compat_v1: A `Boolean`. If `True`, TFT's public APIs use
+        Tensorflow in compat.v1 mode.
+
     Raises:
       AssertionError: If the expected output does not match the results of
           the analyzer_fn.
@@ -199,7 +203,8 @@ class TransformTestCase(test_case.TransformTestCase):
         expected_metadata,
         test_data=test_data,
         desired_batch_size=desired_batch_size,
-        beam_pipeline=beam_pipeline)
+        beam_pipeline=beam_pipeline,
+        force_tf_compat_v1=force_tf_compat_v1)
 
   def assertAnalyzeAndTransformResults(self,
                                        input_data,
@@ -212,7 +217,8 @@ class TransformTestCase(test_case.TransformTestCase):
                                        test_data=None,
                                        desired_batch_size=None,
                                        beam_pipeline=None,
-                                       temp_dir=None):
+                                       temp_dir=None,
+                                       force_tf_compat_v1=True):
     """Assert that input data and metadata is transformed as expected.
 
     This methods asserts transformed data and transformed metadata match
@@ -250,6 +256,8 @@ class TransformTestCase(test_case.TransformTestCase):
       beam_pipeline: (optional) A Beam Pipeline to use in this test.
       temp_dir: If set, it is used as output directory, else a new unique
           directory is created.
+      force_tf_compat_v1: A `Boolean`. If `True`, TFT's public APIs use
+          Tensorflow in compat.v1 mode.
     Raises:
       AssertionError: if the expected data does not match the results of
           transforming input_data according to preprocessing_fn, or
@@ -279,7 +287,8 @@ class TransformTestCase(test_case.TransformTestCase):
     with beam_pipeline or self._makeTestPipeline() as pipeline:
       with beam_impl.Context(
           temp_dir=temp_dir,
-          desired_batch_size=desired_batch_size):
+          desired_batch_size=desired_batch_size,
+          force_tf_compat_v1=force_tf_compat_v1):
         input_data = pipeline | 'CreateInput' >> beam.Create(input_data,
                                                              reshuffle=False)
         if test_data is None:
@@ -329,3 +338,36 @@ class TransformTestCase(test_case.TransformTestCase):
     for filename, file_contents in six.iteritems(expected_vocab_file_contents):
       full_filename = tf_transform_output.vocabulary_file_by_name(filename)
       self.AssertVocabularyContents(full_filename, file_contents)
+
+
+def feature_spec_as_type_spec(feature_spec):
+  """Returns `tf.TensorSpec`/`tf.SparseTensorSpec`s for the given feature spec.
+
+  Returns a dictionary of type_spec with the same type and shape as defined by
+  `feature_spec`.
+
+  Args:
+    feature_spec: A TensorFlow feature spec.
+
+  Returns:
+    A dictionary from strings to `tf.TensorSpec` or `tf.SparseTensorSpec`s.
+
+  Raises:
+    ValueError: If the feature spec contains feature types not supported.
+  """
+  result = {}
+
+  for name, spec in feature_spec.items():
+    if spec.dtype not in (tf.int64, tf.float32, tf.string):
+      raise ValueError('Feature {} ({}) had invalid dtype'.format(name, spec))
+    if isinstance(spec, tf.io.FixedLenFeature):
+      result[name] = tf.TensorSpec(shape=[None] + spec.shape, dtype=spec.dtype)
+    elif isinstance(spec, tf.io.VarLenFeature):
+      result[name] = tf.SparseTensorSpec(shape=[None, None], dtype=spec.dtype)
+    elif isinstance(spec, tf.io.SparseFeature):
+      result[name] = tf.SparseTensorSpec(
+          shape=[None, spec.size], dtype=spec.dtype)
+    else:
+      raise TypeError('Feature spec {} of type {} is not supported for feature '
+                      '{}'.format(spec, type(spec), name))
+  return result
