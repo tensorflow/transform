@@ -1037,10 +1037,22 @@ class _WeightedMeanAndVarAccumulator(
   """Container for WeightedMeanAndVarCombiner intermediate values."""
 
   @classmethod
-  def make_nan_to_num(cls, counts, means, variances, weights):
+  def make_nan_to_num(cls,
+                      counts,
+                      means,
+                      variances,
+                      weights,
+                      compute_variance=False,
+                      compute_weighted=True):
+    """Util function to replace NaN with 0 and inf with large finite numbers."""
+    if compute_variance:
+      variances = np.nan_to_num(variances, copy=True)
+
+    if compute_weighted:
+      weights = np.nan_to_num(weights, copy=True)
+
     return cls(
-        np.array(counts), np.nan_to_num(means), np.nan_to_num(variances),
-        np.nan_to_num(weights))
+        np.array(counts), np.nan_to_num(means, copy=True), variances, weights)
 
 
 class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
@@ -1123,18 +1135,35 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
     Returns:
       A 2-tuple composed of (mean, var).
     """
+
     if self._compute_variance and not self._compute_weighted:
       return (self._output_numpy_dtype(accumulator.mean),
               self._output_numpy_dtype(accumulator.variance))
     else:
-      return accumulator
+      return _WeightedMeanAndVarAccumulator(
+          np.int64(accumulator.count),
+          self._output_numpy_dtype(accumulator.mean),
+          self._output_numpy_dtype(accumulator.variance),
+          self._output_numpy_dtype(accumulator.weight))
 
   def output_tensor_infos(self):
     # The output is (mean, var).
-    return [
-        analyzer_nodes.TensorInfo(
-            tf.as_dtype(self._output_numpy_dtype), self._output_shape, None)
-    ] * 2
+    if self._compute_variance and not self._compute_weighted:
+      return [
+          analyzer_nodes.TensorInfo(
+              tf.as_dtype(self._output_numpy_dtype), self._output_shape, None)
+      ] * 2
+    else:
+      return [
+          analyzer_nodes.TensorInfo(
+              tf.as_dtype(np.int64), self._output_shape, None),
+          analyzer_nodes.TensorInfo(
+              tf.as_dtype(self._output_numpy_dtype), self._output_shape, None),
+          analyzer_nodes.TensorInfo(
+              tf.as_dtype(self._output_numpy_dtype), self._output_shape, None),
+          analyzer_nodes.TensorInfo(
+              tf.as_dtype(self._output_numpy_dtype), self._output_shape, None)
+      ]
 
   def _combine_mean_and_var_accumulators(self, a, b):
     """Combines two mean and var accumulators.
@@ -1147,8 +1176,14 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
       A _WeightedMeanAndVarAccumulator computed as the combination of a and b.
     """
     # NaNs get preserved through division by a.count + b.count.
-    a = _WeightedMeanAndVarAccumulator.make_nan_to_num(*a)
-    b = _WeightedMeanAndVarAccumulator.make_nan_to_num(*b)
+    a = _WeightedMeanAndVarAccumulator.make_nan_to_num(
+        *a,
+        compute_variance=self._compute_variance,
+        compute_weighted=self._compute_weighted)
+    b = _WeightedMeanAndVarAccumulator.make_nan_to_num(
+        *b,
+        compute_variance=self._compute_variance,
+        compute_weighted=self._compute_weighted)
 
     # a.count >= b.count following this logic.
     if np.sum(a.count) < np.sum(b.count):
@@ -1171,13 +1206,13 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
     if self._compute_weighted:
       combined_weights_mean = (
           a_weight + (b_count / combined_total) * (b_weight - a_weight))
+      combined_mean = a_mean + (b_count * b_weight /
+                                (combined_total * combined_weights_mean)) * (
+                                    b_mean - a_mean)
     else:
       combined_weights_mean = np.ones(shape=combined_total.shape)
-      b_weight = np.ones(shape=b_mean.shape)
+      combined_mean = a_mean + b_count / combined_total * (b_mean - a_mean)
 
-    combined_mean = a_mean + (b_count * b_weight /
-                              (combined_total * combined_weights_mean)) * (
-                                  b_mean - a_mean)
     if self._compute_variance:
       # TODO(zoyahav): Add an option for weighted variance if needed.
       assert not self._compute_weighted
@@ -1193,6 +1228,7 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
                                           combined_weights_mean)
 
 
+# TODO(b/165020671): Optimize padding to save up to 15% computing resource.
 def _pad_arrays_to_match(a, b):
   """Pad the ndarray values to match dimensions as needed.
 
@@ -1507,14 +1543,19 @@ def _get_top_k_and_frequency_threshold(top_k, frequency_threshold):
 
 
 class _VocabOrderingType(object):
+  """Class for all vocab ordering types."""
   # Orders vocabulary based on the simple frequency of the token
   FREQUENCY = 1
   # Orders vocabulary based on the weighted frequency of the token
   WEIGHTED_FREQUENCY = 2
-  # Orders vocabulary based on the mutual information of token with the label
+  # Orders vocabulary based on the weighted mutual
+  # information of token with the label
   WEIGHTED_MUTUAL_INFORMATION = 3
   # Experimental
   WEIGHTED_LABELS = 4
+  # Orders vocabulary based on the mutual information
+  # of token with the label and without weight.
+  MUTUAL_INFORMATION = 5
 
 
 DEFAULT_VOCABULARY_FILE_FORMAT = 'text'
@@ -1698,7 +1739,10 @@ def vocabulary(x,
     informativeness_threshold = float('-inf')
     coverage_informativeness_threshold = float('-inf')
     if labels is not None:
-      vocab_ordering_type = _VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION
+      if weights is not None:
+        vocab_ordering_type = _VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION
+      else:
+        vocab_ordering_type = _VocabOrderingType.MUTUAL_INFORMATION
       # Correct for the overloaded `frequency_threshold` API.
       if frequency_threshold is not None:
         informativeness_threshold = frequency_threshold
@@ -1754,6 +1798,14 @@ def _get_vocabulary_analyzer_inputs(vocab_ordering_type,
     return [
         reduced_batch.unique_x, reduced_batch.summed_weights_per_x,
         reduced_batch.summed_positive_per_x_and_y, reduced_batch.counts_per_x
+    ]
+  elif vocab_ordering_type == _VocabOrderingType.MUTUAL_INFORMATION:
+    labels = tf.reshape(labels, [-1])
+    reduced_batch = tf_utils.reduce_batch_weighted_cooccurrences(
+        x, labels, weights)
+    return [
+        reduced_batch.unique_x, reduced_batch.summed_positive_per_x_and_y,
+        reduced_batch.counts_per_x
     ]
   elif vocab_ordering_type == _VocabOrderingType.WEIGHTED_FREQUENCY:
     reduced_batch = tf_utils.reduce_batch_weighted_counts(x, weights)

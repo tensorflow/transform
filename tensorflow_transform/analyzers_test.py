@@ -129,7 +129,6 @@ def _make_mean_and_var_accumulator_from_instance(instance, axis=None):
       weight=np.sum(np.ones_like(instance), axis=axis),
       variance=np.var(instance, axis=axis))
 
-
 _MEAN_AND_VAR_TEST = dict(
     testcase_name='WeightedMeanAndVar',
     combiner=analyzers.WeightedMeanAndVarCombiner(np.float32, output_shape=()),
@@ -145,6 +144,26 @@ _MEAN_AND_VAR_TEST = dict(
         np.float32(29.418185761379473),
     ],
 )
+
+_MEAN_AND_VAR_SIMPLE_TEST = dict(
+    testcase_name='WeightedMeanAndVarSimple',
+    combiner=analyzers.WeightedMeanAndVarCombiner(
+        np.float32,
+        output_shape=(),
+        compute_variance=False,
+        compute_weighted=False),
+    batches=[
+        _make_mean_and_var_accumulator_from_instance([[1, 2, 3, 4, 5, 6, 7]]),
+        # Count is 5*0xFFFF=327675 for this accumulator.
+        _make_mean_and_var_accumulator_from_instance([[8, 9, 10, 11, 12]] *
+                                                     0xFFFF),
+        _make_mean_and_var_accumulator_from_instance([[100, 200, 3000]]),
+    ],
+    expected_outputs=analyzers._WeightedMeanAndVarAccumulator(
+        count=np.array(327685),
+        mean=np.float32(10.00985092390558),
+        weight=np.float32(1.0),
+        variance=np.float32(0.0)))
 
 _MEAN_AND_VAR_BIG_TEST = dict(
     testcase_name='WeightedMeanAndVarBig',
@@ -518,25 +537,26 @@ _EXACT_NUM_QUANTILES_TESTS = [
 
 class AnalyzersTest(test_case.TransformTestCase):
 
-  @test_case.named_parameters(*[
-      _SUM_TEST,
-      _SUM_SCALAR_TEST,
-      _SUM_OF_SIZE_ZERO_TENSORS_TEST,
-      _COVARIANCE_SIZE_ZERO_TENSORS_TEST,
-      _COVARIANCE_WITH_DEGENERATE_COVARIANCE_MATRIX_TEST,
-      _COVARIANCE_WITH_LARGE_NUMBERS_TEST,
-      _PCA_WITH_DEGENERATE_COVARIANCE_MATRIX_TEST,
-      _MEAN_AND_VAR_TEST,
-      _MEAN_AND_VAR_BIG_TEST,
-      _MEAN_AND_VAR_VECTORS_TEST,
-      _MEAN_AND_VAR_ND_TEST,
-      _QUANTILES_NO_ELEMENTS_TEST,
-      _QUANTILES_NO_TRIM_TEST,
-      _QUANTILES_EXACT_NO_ELEMENTS_TEST,
-  ] + _L_MOMENTS_TESTS + _L_MOMENTS_ND_TESTS + _QUANTILES_SINGLE_BATCH_TESTS +
-                              _QUANTILES_MULTIPLE_BATCH_TESTS +
-                              _QUANTILES_ELEMENTWISE_TESTS +
-                              _EXACT_NUM_QUANTILES_TESTS)
+  @test_case.named_parameters(
+      *[
+          _SUM_TEST,
+          _SUM_SCALAR_TEST,
+          _SUM_OF_SIZE_ZERO_TENSORS_TEST,
+          _COVARIANCE_SIZE_ZERO_TENSORS_TEST,
+          _COVARIANCE_WITH_DEGENERATE_COVARIANCE_MATRIX_TEST,
+          _COVARIANCE_WITH_LARGE_NUMBERS_TEST,
+          _PCA_WITH_DEGENERATE_COVARIANCE_MATRIX_TEST,
+          _MEAN_AND_VAR_TEST,
+          _MEAN_AND_VAR_SIMPLE_TEST,
+          _MEAN_AND_VAR_BIG_TEST,
+          _MEAN_AND_VAR_VECTORS_TEST,
+          _MEAN_AND_VAR_ND_TEST,
+          _QUANTILES_NO_ELEMENTS_TEST,
+          _QUANTILES_NO_TRIM_TEST,
+          _QUANTILES_EXACT_NO_ELEMENTS_TEST,
+      ] + _L_MOMENTS_TESTS + _L_MOMENTS_ND_TESTS +
+      _QUANTILES_SINGLE_BATCH_TESTS + _QUANTILES_MULTIPLE_BATCH_TESTS +
+      _QUANTILES_ELEMENTWISE_TESTS + _EXACT_NUM_QUANTILES_TESTS)
   def testCombiner(self, combiner, batches, expected_outputs):
     """Tests the provided combiner.
 
@@ -571,8 +591,8 @@ class AnalyzersTest(test_case.TransformTestCase):
     for output, expected_output, tensor_info in zip(
         outputs, expected_outputs, tensor_infos):
       self.assertEqual(output.dtype, expected_output.dtype)
-
       self.assertEqual(tensor_info.dtype, tf.as_dtype(expected_output.dtype))
+
       self.assertAllEqual(output, expected_output)
 
   @test_case.named_parameters(

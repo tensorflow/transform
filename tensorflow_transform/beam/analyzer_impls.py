@@ -17,7 +17,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import functools
 import hashlib
+import itertools
 import math
 import os
 
@@ -204,8 +206,15 @@ class _VocabularyAccumulateImpl(beam.PTransform):
     # TODO(b/112916494): Unify the graph in both cases once possible.
     if (self._vocab_ordering_type ==
         _VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION):
-      flatten_map_fn = _flatten_to_key_and_means_accumulator_list
-      combine_transform = _MutualInformationTransformAccumulate()  # pylint: disable=no-value-for-parameter
+      flatten_map_fn = functools.partial(
+          _flatten_to_key_and_means_accumulator_list, compute_weighted=True)
+      combine_transform = _MutualInformationTransformAccumulate(  # pylint: disable=no-value-for-parameter
+          compute_weighted=True)
+    elif self._vocab_ordering_type == _VocabOrderingType.MUTUAL_INFORMATION:
+      flatten_map_fn = functools.partial(
+          _flatten_to_key_and_means_accumulator_list, compute_weighted=False)
+      combine_transform = _MutualInformationTransformAccumulate(  # pylint: disable=no-value-for-parameter
+          compute_weighted=False)
     elif self._vocab_ordering_type == _VocabOrderingType.WEIGHTED_FREQUENCY:
       flatten_map_fn = _flatten_value_and_weights_to_list_of_tuples
       combine_transform = beam.CombinePerKey(sum)
@@ -267,7 +276,14 @@ class _VocabularyMergeImpl(beam.PTransform):
     if (self._vocab_ordering_type ==
         _VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION):
       combine_transform = _MutualInformationTransformMerge(  # pylint: disable=no-value-for-parameter
-          self._use_adjusted_mutual_info, self._min_diff_from_avg)
+          self._use_adjusted_mutual_info,
+          self._min_diff_from_avg,
+          compute_weighted=True)
+    elif self._vocab_ordering_type == _VocabOrderingType.MUTUAL_INFORMATION:
+      combine_transform = _MutualInformationTransformMerge(  # pylint: disable=no-value-for-parameter
+          self._use_adjusted_mutual_info,
+          self._min_diff_from_avg,
+          compute_weighted=False)
     elif self._vocab_ordering_type == _VocabOrderingType.WEIGHTED_LABELS:
       combine_transform = beam.CombinePerKey(sum_labeled_weights)
     else:
@@ -437,28 +453,43 @@ def _flatten_value_and_labeled_weights_to_list_of_tuples(batch_values):
 
 def _make_count_and_weights_means_accumulator(sum_positive, weights_sum_total,
                                               count):
+  """Create a WeightedMeanAndVarCombiner according to the parameter values."""
+  # TODO(b/165003832): We're going back and forth from lists to numpy here.
+  # Can we remove this overhead?
+  if weights_sum_total is None:
+    mean = np.array(sum_positive) / count
+    weight = None
+  else:
+    mean = np.array(sum_positive) / weights_sum_total
+    weight = weights_sum_total / count
+
   return analyzers.WeightedMeanAndVarCombiner.accumulator_class(
       count=np.array(count),
-      mean=np.array(sum_positive) / weights_sum_total,
+      mean=mean,
       variance=np.array(0.),  # Variance is not used for vocabularies.
-      weight=(weights_sum_total / count))
+      weight=weight)
 
 
-def _flatten_to_key_and_means_accumulator_list(batch_values):
+def _flatten_to_key_and_means_accumulator_list(batch_values,
+                                               compute_weighted=True):
   """Converts a batch of keys, weights, and counts to a list of KV pairs."""
-  keys, total_weights, positive_label_weights, counts = batch_values
+  if compute_weighted:
+    keys, total_weights, positive_label_weights, counts = batch_values
+    total_weights = total_weights.tolist()
+  else:
+    keys, positive_label_weights, counts = batch_values
+    total_weights = []
 
   # TODO(b/36603294): Perhaps obviate the tolist(). It is currently used so
   # that we go to native Python types for more efficient followup
   # processing.
   keys = keys.tolist()
   positive_label_weights = positive_label_weights.tolist()
-  total_weights = total_weights.tolist()
   counts = counts.tolist()
 
   return zip(keys, [
-      _make_count_and_weights_means_accumulator(*batch)
-      for batch in zip(positive_label_weights, total_weights, counts)
+      _make_count_and_weights_means_accumulator(*batch) for batch in
+      itertools.zip_longest(positive_label_weights, total_weights, counts)
   ])
 
 
@@ -580,10 +611,11 @@ def _calculate_mutual_information_for_feature_value(feature_and_accumulator,
     KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
 @beam.typehints.with_output_types(
     KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
-def _MutualInformationTransformAccumulate(pcol):  # pylint: disable=invalid-name
+def _MutualInformationTransformAccumulate(pcol, compute_weighted=True):  # pylint: disable=invalid-name
   """Accumulates information needed for mutual information computation."""
   return (pcol | 'VocabCountPerLabelPerTokenAccumulate' >> beam.CombinePerKey(
-      _WeightedMeanCombineFn(output_shape=(None,))))
+      _WeightedMeanCombineFn(
+          output_shape=(None,), compute_weighted=compute_weighted)))
 
 
 def _extract_sentinels(kv):
@@ -614,11 +646,12 @@ def _extract_sentinels(kv):
     KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
 @beam.typehints.with_output_types(KV[str, Tuple[float, float]])
 def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
-    pcol, use_adjusted_mutual_info, min_diff_from_avg):
+    pcol, use_adjusted_mutual_info, min_diff_from_avg, compute_weighted):
   """Computes mutual information for each key using the given accumulators."""
   feature_accumulator_pcol = (
       pcol | 'VocabCountPerLabelPerTokenMerge' >> beam.CombinePerKey(
-          _WeightedMeanCombineFn(output_shape=(None,))))
+          _WeightedMeanCombineFn(
+              output_shape=(None,), compute_weighted=compute_weighted)))
 
   accumulators_by_feature, global_accumulator = (
       feature_accumulator_pcol
@@ -649,12 +682,12 @@ def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
 class _WeightedMeanCombineFn(beam.CombineFn):
   """_WeightedMeanCombineFn calculates total count and weighted means."""
 
-  def __init__(self, output_shape):
+  def __init__(self, output_shape, compute_weighted=True):
     self._combiner = analyzers.WeightedMeanAndVarCombiner(
         np.float32,
         output_shape=output_shape,
         compute_variance=False,
-        compute_weighted=True)
+        compute_weighted=compute_weighted)
 
   def create_accumulator(self):
     """Create an accumulator with all zero entries."""

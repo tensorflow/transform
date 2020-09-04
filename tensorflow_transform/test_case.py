@@ -311,7 +311,8 @@ class TransformTestCase(parameterized.TestCase, tf.test.TestCase):
       expected_words, expected_frequency = zip(*word_and_frequency_list)
       actual_words, actual_frequency = zip(*file_contents)
       self.assertAllEqual(expected_words, actual_words)
-      np.testing.assert_almost_equal(expected_frequency, actual_frequency)
+      np.testing.assert_almost_equal(
+          expected_frequency, actual_frequency, decimal=6)
     else:
       self.assertAllEqual(file_lines, file_contents)
 
