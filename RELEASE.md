@@ -14,6 +14,8 @@
 
 ## Bug Fixes and Other Changes
 
+*   Added a small fanout to analyzers' `CombineGlobally` for improved
+    performance.
 *   Depends on `absl-py>=0.9,<0.11`.
 *   Depends on `protobuf>=3.9.2,<4`.
 

@@ -46,6 +46,10 @@ from tensorflow_transform.beam import common
 _VocabOrderingType = analyzers._VocabOrderingType  # pylint: disable=protected-access
 _VocabMergeOutputType = Union[float, int, Tuple[float, float]]
 
+# TODO(b/140645408, b/31727404, b/160207487): Remove this manual fanout when
+# it is no longer needed due to framework improvments.
+_DEFAULT_COMBINE_GLOBALLY_FANOUT = 10
+
 
 class _OrderElementsFn(beam.DoFn):
   """Sort the vocabulary by either descending frequency count or hash order."""
@@ -1053,7 +1057,7 @@ class _ScaleAndFlattenPerKeyBucketBouandariesImpl(beam.PTransform):
 @common.register_ptransform(analyzer_nodes.PackedCombineAccumulate)
 @beam.typehints.with_input_types(Dict[str, Any])
 @beam.typehints.with_output_types(Dict[str, Any])
-class _IntermediateAccumulatePackedCombineImpl(beam.PTransform):
+class _InitialAccumulatePackedCombineImpl(beam.PTransform):
   """Implement an packed analyzer accumulate based on a Combine."""
 
   def __init__(self, operation, extra_args):
@@ -1065,6 +1069,7 @@ class _IntermediateAccumulatePackedCombineImpl(beam.PTransform):
     # We specify a fanout so that the packed combiner doesn't exhibit stragglers
     # during the 'reduce' phase when we have a lot of combine analyzers packed.
     fanout = int(math.ceil(math.sqrt(len(self._combiners))))
+    fanout = max(_DEFAULT_COMBINE_GLOBALLY_FANOUT, fanout)
     return (
         pcoll
         | 'InitialPackedCombineGlobally' >> beam.CombineGlobally(
@@ -1102,9 +1107,10 @@ class _MergeAccumulatorsPackedCombineImpl(beam.PTransform):
         common.IncrementCounter('num_packed_merge_combiners'))
 
 
+# TODO(zoyahav): Share logic with _InitialAccumulatePackedCombineImpl.
 @common.register_ptransform(analyzer_nodes.CacheableCombineAccumulate)
 @beam.typehints.with_input_types(Tuple[np.ndarray, ...])
-class _IntermediateAccumulateCombineImpl(beam.PTransform):
+class _InitialAccumulateCombineImpl(beam.PTransform):
   """Implement an analyzer based on a Combine."""
 
   def __init__(self, operation, extra_args):
@@ -1116,13 +1122,13 @@ class _IntermediateAccumulateCombineImpl(beam.PTransform):
   def expand(self, inputs):
     pcoll, = inputs
 
-    return (
-        pcoll
-        | 'InitialCombineGlobally' >> beam.CombineGlobally(
-            _CombinerWrapper(
-                self._combiner,
-                self._tf_config,
-                is_combining_accumulators=False)))
+    return (pcoll
+            | 'InitialCombineGlobally' >> beam.CombineGlobally(
+                _CombinerWrapper(
+                    self._combiner,
+                    self._tf_config,
+                    is_combining_accumulators=False)).with_fanout(
+                        _DEFAULT_COMBINE_GLOBALLY_FANOUT))
 
 
 @common.register_ptransform(analyzer_nodes.CacheableCombineMerge)
@@ -1147,7 +1153,7 @@ class _MergeAccumulatorsCombineImpl(beam.PTransform):
 
 
 @common.register_ptransform(analyzer_nodes.CacheableCombinePerKeyAccumulate)
-class _IntermediateAccumulateCombinePerKeyImpl(beam.PTransform):
+class _InitialAccumulateCombinePerKeyImpl(beam.PTransform):
   """Implement an analyzer based on a CombinePerKey."""
 
   def __init__(self, operation, extra_args):
