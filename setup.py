@@ -11,15 +11,30 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Package Setup script for tf.Transform.
-"""
+"""Package Setup script for tf.Transform."""
+import os
+
 from setuptools import find_packages
 from setuptools import setup
+
+
+def select_constraint(default, nightly=None, git_master=None):
+  """Select dependency constraint based on TFX_DEPENDENCY_SELECTOR env var."""
+  selector = os.environ.get('TFX_DEPENDENCY_SELECTOR')
+  if selector == 'UNCONSTRAINED':
+    return ''
+  elif selector == 'NIGHTLY' and nightly is not None:
+    return nightly
+  elif selector == 'GIT_MASTER' and git_master is not None:
+    return git_master
+  else:
+    return default
+
 
 # Get version from version module.
 with open('tensorflow_transform/version.py') as fp:
   globals_dict = {}
-  exec (fp.read(), globals_dict)  # pylint: disable=exec-used
+  exec(fp.read(), globals_dict)  # pylint: disable=exec-used
 __version__ = globals_dict['__version__']
 
 
@@ -33,10 +48,17 @@ def _make_required_install_packages():
       'protobuf>=3.9.2,<4',
       'pydot>=1.2,<2',
       'six>=1.12,<2',
-      'tensorflow-metadata>=0.23,<0.24',
       'tensorflow>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,<2.4',
-      'tfx-bsl>=0.23,<0.24',
+      'tensorflow-metadata' + select_constraint(
+          default='>=0.23,<0.24',
+          nightly='>=0.24.0.dev',
+          git_master='@git+https://github.com/tensorflow/metadata@master'),
+      'tfx-bsl' + select_constraint(
+          default='>=0.23,<0.24',
+          nightly='>=0.24.0.dev',
+          git_master='@git+https://github.com/tensorflow/tfx-bsl@master'),
   ]
+
 
 # Get the long description from the README file.
 with open('README.md') as fp:
