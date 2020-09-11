@@ -19,10 +19,10 @@
 # Also: analyzer_impls registers implementation of analyzers.
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import analyzer_impls
+from tensorflow_transform.beam.context import Context
 from tensorflow_transform.beam.impl import AnalyzeAndTransformDataset
 from tensorflow_transform.beam.impl import AnalyzeDataset
 from tensorflow_transform.beam.impl import AnalyzeDatasetWithCache
 from tensorflow_transform.beam.impl import TransformDataset
 from tensorflow_transform.beam.tft_beam_io import *
-from tensorflow_transform.context import Context
 # pylint: enable=wildcard-import
