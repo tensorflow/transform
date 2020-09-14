@@ -25,6 +25,7 @@ import os
 
 # GOOGLE-INITIALIZATION
 
+from absl import logging
 import apache_beam as beam
 
 from apache_beam.transforms.ptransform import ptransform_fn
@@ -565,7 +566,13 @@ def _calculate_mutual_information_for_feature_value(feature_and_accumulator,
       global_accumulator.mean * global_accumulator.weight *
       global_accumulator.count)
   feature_value, current_accumulator = feature_and_accumulator
-  n = sum(global_label_counts)
+  total_label_counts = sum(global_label_counts)
+  n = global_accumulator.count * global_accumulator.weight
+  # TODO(b/168469757): Consider raising here once b/168469757 is resolved.
+  if round(total_label_counts) != round(n):
+    logging.warn(
+        'Weighted label sum (%s) != total weighted count (%s), label means=%s',
+        total_label_counts, n, global_accumulator.mean)
   if n == 0:
     return (feature_value, (float('NaN'), float('NaN'), 0))
 
@@ -575,7 +582,7 @@ def _calculate_mutual_information_for_feature_value(feature_and_accumulator,
   # If x_i == n, the feature is a constant and thus has no information.
   if round(x_i) == round(n):
     return feature_value, (0, 0, x_i)
-  if x_i > n:
+  if round(x_i) > round(n):
     raise ValueError(
         'Frequency of token {} higher than number of records {} > {}'.format(
             feature_value, x_i, n) +
