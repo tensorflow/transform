@@ -50,12 +50,12 @@ def _make_required_install_packages():
       'six>=1.12,<2',
       'tensorflow>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,<2.4',
       'tensorflow-metadata' + select_constraint(
-          default='>=0.23,<0.24',
-          nightly='>=0.24.0.dev',
+          default='>=0.24,<0.25',
+          nightly='>=0.25.0.dev',
           git_master='@git+https://github.com/tensorflow/metadata@master'),
       'tfx-bsl' + select_constraint(
-          default='>=0.23,<0.24',
-          nightly='>=0.24.0.dev',
+          default='>=0.24,<0.25',
+          nightly='>=0.25.0.dev',
           git_master='@git+https://github.com/tensorflow/tfx-bsl@master'),
   ]
 

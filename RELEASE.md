@@ -4,6 +4,16 @@
 
 ## Major Features and Improvements
 
+## Bug Fixes and Other Changes
+
+## Breaking changes
+
+## Deprecations
+
+# Version 0.24.0
+
+## Major Features and Improvements
+
 *   Added native TF 2 implementation of Transform's Beam APIs -
     `tft.AnalyzeDataset`, `tft.AnalyzeDatasetWithCache`,
     `tft.AnalyzeAndTransformDataset` and `tft.TransformDataset`. The default
@@ -18,8 +28,12 @@
     performance.
 *   Depends on `absl-py>=0.9,<0.11`.
 *   Depends on `protobuf>=3.9.2,<4`.
+*   Depends on `tensorflow-metadata>=0.24,<0.25`.
+*   Depends on `tfx-bsl>=0.24,<0.25`.
 
 ## Breaking changes
+
+*   N/A
 
 ## Deprecations
 
