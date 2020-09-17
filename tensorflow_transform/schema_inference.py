@@ -43,16 +43,16 @@ def _feature_spec_from_batched_tensors(tensors):
   """Infer a feature spec from a dict of tensors.
 
   Args:
-    tensors: A dict whose keys are strings and values are `Tensor` or
-      `SparseTensor`s.
+    tensors: A dict whose keys are strings and values are `Tensor`,
+      `SparseTensor`, or `RaggedTensor`s.
 
   Returns:
     A feature spec inferred from the types and shapes of the tensors.
 
   Raises:
     ValueError: If the feature spec cannot be inferred.
-    TypeError: If any of the values of `tensors` are not a `Tensor` or
-        `SparseTensor`.
+    TypeError: If any of the values of `tensors` are not a `Tensor`,
+        `SparseTensor`, or `RaggedTensor`.
   """
   feature_spec = {}
   for name, tensor in six.iteritems(tensors):
@@ -89,7 +89,8 @@ def _feature_spec_from_batched_tensors(tensors):
       feature_spec[name] = tf.io.VarLenFeature(tensor.dtype)
     else:
       raise TypeError(
-          'Expected a Tensor or SparseTensor, got {} of type {} for feature {}'
+          'Expected a Tensor, SparseTensor, or RaggedTensor got {} of type {} '
+          'for feature {}'
           .format(tensor, type(tensor), name))
 
   return feature_spec
