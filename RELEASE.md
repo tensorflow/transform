@@ -26,6 +26,8 @@
 
 *   Added a small fanout to analyzers' `CombineGlobally` for improved
     performance.
+*   `TransformFeaturesLayer` can be called after being saved as an attribute to
+    a Keras Model, even if the layer isn't used in the Model.
 *   Depends on `absl-py>=0.9,<0.11`.
 *   Depends on `protobuf>=3.9.2,<4`.
 *   Depends on `tensorflow-metadata>=0.24,<0.25`.
