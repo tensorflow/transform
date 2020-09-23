@@ -1751,19 +1751,23 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
                        tf.where(tf.math.is_finite(bucket_boundaries))),
           axis=0)
     return_type = tf.float64 if x.dtype == tf.float64 else tf.float32
-    num_boundaries = tf.cast(tf.shape(bucket_boundaries)[1], dtype=tf.int64)
-
-    bucket_indices = _assign_buckets_all_shapes(x_values, bucket_boundaries)
-
-    # Get max, min, and width of the corresponding bucket for each element.
-    bucket_max = tf.cast(
-        tf.gather(
-            tf.concat([bucket_boundaries[0], bucket_boundaries[:, -1]], axis=0),
-            bucket_indices), return_type)
-    bucket_min = tf.cast(
-        tf.gather(
-            tf.concat([bucket_boundaries[:, 0], bucket_boundaries[0]], axis=0),
-            bucket_indices), return_type)
+    num_boundaries = tf.cast(
+        tf.shape(bucket_boundaries)[1], dtype=tf.int64, name='num_boundaries')
+    assert_some_finite_boundaries = tf.compat.v1.assert_greater(
+        num_boundaries,
+        tf.constant(0, tf.int64),
+        name='assert_1_or_more_finite_boundaries')
+    with tf.control_dependencies([assert_some_finite_boundaries]):
+      bucket_indices = _assign_buckets_all_shapes(x_values, bucket_boundaries)
+      # Get max, min, and width of the corresponding bucket for each element.
+      bucket_max = tf.cast(
+          tf.gather(
+              tf.concat([bucket_boundaries[0], bucket_boundaries[:, -1]],
+                        axis=0), bucket_indices), return_type)
+      bucket_min = tf.cast(
+          tf.gather(
+              tf.concat([bucket_boundaries[:, 0], bucket_boundaries[0]],
+                        axis=0), bucket_indices), return_type)
     bucket_width = bucket_max - bucket_min
     zeros = tf.zeros_like(x_values, dtype=return_type)
     ones = tf.ones_like(x_values, dtype=return_type)

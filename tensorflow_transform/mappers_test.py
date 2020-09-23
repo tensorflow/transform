@@ -741,6 +741,16 @@ class MappersTest(test_case.TransformTestCase):
           boundaries=[float('-inf'), 0],
           expected_results=[0, 0, 1, 0]),
       dict(
+          testcase_name='float_input_with_nan_boundaries',
+          x=[
+              float('-inf'),
+              float('nan'),
+              float(0),
+              float(1),
+          ],
+          boundaries=[float('nan'), 0, 1],
+          expected_results=[0, .5, 0, 1]),
+      dict(
           testcase_name='integer_boundaries',
           x=[15, 20, 25],
           boundaries=[10, 20],
@@ -775,6 +785,15 @@ class MappersTest(test_case.TransformTestCase):
         boundaries = tf.constant([boundaries], dtype=boundaries_dtype)
         output = mappers.apply_buckets_with_interpolation(x, boundaries)
         self.assertAllClose(sess.run(output), expected_results, 1e-6)
+
+  def testApplyBucketsWithInterpolationAllNanBoundariesRaises(self):
+    with tf.compat.v1.Graph().as_default():
+      with self.test_session() as sess:
+        x = tf.constant([float('-inf'), float('nan'), 0.0, 1.0])
+        boundaries = tf.constant([[float('nan'), float('nan'), float('nan')]])
+        with self.assertRaisesRegexp(tf.errors.InvalidArgumentError,
+                                     'num_boundaries'):
+          sess.run(mappers.apply_buckets_with_interpolation(x, boundaries))
 
   def testApplyBucketsWithInterpolationRaises(self):
     # We should raise an exception if you try to scale a non-numeric tensor.
