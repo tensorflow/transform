@@ -739,7 +739,7 @@ class GraphToolsTest(test_case.TransformTestCase):
                                            {y: tensors[y] for y in fetches})
     self.assertCountEqual(expected_dependent_inputs, got.keys())
     for input_name in expected_dependent_inputs:
-      self.assertEqual(tensors[input_name], got[input_name])
+      self.assertIs(tensors[input_name], got[input_name])
 
 
 class GraphToolsTestUniquePath(test_case.TransformTestCase):
