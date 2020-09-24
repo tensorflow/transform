@@ -17,13 +17,9 @@ positive and negative examples. Then, the correct labels are attached to the
 dataset and shuffled.
 
 Since the input data uses separate files for each review (with separate
-directories for positive and negative reviews), this example does not use a
-coder provided by `tf.Transform` to produce data read by `tf.Transform`.
-Instead, the data is produced directly by the Beam pipeline in the form of a
-`PCollection` of dictionaries.
-
-Caution: The format of these dictionaries is not specified in the API and may
-change. When the format is specified, the documentation will be updated.
+directories for positive and negative reviews), this example first reads in
+the original data and transcodes it into `tf.Example`s in `TFRecords`. Then
+we use a pre-canned [TFXIO](https://tensorflow.devsite.corp.google.com/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio) to read those `tf.Example`s into what TFT accepts.
 
 The `tf.Transform` preprocessing is more complex. Unlike the Census income
 example, the data in this example uses a single feature for the full text of a

@@ -21,16 +21,16 @@ dataset. The preprocessing function accepts and returns a dictionary of tensors,
 where a *tensor* means `Tensor` or 2D `SparseTensor`. There are two kinds of
 functions used to define the preprocessing function:
 
-1.  Any function that accepts and returns tensors. These add TensorFlow
-    operations to the graph that transform raw data into transformed data.
-2.  Any of the *analyzers* provided by `tf.Transform`. Analyzers also accept and
-    return tensors, but unlike TensorFlow functions, they *do not* add
-    operations to the graph. Instead, analyzers cause `tf.Transform` to compute
-    a full-pass operation outside of TensorFlow. They use the input tensor
-    values over the entire dataset to generate a constant tensor that is
-    returned as the output. For example, `tft.min` computes the minimum of a
-    tensor over the dataset. `tf.Transform` provides a fixed set of analyzers,
-    but this will be extended in future versions.
+1. Any function that accepts and returns tensors. These add TensorFlow
+   operations to the graph that transform raw data into transformed data.
+2. Any of the *analyzers* provided by `tf.Transform`. Analyzers also accept
+   and return tensors, but unlike TensorFlow functions, they *do not* add
+   operations to the graph. Instead, analyzers cause `tf.Transform` to compute
+   a full-pass operation outside of TensorFlow. They use the input tensor values
+   over the entire dataset to generate a constant tensor that is returned as the
+   output. For example, `tft.min` computes the minimum of a tensor over the
+   dataset. `tf.Transform` provides a fixed set of analyzers, but this will be
+   extended in future versions.
 
 ### Preprocessing function example
 
@@ -191,6 +191,28 @@ This is the same pattern used in
 
 ## Data Formats and Schema
 
+TFT Beam implementation accepts two different input data formats. The
+"instance dict" format (as seen in the example above and in `simple_example.py`)
+is an intuitive format and is suitable for small datasets while the TFXIO
+([Apache Arrow](https://arrow.apache.org)) format provides improved performance
+and is suitble for large datasets.
+
+The Beam implementation tells which format the input PCollection would be in
+by the "metadata" accompanying the PCollection:
+
+```python
+(raw_data, raw_data_metadata) | tft.AnalyzeDataset(...)
+```
+
+- If `raw_data_metadata` is a `dataset_metadata.DatasetMetadata` (see below,
+  "The 'instance dict' format" section),
+  then `raw_data` is expected to be in the "instance dict" format.
+- If `raw_data_metadata` is a `tfxio.TensorAdapterConfig`
+  (see below, "The TFXIO format" section), then `raw_data` is expected to be
+  in the TFXIO format.
+
+### The "instance dict" format
+
 In the previous code examples, the code defining `raw_data_metadata` is omitted.
 The metadata contains the schema that defines the layout of the data so it is
 read from and written to various formats. Even the in-memory format shown in the
@@ -224,16 +246,84 @@ fixed number of values, in this case a single scalar value. Because
 `tf.Transform` batches instances, the actual `Tensor` representing the feature
 will have shape `(None,)` where the unknown dimension is the batch dimension.
 
+### The TFXIO format
+
+With this format, the data is expected to be contained in a
+[`pyarrow.RecordBatch`](https://arrow.apache.org/docs/python/generated/pyarrow.RecordBatch.html).
+For tabular data, our Apache Beam implementation
+accepts Arrow `RecordBatch`es that consist of columns of the following types:
+
+  - `pa.list_(<primitive>)`, where `<primitive>` is `pa.int64()`, `pa.float32()`
+    `pa.binary()` or `pa.large_binary()`.
+
+  - `pa.large_list(<primitive>)`
+
+The toy input dataset we used above, when represented as a `RecordBatch`, looks
+like the following:
+
+```python
+raw_data = [
+    pa.record_batch([
+        pa.array([[1], [2], [3]], pa.list_(pa.float32())),
+        pa.array([[1], [2], [3]], pa.list_(pa.float32())),
+        pa.array([['hello'], ['world'], ['hello']], pa.list_(pa.binary())),
+    ], ['x', 'y', 's'])
+]
+```
+
+Similar to DatasetMetadata being needed to accompany the "instance dict" format,
+a [`tfxio.TensorAdapterConfig`](https://tensorflow.devsite.corp.google.com/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio/TensorAdapterConfig)
+is needed to accompany the `RecordBatch`es. It consists of the Arrow schema of
+the `RecordBatch`es, and
+[`TensorRepresentations`](https://tensorflow.devsite.corp.google.com/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio/TensorRepresentations)
+to uniquely determine how columns in `RecordBatch`es can be interpreted as
+TensorFlow Tensors (including but not limited to tf.Tensor, tf.SparseTensor).
+
+`TensorRepresentations` is a `Dict[Text, TensorRepresentation]` which
+establishes the relationship between a Tensor that `preprocessing_fn` accepts
+and columns in the `RecordBatch`es. For example:
+
+```python
+tensor_representation = {
+    'x': text_format.Parse(
+        """dense_tensor { column_name: "col1" shape { dim { size: 2 } } }"""
+        schema_pb2.TensorRepresentation())
+}
+```
+
+Means that `inputs['x']` in `preprocessing_fn` should be a dense tf.Tensor,
+whose values come from a column of name `'col1'` in the input `RecordBatch`es,
+and its (batched) shape should be `[batch_size, 2]`.
+
+`TensorRepresentation` is a Protobuf defined in
+[TensorFlow Metadata](https://github.com/tensorflow/metadata/blob/v0.22.2/tensorflow_metadata/proto/v0/schema.proto#L592).
+
+
 ## Input and output with Apache Beam
 
-So far, the data format for the examples used lists of dictionaries. This is a
-simplification that relies on Apache Beam's ability to work with lists as well
-as its main representation of data, the `PCollection`. A `PCollection` is a data
-representation that forms a part of a Beam pipeline. A Beam pipeline is formed
-by applying various `PTransform`s, including `AnalyzeDataset` and
-`TransformDataset`, and running the pipeline. A `PCollection` is not created in
-the memory of the main binary, but instead is distributed among the workers
-(although this section uses the in-memory execution mode).
+So far, we've seen input and output data in python lists (of `RecordBatch`es or
+instance dictionaries). This is a simplification that relies on Apache Beam's
+ability to work with lists as well as its main representation of data, the
+`PCollection`.
+
+A `PCollection` is a data representation that forms a part of a Beam pipeline.
+A Beam pipeline is formed by applying various `PTransform`s, including
+`AnalyzeDataset` and `TransformDataset`, and running the pipeline. A
+`PCollection` is not created in the memory of the main binary, but instead is
+distributed among the workers (although this section uses the in-memory
+execution mode).
+
+### Pre-canned `PCollection` Sources (`TFXIO`)
+
+The `RecordBatch` format that our implementation accepts is a common format that
+other TFX libraries accept. Therefore TFX offers convenient "sources" (a.k.a
+`TFXIO`) that read files of various formats on disk and produce `RecordBatch`es
+and can also give `TensorAdapterConfig`, including inferred
+`TensorRepresentations`.
+
+Those `TFXIO`s can be found in package `tfx_bsl` ([`tfx_bsl.public.tfxio`](https://tensorflow.devsite.corp.google.com/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio)).
+
+### Example: "Census Income" dataset
 
 The following example requires both reading and writing data on disk and
 representing data as a `PCollection` (not a list), see:
@@ -250,32 +340,53 @@ The data is in CSV format, here are the first two lines:
 50, Self-emp-not-inc, 83311, Bachelors, 13, Married-civ-spouse, Exec-managerial, Husband, White, Male, 0, 0, 13, United-States, <=50K
 ```
 
-The columns of the dataset are either categorical or numeric. Since there are
-many columns, a `Schema` is generated (similar to the previous example) by
-looping through all columns of each type. This dataset describes a
-classification problem: predicting the last column where the individual earns
-more or less than 50K per year. However, from the perspective of `tf.Transform`,
-this label is just another categorical column.
+The columns of the dataset are either categorical or numeric. This dataset
+describes a classification problem: predicting the last column where the
+individual earns more or less than 50K per year. However, from the perspective
+of `tf.Transform`, this label is just another categorical column.
 
-Use this schema to read the data from the CSV file. The `ordered_columns`
-constant contains the list of all columns in the order they appear in the CSV
-file—required because the schema does not contain this information. Some extra
-Beam transforms are removed since they're already done when reading from the CSV
-file. Each CSV row is converted to an instance in the in-memory format.
+We use a Pre-canned `TFXIO`, `BeamRecordCsvTFXIO` to translate the CSV lines
+into `RecordBatches`. `TFXIO` requires two important piece of information:
+
+  - a [TensorFlow Metadata Schema](https://github.com/tensorflow/metadata/blob/master/tensorflow_metadata/proto/v0/schema.proto)
+    that contains type and shape information about each CSV column.
+    `TensorRepresentation`s are an optional part of the Schema; if not provided
+    (which is the case in this example), they will be inferred from the type and
+    shape information. One can get the Schema either by using a helper function
+    we provide to translate from TF parsing specs (shown in this example), or by
+    running
+    [TensorFlow Data Validation](https://tensorflow.devsite.corp.google.com/tfx/tutorials/data_validation/tfdv_basic).
+
+  - a list of column names, in the order they appear in the CSV file. Note
+    that those names must match the feature names in the Schema.
 
 In this example we allow the `education-num` feature to be missing. This means
 that it is represented as a `tf.io.VarLenFeature` in the feature_spec, and as a
-`tf.SparseTensor` in the preprocessing_fn. To handle the possibly missing
-feature value we fill in missing instances with a default value, in this case 0.
+`tf.SparseTensor` in the `preprocessing_fn`. Other features will become
+`tf.Tensor`s of the same name in the `preprocessing_fn`.
 
 ```python
-converter = tft.coders.CsvCoder(ordered_columns, raw_data_schema)
+csv_tfxio = tfxio.BeamRecordCsvTFXIO(
+    physical_format='text', column_names=ordered_columns, schema=SCHEMA)
 
-raw_data = (
+record_batches = (
     p
     | 'ReadTrainData' >> textio.ReadFromText(train_data_file)
-    | ...
-    | 'DecodeTrainData' >> beam.Map(converter.decode))
+    | ...  # fix up csv lines
+    | 'ToRecordBatches' >> csv_tfxio.BeamSource())
+
+tensor_adapter_config = csv_tfxio.TensorAdapterConfig()
+```
+
+Note that we had to do some additional fix-ups after the CSV lines are read
+in. Otherwise, we could rely on the `CsvTFXIO` to handle both reading the files
+and translating to `RecordBatch`es:
+
+```python
+csv_tfxio = tfxio.CsvTFXIO(train_data_file, column_name=ordered_columns,
+                           schema=SCHEMA)
+record_batches = p | 'TFXIORead' >> csv_tfxio.BeamSource()
+tensor_adapter_config = csv_tfxio.TensorAdapterConfig()
 ```
 
 Preprocessing is similar to the previous example, except the preprocessing
@@ -330,12 +441,10 @@ the mapping from the string to an index. So `'>50'` is mapped to `0` and
 `'<=50K'` is mapped to `1` because it's useful to know which index in the
 trained model corresponds to which label.
 
-The `raw_data` variable represents a `PCollection` that contains data in the
-same format as the list `raw_data` (from the previous example), using the same
-`AnalyzeAndTransformDataset` transform. The schema is used in two places:
-reading the data from the CSV file and as input to `AnalyzeAndTransformDataset`.
-Both the CSV format and the in-memory format must be paired with a schema in
-order to interpret them as tensors.
+The `record_batches` variable represents a `PCollection` of
+`pyarrow.RecordBatch`es. The `tensor_adapter_config` is given by `csv_tfxio`,
+which is inferred from `SCHEMA` (and ultimately, in this example, from the TF
+parsing specs).
 
 The final stage is to write the transformed data to disk and has a similar form
 to reading the raw data. The schema used to do this is part of the output of

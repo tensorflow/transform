@@ -33,6 +33,7 @@ import tensorflow_transform as tft
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
+from tfx_bsl.public import tfxio
 
 CATEGORICAL_FEATURE_KEYS = [
     'workclass',
@@ -63,32 +64,6 @@ ORDERED_CSV_COLUMNS = [
 ]
 
 
-class MapAndFilterErrors(beam.PTransform):
-  """Like beam.Map but filters out erros in the map_fn."""
-
-  class _MapAndFilterErrorsDoFn(beam.DoFn):
-    """Count the bad examples using a beam metric."""
-
-    def __init__(self, fn):
-      self._fn = fn
-      # Create a counter to measure number of bad elements.
-      self._bad_elements_counter = beam.metrics.Metrics.counter(
-          'census_example', 'bad_elements')
-
-    def process(self, element):
-      try:
-        yield self._fn(element)
-      except Exception:  # pylint: disable=broad-except
-        # Catch any exception the above call.
-        self._bad_elements_counter.inc(1)
-
-  def __init__(self, fn):
-    self._fn = fn
-
-  def expand(self, pcoll):
-    return pcoll | beam.ParDo(self._MapAndFilterErrorsDoFn(self._fn))
-
-
 RAW_DATA_FEATURE_SPEC = dict([(name, tf.io.FixedLenFeature([], tf.string))
                               for name in CATEGORICAL_FEATURE_KEYS] +
                              [(name, tf.io.FixedLenFeature([], tf.float32))
@@ -98,8 +73,8 @@ RAW_DATA_FEATURE_SPEC = dict([(name, tf.io.FixedLenFeature([], tf.string))
                              [(LABEL_KEY,
                                tf.io.FixedLenFeature([], tf.string))])
 
-RAW_DATA_METADATA = dataset_metadata.DatasetMetadata(
-    schema_utils.schema_from_feature_spec(RAW_DATA_FEATURE_SPEC))
+SCHEMA = dataset_metadata.DatasetMetadata(
+    schema_utils.schema_from_feature_spec(RAW_DATA_FEATURE_SPEC)).schema
 
 # Constants used for training.  Note that the number of instances will be
 # computed by tf.Transform in future versions, in which case it can be read from
@@ -184,32 +159,38 @@ def transform_data(train_data_file, test_data_file, working_dir):
   # of the block.
   with beam.Pipeline() as pipeline:
     with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
-      # Create a coder to read the census data with the schema.  To do this we
+      # Create a TFXIO to read the census data with the schema. To do this we
       # need to list all columns in order since the schema doesn't specify the
       # order of columns in the csv.
-      converter = tft.coders.CsvCoder(ORDERED_CSV_COLUMNS,
-                                      RAW_DATA_METADATA.schema)
+      # We first read CSV files and use BeamRecordCsvTFXIO whose .BeamSource()
+      # accepts a PCollection[bytes] because we need to patch the records first
+      # (see "FixCommasTrainData" below). Otherwise, tfxio.CsvTFXIO can be used
+      # to both read the CSV files and parse them to TFT inputs:
+      # csv_tfxio = tfxio.CsvTFXIO(...)
+      # raw_data = (pipeline | 'ToRecordBatches' >> csv_tfxio.BeamSource())
+      csv_tfxio = tfxio.BeamRecordCsvTFXIO(
+          physical_format='text',
+          column_names=ORDERED_CSV_COLUMNS,
+          schema=SCHEMA)
 
-      # Read in raw data and convert using CSV converter.  Note that we apply
+      # Read in raw data and convert using CSV TFXIO.  Note that we apply
       # some Beam transformations here, which will not be encoded in the TF
       # graph since we don't do the from within tf.Transform's methods
       # (AnalyzeDataset, TransformDataset etc.).  These transformations are just
-      # to get data into a format that the CSV converter can read, in particular
+      # to get data into a format that the CSV TFXIO can read, in particular
       # removing spaces after commas.
-      #
-      # We use MapAndFilterErrors instead of Map to filter out decode errors in
-      # convert.decode which should only occur for the trailing blank line.
       raw_data = (
           pipeline
-          | 'ReadTrainData' >> beam.io.ReadFromText(train_data_file)
+          | 'ReadTrainData' >> beam.io.ReadFromText(
+              train_data_file, coder=beam.coders.BytesCoder())
           | 'FixCommasTrainData' >> beam.Map(
-              lambda line: line.replace(', ', ','))
-          | 'DecodeTrainData' >> MapAndFilterErrors(converter.decode))
+              lambda line: line.replace(b', ', b','))
+          | 'DecodeTrainData' >> csv_tfxio.BeamSource())
 
       # Combine data and schema into a dataset tuple.  Note that we already used
       # the schema to read the CSV data, but we also need it to interpret
       # raw_data.
-      raw_dataset = (raw_data, RAW_DATA_METADATA)
+      raw_dataset = (raw_data, csv_tfxio.TensorAdapterConfig())
       transformed_dataset, transform_fn = (
           raw_dataset | tft_beam.AnalyzeAndTransformDataset(preprocessing_fn))
       transformed_data, transformed_metadata = transformed_dataset
@@ -227,14 +208,15 @@ def transform_data(train_data_file, test_data_file, working_dir):
       # that is present in the test data file.
       raw_test_data = (
           pipeline
-          | 'ReadTestData' >> beam.io.ReadFromText(test_data_file,
-                                                   skip_header_lines=1)
+          | 'ReadTestData' >> beam.io.ReadFromText(
+              test_data_file, skip_header_lines=1,
+              coder=beam.coders.BytesCoder())
           | 'FixCommasTestData' >> beam.Map(
-              lambda line: line.replace(', ', ','))
+              lambda line: line.replace(b', ', b','))
           | 'RemoveTrailingPeriodsTestData' >> beam.Map(lambda line: line[:-1])
-          | 'DecodeTestData' >> MapAndFilterErrors(converter.decode))
+          | 'DecodeTestData' >> csv_tfxio.BeamSource())
 
-      raw_test_dataset = (raw_test_data, RAW_DATA_METADATA)
+      raw_test_dataset = (raw_test_data, csv_tfxio.TensorAdapterConfig())
 
       transformed_test_dataset = (
           (raw_test_dataset, transform_fn) | tft_beam.TransformDataset())

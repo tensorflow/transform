@@ -3,6 +3,11 @@
 # Current Version(Still in Development)
 
 ## Major Features and Improvements
+*   Updated the "Getting Started" guide and examples to demonstrate the support
+    for both the "instance dict" and the "TFXIO" format. Users are encouraged
+    to start using the "TFXIO" format, expecially in cases where
+    [pre-canned TFXIO implementations](https://tensorflow.devsite.corp.google.com/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio)
+    is available as it offers better performance.
 
 ## Bug Fixes and Other Changes
 

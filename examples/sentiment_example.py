@@ -31,6 +31,7 @@ import tensorflow_transform as tft
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
+from tfx_bsl.public import tfxio
 
 
 VOCAB_SIZE = 20000
@@ -48,8 +49,8 @@ RAW_DATA_FEATURE_SPEC = {
     LABEL_KEY: tf.io.FixedLenFeature([], tf.int64)
 }
 
-RAW_DATA_METADATA = dataset_metadata.DatasetMetadata(
-    schema_utils.schema_from_feature_spec(RAW_DATA_FEATURE_SPEC))
+SCHEMA = dataset_metadata.DatasetMetadata(
+    schema_utils.schema_from_feature_spec(RAW_DATA_FEATURE_SPEC)).schema
 
 DELIMITERS = '.,!?() '
 
@@ -129,7 +130,7 @@ def read_and_shuffle_data(
     working_dir: Directory to write shuffled data to
   """
   with beam.Pipeline() as pipeline:
-    coder = tft.coders.ExampleProtoCoder(RAW_DATA_METADATA.schema)
+    coder = tft.coders.ExampleProtoCoder(SCHEMA)
 
     # pylint: disable=no-value-for-parameter
     _ = (
@@ -165,18 +166,18 @@ def transform_data(working_dir):
   with beam.Pipeline() as pipeline:
     with tft_beam.Context(
         temp_dir=os.path.join(working_dir, TRANSFORM_TEMP_DIR)):
-      coder = tft.coders.ExampleProtoCoder(RAW_DATA_METADATA.schema)
+      tfxio_train_data = tfxio.TFExampleRecord(
+          file_pattern=os.path.join(working_dir,
+                                    SHUFFLED_TRAIN_DATA_FILEBASE + '*'),
+          schema=SCHEMA)
       train_data = (
-          pipeline
-          | 'ReadTrain' >> beam.io.ReadFromTFRecord(
-              os.path.join(working_dir, SHUFFLED_TRAIN_DATA_FILEBASE + '*'))
-          | 'DecodeTrain' >> beam.Map(coder.decode))
+          pipeline | 'TFXIORead[Train]' >> tfxio_train_data.BeamSource())
 
-      test_data = (
-          pipeline
-          | 'ReadTest' >> beam.io.ReadFromTFRecord(
-              os.path.join(working_dir, SHUFFLED_TEST_DATA_FILEBASE + '*'))
-          | 'DecodeTest' >> beam.Map(coder.decode))
+      tfxio_test_data = tfxio.TFExampleRecord(
+          file_pattern=os.path.join(working_dir,
+                                    SHUFFLED_TEST_DATA_FILEBASE + '*'),
+          schema=SCHEMA)
+      test_data = (pipeline | 'TFXIORead[Test]' >> tfxio_test_data.BeamSource())
 
       def preprocessing_fn(inputs):
         """Preprocess input columns into transformed columns."""
@@ -197,14 +198,14 @@ def transform_data(working_dir):
         }
 
       (transformed_train_data, transformed_metadata), transform_fn = (
-          (train_data, RAW_DATA_METADATA)
+          (train_data, tfxio_train_data.TensorAdapterConfig())
           | 'AnalyzeAndTransform' >> tft_beam.AnalyzeAndTransformDataset(
               preprocessing_fn))
       transformed_data_coder = tft.coders.ExampleProtoCoder(
           transformed_metadata.schema)
 
       transformed_test_data, _ = (
-          ((test_data, RAW_DATA_METADATA), transform_fn)
+          ((test_data, tfxio_test_data.TensorAdapterConfig()), transform_fn)
           | 'Transform' >> tft_beam.TransformDataset())
 
       _ = (
