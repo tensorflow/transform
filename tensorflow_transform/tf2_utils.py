@@ -20,6 +20,13 @@ from __future__ import print_function
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
+from tensorflow.python import tf2  # pylint: disable=g-direct-tensorflow-import
+
+
+def use_tf_compat_v1(force_tf_compat_v1):
+  """Evaluate from environment variables if TF should be used in compat.v1 mode."""
+  major, _, _ = tf.version.VERSION.split('.')
+  return force_tf_compat_v1 or int(major) < 2 or not tf2.enabled()
 
 
 def supply_missing_tensor(batch_size, tensor_shape, tensor_dtype):
@@ -75,17 +82,22 @@ def supply_missing_inputs(structured_inputs, batch_size, missing_keys=None):
     elif isinstance(tensor, tf.SparseTensor):
       values = supply_missing_tensor(batch_size, tensor.values.shape,
                                      tensor.values.dtype)
-      # TODO(b/149997088): assert this complies with tensor.dense_shape.
+      dense_rank = tensor.shape.ndims
+      # Since values is always a 1-D tensor, set index for every ith value in
+      # values to be [i 0 0 ...]. Each index should be compatible with the
+      # rank of the SparseTensor. Hence, the number of 0s is dense_rank-1.
+      actual_batch_size = tf.shape(values)[0]
       indices = tf.cast(
-          tf.stack([tf.range(1, dtype=tf.int32),
-                    tf.zeros(1, dtype=tf.int32)],
-                   axis=1),
+          tf.stack(
+              [tf.range(actual_batch_size, dtype=tf.int32)] +
+              [tf.zeros(actual_batch_size, dtype=tf.int32)] * (dense_rank - 1),
+              axis=1),
           dtype=tf.int64)
-
+      dense_shape = [actual_batch_size] + [1] * (dense_rank - 1)
       result[key] = tf.SparseTensor(
-          indices=indices, values=values, dense_shape=(1, 1))
+          indices=indices, values=values, dense_shape=dense_shape)
     else:
-      # TODO(b/153663890): Add support for CompositeTensors.
-      raise ValueError('Received unsupported input tensor type. Only dense '
-                       'tensors are currently supported.')
+      # TODO(b/153663890): Add support for generic CompositeTensors.
+      raise ValueError('Received unsupported input tensor type. Only '
+                       'dense/sparse tensors are currently supported.')
   return result

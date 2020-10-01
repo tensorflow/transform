@@ -20,19 +20,31 @@ from __future__ import print_function
 
 import collections
 import os
+import threading
 from typing import Any, Dict, Optional
 
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 
-_CURRENT_STATE = None
-
 
 class TFGraphContext(object):
   """A context manager to pass global state to a TF graph when it is traced.
 
-  This context manager is not thread safe.
+  All the attributes in this context are kept on a thread local state.
+
+  Attributes:
+    temp_dir: The base path of the directory to write out any temporary files
+      in this context block. If None, the TF graph in this context will be
+      traced with placeholders for asset filepaths and is not serializable to a
+      SavedModel.
+    evaluated_replacements: A subset of placeholders/temporary asset files in
+      `analyzer_nodes.TENSOR_REPLACEMENTS` that have been evaluated in
+      previous TFT phases.
+
+  Note that the temp dir should be accessible to worker jobs, e.g. if running
+  with the Cloud Dataflow runner, the temp dir should be on GCS and should have
+  permissions that allow both launcher and workers to access it.
   """
 
   class _State(
@@ -40,43 +52,48 @@ class TFGraphContext(object):
           'temp_dir',
           'evaluated_replacements',
       ])):
-    """A named tuple storing state passed to this context manager.
+    """A named tuple storing state passed to this context manager."""
 
-    Fields:
-      temp_dir: The base path of the directory to write out any temporary files
-        in this context block.
-      evaluated_replacements: A subset of placeholders/temporary asset files in
-        `analyzer_nodes.TENSOR_REPLACEMENTS` that have been evaluated in
-        previous TFT phases.
-    """
-    pass
+    @classmethod
+    def make_empty(cls):
+      """Return `_State` object with all fields set to `None`."""
+      return cls(*(None,) * len(cls._fields))
 
   _TEMP_SUBDIR = 'analyzer_temporary_assets'
 
+  _thread_local = threading.local()
+
   def __init__(self,
-               temp_dir: str,
+               temp_dir: Optional[str] = None,
                evaluated_replacements: Optional[Dict[str, Any]] = None):
     self._temp_dir = temp_dir
     self._evaluated_replacements = evaluated_replacements
 
   def __enter__(self):
-    global _CURRENT_STATE
-    assert _CURRENT_STATE is None
-    _CURRENT_STATE = self._State(
+    assert getattr(self._thread_local, 'current_state', None) is None
+    self._thread_local.current_state = self._State(
         temp_dir=self._temp_dir,
         evaluated_replacements=self._evaluated_replacements)
 
   def __exit__(self, *exn_info):
-    global _CURRENT_STATE
-    _CURRENT_STATE = None
+    self._thread_local.current_state = None
 
   @classmethod
-  def get_or_create_temp_dir(cls) -> str:
+  def _get_current_state(cls) -> 'TFGraphContext._State':
+    if hasattr(cls._thread_local, 'current_state'):
+      return cls._thread_local.current_state
+    return cls._State.make_empty()
+
+  @classmethod
+  def get_or_create_temp_dir(cls) -> Optional[str]:
     """Generate a temporary location."""
-    if _CURRENT_STATE is None or not _CURRENT_STATE.temp_dir:
-      raise ValueError('A temp dir was requested, but no temp_dir was set. Use '
-                       'the _TFGraphContext context manager.')
-    result = os.path.join(_CURRENT_STATE.temp_dir, cls._TEMP_SUBDIR)
+    current_state = cls._get_current_state()
+    if current_state.temp_dir is None:
+      return None
+    if not current_state.temp_dir:
+      raise ValueError('A temp dir was requested, but empty temp_dir was set. '
+                       'Use the TFGraphContext context manager.')
+    result = os.path.join(current_state.temp_dir, cls._TEMP_SUBDIR)
     tf.io.gfile.makedirs(result)
     return result
 
@@ -92,6 +109,4 @@ class TFGraphContext(object):
       `analyzer_nodes.TENSOR_REPLACEMENTS` that have been evaluated in
       previous TFT phases.
     """
-    if _CURRENT_STATE is None:
-      return None
-    return _CURRENT_STATE.evaluated_replacements
+    return cls._get_current_state().evaluated_replacements

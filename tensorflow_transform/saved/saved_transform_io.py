@@ -95,8 +95,8 @@ def _load_transform_saved_model(transform_savedmodel_dir):
   """
   saved_model = saved_model_loader.parse_saved_model(
       transform_savedmodel_dir)
-  meta_graph_def = saved_model_loader.choose_meta_graph_def(
-      saved_model, [constants.TRANSFORM_TAG])
+  meta_graph_def = saved_model_loader.choose_meta_graph_def_and_raise(
+      saved_model)
 
   signature = meta_graph_def.signature_def[constants.TRANSFORM_SIGNATURE]
   # The following code handles models produced prior to CL/200123875.  These
@@ -441,3 +441,18 @@ def write_saved_transform_from_session(
       assets_collection=tf.compat.v1.get_collection(
           tf.compat.v1.GraphKeys.ASSET_FILEPATHS))
   builder.save(as_text)
+
+
+def exported_as_v1(transform_savedmodel_dir):
+  """Check if a SavedModel was exported as a TF 1 model or not.
+
+  Args:
+    transform_savedmodel_dir: a SavedModel directory.
+
+  Returns:
+    `True` if `transform_savedmodel_dir` contains a TF1 SavedModel else
+    returns `False`.
+  """
+  saved_model = saved_model_loader.parse_saved_model(transform_savedmodel_dir)
+  meta_graph_def = saved_model_loader.choose_meta_graph_def(saved_model)
+  return meta_graph_def is not None

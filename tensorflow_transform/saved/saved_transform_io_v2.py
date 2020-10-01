@@ -75,8 +75,8 @@ class SavedModelLoader(object):
   def _get_input_signature_from_v1_saved_model(self, saved_model_dir):
     """Get structured inputs for a TF1 compat SavedModel."""
     saved_model = saved_model_loader.parse_saved_model(saved_model_dir)
-    meta_graph_def = saved_model_loader.choose_meta_graph_def(
-        saved_model, [constants.TRANSFORM_TAG])
+    meta_graph_def = saved_model_loader.choose_meta_graph_def_and_raise(
+        saved_model)
     signature = meta_graph_def.signature_def[constants.TRANSFORM_SIGNATURE]
     return signature.inputs
 

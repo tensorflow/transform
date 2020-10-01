@@ -11,6 +11,13 @@
 
 ## Bug Fixes and Other Changes
 
+*   `TFTransformOutput.transform_raw_features` and `TransformFeaturesLayer` can
+    be used when a transform fn is exported as a TF2 SavedModel and imported in
+    graph mode.
+*   Utility methods in `tft.inspect_preprocessing_fn` now take an optional
+    parameter `force_tf_compat_v1`. If this is False, the `preprocessing_fn` is
+    traced using tf.function in TF 2.x when TF 2 behaviors are enabled.
+
 ## Breaking changes
 
 ## Deprecations

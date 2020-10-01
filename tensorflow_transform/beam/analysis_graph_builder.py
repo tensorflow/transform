@@ -28,6 +28,7 @@ from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import graph_tools
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
+from tensorflow_transform import tf2_utils
 from tensorflow_transform import tf_utils
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import beam_nodes
@@ -466,41 +467,48 @@ class _InspectVisitor(nodes.Visitor):
     assert isinstance(value, nodes.ValueNode)
 
 
-def _build_analysis_graph_for_inspection(
-    preprocessing_fn, specs, dataset_keys, input_cache):
+def _build_analysis_graph_for_inspection(preprocessing_fn, specs, dataset_keys,
+                                         input_cache, force_tf_compat_v1):
   """Builds the analysis graph for inspection."""
-  with tf.compat.v1.Graph().as_default() as graph:
-    with tf.compat.v1.name_scope('inputs'):
-      input_signature = impl_helper.batched_placeholders_from_specs(specs)
-      # TODO(b/34288791): This needs to be exactly the same as in impl.py
-      copied_inputs = impl_helper.copy_tensors(input_signature)
+  if not force_tf_compat_v1:
+    assert all([isinstance(s, tf.TypeSpec) for s in specs.values()]), specs
+  graph, structured_inputs, structured_outputs = (
+      impl_helper.trace_preprocessing_function(
+          preprocessing_fn,
+          specs,
+          use_tf_compat_v1=tf2_utils.use_tf_compat_v1(force_tf_compat_v1)))
 
-    output_signature = preprocessing_fn(copied_inputs)
   transform_fn_future, cache_dict = build(
       graph,
-      input_signature,
-      output_signature,
+      structured_inputs,
+      structured_outputs,
       dataset_keys=dataset_keys,
       cache_dict=input_cache)
   return transform_fn_future, cache_dict
 
 
-def get_analysis_dataset_keys(
-    preprocessing_fn, specs, dataset_keys, input_cache):
+def get_analysis_dataset_keys(preprocessing_fn,
+                              specs,
+                              dataset_keys,
+                              input_cache,
+                              force_tf_compat_v1=True):
   """Computes the dataset keys that are required in order to perform analysis.
 
   Args:
     preprocessing_fn: A tf.transform preprocessing_fn.
-    specs: A dict of feature name to feature specification or tf.TypeSpecs.
+    specs: A dict of feature name to tf.TypeSpecs. If `force_tf_compat_v1` is
+      True, this can also be feature specifications.
     dataset_keys: A set of strings which are dataset keys, they uniquely
       identify these datasets across analysis runs.
     input_cache: A cache dictionary.
+    force_tf_compat_v1: (Optional) If `True`, use Tensorflow in compat.v1 mode.
+      Defaults to `True`.
 
   Returns:
     A set of dataset keys that are required for analysis.
   """
   transform_fn_future, _ = _build_analysis_graph_for_inspection(
-      preprocessing_fn, specs, dataset_keys, input_cache)
+      preprocessing_fn, specs, dataset_keys, input_cache, force_tf_compat_v1)
 
   result = set()
   inspect_visitor = _InspectVisitor(result)
@@ -514,20 +522,27 @@ def get_analysis_dataset_keys(
   return result
 
 
-def get_analysis_cache_entry_keys(preprocessing_fn, feature_spec, dataset_keys):
+def get_analysis_cache_entry_keys(preprocessing_fn,
+                                  specs,
+                                  dataset_keys,
+                                  force_tf_compat_v1=True):
   """Computes the cache entry keys that would be useful for analysis.
 
   Args:
     preprocessing_fn: A tf.transform preprocessing_fn.
-    feature_spec: A dict of feature name to feature specification.
+    specs: A dict of feature name to tf.TypeSpecs. If `force_tf_compat_v1` is
+      True, this can also be feature specifications.
     dataset_keys: A set of strings which are dataset keys, they uniquely
       identify these datasets across analysis runs.
+    force_tf_compat_v1: (Optional) If `True`, use Tensorflow in compat.v1 mode.
+      Defaults to `True`.
 
   Returns:
     A set of cache entry keys which would be useful for analysis.
   """
-  _, cache_dict = _build_analysis_graph_for_inspection(
-      preprocessing_fn, feature_spec, dataset_keys, {})
+  _, cache_dict = _build_analysis_graph_for_inspection(preprocessing_fn, specs,
+                                                       dataset_keys, {},
+                                                       force_tf_compat_v1)
   return set([cache_key for _, cache_key in cache_dict.keys()])
 
 

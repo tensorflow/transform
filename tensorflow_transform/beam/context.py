@@ -26,7 +26,7 @@ from typing import Any, Iterable, Optional
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
-from tensorflow.python import tf2  # pylint: disable=g-direct-tensorflow-import
+from tensorflow_transform import tf2_utils
 
 _DEPRECATED_SENTINEL = object()
 
@@ -110,7 +110,9 @@ class Context(object):
     self._desired_batch_size = desired_batch_size
     self._passthrough_keys = passthrough_keys
     self._use_deep_copy_optimization = use_deep_copy_optimization
-    self._force_tf_compat_v1 = force_tf_compat_v1
+    # If tf.enable_v2_behavior has been called, but eager execution has been
+    # disabled, force compat v1 behavior.
+    self._force_tf_compat_v1 = not tf.executing_eagerly() or force_tf_compat_v1
 
   def __enter__(self):
     # Previous State's properties are inherited if not explicitly specified.
@@ -193,5 +195,4 @@ class Context(object):
   def get_use_tf_compat_v1(cls) -> bool:
     """Computes use_tf_compat_v1 from TF environment and force_tf_compat_v1."""
     force_tf_compat_v1 = cls._get_force_tf_compat_v1()
-    major, _, _ = tf.version.VERSION.split('.')
-    return force_tf_compat_v1 or int(major) < 2 or not tf2.enabled()
+    return tf2_utils.use_tf_compat_v1(force_tf_compat_v1)

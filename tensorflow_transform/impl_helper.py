@@ -565,6 +565,5 @@ def trace_preprocessing_function(preprocessing_fn,
   if use_tf_compat_v1:
     return _trace_preprocessing_fn_v1(preprocessing_fn, input_specs)
   else:
-    assert base_temp_dir
     return _trace_preprocessing_fn_v2(preprocessing_fn, input_specs,
                                       base_temp_dir)

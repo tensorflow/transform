@@ -67,7 +67,7 @@ class TFTransformOutput(object):
     self._transformed_metadata = None
     self._raw_metadata = None
     self._transform_features_layer = None
-    self._v2_saved_model_loader = None
+    self._exported_as_v1_value = None
 
   @property
   def transformed_metadata(self):
@@ -82,6 +82,17 @@ class TFTransformOutput(object):
   def transform_savedmodel_dir(self):
     """A python str."""
     return os.path.join(self._transform_output_dir, self.TRANSFORM_FN_DIR)
+
+  @property
+  def _exported_as_v1(self):
+    """A boolean.
+
+    Indicates whether the SavedModel was exported using TF 1.x or TF 2.x APIs.
+    """
+    if self._exported_as_v1_value is None:
+      self._exported_as_v1_value = saved_transform_io.exported_as_v1(
+          self.transform_savedmodel_dir)
+    return self._exported_as_v1_value
 
   def transformed_feature_spec(self):
     """Returns a feature_spec for the transformed features.
@@ -198,7 +209,8 @@ class TFTransformOutput(object):
       A `TransformFeaturesLayer` instance.
     """
     if self._transform_features_layer is None:
-      self._transform_features_layer = TransformFeaturesLayer(self)
+      self._transform_features_layer = TransformFeaturesLayer(
+          self, exported_as_v1=self._exported_as_v1)
     return self._transform_features_layer
 
   def transform_raw_features(self, raw_features, drop_unused_features=False):
@@ -224,21 +236,17 @@ class TFTransformOutput(object):
       A dict whose keys are feature names and values are `Tensor`s or
           `SparseTensor`s representing transformed features.
     """
-    if ops.executing_eagerly_outside_functions():
-      if self._v2_saved_model_loader is None:
-        self._v2_saved_model_loader = saved_transform_io_v2.SavedModelLoader(
-            self.transform_savedmodel_dir)
-
-    if (self._v2_saved_model_loader is not None and
-        not self._v2_saved_model_loader.load_v2_in_compat):
+    if self._exported_as_v1:
+      return self._transform_raw_features_compat_v1(raw_features,
+                                                    drop_unused_features)
+    else:
+      tft_layer = self.transform_features_layer()
       if not drop_unused_features:
         tf.compat.v1.logging.warning(
             'Unused features are always dropped in the TF 2.x '
             'implementation. Ignoring value of drop_unused_features.')
-      return self._v2_saved_model_loader.apply_transform_model(raw_features)
-    else:
-      return self._transform_raw_features_compat_v1(raw_features,
-                                                    drop_unused_features)
+
+      return tft_layer(raw_features)
 
   def _transform_raw_features_compat_v1(self, raw_features,
                                         drop_unused_features):
@@ -266,8 +274,15 @@ class TFTransformOutput(object):
     included in the training checkpoint when using tf.Estimator.  This should
     be called in the training input_fn.
     """
-    saved_transform_io.partially_apply_saved_transform_internal(
-        self.transform_savedmodel_dir, {})
+    if self._exported_as_v1 is None:
+      self._exported_as_v1 = saved_transform_io.exported_as_v1(
+          self.transform_savedmodel_dir)
+
+    if self._exported_as_v1:
+      saved_transform_io.partially_apply_saved_transform_internal(
+          self.transform_savedmodel_dir, {})
+    else:
+      _ = saved_transform_io_v2.SavedModelLoader(self.transform_savedmodel_dir)
 
   RAW_METADATA_DIR = 'metadata'
   _FEATURE_STATS_PB = 'FeatureStats.pb'
@@ -370,20 +385,23 @@ def _check_tensorflow_version():
 class TransformFeaturesLayer(tf.keras.Model):
   """A Keras layer for applying a tf.Transform output to input layers."""
 
-  def __init__(self, tft_output):
+  def __init__(self, tft_output, exported_as_v1=None):
     super(TransformFeaturesLayer, self).__init__(trainable=False)
     self._tft_output = tft_output
+    if exported_as_v1 is None:
+      self._exported_as_v1 = saved_transform_io.exported_as_v1(
+          tft_output.transform_savedmodel_dir)
+    else:
+      self._exported_as_v1 = exported_as_v1
+    self._saved_model_loader_value = None
+    self._loaded_saved_model_graph = None
     # TODO(b/160294509): Use tf.compat.v1 when we stop supporting TF 1.15.
     if ops.executing_eagerly_outside_functions():
       _check_tensorflow_version()
-      self._saved_model_loader = saved_transform_io_v2.SavedModelLoader(
-          tft_output.transform_savedmodel_dir)
       # The model must be tracked by assigning to an attribute of the Keras
       # layer. Hence, we track the attributes of _saved_model_loader here as
       # well.
       self._saved_model_loader_tracked_dict = self._saved_model_loader.__dict__
-    else:
-      self._saved_model_loader = None
 
     # TODO(b/162055065): This is needed because otherwise we'd get an error in
     # some cases:
@@ -395,9 +413,35 @@ class TransformFeaturesLayer(tf.keras.Model):
     # conversion (even if they were not the model converted to an estimator).
     # Similarly, making a layer or a model inside a a tf.compat.v1.Graph
     # invalidates all layers/models you previously made outside of the graph.
-    if (not self._saved_model_loader or
-        self._saved_model_loader.load_v2_in_compat):
-      self._originally_built_as_v1 = True
+    self._originally_built_as_v1 = True
+
+  @property
+  def _saved_model_loader(self):
+    """A `saved_transform_io_v2.SavedModelLoader`."""
+    if self._saved_model_loader_value is None:
+      self._saved_model_loader_value = saved_transform_io_v2.SavedModelLoader(
+          self._tft_output.transform_savedmodel_dir)
+      self._loaded_saved_model_graph = ops.get_default_graph()
+
+    # TODO(b/160294509): Use tf.compat.v1 when we stop supporting TF 1.15.
+    if ops.executing_eagerly_outside_functions():
+      return self._saved_model_loader_value
+    else:
+      assert not self._exported_as_v1
+      # TODO(b/149997088): Raise an exception once we no longer support using
+      # the Keras layer with estimator based Trainer.
+      tf.compat.v1.logging.warning('Loading a TF2 SavedModel but eager mode '
+                                   'seems disabled.')
+      # If exported as TF2 SavedModel but not invoked in eager mode,
+      # re-initialize the saved_model_loader_value as __init__ could have been
+      # called in a different graph context.
+      default_graph = ops.get_default_graph()
+      if (self._loaded_saved_model_graph is None or
+          self._loaded_saved_model_graph is not default_graph):
+        self._saved_model_loader_value = saved_transform_io_v2.SavedModelLoader(
+            self._tft_output.transform_savedmodel_dir)
+        self._loaded_saved_model_graph = default_graph
+      return self._saved_model_loader_value
 
   def _init_batch_counters(self, *args, **kwargs):  # pylint: disable=g-doc-args
     """Overriding this method because Model's implementation creates variables.
@@ -407,14 +451,14 @@ class TransformFeaturesLayer(tf.keras.Model):
     pass
 
   def call(self, inputs):
-    # TODO(b/160294509): Use tf.compat.v1 when we stop supporting TF 1.15.
-    if ops.executing_eagerly_outside_functions():
-      return self._saved_model_loader.apply_transform_model(inputs)
-    else:
+
+    if self._exported_as_v1 and not ops.executing_eagerly_outside_functions():
       tf.compat.v1.logging.warning('Falling back to transform_raw_features...')
       return self._tft_output._transform_raw_features_compat_v1(  # pylint: disable=protected-access
           inputs,
           drop_unused_features=True)
+    else:
+      return self._saved_model_loader.apply_transform_model(inputs)
 
 
 def _make_method_override(name):

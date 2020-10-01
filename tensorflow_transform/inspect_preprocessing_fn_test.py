@@ -31,6 +31,12 @@ _FEATURE_SPEC = {
     's': tf.io.FixedLenFeature([], tf.string),
 }
 
+_TYPE_SPEC = {
+    'x': tf.TensorSpec([None], tf.float32),
+    'y': tf.SparseTensorSpec(shape=[None, None], dtype=tf.int64),
+    's': tf.TensorSpec([None], tf.string),
+}
+
 
 def _identity_preprocessing_fn(inputs):
   return inputs.copy()
@@ -78,25 +84,58 @@ def _two_phases_preprocessing_fn(inputs):
 
 class InspectPreprocessingFnTest(test_case.TransformTestCase):
 
-  @test_case.named_parameters(
-      ('identity', _identity_preprocessing_fn, [], ['x', 'y', 's']),
-      ('side_affect', _side_affect_preprocessing_fn, ['s'], []),
-      ('non_identity_ops', _non_identity_ops_preprocessing_fn, [],
-       ['x', 'y', 's']),
-      ('feature_renaming', _renaming_preprocessing_fn, [], ['x', 'y', 's']),
-      ('one_phase', _one_phase_preprocessing_fn, ['x', 's'], ['y']),
-      ('two_phases', _two_phases_preprocessing_fn, ['x', 'y', 's'], ['x', 's']),
-  )
+  @test_case.named_parameters(*test_case.cross_named_parameters([
+      dict(
+          testcase_name='identity',
+          preprocessing_fn=_identity_preprocessing_fn,
+          expected_analyze_input_columns=[],
+          expected_transform_input_columns=['x', 'y', 's']),
+      dict(
+          testcase_name='side_affect',
+          preprocessing_fn=_side_affect_preprocessing_fn,
+          expected_analyze_input_columns=['s'],
+          expected_transform_input_columns=[]),
+      dict(
+          testcase_name='non_identity_ops',
+          preprocessing_fn=_non_identity_ops_preprocessing_fn,
+          expected_analyze_input_columns=[],
+          expected_transform_input_columns=['x', 'y', 's']),
+      dict(
+          testcase_name='feature_renaming',
+          preprocessing_fn=_renaming_preprocessing_fn,
+          expected_analyze_input_columns=[],
+          expected_transform_input_columns=['x', 'y', 's']),
+      dict(
+          testcase_name='one_phase',
+          preprocessing_fn=_one_phase_preprocessing_fn,
+          expected_analyze_input_columns=['x', 's'],
+          expected_transform_input_columns=['y']),
+      dict(
+          testcase_name='two_phases',
+          preprocessing_fn=_two_phases_preprocessing_fn,
+          expected_analyze_input_columns=['x', 'y', 's'],
+          expected_transform_input_columns=['x', 's'])
+  ], [
+      dict(testcase_name='tf_compat_v1', force_tf_compat_v1=True),
+      dict(testcase_name='tf2', force_tf_compat_v1=False)
+  ]))
   def test_column_inference(self, preprocessing_fn,
-                            expected_anazlye_input_columns,
-                            expected_transform_input_columns):
+                            expected_analyze_input_columns,
+                            expected_transform_input_columns,
+                            force_tf_compat_v1):
+    if not force_tf_compat_v1:
+      test_case.skip_if_not_tf2('Tensorflow 2.x required')
+      specs = _TYPE_SPEC
+    else:
+      specs = _FEATURE_SPEC
+
     analyze_input_columns = (
         inspect_preprocessing_fn.get_analyze_input_columns(
-            preprocessing_fn, _FEATURE_SPEC))
+            preprocessing_fn, specs, force_tf_compat_v1))
     transform_input_columns = (
         inspect_preprocessing_fn.get_transform_input_columns(
-            preprocessing_fn, _FEATURE_SPEC))
-    self.assertCountEqual(analyze_input_columns, expected_anazlye_input_columns)
+            preprocessing_fn, specs, force_tf_compat_v1))
+    self.assertCountEqual(analyze_input_columns, expected_analyze_input_columns)
     self.assertCountEqual(transform_input_columns,
                           expected_transform_input_columns)
 

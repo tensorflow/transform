@@ -1034,6 +1034,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
 
     specs = TensorAdapter(input_tensor_adapter_config).OriginalTypeSpecs()
     base_temp_dir = Context.create_base_temp_dir()
+    # TODO(b/149997088): Do not pass base_temp_dir here as this graph does not
+    # need to be serialized to SavedModel.
     graph, structured_inputs, structured_outputs = (
         impl_helper.trace_preprocessing_function(self._preprocessing_fn, specs,
                                                  self._use_tf_compat_v1,

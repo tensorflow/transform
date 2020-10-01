@@ -129,40 +129,46 @@ def _bind_future_as_tensor_v1(future, tensor_info, name=None):
   return result
 
 
-def _get_temporary_graph_tensor(tensor_info, name):
+def _get_temporary_graph_tensor(temp_dir, tensor_info, name):
   """Get a temporary graph tensor using attributes in `tensor_info`."""
-  is_asset_filepath = tensor_info.temporary_asset_value is not None
-  if is_asset_filepath:
-    # Placeholders cannot be used for assets as they will be initialized as part
-    # of the init op. Hence, a temporary file is written out during tracing.
-    # TODO(b/164921571) Support temporary files in tfrecord format.
-    # TODO(b/149997088): Reduce number of temporary files written out.
-    with tf.init_scope():
-      temporary_asset_filepath = os.path.join(
-          TFGraphContext.get_or_create_temp_dir(),
-          uuid.uuid4().hex)
-      with tf.io.gfile.GFile(temporary_asset_filepath, 'w') as f:
-        f.write(tensor_info.temporary_asset_value)
-    result = tf.constant(
-        temporary_asset_filepath,
-        dtype=tensor_info.dtype,
-        shape=tensor_info.shape,
-        name=name)
-  else:
-    # Using a placeholder with no default value causes tracing to fail if there
-    # is any control flow dependent on a child tensor of this placeholder.
-    # Hence, provide a temporary default value for it.
-    # If dtype is string, we want a tensor that contains '0's instead of b'[] to
-    # allow string to numeric conversion ops to trace successfully.
-    temporary_dtype = (
-        tf.int64 if tensor_info.dtype == tf.string else tensor_info.dtype)
-    temporary_tensor = tf2_utils.supply_missing_tensor(
-        1, tf.TensorShape(tensor_info.shape), temporary_dtype)
-    if tensor_info.dtype == tf.string:
-      temporary_tensor = tf.strings.as_string(temporary_tensor)
-    result = tf.raw_ops.PlaceholderWithDefault(
-        input=temporary_tensor, shape=tensor_info.shape)
-  return result
+  with tf.name_scope('temporary_analyzer_output'):
+    is_asset_filepath = tensor_info.temporary_asset_value is not None
+    if is_asset_filepath:
+      # Placeholders cannot be used for assets, if this graph will be serialized
+      # to a SavedModel, as they will be initialized with the init op. If a
+      # `temp_dir` is provided, it is assumed that this graph will be
+      # serialized and a temporary asset file is written out . Else, a
+      # placeholder is returned.
+      # TODO(b/164921571) Support temporary files in tfrecord format.
+      # TODO(b/149997088): Reduce number of temporary files written out.
+      if temp_dir:
+        with tf.init_scope():
+          temporary_asset_filepath = os.path.join(temp_dir, uuid.uuid4().hex)
+          with tf.io.gfile.GFile(temporary_asset_filepath, 'w') as f:
+            f.write(tensor_info.temporary_asset_value)
+        result = tf.constant(
+            temporary_asset_filepath,
+            dtype=tensor_info.dtype,
+            shape=tensor_info.shape,
+            name=name)
+      else:
+        result = tf.raw_ops.Placeholder(
+            dtype=tensor_info.dtype, shape=tensor_info.shape, name=name)
+    else:
+      # Using a placeholder with no default value causes tracing to fail if
+      # there is any control flow dependent on a child tensor of this
+      # placeholder. Hence, provide a temporary default value for it.
+      # If dtype is string, we want a tensor that contains '0's instead of b'[]
+      # to allow string to numeric conversion ops to trace successfully.
+      temporary_dtype = (
+          tf.int64 if tensor_info.dtype == tf.string else tensor_info.dtype)
+      temporary_tensor = tf2_utils.supply_missing_tensor(
+          1, tf.TensorShape(tensor_info.shape), temporary_dtype)
+      if tensor_info.dtype == tf.string:
+        temporary_tensor = tf.strings.as_string(temporary_tensor)
+      result = tf.raw_ops.PlaceholderWithDefault(
+          input=temporary_tensor, shape=tensor_info.shape, name=name)
+    return result
 
 
 def _bind_future_as_tensor_v2(future, tensor_info, name=None):
@@ -188,7 +194,9 @@ def _bind_future_as_tensor_v2(future, tensor_info, name=None):
     been evaluated in a previous TFT phase, it is directly returned.
   """
   graph = ops.get_default_graph()
-  temporary_graph_tensor = _get_temporary_graph_tensor(tensor_info, name)
+  temp_dir = TFGraphContext.get_or_create_temp_dir()
+  temporary_graph_tensor = _get_temporary_graph_tensor(temp_dir, tensor_info,
+                                                       name)
   is_asset_filepath = tensor_info.temporary_asset_value is not None
 
   # TODO(b/149997088): Switch to using a counter instead of tensor names.
@@ -211,7 +219,7 @@ def _bind_future_as_tensor_v2(future, tensor_info, name=None):
       return replaced_result
   else:
     result = temporary_graph_tensor
-    if is_asset_filepath:
+    if temp_dir and is_asset_filepath:
       # Wrap asset files using `tf.saved_model.Asset` to ensure that
       # `SavedModel`s exported are hermetic.
       result = tf.saved_model.Asset(temporary_graph_tensor)

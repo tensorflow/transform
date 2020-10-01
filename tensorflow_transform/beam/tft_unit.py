@@ -42,6 +42,7 @@ named_parameters = test_case.named_parameters
 cross_named_parameters = test_case.cross_named_parameters
 is_external_environment = test_case.is_external_environment
 skip_if_not_tf2 = test_case.skip_if_not_tf2
+feature_spec_as_type_spec = test_case.feature_spec_as_type_spec
 
 main = test_case.main
 
@@ -338,36 +339,3 @@ class TransformTestCase(test_case.TransformTestCase):
     for filename, file_contents in six.iteritems(expected_vocab_file_contents):
       full_filename = tf_transform_output.vocabulary_file_by_name(filename)
       self.AssertVocabularyContents(full_filename, file_contents)
-
-
-def feature_spec_as_type_spec(feature_spec):
-  """Returns `tf.TensorSpec`/`tf.SparseTensorSpec`s for the given feature spec.
-
-  Returns a dictionary of type_spec with the same type and shape as defined by
-  `feature_spec`.
-
-  Args:
-    feature_spec: A TensorFlow feature spec.
-
-  Returns:
-    A dictionary from strings to `tf.TensorSpec` or `tf.SparseTensorSpec`s.
-
-  Raises:
-    ValueError: If the feature spec contains feature types not supported.
-  """
-  result = {}
-
-  for name, spec in feature_spec.items():
-    if spec.dtype not in (tf.int64, tf.float32, tf.string):
-      raise ValueError('Feature {} ({}) had invalid dtype'.format(name, spec))
-    if isinstance(spec, tf.io.FixedLenFeature):
-      result[name] = tf.TensorSpec(shape=[None] + spec.shape, dtype=spec.dtype)
-    elif isinstance(spec, tf.io.VarLenFeature):
-      result[name] = tf.SparseTensorSpec(shape=[None, None], dtype=spec.dtype)
-    elif isinstance(spec, tf.io.SparseFeature):
-      result[name] = tf.SparseTensorSpec(
-          shape=[None, spec.size], dtype=spec.dtype)
-    else:
-      raise TypeError('Feature spec {} of type {} is not supported for feature '
-                      '{}'.format(spec, type(spec), name))
-  return result
