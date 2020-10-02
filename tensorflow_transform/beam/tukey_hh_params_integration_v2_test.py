@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Same as impl_test.py, except that the TF2 Beam APIs are exercised."""
+"""Same as tukey_hh_params_integration_test.py, except that the TF2 Beam APIs are exercised."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -19,22 +19,34 @@ from __future__ import print_function
 
 import tensorflow as tf
 from tensorflow_transform.beam import impl as beam_impl
-from tensorflow_transform.beam import impl_test
 from tensorflow_transform.beam import tft_unit
+from tensorflow_transform.beam import tukey_hh_params_integration_test
 
 
-class BeamImplV2Test(impl_test.BeamImplTest):
+class TukeyHHParamsIntegrationV2Test(
+    tukey_hh_params_integration_test.TukeyHHParamsIntegrationTest):
 
   def setUp(self):
-    super(BeamImplV2Test, self).setUp()
+    super(TukeyHHParamsIntegrationV2Test, self).setUp()
     tft_unit.skip_if_not_tf2('Tensorflow 2.x required')
     tf.compat.v1.logging.info('Starting test case: %s', self._testMethodName)
     self._force_tf_compat_v1_context = beam_impl.Context(
         force_tf_compat_v1=False)
     self._force_tf_compat_v1_context.__enter__()
 
-  def _UseTFCompatV1(self):
-    return False
+  # This is an override that passes force_tf_compat_v1=False to the overridden
+  # method.
+  def assertAnalyzeAndTransformResults(self, *args, **kwargs):
+    kwargs['force_tf_compat_v1'] = False
+    return super(TukeyHHParamsIntegrationV2Test,
+                 self).assertAnalyzeAndTransformResults(*args, **kwargs)
+
+  # This is an override that passes force_tf_compat_v1=False to the overridden
+  # method.
+  def assertAnalyzerOutputs(self, *args, **kwargs):
+    kwargs['force_tf_compat_v1'] = False
+    return super(TukeyHHParamsIntegrationV2Test,
+                 self).assertAnalyzerOutputs(*args, **kwargs)
 
 
 if __name__ == '__main__':
