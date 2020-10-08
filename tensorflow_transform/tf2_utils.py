@@ -17,6 +17,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import copy
+
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
@@ -101,3 +103,27 @@ def supply_missing_inputs(structured_inputs, batch_size, missing_keys=None):
       raise ValueError('Received unsupported input tensor type. Only '
                        'dense/sparse tensors are currently supported.')
   return result
+
+
+def get_structured_inputs_from_func_graph(func_graph):
+  """Get structured inputs to a FuncGraph.
+
+  Args:
+    func_graph: A `FuncGraph` object.
+
+  Returns:
+    Input graph tensors of `func_graph` formatted as possibly-nested python
+    objects received by it.
+  """
+  # structured_input_signature is a tuple of (args, kwargs). [0][0] retrieves
+  # the structure of the first arg, which for the preprocessing function is
+  # the dictionary of features.
+  input_signature = func_graph.structured_input_signature[0][0]
+  num_captures = len(func_graph.internal_captures)
+  # `func_graph.inputs` contains placeholders that represent regular inputs
+  # followed by captured inputs. We are only interested in the regular inputs.
+  graph_inputs = copy.copy(func_graph.inputs)
+  if num_captures > 0:
+    graph_inputs = graph_inputs[:-num_captures]
+  return tf.nest.pack_sequence_as(
+      input_signature, graph_inputs, expand_composites=True)

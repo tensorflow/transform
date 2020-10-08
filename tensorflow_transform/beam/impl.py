@@ -91,13 +91,11 @@ import numpy as np
 import pyarrow as pa
 import six
 import tensorflow as tf
-from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import common
 from tensorflow_transform import graph_tools
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
 from tensorflow_transform import schema_inference
-from tensorflow_transform import tf2_utils
 from tensorflow_transform.beam import analysis_graph_builder
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import beam_nodes
@@ -113,11 +111,6 @@ from tensorflow_transform.tf_metadata import schema_utils
 from tfx_bsl.beam import shared
 from tfx_bsl.tfxio import tf_example_record
 from tfx_bsl.tfxio.tensor_adapter import TensorAdapter
-
-# pylint: disable=g-direct-tensorflow-import
-from tensorflow.python.ops import lookup_ops
-from tensorflow.python.training.tracking import tracking
-# pylint: enable=g-direct-tensorflow-import
 
 Context = context.Context
 
@@ -625,47 +618,11 @@ def _create_v2_saved_model(tensor_replacement_map, base_temp_dir,
   Returns:
     Path to which SavedModel was written.
   """
-  module = tf.Module()
-  module.transform_fn = impl_helper.get_traced_transform_fn(
-      preprocessing_fn,
-      input_signature,
-      base_temp_dir,
-      tensor_replacement_map=tensor_replacement_map,
-      output_keys_to_name_map=output_keys_to_name_map)
-
-  resource_tracker = tracking.ResourceTracker()
-  # TODO(b/164921571): Handle generic Trackable objects.
-  with tracking.resource_tracker_scope(resource_tracker):
-    concrete_transform_fn = module.transform_fn.get_concrete_function()
-    # If the `TENSOR_REPLACEMENTS` graph collection is empty, all TFT analyzers
-    # in the `preprocessing_fn` have already been evaluated.
-    if not concrete_transform_fn.graph.get_collection(
-        analyzer_nodes.TENSOR_REPLACEMENTS):
-      module.metadata_fn = schema_inference.get_traced_metadata_fn(
-          tensor_replacement_map,
-          preprocessing_fn,
-          input_signature,
-          base_temp_dir,
-          evaluate_schema_overrides=True)
-      # Trace the `metadata_fn` to gather any resources in it using the
-      # resource_tracker. These are then assigned to `module.resources` and
-      # tracked before exporting to SavedModel.
-      _ = module.metadata_fn.get_concrete_function()
-
-  # Resources need to be explicitly tracked.
-  module.resources = resource_tracker.resources
-  # TODO(b/158011374) - Stop explicitly tracking initializers. Tracking the
-  # table should be sufficient.
-  initializers = []
-  for resource in module.resources:
-    if isinstance(resource, lookup_ops.InitializableLookupTableBase):
-      initializers.append(resource._initializer)  # pylint: disable=protected-access
-  module.initializers = initializers
-  module.assets = concrete_transform_fn.graph.get_collection(
-      analyzer_nodes.ASSET_REPLACEMENTS)
-
   saved_model_dir = beam_common.get_unique_temp_path(base_temp_dir)
-  tf.saved_model.save(module, saved_model_dir)
+  impl_helper.trace_and_write_v2_saved_model(saved_model_dir, preprocessing_fn,
+                                             input_signature, base_temp_dir,
+                                             tensor_replacement_map,
+                                             output_keys_to_name_map)
   return saved_model_dir
 
 
@@ -865,32 +822,10 @@ def _infer_metadata_from_saved_model_v2(saved_model_dir):
       flat_sequence=concrete_transform_fn.outputs,
       expand_composites=True)
   return dataset_metadata.DatasetMetadata(
-      schema=_infer_feature_schema_from_concrete_function(
-          imported.metadata_fn.concrete_functions[0],
+      schema=schema_inference.infer_feature_schema_v2(
           structured_outputs,
+          imported.metadata_fn.concrete_functions[0],
           evaluate_schema_overrides=True))
-
-
-def _infer_feature_schema_from_concrete_function(metadata_fn,
-                                                 structured_outputs,
-                                                 evaluate_schema_overrides):
-  """Infers a DatasetMetadata from a tf.function `metadata_fn`."""
-  concrete_metadata_fn = metadata_fn
-  num_captures = len(concrete_metadata_fn.graph.internal_captures)
-  # Get only user provided inputs to the graph.
-  graph_inputs = copy.copy(concrete_metadata_fn.graph.inputs)
-  if num_captures > 0:
-    graph_inputs = graph_inputs[:-num_captures]
-  structured_inputs = tf.nest.pack_sequence_as(
-      concrete_metadata_fn.structured_input_signature[0][0],
-      graph_inputs,
-      expand_composites=True)
-  # Invoke metadata_fn with some dummy data.
-  inputs = tf2_utils.supply_missing_inputs(structured_inputs, batch_size=1)
-  metadata = collections.defaultdict(list, concrete_metadata_fn(inputs))
-
-  return schema_inference.infer_feature_schema_v2(structured_outputs, metadata,
-                                                  evaluate_schema_overrides)
 
 
 class _InstrumentAPI(beam.PTransform):
@@ -1115,9 +1050,9 @@ class _AnalyzeDatasetCommon(beam.PTransform):
           input_signature=specs,
           base_temp_dir=base_temp_dir,
           evaluate_schema_overrides=False)
-      schema = _infer_feature_schema_from_concrete_function(
-          metadata_fn.get_concrete_function(),
+      schema = schema_inference.infer_feature_schema_v2(
           structured_outputs,
+          metadata_fn.get_concrete_function(),
           evaluate_schema_overrides=False)
     deferred_metadata = (
         transform_fn_pcoll

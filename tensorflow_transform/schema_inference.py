@@ -31,6 +31,7 @@ import six
 import tensorflow as tf
 from tensorflow_transform import common
 from tensorflow_transform import graph_context
+from tensorflow_transform import tf2_utils
 from tensorflow_transform import tf_utils
 from tensorflow_transform.tf_metadata import schema_utils
 
@@ -152,7 +153,8 @@ def infer_feature_schema(features, graph, session=None):
                                       feature_annotations, global_annotations)
 
 
-def infer_feature_schema_v2(features, metadata, evaluate_schema_overrides):
+def infer_feature_schema_v2(features, concrete_metadata_fn,
+                            evaluate_schema_overrides):
   """Given a dict of tensors, creates a `Schema`.
 
   Infers a schema, in the format of a tf.Transform `Schema`, for the given
@@ -171,14 +173,21 @@ def infer_feature_schema_v2(features, metadata, evaluate_schema_overrides):
     features: A dict mapping column names to `Tensor` or `SparseTensor`s. The
       `Tensor` or `SparseTensor`s should have a 0'th dimension which is
       interpreted as the batch dimension.
-    metadata: A dictionary containing the deferred annotations added to the
-      graph.
+    concrete_metadata_fn: A `tf.ConcreteFunction` that returns a dictionary
+      containing the deferred annotations added to the graph when invoked with
+      any valid input.
     evaluate_schema_overrides: A Boolean used to compute schema overrides. If
       `False`, schema overrides will not be computed.
 
   Returns:
     A `Schema` proto.
   """
+  structured_inputs = tf2_utils.get_structured_inputs_from_func_graph(
+      concrete_metadata_fn.graph)
+  # Invoke concrete_metadata_fn with some dummy data.
+  inputs = tf2_utils.supply_missing_inputs(structured_inputs, batch_size=1)
+  metadata = collections.defaultdict(list, concrete_metadata_fn(inputs))
+
   if not evaluate_schema_overrides:
     tensor_ranges = {
         tensor.numpy().decode(): (None, None)

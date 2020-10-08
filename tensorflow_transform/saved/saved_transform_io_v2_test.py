@@ -25,6 +25,7 @@ import tempfile
 import numpy as np
 import six
 import tensorflow as tf
+from tensorflow_transform import impl_helper
 from tensorflow_transform import test_case
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.saved import saved_transform_io_v2
@@ -32,8 +33,6 @@ from tensorflow_transform.saved import saved_transform_io_v2
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.core.protobuf import meta_graph_pb2
 from tensorflow.python.lib.io import file_io
-from tensorflow.python.ops import lookup_ops
-from tensorflow.python.training.tracking import tracking
 # pylint: enable=g-direct-tensorflow-import
 
 _TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES = [
@@ -77,20 +76,13 @@ def _create_test_saved_model(export_in_tf1,
         saved_transform_io.write_saved_transform_from_session(
             session, inputs, outputs, export_path)
   else:
-    module = tf.Module()
-    module.transform_fn = tf.function(foo, input_signature=[input_specs])
-    resource_tracker = tracking.ResourceTracker()
-    with tracking.resource_tracker_scope(resource_tracker):
-      _ = module.transform_fn.get_concrete_function()
-    module.resources = resource_tracker.resources
-    # TODO(b/158011374) - Stop explicitly tracking initializers once tables
-    # track their initializers.
-    initializers = []
-    for resource in module.resources:
-      if isinstance(resource, lookup_ops.InitializableLookupTableBase):
-        initializers.append(resource._initializer)
-    module.initializers = initializers
-    tf.saved_model.save(module, export_path)
+    impl_helper.trace_and_write_v2_saved_model(
+        saved_model_dir=export_path,
+        preprocessing_fn=foo,
+        input_signature=input_specs,
+        base_temp_dir=None,
+        tensor_replacement_map=None,
+        output_keys_to_name_map=None)
   return export_path
 
 

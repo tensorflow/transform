@@ -18,14 +18,17 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
+import os
 
 # GOOGLE-INITIALIZATION
 
 import numpy as np
 import six
 import tensorflow as tf
+from tensorflow_transform import analyzers
 from tensorflow_transform import impl_helper
 from tensorflow_transform import test_case
+from tensorflow_transform.output_wrapper import TFTransformOutput
 from tensorflow_transform.tf_metadata import schema_utils
 
 _FEATURE_SPEC = {
@@ -562,6 +565,68 @@ class ImplHelperTest(test_case.TransformTestCase):
                             ragged_value.values)
         self.assertAllEqual(sample_tensors['ragged'].row_splits,
                             ragged_value.row_splits)
+
+  @test_case.named_parameters(
+      dict(testcase_name='tf_compat_v1', force_tf_compat_v1=True),
+      dict(testcase_name='native_tf2', force_tf_compat_v1=False))
+  def test_analyze_in_place(self, force_tf_compat_v1):
+    if not force_tf_compat_v1:
+      test_case.skip_if_not_tf2('Tensorflow 2.x required')
+
+    def preprocessing_fn(inputs):
+      return {'x_add_1': inputs['x'] + 1}
+
+    feature_spec = {'x': tf.io.FixedLenFeature([], tf.int64)}
+    type_spec = {
+        'x': tf.TensorSpec(dtype=tf.int64, shape=[
+            None,
+        ])
+    }
+    output_path = os.path.join(self.get_temp_dir(), self._testMethodName)
+    impl_helper.analyze_in_place(preprocessing_fn, force_tf_compat_v1,
+                                 feature_spec, type_spec, output_path)
+
+    tft_output = TFTransformOutput(output_path)
+    expected_value = np.array([2], dtype=np.int64)
+    if force_tf_compat_v1:
+      with tf.Graph().as_default() as graph:
+        with tf.compat.v1.Session(graph=graph).as_default():
+          transformed_features = tft_output.transform_raw_features(
+              {'x': tf.constant([1], dtype=tf.int64)})
+          transformed_value = transformed_features['x_add_1'].eval()
+    else:
+      transformed_features = tft_output.transform_raw_features(
+          {'x': tf.constant([1], dtype=tf.int64)})
+      transformed_value = transformed_features['x_add_1'].numpy()
+    self.assertEqual(transformed_value, expected_value)
+
+    transformed_feature_spec = tft_output.transformed_feature_spec()
+    expected_feature_spec = feature_spec = {
+        'x_add_1': tf.io.FixedLenFeature([], tf.int64)
+    }
+    self.assertEqual(transformed_feature_spec, expected_feature_spec)
+
+  @test_case.named_parameters(
+      dict(testcase_name='tf_compat_v1', force_tf_compat_v1=True),
+      dict(testcase_name='native_tf2', force_tf_compat_v1=False))
+  def test_analyze_in_place_with_analyzers_raises_error(self,
+                                                        force_tf_compat_v1):
+    if not force_tf_compat_v1:
+      test_case.skip_if_not_tf2('Tensorflow 2.x required')
+
+    def preprocessing_fn(inputs):
+      return {'x_add_1': analyzers.mean(inputs['x'])}
+
+    feature_spec = {'x': tf.io.FixedLenFeature([], tf.int64)}
+    type_spec = {
+        'x': tf.TensorSpec(dtype=tf.int64, shape=[
+            None,
+        ])
+    }
+    output_path = os.path.join(self.get_temp_dir(), self._testMethodName)
+    with self.assertRaisesRegexp(RuntimeError, 'analyzers found when tracing'):
+      impl_helper.analyze_in_place(preprocessing_fn, force_tf_compat_v1,
+                                   feature_spec, type_spec, output_path)
 
 
 def _subtract_ten_with_tf_while(x):

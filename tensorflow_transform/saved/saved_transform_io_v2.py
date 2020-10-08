@@ -55,6 +55,9 @@ class SavedModelLoader(object):
           saved_model_dir)
       self._structured_outputs = self._wrapped.structured_outputs
     else:
+      # TODO(b/160550490): Remove local import.
+      from tensorflow_transform import tf2_utils  # pylint: disable=g-import-not-at-top
+
       # Since `input_signature` was specified when exporting the tf function to
       # `SavedModel`, there should be exactly one concrete function present on
       # loading the `SavedModel`.
@@ -62,8 +65,8 @@ class SavedModelLoader(object):
       assert len(concrete_functions) == 1, concrete_functions
       self._wrapped = concrete_functions[0]
       self._func_graph = self._wrapped.graph
-      self._structured_inputs = self._get_structured_inputs_from_func_graph(
-          self._func_graph)
+      self._structured_inputs = (
+          tf2_utils.get_structured_inputs_from_func_graph(self._func_graph))
       self._structured_outputs = tf.nest.pack_sequence_as(
           self._func_graph.structured_outputs,
           self._func_graph.outputs,
@@ -79,29 +82,6 @@ class SavedModelLoader(object):
         saved_model)
     signature = meta_graph_def.signature_def[constants.TRANSFORM_SIGNATURE]
     return signature.inputs
-
-  def _get_structured_inputs_from_func_graph(self, func_graph):
-    """Get structured inputs to a FuncGraph.
-
-    Args:
-      func_graph: A `FuncGraph` object.
-
-    Returns:
-      Input graph tensors of `func_graph` formatted as possibly-nested python
-      objects received by it.
-    """
-    # structured_input_signature is a tuple of (args, kwargs). [0][0] retrieves
-    # the structure of the first arg, which for the preprocessing function is
-    # the dictionary of features.
-    input_signature = func_graph.structured_input_signature[0][0]
-    # `func_graph.inputs` contains placeholders that represent regular inputs
-    # followed by captured inputs. We are only interested in the regular inputs.
-    num_captures = len(func_graph.internal_captures)
-    graph_inputs = copy.copy(func_graph.inputs)
-    if num_captures > 0:
-      graph_inputs = graph_inputs[:-num_captures]
-    return tf.nest.pack_sequence_as(
-        input_signature, graph_inputs, expand_composites=True)
 
   def _get_output_to_inputs_map(self, output_signature):
     """Get all graph inputs that the tensors in output_signature depend on."""

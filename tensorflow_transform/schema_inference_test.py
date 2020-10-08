@@ -78,10 +78,6 @@ class SchemaInferenceTest(test_case.TransformTestCase):
         else:
           schema = schema_inference.infer_feature_schema(tensors, graph)
     else:
-      inputs_copy = {
-          k: tf.constant(v, input_signature[k].dtype)
-          for k, v in inputs.items()
-      }
       tf_func = tf.function(
           preprocessing_fn,
           input_signature=[input_signature]).get_concrete_function()
@@ -97,7 +93,7 @@ class SchemaInferenceTest(test_case.TransformTestCase):
           evaluate_schema_overrides=create_session)
       schema = schema_inference.infer_feature_schema_v2(
           tensors,
-          metadata_fn(inputs_copy),
+          metadata_fn.get_concrete_function(),
           evaluate_schema_overrides=create_session)
     return schema
 
