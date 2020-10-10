@@ -59,11 +59,17 @@ class SavedModelLoader(object):
       from tensorflow_transform import tf2_utils  # pylint: disable=g-import-not-at-top
 
       # Since `input_signature` was specified when exporting the tf function to
+      # transform_fn is now a ConcreteFunction, but was a tf.function. We need
+      # to handle both to maintain backward compatiblity. If it's a tf.function,
+      # since `input_signature` was specified when exporting the tf function to
       # `SavedModel`, there should be exactly one concrete function present on
       # loading the `SavedModel`.
-      concrete_functions = self._imported.transform_fn.concrete_functions
-      assert len(concrete_functions) == 1, concrete_functions
-      self._wrapped = concrete_functions[0]
+      if hasattr(self._imported.transform_fn, 'concrete_functions'):
+        concrete_functions = self._imported.transform_fn.concrete_functions
+        assert len(concrete_functions) == 1, concrete_functions
+        self._wrapped = concrete_functions[0]
+      else:
+        self._wrapped = self._imported.transform_fn
       self._func_graph = self._wrapped.graph
       self._structured_inputs = (
           tf2_utils.get_structured_inputs_from_func_graph(self._func_graph))

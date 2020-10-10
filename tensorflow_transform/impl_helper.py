@@ -600,32 +600,42 @@ def trace_and_write_v2_saved_model(saved_model_dir, preprocessing_fn,
   """
 
   module = tf.Module()
-  module.transform_fn = get_traced_transform_fn(
+  transform_fn = get_traced_transform_fn(
       preprocessing_fn,
       input_signature,
       base_temp_dir,
       tensor_replacement_map=tensor_replacement_map,
       output_keys_to_name_map=output_keys_to_name_map)
+  metadata_fn = None
 
   resource_tracker = tracking.ResourceTracker()
   # TODO(b/164921571): Handle generic Trackable objects.
+  # Trace the `transform_fn` and `metadata_fn` to gather any resources in it
+  # using the resource_tracker. These are then assigned to `module.resources`
+  # and tracked before exporting to SavedModel.
   with tracking.resource_tracker_scope(resource_tracker):
-    concrete_transform_fn = module.transform_fn.get_concrete_function()
+    concrete_transform_fn = transform_fn.get_concrete_function()
     concrete_metadata_fn = None
     # If the `TENSOR_REPLACEMENTS` graph collection is empty, all TFT analyzers
     # in the `preprocessing_fn` have already been evaluated.
     if not concrete_transform_fn.graph.get_collection(
         analyzer_nodes.TENSOR_REPLACEMENTS):
-      module.metadata_fn = schema_inference.get_traced_metadata_fn(
+      metadata_fn = schema_inference.get_traced_metadata_fn(
           tensor_replacement_map,
           preprocessing_fn,
           input_signature,
           base_temp_dir,
           evaluate_schema_overrides=True)
-      # Trace the `metadata_fn` to gather any resources in it using the
-      # resource_tracker. These are then assigned to `module.resources` and
-      # tracked before exporting to SavedModel.
-      concrete_metadata_fn = module.metadata_fn.get_concrete_function()
+      concrete_metadata_fn = metadata_fn.get_concrete_function()
+
+  # Save ConcreteFunction when possible since the above workaround won't work if
+  # the tf.function is retraced.
+  if tf.compat.forward_compatible(2020, 10, 8):
+    module.transform_fn = concrete_transform_fn
+    module.metadata_fn = concrete_metadata_fn
+  else:
+    module.transform_fn = transform_fn
+    module.metadata_fn = metadata_fn
 
   # Resources need to be explicitly tracked.
   module.resources = resource_tracker.resources

@@ -811,12 +811,19 @@ def _infer_metadata_from_saved_model_v1(saved_model_dir):
 def _infer_metadata_from_saved_model_v2(saved_model_dir):
   """Infers a DatasetMetadata for outputs of a TF2 SavedModel."""
   imported = tf.saved_model.load(saved_model_dir)
-  # Since `input_signature` was specified when exporting the tf function to
-  # `SavedModel`, there should be exactly one concrete function present on
-  # loading the `SavedModel`.
-  assert len(imported.transform_fn.concrete_functions) == 1
-  assert len(imported.metadata_fn.concrete_functions) == 1
-  concrete_transform_fn = imported.transform_fn.concrete_functions[0]
+  # transform_fn and metadata_fn are now ConcreteFunction, but was tf.function.
+  # We need to handle both to maintain backward compatiblity. If they're
+  # tf.function, Since `input_signature` was specified when exporting the tf
+  # function to `SavedModel`, there should be exactly one concrete function
+  # present on loading the `SavedModel`.
+  if hasattr(imported.transform_fn, 'concrete_functions'):
+    assert len(imported.transform_fn.concrete_functions) == 1
+    assert len(imported.metadata_fn.concrete_functions) == 1
+    concrete_transform_fn = imported.transform_fn.concrete_functions[0]
+    concrete_metadata_fn = imported.metadata_fn.concrete_functions[0]
+  else:
+    concrete_transform_fn = imported.transform_fn
+    concrete_metadata_fn = imported.metadata_fn
   structured_outputs = tf.nest.pack_sequence_as(
       structure=concrete_transform_fn.structured_outputs,
       flat_sequence=concrete_transform_fn.outputs,
@@ -824,7 +831,7 @@ def _infer_metadata_from_saved_model_v2(saved_model_dir):
   return dataset_metadata.DatasetMetadata(
       schema=schema_inference.infer_feature_schema_v2(
           structured_outputs,
-          imported.metadata_fn.concrete_functions[0],
+          concrete_metadata_fn,
           evaluate_schema_overrides=True))
 
 
