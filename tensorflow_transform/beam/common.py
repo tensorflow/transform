@@ -30,6 +30,10 @@ from six import binary_type
 from six import integer_types
 from six import string_types
 from tensorflow_transform import nodes
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 NUMERIC_TYPE = Union[float, Union[integer_types]]
 PRIMITIVE_TYPE = Union[NUMERIC_TYPE, Union[string_types], binary_type]
@@ -155,7 +159,7 @@ def register_ptransform(operation_def_subclass, tags=None):
 class ConstructBeamPipelineVisitor(nodes.Visitor):
   """Visitor that constructs the beam pipeline from the node graph."""
 
-  ExtraArgs = collections.namedtuple(  # pylint: disable=invalid-name
+  ExtraArgs = tfx_namedtuple.namedtuple(  # pylint: disable=invalid-name
       'ExtraArgs', [
           'base_temp_dir',
           'pipeline',

@@ -17,6 +17,8 @@
 *   Utility methods in `tft.inspect_preprocessing_fn` now take an optional
     parameter `force_tf_compat_v1`. If this is False, the `preprocessing_fn` is
     traced using tf.function in TF 2.x when TF 2 behaviors are enabled.
+*   Switching to a wrapper for `collections.namedtuple` to ensure compatibility
+    with PySpark which modifies classes produced by the factory.
 
 ## Breaking changes
 

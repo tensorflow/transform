@@ -26,7 +26,6 @@ from __future__ import division
 from __future__ import print_function
 
 import abc
-import collections
 import json
 import os
 import struct
@@ -40,6 +39,10 @@ import tensorflow as tf
 from tensorflow_transform import nodes
 from tensorflow_transform import tf2_utils
 from tensorflow_transform.graph_context import TFGraphContext
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.framework import func_graph
@@ -55,8 +58,8 @@ ASSET_REPLACEMENTS = 'tft_asset_replacements'
 
 
 class TensorInfo(
-    collections.namedtuple('TensorInfo',
-                           ['dtype', 'shape', 'temporary_asset_value'])):
+    tfx_namedtuple.namedtuple('TensorInfo',
+                              ['dtype', 'shape', 'temporary_asset_value'])):
   """A container for attributes of output tensors from analyzers.
 
   Fields:
@@ -82,7 +85,7 @@ class TensorInfo(
 
 
 class TensorSource(
-    collections.namedtuple('TensorSource', ['tensors', 'label']),
+    tfx_namedtuple.namedtuple('TensorSource', ['tensors', 'label']),
     nodes.OperationDef):
   """An `OperationDef` that defines extracting a tuple of tensor values.
 
@@ -116,8 +119,8 @@ def get_input_tensors_value_nodes(tensor_inputs):
   return nodes.apply_operation(TensorSource, tensors=tensor_inputs)
 
 
-TensorSink = collections.namedtuple('TensorSink',
-                                    ['tensor', 'future', 'is_asset_filepath'])
+TensorSink = tfx_namedtuple.namedtuple(
+    'TensorSink', ['tensor', 'future', 'is_asset_filepath'])
 
 
 def _bind_future_as_tensor_v1(future, tensor_info, name=None):
@@ -387,8 +390,8 @@ class AnalyzerDef(with_metaclass(abc.ABCMeta, nodes.OperationDef)):
 # more of a Beam execution level optimization and we want to keep it towards the
 # end. So that, once Beam can automatically pack combines, we can remove this.
 class PackedCombineAccumulate(
-    collections.namedtuple('PackedCombineAccumulate', ['combiners', 'label']),
-    nodes.OperationDef):
+    tfx_namedtuple.namedtuple('PackedCombineAccumulate',
+                              ['combiners', 'label']), nodes.OperationDef):
   """An analyzer that packs a list of combiners into a single beam CombineFn.
 
   Fields:
@@ -415,7 +418,7 @@ class PackedCombineAccumulate(
 
 
 class PackedCombineMerge(
-    collections.namedtuple('PackedCombineMerge', ['combiners', 'label']),
+    tfx_namedtuple.namedtuple('PackedCombineMerge', ['combiners', 'label']),
     nodes.OperationDef):
   """An analyzer that packs a list of combiners into a single beam CombineFn.
 
@@ -437,8 +440,8 @@ class PackedCombineMerge(
 
 
 class CacheableCombineAccumulate(
-    collections.namedtuple('CacheableCombineAccumulate', ['combiner', 'label']),
-    nodes.OperationDef):
+    tfx_namedtuple.namedtuple('CacheableCombineAccumulate',
+                              ['combiner', 'label']), nodes.OperationDef):
   """An analyzer that runs a beam CombineFn to accumulate without merging.
 
   This analyzer reduces the values that it accepts as inputs, using the
@@ -471,7 +474,7 @@ class CacheableCombineAccumulate(
 
 
 class CacheableCombineMerge(
-    collections.namedtuple('CacheableCombineMerge', ['combiner', 'label']),
+    tfx_namedtuple.namedtuple('CacheableCombineMerge', ['combiner', 'label']),
     nodes.OperationDef):
   """An analyzer that runs a beam CombineFn to only merge computed accumulators.
 
@@ -522,8 +525,8 @@ class _CombinerPerKeyAccumulatorCoder(CacheCoder):
 
 
 class CacheableCombinePerKeyAccumulate(
-    collections.namedtuple('CacheableCombinePerKeyAccumulate',
-                           ['combiner', 'label']), AnalyzerDef):
+    tfx_namedtuple.namedtuple('CacheableCombinePerKeyAccumulate',
+                              ['combiner', 'label']), AnalyzerDef):
   """An analyzer that runs `beam.CombinePerKey` to accumulate without merging.
 
   This analyzer reduces the values that it accepts as inputs, using the
@@ -559,8 +562,8 @@ class CacheableCombinePerKeyAccumulate(
 
 
 class CacheableCombinePerKeyMerge(
-    collections.namedtuple('CacheableCombinePerKeyMerge',
-                           ['combiner', 'label']), nodes.OperationDef):
+    tfx_namedtuple.namedtuple('CacheableCombinePerKeyMerge',
+                              ['combiner', 'label']), nodes.OperationDef):
   """An analyzer that runs `beam.CombinePerKey` to only merge accumulators.
 
   This analyzer reduces the values that it accepts as inputs, using the
@@ -584,8 +587,8 @@ class CacheableCombinePerKeyMerge(
 
 
 class CacheableCombinePerKeyFormatKeys(
-    collections.namedtuple('CacheableCombinePerKeyFormatKeys',
-                           ['combiner', 'label']), AnalyzerDef):
+    tfx_namedtuple.namedtuple('CacheableCombinePerKeyFormatKeys',
+                              ['combiner', 'label']), AnalyzerDef):
   """An analyzer that formats output for the non-stored per-key case.
 
   This analyzer converts the (key, output) pairs into a tuple of keys (of type
@@ -616,9 +619,8 @@ class CacheableCombinePerKeyFormatKeys(
 
 
 class CacheableCombinePerKeyFormatLarge(
-    collections.namedtuple('CacheableCombinePerKeyFormatLarge', [
-        'label'
-    ]), nodes.OperationDef):
+    tfx_namedtuple.namedtuple('CacheableCombinePerKeyFormatLarge', ['label']),
+    nodes.OperationDef):
   """An analyzer that formats output prior to writing to file for per-key case.
 
   This operation operates on the output of CacheableCombinePerKeyAccumulate and
@@ -639,8 +641,8 @@ class CacheableCombinePerKeyFormatLarge(
 
 
 class ScaleAndFlattenPerKeyBucketBouandaries(
-    collections.namedtuple('PostProcessPerKeyBucketBoundaries',
-                           ['output_tensor_dtype', 'label']), AnalyzerDef):
+    tfx_namedtuple.namedtuple('PostProcessPerKeyBucketBoundaries',
+                              ['output_tensor_dtype', 'label']), AnalyzerDef):
   """An analyzer which takes quantile boundaries per key and combines them.
 
   It receives a 2-d array of boundaries, computes scales and shifts to each
@@ -675,8 +677,8 @@ class ScaleAndFlattenPerKeyBucketBouandaries(
 
 
 class VocabularyAccumulate(
-    collections.namedtuple('VocabularyAccumulate',
-                           ['vocab_ordering_type', 'input_dtype', 'label']),
+    tfx_namedtuple.namedtuple('VocabularyAccumulate',
+                              ['vocab_ordering_type', 'input_dtype', 'label']),
     nodes.OperationDef):
   """An operation that accumulates unique words with their frequency or weight.
 
@@ -771,7 +773,8 @@ class _VocabularyAccumulatorCoder(_BaseKVCoder):
 
 
 class VocabularyCount(
-    collections.namedtuple('VocabularyCount', ['label']), nodes.OperationDef):
+    tfx_namedtuple.namedtuple('VocabularyCount', ['label']),
+    nodes.OperationDef):
   """An operation counts the total number of tokens in a vocabulary.
 
   This operation takes in the output of VocabularyAccumulate and is implemented
@@ -792,7 +795,7 @@ class VocabularyCount(
 
 
 class VocabularyMerge(
-    collections.namedtuple('VocabularyMerge', [
+    tfx_namedtuple.namedtuple('VocabularyMerge', [
         'vocab_ordering_type', 'use_adjusted_mutual_info', 'min_diff_from_avg',
         'label'
     ]), nodes.OperationDef):
@@ -826,7 +829,7 @@ class VocabularyMerge(
 
 
 class VocabularyPrune(
-    collections.namedtuple('VocabularyPrune', [
+    tfx_namedtuple.namedtuple('VocabularyPrune', [
         'top_k', 'frequency_threshold', 'informativeness_threshold',
         'coverage_top_k', 'coverage_frequency_threshold',
         'coverage_informativeness_threshold', 'key_fn', 'label'
@@ -868,7 +871,7 @@ class VocabularyPrune(
 
 
 class VocabularyOrderAndWrite(
-    collections.namedtuple('VocabularyOrderAndWrite', [
+    tfx_namedtuple.namedtuple('VocabularyOrderAndWrite', [
         'vocab_filename', 'store_frequency', 'input_dtype', 'label',
         'fingerprint_shuffle', 'file_format'
     ]), AnalyzerDef):
@@ -912,8 +915,8 @@ class VocabularyOrderAndWrite(
 
 
 class PTransform(
-    collections.namedtuple('PTransform',
-                           ['ptransform', 'output_tensor_info_list', 'label']),
+    tfx_namedtuple.namedtuple(
+        'PTransform', ['ptransform', 'output_tensor_info_list', 'label']),
     AnalyzerDef):
   """(Experimental) OperationDef for PTransform anaylzer.
 
@@ -943,7 +946,7 @@ class PTransform(
 
 
 class EncodeCache(
-    collections.namedtuple('EncodeCache', ['coder', 'label']),
+    tfx_namedtuple.namedtuple('EncodeCache', ['coder', 'label']),
     nodes.OperationDef):
   """OperationDef for encoding a cache instance.
 
@@ -958,8 +961,8 @@ class EncodeCache(
 
 
 class DecodeCache(
-    collections.namedtuple('DecodeCache',
-                           ['dataset_key', 'cache_key', 'coder', 'label']),
+    tfx_namedtuple.namedtuple('DecodeCache',
+                              ['dataset_key', 'cache_key', 'coder', 'label']),
     nodes.OperationDef):
   """OperationDef for decoding a cache instance.
 
@@ -979,7 +982,7 @@ class DecodeCache(
 
 
 class AddKey(
-    collections.namedtuple('AddKey', ['key', 'label']), nodes.OperationDef):
+    tfx_namedtuple.namedtuple('AddKey', ['key', 'label']), nodes.OperationDef):
   """An operation that represents adding a key to a value.
 
   This operation represents a `beam.Map` that is applied to a PCollection.
@@ -997,8 +1000,8 @@ class AddKey(
 
 
 class ExtractCombineMergeOutputs(
-    collections.namedtuple('ExtractOutputs',
-                           ['output_tensor_info_list', 'label']),
+    tfx_namedtuple.namedtuple('ExtractOutputs',
+                              ['output_tensor_info_list', 'label']),
     AnalyzerDef):
   """An operation that represents extracting outputs of a combine merge.
 
@@ -1025,8 +1028,8 @@ class ExtractCombineMergeOutputs(
 
 
 class ExtractPackedCombineMergeOutputs(
-    collections.namedtuple('ExtractOutputs',
-                           ['output_tensor_info_list', 'label']),
+    tfx_namedtuple.namedtuple('ExtractOutputs',
+                              ['output_tensor_info_list', 'label']),
     AnalyzerDef):
   """An operation that represents extracting outputs of a packed combine merge.
 

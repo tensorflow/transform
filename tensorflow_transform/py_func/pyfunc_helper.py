@@ -17,10 +17,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
-
 import dill
 import tensorflow as tf
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.core.framework import attr_value_pb2
@@ -30,7 +32,7 @@ from tensorflow.python.framework import ops
 _PYFUNC_COLLECTION_KEY = 'pyfuncs'
 
 
-class _PyFuncDef(collections.namedtuple('_PyFuncDef', ['token', 'func'])):
+class _PyFuncDef(tfx_namedtuple.namedtuple('_PyFuncDef', ['token', 'func'])):
   """An internal wrapper around tuple(token, func).
 
   The main purpose of this class is to provides the two methods:

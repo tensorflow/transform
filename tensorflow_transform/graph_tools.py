@@ -37,6 +37,10 @@ import six
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import tf_utils
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.framework import composite_tensor
 from tensorflow.python.framework import function_def_to_graph
@@ -197,13 +201,14 @@ def _reraise_unexpected_error(func):
 
 
 class _AnalysisResult(
-    collections.namedtuple('_AnalysisResult',
-                           ['is_ready_to_run', 'path', 'dependent_sources'])):
+    tfx_namedtuple.namedtuple('_AnalysisResult',
+                              ['is_ready_to_run', 'path', 'dependent_sources'])
+):
   pass
 
 
 class _SourceInfo(
-    collections.namedtuple('_SourceInfo', ['is_ready_to_run', 'name'])):
+    tfx_namedtuple.namedtuple('_SourceInfo', ['is_ready_to_run', 'name'])):
   pass
 
 

@@ -17,7 +17,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
 import os
 import pickle
 import re
@@ -28,6 +27,10 @@ import sys
 import apache_beam as beam
 import six
 import tensorflow as tf
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 # This should be advanced whenever a non-backwards compatible change is made
 # that affects analyzer cache. For example, changing accumulator format.
@@ -54,7 +57,7 @@ def _make_valid_cache_component(name):
   return result
 
 
-class DatasetKey(collections.namedtuple('DatasetKey', ['key'])):
+class DatasetKey(tfx_namedtuple.namedtuple('DatasetKey', ['key'])):
   """A key for a dataset used for analysis."""
   _FLATTENED_DATASET_KEY = object()
 

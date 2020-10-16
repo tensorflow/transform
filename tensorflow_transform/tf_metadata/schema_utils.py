@@ -17,13 +17,15 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
-
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 
 from tensorflow_transform.tf_metadata import schema_utils_legacy
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 from tensorflow_metadata.proto.v0 import schema_pb2
 
@@ -159,7 +161,7 @@ def _set_domain(name, feature, domain):
         'Feature "{}" has invalid domain {}'.format(name, domain))
 
 
-SchemaAsFeatureSpecResult = collections.namedtuple(
+SchemaAsFeatureSpecResult = tfx_namedtuple.namedtuple(
     'SchemaAsFeatureSpecResult', ['feature_spec', 'domains'])
 
 

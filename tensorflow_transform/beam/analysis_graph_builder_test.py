@@ -17,7 +17,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
 import os
 
 # GOOGLE-INITIALIZATION
@@ -29,6 +28,10 @@ from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
 from tensorflow_transform.beam import analysis_graph_builder
 from tensorflow_transform import test_case
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 mock = tf.compat.v1.test.mock
 
@@ -311,7 +314,8 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signatur
 def _preprocessing_fn_with_chained_ptransforms(inputs):
 
   class FakeChainable(
-      collections.namedtuple('FakeChainable', ['label']), nodes.OperationDef):
+      tfx_namedtuple.namedtuple('FakeChainable', ['label']),
+      nodes.OperationDef):
 
     def __new__(cls, label=None):
       if label is None:

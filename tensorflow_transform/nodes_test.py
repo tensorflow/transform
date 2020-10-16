@@ -17,35 +17,39 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
-
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 from tensorflow_transform import nodes
 from tensorflow_transform import test_case
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 mock = tf.compat.v1.test.mock
 
 
-class _Concat(collections.namedtuple('_Concat', ['label']), nodes.OperationDef):
+class _Concat(
+    tfx_namedtuple.namedtuple('_Concat', ['label']), nodes.OperationDef):
   pass
 
 
-class _Swap(collections.namedtuple('_Swap', ['label']), nodes.OperationDef):
+class _Swap(tfx_namedtuple.namedtuple('_Swap', ['label']), nodes.OperationDef):
 
   @property
   def num_outputs(self):
     return 2
 
 
-class _Constant(collections.namedtuple('_Constant', ['value', 'label']),
-                nodes.OperationDef):
+class _Constant(
+    tfx_namedtuple.namedtuple('_Constant', ['value', 'label']),
+    nodes.OperationDef):
   pass
 
 
-class _Identity(collections.namedtuple('_Identity', ['label']),
-                nodes.OperationDef):
+class _Identity(
+    tfx_namedtuple.namedtuple('_Identity', ['label']), nodes.OperationDef):
   pass
 
 

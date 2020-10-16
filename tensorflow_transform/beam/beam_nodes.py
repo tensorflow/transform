@@ -44,17 +44,19 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
-
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 from tensorflow_transform import nodes
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 
 class CreateTensorBinding(
-    collections.namedtuple(
-        'CreateTensorBinding', ['tensor', 'is_asset_filepath', 'label']),
+    tfx_namedtuple.namedtuple('CreateTensorBinding',
+                              ['tensor', 'is_asset_filepath', 'label']),
     nodes.OperationDef):
   """An operation that represents creating a tensor binding from a value.
 
@@ -74,7 +76,7 @@ class CreateTensorBinding(
 
 
 class CreateSavedModel(
-    collections.namedtuple(
+    tfx_namedtuple.namedtuple(
         'CreateSavedModel',
         ['table_initializers', 'output_signature', 'label']),
     nodes.OperationDef):
@@ -125,8 +127,8 @@ class CreateSavedModel(
 
 
 class ExtractInputForSavedModel(
-    collections.namedtuple('ExtractInputForSavedModel',
-                           ['dataset_key', 'label']), nodes.OperationDef):
+    tfx_namedtuple.namedtuple('ExtractInputForSavedModel',
+                              ['dataset_key', 'label']), nodes.OperationDef):
   """An operation that forwards the requested dataset in PCollection form.
 
   The resulting PCollection is either the dataset corresponding to
@@ -140,7 +142,7 @@ class ExtractInputForSavedModel(
 
 
 class ApplySavedModel(
-    collections.namedtuple('ApplySavedModel', ['phase', 'label']),
+    tfx_namedtuple.namedtuple('ApplySavedModel', ['phase', 'label']),
     nodes.OperationDef):
   """An operation that represents applying a SavedModel as a `beam.ParDo`.
 
@@ -163,7 +165,7 @@ class ApplySavedModel(
 
 
 class ExtractFromDict(
-    collections.namedtuple('ExtractFromDict', ['keys', 'label']),
+    tfx_namedtuple.namedtuple('ExtractFromDict', ['keys', 'label']),
     nodes.OperationDef):
   """An operation that represents extracting values from a dictionary.
 
@@ -183,7 +185,8 @@ class ExtractFromDict(
     return True
 
 
-class Flatten(collections.namedtuple('Flatten', ['label']), nodes.OperationDef):
+class Flatten(
+    tfx_namedtuple.namedtuple('Flatten', ['label']), nodes.OperationDef):
 
   @property
   def is_partitionable(self):

@@ -18,7 +18,6 @@ from __future__ import division
 # Using Type Annotations.
 from __future__ import print_function
 
-import collections
 import os
 import threading
 from typing import Any, Iterable, Optional
@@ -27,6 +26,10 @@ from typing import Any, Iterable, Optional
 
 import tensorflow as tf
 from tensorflow_transform import tf2_utils
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 _DEPRECATED_SENTINEL = object()
 
@@ -59,7 +62,7 @@ class Context(object):
   """
 
   class _State(
-      collections.namedtuple('_State', [
+      tfx_namedtuple.namedtuple('_State', [
           'temp_dir',
           'desired_batch_size',
           'passthrough_keys',

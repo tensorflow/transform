@@ -32,10 +32,15 @@ import abc
 import collections
 from future.utils import with_metaclass
 import pydot
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 
-class ValueNode(collections.namedtuple(
-    'ValueNode', ['parent_operation', 'value_index'])):
+class ValueNode(
+    tfx_namedtuple.namedtuple('ValueNode',
+                              ['parent_operation', 'value_index'])):
   """A placeholder that will ultimately be translated to a PCollection.
 
   Attributes:

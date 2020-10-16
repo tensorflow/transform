@@ -28,7 +28,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
 import functools
 import itertools
 import os
@@ -46,6 +45,10 @@ from tensorflow_transform import gaussianization
 from tensorflow_transform import nodes
 from tensorflow_transform import schema_inference
 from tensorflow_transform import tf_utils
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 from google.protobuf import descriptor_pb2
 # pylint: disable=g-direct-tensorflow-import
@@ -1032,8 +1035,8 @@ def _mean_and_var_per_key(x, key, reduce_instance_dims=True, output_dtype=None,
 
 
 class _WeightedMeanAndVarAccumulator(
-    collections.namedtuple('WeightedMeanAndVarAccumulator',
-                           ['count', 'mean', 'variance', 'weight'])):
+    tfx_namedtuple.namedtuple('WeightedMeanAndVarAccumulator',
+                              ['count', 'mean', 'variance', 'weight'])):
   """Container for WeightedMeanAndVarCombiner intermediate values."""
 
   @classmethod
@@ -1265,9 +1268,9 @@ def _pad_arrays_to_match(a, b):
 
 
 class _LMomentsAccumulator(
-    collections.namedtuple('LMomentsAccumulator',
-                           ['count_l1', 'count_l2', 'count_l3', 'count_l4',
-                            'l1', 'l2', 'l3', 'l4'])):
+    tfx_namedtuple.namedtuple('LMomentsAccumulator', [
+        'count_l1', 'count_l2', 'count_l3', 'count_l4', 'l1', 'l2', 'l3', 'l4'
+    ])):
   """Container for _LMomentsCombiner intermediate values."""
 
   @classmethod
@@ -2142,7 +2145,7 @@ class _QuantilesAccumulatorCacheCoder(analyzer_nodes.CacheCoder):
 # the various options be "inputs" as opposed to "constants" (or more generally
 # "graph structure") of the graph.
 class _QuantilesGraphStateOptions(
-    collections.namedtuple('_QuantilesGraphStateOptions', [
+    tfx_namedtuple.namedtuple('_QuantilesGraphStateOptions', [
         'num_quantiles', 'epsilon', 'bucket_numpy_dtype',
         'always_return_num_quantiles', 'has_weights', 'num_features',
         'tf_config', 'random_slot'

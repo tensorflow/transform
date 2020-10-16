@@ -55,7 +55,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
 import os
 # GOOGLE-INITIALIZATION
 import six
@@ -66,6 +65,10 @@ from tensorflow_transform import common
 from tensorflow_transform import gaussianization
 from tensorflow_transform import schema_inference
 from tensorflow_transform import tf_utils
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 from tensorflow.python.util import deprecation  # pylint: disable=g-direct-tensorflow-import
 
@@ -1153,7 +1156,7 @@ def deduplicate_tensor_per_row(input_tensor, name=None):
       )
 
 
-_DedupRowLoopArgs = collections.namedtuple(
+_DedupRowLoopArgs = tfx_namedtuple.namedtuple(
     'DedupRowLoopArgs',
     [
         'index',  # Index representing the row of input_tensor to be processed.

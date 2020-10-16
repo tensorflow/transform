@@ -18,7 +18,6 @@ from __future__ import division
 # Using Type Annotations.
 from __future__ import print_function
 
-import collections
 import os
 import threading
 from typing import Any, Dict, Optional
@@ -26,6 +25,10 @@ from typing import Any, Dict, Optional
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 
 class TFGraphContext(object):
@@ -48,7 +51,7 @@ class TFGraphContext(object):
   """
 
   class _State(
-      collections.namedtuple('_State', [
+      tfx_namedtuple.namedtuple('_State', [
           'temp_dir',
           'evaluated_replacements',
       ])):

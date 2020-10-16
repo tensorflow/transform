@@ -72,7 +72,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
 import copy
 import datetime
 
@@ -111,6 +110,10 @@ from tensorflow_transform.tf_metadata import schema_utils
 from tfx_bsl.beam import shared
 from tfx_bsl.tfxio import tf_example_record
 from tfx_bsl.tfxio.tensor_adapter import TensorAdapter
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `tfx_namedtuple.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 Context = context.Context
 
@@ -481,7 +484,7 @@ def _convert_and_unbatch_to_instance_dicts(batch_dict, schema,
   return result
 
 
-_TensorBinding = collections.namedtuple(
+_TensorBinding = tfx_namedtuple.namedtuple(
     '_TensorBinding', ['value', 'tensor_name', 'is_asset_filepath'])
 
 

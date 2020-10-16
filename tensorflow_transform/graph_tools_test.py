@@ -18,7 +18,6 @@ from __future__ import division
 from __future__ import print_function
 
 import abc
-import collections
 import os
 import tempfile
 
@@ -29,6 +28,10 @@ import six
 import tensorflow as tf
 from tensorflow_transform import graph_tools
 from tensorflow_transform import test_case
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 from tensorflow.python.ops import control_flow_ops  # pylint: disable=g-direct-tensorflow-import
 
@@ -309,8 +312,8 @@ class _Matcher(object):
     return True
 
 
-class _TensorMatcher(_Matcher, collections.namedtuple('_TensorMatcher',
-                                                      ['name'])):
+class _TensorMatcher(_Matcher,
+                     tfx_namedtuple.namedtuple('_TensorMatcher', ['name'])):
 
   def expected_fields(self, other):
     return (str(other.name),)
@@ -324,7 +327,7 @@ class _TensorMatcher(_Matcher, collections.namedtuple('_TensorMatcher',
     return tf.Tensor
 
 
-class _OpMatcher(_Matcher, collections.namedtuple('_OpMatcher', ['name'])):
+class _OpMatcher(_Matcher, tfx_namedtuple.namedtuple('_OpMatcher', ['name'])):
 
   def expected_fields(self, other):
     return (str(other.name),)

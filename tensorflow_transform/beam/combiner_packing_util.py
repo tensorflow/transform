@@ -46,13 +46,17 @@ import collections
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import nodes
 from tensorflow_transform.beam import beam_nodes
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 
 # Used for debugging only. This will point to the most recent graph built.
 _ANALYSIS_GRAPH = None
 
-_CombinerOpWrapper = collections.namedtuple('_CombinerOpWrapper',
-                                            ['combiner', 'keys', 'label'])
+_CombinerOpWrapper = tfx_namedtuple.namedtuple('_CombinerOpWrapper',
+                                               ['combiner', 'keys', 'label'])
 
 
 class _ValidationVisitor(nodes.Visitor):
@@ -334,10 +338,11 @@ class _PackMergeCombineVisitor(_ValidationVisitor):
     self.final_packed_merge_combine_label = packed_combine_label
     return packed_combine
 
-_TensorBindingInfo = collections.namedtuple(
-    '_TensorBindingInfo',
-    ['extract_from_dict_op_def', 'extract_outputs_op_def',
-     'tensor_binding_op_def', 'output_index'])
+
+_TensorBindingInfo = tfx_namedtuple.namedtuple('_TensorBindingInfo', [
+    'extract_from_dict_op_def', 'extract_outputs_op_def',
+    'tensor_binding_op_def', 'output_index'
+])
 
 
 class _RemoveRedundantPackedMergeCombineVisitor(_ValidationVisitor):

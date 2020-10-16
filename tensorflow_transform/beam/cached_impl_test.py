@@ -19,7 +19,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
 import functools
 import os
 import struct
@@ -40,6 +39,10 @@ from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 mock = tf.compat.v1.test.mock
 
@@ -177,7 +180,7 @@ _TF_VERSION_NAMED_PARAMETERS = [
 def _preprocessing_fn_for_generalized_chained_ptransforms(inputs):
 
   class FakeChainablePartitionable(
-      collections.namedtuple('FakeChainablePartitionable', ['label']),
+      tfx_namedtuple.namedtuple('FakeChainablePartitionable', ['label']),
       nodes.OperationDef):
 
     def __new__(cls, label=None):
@@ -195,7 +198,7 @@ def _preprocessing_fn_for_generalized_chained_ptransforms(inputs):
       return True
 
   class FakeChainableCacheable(
-      collections.namedtuple('FakeChainableCacheable', ['label']),
+      tfx_namedtuple.namedtuple('FakeChainableCacheable', ['label']),
       nodes.OperationDef):
 
     def __new__(cls, label=None):
@@ -217,7 +220,8 @@ def _preprocessing_fn_for_generalized_chained_ptransforms(inputs):
       return 'Not-a-coder-but-thats-ok!'
 
   class FakeChainable(
-      collections.namedtuple('FakeChainable', ['label']), nodes.OperationDef):
+      tfx_namedtuple.namedtuple('FakeChainable', ['label']),
+      nodes.OperationDef):
 
     def __new__(cls, label=None):
       if label is None:
@@ -408,7 +412,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.WriteRenderedDotFile(dot_string, output_file=output_file)
     return dot_string
 
-  _RunPipelineResult = collections.namedtuple(  # pylint: disable=invalid-name
+  _RunPipelineResult = tfx_namedtuple.namedtuple(  # pylint: disable=invalid-name
       '_RunPipelineResult', ['cache_output', 'pipeline'])
 
   def _run_pipeline(self,

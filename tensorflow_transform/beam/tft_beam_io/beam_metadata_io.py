@@ -21,17 +21,18 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
-
 import apache_beam as beam
 from tensorflow_transform.beam import common
 from tensorflow_transform.tf_metadata import metadata_io
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 
 class BeamDatasetMetadata(
-    collections.namedtuple(
-        'BeamDatasetMetadata',
-        ['dataset_metadata', 'deferred_metadata'])):
+    tfx_namedtuple.namedtuple('BeamDatasetMetadata',
+                              ['dataset_metadata', 'deferred_metadata'])):
   """A class like DatasetMetadata that also holds a dict of `PCollection`s.
 
   `deferred_metadata` is a PCollection containing a single DatasetMetadata.

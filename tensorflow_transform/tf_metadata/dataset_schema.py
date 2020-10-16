@@ -17,11 +17,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
-
 from six.moves import copyreg
 import tensorflow as tf
 from tensorflow_transform.tf_metadata import schema_utils
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 from tensorflow.python.util import deprecation  # pylint: disable=g-direct-tensorflow-import
 from tensorflow_metadata.proto.v0 import schema_pb2
@@ -98,15 +100,15 @@ def IntDomain(dtype, min_value=None, max_value=None, is_categorical=None):
                               is_categorical=is_categorical)
 
 
-class FixedColumnRepresentation(collections.namedtuple(
-    'FixedColumnRepresentation', ['default_value'])):
+class FixedColumnRepresentation(
+    tfx_namedtuple.namedtuple('FixedColumnRepresentation', ['default_value'])):
 
   def __new__(cls, default_value=None):
     return super(FixedColumnRepresentation, cls).__new__(cls, default_value)
 
 
-ListColumnRepresentation = collections.namedtuple(
-    'ListColumnRepresentation', [])
+ListColumnRepresentation = tfx_namedtuple.namedtuple('ListColumnRepresentation',
+                                                     [])
 
 
 @deprecation.deprecated(

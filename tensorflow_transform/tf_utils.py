@@ -17,10 +17,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
-
 # GOOGLE-INITIALIZATION
 import tensorflow as tf
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 from tensorflow.python.framework import composite_tensor  # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.util import object_identity  # pylint: disable=g-direct-tensorflow-import
@@ -30,13 +32,13 @@ _FLOATING_NAN = float('nan')
 GLOBAL_Y_COUNT_SENTINEL_STRING = b'global_y_count_sentinel'
 GLOBAL_Y_COUNT_SENTINEL_INT = tf.int64.limits[1]
 
-ReducedBatchWeightedCounts = collections.namedtuple('ReducedBatchCounts', [
+ReducedBatchWeightedCounts = tfx_namedtuple.namedtuple('ReducedBatchCounts', [
     'unique_x', 'summed_weights_per_x', 'summed_positive_per_x_and_y',
     'counts_per_x'
 ])
 
-_CompositeTensorRef = collections.namedtuple('_CompositeTensorRef',
-                                             ['type_spec', 'list_of_refs'])
+_CompositeTensorRef = tfx_namedtuple.namedtuple('_CompositeTensorRef',
+                                                ['type_spec', 'list_of_refs'])
 
 
 def reduce_batch_weighted_counts(x, weights=None):
