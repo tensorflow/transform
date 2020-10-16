@@ -20,7 +20,6 @@ from __future__ import print_function
 
 import pickle
 
-import numpy as np
 import tensorflow as tf
 from tensorflow_transform.coders import csv_coder
 from tensorflow_transform import test_case
@@ -39,7 +38,7 @@ _FEATURE_SPEC = {
     'y': tf.io.SparseFeature('idx', 'value', tf.float32, 10),
 }
 
-_ENCODE_DECODE_CASES = [
+_ENCODE_CASES = [
     dict(
         testcase_name='multiple_columns',
         columns=_COLUMNS,
@@ -186,162 +185,12 @@ _ENCODE_DECODE_CASES = [
         multivalent_columns=['x']),
 ]
 
-_DECODE_ONLY_CASES = [
-    dict(
-        testcase_name='scalar_float_with_decimal_point',
-        columns=['x'],
-        feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)},
-        csv_line='12.0',
-        instance={'x': 12}),
-    dict(
-        testcase_name='scalar_float_with_quoted_value',
-        columns=['x'],
-        feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)},
-        csv_line='"12.0"',
-        instance={'x': 12}),
-    # TODO(b/35847532): Move this once it succeeds a roundtrip decode/encode.
-    dict(
-        testcase_name='var_len_string_with_missing_value',
-        columns=['x'],
-        feature_spec={'x': tf.io.VarLenFeature(tf.string)},
-        csv_line='',
-        instance={'x': []}),
-    # TODO(KesterTong): Fix bugs in encoding.
-    dict(
-        testcase_name='multiple_columns_numpy',
-        columns=_COLUMNS,
-        feature_spec=_FEATURE_SPEC,
-        csv_line='12,"this is a ,text",categorical_value,1,89.0,12.0,20',
-        instance={
-            'category1': np.array([b'categorical_value']),
-            'numeric1': np.array(12),
-            'numeric2': np.array([89.0]),
-            'numeric3': np.array([20]),
-            'text1': np.array([b'this is a ,text']),
-            'idx': np.array(1),
-            'value': np.array([12.0]),
-        }),
-    dict(
-        testcase_name='multiple_columns_unicode_numpy',
-        columns=_COLUMNS,
-        feature_spec=_FEATURE_SPEC,
-        csv_line=u'12,"this is a ,text",Hello κόσμε,1,89.0,12.0,20',
-        instance={
-            'category1': np.array([u'Hello κόσμε'.encode('utf-8')]),
-            'numeric1': np.array(12),
-            'numeric2': np.array([89.0]),
-            'numeric3': np.array([20]),
-            'text1': np.array([b'this is a ,text']),
-            'idx': np.array(1),
-            'value': np.array([12.0]),
-        }),
-    dict(
-        testcase_name='multiple_missing_var_len_features',
-        columns=['a', 'b', 'c'],
-        feature_spec={
-            'a': tf.io.VarLenFeature(tf.float32),
-            'b': tf.io.VarLenFeature(tf.int64),
-            'c': tf.io.VarLenFeature(tf.string),
-        },
-        csv_line=',,',
-        instance={
-            'a': [],
-            'b': [],
-            'c': []
-        }),
-]
-
 _CONSTRUCTOR_ERROR_CASES = [
-    dict(
-        testcase_name='size_1_vector_with_missing_value',
-        columns=['x'],
-        feature_spec={'x': tf.io.FixedLenFeature([2], tf.int64)},
-        error_msg=r'FixedLenFeature \"x\" was not multivalent'),
     dict(
         testcase_name='missing_column',
         columns=[],
         feature_spec={'x': tf.io.FixedLenFeature([], tf.int64)},
         error_msg='Column not found: '),
-]
-
-_DECODE_ERROR_CASES = [
-    dict(
-        testcase_name='scalar_with_missing_value',
-        columns=['x'],
-        feature_spec={'x': tf.io.FixedLenFeature([], tf.int64)},
-        csv_line='',
-        error_msg=r'expected a value on column \"x\"'),
-    dict(
-        testcase_name='size_1_vector_with_missing_value',
-        columns=['x'],
-        feature_spec={'x': tf.io.FixedLenFeature([1], tf.int64)},
-        csv_line='',
-        error_msg=r'expected a value on column \"x\"'),
-    dict(
-        testcase_name='scalar_string_missing_value',
-        columns=['x'],
-        feature_spec={'x': tf.io.FixedLenFeature([], tf.string)},
-        csv_line='',
-        error_msg=r'expected a value on column \"x\"'),
-    dict(
-        testcase_name='scalar_float_with_non_float_value',
-        columns=['x'],
-        feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)},
-        csv_line='test',
-        error_msg=r'could not convert string to float*'),
-    dict(
-        testcase_name='multivalent_scalar_float_too_many_values',
-        columns=['x'],
-        feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)},
-        csv_line='1|2',
-        error_msg=r'FixedLenFeature \"x\" got wrong number of values',
-        secondary_delimiter='|',
-        multivalent_columns=['x']),
-    dict(
-        testcase_name='multivalent_size_1_vector_float_too_many_values',
-        columns=['x'],
-        feature_spec={'x': tf.io.FixedLenFeature([1], tf.float32)},
-        csv_line='1|2',
-        error_msg=r'FixedLenFeature \"x\" got wrong number of values',
-        secondary_delimiter='|',
-        multivalent_columns=['x']),
-    dict(
-        testcase_name='multivalent_size_2_vector_float_too_many_values',
-        columns=['x'],
-        feature_spec={'x': tf.io.FixedLenFeature([2], tf.float32)},
-        csv_line='1',
-        error_msg=r'FixedLenFeature \"x\" got wrong number of values',
-        secondary_delimiter='|',
-        multivalent_columns=['x']),
-    dict(
-        testcase_name='row_has_more_columns_than_expected',
-        columns=_COLUMNS,
-        feature_spec=_FEATURE_SPEC,
-        csv_line=('12,"this is a ,text",categorical_value,1,89.0,12.0,'
-                  '"oh no, I\'m an error",14'),
-        error_msg='Columns do not match specified csv headers',
-        error_type=csv_coder.DecodeError),
-    dict(
-        testcase_name='row_has_fewer_columns_than_expected',
-        columns=_COLUMNS,
-        feature_spec=_FEATURE_SPEC,
-        csv_line='12,"this is a ,text",categorical_value"',
-        error_msg='Columns do not match specified csv headers',
-        error_type=csv_coder.DecodeError),
-    dict(
-        testcase_name='row_is_empty',
-        columns=_COLUMNS,
-        feature_spec=_FEATURE_SPEC,
-        csv_line='',
-        error_msg='Columns do not match specified csv headers',
-        error_type=csv_coder.DecodeError),
-    dict(
-        testcase_name='csv_line_not_a_string',
-        columns=_COLUMNS,
-        feature_spec=_FEATURE_SPEC,
-        csv_line=123,
-        error_msg=r'.*',
-        error_type=csv_coder.DecodeError),
 ]
 
 _ENCODE_ERROR_CASES = [
@@ -366,13 +215,7 @@ _ENCODE_ERROR_CASES = [
 
 class TestCSVCoder(test_case.TransformTestCase):
 
-  @test_case.named_parameters(*(_ENCODE_DECODE_CASES + _DECODE_ONLY_CASES))
-  def test_decode(self, columns, feature_spec, csv_line, instance, **kwargs):
-    schema = schema_utils.schema_from_feature_spec(feature_spec)
-    coder = csv_coder.CsvCoder(columns, schema, **kwargs)
-    np.testing.assert_equal(coder.decode(csv_line), instance)
-
-  @test_case.named_parameters(*_ENCODE_DECODE_CASES)
+  @test_case.named_parameters(*_ENCODE_CASES)
   def test_encode(self, columns, feature_spec, csv_line, instance, **kwargs):
     schema = schema_utils.schema_from_feature_spec(feature_spec)
     coder = csv_coder.CsvCoder(columns, schema, **kwargs)
@@ -388,19 +231,6 @@ class TestCSVCoder(test_case.TransformTestCase):
     schema = schema_utils.schema_from_feature_spec(feature_spec)
     with self.assertRaisesRegexp(error_type, error_msg):
       csv_coder.CsvCoder(columns, schema, **kwargs)
-
-  @test_case.named_parameters(*_DECODE_ERROR_CASES)
-  def test_decode_error(self,
-                        columns,
-                        feature_spec,
-                        csv_line,
-                        error_msg,
-                        error_type=ValueError,
-                        **kwargs):
-    schema = schema_utils.schema_from_feature_spec(feature_spec)
-    coder = csv_coder.CsvCoder(columns, schema, **kwargs)
-    with self.assertRaisesRegexp(error_type, error_msg):
-      coder.decode(csv_line)
 
   @test_case.named_parameters(*_ENCODE_ERROR_CASES)
   def test_encode_error(self,
@@ -432,7 +262,6 @@ class TestCSVCoder(test_case.TransformTestCase):
     # pickling.
     for _ in range(2):
       coder = pickle.loads(pickle.dumps(coder))
-      self.assertEqual(coder.decode(csv_line), instance)
       self.assertEqual(coder.encode(instance), csv_line.encode('utf-8'))
 
 

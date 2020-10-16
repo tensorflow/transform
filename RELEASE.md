@@ -24,6 +24,11 @@
 
 ## Deprecations
 
+*   The `decode` method of the available coders (`tft.coders.CsvCoder` and
+    `tft.coders.ExampleProtoCoder`) has been deprecated and removed.
+    [Canned TFXIO implementations](https://www.tensorflow.org/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio)
+    should be used to read and decode data instead.
+
 # Release 0.24.1
 
 ## Major Features and Improvements

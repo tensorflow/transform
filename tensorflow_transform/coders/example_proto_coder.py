@@ -28,6 +28,7 @@ import numpy as np
 import six
 import tensorflow as tf
 from tensorflow_transform.tf_metadata import schema_utils
+from tensorflow.python.util import deprecation  # pylint: disable=g-direct-tensorflow-import
 
 
 # This function needs to be called at pipeline execution time as it depends on
@@ -136,20 +137,6 @@ class _FixedLenFeatureHandler(object):
     self._size = 1
     for dim in feature_spec.shape:
       self._size *= dim
-    default_value = feature_spec.default_value
-    if default_value is not None:
-      try:
-        np_default_value = np.asarray(default_value, dtype=self._np_dtype)
-      except ValueError:
-        raise ValueError(
-            'FixedLenFeature %r got default value with incompatible dtype %s' %
-            (self._name, feature_spec.dtype))
-      if list(np_default_value.shape) != self._shape:
-        raise ValueError(
-            'FixedLenFeature %r got default value with incorrect shape' %
-            self._name)
-      default_value = np_default_value.reshape(-1).tolist()
-    self._default_value = default_value
 
   @property
   def name(self):
@@ -160,33 +147,6 @@ class _FixedLenFeatureHandler(object):
     """Initialize fields (performance caches) that point to example's state."""
     self._cast_fn = _make_cast_fn(self._np_dtype)
     self._value = self._value_fn(example.features.feature[self._name])
-
-  def parse_value(self, feature_map):
-    """Non-Mutating Decode of a feature into its TF.Transform representation."""
-    if self._name in feature_map:
-      feature = feature_map[self._name]
-      if feature.WhichOneof('kind') is None:
-        values = self._default_value
-      else:
-        values = self._value_fn(feature)
-    elif self._default_value is not None:
-      values = self._default_value
-    else:
-      values = []
-
-    if len(values) != self._size:
-      raise ValueError('FixedLenFeature %r got wrong number of values. Expected'
-                       ' %d but got %d' % (self._name, self._size, len(values)))
-
-    if self._rank == 0:
-      # Encode the values as a scalar if shape == [].
-      return values[0]
-
-    if self._rank == 1:
-      # Short-circuit the reshaping logic needed for rank > 1.
-      return np.asarray(values, dtype=self._np_dtype)
-
-    return np.asarray(values, dtype=self._np_dtype).reshape(self._shape)
 
   def encode_value(self, values):
     """Encodes a feature into its Example proto representation."""
@@ -226,17 +186,6 @@ class _VarLenFeatureHandler(object):
     self._feature = example.features.feature[self._name]
     self._value = self._value_fn(self._feature)
 
-  def parse_value(self, feature_map):
-    """Non-Mutating Decode of a feature into its TF.Transform representation."""
-    if self._name not in feature_map:
-      return None
-
-    feature = feature_map[self._name]
-    if feature.WhichOneof('kind') is None:
-      return None
-
-    return list(self._value_fn(feature))
-
   def encode_value(self, values):
     """Encode values as tf.train.Feature."""
     if values is None:
@@ -252,6 +201,10 @@ class _VarLenFeatureHandler(object):
       self._value.extend(self._cast_fn(values))
 
 
+_DECODE_DEPRECATION_MESSAGE = 'TFXIO should be used to decode tf.Examples. '
+'For reference, take a look at the get_started.md guide for details.'
+
+
 class ExampleProtoCoder(object):
   """A coder between maybe-serialized TF Examples and tf.Transform datasets."""
 
@@ -260,8 +213,8 @@ class ExampleProtoCoder(object):
 
     Args:
       schema: A `Schema` proto.
-      serialized: Whether to encode / decode serialized Example protos (as
-        opposed to in-memory Example protos).
+      serialized: Whether to encode serialized Example protos (as opposed to
+        in-memory Example protos).
     Raises:
       ValueError: If `schema` is invalid.
     """
@@ -271,18 +224,11 @@ class ExampleProtoCoder(object):
     # Using pre-allocated tf.train.Example and FeatureHandler objects for
     # performance reasons.
     #
-    # The _encode_example_cache is used solely by "encode" paths while the
-    # the _decode_example_cache is used solely be "decode" paths, since the
-    # caching strategies are incompatible with each other (due to proto
-    # parsing/merging implementation).
-    #
-    # Since the output of both "encode" and "decode" are deep as opposed to
-    # shallow transformations, and since the schema always fully defines the
-    # Example's FeatureMap (ie all fields are always cleared/assigned or
-    # copied), the optimizations and implementation are correct and
-    # thread-compatible.
+    # Since the output of "encode" is deep as opposed to shallow
+    # transformations, and since the schema always fully defines the Example's
+    # FeatureMap (ie all fields are always cleared/assigned or copied), the
+    # optimization and implementation are correct and thread-compatible.
     self._encode_example_cache = tf.train.Example()
-    self._decode_example_cache = tf.train.Example()
     self._feature_handlers = []
     for name, feature_spec in six.iteritems(
         schema_utils.schema_as_feature_spec(schema).feature_spec):
@@ -326,14 +272,6 @@ class ExampleProtoCoder(object):
     result.CopyFrom(self._encode_example_cache)
     return result
 
+  @deprecation.deprecated(None, _DECODE_DEPRECATION_MESSAGE)
   def decode(self, example_proto):
-    """Decode tf.Example as a tf.transform encoded dict."""
-    if self._serialized:
-      example = self._decode_example_cache
-      example.ParseFromString(example_proto)
-    else:
-      example = example_proto
-
-    feature_map = example.features.feature
-    return {feature_handler.name: feature_handler.parse_value(feature_map)
-            for feature_handler in self._feature_handlers}
+    raise NotImplementedError(_DECODE_DEPRECATION_MESSAGE)

@@ -26,13 +26,13 @@ import apache_beam as beam
 import six
 import tensorflow as tf
 import tensorflow_transform as tft
-
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform import test_case
 from tensorflow_transform.beam import test_helpers
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
+from tfx_bsl.coders import example_coder
 
 from tensorflow_metadata.proto.v0 import schema_pb2
 
@@ -72,6 +72,17 @@ def canonical_numeric_dtype(dtype):
     return tf.int64
   else:
     raise ValueError('Bad dtype {}'.format(dtype))
+
+
+def _format_example_as_numpy_dict(example, feature_shape_dict):
+  result = example_coder.ExampleToNumpyDict(example)
+  for key, value in result.items():
+    shape = feature_shape_dict[key]
+    value = value.reshape(shape)
+    if not shape:
+      value = value.squeeze(0)
+    result[key] = value
+  return result
 
 
 class TransformTestCase(test_case.TransformTestCase):
@@ -322,7 +333,14 @@ class TransformTestCase(test_case.TransformTestCase):
     if expected_data is not None:
       examples = tf.compat.v1.python_io.tf_record_iterator(
           path=transformed_data_path)
-      transformed_data = [transformed_data_coder.decode(x) for x in examples]
+      shapes = {
+          f.name:
+          [s.size for s in f.shape.dim] if f.HasField('shape') else [-1]
+          for f in transformed_metadata.schema.feature
+      }
+      transformed_data = [
+          _format_example_as_numpy_dict(e, shapes) for e in examples
+      ]
       self.assertDataCloseOrEqual(expected_data, transformed_data)
 
     tf_transform_output = tft.TFTransformOutput(temp_dir)
