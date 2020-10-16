@@ -19,6 +19,8 @@
     traced using tf.function in TF 2.x when TF 2 behaviors are enabled.
 *   Switching to a wrapper for `collections.namedtuple` to ensure compatibility
     with PySpark which modifies classes produced by the factory.
+*   Caching has been disabled for `tft.tukey_h_params`, `tft.tukey_location` and
+    `tft.tukey_scale` due to the cached accumulator being non-deterministic.
 
 ## Breaking changes
 

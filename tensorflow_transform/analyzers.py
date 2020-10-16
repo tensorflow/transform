@@ -1391,7 +1391,8 @@ class _LMomentsCombiner(analyzer_nodes.Combiner):
 
   @property
   def accumulator_coder(self):
-    return _LMomentsAccumulatorCacheCoder()
+    # TODO(b/170510451): Re-enable caching for this Combiner.
+    return None
 
   def _combine_accumulators(self, a, b):
     """Combines two accumulators.
@@ -1443,16 +1444,6 @@ class _LMomentsCombiner(analyzer_nodes.Combiner):
     return _LMomentsAccumulator(
         combined_count_l1, combined_count_l2, combined_count_l3,
         combined_count_l4, combined_l1, combined_l2, combined_l3, combined_l4)
-
-
-class _LMomentsAccumulatorCacheCoder(analyzer_nodes.CacheCoder):
-  """The _LMomentsAccumulator is a list of np. arrays."""
-
-  def encode_cache(self, accumulator):
-    return pickle.dumps(accumulator)
-
-  def decode_cache(self, encoded_accumulator):
-    return pickle.loads(encoded_accumulator)
 
 
 def sanitized_vocab_filename(filename=None, prefix=None):
