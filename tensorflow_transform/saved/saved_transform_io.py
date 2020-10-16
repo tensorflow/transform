@@ -165,7 +165,7 @@ _PARTITIONED_VARIABLE_NAME_RE = re.compile(r'^(.*)/part_(\d*)$')
 def _maybe_register_addon_ops():
   try:
     import tensorflow_text as _  # pylint: disable=g-import-not-at-top
-  except ImportError:
+  except (ImportError, tf.errors.NotFoundError):
     pass
 
 
