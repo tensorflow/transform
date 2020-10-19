@@ -21,6 +21,8 @@
     with PySpark which modifies classes produced by the factory.
 *   Caching has been disabled for `tft.tukey_h_params`, `tft.tukey_location` and
     `tft.tukey_scale` due to the cached accumulator being non-deterministic.
+*   Track variables created within the `preprocessing_fn` in the native TF 2
+    implementation.
 
 ## Breaking changes
 

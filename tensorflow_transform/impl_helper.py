@@ -609,11 +609,19 @@ def trace_and_write_v2_saved_model(saved_model_dir, preprocessing_fn,
   metadata_fn = None
 
   resource_tracker = tracking.ResourceTracker()
+  created_variables = []
+
+  def _variable_creator(next_creator, **kwargs):
+    var = next_creator(**kwargs)
+    created_variables.append(var)
+    return var
+
   # TODO(b/164921571): Handle generic Trackable objects.
   # Trace the `transform_fn` and `metadata_fn` to gather any resources in it
   # using the resource_tracker. These are then assigned to `module.resources`
   # and tracked before exporting to SavedModel.
-  with tracking.resource_tracker_scope(resource_tracker):
+  with tracking.resource_tracker_scope(
+      resource_tracker), tf.variable_creator_scope(_variable_creator):
     concrete_transform_fn = transform_fn.get_concrete_function()
     concrete_metadata_fn = None
     # If the `TENSOR_REPLACEMENTS` graph collection is empty, all TFT analyzers
@@ -637,6 +645,8 @@ def trace_and_write_v2_saved_model(saved_model_dir, preprocessing_fn,
     module.transform_fn = transform_fn
     module.metadata_fn = metadata_fn
 
+  # Any variables created need to be explicitly tracked.
+  module.created_variables = created_variables
   # Resources need to be explicitly tracked.
   module.resources = resource_tracker.resources
   # TODO(b/158011374) - Stop explicitly tracking initializers. Tracking the
