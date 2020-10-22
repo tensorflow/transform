@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+from typing import Dict, Optional, Union
 
 # GOOGLE-INITIALIZATION
 
@@ -46,6 +47,19 @@ def _get_tensor_value(tensor_or_eager_tensor):
       return tensor_or_eager_tensor.eval()
 
 
+class _TransformedFeaturesDict(dict):
+  """A wrapper around dict.
+
+  Overrides pop to return None instead of throwing a KeyError when invoked with
+  a key that is not found in the dictionary.
+
+  NOTE: Do not use directly.
+  """
+
+  def pop(self, key, default=None):  # pylint: disable=useless-super-delegation
+    return super().pop(key, default)
+
+
 class TFTransformOutput(object):
   """A wrapper around the output of the tf.Transform."""
 
@@ -55,7 +69,7 @@ class TFTransformOutput(object):
   TRANSFORMED_METADATA_DIR = 'transformed_metadata'
   TRANSFORM_FN_DIR = 'transform_fn'
 
-  def __init__(self, transform_output_dir):
+  def __init__(self, transform_output_dir: str):
     """Init method for TFTransformOutput.
 
     Args:
@@ -79,12 +93,12 @@ class TFTransformOutput(object):
     return self._transformed_metadata
 
   @property
-  def transform_savedmodel_dir(self):
+  def transform_savedmodel_dir(self) -> str:
     """A python str."""
     return os.path.join(self._transform_output_dir, self.TRANSFORM_FN_DIR)
 
   @property
-  def _exported_as_v1(self):
+  def _exported_as_v1(self) -> bool:
     """A boolean.
 
     Indicates whether the SavedModel was exported using TF 1.x or TF 2.x APIs.
@@ -213,7 +227,11 @@ class TFTransformOutput(object):
           self, exported_as_v1=self._exported_as_v1)
     return self._transform_features_layer
 
-  def transform_raw_features(self, raw_features, drop_unused_features=False):
+  def transform_raw_features(
+      self,
+      raw_features: Dict[str, Union[tf.Tensor, tf.SparseTensor]],
+      drop_unused_features: Optional[bool] = False
+  ) -> Dict[str, Union[tf.Tensor, tf.SparseTensor]]:
     """Takes a dict of tensors representing raw features and transforms them.
 
     Takes a dictionary of `Tensor`s or `SparseTensor`s that represent the raw
@@ -237,8 +255,8 @@ class TFTransformOutput(object):
           `SparseTensor`s representing transformed features.
     """
     if self._exported_as_v1:
-      return self._transform_raw_features_compat_v1(raw_features,
-                                                    drop_unused_features)
+      transformed_features = self._transform_raw_features_compat_v1(
+          raw_features, drop_unused_features)
     else:
       tft_layer = self.transform_features_layer()
       if not drop_unused_features:
@@ -246,10 +264,13 @@ class TFTransformOutput(object):
             'Unused features are always dropped in the TF 2.x '
             'implementation. Ignoring value of drop_unused_features.')
 
-      return tft_layer(raw_features)
+      transformed_features = tft_layer(raw_features)
+    return _TransformedFeaturesDict(transformed_features)
 
-  def _transform_raw_features_compat_v1(self, raw_features,
-                                        drop_unused_features):
+  def _transform_raw_features_compat_v1(
+      self, raw_features: Dict[str, Union[tf.Tensor, tf.SparseTensor]],
+      drop_unused_features: bool
+  ) -> Dict[str, Union[tf.Tensor, tf.SparseTensor]]:
     """Takes a dict of tensors representing raw features and transforms them."""
     unbounded_raw_features, transformed_features = (
         saved_transform_io.partially_apply_saved_transform_internal(
@@ -326,7 +347,7 @@ class TFTransformOutput(object):
         self.raw_metadata.schema).domains
 
   @property
-  def pre_transform_statistics_path(self):
+  def pre_transform_statistics_path(self) -> str:
     """Returns the path to the pre-transform datum statistics.
 
     Note: pre_transform_statistics is not guaranteed to exist in the output of
@@ -337,7 +358,7 @@ class TFTransformOutput(object):
         self._transform_output_dir, self.PRE_TRANSFORM_FEATURE_STATS_PATH)
 
   @property
-  def post_transform_statistics_path(self):
+  def post_transform_statistics_path(self) -> str:
     """Returns the path to the post-transform datum statistics.
 
     Note: post_transform_statistics is not guaranteed to exist in the output of
@@ -385,7 +406,9 @@ def _check_tensorflow_version():
 class TransformFeaturesLayer(tf.keras.Model):
   """A Keras layer for applying a tf.Transform output to input layers."""
 
-  def __init__(self, tft_output, exported_as_v1=None):
+  def __init__(self,
+               tft_output: 'TFTransformOutput',
+               exported_as_v1: Optional[bool] = None):
     super(TransformFeaturesLayer, self).__init__(trainable=False)
     self._tft_output = tft_output
     if exported_as_v1 is None:
@@ -450,7 +473,9 @@ class TransformFeaturesLayer(tf.keras.Model):
     """
     pass
 
-  def call(self, inputs):
+  def call(
+      self, inputs: Dict[str, Union[tf.Tensor, tf.SparseTensor]]
+  ) -> Dict[str, Union[tf.Tensor, tf.SparseTensor]]:
 
     if self._exported_as_v1 and not ops.executing_eagerly_outside_functions():
       tf.compat.v1.logging.warning('Falling back to transform_raw_features...')

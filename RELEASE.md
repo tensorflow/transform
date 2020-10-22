@@ -23,6 +23,10 @@
     `tft.tukey_scale` due to the cached accumulator being non-deterministic.
 *   Track variables created within the `preprocessing_fn` in the native TF 2
     implementation.
+*   `TFTransformOutput.transform_raw_features` returns a wrapped python dict
+    that overrides pop to return None instead of raising a KeyError when called
+    with a key not found in the dictionary. This is done as preparation for
+    switching the default value of `drop_unused_features` to True.
 
 ## Breaking changes
 
