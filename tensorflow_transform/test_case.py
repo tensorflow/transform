@@ -259,34 +259,35 @@ class TransformTestCase(parameterized.TestCase, tf.test.TestCase):
     Raises:
       AssertionError: if the two datasets are not the same.
     """
-    a_data, b_data = self._SortedData(a_data), self._SortedData(b_data)
-    self.assertEqual(
-        len(a_data), len(b_data), 'len(%r) != len(%r)' % (a_data, b_data))
-    for i, (a_row, b_row) in enumerate(zip(a_data, b_data)):
-      self.assertCountEqual(a_row.keys(), b_row.keys(), msg='Row %d' % i)
-      for key in a_row.keys():
-        a_value = a_row[key]
-        b_value = b_row[key]
-        msg = 'Row %d, key %s' % (i, key)
-        if isinstance(a_value, tuple):
-          self._assertValuesCloseOrEqual(a_value[0], b_value[0], msg=msg)
-          self._assertValuesCloseOrEqual(a_value[1], b_value[1], msg=msg)
-        else:
-          self._assertValuesCloseOrEqual(a_value, b_value, msg=msg)
+    msg = ''
+    try:
+      sorted_a, sorted_b = self._SortedData(a_data), self._SortedData(b_data)
+      self.assertEqual(
+          len(sorted_a), len(sorted_b), 'len(%r) != len(%r)' % (a_data, b_data))
+      for i, (a_row, b_row) in enumerate(zip(sorted_a, sorted_b)):
+        self.assertCountEqual(a_row.keys(), b_row.keys(), msg='Row %d' % i)
+        for key in a_row.keys():
+          a_value = a_row[key]
+          b_value = b_row[key]
+          msg = 'Row %d, key %s' % (i, key)
+          if isinstance(a_value, tuple):
+            self._assertValuesCloseOrEqual(a_value[0], b_value[0], msg=msg)
+            self._assertValuesCloseOrEqual(a_value[1], b_value[1], msg=msg)
+          else:
+            self._assertValuesCloseOrEqual(a_value, b_value, msg=msg)
+    except (AssertionError, TypeError) as e:
+      message = '{}\nCompared:\n{}\nvs.\n{}'.format(msg, a_data, b_data)
+      e.args = ((e.args[0] + ' : ' + message,) + e.args[1:])
+      raise e
 
   def _assertValuesCloseOrEqual(self, a_value, b_value, msg=None):
-    try:
-      if (isinstance(a_value, (six.binary_type, six.text_type)) or
-          isinstance(a_value, list) and a_value and
-          isinstance(a_value[0], (six.binary_type, six.text_type)) or
-          isinstance(a_value, np.ndarray) and a_value.dtype == np.object):
-        self.assertAllEqual(a_value, b_value)
-      else:
-        self.assertAllClose(a_value, b_value)
-    except (AssertionError, TypeError) as e:
-      if msg:
-        e.args = ((e.args[0] + ' : ' + msg,) + e.args[1:])
-      raise
+    if (isinstance(a_value, (six.binary_type, six.text_type)) or
+        isinstance(a_value, list) and a_value and
+        isinstance(a_value[0], (six.binary_type, six.text_type)) or
+        isinstance(a_value, np.ndarray) and a_value.dtype == np.object):
+      self.assertAllEqual(a_value, b_value)
+    else:
+      self.assertAllClose(a_value, b_value)
 
   def AssertVocabularyContents(self, vocab_file_path, file_contents):
     if vocab_file_path.endswith('.tfrecord.gz'):
@@ -314,7 +315,7 @@ class TransformTestCase(parameterized.TestCase, tf.test.TestCase):
       np.testing.assert_almost_equal(
           expected_frequency, actual_frequency, decimal=6)
     else:
-      self.assertAllEqual(file_lines, file_contents)
+      self.assertAllEqual(file_contents, file_lines)
 
   def WriteRenderedDotFile(self, dot_string, output_file=None):
     tf.compat.v1.logging.info(

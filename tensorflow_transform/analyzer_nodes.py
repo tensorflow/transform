@@ -832,7 +832,8 @@ class VocabularyPrune(
     tfx_namedtuple.namedtuple('VocabularyPrune', [
         'top_k', 'frequency_threshold', 'informativeness_threshold',
         'coverage_top_k', 'coverage_frequency_threshold',
-        'coverage_informativeness_threshold', 'key_fn', 'label'
+        'coverage_informativeness_threshold', 'key_fn',
+        'filter_newline_characters', 'label'
     ]), nodes.OperationDef):
   """An operation that filters and orders a computed vocabulary.
 
@@ -850,6 +851,7 @@ class VocabularyPrune(
               coverage_frequency_threshold=0,
               coverage_informativeness_threshold=float('-inf'),
               key_fn=None,
+              filter_newline_characters=True,
               label=None):
     if label is None:
       scope = tf.compat.v1.get_default_graph().get_name_scope()
@@ -863,6 +865,7 @@ class VocabularyPrune(
         coverage_frequency_threshold=coverage_frequency_threshold,
         coverage_informativeness_threshold=coverage_informativeness_threshold,
         key_fn=key_fn,
+        filter_newline_characters=filter_newline_characters,
         label=label)
 
   @property

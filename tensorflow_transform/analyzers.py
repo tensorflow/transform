@@ -35,6 +35,7 @@ import pickle
 import random
 import re
 import threading
+from typing import Any, Callable, Collection
 
 # GOOGLE-INITIALIZATION
 import numpy as np
@@ -1814,22 +1815,28 @@ def _get_vocabulary_analyzer_inputs(vocab_ordering_type,
     return [reduced_batch.unique_x]
 
 
-def _vocabulary_analyzer_nodes(analyzer_inputs,
-                               input_dtype,
-                               vocab_ordering_type,
-                               vocab_filename,
-                               top_k=None,
-                               frequency_threshold=0,
-                               informativeness_threshold=float('-inf'),
-                               use_adjusted_mutual_info=False,
-                               min_diff_from_avg=None,
-                               fingerprint_shuffle=False,
-                               store_frequency=False,
-                               key_fn=None,
-                               coverage_top_k=None,
-                               coverage_frequency_threshold=0.0,
-                               coverage_informativeness_threshold=float('-inf'),
-                               file_format=DEFAULT_VOCABULARY_FILE_FORMAT):
+def _get_vocabulary_filter_newline_characters(input_dtype: tf.dtypes.DType,
+                                              file_format: str) -> bool:
+  return input_dtype == tf.string and file_format == 'text'
+
+
+def _vocabulary_analyzer_nodes(
+    analyzer_inputs: Collection[tf.Tensor],
+    input_dtype: tf.dtypes.DType,
+    vocab_ordering_type: int,
+    vocab_filename: str,
+    top_k: int = None,
+    frequency_threshold: int = 0,
+    informativeness_threshold: float = float('-inf'),
+    use_adjusted_mutual_info: bool = False,
+    min_diff_from_avg: int = None,
+    fingerprint_shuffle: bool = False,
+    store_frequency: bool = False,
+    key_fn: Callable[[Any], Any] = None,
+    coverage_top_k: int = None,
+    coverage_frequency_threshold: float = 0.0,
+    coverage_informativeness_threshold: float = float('-inf'),
+    file_format: str = DEFAULT_VOCABULARY_FILE_FORMAT) -> tf.Tensor:
   """Internal helper for analyzing vocab. See `vocabulary` doc string."""
   if (file_format == 'tfrecord_gzip' and
       (not hasattr(tf.lookup.experimental, 'DatasetInitializer') or
@@ -1861,7 +1868,9 @@ def _vocabulary_analyzer_nodes(analyzer_inputs,
       key_fn=key_fn,
       top_k=top_k,
       frequency_threshold=frequency_threshold,
-      informativeness_threshold=informativeness_threshold)
+      informativeness_threshold=informativeness_threshold,
+      filter_newline_characters=_get_vocabulary_filter_newline_characters(
+          input_dtype, file_format))
 
   vocab_filename_node = nodes.apply_operation(
       analyzer_nodes.VocabularyOrderAndWrite,

@@ -27,6 +27,8 @@
     that overrides pop to return None instead of raising a KeyError when called
     with a key not found in the dictionary. This is done as preparation for
     switching the default value of `drop_unused_features` to True.
+*   Vocabularies written in `tfrecord_gzip` format no longer filter out entries
+    that are empty or that include a newline character.
 
 ## Breaking changes
 

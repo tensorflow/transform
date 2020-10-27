@@ -42,6 +42,7 @@ named_parameters = test_case.named_parameters
 cross_named_parameters = test_case.cross_named_parameters
 is_external_environment = test_case.is_external_environment
 skip_if_not_tf2 = test_case.skip_if_not_tf2
+SkipTest = test_case.SkipTest
 feature_spec_as_type_spec = test_case.feature_spec_as_type_spec
 
 main = test_case.main

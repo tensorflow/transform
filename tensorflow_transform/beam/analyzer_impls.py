@@ -198,7 +198,6 @@ class _VocabularyAccumulateImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     self._vocab_ordering_type = operation.vocab_ordering_type
-    self._input_dtype = tf.dtypes.as_dtype(operation.input_dtype)
 
   def expand(self, inputs):
     pcoll, = inputs
@@ -234,15 +233,6 @@ class _VocabularyAccumulateImpl(beam.PTransform):
         pcoll
         | 'FlattenTokensAndMaybeWeightsLabels' >> beam.FlatMap(flatten_map_fn)
         | 'CountPerToken' >> combine_transform)
-
-    if self._input_dtype == tf.string:
-      # TODO(b/62379925) Filter empty strings or strings containing the \n or \r
-      # tokens since index_table_from_file doesn't allow empty rows.
-      def is_problematic_string(kv):
-        string, _ = kv  # Ignore counts.
-        return string and b'\n' not in string and b'\r' not in string
-
-      result |= 'FilterProblematicStrings' >> beam.Filter(is_problematic_string)
 
     return result
 
@@ -317,6 +307,7 @@ class _VocabularyPruneImpl(beam.PTransform):
     self._coverage_informativeness_threshold = (
         operation.coverage_informativeness_threshold)
     self._key_fn = operation.key_fn
+    self._filter_newline_characters = operation.filter_newline_characters
 
   def expand(self, inputs):
     if self._top_k is not None and self._top_k < 0:
@@ -336,8 +327,19 @@ class _VocabularyPruneImpl(beam.PTransform):
           'None, got {}.'.format(self._coverage_frequency_threshold))
     pcoll, = inputs
 
+    if self._filter_newline_characters:
+      # Filter empty strings or strings containing the \n or \r tokens since
+      # index_table_from_file doesn't allow empty rows.
+      def is_valid_string(kv):
+        _, string = kv  # Ignore counts.
+        return bool(string) and all(
+            char not in string for char in (b'\n', b'\r'))
+
+      pcoll |= 'KeepOnlyValidStrings' >> beam.Filter(is_valid_string)
+
     result = (
-        pcoll | 'ApplyThresholdsAndTopK' >> (
+        pcoll
+        | 'ApplyThresholdsAndTopK' >> (
             _ApplyThresholdsAndTopK(  # pylint: disable=no-value-for-parameter
                 self._frequency_threshold, self._top_k,
                 self._informativeness_threshold, None)))
