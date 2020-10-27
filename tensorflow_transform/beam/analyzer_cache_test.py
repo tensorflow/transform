@@ -161,6 +161,16 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
           beam_test_util.equal_to([b'[9, 5, 2, 1]']),
           label='AssertC')
 
+  def test_cache_write_empty(self):
+    base_test_dir = os.path.join(
+        os.environ.get('TEST_UNDECLARED_OUTPUTS_DIR', self.get_temp_dir()),
+        self._testMethodName)
+
+    with beam.Pipeline() as p:
+      _ = {} | analyzer_cache.WriteAnalysisCacheToFS(
+          p, base_test_dir, (analyzer_cache.DatasetKey('dataset_key_0'),))
+    self.assertFalse(os.path.isdir(base_test_dir))
+
   def test_cache_merge(self):
     base_test_dir = os.path.join(
         os.environ.get('TEST_UNDECLARED_OUTPUTS_DIR', self.get_temp_dir()),
