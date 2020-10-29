@@ -39,6 +39,19 @@ recommended way to install `tf.Transform`:
 pip install tensorflow-transform
 ```
 
+### Nightly Packages
+
+TFT also hosts nightly packages at https://pypi-nightly.tensorflow.org on
+Google Cloud. To install the latest nightly package, please use the following
+command:
+
+```bash
+pip install -i https://pypi-nightly.tensorflow.org/simple tensorflow-transform
+```
+
+This will install the nightly packages for the major dependencies of TFT such
+as TensorFlow Metadata (TFMD), TFX Basic Shared Libraries (TFX-BSL).
+
 ### Notable Dependencies
 
 TensorFlow is required.

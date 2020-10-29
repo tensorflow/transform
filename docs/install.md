@@ -16,9 +16,9 @@ of examples. `tf.Transform` extends these capabilities to support full-passes
 over the example data.
 
 The output of `tf.Transform` is exported as a
-[TensorFlow graph](http://tensorflow.org/guide/graphs) to use for training and serving.
-Using the same graph for both training and serving can prevent skew since the
-same transformations are applied in both stages.
+[TensorFlow graph](http://tensorflow.org/guide/graphs) to use for training and
+serving. Using the same graph for both training and serving can prevent skew
+since the same transformations are applied in both stages.
 
 For an introduction to `tf.Transform`, see the `tf.Transform` section of the
 TFX Dev Summit talk on TFX
@@ -32,9 +32,24 @@ The `tensorflow-transform`
 [PyPI package](https://pypi.org/project/tensorflow-transform/) is the
 recommended way to install `tf.Transform`:
 
-```bash
+```
 pip install tensorflow-transform
 ```
+
+### Nightly Packages
+
+TFT also hosts nightly packages at https://pypi-nightly.tensorflow.org on Google
+Cloud. To install the latest nightly package, please use the following command:
+
+```
+pip install -i https://pypi-nightly.tensorflow.org/simple tensorflow-transform
+```
+
+This will install the nightly packages for the major dependencies of TFT such as
+TensorFlow Metadata (TFMD), TFX Basic Shared Libraries (TFX-BSL).
+
+Note: These nightly packages are unstable and breakages are likely to happen.
+The fix could often take a week or more depending on the complexity involved.
 
 ### Notable Dependencies
 

@@ -3,11 +3,25 @@
 # Current Version(Still in Development)
 
 ## Major Features and Improvements
+
 *   Updated the "Getting Started" guide and examples to demonstrate the support
-    for both the "instance dict" and the "TFXIO" format. Users are encouraged
-    to start using the "TFXIO" format, expecially in cases where
+    for both the "instance dict" and the "TFXIO" format. Users are encouraged to
+    start using the "TFXIO" format, expecially in cases where
     [pre-canned TFXIO implementations](https://tensorflow.devsite.corp.google.com/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio)
     is available as it offers better performance.
+*   From this release TFT will also be hosting nightly packages on
+    https://pypi-nightly.tensorflow.org. To install the nightly package use the
+    following command:
+
+    ```
+    pip install -i https://pypi-nightly.tensorflow.org/simple tensorflow-transform
+    ```
+
+    Note: These nightly packages are unstable and breakages are likely to
+    happen. The fix could often take a week or more depending on the complexity
+    involved for the wheels to be available on the PyPI cloud service. You can
+    always use the stable version of TFT available on PyPI by running the
+    command `pip install tensorflow-transform` .
 
 ## Bug Fixes and Other Changes
 
