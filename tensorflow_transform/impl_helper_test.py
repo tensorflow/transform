@@ -217,44 +217,6 @@ _MAKE_FEED_DICT_CASES = [
         }),
 ]
 
-_MAKE_FEED_LIST_ERROR_CASES = [
-    dict(
-        testcase_name='missing_feature',
-        feature_spec={
-            'a': tf.io.FixedLenFeature([1], tf.int64),
-            'b': tf.io.FixedLenFeature([1], tf.int64),
-        },
-        instances=[{
-            'a': 100
-        }],
-        error_msg='b',
-        error_type=KeyError),
-    dict(
-        testcase_name='sparse_feature_index_negative',
-        feature_spec={'a': tf.io.SparseFeature('idx', 'val', tf.float32, 10)},
-        instances=[{
-            'idx': [-1, 2],
-            'val': [1.0, 2.0]
-        }],
-        error_msg='has index .* out of range'),
-    dict(
-        testcase_name='sparse_feature_index_too_high',
-        feature_spec={'a': tf.io.SparseFeature('idx', 'val', tf.float32, 10)},
-        instances=[{
-            'idx': [11, 2],
-            'val': [1.0, 2.0]
-        }],
-        error_msg='has index .* out of range'),
-    dict(
-        testcase_name='sparse_feature_indices_and_values_different_lengths',
-        feature_spec={'a': tf.io.SparseFeature('idx', 'val', tf.float32, 10)},
-        instances=[{
-            'idx': [1, 2],
-            'val': [1]
-        }],
-        error_msg='indices and values of different lengths')
-]
-
 _TO_INSTANCE_DICT_ERROR_CASES = [
     dict(
         testcase_name='var_len_with_non_consecutive_indices',
@@ -434,41 +396,6 @@ class ImplHelperTest(test_case.TransformTestCase):
           'f1': tf.TensorSpec(dtype=tf.int64, shape=[None]),
           'f2': tf.io.FixedLenFeature(dtype=tf.int64, shape=[None]),
       })
-
-  @test_case.named_parameters(*test_case.cross_named_parameters(
-      (_ROUNDTRIP_CASES + _MAKE_FEED_DICT_CASES), [
-          dict(testcase_name='eager_tensors', produce_eager_tensors=True),
-          dict(testcase_name='feed_values', produce_eager_tensors=False)
-      ]))
-  def test_make_feed_list(self, feature_spec, instances, feed_dict,
-                          produce_eager_tensors):
-    if produce_eager_tensors:
-      test_case.skip_if_not_tf2('Tensorflow 2.x required')
-    schema = schema_utils.schema_from_feature_spec(feature_spec)
-    feature_names = list(feature_spec.keys())
-    expected_feed_list = [feed_dict[key] for key in feature_names]
-    evaluated_feed_list = impl_helper.make_feed_list(
-        feature_names,
-        schema,
-        instances,
-        produce_eager_tensors=produce_eager_tensors)
-    np.testing.assert_equal(
-        evaluated_feed_list if not produce_eager_tensors else
-        _get_value_from_eager_tensors(evaluated_feed_list), expected_feed_list)
-
-  @test_case.named_parameters(*_MAKE_FEED_LIST_ERROR_CASES)
-  def test_make_feed_list_error(self,
-                                feature_spec,
-                                instances,
-                                error_msg,
-                                error_type=ValueError):
-    with tf.compat.v1.Graph().as_default():
-      tensors = tf.io.parse_example(
-          serialized=tf.compat.v1.placeholder(tf.string, [None]),
-          features=feature_spec)
-      schema = schema_utils.schema_from_feature_spec(feature_spec)
-      with self.assertRaisesRegexp(error_type, error_msg):
-        impl_helper.make_feed_list(tensors, schema, instances)
 
   @test_case.named_parameters(
       *test_case.cross_named_parameters(_ROUNDTRIP_CASES, [

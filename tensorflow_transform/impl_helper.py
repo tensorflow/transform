@@ -18,7 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import itertools
 import os
 import re
 
@@ -141,124 +140,6 @@ def _batched_placeholder_from_feature_spec(name, feature_spec):
 
   raise ValueError('Unsupported feature spec: {}({}) for feature {}'
                    .format(feature_spec, type(feature_spec), name))
-
-
-def make_feed_list(column_names,
-                   schema,
-                   instances,
-                   produce_eager_tensors=False):
-  """Creates a feed list for passing data to the graph.
-
-  This converts a list of instances in the in-memory representation to:
-  * If `produce_eager_tensors` is `False`: a batch suitable for passing to
-    `tf.Session.run`.
-  * If `produce_eager_tensors` is `True`: a batch of eager tensors for passing
-    as arguments to a `tf.function`.
-
-  Args:
-    column_names: A list of column names.
-    schema: A `Schema` proto.
-    instances: A list of instances, each of which is a map from column name to a
-      python primitive, list, or ndarray.
-    produce_eager_tensors: (Optional) Boolean indicating whether eager tensors
-      should be returned. Default is `False`.
-
-  Returns:
-    A list of batches in the format required by a tf `Callable`.
-
-  Raises:
-    ValueError: If `schema` is invalid.
-    RuntimeError: If `produce_eager_tensors` is True, but eager mode is
-      disabled.
-  """
-  def make_batch_indices(instance_indices):
-    """Converts a list of instance indices to the corresponding batch indices.
-
-    Given a list of iterables representing the indices of N sparse tensors,
-    creates a single list of indices representing the result of concatenating
-    the sparse tensors along the 0'th dimension into a batch of size N.
-
-    Args:
-      instance_indices: A list of N iterables, each containing the sparse tensor
-        indices for an instance.
-
-    Returns:
-      A list of indices with a batch dimension prepended.
-    """
-    batch_indices = list(itertools.chain.from_iterable([
-        [(row_number, index) for index in indices]
-        for row_number, indices in enumerate(instance_indices)
-    ]))
-    # Indices must have shape (?, 2). Therefore if we encounter an empty
-    # batch, we return an empty ndarray with shape (0, 2).
-    return batch_indices if batch_indices else np.empty([0, 2], dtype=np.int64)
-
-  def make_sparse_batch(instance_indices, instance_values, max_index, dtype):
-    """Converts a list of sparse instances into a sparse batch.
-
-    Takes lists representing the indices and values of N sparse instances and
-    concatenates them along the 0'th dimension into a sparse batch of size N.
-
-    Args:
-      instance_indices: A list of N iterables, each containing the sparse tensor
-        indices for an instance.
-      instance_values: A list of N iterables, each containing the sparse tensor
-        values for an instance.
-      max_index: An int representing the maximum index in `instance_indices`.
-      dtype: dtype of the sparse tensor values.
-
-    Returns:
-      A `SparseTensorValue` representing a batch of N sparse instances.
-    """
-    batch_indices = make_batch_indices(instance_indices)
-    batch_values = list(itertools.chain.from_iterable(instance_values))
-    if produce_eager_tensors:
-      batch_values = tf.constant(batch_values, dtype=dtype)
-    batch_shape = (len(instance_indices), max_index)
-    return tf.compat.v1.SparseTensorValue(
-        indices=batch_indices, values=batch_values, dense_shape=batch_shape)
-
-  if produce_eager_tensors and not tf.executing_eagerly():
-    raise RuntimeError(
-        'Eager Tensors were requested but eager mode was not enabled.')
-  result = []
-  feature_spec = schema_utils.schema_as_feature_spec(schema).feature_spec
-  for name in column_names:
-    spec = feature_spec[name]
-    # TODO(abrao): Validate dtypes, shapes etc.
-    if isinstance(spec, tf.io.FixedLenFeature):
-      feed_value = [instance[name] for instance in instances]
-
-    elif isinstance(spec, tf.io.VarLenFeature):
-      values = [[] if instance[name] is None else instance[name]
-                for instance in instances]
-      indices = [range(len(value)) for value in values]
-      max_index = max([len(value) for value in values])
-      feed_value = make_sparse_batch(indices, values, max_index, spec.dtype)
-
-    elif isinstance(spec, tf.io.SparseFeature):
-      # TODO(KesterTong): Add support for N-d SparseFeatures.
-      max_index = spec.size
-      indices, values = [], []
-      for instance in instances:
-        instance_indices = instance[spec.index_key]
-        instance_values = instance[spec.value_key]
-        check_valid_sparse_tensor(
-            instance_indices, instance_values, max_index, name)
-        indices.append(instance_indices)
-        values.append(instance_values)
-      feed_value = make_sparse_batch(indices, values, max_index, spec.dtype)
-
-    else:
-      raise ValueError('Invalid feature spec {}.'.format(spec))
-    if produce_eager_tensors:
-      if isinstance(feed_value, tf.compat.v1.SparseTensorValue):
-        feed_value = tf.sparse.SparseTensor.from_value(feed_value)
-      else:
-        feed_value = tf.constant(feed_value, dtype=spec.dtype)
-    result.append(feed_value)
-
-  return result
 
 
 def to_instance_dicts(schema, fetches):
