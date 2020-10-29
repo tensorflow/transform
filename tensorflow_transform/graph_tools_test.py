@@ -33,8 +33,11 @@ from tensorflow_transform import test_case
 # resolved.
 from tfx_bsl.types import tfx_namedtuple
 
-from tensorflow.python.ops import control_flow_ops  # pylint: disable=g-direct-tensorflow-import
-
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.framework import function
+from tensorflow.python.ops import control_flow_ops
+from tensorflow.python.ops import functional_ops
+# pylint: disable=g-enable-tensorflow-import
 mock = tf.compat.v1.test.mock
 
 
@@ -63,6 +66,22 @@ def _create_graph_with_tf_function():
     return x * 2, x + y, y * 2
 
   a, b, c = foo(x, y)
+  return {'x': x, 'y': y, 'z': a + b + c, 'r': a, 'q': foo(x, x)[0]}
+
+
+def _create_graph_with_tf_defun():
+  x = tf.compat.v1.placeholder(tf.int64)
+  y = tf.compat.v1.placeholder(tf.int64)
+
+  @tf.function
+  def identity(x):
+    return x
+
+  @function.Defun(tf.int64, tf.int64)
+  def foo(x, y):
+    return identity(x * 2), identity(x + y), identity(y * 2)
+
+  a, b, c = functional_ops.partitioned_call([x, y], foo)
   return {'x': x, 'y': y, 'z': a + b + c, 'r': a, 'q': foo(x, x)[0]}
 
 
@@ -663,6 +682,12 @@ class GraphToolsTest(test_case.TransformTestCase):
       dict(
           testcase_name='_tf_function',
           create_graph_fn=_create_graph_with_tf_function,
+          feeds=['x', 'y'],
+          fetches=['z'],
+          expected_dependent_inputs=['x', 'y']),
+      dict(
+          testcase_name='_tf_defun',
+          create_graph_fn=_create_graph_with_tf_defun,
           feeds=['x', 'y'],
           fetches=['z'],
           expected_dependent_inputs=['x', 'y']),

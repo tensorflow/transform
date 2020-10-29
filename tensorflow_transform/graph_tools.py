@@ -129,12 +129,20 @@ def retrieve_sources(sinks, ignore_control_dependencies=False):
 
 def get_func_graph_for_name(graph, func_name):
   """Returns the FuncGraph associated to the given func_name if possible."""
+  outer_graph = graph
   while graph is not None:
     func = graph._get_function(str(func_name))  # pylint: disable=protected-access
     if func is not None:
       if hasattr(func, 'graph'):
         return func.graph
-      func_graph = function_def_to_graph.function_def_to_graph(func.definition)
+      # `outer_graph` may not be the same as `ops.get_default_graph()` e.g.
+      # in the case of nested if ops or when the gradient is being computed
+      # from inside a Defun. We build the `func_graph` with `outer_graph` as its
+      # outer graph.
+      with outer_graph.as_default():
+        # This is a _DefinedFunction.
+        func_graph = (
+            function_def_to_graph.function_def_to_graph(func.definition))
       if func_graph is not None:
         return func_graph
     if hasattr(graph, 'outer_graph'):
