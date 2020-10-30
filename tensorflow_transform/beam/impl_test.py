@@ -2787,6 +2787,34 @@ class BeamImplTest(tft_unit.TransformTestCase):
         beam_test_util.assert_that(
             transformed_eval_data, equal_to(expected_data))
 
+  def testModifyInputs(self):
+
+    def preprocessing_fn(inputs):
+      inputs['x_center'] = inputs['x'] - tft.mean(inputs['x'])
+      return inputs
+
+    input_data = [{'x': 1}, {'x': 2}, {'x': 3}, {'x': 4}, {'x': 5}]
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'x': tf.io.FixedLenFeature([], tf.float32)})
+    expected_outputs = [{
+        'x': 1,
+        'x_center': -2
+    }, {
+        'x': 2,
+        'x_center': -1
+    }, {
+        'x': 3,
+        'x_center': 0
+    }, {
+        'x': 4,
+        'x_center': 1
+    }, {
+        'x': 5,
+        'x_center': 2
+    }]
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_outputs)
+
 
 if __name__ == '__main__':
   tft_unit.main()

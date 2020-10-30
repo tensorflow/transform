@@ -41,6 +41,36 @@ _CompositeTensorRef = tfx_namedtuple.namedtuple('_CompositeTensorRef',
                                                 ['type_spec', 'list_of_refs'])
 
 
+def copy_tensors(tensors):
+  """Makes deep copies of a dict of tensors.
+
+  Makes deep copies (using tf.identity or its equivalent for `CompositeTensor`s)
+  of the values of `tensors`.
+
+  Args:
+    tensors: A a dict whose keys are strings and values are `Tensors`s or
+      `CompositeTensor`s.
+
+  Returns:
+    A copy of `tensors` with values replaced by tf.identity applied to the
+        value, or the equivalent for `CompositeTensor`s.
+  """
+  return {
+      name: _copy_tensor_or_composite_tensor(tensor)
+      for name, tensor in tensors.items()
+  }
+
+
+def _copy_tensor(tensor):
+  return tf.identity(tensor, name='{}_copy'.format(tensor.op.name))
+
+
+def _copy_tensor_or_composite_tensor(tensor):
+  if isinstance(tensor, composite_tensor.CompositeTensor):
+    return tf.nest.map_structure(_copy_tensor, tensor, expand_composites=True)
+  return _copy_tensor(tensor)
+
+
 def reduce_batch_weighted_counts(x, weights=None):
   """Performs batch-wise reduction to produce (possibly weighted) counts.
 

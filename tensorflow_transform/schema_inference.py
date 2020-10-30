@@ -579,9 +579,12 @@ def get_traced_metadata_fn(tensor_replacement_map, preprocessing_fn,
   @tf.function(input_signature=[input_signature])
   def metadata_fn(inputs):
     graph = ops.get_default_graph()
+    # The user defined `preprocessing_fn` may directly modify its inputs which
+    # is not allowed in a tf.function. Hence, we make a copy here.
+    inputs_copy = tf_utils.copy_tensors(inputs)
     with graph_context.TFGraphContext(
         temp_dir=base_temp_dir, evaluated_replacements=tensor_replacement_map):
-      transformed_features = preprocessing_fn(inputs)
+      transformed_features = preprocessing_fn(inputs_copy)
 
     # Get a map from tensor value names to feature keys.
     reversed_features = _get_tensor_value_to_key_map(transformed_features)

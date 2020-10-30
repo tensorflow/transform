@@ -47,6 +47,74 @@ class TFUtilsTest(test_case.TransformTestCase):
     self.assertEqual(left.type_spec, right.type_spec)
     self.assertAllEqual(left.list_of_refs, right.list_of_refs)
 
+  def test_copy_tensors_produces_different_tensors(self):
+    with tf.compat.v1.Graph().as_default():
+      tensors = {
+          'dense':
+              tf.compat.v1.placeholder(
+                  tf.int64, (None,), name='my_dense_input'),
+          'sparse':
+              tf.compat.v1.sparse_placeholder(tf.int64, name='my_sparse_input'),
+          'ragged':
+              tf.compat.v1.ragged.placeholder(
+                  tf.int64, ragged_rank=2, name='my_ragged_input')
+      }
+      copied_tensors = tf_utils.copy_tensors(tensors)
+
+      self.assertNotEqual(tensors['dense'], copied_tensors['dense'])
+      self.assertNotEqual(tensors['sparse'].indices,
+                          copied_tensors['sparse'].indices)
+      self.assertNotEqual(tensors['sparse'].values,
+                          copied_tensors['sparse'].values)
+      self.assertNotEqual(tensors['sparse'].dense_shape,
+                          copied_tensors['sparse'].dense_shape)
+      self.assertNotEqual(tensors['ragged'].values,
+                          copied_tensors['ragged'].values)
+      self.assertNotEqual(tensors['ragged'].row_splits,
+                          copied_tensors['ragged'].row_splits)
+
+  def test_copy_tensors_produces_equivalent_tensors(self):
+    with tf.compat.v1.Graph().as_default():
+      tensors = {
+          'dense':
+              tf.compat.v1.placeholder(
+                  tf.int64, (None,), name='my_dense_input'),
+          'sparse':
+              tf.compat.v1.sparse_placeholder(tf.int64, name='my_sparse_input'),
+          'ragged':
+              tf.compat.v1.ragged.placeholder(
+                  tf.int64, ragged_rank=1, name='my_ragged_input')
+      }
+      copied_tensors = tf_utils.copy_tensors(tensors)
+
+      with tf.compat.v1.Session() as session:
+        dense_value = [1, 2]
+        sparse_value = tf.compat.v1.SparseTensorValue(
+            indices=[[0, 0], [0, 2], [1, 1]],
+            values=[3, 4, 5],
+            dense_shape=[2, 3])
+        ragged_value = tf.compat.v1.ragged.RaggedTensorValue(
+            values=np.array([3, 4, 5], dtype=np.int64),
+            row_splits=np.array([0, 2, 3], dtype=np.int64))
+        sample_tensors = session.run(
+            copied_tensors,
+            feed_dict={
+                tensors['dense']: dense_value,
+                tensors['sparse']: sparse_value,
+                tensors['ragged']: ragged_value
+            })
+        self.assertAllEqual(sample_tensors['dense'], dense_value)
+        self.assertAllEqual(sample_tensors['sparse'].indices,
+                            sparse_value.indices)
+        self.assertAllEqual(sample_tensors['sparse'].values,
+                            sparse_value.values)
+        self.assertAllEqual(sample_tensors['sparse'].dense_shape,
+                            sparse_value.dense_shape)
+        self.assertAllEqual(sample_tensors['ragged'].values,
+                            ragged_value.values)
+        self.assertAllEqual(sample_tensors['ragged'].row_splits,
+                            ragged_value.row_splits)
+
   @test_case.named_parameters(test_case.cross_with_function_handlers([
       dict(
           testcase_name='rank1',

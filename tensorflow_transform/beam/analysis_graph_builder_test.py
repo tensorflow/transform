@@ -365,12 +365,12 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signatur
     expected_dot_graph_str_tf2=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('inputs', \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
+"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('inputs_copy', \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
 "ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='FlattenedDataset')|label: ExtractInputForSavedModel[FlattenedDataset]}"];
 "ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
 "ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase0]";
-"TensorSource[x]" [label="{ExtractFromDict|keys: ('inputs',)|label: TensorSource[x]|partitionable: True}"];
+"TensorSource[x]" [label="{ExtractFromDict|keys: ('inputs_copy',)|label: TensorSource[x]|partitionable: True}"];
 "ApplySavedModel[Phase0]" -> "TensorSource[x]";
 "FakeChainable[x/ptransform1]" [label="{FakeChainable|label: FakeChainable[x/ptransform1]}"];
 "TensorSource[x]" -> "FakeChainable[x/ptransform1]";

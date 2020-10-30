@@ -33,13 +33,13 @@ from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import graph_context
 from tensorflow_transform import schema_inference
 from tensorflow_transform import tf2_utils
+from tensorflow_transform import tf_utils
 from tensorflow_transform.output_wrapper import TFTransformOutput
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
 # pylint: disable=g-direct-tensorflow-import
-from tensorflow.python.framework import composite_tensor
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import lookup_ops
 from tensorflow.python.training.tracking import tracking
@@ -302,36 +302,6 @@ def check_valid_sparse_tensor(indices, values, size, name):
         'values: {}, indices: {}'.format(name, values, indices))
 
 
-def copy_tensors(tensors):
-  """Makes deep copies of a dict of tensors.
-
-  Makes deep copies (using tf.identity or its equivalent for `CompositeTensor`s)
-  of the values of `tensors`.
-
-  Args:
-    tensors: A a dict whose keys are strings and values are `Tensors`s or
-      `CompositeTensor`s.
-
-  Returns:
-    A copy of `tensors` with values replaced by tf.identity applied to the
-        value, or the equivalent for `CompositeTensor`s.
-  """
-  return {
-      name: _copy_tensor_or_composite_tensor(tensor)
-      for name, tensor in six.iteritems(tensors)
-  }
-
-
-def _copy_tensor(tensor):
-  return tf.identity(tensor, name='{}_copy'.format(tensor.op.name))
-
-
-def _copy_tensor_or_composite_tensor(tensor):
-  if isinstance(tensor, composite_tensor.CompositeTensor):
-    return tf.nest.map_structure(_copy_tensor, tensor, expand_composites=True)
-  return _copy_tensor(tensor)
-
-
 # TODO(b/149997088): Split into two APIs one that will just trace the
 # `preprocessing_fn` using tf.function as is and another that will return
 # specific outputs requested for.
@@ -373,9 +343,12 @@ def get_traced_transform_fn(preprocessing_fn,
     # If any analyzers have already been evaluated, pass them using the
     # `graph_context.TFGraphContext`. This will be used in place of the analyzer
     # nodes.
+    # The user defined `preprocessing_fn` may directly modify its inputs which
+    # is not allowed in a tf.function. Hence, we make a copy here.
+    inputs_copy = tf_utils.copy_tensors(inputs)
     with graph_context.TFGraphContext(
         temp_dir=base_temp_dir, evaluated_replacements=tensor_replacement_map):
-      transformed_features = preprocessing_fn(inputs)
+      transformed_features = preprocessing_fn(inputs_copy)
     # An empty `TENSOR_REPLACEMENTS` collection symbolizes that there is no
     # analyzer left for Transform to evaluate. Either if this collection is
     # empty or if no specific outputs have been requested, return
@@ -405,7 +378,7 @@ def _trace_preprocessing_fn_v1(preprocessing_fn, specs):
       # TODO(b/34288791): Remove this workaround and use a shallow copy of
       # inputs instead.  A shallow copy is needed in case
       # self._preprocessing_fn mutates its input.
-      copied_inputs = copy_tensors(structured_inputs)
+      copied_inputs = tf_utils.copy_tensors(structured_inputs)
 
     structured_outputs = preprocessing_fn(copied_inputs)
   return graph, structured_inputs, structured_outputs
