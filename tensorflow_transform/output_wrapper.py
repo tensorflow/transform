@@ -18,7 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-from typing import Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 # GOOGLE-INITIALIZATION
 
@@ -28,6 +28,7 @@ from tensorflow_transform import graph_tools
 from tensorflow_transform.analyzers import sanitized_vocab_filename
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.saved import saved_transform_io_v2
+from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
 
@@ -39,7 +40,14 @@ from tensorflow.tools.docs import doc_controls
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 
-def _get_tensor_value(tensor_or_eager_tensor):
+_FeatureSpecType = Union[tf.io.FixedLenFeature, tf.io.VarLenFeature,
+                         tf.io.SparseFeature]
+_DomainType = Union[schema_pb2.IntDomain, schema_pb2.FloatDomain,
+                    schema_pb2.StringDomain]
+_TensorType = Union[tf.Tensor, tf.SparseTensor]
+
+
+def _get_tensor_value(tensor_or_eager_tensor: tf.Tensor) -> Any:
   if ops.executing_eagerly_outside_functions():
     return tensor_or_eager_tensor.numpy()
   else:
@@ -84,7 +92,7 @@ class TFTransformOutput(object):
     self._exported_as_v1_value = None
 
   @property
-  def transformed_metadata(self):
+  def transformed_metadata(self) -> dataset_metadata.DatasetMetadata:
     """A DatasetMetadata."""
     if self._transformed_metadata is None:
       self._transformed_metadata = metadata_io.read_metadata(
@@ -108,7 +116,7 @@ class TFTransformOutput(object):
           self.transform_savedmodel_dir)
     return self._exported_as_v1_value
 
-  def transformed_feature_spec(self):
+  def transformed_feature_spec(self) -> Dict[str, _FeatureSpecType]:
     """Returns a feature_spec for the transformed features.
 
     Returns:
@@ -117,16 +125,17 @@ class TFTransformOutput(object):
     return schema_utils.schema_as_feature_spec(
         self.transformed_metadata.schema).feature_spec
 
-  def transformed_domains(self):
+  def transformed_domains(self) -> Dict[str, _DomainType]:
     """Returns domains for the transformed features.
 
     Returns:
-      A dict from feature names to schema_pb2.Domain.
+      A dict from feature names to one of schema_pb2.IntDomain,
+      schema_pb2.StringDomain or schema_pb2.FloatDomain.
     """
     return schema_utils.schema_as_feature_spec(
         self.transformed_metadata.schema).domains
 
-  def vocabulary_file_by_name(self, vocab_filename):
+  def vocabulary_file_by_name(self, vocab_filename: str) -> Optional[str]:
     """Returns the vocabulary file path created in the preprocessing function.
 
     `vocab_filename` must be the name used as the vocab_filename argument to
@@ -148,7 +157,7 @@ class TFTransformOutput(object):
       raise ValueError('Found too many vocabulary files: {}'.format(files))
     return files[0]
 
-  def vocabulary_size_by_name(self, vocab_filename):
+  def vocabulary_size_by_name(self, vocab_filename: str) -> int:
     """Like vocabulary_file_by_name, but returns the size of vocabulary."""
     actual_vocab_filename = sanitized_vocab_filename(vocab_filename)
     vocab_path = self.vocabulary_file_by_name(actual_vocab_filename)
@@ -172,7 +181,7 @@ class TFTransformOutput(object):
       raise ValueError('Could not find vocabulary: {} ({})'.format(
           vocab_filename, vocab_path))
 
-  def vocabulary_by_name(self, vocab_filename):
+  def vocabulary_by_name(self, vocab_filename: str) -> List[bytes]:
     """Like vocabulary_file_by_name but returns a list."""
     actual_vocab_filename = sanitized_vocab_filename(vocab_filename)
     vocab_path = self.vocabulary_file_by_name(actual_vocab_filename)
@@ -195,7 +204,7 @@ class TFTransformOutput(object):
           vocab_filename, vocab_path))
 
   # TODO(KesterTong): Add test for this in output_wrapper_test.py
-  def num_buckets_for_transformed_feature(self, name):
+  def num_buckets_for_transformed_feature(self, name: str) -> int:
     """Returns the number of buckets for an integerized transformed feature."""
     # Do checks that this tensor can be wrapped in
     # sparse_column_with_integerized_feature
@@ -213,7 +222,7 @@ class TFTransformOutput(object):
           name, domain.min))
     return domain.max + 1
 
-  def transform_features_layer(self):
+  def transform_features_layer(self) -> tf.keras.Model:
     """Creates a `TransformFeaturesLayer` from this transform output.
 
     If a `TransformFeaturesLayer` has already been created for self, the same
@@ -229,9 +238,8 @@ class TFTransformOutput(object):
 
   def transform_raw_features(
       self,
-      raw_features: Dict[str, Union[tf.Tensor, tf.SparseTensor]],
-      drop_unused_features: Optional[bool] = False
-  ) -> Dict[str, Union[tf.Tensor, tf.SparseTensor]]:
+      raw_features: Dict[str, _TensorType],
+      drop_unused_features: Optional[bool] = False) -> Dict[str, _TensorType]:
     """Takes a dict of tensors representing raw features and transforms them.
 
     Takes a dictionary of `Tensor`s or `SparseTensor`s that represent the raw
@@ -268,9 +276,8 @@ class TFTransformOutput(object):
     return _TransformedFeaturesDict(transformed_features)
 
   def _transform_raw_features_compat_v1(
-      self, raw_features: Dict[str, Union[tf.Tensor, tf.SparseTensor]],
-      drop_unused_features: bool
-  ) -> Dict[str, Union[tf.Tensor, tf.SparseTensor]]:
+      self, raw_features: Dict[str, _TensorType],
+      drop_unused_features: bool) -> Dict[str, _TensorType]:
     """Takes a dict of tensors representing raw features and transforms them."""
     unbounded_raw_features, transformed_features = (
         saved_transform_io.partially_apply_saved_transform_internal(
@@ -313,7 +320,7 @@ class TFTransformOutput(object):
       'post_transform_feature_stats', _FEATURE_STATS_PB)
 
   @property
-  def raw_metadata(self):
+  def raw_metadata(self) -> dataset_metadata.DatasetMetadata:
     """A DatasetMetadata.
 
     Note: raw_metadata is not guaranteed to exist in the output of tf.transform
@@ -328,7 +335,7 @@ class TFTransformOutput(object):
           os.path.join(self._transform_output_dir, self.RAW_METADATA_DIR))
     return self._raw_metadata
 
-  def raw_feature_spec(self):
+  def raw_feature_spec(self) -> Dict[str, _FeatureSpecType]:
     """Returns a feature_spec for the raw features.
 
     Returns:
@@ -337,11 +344,12 @@ class TFTransformOutput(object):
     return schema_utils.schema_as_feature_spec(
         self.raw_metadata.schema).feature_spec
 
-  def raw_domains(self):
+  def raw_domains(self) -> Dict[str, _DomainType]:
     """Returns domains for the raw features.
 
     Returns:
-      A dict from feature names to schema_pb2.Domain.
+      A dict from feature names to one of schema_pb2.IntDomain,
+      schema_pb2.StringDomain or schema_pb2.FloatDomain.
     """
     return schema_utils.schema_as_feature_spec(
         self.raw_metadata.schema).domains
@@ -407,7 +415,7 @@ class TransformFeaturesLayer(tf.keras.Model):
   """A Keras layer for applying a tf.Transform output to input layers."""
 
   def __init__(self,
-               tft_output: 'TFTransformOutput',
+               tft_output: TFTransformOutput,
                exported_as_v1: Optional[bool] = None):
     super(TransformFeaturesLayer, self).__init__(trainable=False)
     self._tft_output = tft_output
@@ -439,7 +447,7 @@ class TransformFeaturesLayer(tf.keras.Model):
     self._originally_built_as_v1 = True
 
   @property
-  def _saved_model_loader(self):
+  def _saved_model_loader(self) -> saved_transform_io_v2.SavedModelLoader:
     """A `saved_transform_io_v2.SavedModelLoader`."""
     if self._saved_model_loader_value is None:
       self._saved_model_loader_value = saved_transform_io_v2.SavedModelLoader(
@@ -473,9 +481,7 @@ class TransformFeaturesLayer(tf.keras.Model):
     """
     pass
 
-  def call(
-      self, inputs: Dict[str, Union[tf.Tensor, tf.SparseTensor]]
-  ) -> Dict[str, Union[tf.Tensor, tf.SparseTensor]]:
+  def call(self, inputs: Dict[str, _TensorType]) -> Dict[str, _TensorType]:
 
     if self._exported_as_v1 and not ops.executing_eagerly_outside_functions():
       tf.compat.v1.logging.warning('Falling back to transform_raw_features...')
