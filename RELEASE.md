@@ -7,7 +7,7 @@
 *   Updated the "Getting Started" guide and examples to demonstrate the support
     for both the "instance dict" and the "TFXIO" format. Users are encouraged to
     start using the "TFXIO" format, expecially in cases where
-    [pre-canned TFXIO implementations](https://tensorflow.devsite.corp.google.com/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio)
+    [pre-canned TFXIO implementations](https://www.tensorflow.org/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio)
     is available as it offers better performance.
 *   From this release TFT will also be hosting nightly packages on
     https://pypi-nightly.tensorflow.org. To install the nightly package use the

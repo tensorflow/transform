@@ -19,7 +19,7 @@ dataset and shuffled.
 Since the input data uses separate files for each review (with separate
 directories for positive and negative reviews), this example first reads in
 the original data and transcodes it into `tf.Example`s in `TFRecords`. Then
-we use a pre-canned [TFXIO](https://tensorflow.devsite.corp.google.com/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio) to read those `tf.Example`s into what TFT accepts.
+we use a pre-canned [TFXIO](https://www.tensorflow.org/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio) to read those `tf.Example`s into what TFT accepts.
 
 The `tf.Transform` preprocessing is more complex. Unlike the Census income
 example, the data in this example uses a single feature for the full text of a

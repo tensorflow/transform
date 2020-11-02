@@ -272,10 +272,10 @@ raw_data = [
 ```
 
 Similar to DatasetMetadata being needed to accompany the "instance dict" format,
-a [`tfxio.TensorAdapterConfig`](https://tensorflow.devsite.corp.google.com/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio/TensorAdapterConfig)
+a [`tfxio.TensorAdapterConfig`](https://www.tensorflow.org/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio/TensorAdapterConfig)
 is needed to accompany the `RecordBatch`es. It consists of the Arrow schema of
 the `RecordBatch`es, and
-[`TensorRepresentations`](https://tensorflow.devsite.corp.google.com/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio/TensorRepresentations)
+[`TensorRepresentations`](https://www.tensorflow.org/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio/TensorRepresentations)
 to uniquely determine how columns in `RecordBatch`es can be interpreted as
 TensorFlow Tensors (including but not limited to tf.Tensor, tf.SparseTensor).
 
@@ -321,7 +321,7 @@ other TFX libraries accept. Therefore TFX offers convenient "sources" (a.k.a
 and can also give `TensorAdapterConfig`, including inferred
 `TensorRepresentations`.
 
-Those `TFXIO`s can be found in package `tfx_bsl` ([`tfx_bsl.public.tfxio`](https://tensorflow.devsite.corp.google.com/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio)).
+Those `TFXIO`s can be found in package `tfx_bsl` ([`tfx_bsl.public.tfxio`](https://www.tensorflow.org/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio)).
 
 ### Example: "Census Income" dataset
 
@@ -355,7 +355,7 @@ into `RecordBatches`. `TFXIO` requires two important piece of information:
     shape information. One can get the Schema either by using a helper function
     we provide to translate from TF parsing specs (shown in this example), or by
     running
-    [TensorFlow Data Validation](https://tensorflow.devsite.corp.google.com/tfx/tutorials/data_validation/tfdv_basic).
+    [TensorFlow Data Validation](https://www.tensorflow.org/tfx/tutorials/data_validation/tfdv_basic).
 
   - a list of column names, in the order they appear in the CSV file. Note
     that those names must match the feature names in the Schema.
