@@ -43,19 +43,19 @@ def _make_required_install_packages():
   # six, and protobuf) with TF.
   return [
       'absl-py>=0.9,<0.11',
-      'apache-beam[gcp]>=2.24,<3',
+      'apache-beam[gcp]>=2.25,<3',
       'numpy>=1.16,<2',
       'protobuf>=3.9.2,<4',
       'pydot>=1.2,<2',
       'six>=1.12,<2',
       'tensorflow>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,<2.4',
       'tensorflow-metadata' + select_constraint(
-          default='>=0.24,<0.25',
-          nightly='>=0.25.0.dev',
+          default='>=0.25,<0.26',
+          nightly='>=0.26.0.dev',
           git_master='@git+https://github.com/tensorflow/metadata@master'),
       'tfx-bsl' + select_constraint(
-          default='>=0.24.1,<0.25',
-          nightly='>=0.25.0.dev',
+          default='>=0.25,<0.26',
+          nightly='>=0.26.0.dev',
           git_master='@git+https://github.com/tensorflow/tfx-bsl@master'),
   ]
 

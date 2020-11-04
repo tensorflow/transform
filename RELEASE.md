@@ -4,6 +4,16 @@
 
 ## Major Features and Improvements
 
+## Bug Fixes and Other Changes
+
+## Breaking changes
+
+## Deprecations
+
+# Version 0.25.0
+
+## Major Features and Improvements
+
 *   Updated the "Getting Started" guide and examples to demonstrate the support
     for both the "instance dict" and the "TFXIO" format. Users are encouraged to
     start using the "TFXIO" format, expecially in cases where
@@ -43,8 +53,13 @@
     switching the default value of `drop_unused_features` to True.
 *   Vocabularies written in `tfrecord_gzip` format no longer filter out entries
     that are empty or that include a newline character.
+*   Depends on `apache-beam[gcp]>=2.25,<3`.
+*   Depends on `tensorflow-metadata>=0.25,<0.26`.
+*   Depends on `tfx-bsl>=0.25,<0.26`.
 
 ## Breaking changes
+
+*   N/A
 
 ## Deprecations
 
