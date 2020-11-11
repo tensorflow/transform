@@ -353,10 +353,8 @@ def _fixed_shape_as_tf_shape(fixed_shape):
 
 
 _DEPRECATED_LIFECYCLE_STAGES = [
-    schema_pb2.DEPRECATED,
-    schema_pb2.PLANNED,
-    schema_pb2.ALPHA,
-    schema_pb2.DEBUG_ONLY
+    schema_pb2.DEPRECATED, schema_pb2.DISABLED, schema_pb2.PLANNED,
+    schema_pb2.ALPHA, schema_pb2.DEBUG_ONLY
 ]
 
 
