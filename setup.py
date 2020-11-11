@@ -48,7 +48,8 @@ def _make_required_install_packages():
       'protobuf>=3.9.2,<4',
       'pydot>=1.2,<2',
       'six>=1.12,<2',
-      'tensorflow>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,<2.4',
+      'tensorflow' + select_constraint(
+          '>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,<2.4'),
       'tensorflow-metadata' + select_constraint(
           default='>=0.25,<0.26',
           nightly='>=0.26.0.dev',
