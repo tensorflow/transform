@@ -78,7 +78,6 @@ import datetime
 import apache_beam as beam
 
 from apache_beam.runners.portability import fn_api_runner
-from apache_beam.transforms import util
 from apache_beam.typehints import Any
 from apache_beam.typehints import Dict
 from apache_beam.typehints import Iterable
@@ -173,18 +172,6 @@ def _clear_shared_state_after_barrier(pipeline, input_barrier):
           | 'WaitAndClearSharedKeepAlives' >> beam.Map(
               lambda x, empty_side_input: shared.Shared().acquire(lambda: None),
               beam.pvalue.AsIter(empty_pcoll)))
-
-
-@beam.ptransform_fn
-@beam.typehints.with_input_types(_DATASET_ELEMENT_TYPE)
-@beam.typehints.with_output_types(List[_DATASET_ELEMENT_TYPE])
-def _BatchElements(pcoll):  # pylint: disable=invalid-name
-  """Batches elements either automatically or to the given batch_size."""
-  desired_batch_size = Context.get_desired_batch_size()
-  kwargs = dict(
-      min_batch_size=desired_batch_size, max_batch_size=desired_batch_size
-  ) if desired_batch_size is not None else {}
-  return pcoll | 'BatchElements' >> util.BatchElements(**kwargs)
 
 
 # TODO(b/36223892): Verify that these type hints work and make needed fixes.
