@@ -35,7 +35,7 @@ import pickle
 import random
 import re
 import threading
-from typing import Any, Callable, Collection
+from typing import Any, Callable, Collection, List, Optional
 
 # GOOGLE-INITIALIZATION
 import numpy as np
@@ -2791,8 +2791,13 @@ def pca(x, output_dim, dtype, name=None):
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def ptransform_analyzer(inputs, output_dtypes, output_shapes, ptransform,
-                        name=None):
+def ptransform_analyzer(
+    inputs: Collection[tf.Tensor],
+    output_dtypes: Collection[tf.dtypes.DType],
+    output_shapes: Collection[List[int]],
+    ptransform: Any,
+    output_asset_default_values: Optional[Collection[Optional[bytes]]] = None,
+    name: Optional[str] = None):
   # pylint: disable=line-too-long
   """Applies a user-provided PTransform over the whole dataset.
 
@@ -2836,15 +2841,21 @@ def ptransform_analyzer(inputs, output_dtypes, output_shapes, ptransform,
   [{'x/mean_a': 0.5}, {'x/mean_a': 4.0}, {'x/mean_a': 1.5}]
 
   Args:
-    inputs: A list of input `Tensor`s.
-    output_dtypes: The list of TensorFlow dtypes of the output of the analyzer.
-    output_shapes: The list of shapes of the output of the analyzer.  Must have
-      the same length as output_dtypes.
+    inputs: An ordered collection of input `Tensor`s.
+    output_dtypes: An ordered collection of TensorFlow dtypes of the output of
+      the analyzer.
+    output_shapes: An ordered collection of shapes of the output of the
+      analyzer. Must have the same length as output_dtypes.
     ptransform: A Beam PTransform that accepts a Beam PCollection where each
       element is a list of `ndarray`s.  Each element in the list contains a
       batch of values for the corresponding input tensor of the analyzer.  It
       returns a tuple of `PCollection`, each containing a single element which
       is an `ndarray`.
+    output_asset_default_values: (Optional) An ordered collection of optional
+      `bytes` aligned with output_dtypes/output_shapes. Every item in this
+      collection which is not `None` indicates that the output is a TF asset
+      path, and its value would be used as the default value of this asset file
+      prior to analysis.
     name: (Optional) Similar to a TF op name.  Used to define a unique scope for
       this analyzer, which can be used for debugging info.
 
@@ -2859,10 +2870,19 @@ def ptransform_analyzer(inputs, output_dtypes, output_shapes, ptransform,
   if len(output_dtypes) != len(output_shapes):
     raise ValueError('output_dtypes ({}) and output_shapes ({}) had different'
                      ' lengths'.format(output_dtypes, output_shapes))
+  if output_asset_default_values is not None:
+    if len(output_asset_default_values) != len(output_dtypes):
+      raise ValueError(
+          'output_dtypes ({}) and output_asset_default_values ({}) had '
+          'different lengths'.format(output_dtypes,
+                                     output_asset_default_values))
+  else:
+    output_asset_default_values = [None] * len(output_dtypes)
   with tf.compat.v1.name_scope(name, 'ptransform'):
     output_tensor_infos = [
-        analyzer_nodes.TensorInfo(dtype, shape, None)
-        for dtype, shape in zip(output_dtypes, output_shapes)
+        analyzer_nodes.TensorInfo(dtype, shape, default_asset_content)
+        for dtype, shape, default_asset_content in zip(
+            output_dtypes, output_shapes, output_asset_default_values)
     ]
     return apply_analyzer(
         analyzer_nodes.PTransform,
