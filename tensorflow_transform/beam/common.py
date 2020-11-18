@@ -91,15 +91,16 @@ class _PtransformWrapper(object):
       tag: A string key (or None) to retrieve corresponding ptransform.
 
     Returns:
-      A registered beam.PTransform implementation.
+      A tuple of a registered beam.PTransform implementation and the tag it was
+      registered with.
 
     Raises:
       KeyError: If no registered PTransform implementation could be found.
 
     """
     if tag is None or tag not in self._ptransform_by_tag:
-      return self._ptransform_by_tag[self._GENERAL_ENVIRONMENT_TAG]
-    return self._ptransform_by_tag[tag]
+      return self._ptransform_by_tag[self._GENERAL_ENVIRONMENT_TAG], None
+    return self._ptransform_by_tag[tag], tag.value
 
 
 _PTRANSFORM_BY_OPERATION_DEF_SUBCLASS = (
@@ -185,16 +186,19 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
       environment_tag = (
           EnvironmentTags.TF_COMPAT_V1
           if self._extra_args.use_tf_compat_v1 else EnvironmentTags.TF_V2_ONLY)
-      ptransform = ptransform_wrapper.get_ptransform(environment_tag)
+      ptransform, tag = ptransform_wrapper.get_ptransform(environment_tag)
     except KeyError:
       raise ValueError('No implementation for {} was registered'.format(
           operation))
 
     # TODO(zoyahav): Consider extracting a single PCollection before passing to
     # ptransform if len(inputs) == 1.
-    # TODO(b/149997088): Add environment_tag if any to label.
+    if tag is None:
+      tagged_label = operation.label
+    else:
+      tagged_label = '{label}[{tag}]'.format(label=operation.label, tag=tag)
     outputs = ((inputs or beam.pvalue.PBegin(self._extra_args.pipeline))
-               | operation.label >> ptransform(operation, self._extra_args))
+               | tagged_label >> ptransform(operation, self._extra_args))
 
     if isinstance(outputs, beam.pvalue.PCollection):
       return (outputs,)
