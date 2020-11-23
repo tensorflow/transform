@@ -1310,7 +1310,7 @@ class VocabTFUtilsTest(test_case.TransformTestCase):
       for record in bytes_records:
         writer.write(record)
 
-  def test__split_vocabulary_entries(self):
+  def test_split_vocabulary_entries(self):
     x = tf.constant([b'1  a b ', b'2 c', b'3      . . .   '])
     keys, values = tf_utils._split_vocabulary_entries(x)
     expected_keys = [b' a b ', b'c', b'     . . .   ']
@@ -1318,6 +1318,9 @@ class VocabTFUtilsTest(test_case.TransformTestCase):
     self.assertAllEqual(self.evaluate(keys), np.array(expected_keys))
     self.assertAllEqual(self.evaluate(values), np.array(expected_values))
 
+  @unittest.skipIf(
+      test_case.is_tf_api_version_1(),
+      'TFRecord vocabulary dataset tests require TF API version>1')
   def test_read_tfrecord_vocabulary_dataset(self):
     vocab_file = os.path.join(self.get_temp_dir(), 'vocab.tfrecord.gz')
     contents = [b'a', b'b', b'c']
@@ -1369,10 +1372,13 @@ class VocabTFUtilsTest(test_case.TransformTestCase):
           return_indicator_as_value=True,
           has_indicator=True),
   ])
-  def test__make_tfrecord_vocabulary_dataset(self, contents, expected,
-                                             key_dtype, value_dtype,
-                                             return_indicator_as_value,
-                                             has_indicator):
+  @unittest.skipIf(
+      test_case.is_tf_api_version_1(),
+      'TFRecord vocabulary dataset tests require TF API version>1')
+  def test_make_tfrecord_vocabulary_dataset(self, contents, expected, key_dtype,
+                                            value_dtype,
+                                            return_indicator_as_value,
+                                            has_indicator):
     vocab_file = os.path.join(self.get_temp_dir(), 'vocab.tfrecord.gz')
     self._write_tfrecords(vocab_file, contents)
 

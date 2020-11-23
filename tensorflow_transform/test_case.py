@@ -42,6 +42,10 @@ named_parameters = parameterized.named_parameters
 SkipTest = unittest.SkipTest
 
 
+def is_tf_api_version_1():
+  return hasattr(tf, 'Session')
+
+
 def cross_named_parameters(*args):
   """Cross a list of lists of dicts suitable for @named_parameters.
 
@@ -220,7 +224,7 @@ def skip_if_external_environment(reason):
 
 def skip_if_not_tf2(reason):
   major, _, _ = tf.version.VERSION.split('.')
-  if not (int(major) >= 2 and tf2.enabled()):
+  if not (int(major) >= 2 and tf2.enabled()) or is_tf_api_version_1():
     raise unittest.SkipTest(reason)
 
 

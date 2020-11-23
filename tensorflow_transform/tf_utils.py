@@ -570,6 +570,10 @@ def _split_vocabulary_entries(batched_vocab_lines):
   if isinstance(split, tf.RaggedTensor):
     split_tensor = split.to_tensor()
     return split_tensor[:, 1], split_tensor[:, 0]
+  # TODO(b/160294509): Remove this condition when TFT no longer supports TF<2.
+  elif isinstance(split, tf.SparseTensor):
+    split_tensor = tf.sparse.to_dense(split)
+    return split_tensor[:, 1], split_tensor[:, 0]
   else:
     return split[1], split[0]
 

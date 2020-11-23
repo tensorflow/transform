@@ -41,6 +41,12 @@ from tensorflow.python.ops import functional_ops
 mock = tf.compat.v1.test.mock
 
 
+def _skip_if_external_environment_or_v1_api(reason):
+  test_case.skip_if_external_environment(reason)
+  if test_case.is_tf_api_version_1():
+    raise test_case.SkipTest(reason)
+
+
 def _create_lookup_table_from_file(filename):
   initializer = tf.lookup.TextFileInitializer(
       filename,
@@ -1103,7 +1109,7 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           }),
       dict(
           testcase_name='_y_function_of_x_with_tf_while',
-          skip_test_check_fn=test_case.skip_if_external_environment,
+          skip_test_check_fn=_skip_if_external_environment_or_v1_api,
           create_graph_fn=_create_graph_with_tf_function_while,
           feeds=['x'],
           replaced_tensors_ready={'x': False},

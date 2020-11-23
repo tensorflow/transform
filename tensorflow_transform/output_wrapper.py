@@ -172,7 +172,7 @@ class TFTransformOutput(object):
       dataset = tf.data.TFRecordDataset(vocab_path, compression_type='GZIP')
 
       def reduce_fn(accum, elem):
-        return tf.size(elem, tf.int64) + accum
+        return tf.size(elem, out_type=tf.int64, name='vocabulary_size') + accum
 
       return _get_tensor_value(
           dataset.batch(tf.int32.max).reduce(
