@@ -310,7 +310,9 @@ class TFTransformOutput(object):
       saved_transform_io.partially_apply_saved_transform_internal(
           self.transform_savedmodel_dir, {})
     else:
-      _ = saved_transform_io_v2.SavedModelLoader(self.transform_savedmodel_dir)
+      # Note: This should use the same mechanism as `transform_raw_features` to
+      # load the SavedModel into the current graph context.
+      _ = self.transform_features_layer()({})
 
   RAW_METADATA_DIR = 'metadata'
   _FEATURE_STATS_PB = 'FeatureStats.pb'
