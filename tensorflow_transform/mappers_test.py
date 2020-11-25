@@ -17,7 +17,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import sys
 # GOOGLE-INITIALIZATION
 
 import numpy as np
@@ -282,11 +281,6 @@ class MappersTest(test_case.TransformTestCase):
                      expected_output_values,
                      ngram_range=(1, 1),
                      separator=' '):
-    # TODO(b/141750093): Re-enable this test for MacOS.
-    if sys.platform == 'darwin':
-      self.skipTest(
-          'bag_of_words can produce unexpected results on macOS when there are '
-          'empty rows, such as certain words overwritten with an empty string.')
     with tf.compat.v1.Graph().as_default():
       string_tensor = tf.constant(strings, dtype=tf.string)
       tokenized_tensor = tf.compat.v1.string_split(

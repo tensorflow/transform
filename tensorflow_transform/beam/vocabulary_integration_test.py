@@ -71,12 +71,6 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
   ])
 
   @tft_unit.named_parameters(*([
-      # NOTE: Since these tests are a refactoring of existing tests, each test
-      # case parameter (or parameters where the original test was parameterized
-      # or tested multiple calls to tft.vocabulary) has a comment indicating the
-      # test case that it is based on.  This preserves the ability to track the
-      # proveance of the test case parameters in the git history.
-      # TODO(KesterTong): Remove these annotations and the above comment.
       dict(
           testcase_name='_unadjusted_mi_binary_label',
           x_data=[
@@ -503,13 +497,6 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
   ])
 
   @tft_unit.named_parameters(*([
-      # NOTE: Since these tests are a refactoring of existing tests, each test
-      # case parameter (or parameters where the original test was parameterized
-      # or tested multiple calls to tft.compute_and_apply_vocabulary) has a
-      # comment indicating the test case that it is based on.  This preserves
-      # the ability to track the proveance of the test case parameters in the
-      # git history.
-      # TODO(KesterTong): Remove these annotations and the above comment.
       dict(
           testcase_name='_string_feature_with_label_top_2',
           x_data=[
