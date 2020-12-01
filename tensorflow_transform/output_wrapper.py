@@ -18,7 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 # GOOGLE-INITIALIZATION
 
@@ -232,7 +232,7 @@ class TFTransformOutput(object):
 
   def transform_raw_features(
       self,
-      raw_features: Dict[str, common_types.TensorType],
+      raw_features: Mapping[str, common_types.TensorType],
       drop_unused_features: Optional[bool] = False
   ) -> Dict[str, common_types.TensorType]:
     """Takes a dict of tensors representing raw features and transforms them.
@@ -271,7 +271,7 @@ class TFTransformOutput(object):
     return _TransformedFeaturesDict(transformed_features)
 
   def _transform_raw_features_compat_v1(
-      self, raw_features: Dict[str, common_types.TensorType],
+      self, raw_features: Mapping[str, common_types.TensorType],
       drop_unused_features: bool) -> Dict[str, common_types.TensorType]:
     """Takes a dict of tensors representing raw features and transforms them."""
     unbounded_raw_features, transformed_features = (
@@ -479,7 +479,7 @@ class TransformFeaturesLayer(tf.keras.Model):
     pass
 
   def call(
-      self, inputs: Dict[str, common_types.TensorType]
+      self, inputs: Mapping[str, common_types.TensorType]
   ) -> Dict[str, common_types.TensorType]:
 
     if self._exported_as_v1 and not ops.executing_eagerly_outside_functions():

@@ -17,7 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from typing import Dict, Optional
+from typing import Dict, Mapping, Optional
 
 # GOOGLE-INITIALIZATION
 
@@ -34,8 +34,8 @@ from tensorflow_metadata.proto.v0 import schema_pb2
 
 
 def schema_from_feature_spec(
-    feature_spec: Dict[str, common_types.FeatureSpecType],
-    domains: Optional[Dict[str, common_types.DomainType]] = None
+    feature_spec: Mapping[str, common_types.FeatureSpecType],
+    domains: Optional[Mapping[str, common_types.DomainType]] = None
 ) -> schema_pb2.Schema:
   """Convert a feature spec to a Schema proto.
 
