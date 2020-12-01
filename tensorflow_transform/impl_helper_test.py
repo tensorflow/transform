@@ -31,13 +31,22 @@ from tensorflow_transform import test_case
 from tensorflow_transform.output_wrapper import TFTransformOutput
 from tensorflow_transform.tf_metadata import schema_utils
 
+
 _FEATURE_SPEC = {
-    'a': tf.io.FixedLenFeature([], tf.int64),
-    'b': tf.io.FixedLenFeature([], tf.float32),
-    'c': tf.io.FixedLenFeature([1], tf.float32),
-    'd': tf.io.FixedLenFeature([2, 2], tf.float32),
-    'e': tf.io.VarLenFeature(tf.string),
-    'f': tf.io.SparseFeature('idx', 'val', tf.float32, 10),
+    'a':
+        tf.io.FixedLenFeature([], tf.int64),
+    'b':
+        tf.io.FixedLenFeature([], tf.float32),
+    'c':
+        tf.io.FixedLenFeature([1], tf.float32),
+    'd':
+        tf.io.FixedLenFeature([2, 2], tf.float32),
+    'e':
+        tf.io.VarLenFeature(tf.string),
+    'f':
+        tf.io.SparseFeature('idx', 'val', tf.float32, 10),
+    'g':
+        tf.io.SparseFeature(['g_idx0', 'g_idx1'], 'g_val', tf.float32, [2, 10]),
 }
 _FEED_DICT = {
     'a':
@@ -58,6 +67,11 @@ _FEED_DICT = {
             indices=np.array([(0, 2), (0, 4), (0, 8)]),
             values=np.array([10.0, 20.0, 30.0]),
             dense_shape=(2, 10)),
+    'g':
+        tf.compat.v1.SparseTensorValue(
+            indices=np.array([(0, 0, 3), (0, 1, 5), (0, 1, 9)]),
+            values=np.array([110.0, 210.0, 310.0]),
+            dense_shape=(2, 2, 10)),
 }
 
 _ROUNDTRIP_CASES = [
@@ -72,6 +86,9 @@ _ROUNDTRIP_CASES = [
             'e': [b'doe', b'a', b'deer'],
             'idx': [2, 4, 8],
             'val': [10.0, 20.0, 30.0],
+            'g_idx0': [0, 1, 1],
+            'g_idx1': [3, 5, 9],
+            'g_val': [110.0, 210.0, 310.0],
         }, {
             'a': 100,
             'b': 2.0,
@@ -80,6 +97,9 @@ _ROUNDTRIP_CASES = [
             'e': [b'a', b'female', b'deer'],
             'idx': [],
             'val': [],
+            'g_idx0': [],
+            'g_idx1': [],
+            'g_val': [],
         }],
         feed_dict=_FEED_DICT),
     dict(
@@ -93,6 +113,9 @@ _ROUNDTRIP_CASES = [
             'e': [b'doe', b'a', b'deer'],
             'idx': np.array([2, 4, 8]),
             'val': np.array([10.0, 20.0, 30.0]),
+            'g_idx0': np.array([0, 1, 1]),
+            'g_idx1': np.array([3, 5, 9]),
+            'g_val': np.array([110.0, 210.0, 310.0]),
         }, {
             'a': np.int64(100),
             'b': np.array(2.0, np.float32),
@@ -101,6 +124,9 @@ _ROUNDTRIP_CASES = [
             'e': [b'a', b'female', b'deer'],
             'idx': np.array([], np.int32),
             'val': np.array([], np.float32),
+            'g_idx0': np.array([], np.float32),
+            'g_idx1': np.array([], np.float32),
+            'g_val': np.array([], np.float32),
         }],
         feed_dict=_FEED_DICT),
     dict(
@@ -190,6 +216,25 @@ _ROUNDTRIP_CASES = [
                     indices=np.empty([0, 2]),
                     values=np.array([]),
                     dense_shape=[1, 10])
+        }),
+    dict(
+        testcase_name='non_ragged_sparse_feature',
+        feature_spec={
+            'sparse': tf.io.SparseFeature('idx', 'val', tf.float32, 10)
+        },
+        instances=[{
+            'idx': [],
+            'val': []
+        }, {
+            'idx': [9],
+            'val': [0.3]
+        }],
+        feed_dict={
+            'sparse':
+                tf.compat.v1.SparseTensorValue(
+                    indices=np.array([[1, 9]]),
+                    values=np.array([0.3]),
+                    dense_shape=[2, 10])
         }),
 ]
 
@@ -307,16 +352,29 @@ class ImplHelperTest(test_case.TransformTestCase):
 
   def test_batched_placeholders_from_feature_spec(self):
     feature_spec = {
-        'fixed_len_float': tf.io.FixedLenFeature([2, 3], tf.float32),
-        'fixed_len_string': tf.io.FixedLenFeature([], tf.string),
-        '_var_len_underscored': tf.io.VarLenFeature(tf.string),
-        'var_len_int': tf.io.VarLenFeature(tf.int64)
+        'fixed_len_float':
+            tf.io.FixedLenFeature([2, 3], tf.float32),
+        'fixed_len_string':
+            tf.io.FixedLenFeature([], tf.string),
+        '_var_len_underscored':
+            tf.io.VarLenFeature(tf.string),
+        'var_len_int':
+            tf.io.VarLenFeature(tf.int64),
+        'sparse_1d':
+            tf.io.SparseFeature('1d_idx', '1d_value', tf.int64, 7),
+        'sparse_2d':
+            tf.io.SparseFeature(['2d_idx0', '2d_idx1'], '2d_value', tf.int64,
+                                [2, 17]),
     }
     with tf.compat.v1.Graph().as_default():
       features = impl_helper.batched_placeholders_from_specs(feature_spec)
     self.assertCountEqual(features.keys(), [
-        'fixed_len_float', 'fixed_len_string', 'var_len_int',
-        '_var_len_underscored'
+        'fixed_len_float',
+        'fixed_len_string',
+        'var_len_int',
+        '_var_len_underscored',
+        'sparse_1d',
+        'sparse_2d',
     ])
     self.assertEqual(type(features['fixed_len_float']), tf.Tensor)
     self.assertEqual(features['fixed_len_float'].get_shape().as_list(),
@@ -330,6 +388,17 @@ class ImplHelperTest(test_case.TransformTestCase):
     self.assertEqual(type(features['_var_len_underscored']), tf.SparseTensor)
     self.assertEqual(features['_var_len_underscored'].get_shape().as_list(),
                      [None, None])
+    self.assertEqual(type(features['sparse_1d']), tf.SparseTensor)
+    self.assertEqual(type(features['sparse_2d']), tf.SparseTensor)
+    if tf.__version__ >= '2':
+      self.assertEqual(features['sparse_1d'].get_shape().as_list(), [None, 7])
+      self.assertEqual(features['sparse_2d'].get_shape().as_list(),
+                       [None, 2, 17])
+    else:
+      self.assertEqual(features['sparse_1d'].get_shape().as_list(),
+                       [None, None])
+      self.assertEqual(features['sparse_2d'].get_shape().as_list(),
+                       [None, None, None])
 
   def test_batched_placeholders_from_typespecs(self):
     typespecs = {
@@ -338,7 +407,7 @@ class ImplHelperTest(test_case.TransformTestCase):
         'dense_string':
             tf.TensorSpec(shape=[None], dtype=tf.string),
         '_sparse_underscored':
-            tf.SparseTensorSpec(dtype=tf.string, shape=[None, None]),
+            tf.SparseTensorSpec(dtype=tf.string, shape=[None, None, 17]),
         'ragged_string':
             tf.RaggedTensorSpec(
                 dtype=tf.string, ragged_rank=1, shape=[None, None]),
@@ -367,8 +436,10 @@ class ImplHelperTest(test_case.TransformTestCase):
     self.assertEqual(features['dense_string'].dtype, tf.string)
 
     self.assertEqual(type(features['_sparse_underscored']), tf.SparseTensor)
+    # TODO(zoyahav): Change last dimension size to 17 once SparseTensors propogate
+    # static dense_shape from typespec correctly.
     self.assertEqual(features['_sparse_underscored'].get_shape().as_list(),
-                     [None, None])
+                     [None, None, None])
     self.assertEqual(features['_sparse_underscored'].dtype, tf.string)
 
     self.assertEqual(type(features['ragged_string']), tf.RaggedTensor)
@@ -414,8 +485,8 @@ class ImplHelperTest(test_case.TransformTestCase):
           feed_dict_local[key] = tf.sparse.SparseTensor.from_value(value)
         else:
           feed_dict_local[key] = tf.constant(value)
-    np.testing.assert_equal(
-        instances, impl_helper.to_instance_dicts(schema, feed_dict_local))
+    result = impl_helper.to_instance_dicts(schema, feed_dict_local)
+    np.testing.assert_equal(instances, result)
 
   @test_case.named_parameters(*_TO_INSTANCE_DICT_ERROR_CASES)
   def test_to_instance_dicts_error(self, feature_spec, feed_dict, error_msg,

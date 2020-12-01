@@ -39,9 +39,8 @@ class SchemaUtilsTest(parameterized.TestCase):
     expected_schema_proto = text_format.Parse(ascii_proto, schema_pb2.Schema())
     schema_utils_legacy.set_generate_legacy_feature_spec(
         expected_schema_proto, generate_legacy_feature_spec)
-    self.assertEqual(
-        schema_utils.schema_from_feature_spec(feature_spec, domains),
-        expected_schema_proto)
+    result = schema_utils.schema_from_feature_spec(feature_spec, domains)
+    self.assertEqual(result, expected_schema_proto)
 
   @parameterized.named_parameters(
       *(schema_utils_test_cases.EQUIVALENT_FEATURE_SPEC_AND_SCHEMAS +
@@ -52,9 +51,8 @@ class SchemaUtilsTest(parameterized.TestCase):
     schema_proto = text_format.Parse(ascii_proto, schema_pb2.Schema())
     schema_utils_legacy.set_generate_legacy_feature_spec(
         schema_proto, generate_legacy_feature_spec)
-    self.assertEqual(
-        schema_utils.schema_as_feature_spec(schema_proto),
-        (feature_spec, domains or {}))
+    result = schema_utils.schema_as_feature_spec(schema_proto)
+    self.assertEqual(result, (feature_spec, domains or {}))
 
   @parameterized.named_parameters(
       *schema_utils_test_cases.INVALID_SCHEMA_PROTOS)
@@ -64,14 +62,14 @@ class SchemaUtilsTest(parameterized.TestCase):
     schema_proto = text_format.Parse(ascii_proto, schema_pb2.Schema())
     schema_utils_legacy.set_generate_legacy_feature_spec(
         schema_proto, generate_legacy_feature_spec)
-    with self.assertRaisesRegexp(error_class, error_msg):
+    with self.assertRaisesRegex(error_class, error_msg):
       schema_utils.schema_as_feature_spec(schema_proto)
 
   @parameterized.named_parameters(
       *schema_utils_test_cases.INVALID_FEATURE_SPECS)
   def test_schema_from_feature_spec_fails(
       self, feature_spec, error_msg, domain=None, error_class=ValueError):
-    with self.assertRaisesRegexp(error_class, error_msg):
+    with self.assertRaisesRegex(error_class, error_msg):
       schema_utils.schema_from_feature_spec(feature_spec, domain)
 
 

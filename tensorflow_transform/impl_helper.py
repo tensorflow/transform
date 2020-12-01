@@ -20,6 +20,7 @@ from __future__ import print_function
 
 import os
 import re
+from typing import Dict, List, Tuple, Union
 
 # GOOGLE-INITIALIZATION
 
@@ -30,6 +31,7 @@ from six.moves import zip  # pylint: disable=redefined-builtin
 
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
+from tensorflow_transform import common_types
 from tensorflow_transform import graph_context
 from tensorflow_transform import schema_inference
 from tensorflow_transform import tf2_utils
@@ -44,6 +46,9 @@ from tensorflow.python.framework import ops
 from tensorflow.python.ops import lookup_ops
 from tensorflow.python.training.tracking import tracking
 # pylint: enable=g-direct-tensorflow-import
+
+_SparseTensorValueType = Union[tf.SparseTensor, tf.compat.v1.SparseTensorValue]
+_SparseComponentType = List[np.ndarray]
 
 _CACHED_EMPTY_ARRAY_BY_DTYPE = {}
 _VALID_SCOPE_REGEX = re.compile('^[A-Za-z0-9]*$')
@@ -94,11 +99,6 @@ def batched_placeholders_from_specs(specs):
   return result
 
 
-# Older TFX versions may refer to this function instead.
-# TODO(b/150721482): remove once TFX 0.21.1 is released.
-feature_spec_as_batched_placeholders = batched_placeholders_from_specs
-
-
 def _is_feature_spec(spec):
   return isinstance(spec, (
       tf.io.VarLenFeature, tf.io.SparseFeature, tf.io.FixedLenFeature))
@@ -117,7 +117,10 @@ def _batched_placeholder_from_typespec(name, typespec):
                 (tf.TensorSpec, tf.SparseTensorSpec, tf.RaggedTensorSpec)):
     with tf.name_scope(_sanitize_scope_name(name)):
       return tf.nest.map_structure(
-          lambda tspec: tf.compat.v1.placeholder(tspec.dtype, tspec.shape),
+          lambda tspec: tf.raw_ops.Placeholder(  # pylint: disable=g-long-lambda
+              dtype=tspec.dtype,
+              shape=tspec.shape,
+              name=name),
           typespec,
           expand_composites=True)
 
@@ -135,11 +138,150 @@ def _batched_placeholder_from_feature_spec(name, feature_spec):
     return tf.compat.v1.sparse_placeholder(
         feature_spec.dtype, [None, None], name=scope_name)
   elif isinstance(feature_spec, tf.io.SparseFeature):
+    shape = [None] + feature_spec.size if isinstance(
+        feature_spec.size, list) else [None, feature_spec.size]
     return tf.compat.v1.sparse_placeholder(
-        feature_spec.dtype, [None, feature_spec.size], name=scope_name)
+        feature_spec.dtype, shape, name=scope_name)
 
   raise ValueError('Unsupported feature spec: {}({}) for feature {}'
                    .format(feature_spec, type(feature_spec), name))
+
+
+def _extract_sparse_components(
+    sparse_value: _SparseTensorValueType
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+  if isinstance(sparse_value, tf.SparseTensor):
+    return (sparse_value.indices.numpy(), sparse_value.values.numpy(),
+            sparse_value.dense_shape.numpy())
+  elif isinstance(sparse_value, tf.compat.v1.SparseTensorValue):
+    return sparse_value
+  else:
+    raise ValueError(
+        'Expected SparseTensor or SparseTensorValue , but got {}'.format(
+            sparse_value))
+
+
+def _decompose_sparse_or_varlen_batch(
+    sparse_value: _SparseTensorValueType, should_decode_as_varlen: bool
+) -> Tuple[Union[_SparseComponentType, List[_SparseComponentType]],
+           _SparseComponentType]:
+  """Decomposes a sparse batch into a list of sparse/varlen instances.
+
+  Args:
+    sparse_value: A `SparseTensor` or `SparseTensorValue` representing a batch
+      of N sparse instances. The indices of the SparseTensorValue are expected
+      to be sorted by row order.
+    should_decode_as_varlen: A bool indicating if the `sparse_value` should be
+      decomposed as a varlen batch instead of sparse.
+
+  Returns:
+    A tuple (instance_indices, instance_values) where the elements are lists
+    of N ndarrays representing the indices and values, respectively, of the
+    instances in the batch. If the batch is decoded as sparse, the
+    `instance_indices` will include an ndarray per dimension.
+
+  Raises:
+    ValueError: If `sparse_value` is neither `SparseTensor` nor
+      `SparseTensorValue`.
+    ValueError: If `sparse_value` contains out-of-order indices.
+  """
+  batch_indices, batch_values, batch_shape = _extract_sparse_components(
+      sparse_value)
+  batch_size = batch_shape[0]
+  instance_rank = len(batch_shape) - 1
+
+  # Preallocate lists of length batch_size, initialized to empty ndarrays,
+  # representing the indices and values of instances. We can reuse the return
+  # value of _get_empty_array here because it is immutable.
+  instance_values = [_get_empty_array(batch_values.dtype)] * batch_size
+  if should_decode_as_varlen:
+    instance_indices = [_get_empty_array(batch_indices.dtype)] * batch_size
+  else:
+    instance_indices = [[_get_empty_array(batch_indices.dtype)] * instance_rank
+                        for _ in range(batch_size)]
+
+  # Iterate over the rows in the batch. At each row, consume all the elements
+  # that belong to that row.
+  current_offset = 0
+  for current_row in range(batch_size):
+    start_offset = current_offset
+
+    # Scan forward until we reach an element that does not belong to the
+    # current row.
+    while current_offset < len(batch_indices):
+      row = batch_indices[current_offset][0]
+      if row == current_row:
+        # This element belongs to the current row.
+        current_offset += 1
+      elif row > current_row:
+        # We've reached the end of the current row.
+        break
+      else:
+        raise ValueError('Encountered out-of-order sparse index: {}.'.format(
+            batch_indices[current_offset]))
+
+    if current_offset == start_offset:
+      # If the current row is empty, leave the default value, which is an
+      # empty array.
+      pass
+    elif should_decode_as_varlen:
+      instance_indices[current_row] = batch_indices[start_offset:current_offset,
+                                                    1:]
+      if instance_rank == 1:
+        # In this case indices will have length 1, so for convenience we
+        # reshape from [-1, 1] to [-1].
+        current_row_indices = instance_indices[current_row]  # type: np.ndarray
+        instance_indices[current_row] = current_row_indices.reshape([-1])
+      instance_values[current_row] = batch_values[start_offset:current_offset]
+    else:
+      instance_values[current_row] = batch_values[start_offset:current_offset]
+      num_values = len(instance_values[current_row])
+
+      for dimension in range(instance_rank):
+        # We use dimension + 1 because we're ignoring the batch dimension.
+        current_indices = batch_indices[current_row:current_row + num_values,
+                                        dimension + 1]
+        instance_indices[current_row][dimension] = current_indices
+
+  return instance_indices, instance_values
+
+
+def _handle_varlen_batch(tensor_or_value: _SparseTensorValueType,
+                         name: str) -> _SparseComponentType:
+  """Decomposes a varlen tensor value into sparse tensor components."""
+  instance_indices, instance_values = _decompose_sparse_or_varlen_batch(
+      tensor_or_value, should_decode_as_varlen=True)
+  for indices in instance_indices:  # type: np.ndarray
+    if len(indices.shape) > 1 or np.any(indices != np.arange(len(indices))):
+      raise ValueError('Encountered a SparseTensorValue that cannot be '
+                       'decoded by ListColumnRepresentation.\n'
+                       '"{}" : {}'.format(name, tensor_or_value))
+  return instance_values
+
+
+def _handle_sparse_batch(
+    tensor_or_value: _SparseTensorValueType, spec: common_types.FeatureSpecType,
+    name: str
+) -> Dict[str, Union[List[_SparseComponentType], _SparseComponentType]]:
+  """Decomposes a sparse tensor value into sparse tensor components."""
+  if len(spec.index_key) == 1:
+    index_keys = spec.index_key[0]
+    instance_indices, instance_values = _decompose_sparse_or_varlen_batch(
+        tensor_or_value, should_decode_as_varlen=True)
+  else:
+    index_keys = spec.index_key
+    instance_indices, instance_values = _decompose_sparse_or_varlen_batch(
+        tensor_or_value, should_decode_as_varlen=False)
+  result = {}
+  if isinstance(index_keys, list):
+    assert isinstance(instance_indices, list)
+    for key, indices in zip(index_keys, zip(*instance_indices)):
+      result[key] = indices
+  else:
+    result[index_keys] = instance_indices
+  result[spec.value_key] = instance_values
+  _check_valid_sparse_tensor(instance_indices, instance_values, spec.size, name)
+  return result
 
 
 def to_instance_dicts(schema, fetches):
@@ -161,78 +303,6 @@ def to_instance_dicts(schema, fetches):
     ValueError: If `schema` is invalid.
   """
 
-  def decompose_sparse_batch(sparse_value):
-    """Decomposes a sparse batch into a list of sparse instances.
-
-    Args:
-      sparse_value: A `SparseTensor` or `SparseTensorValue` representing a batch
-        of N sparse instances. The indices of the SparseTensorValue are expected
-        to be sorted by row order.
-
-    Returns:
-      A tuple (instance_indices, instance_values) where the elements are lists
-      of N lists representing the indices and values, respectively, of the
-      instances in the batch.
-
-    Raises:
-      ValueError: If `sparse_value` is neither `SparseTensor` nor
-        `SparseTensorValue`.
-      ValueError: If `sparse_value` contains out-of-order indices.
-    """
-    if isinstance(sparse_value, tf.sparse.SparseTensor):
-      batch_indices, batch_values, batch_shape = (
-          sparse_value.indices.numpy(), sparse_value.values.numpy(),
-          sparse_value.dense_shape.numpy())
-    elif isinstance(sparse_value, tf.compat.v1.SparseTensorValue):
-      batch_indices, batch_values, batch_shape = sparse_value
-    else:
-      raise ValueError(
-          'Expected SparseTensor or SparseTensorValue , but got {}'.format(
-              sparse_value))
-
-    # Preallocate lists of length batch_size, initialized to empty ndarrays,
-    # representing the indices and values of instances. We can reuse the return
-    # value of _get_empty_array here because it is immutable.
-    instance_indices = [_get_empty_array(batch_indices.dtype)] * batch_shape[0]
-    instance_values = [_get_empty_array(batch_values.dtype)] * batch_shape[0]
-    instance_rank = len(batch_shape[1:])
-
-    # Iterate over the rows in the batch. At each row, consume all the elements
-    # that belong to that row.
-    current_offset = 0
-    for current_row in range(batch_shape[0]):
-      start_offset = current_offset
-
-      # Scan forward until we reach an element that does not belong to the
-      # current row.
-      while current_offset < len(batch_indices):
-        row = batch_indices[current_offset][0]
-        if row == current_row:
-          # This element belongs to the current row.
-          current_offset += 1
-        elif row > current_row:
-          # We've reached the end of the current row.
-          break
-        else:
-          raise ValueError('Encountered out-of-order sparse index: {}.'.format(
-              batch_indices[current_offset]))
-
-      if current_offset == start_offset:
-        # If the current row is empty, leave the default value, which is an
-        # empty array.
-        pass
-      else:
-        instance_indices[current_row] = batch_indices[
-            start_offset:current_offset, 1:]
-        if instance_rank == 1:
-          # In this case indices will have length 1, so for convenience we
-          # reshape from [-1, 1] to [-1].
-          instance_indices[current_row] = (
-              instance_indices[current_row].reshape([-1]))
-        instance_values[current_row] = batch_values[start_offset:current_offset]
-
-    return instance_indices, instance_values
-
   batch_dict = {}
   batch_sizes = {}
   feature_spec = schema_utils.schema_as_feature_spec(schema).feature_spec
@@ -245,23 +315,14 @@ def to_instance_dicts(schema, fetches):
       batch_sizes[name] = value.shape[0]
 
     elif isinstance(spec, tf.io.VarLenFeature):
-      instance_indices, instance_values = decompose_sparse_batch(
-          tensor_or_value)
-      for indices in instance_indices:
-        if len(indices.shape) > 1 or np.any(indices != np.arange(len(indices))):
-          raise ValueError('Encountered a SparseTensorValue that cannot be '
-                           'decoded by ListColumnRepresentation.\n'
-                           '"{}" : {}'.format(name, tensor_or_value))
+      instance_values = _handle_varlen_batch(tensor_or_value, name)
       batch_dict[name] = instance_values
       batch_sizes[name] = len(instance_values)
 
     elif isinstance(spec, tf.io.SparseFeature):
-      # TODO(abrao): Add support for N-d SparseFeatures.
-      instance_indices, instance_values = decompose_sparse_batch(
-          tensor_or_value)
-      batch_dict[spec.index_key] = instance_indices
-      batch_dict[spec.value_key] = instance_values
-      batch_sizes[name] = len(instance_values)
+      batch_dict_update = _handle_sparse_batch(tensor_or_value, spec, name)
+      batch_dict.update(batch_dict_update)
+      batch_sizes[name] = len(batch_dict_update[spec.value_key])
 
     else:
       raise ValueError('Invalid feature spec {}.'.format(spec))
@@ -286,15 +347,23 @@ def to_instance_dicts(schema, fetches):
 
 
 # TODO(b/36040669): Consider moving this to where it can be shared with coders.
-def check_valid_sparse_tensor(indices, values, size, name):
+def _check_valid_sparse_tensor(indices: Union[_SparseComponentType,
+                                              List[_SparseComponentType]],
+                               values: _SparseComponentType,
+                               size: Union[int, List[int]], name: str):
+  """Validates sparse tensor components."""
   # Check that all indices are in range.
-  if len(indices):  # pylint: disable=g-explicit-length-test
-    i_min, i_max = min(indices), max(indices)
-    if i_min < 0 or i_max >= size:
-      i_bad = i_min if i_min < 0 else i_max
-      raise ValueError(
-          'Sparse column {} has index {} out of range [0, {})'.format(
-              name, i_bad, size))
+  for current_indices in indices:
+    if isinstance(current_indices, np.ndarray):
+      current_indices = [current_indices]
+    for dim, indices_array in enumerate(current_indices):
+      if indices_array.size and size[dim] >= 0:
+        i_min, i_max = min(indices_array), max(indices_array)
+        if i_min < 0 or i_max >= size[dim]:
+          i_bad = i_min if i_min < 0 else i_max
+          raise ValueError(
+              'Sparse column {} has index {} out of range [0, {})'.format(
+                  name, i_bad, size[dim]))
 
   if len(indices) != len(values):
     raise ValueError(

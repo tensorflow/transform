@@ -18,12 +18,13 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 # GOOGLE-INITIALIZATION
 
 import six
 import tensorflow as tf
+from tensorflow_transform import common_types
 from tensorflow_transform import graph_tools
 from tensorflow_transform.analyzers import sanitized_vocab_filename
 from tensorflow_transform.saved import saved_transform_io
@@ -38,13 +39,6 @@ from tensorflow.python.framework import ops
 from tensorflow.tools.docs import doc_controls
 # pylint: enable=g-direct-tensorflow-import
 from tensorflow_metadata.proto.v0 import schema_pb2
-
-
-_FeatureSpecType = Union[tf.io.FixedLenFeature, tf.io.VarLenFeature,
-                         tf.io.SparseFeature]
-_DomainType = Union[schema_pb2.IntDomain, schema_pb2.FloatDomain,
-                    schema_pb2.StringDomain]
-_TensorType = Union[tf.Tensor, tf.SparseTensor]
 
 
 def _get_tensor_value(tensor_or_eager_tensor: tf.Tensor) -> Any:
@@ -116,7 +110,7 @@ class TFTransformOutput(object):
           self.transform_savedmodel_dir)
     return self._exported_as_v1_value
 
-  def transformed_feature_spec(self) -> Dict[str, _FeatureSpecType]:
+  def transformed_feature_spec(self) -> Dict[str, common_types.FeatureSpecType]:
     """Returns a feature_spec for the transformed features.
 
     Returns:
@@ -125,7 +119,7 @@ class TFTransformOutput(object):
     return schema_utils.schema_as_feature_spec(
         self.transformed_metadata.schema).feature_spec
 
-  def transformed_domains(self) -> Dict[str, _DomainType]:
+  def transformed_domains(self) -> Dict[str, common_types.DomainType]:
     """Returns domains for the transformed features.
 
     Returns:
@@ -238,8 +232,9 @@ class TFTransformOutput(object):
 
   def transform_raw_features(
       self,
-      raw_features: Dict[str, _TensorType],
-      drop_unused_features: Optional[bool] = False) -> Dict[str, _TensorType]:
+      raw_features: Dict[str, common_types.TensorType],
+      drop_unused_features: Optional[bool] = False
+  ) -> Dict[str, common_types.TensorType]:
     """Takes a dict of tensors representing raw features and transforms them.
 
     Takes a dictionary of `Tensor`s or `SparseTensor`s that represent the raw
@@ -276,8 +271,8 @@ class TFTransformOutput(object):
     return _TransformedFeaturesDict(transformed_features)
 
   def _transform_raw_features_compat_v1(
-      self, raw_features: Dict[str, _TensorType],
-      drop_unused_features: bool) -> Dict[str, _TensorType]:
+      self, raw_features: Dict[str, common_types.TensorType],
+      drop_unused_features: bool) -> Dict[str, common_types.TensorType]:
     """Takes a dict of tensors representing raw features and transforms them."""
     unbounded_raw_features, transformed_features = (
         saved_transform_io.partially_apply_saved_transform_internal(
@@ -337,7 +332,7 @@ class TFTransformOutput(object):
           os.path.join(self._transform_output_dir, self.RAW_METADATA_DIR))
     return self._raw_metadata
 
-  def raw_feature_spec(self) -> Dict[str, _FeatureSpecType]:
+  def raw_feature_spec(self) -> Dict[str, common_types.FeatureSpecType]:
     """Returns a feature_spec for the raw features.
 
     Returns:
@@ -346,7 +341,7 @@ class TFTransformOutput(object):
     return schema_utils.schema_as_feature_spec(
         self.raw_metadata.schema).feature_spec
 
-  def raw_domains(self) -> Dict[str, _DomainType]:
+  def raw_domains(self) -> Dict[str, common_types.DomainType]:
     """Returns domains for the raw features.
 
     Returns:
@@ -483,7 +478,9 @@ class TransformFeaturesLayer(tf.keras.Model):
     """
     pass
 
-  def call(self, inputs: Dict[str, _TensorType]) -> Dict[str, _TensorType]:
+  def call(
+      self, inputs: Dict[str, common_types.TensorType]
+  ) -> Dict[str, common_types.TensorType]:
 
     if self._exported_as_v1 and not ops.executing_eagerly_outside_functions():
       tf.compat.v1.logging.warning('Falling back to transform_raw_features...')

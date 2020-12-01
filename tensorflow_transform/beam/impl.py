@@ -895,7 +895,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
 
     Args:
       preprocessing_fn: A function that accepts and returns a dictionary from
-        strings to `Tensor` or 2D `SparseTensor`s.
+        strings to `Tensor` or `SparseTensor`s.
       pipeline: (Optional) a beam Pipeline.
     """
     self._preprocessing_fn = preprocessing_fn
@@ -965,6 +965,14 @@ class _AnalyzeDatasetCommon(beam.PTransform):
       input_tensor_adapter_config = input_metadata
 
     specs = TensorAdapter(input_tensor_adapter_config).OriginalTypeSpecs()
+    # TODO(b/163563472): Remove this when we have full SparseTensor support.
+    for name, spec in specs.items():
+      if isinstance(spec, tf.SparseTensorSpec) and len(spec.shape) > 2:
+        tf.compat.v1.logging.warning(
+            'Support for rank >2 sparse features is experimental. '
+            'Sparse feature %s has %s dimensions, tf.transform analyzers and '
+            'mappers may not work properly for this feature.', name,
+            len(spec.shape))
     base_temp_dir = Context.create_base_temp_dir()
     # TODO(b/149997088): Do not pass base_temp_dir here as this graph does not
     # need to be serialized to SavedModel.
@@ -1154,7 +1162,7 @@ class AnalyzeAndTransformDataset(beam.PTransform):
 
     Args:
       preprocessing_fn: A function that accepts and returns a dictionary from
-          strings to `Tensor` or 2D `SparseTensor`s.
+          strings to `Tensor` or `SparseTensor`s.
     """
     self._preprocessing_fn = preprocessing_fn
     _assert_tensorflow_version()

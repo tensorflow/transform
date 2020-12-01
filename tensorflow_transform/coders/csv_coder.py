@@ -271,10 +271,13 @@ class CsvCoder(object):
             _VarLenFeatureHandler(name, feature_spec.dtype, index(name),
                                   secondary_encoder_by_name.get(name)))
       elif isinstance(feature_spec, tf.io.SparseFeature):
-        self._feature_handlers.append(
-            _VarLenFeatureHandler(feature_spec.index_key, tf.int64,
-                                  index(feature_spec.index_key),
-                                  secondary_encoder_by_name.get(name)))
+        index_keys = (
+            feature_spec.index_key if isinstance(feature_spec.index_key, list)
+            else [feature_spec.index_key])
+        for key in index_keys:
+          self._feature_handlers.append(
+              _VarLenFeatureHandler(key, tf.int64, index(key),
+                                    secondary_encoder_by_name.get(name)))
         self._feature_handlers.append(
             _VarLenFeatureHandler(feature_spec.value_key, feature_spec.dtype,
                                   index(feature_spec.value_key),

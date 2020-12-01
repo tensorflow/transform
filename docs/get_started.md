@@ -18,7 +18,7 @@ It will:
 The *preprocessing function* is the most important concept of `tf.Transform`.
 The preprocessing function is a logical description of a transformation of the
 dataset. The preprocessing function accepts and returns a dictionary of tensors,
-where a *tensor* means `Tensor` or 2D `SparseTensor`. There are two kinds of
+where a *tensor* means `Tensor` or `SparseTensor`. There are two kinds of
 functions used to define the preprocessing function:
 
 1. Any function that accepts and returns tensors. These add TensorFlow

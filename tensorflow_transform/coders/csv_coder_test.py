@@ -26,16 +26,34 @@ from tensorflow_transform import test_case
 from tensorflow_transform.tf_metadata import schema_utils
 
 _COLUMNS = [
-    'numeric1', 'text1', 'category1', 'idx', 'numeric2', 'value', 'numeric3'
+    'numeric1',
+    'text1',
+    'category1',
+    'idx',
+    'numeric2',
+    'value',
+    'numeric3',
+    '2d_idx0',
+    '2d_idx1',
+    '2d_val',
 ]
 
 _FEATURE_SPEC = {
-    'numeric1': tf.io.FixedLenFeature([], tf.int64),
-    'numeric2': tf.io.VarLenFeature(tf.float32),
-    'numeric3': tf.io.FixedLenFeature([1], tf.int64),
-    'text1': tf.io.FixedLenFeature([], tf.string),
-    'category1': tf.io.VarLenFeature(tf.string),
-    'y': tf.io.SparseFeature('idx', 'value', tf.float32, 10),
+    'numeric1':
+        tf.io.FixedLenFeature([], tf.int64),
+    'numeric2':
+        tf.io.VarLenFeature(tf.float32),
+    'numeric3':
+        tf.io.FixedLenFeature([1], tf.int64),
+    'text1':
+        tf.io.FixedLenFeature([], tf.string),
+    'category1':
+        tf.io.VarLenFeature(tf.string),
+    'y':
+        tf.io.SparseFeature('idx', 'value', tf.float32, 10),
+    '2dsparse':
+        tf.io.SparseFeature(['2d_idx0', '2d_idx1'], '2d_val', tf.float32,
+                            [2, 10]),
 }
 
 _ENCODE_CASES = [
@@ -43,7 +61,7 @@ _ENCODE_CASES = [
         testcase_name='multiple_columns',
         columns=_COLUMNS,
         feature_spec=_FEATURE_SPEC,
-        csv_line='12,"this is a ,text",categorical_value,1,89.0,12.0,20',
+        csv_line='12,"this is a ,text",categorical_value,1,89.0,12.0,20,1,7,17.0',
         instance={
             'category1': [b'categorical_value'],
             'numeric1': 12,
@@ -52,12 +70,15 @@ _ENCODE_CASES = [
             'text1': b'this is a ,text',
             'idx': [1],
             'value': [12.0],
+            '2d_idx0': [1],
+            '2d_idx1': [7],
+            '2d_val': [17.0],
         }),
     dict(
         testcase_name='multiple_columns_unicode',
         columns=_COLUMNS,
         feature_spec=_FEATURE_SPEC,
-        csv_line=u'12,"this is a ,text",Hello κόσμε,1,89.0,12.0,20',
+        csv_line=u'12,"this is a ,text",Hello κόσμε,1,89.0,12.0,20,1,7,17.0',
         instance={
             'category1': [u'Hello κόσμε'.encode('utf-8')],
             'numeric1': 12,
@@ -66,13 +87,17 @@ _ENCODE_CASES = [
             'text1': b'this is a ,text',
             'idx': [1],
             'value': [12.0],
+            '2d_idx0': [1],
+            '2d_idx1': [7],
+            '2d_val': [17.0],
         }),
     dict(
         testcase_name='multiple_columns_tab_separated',
         columns=_COLUMNS,
         feature_spec=_FEATURE_SPEC,
         csv_line=(
-            '12\t"this is a \ttext"\tcategorical_value\t1\t89.0\t12.0\t20'),
+            '12\t"this is a \ttext"\tcategorical_value\t1\t89.0\t12.0\t20\t1\t7\t17.0'
+        ),
         instance={
             'category1': [b'categorical_value'],
             'numeric1': 12,
@@ -81,6 +106,9 @@ _ENCODE_CASES = [
             'text1': b'this is a \ttext',
             'idx': [1],
             'value': [12.0],
+            '2d_idx0': [1],
+            '2d_idx1': [7],
+            '2d_val': [17.0],
         },
         delimiter='\t'),
     dict(
@@ -246,7 +274,7 @@ class TestCSVCoder(test_case.TransformTestCase):
       coder.encode(instance)
 
   def test_picklable(self):
-    csv_line = '12,"this is a ,text",categorical_value,1,89.0,12.0,20'
+    csv_line = '12,"this is a ,text",categorical_value,1,89.0,12.0,20,1,7,17.0'
     instance = {
         'category1': [b'categorical_value'],
         'numeric1': 12,
@@ -255,6 +283,9 @@ class TestCSVCoder(test_case.TransformTestCase):
         'text1': b'this is a ,text',
         'idx': [1],
         'value': [12.0],
+        '2d_idx0': [1],
+        '2d_idx1': [7],
+        '2d_val': [17.0],
     }
     schema = schema_utils.schema_from_feature_spec(_FEATURE_SPEC)
     coder = csv_coder.CsvCoder(_COLUMNS, schema)

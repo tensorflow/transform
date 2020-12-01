@@ -51,14 +51,24 @@ flags.DEFINE_string(
     'The implementation type of python proto to use when exercising this test')
 
 _FEATURE_SPEC = {
-    'scalar_feature_1': tf.io.FixedLenFeature([], tf.int64),
-    'scalar_feature_2': tf.io.FixedLenFeature([], tf.int64),
-    'scalar_feature_3': tf.io.FixedLenFeature([], tf.float32),
-    'varlen_feature_1': tf.io.VarLenFeature(tf.float32),
-    'varlen_feature_2': tf.io.VarLenFeature(tf.string),
-    '1d_vector_feature': tf.io.FixedLenFeature([1], tf.string),
-    '2d_vector_feature': tf.io.FixedLenFeature([2, 2], tf.float32),
-    'sparse_feature': tf.io.SparseFeature('idx', 'value', tf.float32, 10),
+    'scalar_feature_1':
+        tf.io.FixedLenFeature([], tf.int64),
+    'scalar_feature_2':
+        tf.io.FixedLenFeature([], tf.int64),
+    'scalar_feature_3':
+        tf.io.FixedLenFeature([], tf.float32),
+    'varlen_feature_1':
+        tf.io.VarLenFeature(tf.float32),
+    'varlen_feature_2':
+        tf.io.VarLenFeature(tf.string),
+    '1d_vector_feature':
+        tf.io.FixedLenFeature([1], tf.string),
+    '2d_vector_feature':
+        tf.io.FixedLenFeature([2, 2], tf.float32),
+    'sparse_feature':
+        tf.io.SparseFeature('idx', 'value', tf.float32, 10),
+    '2d_sparse_feature':
+        tf.io.SparseFeature(['idx0', 'idx1'], '2d_val', tf.float32, [2, 10]),
 }
 
 _ENCODE_CASES = [
@@ -104,7 +114,10 @@ features {
   feature { key: "varlen_feature_2"
             value { bytes_list { value: [ 'female' ] } } }
   feature { key: "value" value { float_list { value: [ 12.0, 20.0 ] } } }
-feature { key: "idx" value { int64_list { value: [ 1, 4 ] } } }
+  feature { key: "idx" value { int64_list { value: [ 1, 4 ] } } }
+  feature { key: "idx0" value { int64_list { value: [ 1, 1 ]} } }
+  feature { key: "idx1" value { int64_list { value: [ 3, 7 ]} } }
+  feature { key: "2d_val" value { float_list { value: [ 13.0, 23.0 ] } } }
 }""",
         instance={
             'scalar_feature_1': 12,
@@ -116,6 +129,9 @@ feature { key: "idx" value { int64_list { value: [ 1, 4 ] } } }
             'varlen_feature_2': [b'female'],
             'idx': [1, 4],
             'value': [12.0, 20.0],
+            'idx0': [1, 1],
+            'idx1': [3, 7],
+            '2d_val': [13.0, 23.0],
         }),
     dict(
         testcase_name='multiple_columns_ndarray',
@@ -136,6 +152,9 @@ features {
             value { bytes_list { value: [ 'male' ] } } }
   feature { key: "value" value { float_list { value: [ 13.0, 21.0 ] } } }
   feature { key: "idx" value { int64_list { value: [ 2, 5 ] } } }
+  feature { key: "idx0" value { int64_list { value: [ 1, 1 ]} } }
+  feature { key: "idx1" value { int64_list { value: [ 3, 7 ]} } }
+  feature { key: "2d_val" value { float_list { value: [ 13.0, 23.0 ] } } }
 }""",
         instance={
             'scalar_feature_1': np.array(13),
@@ -147,6 +166,9 @@ features {
             'varlen_feature_2': np.array([b'male']),
             'idx': np.array([2, 5]),
             'value': np.array([13.0, 21.0]),
+            'idx0': np.array([1, 1]),
+            'idx1': np.array([3, 7]),
+            '2d_val': np.array([13.0, 23.0]),
         }),
     dict(
         testcase_name='multiple_columns_with_missing',
@@ -244,6 +266,9 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
                 value { bytes_list { value: [ 'female' ] } } }
       feature { key: "value" value { float_list { value: [ 12.0, 20.0 ] } } }
       feature { key: "idx" value { int64_list { value: [ 1, 4 ] } } }
+      feature { key: "idx0" value { int64_list { value: [ 1, 1 ]} } }
+      feature { key: "idx1" value { int64_list { value: [ 3, 7 ]} } }
+      feature { key: "2d_val" value { float_list { value: [ 13.0, 23.0 ] } } }
     }
     """
     instance = {
@@ -256,6 +281,9 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
         'varlen_feature_2': [b'female'],
         'idx': [1, 4],
         'value': [12.0, 20.0],
+        'idx0': [1, 1],
+        'idx1': [3, 7],
+        '2d_val': [13.0, 23.0],
     }
     serialized_proto = _ascii_to_binary(ascii_proto)
     for _ in range(2):

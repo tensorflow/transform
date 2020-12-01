@@ -3,6 +3,9 @@
 # Current Version(Still in Development)
 
 ## Major Features and Improvements
+*   Initial support added of >2D `SparseTensor`s as inputs and outputs of the
+    `preprocessing_fn`. Note that mappers and analyzers may not support those
+    yet, and output >2D `SparseTensor`s will have an unkonwn dense shape.
 
 ## Bug Fixes and Other Changes
 

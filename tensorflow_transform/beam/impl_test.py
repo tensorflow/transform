@@ -2746,6 +2746,149 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
         beam_test_util.assert_that(transformed_data, _assert_fn)
 
+  def test3dSparseWithTFXIO(self):
+    x_data = [0., 1., 2.]
+    x_idx0 = [0, 0, 1]
+    x_idx1 = [0, 0, 1]
+    input_record_batch = pa.RecordBatch.from_arrays([
+        pa.array([[x] for x in x_idx0], type=pa.list_(pa.int64())),
+        pa.array([[x] for x in x_idx1], type=pa.list_(pa.int64())),
+        pa.array([[x] for x in x_data], type=pa.list_(pa.float32())),
+    ], ['x_idx0', 'x_idx1', 'x_val'])
+    tensor_adapter_config = tensor_adapter.TensorAdapterConfig(
+        input_record_batch.schema, {
+            'x':
+                text_format.Parse(
+                    """
+                    sparse_tensor {
+                      index_column_names: ["x_idx0", "x_idx1"]
+                      value_column_name: "x_val"
+                      dense_shape {
+                        dim {
+                          size: 5
+                        }
+                        dim {
+                          size: 5
+                        }
+                      }
+                    }""", schema_pb2.TensorRepresentation())
+        })
+    expected_data = [
+        {  # pylint: disable=g-complex-comprehension
+            'x$sparse_values': x,
+            'x$sparse_indices_0': idx0,
+            'x$sparse_indices_1': idx1
+        } for idx0, idx1, x in zip(x_idx0, x_idx1, x_data)
+    ]
+
+    materialize_path = os.path.join(self.get_temp_dir(), 'transformed_data')
+    transform_output_path = os.path.join(self.get_temp_dir(),
+                                         'transform_output')
+    with self._makeTestPipeline() as pipeline:
+      input_data = (pipeline | beam.Create([input_record_batch]))
+      with beam_impl.Context(temp_dir=self.get_temp_dir()):
+        (transformed_data, transformed_metadata), transform_fn = (
+            (input_data, tensor_adapter_config)
+            | beam_impl.AnalyzeAndTransformDataset(lambda inputs: inputs))
+
+        transformed_data_coder = tft.coders.ExampleProtoCoder(
+            transformed_metadata.schema)
+
+        _ = (
+            transformed_data
+            | 'EncodeTransformedData' >> beam.Map(transformed_data_coder.encode)
+            | 'Write' >> beam.io.WriteToTFRecord(
+                materialize_path, shard_name_template=''))
+        _ = (
+            transform_fn
+            | 'WriteTransformFn' >>
+            tft.beam.WriteTransformFn(transform_output_path))
+
+        expected_metadata = text_format.Parse(
+            """
+            feature {
+              name: "x$sparse_indices_0"
+              type: INT
+            }
+            feature {
+              name: "x$sparse_indices_1"
+              type: INT
+            }
+            feature {
+              name: "x$sparse_values"
+              type: FLOAT
+            }
+            sparse_feature {
+              name: "x"
+              index_feature {
+                name: "x$sparse_indices_0"
+              }
+              index_feature {
+                name: "x$sparse_indices_1"
+              }
+              is_sorted: true
+              value_feature {
+                name: "x$sparse_values"
+              }
+            }""", schema_pb2.Schema())
+        if not tft_unit.is_external_environment():
+          expected_metadata.generate_legacy_feature_spec = False
+
+        self.assertProtoEquals(transformed_metadata.schema, expected_metadata)
+
+        def _assert_fn(output_data):
+          self.assertCountEqual(expected_data, output_data)
+
+        beam_test_util.assert_that(transformed_data, _assert_fn)
+
+        def _assert_schemas_equal_fn(schema_dict_list):
+          self.assertEqual(1, len(schema_dict_list))
+          self.assertProtoEquals(schema_dict_list[0].schema, expected_metadata)
+
+        beam_test_util.assert_that(
+            transformed_metadata.deferred_metadata,
+            _assert_schemas_equal_fn,
+            label='assert_deferred_metadata')
+
+    with tf.Graph().as_default():
+      dataset = tf.data.TFRecordDataset(materialize_path)
+      tft_out = tft.TFTransformOutput(transform_output_path)
+      transformed_feature_spec = tft_out.transformed_feature_spec()
+      self.assertEqual(
+          transformed_feature_spec, {
+              'x':
+                  tf.io.SparseFeature(
+                      ['x$sparse_indices_0', 'x$sparse_indices_1'],
+                      'x$sparse_values',
+                      tf.float32, [-1, -1],
+                      already_sorted=True)
+          })
+
+      def parse_fn(serialized_input):
+        result = tf.io.parse_single_example(serialized_input,
+                                            transformed_feature_spec)['x']
+        return result.indices, result.values, result.dense_shape
+
+      dataset = dataset.map(parse_fn).batch(len(x_data))
+      transformed_sparse_components = tf.data.experimental.get_single_element(
+          dataset)
+      with tf.compat.v1.Session():
+        transformed_sparse_components = [
+            t.eval() for t in transformed_sparse_components
+        ]
+    expected_sparse_components = [
+        np.array([[arr] for arr in zip(x_idx0, x_idx1)]),
+        np.array([[x] for x in x_data]),
+        np.array([[-1, -1]] * len(x_data))
+    ]
+    self.assertLen(transformed_sparse_components,
+                   len(expected_sparse_components))
+    for transformed, expected in zip(transformed_sparse_components,
+                                     expected_sparse_components):
+      self.assertAllEqual(expected[0], transformed[0])
+      self.assertAllEqual(expected[1], transformed[1])
+      self.assertAllEqual(expected[2], transformed[2])
+
   def testPipelineWithoutAutomaterialization(self):
     # Other tests pass lists instead of PCollections and thus invoke
     # automaterialization where each call to a beam PTransform will implicitly

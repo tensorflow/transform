@@ -63,11 +63,18 @@ def _feature_spec_from_batched_tensors(tensors):
                        .format(name, tensor, tensor.dtype))
     if isinstance(tensor, tf.SparseTensor):
       shape = tensor.get_shape()
-      if shape.ndims != 2:
-        raise ValueError(
-            'Feature {} ({}) had invalid shape {} for VarLenFeature: must have '
-            'rank 2'.format(name, tensor, shape))
-      feature_spec[name] = tf.io.VarLenFeature(tensor.dtype)
+      if shape.ndims > 2:
+        feature_spec[name] = tf.io.SparseFeature(
+            index_key=[
+                '{}$sparse_indices_{}'.format(name, idx)
+                for idx in range(shape.ndims - 1)
+            ],
+            value_key='{}$sparse_values'.format(name),
+            dtype=tensor.dtype,
+            size=shape[1:],
+            already_sorted=True)
+      else:
+        feature_spec[name] = tf.io.VarLenFeature(tensor.dtype)
     elif isinstance(tensor, tf.Tensor):
       shape = tensor.get_shape()
       if shape.ndims in [None, 0]:

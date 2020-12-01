@@ -17,10 +17,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from typing import Dict, Optional
+
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 
+from tensorflow_transform import common_types
 from tensorflow_transform.tf_metadata import schema_utils_legacy
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
 # `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
@@ -30,7 +33,10 @@ from tfx_bsl.types import tfx_namedtuple
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 
-def schema_from_feature_spec(feature_spec, domains=None):
+def schema_from_feature_spec(
+    feature_spec: Dict[str, common_types.FeatureSpecType],
+    domains: Optional[Dict[str, common_types.DomainType]] = None
+) -> schema_pb2.Schema:
   """Convert a feature spec to a Schema proto.
 
   Args:
@@ -65,7 +71,8 @@ def schema_from_feature_spec(feature_spec, domains=None):
     if isinstance(spec, tf.io.SparseFeature):
       (index_feature, value_feature, sparse_feature) = (
           _sparse_feature_from_feature_spec(spec, name, domains))
-      result.feature.add().CopyFrom(index_feature)
+      for f in index_feature:
+        result.feature.add().CopyFrom(f)
       result.feature.add().CopyFrom(value_feature)
       result.sparse_feature.add().CopyFrom(sparse_feature)
     else:
@@ -77,18 +84,36 @@ def schema_from_feature_spec(feature_spec, domains=None):
 def _sparse_feature_from_feature_spec(spec, name, domains):
   """Returns a representation of a SparseFeature from a feature spec."""
   if isinstance(spec.index_key, list):
-    raise ValueError(
-        'SparseFeature "{}" had index_key {}, but size and index_key '
-        'fields should be single values'.format(name, spec.index_key))
-  if isinstance(spec.size, list):
-    raise ValueError(
-        'SparseFeature "{}" had size {}, but size and index_key fields '
-        'should be single values'.format(name, spec.size))
-
-  # Create a index feature.
-  index_feature = schema_pb2.Feature(
-      name=spec.index_key, type=schema_pb2.INT,
-      int_domain=schema_pb2.IntDomain(min=0, max=spec.size - 1))
+    assert isinstance(spec.size, (list, tuple, tf.TensorShape)), type(spec.size)
+    assert len(spec.index_key) == len(spec.size), (spec.index_key, spec.size)
+    spec_size = [
+        s.value if isinstance(s, tf.compat.v1.Dimension) else s
+        for s in spec.size
+    ]
+    int_domains = [
+        schema_pb2.IntDomain(min=0, max=size - 1) if size is not None else None
+        for size in spec_size
+    ]
+    index_feature = [
+        schema_pb2.Feature(
+            name=key, type=schema_pb2.INT, int_domain=int_domain)
+        for (key, int_domain) in zip(spec.index_key, int_domains)
+    ]
+    index_feature_ref = [
+        schema_pb2.SparseFeature.IndexFeature(name=key)
+        for key in spec.index_key
+    ]
+  else:
+    # Create a index feature.
+    index_feature = [
+        schema_pb2.Feature(
+            name=spec.index_key,
+            type=schema_pb2.INT,
+            int_domain=schema_pb2.IntDomain(min=0, max=spec.size - 1))
+    ]
+    index_feature_ref = [
+        schema_pb2.SparseFeature.IndexFeature(name=spec.index_key)
+    ]
 
   # Create a value feature.
   value_feature = schema_pb2.Feature(name=spec.value_key)
@@ -96,13 +121,13 @@ def _sparse_feature_from_feature_spec(spec, name, domains):
   _set_domain(name, value_feature, domains.get(name))
 
   # Create a sparse feature which refers to the index and value features.
-  index_feature_ref = schema_pb2.SparseFeature.IndexFeature(
-      name=spec.index_key)
   value_feature_ref = schema_pb2.SparseFeature.ValueFeature(
       name=spec.value_key)
   sparse_feature = schema_pb2.SparseFeature(
-      name=name, is_sorted=True if spec.already_sorted else None,
-      index_feature=[index_feature_ref], value_feature=value_feature_ref)
+      name=name,
+      is_sorted=True if spec.already_sorted else None,
+      index_feature=index_feature_ref,
+      value_feature=value_feature_ref)
 
   return (index_feature, value_feature, sparse_feature)
 
@@ -161,8 +186,10 @@ def _set_domain(name, feature, domain):
         'Feature "{}" has invalid domain {}'.format(name, domain))
 
 
-SchemaAsFeatureSpecResult = tfx_namedtuple.namedtuple(
-    'SchemaAsFeatureSpecResult', ['feature_spec', 'domains'])
+SchemaAsFeatureSpecResult = tfx_namedtuple.TypedNamedTuple(
+    'SchemaAsFeatureSpecResult',
+    [('feature_spec', Dict[str, common_types.FeatureSpecType]),
+     ('domains', Dict[str, common_types.DomainType])])
 
 
 # A tag used to indicate that a feature was inferred from a RaggedTensor.  A
@@ -171,7 +198,8 @@ SchemaAsFeatureSpecResult = tfx_namedtuple.namedtuple(
 RAGGED_TENSOR_TAG = 'ragged_tensor'
 
 
-def schema_as_feature_spec(schema_proto):
+def schema_as_feature_spec(
+    schema_proto: schema_pb2.Schema) -> SchemaAsFeatureSpecResult:
   """Generates a feature spec from a Schema proto.
 
   For a Feature with a FixedShape we generate a FixedLenFeature with no default.
@@ -264,12 +292,6 @@ def _sparse_feature_as_feature_spec(feature, feature_by_name, string_domains):
           'sparse_feature "{}" referred to index feature "{}" which did not '
           'exist in the schema'.format(feature.name, index_key))
 
-  if len(index_features) != 1:
-    raise ValueError(
-        'sparse_feature "{}" had rank {} but currently only rank 1'
-        ' sparse features are supported'.format(
-            feature.name, len(index_features)))
-
   value_key = feature.value_feature.name
   try:
     value_feature = feature_by_name.pop(value_key)
@@ -279,36 +301,40 @@ def _sparse_feature_as_feature_spec(feature, feature_by_name, string_domains):
         'exist in the schema or was referred to as an index or value multiple '
         'times.'.format(feature.name, value_key))
 
-  if index_features[0].HasField('int_domain'):
-    # Currently we only handle O-based INT index features whose minimum
-    # domain value must be zero.
-    if not index_features[0].int_domain.HasField('min'):
-      raise ValueError('Cannot determine dense shape of sparse feature '
-                       '"{}". The minimum domain value of index feature "{}"'
-                       ' is not set.'.format(feature.name, index_keys[0]))
-    if index_features[0].int_domain.min != 0:
-      raise ValueError('Only 0-based index features are supported. Sparse '
-                       'feature "{}" has index feature "{}" whose minimum '
-                       'domain value is {}.'.format(
-                           feature.name, index_keys[0],
-                           index_features[0].int_domain.min))
+  shape = []
+  for index_feature, index_key in zip(index_features, index_keys):
+    if index_feature.HasField('int_domain'):
+      # Currently we only handle O-based INT index features whose minimum
+      # domain value must be zero.
+      if not index_feature.int_domain.HasField('min'):
+        raise ValueError('Cannot determine dense shape of sparse feature '
+                         '"{}". The minimum domain value of index feature "{}"'
+                         ' is not set.'.format(feature.name, index_key))
+      if index_feature.int_domain.min != 0:
+        raise ValueError('Only 0-based index features are supported. Sparse '
+                         'feature "{}" has index feature "{}" whose minimum '
+                         'domain value is {}.'.format(
+                             feature.name, index_key,
+                             index_feature.int_domain.min))
 
-    if not index_features[0].int_domain.HasField('max'):
-      raise ValueError('Cannot determine dense shape of sparse feature '
-                       '"{}". The maximum domain value of index feature "{}"'
-                       ' is not set.'.format(feature.name, index_keys[0]))
-    shape = [index_features[0].int_domain.max + 1]
-  else:
-    raise ValueError('Cannot determine dense shape of sparse feature "{}".'
-                     ' The index feature "{}" had no int_domain set.'.format(
-                         feature.name, index_keys[0]))
+      if not index_feature.int_domain.HasField('max'):
+        raise ValueError('Cannot determine dense shape of sparse feature '
+                         '"{}". The maximum domain value of index feature "{}"'
+                         ' is not set.'.format(feature.name, index_key))
+      shape.append(index_feature.int_domain.max + 1)
+    elif len(index_keys) == 1:
+      raise ValueError('Cannot determine dense shape of sparse feature "{}".'
+                       ' The index feature "{}" had no int_domain set.'.format(
+                           feature.name, index_key))
+    else:
+      shape.append(-1)
 
   dtype = _feature_dtype(value_feature)
   if len(index_keys) != len(shape):
     raise ValueError(
         'sparse_feature "{}" had rank {} (shape {}) but {} index keys were'
         ' given'.format(feature.name, len(shape), shape, len(index_keys)))
-  spec = tf.io.SparseFeature(index_keys[0], value_key, dtype, shape[0],
+  spec = tf.io.SparseFeature(index_keys, value_key, dtype, shape,
                              feature.is_sorted)
   domain = _get_domain(value_feature, string_domains)
   return spec, domain

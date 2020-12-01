@@ -198,7 +198,8 @@ class _VarLenFeatureHandler(object):
 
       # Scalar must be length 1 array.
       values = values if isinstance(values, (list, np.ndarray)) else [values]
-      self._value.extend(self._cast_fn(values))
+      casted = self._cast_fn(values)
+      self._value.extend(casted)
 
 
 _DECODE_DEPRECATION_MESSAGE = 'TFXIO should be used to decode tf.Examples. '
@@ -239,8 +240,12 @@ class ExampleProtoCoder(object):
         self._feature_handlers.append(
             _VarLenFeatureHandler(name, feature_spec.dtype))
       elif isinstance(feature_spec, tf.io.SparseFeature):
-        self._feature_handlers.append(
-            _VarLenFeatureHandler(feature_spec.index_key, tf.int64))
+        index_keys = (
+            feature_spec.index_key if isinstance(feature_spec.index_key, list)
+            else [feature_spec.index_key])
+        for index_key in index_keys:
+          self._feature_handlers.append(
+              _VarLenFeatureHandler(index_key, tf.int64))
         self._feature_handlers.append(
             _VarLenFeatureHandler(feature_spec.value_key, feature_spec.dtype))
       else:

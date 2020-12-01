@@ -104,7 +104,10 @@ EQUIVALENT_FEATURE_SPEC_AND_SCHEMAS = [
         """,
         'feature_spec': {
             'x':
-                tf.io.SparseFeature('index_key', 'value_key', tf.int64, 10, False)
+                tf.io.SparseFeature(['index_key'],
+                                    'value_key',
+                                    tf.int64, [10],
+                                    already_sorted=False)
         }
     },
     {
@@ -130,7 +133,10 @@ EQUIVALENT_FEATURE_SPEC_AND_SCHEMAS = [
         """,
         'feature_spec': {
             'x':
-                tf.io.SparseFeature('index_key', 'value_key', tf.int64, 10, True)
+                tf.io.SparseFeature(['index_key'],
+                                    'value_key',
+                                    tf.int64, [10],
+                                    already_sorted=True)
         }
     },
     # Test domains
@@ -185,6 +191,56 @@ EQUIVALENT_FEATURE_SPEC_AND_SCHEMAS = [
             'x': schema_pb2.FloatDomain(min=0.0, max=0.5)
         }
     },
+    {
+        'testcase_name':
+            'sparse_feature_rank_0',
+        'ascii_proto':
+            """
+          feature {
+            name: "value_key"
+            type: INT
+          }
+          sparse_feature {
+            name: "x"
+            value_feature {name: "value_key"}
+          }
+        """,
+        'feature_spec': {
+            'x': tf.io.SparseFeature([], 'value_key', tf.int64, [])
+        }
+    },
+    {
+        'testcase_name':
+            'sparse_feature_rank_2',
+        'ascii_proto':
+            """
+          feature {
+            name: "index_key_1"
+            type: INT
+            int_domain { min: 0 max: 0 }
+          }
+          feature {
+            name: "index_key_2"
+            type: INT
+            int_domain { min: 0 max: 0 }
+          }
+          feature {
+            name: "value_key"
+            type: INT
+          }
+          sparse_feature {
+            name: "x"
+            index_feature {name: "index_key_1"}
+            index_feature {name: "index_key_2"}
+            value_feature {name: "value_key"}
+          }
+        """,
+        'feature_spec': {
+            'x':
+                tf.io.SparseFeature(['index_key_1', 'index_key_2'], 'value_key',
+                                    tf.int64, [1, 1])
+        }
+    },
 ]
 
 NON_ROUNDTRIP_SCHEMAS = [
@@ -234,16 +290,21 @@ INVALID_SCHEMA_PROTOS = [
         'error_msg': 'Feature "x" had invalid type TYPE_UNKNOWN'
     },
     {
-        'testcase_name': 'feature_has_shape_but_not_always_present',
-        'ascii_proto': '''
+        'testcase_name':
+            'feature_has_shape_but_not_always_present',
+        'ascii_proto':
+            """
           feature: {name: "x" type: INT shape: {}}
-        ''',
-        'error_msg': r'Feature "x" had shape  set but min_fraction 0.0 != 1.  '
-                     r'Use value_count not shape field when min_fraction != 1.'
+        """,
+        'error_msg':
+            r'Feature "x" had shape  set but min_fraction 0.0 != 1.  '
+            r'Use value_count not shape field when min_fraction != 1.'
     },
     {
-        'testcase_name': 'sparse_feature_no_index_int_domain',
-        'ascii_proto': '''
+        'testcase_name':
+            'sparse_feature_no_index_int_domain',
+        'ascii_proto':
+            '''
           feature {
             name: "index_key"
             type: INT
@@ -258,11 +319,14 @@ INVALID_SCHEMA_PROTOS = [
             value_feature {name: "value_key"}
           }
           ''',
-        'error_msg': r'Cannot determine dense shape of sparse feature "x"'
+        'error_msg':
+            r'Cannot determine dense shape of sparse feature "x"'
     },
     {
-        'testcase_name': 'sparse_feature_no_index_int_domain_min',
-        'ascii_proto': '''
+        'testcase_name':
+            'sparse_feature_no_index_int_domain_min',
+        'ascii_proto':
+            """
           feature {
             name: "index_key"
             type: INT
@@ -277,14 +341,17 @@ INVALID_SCHEMA_PROTOS = [
             index_feature {name: "index_key"}
             value_feature {name: "value_key"}
           }
-          ''',
-        'error_msg': r'Cannot determine dense shape of sparse feature "x". '
-                     r'The minimum domain value of index feature "index_key"'
-                     r' is not set.'
+          """,
+        'error_msg':
+            r'Cannot determine dense shape of sparse feature "x". '
+            r'The minimum domain value of index feature "index_key"'
+            r' is not set.'
     },
     {
-        'testcase_name': 'sparse_feature_non_zero_index_int_domain_min',
-        'ascii_proto': '''
+        'testcase_name':
+            'sparse_feature_non_zero_index_int_domain_min',
+        'ascii_proto':
+            """
           feature {
             name: "index_key"
             type: INT
@@ -299,14 +366,17 @@ INVALID_SCHEMA_PROTOS = [
             index_feature {name: "index_key"}
             value_feature {name: "value_key"}
           }
-          ''',
-        'error_msg': r'Only 0-based index features are supported. Sparse '
-                     r'feature "x" has index feature "index_key" whose '
-                     r'minimum domain value is 1'
+          """,
+        'error_msg':
+            r'Only 0-based index features are supported. Sparse '
+            r'feature "x" has index feature "index_key" whose '
+            r'minimum domain value is 1'
     },
     {
-        'testcase_name': 'sparse_feature_no_index_int_domain_max',
-        'ascii_proto': '''
+        'testcase_name':
+            'sparse_feature_no_index_int_domain_max',
+        'ascii_proto':
+            """
           feature {
             name: "index_key"
             type: INT
@@ -321,55 +391,17 @@ INVALID_SCHEMA_PROTOS = [
             index_feature {name: "index_key"}
             value_feature {name: "value_key"}
           }
-          ''',
-        'error_msg': r'Cannot determine dense shape of sparse feature "x". '
-                     r'The maximum domain value of index feature "index_key"'
-                     r' is not set.'
+          """,
+        'error_msg':
+            r'Cannot determine dense shape of sparse feature "x". '
+            r'The maximum domain value of index feature "index_key"'
+            r' is not set.'
     },
     {
-        'testcase_name': 'sparse_feature_rank_0',
-        'ascii_proto': '''
-          feature {
-            name: "value_key"
-            type: INT
-          }
-          sparse_feature {
-            name: "x"
-            value_feature {name: "value_key"}
-          }
-        ''',
-        'error_msg': r'sparse_feature "x" had rank 0 but currently only'
-                     r' rank 1 sparse features are supported'
-    },
-    {
-        'testcase_name': 'sparse_feature_rank_2',
-        'ascii_proto': '''
-          feature {
-            name: "index_key_1"
-            type: INT
-          }
-          feature {
-            name: "index_key_2"
-            type: INT
-          }
-          feature {
-            name: "value_key"
-            type: INT
-          }
-          sparse_feature {
-            name: "x"
-            is_sorted: true
-            index_feature {name: "index_key_1"}
-            index_feature {name: "index_key_2"}
-            value_feature {name: "value_key"}
-          }
-        ''',
-        'error_msg': r'sparse_feature "x" had rank 2 but currently only '
-                     r'rank 1 sparse features are supported'
-    },
-    {
-        'testcase_name': 'sparse_feature_missing_index_key',
-        'ascii_proto': '''
+        'testcase_name':
+            'sparse_feature_missing_index_key',
+        'ascii_proto':
+            """
           feature {
             name: "value_key"
             type: INT
@@ -380,13 +412,16 @@ INVALID_SCHEMA_PROTOS = [
             index_feature {name: "index_key"}
             value_feature {name: "value_key"}
           }
-        ''',
-        'error_msg': r'sparse_feature "x" referred to index feature '
-                     r'"index_key" which did not exist in the schema'
+        """,
+        'error_msg':
+            r'sparse_feature "x" referred to index feature '
+            r'"index_key" which did not exist in the schema'
     },
     {
-        'testcase_name': 'sparse_feature_missing_value_key',
-        'ascii_proto': '''
+        'testcase_name':
+            'sparse_feature_missing_value_key',
+        'ascii_proto':
+            """
           feature {
             name: "index_key"
             type: INT
@@ -398,9 +433,10 @@ INVALID_SCHEMA_PROTOS = [
             index_feature {name: "index_key"}
             value_feature {name: "value_key"}
           }
-        ''',
-        'error_msg': r'sparse_feature "x" referred to value feature '
-                     r'"value_key" which did not exist in the schema'
+        """,
+        'error_msg':
+            r'sparse_feature "x" referred to value feature '
+            r'"value_key" which did not exist in the schema'
     },
 ]
 
@@ -411,26 +447,6 @@ INVALID_FEATURE_SPECS = [
             'x': tf.io.FixedLenFeature([], tf.bool)
         },
         'error_msg': 'Feature "x" has invalid dtype'
-    },
-    {
-        'testcase_name': 'bad_index_key',
-        'feature_spec': {
-            'x':
-                tf.io.SparseFeature(['index_key'], 'value_key', tf.int64, 10,
-                                    False)
-        },
-        'error_msg': r'SparseFeature "x" had index_key \[\'index_key\'\], but '
-                     r'size and index_key fields should be single values'
-    },
-    {
-        'testcase_name': 'bad_size',
-        'feature_spec': {
-            'x':
-                tf.io.SparseFeature('index_key', 'value_key', tf.int64, [10],
-                                    False)
-        },
-        'error_msg': r'SparseFeature "x" had size \[10\], but '
-                     r'size and index_key fields should be single values'
     },
     {
         'testcase_name': 'unsupported_type',
