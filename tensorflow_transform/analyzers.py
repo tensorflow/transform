@@ -42,6 +42,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import common
+from tensorflow_transform import common_types
 from tensorflow_transform import gaussianization
 from tensorflow_transform import nodes
 from tensorflow_transform import schema_inference
@@ -1836,7 +1837,8 @@ def _vocabulary_analyzer_nodes(
     coverage_top_k: int = None,
     coverage_frequency_threshold: float = 0.0,
     coverage_informativeness_threshold: float = float('-inf'),
-    file_format: str = DEFAULT_VOCABULARY_FILE_FORMAT) -> tf.Tensor:
+    file_format: str = DEFAULT_VOCABULARY_FILE_FORMAT
+) -> common_types.TemporaryAnalyzerOutputType:
   """Internal helper for analyzing vocab. See `vocabulary` doc string."""
   if (file_format == 'tfrecord_gzip' and
       (not hasattr(tf.lookup.experimental, 'DatasetInitializer') or

@@ -17,15 +17,26 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import contextlib
+from typing import Callable, Tuple, Union
 # GOOGLE-INITIALIZATION
+
 import tensorflow as tf
+from tensorflow_transform import analyzer_nodes
+from tensorflow_transform import common_types
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
 # `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
 # resolved.
 from tfx_bsl.types import tfx_namedtuple
 
-from tensorflow.python.framework import composite_tensor  # pylint: disable=g-direct-tensorflow-import
-from tensorflow.python.util import object_identity  # pylint: disable=g-direct-tensorflow-import
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.framework import composite_tensor
+from tensorflow.python.framework import ops
+from tensorflow.python.ops import lookup_ops
+from tensorflow.python.util import object_identity
+# pylint: enable=g-direct-tensorflow-import
+
+_AssetFileType = Union[tf.Tensor, common_types.Asset, str]
 
 _FLOATING_NAN = float('nan')
 # Global sentinels used to keep track of the total counts of y
@@ -604,18 +615,23 @@ def apply_per_key_vocabulary(per_key_filename,
     is the number of separate values computed by the analyzer and with extra
     dimensions added according to `target_dims`.
   """
-  initializer = tf.lookup.TextFileInitializer(per_key_filename,
-                                              key_dtype=tf.string,
-                                              key_index=1,
-                                              value_dtype=tf.string,
-                                              value_index=0,
-                                              delimiter=' ')
-
   if default_value is None:
     default_value = ''
-  table = tf.lookup.StaticHashTable(initializer, default_value=default_value)
 
-  sparse_result = tf.compat.v1.strings.split(table.lookup(key), sep=',')
+  def _construct_table(asset_filepath):
+    initializer = tf.lookup.TextFileInitializer(
+        asset_filepath,
+        key_dtype=tf.string,
+        key_index=1,
+        value_dtype=tf.string,
+        value_index=0,
+        delimiter=' ')
+    return tf.lookup.StaticHashTable(initializer, default_value=default_value)
+
+  unused_table, table_lookup = construct_and_lookup_table(
+      _construct_table, per_key_filename, key)
+
+  sparse_result = tf.compat.v1.strings.split(table_lookup, sep=',')
   numbers = tf.strings.to_number(tf.sparse.to_dense(sparse_result))
   # We add 1 to represent the dimension of the multiple associated values found
   # in the vocabulary file (the d values present for every key).
@@ -1320,3 +1336,57 @@ def reduce_batch_minus_min_and_max_per_key(x, key):
                                                         x_batch_maxes)
 
   return (unique.y, x_batch_minus_mins, x_batch_maxes)
+
+
+def _lookup_table(table: lookup_ops.LookupInterface, x: common_types.TensorType,
+                  control_dependency: tf.Tensor) -> common_types.TensorType:
+  """Return the result of looking up `x` in `table` with an optional depndency on `control_dependency`."""
+  with contextlib.ExitStack() as stack:
+    # tf.control_dependencies([tensor]) adds a dependency to tensor.op. Wrap the
+    # tensor in an identity op to ensure that walking the graph from `result`
+    # encounters the control_dependency tensor.
+    if control_dependency is not None:
+      stack.enter_context(
+          tf.control_dependencies([tf.identity(control_dependency)]))
+    result = table.lookup(x)
+  return result
+
+
+def construct_and_lookup_table(
+    construct_table_callable: Callable[[_AssetFileType],
+                                       lookup_ops.LookupInterface],
+    asset_filepath: _AssetFileType, x: common_types.TensorType
+) -> Tuple[lookup_ops.LookupInterface, common_types.TensorType]:
+  """Construct a table and look x up in it.
+
+  Args:
+    construct_table_callable: A Callable that takes a path to an asset file and
+      constructs a lookup table.
+    asset_filepath: Path to an asset used to construct the table. Can be a
+      python string, a `tf.Tensor`, a `tf.Placeholder` or a
+      `tf.saved_model.Asset`.
+    x: A categorical `Tensor` or `SparseTensor` of type tf.string or
+      tf.int[8|16|32|64] to which the table lookup should be applied.
+
+  Returns:
+    A tuple of the table and the result from looking x up in it.
+
+  """
+  with contextlib.ExitStack() as stack:
+    if isinstance(asset_filepath, common_types.Asset):
+      # Lift the table initialization out of graph construction to avoid
+      # repeated initialization in TF2.
+      stack.enter_context(tf.init_scope())
+
+    table = construct_table_callable(asset_filepath)
+    # If table is lifted into an initialization scope, add a control dependency
+    # on the graph tensor used to track this analyzer in
+    # `analyzer_nodes.TENSOR_REPLACEMENTS`.
+    graph = ops.get_default_graph()
+    control_dependency = None
+    asset_replacements_coll = graph.get_collection(
+        analyzer_nodes.ASSET_REPLACEMENTS)
+    if asset_replacements_coll:
+      control_dependency = dict(asset_replacements_coll).get(
+          asset_filepath, None)
+  return table, _lookup_table(table, x, control_dependency)

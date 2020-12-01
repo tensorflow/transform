@@ -29,6 +29,7 @@ import abc
 import json
 import os
 import struct
+from typing import Optional
 import uuid
 
 # GOOGLE-INITIALIZATION
@@ -36,6 +37,7 @@ import uuid
 from future.utils import with_metaclass
 import numpy as np
 import tensorflow as tf
+from tensorflow_transform import common_types
 from tensorflow_transform import nodes
 from tensorflow_transform import tf2_utils
 from tensorflow_transform.graph_context import TFGraphContext
@@ -49,11 +51,12 @@ from tensorflow.python.framework import func_graph
 from tensorflow.python.framework import ops
 # pylint: disable=g-enable-tensorflow-import
 
-# Key for graph collection containing all placeholders/temporary asset files
-# representing TFT analyzers.
+# Key for graph collection containing `TensorSink` objects representing TFT
+# analyzers.
 TENSOR_REPLACEMENTS = 'tft_tensor_replacements'
-# Key for graph collection containing trackable `tf.SavedModel.Asset` objects
-# for evaluated asset files.
+# Key for graph collection containing `TemporaryAnalyzerOutputWrapper` objects
+# representing trackable `tf.SavedModel.Asset` objects for evaluated/temporary
+# asset files.
 ASSET_REPLACEMENTS = 'tft_asset_replacements'
 
 
@@ -123,7 +126,9 @@ TensorSink = tfx_namedtuple.namedtuple(
     'TensorSink', ['tensor', 'future', 'is_asset_filepath'])
 
 
-def _bind_future_as_tensor_v1(future, tensor_info, name=None):
+def _bind_future_as_tensor_v1(future: nodes.ValueNode,
+                              tensor_info: TensorInfo,
+                              name: Optional[str] = None) -> tf.Tensor:
   """Bind a future value as a tensor to a TF1 graph."""
   result = tf.compat.v1.placeholder(tensor_info.dtype, tensor_info.shape, name)
   is_asset_filepath = tensor_info.temporary_asset_value is not None
@@ -132,8 +137,29 @@ def _bind_future_as_tensor_v1(future, tensor_info, name=None):
   return result
 
 
-def _get_temporary_graph_tensor(temp_dir, tensor_info, name):
-  """Get a temporary graph tensor using attributes in `tensor_info`."""
+TemporaryAnalyzerOutputWrapper = tfx_namedtuple.namedtuple(
+    'TemporaryAnalyzerOutputWrapper', ['asset', 'graph_tensor'])
+
+
+def _get_temporary_analyzer_output(
+    temp_dir: str,
+    tensor_info: TensorInfo,
+    name: Optional[str] = None) -> TemporaryAnalyzerOutputWrapper:
+  """Create a temporary graph tensor using attributes in `tensor_info`.
+
+  Args:
+    temp_dir: Path to a directory to write out any temporary asset files to.
+    tensor_info: A `TensorInfo` object containing attributes to create the graph
+      tensor.
+    name: A string (or None). The created graph tensor uses this name.
+
+  Returns:
+    A named tuple `TemporaryAnalyzerOutputWrapper` with:
+      asset: If the graph tensor represents a path to an asset file, a
+           `tf.saved_model.Asset` object for tracking. Else, None.
+      graph_tensor: The graph tensor
+  """
+  asset = None
   with tf.name_scope('temporary_analyzer_output'):
     is_asset_filepath = tensor_info.temporary_asset_value is not None
     if is_asset_filepath:
@@ -149,13 +175,16 @@ def _get_temporary_graph_tensor(temp_dir, tensor_info, name):
           temporary_asset_filepath = os.path.join(temp_dir, uuid.uuid4().hex)
           with tf.io.gfile.GFile(temporary_asset_filepath, 'w') as f:
             f.write(tensor_info.temporary_asset_value)
-        result = tf.constant(
+          # Wrap asset files using `tf.saved_model.Asset` to ensure that
+          # `SavedModel`s exported are hermetic.
+          asset = common_types.Asset(temporary_asset_filepath)
+        graph_tensor = tf.constant(
             temporary_asset_filepath,
             dtype=tensor_info.dtype,
             shape=tensor_info.shape,
             name=name)
       else:
-        result = tf.raw_ops.Placeholder(
+        graph_tensor = tf.raw_ops.Placeholder(
             dtype=tensor_info.dtype, shape=tensor_info.shape, name=name)
     else:
       # Using a placeholder with no default value causes tracing to fail if
@@ -169,21 +198,24 @@ def _get_temporary_graph_tensor(temp_dir, tensor_info, name):
           1, tf.TensorShape(tensor_info.shape), temporary_dtype)
       if tensor_info.dtype == tf.string:
         temporary_tensor = tf.strings.as_string(temporary_tensor)
-      result = tf.raw_ops.PlaceholderWithDefault(
+      graph_tensor = tf.raw_ops.PlaceholderWithDefault(
           input=temporary_tensor, shape=tensor_info.shape, name=name)
-    return result
+    return TemporaryAnalyzerOutputWrapper(asset, graph_tensor)
 
 
-def _bind_future_as_tensor_v2(future, tensor_info, name=None):
+def _bind_future_as_tensor_v2(
+    future: nodes.ValueNode,
+    tensor_info: TensorInfo,
+    name: Optional[str] = None) -> common_types.TemporaryAnalyzerOutputType:
   """Bind a future value as a tensor to a TF2 FuncGraph.
 
-    If the future is expected to write out an asset file, a temporary file is
-    written out by this method. This could write out a significant number of
-    temporary files depending on number of times the `preprocessing_fn` is
-    traced and number of asset files in each tracing.
+    If the future is expected to write out an asset file and this method is
+    invoked within a `TFGraphContext` that was provided a temporary directory,
+    a temporary file is written out by this method.
 
-    If this future has already been evaluated in a previous TFT phase, it is
-    directly returned.
+    This could write out a significant number of temporary files depending on
+    number of times the `preprocessing_fn` is traced and number of asset files
+    in each tracing.
 
   Args:
     future: Future whose result should replace the graph tensor to which its
@@ -193,13 +225,14 @@ def _bind_future_as_tensor_v2(future, tensor_info, name=None):
     name: (Optional) If provided, the graph tensor created uses this name.
 
   Returns:
-    A graph tensor that this future is bound to. If this future has already
-    been evaluated in a previous TFT phase, it is directly returned.
+    A graph tensor or `tf.saved_model.Asset` that this future is bound to. If
+    this future has already been evaluated in a previous TFT phase, it is
+    directly returned.
   """
   graph = ops.get_default_graph()
   temp_dir = TFGraphContext.get_or_create_temp_dir()
-  temporary_graph_tensor = _get_temporary_graph_tensor(temp_dir, tensor_info,
-                                                       name)
+  temporary_analyzer_info = _get_temporary_analyzer_output(
+      temp_dir, tensor_info, name)
   is_asset_filepath = tensor_info.temporary_asset_value is not None
 
   # TODO(b/149997088): Switch to using a counter instead of tensor names.
@@ -209,31 +242,36 @@ def _bind_future_as_tensor_v2(future, tensor_info, name=None):
   # tensor.
   # If `preprocessing_fn` was traced previously and this future was then
   # evaluated in a TFT phase, the result will be present in this dictionary.
+  analyzer_name = temporary_analyzer_info.graph_tensor.name
   if (evaluated_replacements is not None and
-      temporary_graph_tensor.name in evaluated_replacements):
-    replaced_result = evaluated_replacements[temporary_graph_tensor.name]
+      analyzer_name in evaluated_replacements):
+    replaced_result = evaluated_replacements[analyzer_name]
     if is_asset_filepath:
       # Wrap asset files using `tf.saved_model.Asset` to ensure that
       # `SavedModel`s exported are hermetic.
-      asset_val = tf.saved_model.Asset(replaced_result)
-      graph.add_to_collection(ASSET_REPLACEMENTS, asset_val)
-      return asset_val
+      with tf.init_scope():
+        asset = common_types.Asset(replaced_result)
+      graph.add_to_collection(ASSET_REPLACEMENTS,
+                              TemporaryAnalyzerOutputWrapper(asset, None))
+      return asset
     else:
       return replaced_result
   else:
-    result = temporary_graph_tensor
-    if temp_dir and is_asset_filepath:
-      # Wrap asset files using `tf.saved_model.Asset` to ensure that
-      # `SavedModel`s exported are hermetic.
-      result = tf.saved_model.Asset(temporary_graph_tensor)
-      graph.add_to_collection(ASSET_REPLACEMENTS, result)
     graph.add_to_collection(
         TENSOR_REPLACEMENTS,
-        TensorSink(temporary_graph_tensor, future, is_asset_filepath))
-    return result
+        TensorSink(temporary_analyzer_info.graph_tensor, future,
+                   is_asset_filepath))
+    if is_asset_filepath and temporary_analyzer_info.asset:
+      graph.add_to_collection(ASSET_REPLACEMENTS, temporary_analyzer_info)
+      return temporary_analyzer_info.asset
+    else:
+      return temporary_analyzer_info.graph_tensor
 
 
-def bind_future_as_tensor(future, tensor_info, name=None):
+def bind_future_as_tensor(
+    future: nodes.ValueNode,
+    tensor_info: TensorInfo,
+    name: Optional[str] = None) -> common_types.TemporaryAnalyzerOutputType:
   """Bind a future value as a tensor."""
   # TODO(b/165884902): Use tf.inside_function after dropping TF 2.3 support.
   if isinstance(ops.get_default_graph(), func_graph.FuncGraph):
@@ -244,7 +282,9 @@ def bind_future_as_tensor(future, tensor_info, name=None):
     return _bind_future_as_tensor_v1(future, tensor_info, name)
 
 
-def wrap_as_tensor(output_value_node):
+def wrap_as_tensor(
+    output_value_node: nodes.ValueNode
+) -> common_types.TemporaryAnalyzerOutputType:
   analyzer_def = output_value_node.parent_operation.operation_def
   assert isinstance(analyzer_def, AnalyzerDef)
   return bind_future_as_tensor(

@@ -23,11 +23,35 @@ import os
 
 import numpy as np
 import tensorflow as tf
+from tensorflow_transform import common_types
 from tensorflow_transform import tf_utils
 from tensorflow_transform import test_case
 
 import unittest
 from tensorflow.python.framework import composite_tensor  # pylint: disable=g-direct-tensorflow-import
+
+_CONSTRUCT_TABLE_PARAMETERS = [
+    dict(testcase_name='_string', asset_path_input_fn=lambda x: x),
+    dict(testcase_name='_string_tensor', asset_path_input_fn=tf.constant),
+    dict(
+        testcase_name='_saved_model_asset',
+        asset_path_input_fn=common_types.Asset)
+]
+
+
+def _construct_table(asset_file_path,
+                     key_dtype=tf.string,
+                     key_index=0,
+                     value_dtype=tf.int64,
+                     value_index=1,
+                     default_value=-1):
+  initializer = tf.lookup.TextFileInitializer(
+      asset_file_path,
+      key_dtype=key_dtype,
+      key_index=key_index,
+      value_dtype=value_dtype,
+      value_index=value_index)
+  return tf.lookup.StaticHashTable(initializer, default_value=default_value)
 
 
 class _SparseTensorSpec(object):
@@ -1417,9 +1441,31 @@ class VocabTFUtilsTest(test_case.TransformTestCase):
     self.assertEqual(lookup('5'), 5)
     self.assertEqual(lookup('1000'), -1)
 
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers(_CONSTRUCT_TABLE_PARAMETERS))
+  def test_construct_and_lookup_table(self, asset_path_input_fn,
+                                      function_handler):
+    vocab_filename = os.path.join(self.get_temp_dir(), 'test.txt')
+    vocab_data = [('a', '0'), ('b', '1'), ('c', '1'), ('d', '2'), ()]
+    encoded_vocab = '\n'.join(['\t'.join(pair) for pair in vocab_data])
+    with tf.io.gfile.GFile(vocab_filename, 'w') as writer:
+      writer.write(encoded_vocab)
+
+    @function_handler(
+        input_signature=[tf.TensorSpec(shape=[None], dtype=tf.string)])
+    def foo(input_tensor):
+      table, output_tensor = tf_utils.construct_and_lookup_table(
+          _construct_table, asset_path_input_fn(vocab_filename), input_tensor)
+      return table.lookup(input_tensor), output_tensor
+
+    expected_data = [0, 1, 1, 2, -1]
+    table_lookup_output_tensor, output_tensor = foo(['a', 'b', 'c', 'd', 'e'])
+    self.assertAllEqual(table_lookup_output_tensor, expected_data)
+    self.assertAllEqual(output_tensor, expected_data)
+
 
 if __name__ == '__main__':
-  # TODO(b/133440043): Remove this once this is enabled by default in all
+  # TODO(b/160294509): Remove this once this is enabled by default in all
   # supported TF versions.
   tf.compat.v1.enable_v2_tensorshape()
   test_case.main()

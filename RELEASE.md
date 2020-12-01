@@ -6,6 +6,10 @@
 
 ## Bug Fixes and Other Changes
 
+*   Switched to calling tables and initializers within `tf.init_scope` when the
+    `preprocessing_fn` is traced using `tf.function` to avoid re-initializing
+    them on every invocation of the traced `tf.function`.
+
 ## Breaking changes
 
 ## Deprecations

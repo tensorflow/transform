@@ -43,6 +43,7 @@ from tensorflow_transform import tf_utils
 from tfx_bsl.types import tfx_namedtuple
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.framework import composite_tensor
+from tensorflow.python.framework import func_graph as tf_func_graph
 from tensorflow.python.framework import function_def_to_graph
 from tensorflow.python.util import object_identity
 # pylint: enable=g-direct-tensorflow-import
@@ -570,6 +571,19 @@ class InitializableGraphAnalyzer(object):
 
     for table_init_op_or_tensor in graph.get_collection(
         tf.compat.v1.GraphKeys.TABLE_INITIALIZERS):
+      # Handle the case when an initializer was lifted out of the graph context.
+      if table_init_op_or_tensor is None:
+        continue
+
+      if isinstance(graph, tf_func_graph.FuncGraph):
+        tf.compat.v1.logging.warning('Tables initialized inside a tf.function '
+                                     'will be re-initialized on every '
+                                     'invocation of the function. This '
+                                     're-initialization can have significant '
+                                     'impact on performance. Consider lifting '
+                                     'them out of the graph context using '
+                                     '`tf.init_scope`.')
+
       table_init_op, table_input_ops = (
           self._get_table_init_op_and_inputs(table_init_op_or_tensor))
       source_info = self._get_table_init_op_source_info(

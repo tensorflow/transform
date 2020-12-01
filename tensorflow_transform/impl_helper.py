@@ -510,8 +510,11 @@ def trace_and_write_v2_saved_model(saved_model_dir, preprocessing_fn,
     if isinstance(resource, lookup_ops.InitializableLookupTableBase):
       initializers.append(resource._initializer)  # pylint: disable=protected-access
   module.initializers = initializers
-  module.assets = concrete_transform_fn.graph.get_collection(
-      analyzer_nodes.ASSET_REPLACEMENTS)
+  module.assets = [
+      temporary_analyzer_info.asset
+      for temporary_analyzer_info in concrete_transform_fn.graph.get_collection(
+          analyzer_nodes.ASSET_REPLACEMENTS)
+  ]
   tf.saved_model.save(module, saved_model_dir)
   return concrete_transform_fn, concrete_metadata_fn
 

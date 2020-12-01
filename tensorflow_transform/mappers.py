@@ -995,30 +995,35 @@ def apply_vocabulary(x,
               and not deferred_vocab_filename_tensor)):
         raise ValueError('`deferred_vocab_filename_tensor` must not be empty.')
 
-      if file_format == 'tfrecord_gzip':
-        initializer = tf_utils.make_tfrecord_vocabulary_lookup_initializer(
-            deferred_vocab_filename_tensor, x.dtype)
-      elif file_format == 'text':
-        initializer = tf.lookup.TextFileInitializer(
-            deferred_vocab_filename_tensor,
-            key_dtype=x.dtype,
-            key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
-            value_dtype=tf.int64,
-            value_index=tf.lookup.TextFileIndex.LINE_NUMBER)
-      else:
-        raise ValueError(
-            '"{}" is not an accepted file_format. It should be one of: {}'
-            .format(file_format, analyzers.ALLOWED_VOCABULRY_FILE_FORMATS))
+      def _construct_table(asset_filepath):
+        if file_format == 'tfrecord_gzip':
+          initializer = tf_utils.make_tfrecord_vocabulary_lookup_initializer(
+              asset_filepath, x.dtype)
+        elif file_format == 'text':
+          initializer = tf.lookup.TextFileInitializer(
+              asset_filepath,
+              key_dtype=x.dtype,
+              key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
+              value_dtype=tf.int64,
+              value_index=tf.lookup.TextFileIndex.LINE_NUMBER)
+        else:
+          raise ValueError(
+              '"{}" is not an accepted file_format. It should be one of: {}'
+              .format(file_format, analyzers.ALLOWED_VOCABULRY_FILE_FORMATS))
 
-      if num_oov_buckets > 0:
-        table = tf.lookup.StaticVocabularyTable(initializer,
-                                                num_oov_buckets=num_oov_buckets,
-                                                lookup_key_dtype=x.dtype)
-      else:
-        table = tf.lookup.StaticHashTable(initializer,
-                                          default_value=default_value)
+        if num_oov_buckets > 0:
+          table = tf.lookup.StaticVocabularyTable(
+              initializer,
+              num_oov_buckets=num_oov_buckets,
+              lookup_key_dtype=x.dtype)
+        else:
+          table = tf.lookup.StaticHashTable(
+              initializer, default_value=default_value)
+        return table
+
+      table, result = tf_utils.construct_and_lookup_table(
+          _construct_table, deferred_vocab_filename_tensor, x)
       table_size = table.size()
-      result = table.lookup(x)
 
     # Specify schema overrides which will override the values in the schema
     # with the min and max values, which are deferred as they are only known
