@@ -115,12 +115,13 @@ def _batched_placeholder_from_typespec(name, typespec):
   """Creates a batched placeholder from a tf.TypeSpec."""
   if isinstance(typespec,
                 (tf.TensorSpec, tf.SparseTensorSpec, tf.RaggedTensorSpec)):
-    with tf.name_scope(_sanitize_scope_name(name)):
+    sanitized_name = _sanitize_scope_name(name)
+    with tf.name_scope(sanitized_name):
       return tf.nest.map_structure(
           lambda tspec: tf.raw_ops.Placeholder(  # pylint: disable=g-long-lambda
               dtype=tspec.dtype,
               shape=tspec.shape,
-              name=name),
+              name=sanitized_name),
           typespec,
           expand_composites=True)
 
