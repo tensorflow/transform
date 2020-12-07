@@ -17,7 +17,7 @@
 
 ## Breaking changes
 
-*   Existing `tft.quantiles` cache is invalidated.
+*   Existing `tft.quantiles`, `tft.min` and `tft.max` caches are invalidated.
 
 ## Deprecations
 

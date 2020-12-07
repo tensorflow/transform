@@ -1240,15 +1240,11 @@ def _sparse_minus_reduce_min_and_reduce_max(x):
   return x_batch_minus_min, x_batch_max
 
 
-def _inf_to_nan(tensor, output_dtype):
-  if tensor.dtype.is_floating:
-    nan = tf.constant(_FLOATING_NAN, output_dtype)
-    return tf.where(tf.math.is_inf(tensor), tensor + nan, tensor)
-  return tensor
-
-
 def reduce_batch_minus_min_and_max(x, reduce_instance_dims):
   """Computes the -min and max of a tensor x.
+
+  NOTE: For TF versions < 2.4, if all feature values are NaNs, the -min and max
+  will both be -inf (consistent with`tf.reduce_max`).
 
   Args:
     x: A `tf.Tensor`.
@@ -1260,8 +1256,6 @@ def reduce_batch_minus_min_and_max(x, reduce_instance_dims):
   Returns:
     The computed `tf.Tensor`s (batch -min, batch max) pair.
   """
-  output_dtype = x.dtype
-
   # In TF < 2.3, neg(x) would throw an exception, if x was tf.int16. Hence, cast
   # to tf.int32.
   if x.dtype in (tf.uint8, tf.uint16, tf.int16):
@@ -1276,19 +1270,14 @@ def reduce_batch_minus_min_and_max(x, reduce_instance_dims):
 
     x_batch_max = tf.reduce_max(input_tensor=x)
     x_batch_minus_min = tf.reduce_max(input_tensor=tf.zeros_like(x) - x)
-    x_batch_minus_min, x_batch_max = assert_same_shape(x_batch_minus_min,
-                                                       x_batch_max)
-  elif isinstance(x, tf.SparseTensor):
-    x_batch_minus_min, x_batch_max = (
-        _sparse_minus_reduce_min_and_reduce_max(x))
-  else:
-    x_batch_max = tf.reduce_max(input_tensor=x, axis=0)
-    x_batch_minus_min = tf.reduce_max(input_tensor=0 - x, axis=0)
+    return assert_same_shape(x_batch_minus_min, x_batch_max)
 
-  # TODO(b/112309021): Remove workaround once tf.reduce_max of a tensor of all
-  # NaNs produces -inf.
-  return (_inf_to_nan(x_batch_minus_min, output_dtype),
-          _inf_to_nan(x_batch_max, output_dtype))
+  elif isinstance(x, tf.SparseTensor):
+    return _sparse_minus_reduce_min_and_reduce_max(x)
+
+  else:
+    return (tf.reduce_max(input_tensor=0 - x, axis=0),
+            tf.reduce_max(input_tensor=x, axis=0))
 
 
 def reduce_batch_minus_min_and_max_per_key(x, key):
@@ -1305,8 +1294,6 @@ def reduce_batch_minus_min_and_max_per_key(x, key):
   Returns:
     A 3-tuple containing the `Tensor`s (key_vocab, min_per_key, max_per_key).
   """
-  output_dtype = x.dtype
-
   if x.dtype == tf.uint8 or x.dtype == tf.uint16:
     x = tf.cast(x, tf.int32)
 
@@ -1315,22 +1302,18 @@ def reduce_batch_minus_min_and_max_per_key(x, key):
 
   x, key = _validate_and_get_dense_value_key_inputs(x, key)
 
-  def get_batch_max_per_key(tensor, key_uniques, dtype):  # pylint: disable=missing-docstring
+  def get_batch_max_per_key(tensor, key_uniques):  # pylint: disable=missing-docstring
     if tensor.get_shape().ndims < 2:
       row_maxes = tensor
     else:
       row_maxes = tf.reduce_max(
           tensor, axis=tf.range(1, tensor.get_shape().ndims))
-    batch_max = tf.math.unsorted_segment_max(
-        row_maxes, key_uniques.idx, tf.size(input=key_uniques.y))
-
-    # TODO(b/112309021): Remove workaround once tf.reduce_max of a tensor of all
-    # NaNs produces -inf.
-    return _inf_to_nan(batch_max, dtype)
+    return tf.math.unsorted_segment_max(row_maxes, key_uniques.idx,
+                                        tf.size(input=key_uniques.y))
 
   unique = tf.unique_with_counts(key, out_idx=tf.int64)
-  x_batch_maxes = get_batch_max_per_key(x, unique, output_dtype)
-  x_batch_minus_mins = get_batch_max_per_key(-x, unique, output_dtype)
+  x_batch_maxes = get_batch_max_per_key(x, unique)
+  x_batch_minus_mins = get_batch_max_per_key(-x, unique)
 
   x_batch_minus_mins, x_batch_maxes = assert_same_shape(x_batch_minus_mins,
                                                         x_batch_maxes)

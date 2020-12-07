@@ -837,82 +837,100 @@ class TFUtilsTest(test_case.TransformTestCase):
     self.assertAllEqual(mean, expected_mean)
     self.assertAllEqual(var, expected_var)
 
-  @test_case.named_parameters(test_case.cross_with_function_handlers([
-      dict(
-          testcase_name='sparse',
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0], [0, 1], [0, 2]],
-              values=[3, 2, -1],
-              dense_shape=[1, 5]),
-          expected_x_minus_min=1,
-          expected_x_max=3,
-          reduce_instance_dims=True,
-          input_signature=[tf.SparseTensorSpec([None, None], tf.int64)]),
-      dict(
-          testcase_name='float',
-          x=[[1, 5, 2]],
-          expected_x_minus_min=-1,
-          expected_x_max=5,
-          reduce_instance_dims=True,
-          input_signature=[tf.TensorSpec([None, None], tf.float32)]),
-      dict(
-          testcase_name='sparse_float_elementwise',
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0], [0, 1], [1, 0]],
-              values=[3, 2, -1],
-              dense_shape=[2, 3]),
-          expected_x_minus_min=[1, -2, np.nan],
-          expected_x_max=[3, 2, np.nan],
-          reduce_instance_dims=False,
-          input_signature=[tf.SparseTensorSpec([None, None], tf.float32)]),
-      dict(
-          testcase_name='float_elementwise',
-          x=[[1, 5, 2], [2, 3, 4]],
-          reduce_instance_dims=False,
-          expected_x_minus_min=[-1, -3, -2],
-          expected_x_max=[2, 5, 4],
-          input_signature=[tf.TensorSpec([None, None], tf.float32)]),
-      dict(
-          testcase_name='sparse_int64_elementwise',
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0], [0, 1], [1, 0]],
-              values=[3, 2, -1],
-              dense_shape=[2, 3]),
-          reduce_instance_dims=False,
-          expected_x_minus_min=[1, -2, tf.int64.min + 1],
-          expected_x_max=[3, 2, tf.int64.min + 1],
-          input_signature=[tf.SparseTensorSpec([None, None], tf.int64)]),
-      dict(
-          testcase_name='sparse_int32_elementwise',
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0], [0, 1], [1, 0]],
-              values=[3, 2, -1],
-              dense_shape=[2, 3]),
-          reduce_instance_dims=False,
-          expected_x_minus_min=[1, -2, tf.int32.min + 1],
-          expected_x_max=[3, 2, tf.int32.min + 1],
-          input_signature=[tf.SparseTensorSpec([None, None], tf.int32)]),
-      dict(
-          testcase_name='sparse_float64_elementwise',
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0], [0, 1], [1, 0]],
-              values=[3, 2, -1],
-              dense_shape=[2, 3]),
-          reduce_instance_dims=False,
-          expected_x_minus_min=[1, -2, np.nan],
-          expected_x_max=[3, 2, np.nan],
-          input_signature=[tf.SparseTensorSpec([None, None], tf.float64)]),
-      dict(
-          testcase_name='sparse_float32_elementwise',
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0], [0, 1], [1, 0]],
-              values=[3, 2, -1],
-              dense_shape=[2, 3]),
-          reduce_instance_dims=False,
-          expected_x_minus_min=[1, -2, np.nan],
-          expected_x_max=[3, 2, np.nan],
-          input_signature=[tf.SparseTensorSpec([None, None], tf.float32)]),
-  ]))
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers([
+          dict(
+              testcase_name='sparse',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 1], [0, 2]],
+                  values=[3, 2, -1],
+                  dense_shape=[1, 5]),
+              expected_x_minus_min=1,
+              expected_x_max=3,
+              reduce_instance_dims=True,
+              input_signature=[tf.SparseTensorSpec([None, None], tf.int64)]),
+          dict(
+              testcase_name='float',
+              x=[[1, 5, 2]],
+              expected_x_minus_min=-1,
+              expected_x_max=5,
+              reduce_instance_dims=True,
+              input_signature=[tf.TensorSpec([None, None], tf.float32)]),
+          dict(
+              testcase_name='sparse_float_elementwise',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 1], [1, 0]],
+                  values=[3, 2, -1],
+                  dense_shape=[2, 3]),
+              expected_x_minus_min=[1, -2, np.nan],
+              expected_x_max=[3, 2, np.nan],
+              reduce_instance_dims=False,
+              input_signature=[tf.SparseTensorSpec([None, None], tf.float32)]),
+          dict(
+              testcase_name='float_elementwise',
+              x=[[1, 5, 2], [2, 3, 4]],
+              reduce_instance_dims=False,
+              expected_x_minus_min=[-1, -3, -2],
+              expected_x_max=[2, 5, 4],
+              input_signature=[tf.TensorSpec([None, None], tf.float32)]),
+          dict(
+              testcase_name='sparse_int64_elementwise',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 1], [1, 0]],
+                  values=[3, 2, -1],
+                  dense_shape=[2, 3]),
+              reduce_instance_dims=False,
+              expected_x_minus_min=[1, -2, tf.int64.min + 1],
+              expected_x_max=[3, 2, tf.int64.min + 1],
+              input_signature=[tf.SparseTensorSpec([None, None], tf.int64)]),
+          dict(
+              testcase_name='sparse_int32_elementwise',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 1], [1, 0]],
+                  values=[3, 2, -1],
+                  dense_shape=[2, 3]),
+              reduce_instance_dims=False,
+              expected_x_minus_min=[1, -2, tf.int32.min + 1],
+              expected_x_max=[3, 2, tf.int32.min + 1],
+              input_signature=[tf.SparseTensorSpec([None, None], tf.int32)]),
+          dict(
+              testcase_name='sparse_float64_elementwise',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 1], [1, 0]],
+                  values=[3, 2, -1],
+                  dense_shape=[2, 3]),
+              reduce_instance_dims=False,
+              expected_x_minus_min=[1, -2, np.nan],
+              expected_x_max=[3, 2, np.nan],
+              input_signature=[tf.SparseTensorSpec([None, None], tf.float64)]),
+          dict(
+              testcase_name='sparse_float32_elementwise',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 1], [1, 0]],
+                  values=[3, 2, -1],
+                  dense_shape=[2, 3]),
+              reduce_instance_dims=False,
+              expected_x_minus_min=[1, -2, np.nan],
+              expected_x_max=[3, 2, np.nan],
+              input_signature=[tf.SparseTensorSpec([None, None], tf.float32)]),
+          dict(
+              testcase_name='all_nans',
+              x=[[np.nan, np.nan, np.nan]],
+              # Output of `tf.reduce_max` if all inputs are NaNs for older
+              # versions of TF is -inf.
+              expected_x_minus_min=(-np.inf
+                                    if tf.__version__ < '2.4' else np.nan),
+              expected_x_max=-np.inf if tf.__version__ < '2.4' else np.nan,
+              reduce_instance_dims=True,
+              input_signature=[tf.TensorSpec([None, None], tf.float32)]),
+          dict(
+              testcase_name='empty_batch',
+              x=[[]],
+              expected_x_minus_min=-np.inf,
+              expected_x_max=-np.inf,
+              reduce_instance_dims=True,
+              input_signature=[tf.TensorSpec([None, None], tf.float32)]),
+      ]))
   def test_reduce_batch_minus_min_and_max(
       self, x, expected_x_minus_min, expected_x_max, reduce_instance_dims,
       input_signature, function_handler):
