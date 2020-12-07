@@ -15,12 +15,10 @@
 """Tests for tft.bucketize and tft.quantiles."""
 
 import contextlib
-import math
 import random
 
 # GOOGLE-INITIALIZATION
 
-import apache_beam as beam
 import numpy as np
 from six.moves import range
 
@@ -33,46 +31,17 @@ from tensorflow_metadata.proto.v0 import schema_pb2
 
 # pylint: disable=g-complex-comprehension
 
-_TF_BELOW_2_3_AND_REASON = (tf.version.VERSION < '2.3',
-                            'Requires TF version < 2.3.')
-# TODO(varshaan): Remove external_environment check.
-_TF_2_3_OR_HIGHER_AND_REASON = (
-    tf.version.VERSION >= '2.3' and tft_unit.is_external_environment(),
-    'Requires TF version >= 2.3 and external environment.')
-
 
 def _construct_test_bucketization_tight_sequence_parameters():
-  # (test_inputs, expected_boundaries, dtype, num_buckets, num_expected_buckets,
-  # always_return_num_quantiles, (test_condition, reason))
+  # (test_inputs, expected_boundaries, dtype, num_buckets, num_expected_buckets)
   args = (
-      ([1, 2, 3, 4], [3], tf.int32, 2, 2, True, (True, None)),
-      ([1, 2, 3, 4], [2, 3], tf.int32, 3, 3, True, (True, None)),
-      ([1, 2, 3, 4], [2, 3, 4], tf.int32, 4, 4, True, (True, None)),
-      ([1, 2, 3, 4], [1, 2, 3, 4], tf.int32, 5, 5, True, (True, None)),
-      ([1, 2, 3, 4], [1, 2, 3, 3, 4], tf.int32, 6, 6, True, (True, None)),
-      ([1, 2, 3, 4], [1, 1, 2, 2, 3, 3, 3, 4,
-                      4], tf.int32, 10, 10, True, (True, None)),
-      ([1, 2, 3, 4], [3], tf.int32, 2, 2, False, _TF_BELOW_2_3_AND_REASON),
-      ([1, 2, 3, 4], [3, 4], tf.int32, 3, 3, False, _TF_BELOW_2_3_AND_REASON),
-      ([1, 2, 3, 4], [2, 3,
-                      4], tf.int32, 4, 4, False, _TF_BELOW_2_3_AND_REASON),
-      ([1, 2, 3, 4], [1, 2, 3,
-                      4], tf.int32, 5, 5, False, _TF_BELOW_2_3_AND_REASON),
-      ([1, 2, 3, 4], [1, 2, 3,
-                      4], tf.int32, 6, 5, False, _TF_BELOW_2_3_AND_REASON),
-      ([1, 2, 3, 4], [1, 2, 3,
-                      4], tf.int32, 10, 5, False, _TF_BELOW_2_3_AND_REASON),
-      ([1, 2, 3, 4], [4], tf.int32, 2, 2, False, _TF_2_3_OR_HIGHER_AND_REASON),
-      ([1, 2, 3, 4], [3,
-                      4], tf.int32, 3, 3, False, _TF_2_3_OR_HIGHER_AND_REASON),
-      ([1, 2, 3, 4], [2, 3,
-                      4], tf.int32, 4, 4, False, _TF_2_3_OR_HIGHER_AND_REASON),
-      ([1, 2, 3, 4], [1, 2, 3,
-                      4], tf.int32, 5, 5, False, _TF_2_3_OR_HIGHER_AND_REASON),
-      ([1, 2, 3, 4], [1, 2, 3,
-                      4], tf.int32, 6, 5, False, _TF_2_3_OR_HIGHER_AND_REASON),
-      ([1, 2, 3, 4], [1, 2, 3,
-                      4], tf.int32, 10, 5, False, _TF_2_3_OR_HIGHER_AND_REASON),
+      ([1, 2, 3, 4], np.array([[3]], np.float32), tf.int32, 2, 2),
+      ([1, 2, 3, 4], np.array([[2, 3]], np.float32), tf.int32, 3, 3),
+      ([1, 2, 3, 4], np.array([[2, 3, 4]], np.float32), tf.int32, 4, 4),
+      ([1, 2, 3, 4], np.array([[1, 2, 3, 4]], np.float32), tf.int32, 5, 5),
+      ([1, 2, 3, 4], np.array([[1, 2, 3, 3, 4]], np.float32), tf.int32, 6, 6),
+      ([1, 2, 3, 4], np.array([[1, 1, 2, 2, 3, 3, 3, 4, 4]],
+                              np.float32), tf.int32, 10, 10),
   )
   return args
 
@@ -103,26 +72,17 @@ def _construct_test_bucketization_parameters():
 
       # The following test is with multiple batches (3 batches with default
       # batch of 1000).
-      (range(1, 3000), [1499], False, None, False, False),
+      (range(1, 3000), [1500], False, None, False, False),
       (range(1, 3000), [1000, 2000], False, None, False, False),
 
       # Test with specific error for bucket boundaries. This is same as the test
       # above with 3 batches and a single boundary, but with a stricter error
-      # tolerance (0.001) than the default error (0.01). The result is that the
-      # computed boundary in the test below is closer to the middle (1501) than
-      # that computed by the boundary of 1503 above.
+      # tolerance (0.001) than the default error (0.01).
       (range(1, 3000), [1500], False, 0.001, False, False),
-
-      # Test with specific error for bucket boundaries, with more relaxed error
-      # tolerance (0.1) than the default (0.01). Now the boundary diverges
-      # further to 1504 (compared to boundary of 1501 with error 0.001, and
-      # boundary of 1503 with error 0.01).
-      (range(1, 3000), [1503], False, 0.1, False, False),
 
       # Tests for tft.apply_buckets.
       (range(1, 100), [25, 50, 75], False, 0.00001, True, False),
-      # TODO(b/78569039): Enable this test.
-      # (range(1, 100), [26, 51, 76], False, 0.00001, True, True),
+      (range(1, 100), [25, 50, 75], False, 0.00001, True, True),
   )
   dtypes = (tf.int32, tf.int64, tf.float32, tf.float64, tf.double)
   return (x + (dtype,) for x in args_without_dtype for dtype in dtypes)
@@ -160,7 +120,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
       num_buckets = len(expected_boundaries) + 1
       if should_apply:
         if is_manual_boundaries:
-          bucket_boundaries = expected_boundaries
+          bucket_boundaries = [expected_boundaries]
         else:
           bucket_boundaries = tft.quantiles(inputs['x'], num_buckets, epsilon)
         result = tft.apply_buckets(x, bucket_boundaries)
@@ -216,9 +176,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
           preprocessing_fn,
           expected_data,
           expected_metadata,
-          desired_batch_size=1000,
-          # TODO(b/110855155): Remove this explicit use of DirectRunner.
-          beam_pipeline=beam.Pipeline())
+          desired_batch_size=1000)
 
   @tft_unit.parameters(
       # Test for all integral types, each type is in a separate testcase to
@@ -304,9 +262,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
           preprocessing_fn,
           expected_data,
           expected_metadata,
-          desired_batch_size=1000,
-          # TODO(b/110855155): Remove this explicit use of DirectRunner.
-          beam_pipeline=beam.Pipeline())
+          desired_batch_size=1000)
 
   # Test for all numerical types, each type is in a separate testcase to
   # increase parallelism of test shards and reduce test time.
@@ -653,23 +609,16 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
                                   expected_boundaries,
                                   input_dtype,
                                   num_buckets=None,
-                                  num_expected_buckets=None,
-                                  always_return_num_quantiles=True):
+                                  num_expected_buckets=None):
 
     if not num_buckets:
       num_buckets = len(expected_boundaries) + 1
     if not num_expected_buckets:
       num_expected_buckets = num_buckets
 
-    def preprocessing_fn(inputs):
+    def analyzer_fn(inputs):
       x = tf.cast(inputs['x'], input_dtype)
-      quantiles = tft.quantiles(
-          x,
-          num_buckets,
-          epsilon=0.0001,
-          always_return_num_quantiles=always_return_num_quantiles)
-      quantiles.set_shape([1, num_expected_buckets - 1])
-      return {'q_b': quantiles}
+      return {'q_b': tft.quantiles(x, num_buckets, epsilon=0.0001)}
 
     input_data = [{'x': [x]} for x in test_inputs]
 
@@ -679,43 +628,26 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
                                   tft_unit.canonical_numeric_dtype(input_dtype))
     })
 
-    # Expected data has the same size as input, one bucket per input value.
-    batch_size = 1000
-    expected_data = []
-    num_batches = int(math.ceil(len(test_inputs) / float(batch_size)))
+    expected_data = {'q_b': expected_boundaries}
 
-    for _ in range(num_batches):
-      expected_data += [{'q_b': expected_boundaries}]
-
-    expected_metadata = None
-
-    self.assertAnalyzeAndTransformResults(
+    self.assertAnalyzerOutputs(
         input_data,
         input_metadata,
-        preprocessing_fn,
+        analyzer_fn,
         expected_data,
-        expected_metadata,
-        desired_batch_size=batch_size,
-        # TODO(b/110855155): Remove this explicit use of DirectRunner.
-        beam_pipeline=beam.Pipeline())
+        desired_batch_size=1000)
 
   @tft_unit.parameters(
       *_construct_test_bucketization_tight_sequence_parameters())
   def testBucketizationForTightSequence(self, test_inputs, expected_boundaries,
                                         dtype, num_buckets,
-                                        num_expected_buckets,
-                                        always_return_num_quantiles,
-                                        test_condition_and_reason):
-    test_condition, reason = test_condition_and_reason
-    if not test_condition:
-      self.skipTest(reason)
+                                        num_expected_buckets):
     self._assert_quantile_boundaries(
         test_inputs,
         expected_boundaries,
         dtype,
         num_buckets=num_buckets,
-        num_expected_buckets=num_expected_buckets,
-        always_return_num_quantiles=always_return_num_quantiles)
+        num_expected_buckets=num_expected_buckets)
 
   def testBucketizationEqualDistributionInSequence(self):
     # Input pattern is of the form [1, 1, 1, ..., 2, 2, 2, ..., 3, 3, 3, ...]
@@ -723,7 +655,8 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
     for i in range(1, 101):
       inputs += [i] * 100
     # Expect 100 equally spaced buckets.
-    expected_buckets = range(1, 101)
+    expected_buckets = np.expand_dims(
+        np.arange(1, 101, dtype=np.float32), axis=0)
     self._assert_quantile_boundaries(
         inputs, expected_buckets, tf.int32, num_buckets=101)
 
@@ -734,7 +667,8 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
     for _ in range(1, 101):
       inputs += sequence
     # Expect 100 equally spaced buckets.
-    expected_buckets = range(1, 101)
+    expected_buckets = np.expand_dims(
+        np.arange(1, 101, dtype=np.float32), axis=0)
     self._assert_quantile_boundaries(
         inputs, expected_buckets, tf.int32, num_buckets=101)
 
@@ -760,7 +694,8 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
       for ix in range(num // 100):
         inputs += [mn + (ix * step)]
 
-    expected_boundaries = [2.3084, 3.5638, 5.0972, 7.07]
+    expected_boundaries = np.array([[2.3084, 3.5638, 5.0972, 7.07]],
+                                   dtype=np.float32)
 
     self._assert_quantile_boundaries(
         inputs, expected_boundaries, tf.float32, num_buckets=5)

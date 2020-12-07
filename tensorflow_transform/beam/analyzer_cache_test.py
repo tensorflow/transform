@@ -36,22 +36,18 @@ from tensorflow_transform import test_case
 mock = tf.compat.v1.test.mock
 
 
-def _get_quantiles_summary():
+def _get_quantiles_accumulator():
 
   qcombiner = analyzers.QuantilesCombiner(
       num_quantiles=2,
       epsilon=0.01,
       bucket_numpy_dtype=np.float32,
-      always_return_num_quantiles=True,
       has_weights=False,
       output_shape=None,
       include_max_and_min=False,
       feature_shape=[1])
-  qcombiner.initialize_local_state(tf_config=None)
   accumulator = qcombiner.create_accumulator()
-  add_input_op = qcombiner.add_input(accumulator, [np.array([1.0, 2.0, 3.0])])
-  with tf.compat.v1.Session():
-    return add_input_op[0]
+  return qcombiner.add_input(accumulator, [np.array([1.0, 2.0, 3.0])])
 
 
 class AnalyzerCacheTest(test_case.TransformTestCase):
@@ -103,12 +99,8 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
           ]),
       dict(
           testcase_name='_QuantilesAccumulatorCoderClassAccumulator',
-          coder=analyzers._QuantilesAccumulatorCacheCoder(),
-          value=[
-              '\n\x0f\r\x00\x00 A\x15\x00\x00\x80?%\x00\x00\x80?\n\x14\r\x00\x00@A\x15\x00\x00\x80?\x1d\x00\x00\x80?%\x00\x00\x00@',
-              '',
-              _get_quantiles_summary()
-          ]),
+          coder=analyzers._QuantilesSketchCacheCoder(),
+          value=_get_quantiles_accumulator()),
       dict(
           testcase_name='_CombinerPerKeyAccumulatorCoder',
           coder=analyzer_nodes._CombinerPerKeyAccumulatorCoder(
@@ -117,7 +109,15 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
   )
   def test_coders_round_trip(self, coder, value):
     encoded = coder.encode_cache(value)
-    np.testing.assert_equal(coder.decode_cache(encoded), value)
+    if isinstance(coder, analyzers._QuantilesSketchCacheCoder):
+      # Quantiles accumulator becomes a different object after pickle round trip
+      # and doesn't have a deep __eq__ defined. That's why we compare the output
+      # of accumulator before and after pickling.
+      np.testing.assert_equal(
+          coder.decode_cache(encoded).GetQuantiles(10).to_pylist(),
+          value.GetQuantiles(10).to_pylist())
+    else:
+      np.testing.assert_equal(coder.decode_cache(encoded), value)
 
   def test_cache_helpers_round_trip(self):
     base_test_dir = os.path.join(

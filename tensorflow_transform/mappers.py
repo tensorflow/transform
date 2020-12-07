@@ -1496,6 +1496,11 @@ def hash_strings(strings, hash_buckets, key=None, name=None):
   return tf.strings.to_hash_bucket_strong(strings, hash_buckets, key, name=name)
 
 
+# TODO(b/174549940): Remove `always_return_num_quantiles` after TFT 0.27
+# release.
+@deprecation.deprecated_args(
+    None, 'Number of generated buckets is now always `num_buckets` - 1.',
+    'always_return_num_quantiles')
 @common.log_api_use(common.MAPPER_COLLECTION)
 def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
               always_return_num_quantiles=True, name=None):
@@ -1525,9 +1530,7 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
       same shape as x.
     elementwise: (Optional) If true, bucketize each element of the tensor
       independently.
-    always_return_num_quantiles: (Optional) A bool that determines whether the
-      exact num_buckets should be returned. If False, `num_buckets` will be
-      treated as a suggestion.
+    always_return_num_quantiles: Deprecated. Do not set.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1541,6 +1544,7 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
   Raises:
     ValueError: If value of num_buckets is not > 1.
   """
+  del always_return_num_quantiles
   with tf.compat.v1.name_scope(name, 'bucketize'):
     if not isinstance(num_buckets, int):
       raise TypeError('num_buckets must be an int, got %s' % type(num_buckets))
@@ -1554,9 +1558,11 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
 
     x_values = x.values if isinstance(x, tf.SparseTensor) else x
     bucket_boundaries = analyzers.quantiles(
-        x_values, num_buckets, epsilon, weights,
-        reduce_instance_dims=not elementwise,
-        always_return_num_quantiles=always_return_num_quantiles)
+        x_values,
+        num_buckets,
+        epsilon,
+        weights,
+        reduce_instance_dims=not elementwise)
 
     if not elementwise:
       return apply_buckets(x, bucket_boundaries)

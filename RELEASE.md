@@ -12,8 +12,12 @@
 *   Switched to calling tables and initializers within `tf.init_scope` when the
     `preprocessing_fn` is traced using `tf.function` to avoid re-initializing
     them on every invocation of the traced `tf.function`.
+*   Switched to a (notably) faster implementation of `tft.quantiles` analyzer.
+*   Depends on `pyarrow>=0.17,<0.18`.
 
 ## Breaking changes
+
+*   Existing `tft.quantiles` cache is invalidated.
 
 ## Deprecations
 

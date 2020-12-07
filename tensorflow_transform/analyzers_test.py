@@ -426,10 +426,7 @@ _L_MOMENTS_ND_TESTS = [dict(
 _QUANTILES_NO_ELEMENTS_TEST = dict(
     testcase_name='ComputeQuantilesNoElements',
     combiner=analyzers.QuantilesCombiner(
-        num_quantiles=5,
-        epsilon=0.00001,
-        bucket_numpy_dtype=np.float32,
-        always_return_num_quantiles=True),
+        num_quantiles=5, epsilon=0.00001, bucket_numpy_dtype=np.float32),
     batches=[
         (np.empty((0, 1), dtype=np.float32),),
     ],
@@ -439,10 +436,7 @@ _QUANTILES_NO_ELEMENTS_TEST = dict(
 _QUANTILES_EXACT_NO_ELEMENTS_TEST = dict(
     testcase_name='ComputeExactQuantilesNoElements',
     combiner=analyzers.QuantilesCombiner(
-        num_quantiles=5,
-        epsilon=0.00001,
-        bucket_numpy_dtype=np.float32,
-        always_return_num_quantiles=True),
+        num_quantiles=5, epsilon=0.00001, bucket_numpy_dtype=np.float32),
     batches=[
         (np.empty((0, 1), dtype=np.float32),),
     ],
@@ -455,7 +449,6 @@ _QUANTILES_NO_TRIM_TEST = dict(
         num_quantiles=4,
         epsilon=0.00001,
         bucket_numpy_dtype=np.float32,
-        always_return_num_quantiles=True,
         include_max_and_min=True),
     batches=[
         (np.array([1, 1]),),
@@ -468,10 +461,7 @@ _QUANTILES_SINGLE_BATCH_TESTS = [
     dict(
         testcase_name='ComputeQuantilesSingleBatch-{}'.format(np_type),
         combiner=analyzers.QuantilesCombiner(
-            num_quantiles=5,
-            epsilon=0.00001,
-            bucket_numpy_dtype=np.float32,
-            always_return_num_quantiles=True),
+            num_quantiles=5, epsilon=0.00001, bucket_numpy_dtype=np.float32),
         batches=[
             (np.linspace(1, 100, 100, dtype=np_type),),
             (np.linspace(101, 200, 100, dtype=np_type),),
@@ -489,7 +479,6 @@ _QUANTILES_ELEMENTWISE_TESTS = [
             num_quantiles=5,
             epsilon=0.00001,
             bucket_numpy_dtype=np.float32,
-            always_return_num_quantiles=True,
             feature_shape=[3]),
         batches=[
             (np.vstack([np.linspace(1, 100, 100, dtype=np_type),
@@ -507,10 +496,7 @@ _QUANTILES_MULTIPLE_BATCH_TESTS = [
     dict(
         testcase_name='ComputeQuantilesMultipleBatch-{}'.format(np_type),
         combiner=analyzers.QuantilesCombiner(
-            num_quantiles=3,
-            epsilon=0.00001,
-            bucket_numpy_dtype=np.float32,
-            always_return_num_quantiles=True),
+            num_quantiles=3, epsilon=0.00001, bucket_numpy_dtype=np.float32),
         batches=[
             (np.linspace(1, 100, 100, np_type),),
         ],
@@ -522,10 +508,7 @@ _EXACT_NUM_QUANTILES_TESTS = [
     dict(
         testcase_name='ComputeExactNumQuantiles-{}'.format(np_type),
         combiner=analyzers.QuantilesCombiner(
-            num_quantiles=4,
-            epsilon=0.00001,
-            bucket_numpy_dtype=np.float32,
-            always_return_num_quantiles=True),
+            num_quantiles=4, epsilon=0.00001, bucket_numpy_dtype=np.float32),
         batches=[
             (np.array([1, 1]),),
         ],
@@ -573,9 +556,6 @@ class AnalyzersTest(test_case.TransformTestCase):
     # Test serialization faithfully reproduces the object. If tests
     # mysteriously break, it could be because __reduce__ is missing something.
     combiner = pickle.loads(pickle.dumps(combiner))
-
-    if isinstance(combiner, analyzers.QuantilesCombiner):
-      combiner.initialize_local_state(tf_config=None)
 
     # Note `accumulators` is a generator, not list.  We do this to ensure that
     # add_input is not relying on its input being a list.

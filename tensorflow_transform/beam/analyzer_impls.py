@@ -753,14 +753,12 @@ class _CombinerWrapper(beam.CombineFn):
 
   def __init__(self,
                combiner,
-               tf_config,
                is_combining_accumulators,
                should_extract_output=None):
     """Init method for _CombinerWrapper.
 
     Args:
       combiner: A `analyzer_nodes.Combiner` object used to combine.
-      tf_config: A `tf.ConfigProto`.
       is_combining_accumulators: A bool which indicates whether this is
         combining single or batched inputs, or already accumulated objects.
       should_extract_output: A bool which indicates whether this should call the
@@ -768,16 +766,10 @@ class _CombinerWrapper(beam.CombineFn):
         assume it's the same value as `should_extract_output`.
     """
     self._combiner = combiner
-    self._tf_config = tf_config
     self._is_combining_accumulators = is_combining_accumulators
     if should_extract_output is None:
       should_extract_output = is_combining_accumulators
     self._should_extract_output = should_extract_output
-
-    # TODO(b/135541366): Move this to CombineFn.setup once it exists.
-    # That should help simplify several aspects of Quantiles state management.
-    if isinstance(combiner, analyzers.QuantilesCombiner):
-      combiner.initialize_local_state(tf_config)
 
   def create_accumulator(self):
     return self._combiner.create_accumulator()
@@ -816,22 +808,18 @@ class _PackedCombinerWrapper(beam.combiners.TupleCombineFn):
 
   def __init__(self,
                combiner_ops,
-               tf_config,
                is_combining_accumulators):
     """Init method for _PackedCombinerWrapper.
 
     Args:
       combiner_ops: A List `analysis_graph_builder._CombinerOpWrapper` objects.
-      tf_config: A `tf.ConfigProto`.
       is_combining_accumulators: A bool which indicates whether this is
         combining single or batched inputs, or already accumulated objects.
     """
-    super(_PackedCombinerWrapper, self).__init__(
-        *[_CombinerWrapper(
-            c.combiner, tf_config, is_combining_accumulators)
-          for c in combiner_ops
-         ]
-        )
+    super(_PackedCombinerWrapper, self).__init__(*[
+        _CombinerWrapper(c.combiner, is_combining_accumulators)
+        for c in combiner_ops
+    ])
     self._is_combining_accumulators = is_combining_accumulators
     if self._is_combining_accumulators:
       # When combining accumulators, we expect to have only a single key which
@@ -1071,7 +1059,6 @@ class _InitialAccumulatePackedCombineImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     self._combiners = operation.combiners
-    self._tf_config = extra_args.tf_config
 
   def expand(self, inputs):
     pcoll, = inputs
@@ -1084,7 +1071,6 @@ class _InitialAccumulatePackedCombineImpl(beam.PTransform):
         | 'InitialPackedCombineGlobally' >> beam.CombineGlobally(
             _PackedCombinerWrapper(
                 self._combiners,
-                self._tf_config,
                 is_combining_accumulators=False
             )
         ).with_fanout(fanout)
@@ -1100,7 +1086,6 @@ class _MergeAccumulatorsPackedCombineImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     self._combiners = operation.combiners
-    self._tf_config = extra_args.tf_config
 
   def expand(self, inputs):
     pcoll, = inputs
@@ -1110,7 +1095,6 @@ class _MergeAccumulatorsPackedCombineImpl(beam.PTransform):
         | 'MergePackedCombinesGlobally' >> beam.CombineGlobally(
             _PackedCombinerWrapper(
                 self._combiners,
-                self._tf_config,
                 is_combining_accumulators=True))
         | 'Count' >>
         common.IncrementCounter('num_packed_merge_combiners'))
@@ -1124,7 +1108,6 @@ class _InitialAccumulateCombineImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     self._combiner = operation.combiner
-    self._tf_config = extra_args.tf_config
     self._num_outputs = operation.num_outputs
     self._name = operation.label
 
@@ -1135,7 +1118,6 @@ class _InitialAccumulateCombineImpl(beam.PTransform):
             | 'InitialCombineGlobally' >> beam.CombineGlobally(
                 _CombinerWrapper(
                     self._combiner,
-                    self._tf_config,
                     is_combining_accumulators=False)).with_fanout(
                         _DEFAULT_COMBINE_GLOBALLY_FANOUT))
 
@@ -1146,7 +1128,6 @@ class _MergeAccumulatorsCombineImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     self._combiner = operation.combiner
-    self._tf_config = extra_args.tf_config
     self._name = operation.label
 
   def expand(self, inputs):
@@ -1157,7 +1138,6 @@ class _MergeAccumulatorsCombineImpl(beam.PTransform):
         | 'MergeCombinesGlobally' >> beam.CombineGlobally(
             _CombinerWrapper(
                 self._combiner,
-                self._tf_config,
                 is_combining_accumulators=True)))
 
 
@@ -1167,7 +1147,6 @@ class _InitialAccumulateCombinePerKeyImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     self._combiner = operation.combiner
-    self._tf_config = extra_args.tf_config
 
   def expand(self, inputs):
     pcoll, = inputs
@@ -1176,7 +1155,6 @@ class _InitialAccumulateCombinePerKeyImpl(beam.PTransform):
             | 'CombinePerKey' >> beam.CombinePerKey(
                 _CombinerWrapper(
                     self._combiner,
-                    self._tf_config,
                     is_combining_accumulators=False)))
 
 
@@ -1186,7 +1164,6 @@ class _MergeAccumulatorsCombinePerKeyImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     self._combiner = operation.combiner
-    self._tf_config = extra_args.tf_config
 
   def expand(self, inputs):
     pcoll, = inputs
@@ -1195,7 +1172,6 @@ class _MergeAccumulatorsCombinePerKeyImpl(beam.PTransform):
         | 'MergeCombinePerKey' >> beam.CombinePerKey(
             _CombinerWrapper(
                 self._combiner,
-                self._tf_config,
                 is_combining_accumulators=True)))
 
 
@@ -1205,7 +1181,6 @@ class _CombinePerKeyFormatKeysImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     self._combiner = operation.combiner
-    self._tf_config = extra_args.tf_config
 
   def expand(self, inputs):
     pcoll, = inputs
