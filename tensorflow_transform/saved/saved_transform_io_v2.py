@@ -28,8 +28,19 @@ from tensorflow_transform.saved import saved_model_loader
 from tensorflow_transform.saved import saved_transform_io
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.framework import composite_tensor
+from tensorflow.python.saved_model import load
 from tensorflow.python.util import object_identity
 # pylint: enable=g-direct-tensorflow-import
+
+
+class _Loader(load.Loader):
+
+  def _recreate_asset(self, *args, **kwargs):
+    result = super()._recreate_asset(*args, **kwargs)
+    if not tf.executing_eagerly():
+      tf.compat.v1.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
+                                     result[0].asset_path)
+    return result
 
 
 class SavedModelLoader(object):
@@ -44,8 +55,14 @@ class SavedModelLoader(object):
         defined in `../constants.py` ('transform' and 'transform_signature',
         respectively).
     """
-    # TODO(b/160294509): Stop using tf.compat.v2 when TF1.15 support is dropped.
-    self._imported = tf.compat.v2.saved_model.load(saved_model_dir)
+    if tf.version.VERSION < '2.5':
+      self._imported = load.load_internal(saved_model_dir, loader_cls=_Loader)
+      if isinstance(self._imported, dict):
+        self._imported = self._imported['root']
+    else:
+      # TODO(b/160294509): Stop using tf.compat.v2 when TF1.15 support is
+      # dropped.
+      self._imported = tf.compat.v2.saved_model.load(saved_model_dir)
     self.load_v2_in_compat = (
         constants.TRANSFORM_SIGNATURE in self._imported.signatures)
     if self.load_v2_in_compat:

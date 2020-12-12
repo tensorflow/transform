@@ -26,6 +26,7 @@ import numpy as np
 import six
 import tensorflow as tf
 from tensorflow_transform import impl_helper
+from tensorflow_transform import tf_utils
 from tensorflow_transform import test_case
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.saved import saved_transform_io_v2
@@ -41,16 +42,69 @@ _TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES = [
 ]
 
 
+def _get_preprocessing_fn_asset_table(asset_file):
+
+  def construct_table(asset_path):
+    initializer = tf.lookup.TextFileInitializer(
+        asset_path,
+        key_dtype=tf.string,
+        key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
+        value_dtype=tf.int64,
+        value_index=tf.lookup.TextFileIndex.LINE_NUMBER)
+    return tf.lookup.StaticHashTable(initializer, default_value=-1)
+
+  def preprocessing_fn(inputs):
+    unused_table, output = tf_utils.construct_and_lookup_table(
+        construct_table, tf.saved_model.Asset(asset_file), inputs['input'])
+    return {'output': output}
+
+  return preprocessing_fn
+
+
+def _get_preprocessing_fn_non_asset_table(asset_file):
+  del asset_file
+
+  def preprocessing_fn(inputs):
+    initializer = tf.lookup.KeyValueTensorInitializer(
+        keys=['foo', 'bar', 'baz'],
+        values=tf.cast(tf.range(3), tf.int64),
+        key_dtype=tf.string,
+        value_dtype=tf.int64)
+    table = tf.lookup.StaticHashTable(initializer, default_value=12)
+    return {
+        'output': table.lookup(inputs['input']),
+    }
+
+  return preprocessing_fn
+
+
+_RE_EXPORT_TF2_TO_TF1_TEST_CASES = [
+    dict(
+        testcase_name='_asset_table',
+        preprocessing_fn_getter=_get_preprocessing_fn_asset_table,
+        expected_output=2,
+        test_input='baz',
+        asset_file_contents='foo\nbar\nbaz\n'),
+    dict(
+        testcase_name='_non_asset_table',
+        preprocessing_fn_getter=_get_preprocessing_fn_non_asset_table,
+        expected_output=2,
+        test_input='baz'),
+]
+
+
 # TODO(b/123241798): Find an open-source compatible way to access
 # FLAGS.test_tmpdir.
 def _create_test_saved_model(export_in_tf1,
                              input_specs,
-                             foo,
-                             export_path_suffix=None):
+                             preprocessing_fn,
+                             export_path_suffix=None,
+                             base_dir=None):
   if not export_path_suffix:
-    export_path = os.path.join(tempfile.mkdtemp(), 'export')
+    export_path = os.path.join(tempfile.mkdtemp(dir=base_dir), 'export')
   else:
-    export_path = os.path.join(tempfile.mkdtemp(), export_path_suffix)
+    export_path = os.path.join(
+        tempfile.mkdtemp(dir=base_dir), export_path_suffix)
   if export_in_tf1:
     with tf.compat.v1.Graph().as_default():
       with tf.compat.v1.Session().as_default() as session:
@@ -70,7 +124,7 @@ def _create_test_saved_model(export_in_tf1,
             raise ValueError(
                 'TypeSpecs specified should be one of `tf.TensorSpec`, '
                 '`tf.SparseTensorSpec`, `tf.RaggedTensorSpec`')
-        outputs = foo(inputs)
+        outputs = preprocessing_fn(inputs)
         # show that unrelated & unmapped placeholders do not interfere
         tf.compat.v1.placeholder(tf.int64)
         saved_transform_io.write_saved_transform_from_session(
@@ -78,7 +132,7 @@ def _create_test_saved_model(export_in_tf1,
   else:
     impl_helper.trace_and_write_v2_saved_model(
         saved_model_dir=export_path,
-        preprocessing_fn=foo,
+        preprocessing_fn=preprocessing_fn,
         input_signature=input_specs,
         base_temp_dir=None,
         tensor_replacement_map=None,
@@ -97,23 +151,21 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
         ], dtype=tf.float32)
     }
 
-    def foo(inputs):
+    def preprocessing_fn(inputs):
       output = (inputs['x'] - 2.0) / 5.0
       return {'x_scaled': output}
 
-    cls._saved_model_path_v1 = _create_test_saved_model(True, input_specs, foo,
+    cls._saved_model_path_v1 = _create_test_saved_model(True, input_specs,
+                                                        preprocessing_fn,
                                                         'export_v1')
-    cls._saved_model_loader_v1 = saved_transform_io_v2.SavedModelLoader(
-        cls._saved_model_path_v1)
-    cls._saved_model_path_v2 = _create_test_saved_model(False, input_specs, foo,
+    cls._saved_model_path_v2 = _create_test_saved_model(False, input_specs,
+                                                        preprocessing_fn,
                                                         'export_v2')
-    cls._saved_model_loader_v2 = saved_transform_io_v2.SavedModelLoader(
-        cls._saved_model_path_v2)
 
   def _get_saved_model_loader(self, exported_in_tf1):
     if exported_in_tf1:
-      return self._saved_model_loader_v1
-    return self._saved_model_loader_v2
+      return saved_transform_io_v2.SavedModelLoader(self._saved_model_path_v1)
+    return saved_transform_io_v2.SavedModelLoader(self._saved_model_path_v2)
 
   @test_case.named_parameters(*_TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES)
   def test_apply_saved_transform(self, exported_in_tf1):
@@ -208,10 +260,14 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
   def test_dense_roundtrip(self, exported_in_tf1):
     input_specs = {'input': tf.TensorSpec([], dtype=tf.float32)}
 
-    def foo(inputs):
+    def preprocessing_fn(inputs):
       return {'output': inputs['input'] / 5.0}
 
-    export_path = _create_test_saved_model(exported_in_tf1, input_specs, foo)
+    export_path = _create_test_saved_model(
+        exported_in_tf1,
+        input_specs,
+        preprocessing_fn,
+        base_dir=self.get_temp_dir())
 
     # Using a computed input gives confidence that the graphs are fused.
     input_float = tf.constant(25.0) * 2
@@ -225,7 +281,7 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
   def test_table_roundtrip(self, exported_in_tf1):
     input_specs = {'input': tf.TensorSpec([], dtype=tf.string)}
 
-    def foo(inputs):
+    def preprocessing_fn(inputs):
       table_keys = ['cat', 'dog', 'giraffe']
       initializer = tf.lookup.KeyValueTensorInitializer(
           keys=table_keys,
@@ -235,7 +291,11 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
       table = tf.lookup.StaticHashTable(initializer, default_value=-1)
       return {'output': table.lookup(inputs['input'])}
 
-    export_path = _create_test_saved_model(exported_in_tf1, input_specs, foo)
+    export_path = _create_test_saved_model(
+        exported_in_tf1,
+        input_specs,
+        preprocessing_fn,
+        base_dir=self.get_temp_dir())
 
     # Using a computed input gives confidence that the graphs are fused.
     input_string = tf.constant('dog')
@@ -250,10 +310,14 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
         'input': tf.SparseTensorSpec([None, None, None], dtype=tf.float32)
     }
 
-    def foo(inputs):
+    def preprocessing_fn(inputs):
       return {'output': inputs['input'] / 5.0}
 
-    export_path = _create_test_saved_model(exported_in_tf1, input_specs, foo)
+    export_path = _create_test_saved_model(
+        exported_in_tf1,
+        input_specs,
+        preprocessing_fn,
+        base_dir=self.get_temp_dir())
 
     indices = np.array([[3, 2, 0], [4, 5, 1]], dtype=np.int64)
     values = np.array([1.0, 2.0], dtype=np.float32)
@@ -287,10 +351,14 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
                 row_splits_dtype=tf.int64)
     }
 
-    def foo(inputs):
+    def preprocessing_fn(inputs):
       return {'output': inputs['input'] / 2.0}
 
-    export_path = _create_test_saved_model(exported_in_tf1, input_specs, foo)
+    export_path = _create_test_saved_model(
+        exported_in_tf1,
+        input_specs,
+        preprocessing_fn,
+        base_dir=self.get_temp_dir())
 
     splits = np.array([0, 2, 3], dtype=np.int64)
     values = np.array([1.0, 2.0, 4.0], dtype=np.float32)
@@ -307,14 +375,77 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
     self.assertAllEqual(splits, result.row_splits)
     self.assertEqual([5.0, 10.0, 20.0], result.values.numpy().tolist())
 
+  @test_case.named_parameters(*_RE_EXPORT_TF2_TO_TF1_TEST_CASES)
+  def test_re_export_tf2_saved_model_to_tf1(self,
+                                            preprocessing_fn_getter,
+                                            expected_output,
+                                            test_input,
+                                            asset_file_contents=None):
+
+    asset_file = None
+    if asset_file_contents is not None:
+      asset_file = os.path.join(
+          tempfile.mkdtemp(dir=self.get_temp_dir()), 'asset')
+      file_io.write_string_to_file(asset_file, asset_file_contents)
+
+    input_specs = {'input': tf.TensorSpec([], dtype=tf.string)}
+    export_path = _create_test_saved_model(
+        False,
+        input_specs,
+        preprocessing_fn_getter(asset_file),
+        base_dir=self.get_temp_dir())
+
+    if asset_file is not None:
+      os.remove(asset_file)
+    new_export_path = os.path.join(
+        tempfile.mkdtemp(dir=self.get_temp_dir()), 'export_v1')
+
+    builder = tf.compat.v1.saved_model.builder.SavedModelBuilder(
+        new_export_path)
+    with tf.compat.v1.Graph().as_default() as g:
+      saved_model_loader = saved_transform_io_v2.SavedModelLoader(export_path)
+      if asset_file_contents is not None:
+        self.assertEqual(
+            2, len(g.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)))
+      with tf.compat.v1.Session().as_default() as session:
+        inputs = {'input': tf.compat.v1.placeholder(tf.string)}
+        outputs = saved_model_loader.apply_transform_model(inputs)
+        predict_signature_def = (
+            tf.compat.v1.saved_model.signature_def_utils.predict_signature_def(
+                inputs, outputs))
+        builder.add_meta_graph_and_variables(
+            session, ['graph_tag'],
+            signature_def_map={'graph_signature': predict_signature_def},
+            assets_collection=tf.compat.v1.get_collection(
+                tf.compat.v1.GraphKeys.ASSET_FILEPATHS),
+            main_op=tf.compat.v1.tables_initializer())
+    builder.save()
+
+    shutil.rmtree(export_path)
+
+    with tf.compat.v1.Graph().as_default() as g:
+      with tf.compat.v1.Session().as_default() as session:
+        meta_graph_def = tf.compat.v1.saved_model.loader.load(
+            session, ['graph_tag'], new_export_path)
+        signature = meta_graph_def.signature_def['graph_signature']
+        output = session.run(
+            g.get_tensor_by_name(signature.outputs['output'].name),
+            feed_dict={
+                g.get_tensor_by_name(signature.inputs['input'].name): test_input
+            })
+        self.assertEqual(expected_output, output)
+        if asset_file_contents is not None:
+          self.assertEqual(
+              2, len(g.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)))
+
   def test_stale_asset_collections_are_cleaned(self):
-    exported_in_tf_1 = False
-    vocabulary_file = os.path.join(tempfile.mkdtemp(), 'asset')
+    vocabulary_file = os.path.join(
+        tempfile.mkdtemp(dir=self.get_temp_dir()), 'asset')
     file_io.write_string_to_file(vocabulary_file, 'foo bar baz')
 
     input_specs = {'input': tf.TensorSpec([], dtype=tf.string)}
 
-    def foo(inputs):
+    def preprocessing_fn(inputs):
       initializer = tf.lookup.TextFileInitializer(
           vocabulary_file,
           key_dtype=tf.string,
@@ -324,7 +455,8 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
       table = tf.lookup.StaticHashTable(initializer, default_value=12)
       return {'output': table.lookup(inputs['input'])}
 
-    export_path = _create_test_saved_model(exported_in_tf_1, input_specs, foo)
+    export_path = _create_test_saved_model(
+        False, input_specs, preprocessing_fn, base_dir=self.get_temp_dir())
 
     # Load it and save it again repeatedly, verifying that the asset collections
     # remain valid.
@@ -335,7 +467,8 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
       outputs = saved_model_loader.apply_transform_model(inputs)
       self.assertEqual(12, outputs['output'])
 
-      new_export_path = os.path.join(tempfile.mkdtemp(), 'export_' + str(it))
+      new_export_path = os.path.join(
+          tempfile.mkdtemp(dir=self.get_temp_dir()), 'export_' + str(it))
       tf.saved_model.save(saved_model_loader._imported, new_export_path)
       shutil.rmtree(export_path)
       export_path = new_export_path

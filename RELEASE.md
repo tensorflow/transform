@@ -14,6 +14,9 @@
     them on every invocation of the traced `tf.function`.
 *   Switched to a (notably) faster implementation of `tft.quantiles` analyzer.
 *   Depends on `pyarrow>=0.17,<0.18`.
+*   Fix an issue where graphs become non-hermetic if a TF2 transform_fn is
+    loaded in a TF1 Graph context, by making sure all assets are added to the
+    `ASSET_FILEPATHS` collection.
 
 ## Breaking changes
 
