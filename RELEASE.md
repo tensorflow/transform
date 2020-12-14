@@ -12,7 +12,8 @@
 *   Switched to calling tables and initializers within `tf.init_scope` when the
     `preprocessing_fn` is traced using `tf.function` to avoid re-initializing
     them on every invocation of the traced `tf.function`.
-*   Switched to a (notably) faster implementation of `tft.quantiles` analyzer.
+*   Switched to a (notably) faster and more accurate implementation of
+    `tft.quantiles` analyzer.
 *   Depends on `pyarrow>=0.17,<0.18`.
 *   Fix an issue where graphs become non-hermetic if a TF2 transform_fn is
     loaded in a TF1 Graph context, by making sure all assets are added to the
@@ -23,6 +24,11 @@
 *   Existing `tft.quantiles`, `tft.min` and `tft.max` caches are invalidated.
 
 ## Deprecations
+
+*   Parameter `always_return_num_quantiles` of `tft.quantiles` and
+    `tft.bucketize` is now deprecated. Both now always generate the requested
+    number of buckets. Setting `always_return_num_quantiles` will have no effect
+    and it will be removed in the next version.
 
 # Version 0.25.0
 
