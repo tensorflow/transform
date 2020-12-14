@@ -99,7 +99,7 @@ def supply_missing_inputs(structured_inputs, batch_size, missing_keys=None):
       result[key] = tf.SparseTensor(
           indices=indices, values=values, dense_shape=dense_shape)
     else:
-      # TODO(b/153663890): Add support for generic CompositeTensors.
+      # TODO(b/169666856): Add support for generic CompositeTensors.
       raise ValueError('Received unsupported input tensor type. Only '
                        'dense/sparse tensors are currently supported.')
   return result
