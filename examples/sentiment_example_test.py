@@ -25,10 +25,11 @@ import shutil
 import tensorflow as tf
 import tensorflow_transform as tft
 import sentiment_example
+from tensorflow_transform import test_case
 import local_model_server
 
 
-class SentimentExampleTest(tf.test.TestCase):
+class SentimentExampleTest(test_case.TransformTestCase):
 
   def testSentimentExampleAccuracy(self):
     raw_data_dir = os.path.join(os.path.dirname(__file__), 'testdata/sentiment')
@@ -40,64 +41,65 @@ class SentimentExampleTest(tf.test.TestCase):
                        'train_shuffled-00000-of-00001']:
         shutil.copy(os.path.join(raw_data_dir, filename), working_dir)
     except FileNotFoundError:
-      train_neg_filepattern = os.path.join(raw_data_dir, 'train/neg/*')
-      train_pos_filepattern = os.path.join(raw_data_dir, 'train/pos/*')
-      test_neg_filepattern = os.path.join(raw_data_dir, 'test/neg/*')
-      test_pos_filepattern = os.path.join(raw_data_dir, 'test/pos/*')
+      # We only use a small sample of the data for testing purposes.
+      train_neg_filepattern = os.path.join(raw_data_dir, 'train/neg/10000*')
+      train_pos_filepattern = os.path.join(raw_data_dir, 'train/pos/10000*')
+      test_neg_filepattern = os.path.join(raw_data_dir, 'test/neg/10000*')
+      test_pos_filepattern = os.path.join(raw_data_dir, 'test/pos/10000*')
 
       # Writes the shuffled data under working_dir in TFRecord format.
       sentiment_example.read_and_shuffle_data(train_neg_filepattern,
                                               train_pos_filepattern,
                                               test_neg_filepattern,
-                                              test_pos_filepattern,
-                                              working_dir)
+                                              test_pos_filepattern, working_dir)
 
     sentiment_example.transform_data(working_dir)
     results = sentiment_example.train_and_evaluate(
         working_dir, num_train_instances=1000, num_test_instances=1000)
-    self.assertGreaterEqual(results['accuracy'], 0.7)
+    if not test_case.is_external_environment():
+      self.assertGreaterEqual(results['accuracy'], 0.7)
 
-    # Delete temp directory and transform_fn directory.  This ensures that the
-    # test of serving the model below will only pass if the SavedModel saved
-    # to sentiment_example.EXPORTED_MODEL_DIR is hermetic, i.e does not contain
-    # references to tft_temp and transform_fn.
-    shutil.rmtree(os.path.join(working_dir,
-                               sentiment_example.TRANSFORM_TEMP_DIR))
-    shutil.rmtree(os.path.join(working_dir,
-                               tft.TFTransformOutput.TRANSFORM_FN_DIR))
+      # Delete temp directory and transform_fn directory.  This ensures that the
+      # test of serving the model below will only pass if the SavedModel saved
+      # to sentiment_example.EXPORTED_MODEL_DIR is hermetic, i.e does not
+      # contain references to tft_temp and transform_fn.
+      shutil.rmtree(
+          os.path.join(working_dir, sentiment_example.TRANSFORM_TEMP_DIR))
+      shutil.rmtree(
+          os.path.join(working_dir, tft.TFTransformOutput.TRANSFORM_FN_DIR))
 
-    if local_model_server.local_model_server_supported():
-      model_name = 'my_model'
-      model_path = os.path.join(working_dir,
-                                sentiment_example.EXPORTED_MODEL_DIR)
-      with local_model_server.start_server(model_name, model_path) as address:
-        # Use made up data chosen to give high probability of negative
-        # sentiment.
-        ascii_classification_request = """model_spec { name: "my_model" }
-input {
-  example_list {
-    examples {
-      features {
-        feature {
-          key: "review"
-          value: {
-            bytes_list {
-              value: "errible terrible terrible terrible terrible terrible terrible."
+      if local_model_server.local_model_server_supported():
+        model_name = 'my_model'
+        model_path = os.path.join(working_dir,
+                                  sentiment_example.EXPORTED_MODEL_DIR)
+        with local_model_server.start_server(model_name, model_path) as address:
+          # Use made up data chosen to give high probability of negative
+          # sentiment.
+          ascii_classification_request = """model_spec { name: "my_model" }
+  input {
+    example_list {
+      examples {
+        features {
+          feature {
+            key: "review"
+            value: {
+              bytes_list {
+                value: "errible terrible terrible terrible terrible terrible terrible."
+              }
             }
           }
         }
       }
     }
-  }
-}"""
-        results = local_model_server.make_classification_request(
-            address, ascii_classification_request)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(len(results[0].classes), 2)
-        self.assertEqual(results[0].classes[0].label, '0')
-        self.assertGreater(results[0].classes[0].score, 0.8)
-        self.assertEqual(results[0].classes[1].label, '1')
-        self.assertLess(results[0].classes[1].score, 0.2)
+  }"""
+          results = local_model_server.make_classification_request(
+              address, ascii_classification_request)
+          self.assertEqual(len(results), 1)
+          self.assertEqual(len(results[0].classes), 2)
+          self.assertEqual(results[0].classes[0].label, '0')
+          self.assertGreater(results[0].classes[0].score, 0.8)
+          self.assertEqual(results[0].classes[1].label, '1')
+          self.assertLess(results[0].classes[1].score, 0.2)
 
 
 if __name__ == '__main__':
