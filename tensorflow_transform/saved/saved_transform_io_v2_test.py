@@ -402,19 +402,19 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
 
     builder = tf.compat.v1.saved_model.builder.SavedModelBuilder(
         new_export_path)
-    with tf.compat.v1.Graph().as_default() as g:
+    with tf.compat.v1.Graph().as_default() as g1:
       saved_model_loader = saved_transform_io_v2.SavedModelLoader(export_path)
       if asset_file_contents is not None:
         self.assertEqual(
-            2, len(g.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)))
-      with tf.compat.v1.Session().as_default() as session:
+            2, len(g1.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)))
+      with tf.compat.v1.Session().as_default() as s1:
         inputs = {'input': tf.compat.v1.placeholder(tf.string)}
         outputs = saved_model_loader.apply_transform_model(inputs)
         predict_signature_def = (
             tf.compat.v1.saved_model.signature_def_utils.predict_signature_def(
                 inputs, outputs))
         builder.add_meta_graph_and_variables(
-            session, ['graph_tag'],
+            s1, ['graph_tag'],
             signature_def_map={'graph_signature': predict_signature_def},
             assets_collection=tf.compat.v1.get_collection(
                 tf.compat.v1.GraphKeys.ASSET_FILEPATHS),
@@ -423,20 +423,21 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
 
     shutil.rmtree(export_path)
 
-    with tf.compat.v1.Graph().as_default() as g:
-      with tf.compat.v1.Session().as_default() as session:
+    with tf.compat.v1.Graph().as_default() as g2:
+      with tf.compat.v1.Session().as_default() as s2:
         meta_graph_def = tf.compat.v1.saved_model.loader.load(
-            session, ['graph_tag'], new_export_path)
+            s2, ['graph_tag'], new_export_path)
         signature = meta_graph_def.signature_def['graph_signature']
-        output = session.run(
-            g.get_tensor_by_name(signature.outputs['output'].name),
+        output = s2.run(
+            g2.get_tensor_by_name(signature.outputs['output'].name),
             feed_dict={
-                g.get_tensor_by_name(signature.inputs['input'].name): test_input
+                g2.get_tensor_by_name(signature.inputs['input'].name):
+                    test_input
             })
         self.assertEqual(expected_output, output)
         if asset_file_contents is not None:
           self.assertEqual(
-              2, len(g.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)))
+              2, len(g2.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)))
 
   def test_stale_asset_collections_are_cleaned(self):
     vocabulary_file = os.path.join(
