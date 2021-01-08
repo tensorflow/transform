@@ -402,6 +402,8 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
 
     builder = tf.compat.v1.saved_model.builder.SavedModelBuilder(
         new_export_path)
+    # TODO(b/175844561): Investigate why the variable names need to be different
+    # for the two graph and session contexts below.
     with tf.compat.v1.Graph().as_default() as g1:
       saved_model_loader = saved_transform_io_v2.SavedModelLoader(export_path)
       if asset_file_contents is not None:
