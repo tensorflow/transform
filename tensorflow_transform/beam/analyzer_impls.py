@@ -620,10 +620,14 @@ def _calculate_mutual_information_for_feature_value(feature_and_accumulator,
 
 
 @ptransform_fn
-@beam.typehints.with_input_types(
-    KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
-@beam.typehints.with_output_types(
-    KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
+# TODO(b/148788775): These type hints fail Beam type checking.
+#   apache_beam.typehints.decorators.TypeCheckError: Output type hint violation
+#   at VocabularyAccumulate[vocabulary]: expected Tuple[Any, Union[float, int]],
+#   got Tuple[str, _WeightedMeanAndVarAccumulator]
+# @beam.typehints.with_input_types(
+#     KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
+# @beam.typehints.with_output_types(
+#     KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
 def _MutualInformationTransformAccumulate(pcol, compute_weighted=True):  # pylint: disable=invalid-name
   """Accumulates information needed for mutual information computation."""
   return (pcol | 'VocabCountPerLabelPerTokenAccumulate' >> beam.CombinePerKey(
@@ -655,9 +659,13 @@ def _extract_sentinels(kv):
 
 
 @ptransform_fn
-@beam.typehints.with_input_types(
-    KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
-@beam.typehints.with_output_types(KV[str, Tuple[float, float]])
+# TODO(b/148788775): These type hints fail Beam type checking.
+#   apache_beam.typehints.decorators.TypeCheckError: Input type hint violation
+#   at CountPerToken: expected Tuple[str, _WeightedMeanAndVarAccumulator], got
+#   Tuple[Any, Union[float, int]]
+# @beam.typehints.with_input_types(
+#     KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
+# @beam.typehints.with_output_types(KV[str, Tuple[float, float]])
 def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
     pcol, use_adjusted_mutual_info, min_diff_from_avg, compute_weighted):
   """Computes mutual information for each key using the given accumulators."""
