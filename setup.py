@@ -50,7 +50,7 @@ def _make_required_install_packages():
       'pydot>=1.2,<2',
       'six>=1.12,<2',
       'tensorflow' +
-      select_constraint('>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,<2.4'),
+      select_constraint('>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,<2.5'),
       'tensorflow-metadata' + select_constraint(
           default='>=0.26,<0.27',
           nightly='>=0.27.0.dev',
