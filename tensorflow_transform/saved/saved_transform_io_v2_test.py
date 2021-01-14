@@ -55,7 +55,7 @@ def _get_preprocessing_fn_asset_table(asset_file):
 
   def preprocessing_fn(inputs):
     unused_table, output = tf_utils.construct_and_lookup_table(
-        construct_table, tf.saved_model.Asset(asset_file), inputs['input'])
+        construct_table, asset_file, inputs['input'])
     return {'output': output}
 
   return preprocessing_fn
@@ -384,9 +384,10 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
 
     asset_file = None
     if asset_file_contents is not None:
-      asset_file = os.path.join(
+      asset_file_path = os.path.join(
           tempfile.mkdtemp(dir=self.get_temp_dir()), 'asset')
-      file_io.write_string_to_file(asset_file, asset_file_contents)
+      file_io.write_string_to_file(asset_file_path, asset_file_contents)
+      asset_file = tf.constant(asset_file_path)
 
     input_specs = {'input': tf.TensorSpec([], dtype=tf.string)}
     export_path = _create_test_saved_model(
@@ -396,7 +397,7 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
         base_dir=self.get_temp_dir())
 
     if asset_file is not None:
-      os.remove(asset_file)
+      os.remove(asset_file.numpy())
     new_export_path = os.path.join(
         tempfile.mkdtemp(dir=self.get_temp_dir()), 'export_v1')
 

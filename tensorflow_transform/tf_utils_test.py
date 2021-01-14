@@ -23,7 +23,6 @@ import os
 
 import numpy as np
 import tensorflow as tf
-from tensorflow_transform import common_types
 from tensorflow_transform import tf_utils
 from tensorflow_transform import test_case
 
@@ -33,9 +32,6 @@ from tensorflow.python.framework import composite_tensor  # pylint: disable=g-di
 _CONSTRUCT_TABLE_PARAMETERS = [
     dict(testcase_name='_string', asset_path_input_fn=lambda x: x),
     dict(testcase_name='_string_tensor', asset_path_input_fn=tf.constant),
-    dict(
-        testcase_name='_saved_model_asset',
-        asset_path_input_fn=common_types.Asset)
 ]
 
 

@@ -6,7 +6,13 @@
 
 ## Bug Fixes and Other Changes
 
-*   Depends on `tensorflow>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,<2.5`.
+*   Switch analyzers that output asset files to return an eager tensor
+    containing the asset file path instead of a tf.saved_model.Asset object when
+    `force_tf_compat_v1=False`. If this file is then used to initialize a table,
+    this ensures the input to the `tf.lookup.TextFileInitializer` is the file
+    path as the initializer handles wrapping this in a `tf.saved_model.Asset`
+    object.
+*   Depends on `tensorflow>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,<2.5`.    
 
 ## Breaking changes
 

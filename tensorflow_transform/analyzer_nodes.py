@@ -40,6 +40,7 @@ import tensorflow as tf
 from tensorflow_transform import common_types
 from tensorflow_transform import nodes
 from tensorflow_transform import tf2_utils
+from tensorflow_transform import tf_utils
 from tensorflow_transform.graph_context import TFGraphContext
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
 # `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
@@ -54,10 +55,6 @@ from tensorflow.python.framework import ops
 # Key for graph collection containing `TensorSink` objects representing TFT
 # analyzers.
 TENSOR_REPLACEMENTS = 'tft_tensor_replacements'
-# Key for graph collection containing `TemporaryAnalyzerOutputWrapper` objects
-# representing trackable `tf.SavedModel.Asset` objects for evaluated/temporary
-# asset files.
-ASSET_REPLACEMENTS = 'tft_asset_replacements'
 
 
 class TensorInfo(
@@ -137,14 +134,14 @@ def _bind_future_as_tensor_v1(future: nodes.ValueNode,
   return result
 
 
-TemporaryAnalyzerOutputWrapper = tfx_namedtuple.namedtuple(
-    'TemporaryAnalyzerOutputWrapper', ['asset', 'graph_tensor'])
+_TemporaryAnalyzerOutputWrapper = tfx_namedtuple.namedtuple(
+    '_TemporaryAnalyzerOutputWrapper', ['eager_asset_path', 'graph_tensor'])
 
 
 def _get_temporary_analyzer_output(
     temp_dir: str,
     tensor_info: TensorInfo,
-    name: Optional[str] = None) -> TemporaryAnalyzerOutputWrapper:
+    name: Optional[str] = None) -> _TemporaryAnalyzerOutputWrapper:
   """Create a temporary graph tensor using attributes in `tensor_info`.
 
   Args:
@@ -154,10 +151,10 @@ def _get_temporary_analyzer_output(
     name: A string (or None). The created graph tensor uses this name.
 
   Returns:
-    A named tuple `TemporaryAnalyzerOutputWrapper` with:
-      asset: If the graph tensor represents a path to an asset file, a
-           `tf.saved_model.Asset` object for tracking. Else, None.
-      graph_tensor: The graph tensor
+    A named tuple `_TemporaryAnalyzerOutputWrapper` with:
+      eager_asset_path: If the analyzer output is an asset file, an eager tensor
+        pointing to the file path. Else, None.
+      graph_tensor: The graph tensor representing the analyzer output.
   """
   asset = None
   with tf.name_scope('temporary_analyzer_output'):
@@ -172,12 +169,13 @@ def _get_temporary_analyzer_output(
       # TODO(b/149997088): Reduce number of temporary files written out.
       if temp_dir:
         with tf.init_scope():
+          # TODO(b/170111921): This temporary file should have a unique name to
+          # avoid namespace collisions between temporary files that contain data
+          # of different dtypes.
           temporary_asset_filepath = os.path.join(temp_dir, uuid.uuid4().hex)
           with tf.io.gfile.GFile(temporary_asset_filepath, 'w') as f:
             f.write(tensor_info.temporary_asset_value)
-          # Wrap asset files using `tf.saved_model.Asset` to ensure that
-          # `SavedModel`s exported are hermetic.
-          asset = common_types.Asset(temporary_asset_filepath)
+          asset = tf.constant(temporary_asset_filepath)
         graph_tensor = tf.constant(
             temporary_asset_filepath,
             dtype=tensor_info.dtype,
@@ -200,7 +198,7 @@ def _get_temporary_analyzer_output(
         temporary_tensor = tf.strings.as_string(temporary_tensor)
       graph_tensor = tf.raw_ops.PlaceholderWithDefault(
           input=temporary_tensor, shape=tensor_info.shape, name=name)
-    return TemporaryAnalyzerOutputWrapper(asset, graph_tensor)
+    return _TemporaryAnalyzerOutputWrapper(asset, graph_tensor)
 
 
 def _bind_future_as_tensor_v2(
@@ -247,13 +245,9 @@ def _bind_future_as_tensor_v2(
       analyzer_name in evaluated_replacements):
     replaced_result = evaluated_replacements[analyzer_name]
     if is_asset_filepath:
-      # Wrap asset files using `tf.saved_model.Asset` to ensure that
-      # `SavedModel`s exported are hermetic.
-      with tf.init_scope():
-        asset = common_types.Asset(replaced_result)
-      graph.add_to_collection(ASSET_REPLACEMENTS,
-                              TemporaryAnalyzerOutputWrapper(asset, None))
-      return asset
+      graph.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
+                              replaced_result)
+      return replaced_result
     else:
       # Without the identity wrapper some V2 tests fail with AttributeError:
       # Tensor.name is meaningless when eager execution is enabled.
@@ -265,9 +259,13 @@ def _bind_future_as_tensor_v2(
         TENSOR_REPLACEMENTS,
         TensorSink(temporary_analyzer_info.graph_tensor, future,
                    is_asset_filepath))
-    if is_asset_filepath and temporary_analyzer_info.asset:
-      graph.add_to_collection(ASSET_REPLACEMENTS, temporary_analyzer_info)
-      return temporary_analyzer_info.asset
+    eager_asset_path = temporary_analyzer_info.eager_asset_path
+    if is_asset_filepath and eager_asset_path is not None:
+      tf_utils.track_asset_analyzer_output(eager_asset_path,
+                                           temporary_analyzer_info.graph_tensor)
+      graph.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
+                              eager_asset_path)
+      return eager_asset_path
     else:
       return temporary_analyzer_info.graph_tensor
 

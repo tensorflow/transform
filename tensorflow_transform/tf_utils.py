@@ -18,11 +18,10 @@ from __future__ import division
 from __future__ import print_function
 
 import contextlib
-from typing import Callable, Tuple, Union
+from typing import Callable, Optional, Tuple, Union
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
-from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import common_types
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
 # `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
@@ -31,17 +30,23 @@ from tfx_bsl.types import tfx_namedtuple
 
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.framework import composite_tensor
+from tensorflow.python.framework import func_graph
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import lookup_ops
 from tensorflow.python.util import object_identity
 # pylint: enable=g-direct-tensorflow-import
 
-_AssetFileType = Union[tf.Tensor, common_types.Asset, str]
+_AssetFileType = Union[tf.Tensor, str]
 
 _FLOATING_NAN = float('nan')
 # Global sentinels used to keep track of the total counts of y
 GLOBAL_Y_COUNT_SENTINEL_STRING = b'global_y_count_sentinel'
 GLOBAL_Y_COUNT_SENTINEL_INT = tf.int64.limits[1]
+
+# Key for graph collection containing tuple of a key to the eager tensor
+# representing asset path and the graph tensor tracking the analyzer in
+# `analyzer_nodes.TENSOR_REPLACEMENTS`.
+_ASSET_REPLACEMENTS = 'tft_asset_replacements'
 
 ReducedBatchWeightedCounts = tfx_namedtuple.namedtuple('ReducedBatchCounts', [
     'unique_x', 'summed_weights_per_x', 'summed_positive_per_x_and_y',
@@ -1321,8 +1326,18 @@ def reduce_batch_minus_min_and_max_per_key(x, key):
   return (unique.y, x_batch_minus_mins, x_batch_maxes)
 
 
-def _lookup_table(table: lookup_ops.LookupInterface, x: common_types.TensorType,
-                  control_dependency: tf.Tensor) -> common_types.TensorType:
+def track_asset_analyzer_output(eager_asset_path: ops.EagerTensor,
+                                graph_tensor: tf.Tensor):
+  """Track `graph_tensor` representing analyzer output written to `eager_asset_path`."""
+  graph = ops.get_default_graph()
+  graph.add_to_collection(
+      _ASSET_REPLACEMENTS,
+      (hashable_tensor_or_op(eager_asset_path), graph_tensor))
+
+
+def _lookup_table(
+    table: lookup_ops.LookupInterface, x: common_types.TensorType,
+    control_dependency: Optional[tf.Tensor]) -> common_types.TensorType:
   """Return the result of looking up `x` in `table` with an optional depndency on `control_dependency`."""
   with contextlib.ExitStack() as stack:
     # tf.control_dependencies([tensor]) adds a dependency to tensor.op. Wrap the
@@ -1346,8 +1361,7 @@ def construct_and_lookup_table(
     construct_table_callable: A Callable that takes a path to an asset file and
       constructs a lookup table.
     asset_filepath: Path to an asset used to construct the table. Can be a
-      python string, a `tf.Tensor`, a `tf.Placeholder` or a
-      `tf.saved_model.Asset`.
+      python string, a `tf.Tensor`, a `tf.Placeholder`.
     x: A categorical `Tensor` or `SparseTensor` of type tf.string or
       tf.int[8|16|32|64] to which the table lookup should be applied.
 
@@ -1355,8 +1369,11 @@ def construct_and_lookup_table(
     A tuple of the table and the result from looking x up in it.
 
   """
+  graph = ops.get_default_graph()
   with contextlib.ExitStack() as stack:
-    if isinstance(asset_filepath, common_types.Asset):
+    # TODO(b/165884902): Use tf.inside_function after dropping TF 2.3 support.
+    if isinstance(graph, func_graph.FuncGraph) and isinstance(
+        asset_filepath, (ops.EagerTensor, str)):
       # Lift the table initialization out of graph construction to avoid
       # repeated initialization in TF2.
       stack.enter_context(tf.init_scope())
@@ -1365,11 +1382,9 @@ def construct_and_lookup_table(
     # If table is lifted into an initialization scope, add a control dependency
     # on the graph tensor used to track this analyzer in
     # `analyzer_nodes.TENSOR_REPLACEMENTS`.
-    graph = ops.get_default_graph()
     control_dependency = None
-    asset_replacements_coll = graph.get_collection(
-        analyzer_nodes.ASSET_REPLACEMENTS)
-    if asset_replacements_coll:
+    asset_replacements_coll = graph.get_collection(_ASSET_REPLACEMENTS)
+    if asset_replacements_coll and isinstance(asset_filepath, tf.Tensor):
       control_dependency = dict(asset_replacements_coll).get(
-          asset_filepath, None)
+          hashable_tensor_or_op(asset_filepath), None)
   return table, _lookup_table(table, x, control_dependency)
