@@ -4,6 +4,10 @@
 
 ## Major Features and Improvements
 
+*   Added `QuantilesCombiner.compact` method that moves some amount of work done
+    by `tft.quantiles` from non-parallelizable to parallelizable stage of the
+    computation.
+
 ## Bug Fixes and Other Changes
 
 *   Switch analyzers that output asset files to return an eager tensor
@@ -12,7 +16,7 @@
     this ensures the input to the `tf.lookup.TextFileInitializer` is the file
     path as the initializer handles wrapping this in a `tf.saved_model.Asset`
     object.
-*   Depends on `tensorflow>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,<2.5`.    
+*   Depends on `tensorflow>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,<2.5`.
 
 ## Breaking changes
 

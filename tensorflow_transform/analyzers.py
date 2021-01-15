@@ -1986,7 +1986,12 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     self._num_features = np.prod(feature_shape, dtype=np.int64).item()
 
   def create_accumulator(self):
-    return sketches.QuantilesSketch(self._epsilon, self._max_num_values,
+    # Epsilon correction is needed due to potential usage of
+    # QuantilesSketch.Compact(), see
+    # https://github.com/tensorflow/tfx-bsl/blob/master/tfx_bsl/cc/sketches/quantiles_sketch.h#L31
+    # TODO(b/174549940): Move epsilon correction to QuantilesSketch
+    # implementation level.
+    return sketches.QuantilesSketch(self._epsilon * 2 / 3, self._max_num_values,
                                     self._num_features)
 
   def add_input(self, accumulator, next_input):
@@ -2005,6 +2010,10 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     for accumulator in accumulators:
       result.Merge(accumulator)
     return result
+
+  def compact(self, accumulator):
+    accumulator.Compact()
+    return accumulator
 
   def extract_output(self, accumulator):
     result = accumulator.GetQuantiles(self._num_quantiles).to_pylist()
@@ -2031,6 +2040,11 @@ class _QuantilesSketchCacheCoder(analyzer_nodes.CacheCoder):
   """Cache coder for the quantiles accumulator."""
 
   def encode_cache(self, accumulator):
+    # TODO(b/174549940): Consider calling `accumulator.Compact` before encoding
+    # cache, either here on a copy of the accumulator or in `extract_output` of
+    # `CombineAccumulate` stage.
+    # TODO(b/174549940): Consider exposing and calling
+    # `QuantilesSketch::Serialize` directly.
     # TODO(b/37788560): Should we be "intelligently" choosing the 'protocol'
     # argument for 'dumps'?
     return pickle.dumps(accumulator)

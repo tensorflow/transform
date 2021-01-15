@@ -796,6 +796,9 @@ class _CombinerWrapper(beam.CombineFn):
   def merge_accumulators(self, accumulators):
     return self._combiner.merge_accumulators(accumulators)
 
+  def compact(self, accumulator):
+    return self._combiner.compact(accumulator)
+
   def extract_output(self, accumulator):
     if self._should_extract_output:
       return self._combiner.extract_output(accumulator)

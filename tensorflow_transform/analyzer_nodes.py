@@ -333,6 +333,16 @@ class Combiner(object):
     """
     raise NotImplementedError
 
+  def compact(self, accumulator):
+    """Returns an equivalent but more compact represenation of the accumulator.
+
+    Args:
+      accumulator: the current accumulator.
+
+    Returns: A more compact accumulator.
+    """
+    return accumulator
+
   def extract_output(self, accumulator):
     """Return result of converting accumulator into the output value.
 
