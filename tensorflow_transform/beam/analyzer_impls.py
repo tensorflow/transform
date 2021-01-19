@@ -761,23 +761,19 @@ class _CombinerWrapper(beam.CombineFn):
 
   def __init__(self,
                combiner,
-               is_combining_accumulators,
-               should_extract_output=None):
+               is_combining_accumulators):
     """Init method for _CombinerWrapper.
 
     Args:
       combiner: A `analyzer_nodes.Combiner` object used to combine.
       is_combining_accumulators: A bool which indicates whether this is
-        combining single or batched inputs, or already accumulated objects.
-      should_extract_output: A bool which indicates whether this should call the
-        combiner's extract_output method in extract_output. If not specified, we
-        assume it's the same value as `should_extract_output`.
+        combining single or batched inputs, or already accumulated objects. In
+        the former case, output of the CombineFn is an accumulator, whereas
+        in the latter case, output is extracted from the combined accumulators
+        using the combiner's extract_output.
     """
     self._combiner = combiner
     self._is_combining_accumulators = is_combining_accumulators
-    if should_extract_output is None:
-      should_extract_output = is_combining_accumulators
-    self._should_extract_output = should_extract_output
 
   def create_accumulator(self):
     return self._combiner.create_accumulator()
@@ -800,7 +796,7 @@ class _CombinerWrapper(beam.CombineFn):
     return self._combiner.compact(accumulator)
 
   def extract_output(self, accumulator):
-    if self._should_extract_output:
+    if self._is_combining_accumulators:
       return self._combiner.extract_output(accumulator)
     return accumulator
 
