@@ -2040,9 +2040,6 @@ class _QuantilesSketchCacheCoder(analyzer_nodes.CacheCoder):
   """Cache coder for the quantiles accumulator."""
 
   def encode_cache(self, accumulator):
-    # TODO(b/174549940): Consider calling `accumulator.Compact` before encoding
-    # cache, either here on a copy of the accumulator or in `extract_output` of
-    # `CombineAccumulate` stage.
     # TODO(b/174549940): Consider exposing and calling
     # `QuantilesSketch::Serialize` directly.
     # TODO(b/37788560): Should we be "intelligently" choosing the 'protocol'
