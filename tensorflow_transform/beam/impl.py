@@ -89,6 +89,7 @@ import numpy as np
 import pyarrow as pa
 import six
 import tensorflow as tf
+from tensorflow_transform import annotators
 from tensorflow_transform import common
 from tensorflow_transform import graph_tools
 from tensorflow_transform import impl_helper
@@ -1002,6 +1003,11 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     # them as a beam metric.
     _ = (pipeline | 'InstrumentAPI' >> _InstrumentAPI(graph))
 
+    asset_map = annotators.get_asset_annotations(graph)
+    # TF.HUB can error when unapproved collections are present. So we explicitly
+    # clear out the collections in the graph.
+    annotators.clear_asset_annotations(graph)
+
     tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_BEAM_RUNNER_TYPE.get(
         type(pipeline.runner))
     extra_args = beam_common.ConstructBeamPipelineVisitor.ExtraArgs(
@@ -1065,7 +1071,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
         >> beam.Map(_infer_metadata_from_saved_model, self._use_tf_compat_v1))
 
     full_metadata = beam_metadata_io.BeamDatasetMetadata(
-        dataset_metadata.DatasetMetadata(schema=schema), deferred_metadata)
+        dataset_metadata.DatasetMetadata(schema=schema), deferred_metadata,
+        asset_map)
 
     _clear_shared_state_after_barrier(pipeline, transform_fn_pcoll)
 
@@ -1280,7 +1287,7 @@ class TransformDataset(beam.PTransform):
             | 'RemoveColumms' >> beam.Map(_remove_columns_from_metadata,
                                           self._exclude_outputs))
         output_metadata = beam_metadata_io.BeamDatasetMetadata(
-            new_metadata, new_deferred_metadata)
+            new_metadata, new_deferred_metadata, output_metadata.asset_map)
       else:
         output_metadata = _remove_columns_from_metadata(
             output_metadata, self._exclude_outputs)

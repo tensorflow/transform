@@ -32,18 +32,20 @@ import functools
 import os
 import pickle
 import re
-from typing import Any, Callable, Collection, List, Optional
+from typing import Any, Callable, Collection, List, Optional, Text
 # GOOGLE-INITIALIZATION
 import numpy as np
 import pyarrow as pa
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
+from tensorflow_transform import annotators
 from tensorflow_transform import common
 from tensorflow_transform import common_types
 from tensorflow_transform import gaussianization
 from tensorflow_transform import nodes
 from tensorflow_transform import schema_inference
 from tensorflow_transform import tf_utils
+
 from tfx_bsl import sketches
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
 # `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
@@ -1555,6 +1557,24 @@ DEFAULT_VOCABULARY_FILE_FORMAT = 'text'
 ALLOWED_VOCABULRY_FILE_FORMATS = ('text', 'tfrecord_gzip')
 
 
+def _register_vocab(
+    sanitized_filename: Text,
+    vocabulary_key: Optional[Text] = None,
+    file_format: Optional[Text] = DEFAULT_VOCABULARY_FILE_FORMAT):
+  """Register the specificed vocab within the asset map.
+
+  Args:
+    sanitized_filename: The santized filename of the vocab.
+    vocabulary_key: The key of the vocab to use.
+    file_format: The format of the vocab file (text or tfrecord_gzip).
+  """
+  if vocabulary_key is None:
+    vocabulary_key = sanitized_filename
+  filename = ('{}.tfrecord.gz'.format(sanitized_filename)
+              if file_format == 'tfrecord_gzip' else sanitized_filename)
+  annotators.annotate_asset(vocabulary_key, filename)
+
+
 # TODO(KesterTong): Once multiple outputs are supported, return indices too.
 # TODO(b/117796748): Add coverage key feature input as alternative to `key_fn`.
 # TODO(tensorflow/community) the experimental fingerprint_shuffle argument is a
@@ -1728,6 +1748,7 @@ def vocabulary(x,
     raise ValueError('expected integer labels but got %r' % labels.dtype)
 
   with tf.compat.v1.name_scope(name, 'vocabulary'):
+    vocabulary_key = vocab_filename
     vocab_filename = _get_vocab_filename(vocab_filename, store_frequency)
     informativeness_threshold = float('-inf')
     coverage_informativeness_threshold = float('-inf')
@@ -1768,7 +1789,8 @@ def vocabulary(x,
         coverage_top_k=coverage_top_k,
         coverage_frequency_threshold=coverage_frequency_threshold or 0,
         coverage_informativeness_threshold=coverage_informativeness_threshold,
-        file_format=file_format)
+        file_format=file_format,
+        vocabulary_key=vocabulary_key)
 
 
 def _get_vocabulary_analyzer_inputs(vocab_ordering_type,
@@ -1834,7 +1856,8 @@ def _vocabulary_analyzer_nodes(
     coverage_top_k: int = None,
     coverage_frequency_threshold: float = 0.0,
     coverage_informativeness_threshold: float = float('-inf'),
-    file_format: str = DEFAULT_VOCABULARY_FILE_FORMAT
+    file_format: str = DEFAULT_VOCABULARY_FILE_FORMAT,
+    vocabulary_key: Optional[str] = None
 ) -> common_types.TemporaryAnalyzerOutputType:
   """Internal helper for analyzing vocab. See `vocabulary` doc string."""
   if (file_format == 'tfrecord_gzip' and
@@ -1842,6 +1865,8 @@ def _vocabulary_analyzer_nodes(
        tf.version.VERSION < '2.4')):
     raise ValueError(
         'Vocabulary file_format "tfrecord_gzip" requires TF version >= 2.4')
+
+  _register_vocab(vocab_filename, vocabulary_key, file_format)
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       analyzer_inputs)
 

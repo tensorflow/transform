@@ -17,6 +17,8 @@
     path as the initializer handles wrapping this in a `tf.saved_model.Asset`
     object.
 *   Depends on `tensorflow>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,<2.5`.
+*   Added `tft.annotate_asset` for annotating asset files with a string key that
+    can be used to retrieve them in `tft.TFTransformOutput`.
 
 ## Breaking changes
 

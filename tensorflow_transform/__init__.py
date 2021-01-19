@@ -17,6 +17,7 @@
 # pylint: disable=wildcard-import
 from tensorflow_transform import coders
 from tensorflow_transform.analyzers import *
+from tensorflow_transform.annotators import *
 from tensorflow_transform.api import apply_function
 from tensorflow_transform.inspect_preprocessing_fn import *
 from tensorflow_transform.mappers import *

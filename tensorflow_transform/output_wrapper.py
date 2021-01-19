@@ -17,6 +17,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import json
 import os
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -70,6 +71,7 @@ class TFTransformOutput(object):
   # WriteTransformFn will follow these conventions.
   TRANSFORMED_METADATA_DIR = 'transformed_metadata'
   TRANSFORM_FN_DIR = 'transform_fn'
+  ASSET_MAP = 'asset_map'
 
   def __init__(self, transform_output_dir: str):
     """Init method for TFTransformOutput.
@@ -132,14 +134,38 @@ class TFTransformOutput(object):
   def vocabulary_file_by_name(self, vocab_filename: str) -> Optional[str]:
     """Returns the vocabulary file path created in the preprocessing function.
 
-    `vocab_filename` must be the name used as the vocab_filename argument to
-    tft.compute_and_apply_vocabulary or tft.vocabulary. By convention, this
-    should be the name of the feature that the vocab was computed for, where
-    possible.
+    `vocab_filename` must either be (i) the name used as the vocab_filename
+    argument to tft.compute_and_apply_vocabulary / tft.vocabulary or (ii) the
+    key used in tft.annotate_asset.
+
+    When a mapping has been specified by calls to tft.annotate_asset, it will be
+    checked first for the provided filename. If present, this filename will be
+    used directly to construct a path.
+
+    If the mapping does not exist or `vocab_filename` is not present within it,
+    we will default to sanitizing `vocab_filename` and searching for files
+    matching it within the assets directory.
+
+    In either case, if the constructed path does not point to an existing file
+    within the assets subdirectory, we will return a None.
 
     Args:
-      vocab_filename: The relative filename to lookup.
+      vocab_filename: The vocabulary name to lookup.
     """
+    mapping_path = os.path.join(self._transform_output_dir,
+                                self.TRANSFORMED_METADATA_DIR, self.ASSET_MAP)
+
+    mapping = {}
+    if tf.io.gfile.exists(mapping_path):
+      with tf.io.gfile.GFile(mapping_path) as f:
+        mapping = json.loads(f.read())
+        if vocab_filename in mapping:
+          vocab_path = os.path.join(self.transform_savedmodel_dir,
+                                    tf.saved_model.ASSETS_DIRECTORY,
+                                    mapping[vocab_filename])
+          if tf.io.gfile.exists(vocab_path):
+            return vocab_path
+
     prefix = os.path.join(self.transform_savedmodel_dir,
                           tf.saved_model.ASSETS_DIRECTORY,
                           sanitized_vocab_filename(filename=vocab_filename))
@@ -153,15 +179,11 @@ class TFTransformOutput(object):
 
   def vocabulary_size_by_name(self, vocab_filename: str) -> int:
     """Like vocabulary_file_by_name, but returns the size of vocabulary."""
-    actual_vocab_filename = sanitized_vocab_filename(vocab_filename)
-    vocab_path = self.vocabulary_file_by_name(actual_vocab_filename)
+    vocab_path = self.vocabulary_file_by_name(vocab_filename)
     if not vocab_path:
       raise ValueError(
           'Could not compute vocabulary size for {}, does not exist'.format(
               vocab_filename))
-    elif vocab_path.endswith(actual_vocab_filename):
-      with tf.io.gfile.GFile(vocab_path, 'rb') as f:
-        return sum(1 for _ in f)
     elif vocab_path.endswith('tfrecord.gz'):
       dataset = tf.data.TFRecordDataset(vocab_path, compression_type='GZIP')
 
@@ -172,20 +194,15 @@ class TFTransformOutput(object):
           dataset.batch(tf.int32.max).reduce(
               tf.constant(0, tf.int64), reduce_fn))
     else:
-      raise ValueError('Could not find vocabulary: {} ({})'.format(
-          vocab_filename, vocab_path))
+      with tf.io.gfile.GFile(vocab_path, 'rb') as f:
+        return sum(1 for _ in f)
 
   def vocabulary_by_name(self, vocab_filename: str) -> List[bytes]:
     """Like vocabulary_file_by_name but returns a list."""
-    actual_vocab_filename = sanitized_vocab_filename(vocab_filename)
-    vocab_path = self.vocabulary_file_by_name(actual_vocab_filename)
+    vocab_path = self.vocabulary_file_by_name(vocab_filename)
     if not vocab_path:
       raise ValueError('Could not read vocabulary: {}, does not exist'.format(
           vocab_filename))
-    elif vocab_path.endswith(actual_vocab_filename):
-      with tf.io.gfile.GFile(
-          self.vocabulary_file_by_name(actual_vocab_filename), 'rb') as f:
-        return [l.rstrip() for l in f]
     elif vocab_path.endswith('tfrecord.gz'):
       dataset = tf.data.TFRecordDataset(vocab_path, compression_type='GZIP')
       vocab_tensor = dataset.batch(tf.int32.max).reduce(
@@ -194,8 +211,8 @@ class TFTransformOutput(object):
       # Using as_numpy_iterator only works when executing eagerly.
       return _get_tensor_value(vocab_tensor).tolist()
     else:
-      raise ValueError('Could not find vocabulary: {} ({})'.format(
-          vocab_filename, vocab_path))
+      with tf.io.gfile.GFile(vocab_path, 'rb') as f:
+        return [l.rstrip(os.linesep.encode('utf-8')) for l in f]
 
   # TODO(KesterTong): Add test for this in output_wrapper_test.py
   def num_buckets_for_transformed_feature(self, name: str) -> int:

@@ -21,7 +21,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import json
+import os
+
 import apache_beam as beam
+import tensorflow as tf
+from tensorflow_transform import output_wrapper
 from tensorflow_transform.beam import common
 from tensorflow_transform.tf_metadata import metadata_io
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
@@ -31,11 +36,13 @@ from tfx_bsl.types import tfx_namedtuple
 
 
 class BeamDatasetMetadata(
-    tfx_namedtuple.namedtuple('BeamDatasetMetadata',
-                              ['dataset_metadata', 'deferred_metadata'])):
-  """A class like DatasetMetadata that also holds a dict of `PCollection`s.
+    tfx_namedtuple.namedtuple(
+        'BeamDatasetMetadata',
+        ['dataset_metadata', 'deferred_metadata', 'asset_map'])):
+  """A class like DatasetMetadata also holding `PCollection`s and an asset_map.
 
   `deferred_metadata` is a PCollection containing a single DatasetMetadata.
+  `asset_map` is a Dictionary mapping asset keys to filenames.
   """
 
   @property
@@ -82,11 +89,18 @@ class WriteMetadata(beam.PTransform):
     else:
       metadata_pcoll = self.pipeline | beam.Create([metadata])
 
+    asset_map = getattr(metadata, 'asset_map', {})
+
     def write_metadata_output(metadata):
       output_path = self._path
       if self._write_to_unique_subdirectory:
         output_path = common.get_unique_temp_path(self._path)
       metadata_io.write_metadata(metadata, output_path)
+      if asset_map:
+        with tf.io.gfile.GFile(
+            os.path.join(output_path,
+                         output_wrapper.TFTransformOutput.ASSET_MAP), 'w') as f:
+          f.write(json.dumps(asset_map))
       return output_path
 
     return metadata_pcoll | 'WriteMetadata' >> beam.Map(write_metadata_output)

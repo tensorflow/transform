@@ -17,11 +17,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import json
+import os
+
 # GOOGLE-INITIALIZATION
 
 import apache_beam as beam
 import tensorflow as tf
-
+from tensorflow_transform import output_wrapper
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import test_metadata
@@ -47,17 +50,24 @@ class BeamMetadataIoTest(tft_unit.TransformTestCase):
   def testWriteMetadataDeferred(self):
     # Write metadata to disk using WriteMetadata PTransform, combining
     # incomplete metadata with (deferred) complete metadata.
+    expected_asset_map = {'key': 'value'}
     with beam.Pipeline() as pipeline:
       path = self.get_temp_dir()
       deferred_metadata = pipeline | 'CreateDeferredMetadata' >> beam.Create(
           [test_metadata.COMPLETE_METADATA])
       metadata = beam_metadata_io.BeamDatasetMetadata(
-          test_metadata.INCOMPLETE_METADATA, deferred_metadata)
+          test_metadata.INCOMPLETE_METADATA, deferred_metadata,
+          expected_asset_map)
       _ = metadata | beam_metadata_io.WriteMetadata(path, pipeline)
 
     # Load from disk and check that it is as expected.
     metadata = metadata_io.read_metadata(path)
     self.assertEqual(metadata, test_metadata.COMPLETE_METADATA)
+
+    with tf.io.gfile.GFile(
+        os.path.join(path, output_wrapper.TFTransformOutput.ASSET_MAP)) as f:
+      asset_map = json.loads(f.read())
+      self.assertDictEqual(asset_map, expected_asset_map)
 
   def testWriteMetadataIsRetryable(self):
     tft_test_case.skip_if_external_environment(

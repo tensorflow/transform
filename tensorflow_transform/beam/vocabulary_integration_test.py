@@ -30,6 +30,7 @@ import tensorflow_transform as tft
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
+
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 
@@ -1276,6 +1277,58 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
 
     self.assertEqual([b'4 1_X_a', b'2 2_X_b', b'1 4_X_c'],
                      tft_output.vocabulary_by_name(outfile))
+
+  def testVocabularyAnnotations(self):
+    outfile = 'vocab.file'
+    # Sanitization of vocabulary file names replaces '.' with '_'.
+    annotation_file = 'vocab_file'
+    if self._VocabFormat() == 'tfrecord_gzip':
+      annotation_file = '{}.tfrecord.gz'.format(annotation_file)
+
+    def preprocessing_fn(inputs):
+      _ = tft.vocabulary(
+          inputs['a'], vocab_filename=outfile, file_format=self._VocabFormat())
+      tft.annotate_asset('key_1', annotation_file)
+      return inputs
+
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'a': tf.io.FixedLenFeature([], tf.string)})
+
+    tft_tmp_dir = os.path.join(self.get_temp_dir(), 'temp_dir')
+    transform_fn_dir = os.path.join(self.get_temp_dir(), 'export_transform_fn')
+
+    with beam_impl.Context(temp_dir=tft_tmp_dir):
+      with self._makeTestPipeline() as pipeline:
+        input_data = pipeline | beam.Create([
+            {
+                'a': 'hello',
+            },
+            {
+                'a': 'world',
+            },
+            {
+                'a': 'hello',
+            },
+        ])
+        transform_fn = ((input_data, input_metadata)
+                        | beam_impl.AnalyzeDataset(preprocessing_fn))
+        _, metadata = transform_fn
+        self.assertDictEqual(metadata.asset_map, {
+            'key_1': annotation_file,
+            outfile: annotation_file
+        })
+
+        _ = transform_fn | transform_fn_io.WriteTransformFn(transform_fn_dir)
+
+    self.assertTrue(os.path.isdir(tft_tmp_dir))
+
+    tft_output = tft.TFTransformOutput(transform_fn_dir)
+    assets_path = os.path.join(tft_output.transform_savedmodel_dir,
+                               tf.saved_model.ASSETS_DIRECTORY)
+    self.assertTrue(os.path.isdir(assets_path))
+
+    self.assertEqual([b'hello', b'world'],
+                     tft_output.vocabulary_by_name('key_1'))
 
 
 if __name__ == '__main__':

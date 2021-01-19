@@ -74,7 +74,7 @@ class TransformFnIoTest(tft_unit.TransformTestCase):
       deferred_metadata = pipeline | 'CreateDeferredMetadata' >> beam.Create(
           [test_metadata.COMPLETE_METADATA])
       metadata = beam_metadata_io.BeamDatasetMetadata(
-          test_metadata.INCOMPLETE_METADATA, deferred_metadata)
+          test_metadata.INCOMPLETE_METADATA, deferred_metadata, {})
 
       _ = ((saved_model_dir_pcoll, metadata)
            | transform_fn_io.WriteTransformFn(transform_output_dir))
@@ -137,7 +137,7 @@ class TransformFnIoTest(tft_unit.TransformTestCase):
       deferred_metadata = pipeline | 'CreateDeferredMetadata' >> beam.Create(
           [test_metadata.COMPLETE_METADATA])
       metadata = beam_metadata_io.BeamDatasetMetadata(
-          test_metadata.INCOMPLETE_METADATA, deferred_metadata)
+          test_metadata.INCOMPLETE_METADATA, deferred_metadata, {})
       with mock.patch.object(transform_fn_io, '_copy_tree_to_unique_temp_dir',
                              mock_copy_tree_to_unique_temp_dir):
         _ = ((saved_model_dir_pcoll, metadata)
