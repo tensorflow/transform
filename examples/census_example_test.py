@@ -23,6 +23,7 @@ import os
 
 import tensorflow as tf
 import census_example
+import census_example_common
 import local_model_server
 
 
@@ -35,14 +36,16 @@ class CensusExampleTest(tf.test.TestCase):
     train_data_file = os.path.join(raw_data_dir, 'adult.data')
     test_data_file = os.path.join(raw_data_dir, 'adult.test')
 
-    census_example.transform_data(train_data_file, test_data_file, working_dir)
+    census_example_common.transform_data(train_data_file, test_data_file,
+                                         working_dir)
     results = census_example.train_and_evaluate(
         working_dir, num_train_instances=1000, num_test_instances=1000)
     self.assertGreaterEqual(results['accuracy'], 0.7)
 
     if local_model_server.local_model_server_supported():
       model_name = 'my_model'
-      model_path = os.path.join(working_dir, census_example.EXPORTED_MODEL_DIR)
+      model_path = os.path.join(working_dir,
+                                census_example_common.EXPORTED_MODEL_DIR)
       with local_model_server.start_server(model_name, model_path) as address:
         # Use first row of test data set, which has high probability on label 1
         # (which corresponds to '<=50K').
