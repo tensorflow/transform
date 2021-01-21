@@ -22,6 +22,7 @@ import hashlib
 import itertools
 import math
 import os
+from typing import List
 
 # GOOGLE-INITIALIZATION
 
@@ -45,7 +46,10 @@ from tensorflow_transform.beam import common
 
 
 _VocabOrderingType = analyzers._VocabOrderingType  # pylint: disable=protected-access
-_VocabMergeOutputType = Union[float, int, Tuple[float, float]]
+_VocabTokenType = Union[bytes, int]
+_VocabAccumulatedIndicatorType = Union[int, Tuple[
+    float, float], analyzers.WeightedMeanAndVarCombiner.accumulator_class]
+_VocabIndicatorType = Union[float, int, bytes, Tuple[float, float]]
 
 # TODO(b/140645408, b/31727404, b/160207487): Remove this manual fanout when
 # it is no longer needed due to framework improvments.
@@ -102,8 +106,12 @@ class _OrderElementsFn(beam.DoFn):
 
 
 @ptransform_fn
-@beam.typehints.with_input_types(KV[float, str])
-@beam.typehints.with_output_types(KV[float, str])
+@beam.typehints.with_input_types(KV[_VocabIndicatorType,
+                                    Union[_VocabTokenType, Tuple[List[float],
+                                                                 bytes]]])
+@beam.typehints.with_output_types(KV[_VocabIndicatorType,
+                                     Union[_VocabTokenType, Tuple[List[float],
+                                                                  bytes]]])
 def _ApplyThresholdsAndTopK(  # pylint: disable=invalid-name
     counts,
     frequency_threshold,
@@ -191,8 +199,8 @@ def sum_labeled_weights(accs):
 
 @common.register_ptransform(analyzer_nodes.VocabularyAccumulate)
 @beam.typehints.with_input_types(Tuple[np.ndarray, ...])
-# TODO(b/123325923): Constrain the key type here to the right string type.
-@beam.typehints.with_output_types(KV[Any, Union[int, float]])  # Any -> np.str?
+@beam.typehints.with_output_types(KV[_VocabTokenType,
+                                     _VocabAccumulatedIndicatorType])
 class _VocabularyAccumulateImpl(beam.PTransform):
   """Accumulates the unique elements in a PCollection of batches."""
 
@@ -238,7 +246,7 @@ class _VocabularyAccumulateImpl(beam.PTransform):
 
 
 @common.register_ptransform(analyzer_nodes.VocabularyCount)
-@beam.typehints.with_input_types(KV[_VocabMergeOutputType, np.str])
+@beam.typehints.with_input_types(KV[_VocabIndicatorType, _VocabTokenType])
 @beam.typehints.with_output_types(np.int64)
 class _VocabularyCountImpl(beam.PTransform):
   """Counts the total number of tokens in the vocabulary."""
@@ -255,10 +263,9 @@ class _VocabularyCountImpl(beam.PTransform):
 
 
 @common.register_ptransform(analyzer_nodes.VocabularyMerge)
-@beam.typehints.with_input_types(KV[np.str, Union[int, float]])
-# TODO(b/123325923): Constrain the value type here to the right string type.
-@beam.typehints.with_output_types(KV[_VocabMergeOutputType,
-                                     Any])  # Any -> np.str?
+@beam.typehints.with_input_types(KV[_VocabTokenType,
+                                    _VocabAccumulatedIndicatorType])
+@beam.typehints.with_output_types(KV[_VocabIndicatorType, _VocabTokenType])
 class _VocabularyMergeImpl(beam.PTransform):
   """Merges vocabulary accumulators of (token, num) pairs."""
 
@@ -287,14 +294,13 @@ class _VocabularyMergeImpl(beam.PTransform):
     pcoll, = inputs
 
     return (pcoll
-            | 'CountPerToken' >> combine_transform
+            | 'MergeCountPerToken' >> combine_transform
             | 'SwapTokensAndCounts' >> beam.KvSwap())
 
 
 @common.register_ptransform(analyzer_nodes.VocabularyPrune)
-@beam.typehints.with_input_types(KV[_VocabMergeOutputType, np.str])
-# TODO(b/123325923): Constrain the value type here to the right string type.
-@beam.typehints.with_output_types(KV[Union[int, float], Any])  # Any -> np.str?
+@beam.typehints.with_input_types(KV[_VocabIndicatorType, _VocabTokenType])
+@beam.typehints.with_output_types(KV[_VocabIndicatorType, _VocabTokenType])
 class _VocabularyPruneImpl(beam.PTransform):
   """Order, filters and writes the computed vocabulary file."""
 
@@ -361,7 +367,7 @@ class _VocabularyPruneImpl(beam.PTransform):
 
 
 @common.register_ptransform(analyzer_nodes.VocabularyOrderAndWrite)
-@beam.typehints.with_input_types(KV[Union[bytes, int, float], np.str])
+@beam.typehints.with_input_types(KV[_VocabIndicatorType, _VocabTokenType])
 @beam.typehints.with_output_types(np.ndarray)
 class _VocabularyOrderAndWriteImpl(beam.PTransform):
   """Writes the computed vocabulary file."""
@@ -620,14 +626,10 @@ def _calculate_mutual_information_for_feature_value(feature_and_accumulator,
 
 
 @ptransform_fn
-# TODO(b/148788775): These type hints fail Beam type checking.
-#   apache_beam.typehints.decorators.TypeCheckError: Output type hint violation
-#   at VocabularyAccumulate[vocabulary]: expected Tuple[Any, Union[float, int]],
-#   got Tuple[str, _WeightedMeanAndVarAccumulator]
-# @beam.typehints.with_input_types(
-#     KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
-# @beam.typehints.with_output_types(
-#     KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
+@beam.typehints.with_input_types(
+    KV[_VocabTokenType, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
+@beam.typehints.with_output_types(KV[_VocabTokenType,
+                                     _VocabAccumulatedIndicatorType])
 def _MutualInformationTransformAccumulate(pcol, compute_weighted=True):  # pylint: disable=invalid-name
   """Accumulates information needed for mutual information computation."""
   return (pcol | 'VocabCountPerLabelPerTokenAccumulate' >> beam.CombinePerKey(
@@ -659,13 +661,9 @@ def _extract_sentinels(kv):
 
 
 @ptransform_fn
-# TODO(b/148788775): These type hints fail Beam type checking.
-#   apache_beam.typehints.decorators.TypeCheckError: Input type hint violation
-#   at CountPerToken: expected Tuple[str, _WeightedMeanAndVarAccumulator], got
-#   Tuple[Any, Union[float, int]]
-# @beam.typehints.with_input_types(
-#     KV[str, analyzers.WeightedMeanAndVarCombiner.accumulator_class])
-# @beam.typehints.with_output_types(KV[str, Tuple[float, float]])
+@beam.typehints.with_input_types(KV[_VocabTokenType,
+                                    _VocabAccumulatedIndicatorType])
+@beam.typehints.with_output_types(KV[_VocabTokenType, Tuple[float, float]])
 def _MutualInformationTransformMerge(  # pylint: disable=invalid-name
     pcol, use_adjusted_mutual_info, min_diff_from_avg, compute_weighted):
   """Computes mutual information for each key using the given accumulators."""

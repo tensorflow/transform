@@ -32,7 +32,7 @@ import functools
 import os
 import pickle
 import re
-from typing import Any, Callable, Collection, List, Optional, Text
+from typing import Any, Callable, Collection, List, Optional, Union, Text, Tuple
 # GOOGLE-INITIALIZATION
 import numpy as np
 import pyarrow as pa
@@ -1066,9 +1066,9 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
 
   def __init__(self,
                output_numpy_dtype,
-               output_shape=None,
-               compute_variance=True,
-               compute_weighted=False):
+               output_shape: Optional[Collection[Optional[int]]] = None,
+               compute_variance: Optional[bool] = True,
+               compute_weighted: Optional[bool] = False):
     """Init method for WeightedMeanAndVarCombiner.
 
     Args:
@@ -1090,7 +1090,7 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
     if self._output_shape is None:
       raise ValueError('An output_shape must be provided.')
 
-  def create_accumulator(self):
+  def create_accumulator(self) -> _WeightedMeanAndVarAccumulator:
     """Create an accumulator with all zero entries."""
     # TODO(b/131325061): Determine whether counts/weights should always be
     # scalars or if we want to continue supporting multi-dimensional arrays.
@@ -1102,7 +1102,10 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
     return _WeightedMeanAndVarAccumulator(initial_count, initial_mean,
                                           initial_var, initial_weight)
 
-  def add_input(self, accumulator, batch_values):
+  def add_input(
+      self, accumulator: _WeightedMeanAndVarAccumulator,
+      batch_values: _WeightedMeanAndVarAccumulator
+  ) -> _WeightedMeanAndVarAccumulator:
     """Composes an accumulator from batch_values and calls merge_accumulators.
 
     Args:
@@ -1116,7 +1119,9 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
     new_accumulator = _WeightedMeanAndVarAccumulator(*batch_values)
     return self._combine_mean_and_var_accumulators(accumulator, new_accumulator)
 
-  def merge_accumulators(self, accumulators):
+  def merge_accumulators(
+      self, accumulators: List[_WeightedMeanAndVarAccumulator]
+  ) -> _WeightedMeanAndVarAccumulator:
     """Merges several `_WeightedMeanAndVarAccumulator`s to a single accumulator.
 
     Args:
@@ -1130,14 +1135,16 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
       result = self._combine_mean_and_var_accumulators(result, accumulator)
     return result
 
-  def extract_output(self, accumulator):
-    """Converts an accumulator into the output (mean, var) tuple.
+  def extract_output(
+      self, accumulator: _WeightedMeanAndVarAccumulator
+  ) -> Union[Tuple[float, float], _WeightedMeanAndVarAccumulator]:
+    """Converts an accumulator into the output accumulator or (mean, var) tuple.
 
     Args:
       accumulator: the final `_WeightedMeanAndVarAccumulator` value.
 
     Returns:
-      A 2-tuple composed of (mean, var).
+      A _WeightedMeanAndVarAccumulator or a 2-tuple composed of (mean, var).
     """
 
     if self._compute_variance and not self._compute_weighted:
@@ -1150,7 +1157,7 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
           self._output_numpy_dtype(accumulator.variance),
           self._output_numpy_dtype(accumulator.weight))
 
-  def output_tensor_infos(self):
+  def output_tensor_infos(self) -> List[analyzer_nodes.TensorInfo]:
     # The output is (mean, var).
     if self._compute_variance and not self._compute_weighted:
       return [
@@ -1169,7 +1176,9 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
               tf.as_dtype(self._output_numpy_dtype), self._output_shape, None)
       ]
 
-  def _combine_mean_and_var_accumulators(self, a, b):
+  def _combine_mean_and_var_accumulators(
+      self, a: _WeightedMeanAndVarAccumulator,
+      b: _WeightedMeanAndVarAccumulator) -> _WeightedMeanAndVarAccumulator:
     """Combines two mean and var accumulators.
 
     Args:
