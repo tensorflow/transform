@@ -10,6 +10,8 @@
 
 ## Bug Fixes and Other Changes
 
+*   Strip only newlines instead of all whitespace in the TFTransformOutput
+    vocabulary_by_name method.
 *   Switch analyzers that output asset files to return an eager tensor
     containing the asset file path instead of a tf.saved_model.Asset object when
     `force_tf_compat_v1=False`. If this file is then used to initialize a table,
