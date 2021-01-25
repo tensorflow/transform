@@ -74,6 +74,7 @@ from __future__ import print_function
 
 import copy
 import datetime
+import os
 
 import apache_beam as beam
 
@@ -114,6 +115,8 @@ from tfx_bsl.tfxio.tensor_adapter import TensorAdapter
 # `tfx_namedtuple.namedtuple` or `typing.NamedTuple` once the Spark issue is
 # resolved.
 from tfx_bsl.types import tfx_namedtuple
+
+from tensorflow.python.eager import function  # pylint: disable=g-direct-tensorflow-import
 
 Context = context.Context
 
@@ -777,7 +780,9 @@ class _Flatten(beam.PTransform):
     return inputs | beam.Flatten()
 
 
-def _infer_metadata_from_saved_model(saved_model_dir, use_tf_compat_v1=True):
+def _infer_metadata_from_saved_model(
+    saved_model_dir: str,
+    use_tf_compat_v1: bool) -> dataset_metadata.DatasetMetadata:
   """Infers a DatasetMetadata for outputs of a SavedModel."""
   if use_tf_compat_v1:
     return _infer_metadata_from_saved_model_v1(saved_model_dir)
@@ -785,7 +790,8 @@ def _infer_metadata_from_saved_model(saved_model_dir, use_tf_compat_v1=True):
     return _infer_metadata_from_saved_model_v2(saved_model_dir)
 
 
-def _infer_metadata_from_saved_model_v1(saved_model_dir):
+def _infer_metadata_from_saved_model_v1(
+    saved_model_dir: str) -> dataset_metadata.DatasetMetadata:
   """Infers a DatasetMetadata for outputs of a TF1 SavedModel."""
   with tf.compat.v1.Graph().as_default() as graph:
     with tf.compat.v1.Session(graph=graph) as session:
@@ -799,26 +805,40 @@ def _infer_metadata_from_saved_model_v1(saved_model_dir):
           schema=schema_inference.infer_feature_schema(outputs, graph, session))
 
 
-def _infer_metadata_from_saved_model_v2(saved_model_dir):
-  """Infers a DatasetMetadata for outputs of a TF2 SavedModel."""
+def _get_concrete_fn(saved_model_dir: str,
+                     function_name: str) -> function.ConcreteFunction:
+  """Returns concrete function `function_name` from SavedModel at `saved_model_dir`."""
+
   imported = tf.saved_model.load(saved_model_dir)
+  assert hasattr(imported, function_name), function_name
+
   # transform_fn and metadata_fn are now ConcreteFunction, but was tf.function.
   # We need to handle both to maintain backward compatiblity. If they're
   # tf.function, Since `input_signature` was specified when exporting the tf
   # function to `SavedModel`, there should be exactly one concrete function
   # present on loading the `SavedModel`.
-  if hasattr(imported.transform_fn, 'concrete_functions'):
-    assert len(imported.transform_fn.concrete_functions) == 1
-    assert len(imported.metadata_fn.concrete_functions) == 1
-    concrete_transform_fn = imported.transform_fn.concrete_functions[0]
-    concrete_metadata_fn = imported.metadata_fn.concrete_functions[0]
+  tf_function = getattr(imported, function_name)
+  if hasattr(tf_function, 'concrete_functions'):
+    assert len(tf_function.concrete_functions) == 1
+    return tf_function.concrete_functions[0]
   else:
-    concrete_transform_fn = imported.transform_fn
-    concrete_metadata_fn = imported.metadata_fn
+    return tf_function
+
+
+def _infer_metadata_from_saved_model_v2(
+    saved_model_dir: str) -> dataset_metadata.DatasetMetadata:
+  """Infers a DatasetMetadata for outputs of a TF2 SavedModel."""
+
+  metadata_path = os.path.join(saved_model_dir,
+                               impl_helper.METADATA_SAVED_MODEL_DIR_NAME)
+  concrete_metadata_fn = _get_concrete_fn(metadata_path, 'metadata_fn')
+  concrete_transform_fn = _get_concrete_fn(saved_model_dir, 'transform_fn')
+
   structured_outputs = tf.nest.pack_sequence_as(
       structure=concrete_transform_fn.structured_outputs,
       flat_sequence=concrete_transform_fn.outputs,
       expand_composites=True)
+
   return dataset_metadata.DatasetMetadata(
       schema=schema_inference.infer_feature_schema_v2(
           structured_outputs,

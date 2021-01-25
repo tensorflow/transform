@@ -42,6 +42,7 @@ from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
 # pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.eager import function
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import lookup_ops
 from tensorflow.python.training.tracking import tracking
@@ -53,6 +54,8 @@ _SparseComponentType = List[np.ndarray]
 _CACHED_EMPTY_ARRAY_BY_DTYPE = {}
 _VALID_SCOPE_REGEX = re.compile('^[A-Za-z0-9]*$')
 _INVALID_SCOPE_CHAR = re.compile('[^A-Za-z0-9_.\\-/>]')
+
+METADATA_SAVED_MODEL_DIR_NAME = '.tft_metadata_saved_model'
 
 
 def _get_empty_array(dtype):
@@ -494,6 +497,55 @@ def trace_preprocessing_function(preprocessing_fn,
                                       base_temp_dir)
 
 
+def _write_v2_saved_model(tf_function: function.Function, name: str,
+                          saved_model_dir: str) -> function.ConcreteFunction:
+  """Writes a TF module with `tf_function` under attr `name` to `saved_model_dir`."""
+  module = tf.Module()
+
+  resource_tracker = tracking.ResourceTracker()
+  created_variables = []
+
+  def _variable_creator(next_creator, **kwargs):
+    var = next_creator(**kwargs)
+    created_variables.append(var)
+    return var
+
+  # TODO(b/164921571): Handle generic Trackable objects.
+  # Trace `tf_function` to gather any resources in it using the
+  # resource_tracker. These are then assigned to `module.resources` and tracked
+  # before exporting to SavedModel.
+  with tracking.resource_tracker_scope(
+      resource_tracker), tf.variable_creator_scope(_variable_creator):
+    concrete_fn = tf_function.get_concrete_function()
+
+  # Prior to 2020/10/08, saving a tf.function with a concrete function signature
+  # would ensure that the function was not re-traced in a round-trip to a
+  # SavedModel. Since this is no longer the case, we save the concrete function
+  # directly.
+  if tf.compat.forward_compatible(2020, 10, 8):
+    setattr(module, name, concrete_fn)
+  else:
+    setattr(module, name, tf_function)
+
+  # Any variables created need to be explicitly tracked.
+  module.created_variables = created_variables
+  # Resources need to be explicitly tracked.
+  module.resources = resource_tracker.resources
+  # TODO(b/158011374) - Stop explicitly tracking initializers. Tracking the
+  # table should be sufficient.
+  initializers = []
+  for resource in module.resources:
+    if isinstance(resource, lookup_ops.InitializableLookupTableBase):
+      initializers.append(resource._initializer)  # pylint: disable=protected-access
+  module.initializers = initializers
+  module.assets = [
+      common_types.Asset(asset_filepath) for asset_filepath in
+      concrete_fn.graph.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)
+  ]
+  tf.saved_model.save(module, saved_model_dir)
+  return concrete_fn
+
+
 # TODO(b/160550490): Move to saved.saved_transform_io_v2.
 def trace_and_write_v2_saved_model(saved_model_dir, preprocessing_fn,
                                    input_signature, base_temp_dir,
@@ -523,69 +575,31 @@ def trace_and_write_v2_saved_model(saved_model_dir, preprocessing_fn,
       annotations added to the graph when invoked with any valid input.
   """
 
-  module = tf.Module()
   transform_fn = get_traced_transform_fn(
       preprocessing_fn,
       input_signature,
       base_temp_dir,
       tensor_replacement_map=tensor_replacement_map,
       output_keys_to_name_map=output_keys_to_name_map)
-  metadata_fn = None
 
-  resource_tracker = tracking.ResourceTracker()
-  created_variables = []
+  concrete_transform_fn = _write_v2_saved_model(transform_fn, 'transform_fn',
+                                                saved_model_dir)
 
-  def _variable_creator(next_creator, **kwargs):
-    var = next_creator(**kwargs)
-    created_variables.append(var)
-    return var
+  concrete_metadata_fn = None
+  # If the `TENSOR_REPLACEMENTS` graph collection is empty, all TFT analyzers
+  # in the `preprocessing_fn` have already been evaluated.
+  if not concrete_transform_fn.graph.get_collection(
+      analyzer_nodes.TENSOR_REPLACEMENTS):
+    metadata_fn = schema_inference.get_traced_metadata_fn(
+        tensor_replacement_map,
+        preprocessing_fn,
+        input_signature,
+        base_temp_dir,
+        evaluate_schema_overrides=True)
+    concrete_metadata_fn = _write_v2_saved_model(
+        metadata_fn, 'metadata_fn',
+        os.path.join(saved_model_dir, METADATA_SAVED_MODEL_DIR_NAME))
 
-  # TODO(b/164921571): Handle generic Trackable objects.
-  # Trace the `transform_fn` and `metadata_fn` to gather any resources in it
-  # using the resource_tracker. These are then assigned to `module.resources`
-  # and tracked before exporting to SavedModel.
-  with tracking.resource_tracker_scope(
-      resource_tracker), tf.variable_creator_scope(_variable_creator):
-    concrete_transform_fn = transform_fn.get_concrete_function()
-    concrete_metadata_fn = None
-    # If the `TENSOR_REPLACEMENTS` graph collection is empty, all TFT analyzers
-    # in the `preprocessing_fn` have already been evaluated.
-    if not concrete_transform_fn.graph.get_collection(
-        analyzer_nodes.TENSOR_REPLACEMENTS):
-      metadata_fn = schema_inference.get_traced_metadata_fn(
-          tensor_replacement_map,
-          preprocessing_fn,
-          input_signature,
-          base_temp_dir,
-          evaluate_schema_overrides=True)
-      concrete_metadata_fn = metadata_fn.get_concrete_function()
-
-  # Save ConcreteFunction when possible since the above workaround won't work if
-  # the tf.function is retraced.
-  if tf.compat.forward_compatible(2020, 10, 8):
-    module.transform_fn = concrete_transform_fn
-    module.metadata_fn = concrete_metadata_fn
-  else:
-    module.transform_fn = transform_fn
-    module.metadata_fn = metadata_fn
-
-  # Any variables created need to be explicitly tracked.
-  module.created_variables = created_variables
-  # Resources need to be explicitly tracked.
-  module.resources = resource_tracker.resources
-  # TODO(b/158011374) - Stop explicitly tracking initializers. Tracking the
-  # table should be sufficient.
-  initializers = []
-  for resource in module.resources:
-    if isinstance(resource, lookup_ops.InitializableLookupTableBase):
-      initializers.append(resource._initializer)  # pylint: disable=protected-access
-  module.initializers = initializers
-  module.assets = [
-      common_types.Asset(asset_filepath)
-      for asset_filepath in concrete_transform_fn.graph.get_collection(
-          tf.compat.v1.GraphKeys.ASSET_FILEPATHS)
-  ]
-  tf.saved_model.save(module, saved_model_dir)
   return concrete_transform_fn, concrete_metadata_fn
 
 

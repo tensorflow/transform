@@ -2586,9 +2586,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     # Ensure that the annotations survive the round trip to SavedModel.
     tf_transform_output = tft.TFTransformOutput(temp_dir)
-    savedmodel_dir = tf_transform_output.transform_savedmodel_dir
-    schema = beam_impl._infer_metadata_from_saved_model(
-        savedmodel_dir, use_tf_compat_v1=self._UseTFCompatV1())._schema
+    schema = tf_transform_output.transformed_metadata._schema
     self.assertLen(schema.feature, 2)
     for feature in schema.feature:
       if feature.name == 'x_bucketized':
@@ -2639,9 +2637,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     # Ensure that global annotations survive the round trip to SavedModel.
     tf_transform_output = tft.TFTransformOutput(temp_dir)
-    savedmodel_dir = tf_transform_output.transform_savedmodel_dir
-    schema = beam_impl._infer_metadata_from_saved_model(
-        savedmodel_dir, use_tf_compat_v1=self._UseTFCompatV1())._schema
+    schema = tf_transform_output.transformed_metadata._schema
     self.assertLen(schema.annotation.extra_metadata, 1)
     for annotation in schema.annotation.extra_metadata:
       message = annotations_pb2.BucketBoundaries()

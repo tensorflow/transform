@@ -409,7 +409,7 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
       saved_model_loader = saved_transform_io_v2.SavedModelLoader(export_path)
       if asset_file_contents is not None:
         self.assertEqual(
-            2, len(g1.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)))
+            1, len(g1.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)))
       with tf.compat.v1.Session().as_default() as s1:
         inputs = {'input': tf.compat.v1.placeholder(tf.string)}
         outputs = saved_model_loader.apply_transform_model(inputs)
@@ -440,7 +440,7 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
         self.assertEqual(expected_output, output)
         if asset_file_contents is not None:
           self.assertEqual(
-              2, len(g2.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)))
+              1, len(g2.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)))
 
   def test_stale_asset_collections_are_cleaned(self):
     vocabulary_file = os.path.join(

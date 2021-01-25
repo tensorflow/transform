@@ -21,6 +21,7 @@ import os
 
 import apache_beam as beam
 import tensorflow_transform as tft
+from tensorflow_transform import impl_helper
 from tensorflow_transform.beam import common
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.tf_metadata import metadata_io
@@ -45,6 +46,10 @@ def _copy_tree(source, destination):
   import tensorflow as tf  # pylint: disable=g-import-not-at-top
 
   if tf.io.gfile.isdir(source):
+    source_dir_name = os.path.basename(os.path.normpath(source))
+    if source_dir_name == impl_helper.METADATA_SAVED_MODEL_DIR_NAME:
+      return
+
     tf.io.gfile.makedirs(destination)
     for filename in tf.io.gfile.listdir(source):
       _copy_tree(
