@@ -21,6 +21,8 @@
 *   Depends on `tensorflow>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,<2.5`.
 *   Added `tft.annotate_asset` for annotating asset files with a string key that
     can be used to retrieve them in `tft.TFTransformOutput`.
+*   Depends on `apache-beam[gcp]>=2.27,<3`.
+*   Depends on `pyarrow>=1,<3`.
 
 ## Breaking changes
 

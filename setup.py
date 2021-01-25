@@ -43,10 +43,10 @@ def _make_required_install_packages():
   # six, and protobuf) with TF and pyarrow version with tfx-bsl.
   return [
       'absl-py>=0.9,<0.11',
-      'apache-beam[gcp]>=2.25,!=2.26.*,<3',
+      'apache-beam[gcp]>=2.27,<3',
       'numpy>=1.16,<2',
       'protobuf>=3.9.2,<4',
-      'pyarrow>=0.17,<0.18',
+      'pyarrow>=1,<3',
       'pydot>=1.2,<2',
       'six>=1.12,<2',
       'tensorflow' +
