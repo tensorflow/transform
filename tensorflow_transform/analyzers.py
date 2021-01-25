@@ -2020,12 +2020,7 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     self._num_features = np.prod(feature_shape, dtype=np.int64).item()
 
   def create_accumulator(self):
-    # Epsilon correction is needed due to potential usage of
-    # QuantilesSketch.Compact(), see
-    # https://github.com/tensorflow/tfx-bsl/blob/master/tfx_bsl/cc/sketches/quantiles_sketch.h#L31
-    # TODO(b/174549940): Move epsilon correction to QuantilesSketch
-    # implementation level.
-    return sketches.QuantilesSketch(self._epsilon * 2 / 3, self._max_num_values,
+    return sketches.QuantilesSketch(self._epsilon, self._max_num_values,
                                     self._num_features)
 
   def add_input(self, accumulator, next_input):
