@@ -583,7 +583,7 @@ def tfidf(x, vocab_size, smooth=True, name=None):
   Example usage:
 
     ```
-    example strings: [["I", "like", "pie", "pie", "pie"], ["yum", "yum", "pie]]
+    example strings: [["I", "like", "pie", "pie", "pie"], ["yum", "yum", "pie"]]
     in: SparseTensor(indices=[[0, 0], [0, 1], [0, 2], [0, 3], [0, 4],
                               [1, 0], [1, 1], [1, 2]],
                      values=[1, 2, 0, 0, 0, 3, 3, 0])
