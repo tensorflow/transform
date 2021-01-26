@@ -556,69 +556,93 @@ class TFUtilsTest(test_case.TransformTestCase):
 
     @function_handler(input_signature=input_signature)
     def _reduce_batch_count(x):
-      return tf_utils.reduce_batch_count(
+      result = tf_utils.reduce_batch_count(
           x, reduce_instance_dims=reduce_instance_dims)
+      # Verify that the output shape is maintained.
+      # TODO(b/178189903,b/38063790): This will fail if _dense_shape_default
+      # isn't set in reduce_batch_count.
+      if not reduce_instance_dims and x.get_shape().ndims:
+        self.assertEqual(x.get_shape()[1:].as_list(),
+                         result.get_shape().as_list())
+      return result
 
     result = _reduce_batch_count(x)
     self.assertAllEqual(result, expected_result)
 
-  @test_case.named_parameters(test_case.cross_with_function_handlers([
-      dict(
-          testcase_name='dense',
-          x=[[[1], [2]], [[3], [4]]],
-          expected_count=4,
-          expected_mean=2.5,
-          expected_var=1.25,
-          reduce_instance_dims=True,
-          input_signature=[tf.TensorSpec(None, tf.float32)]),
-      dict(
-          testcase_name='dense_elementwise',
-          x=[[[1], [2]], [[3], [4]]],
-          expected_count=[[2.], [2.]],
-          expected_mean=[[2.], [3.]],
-          expected_var=[[1.], [1.]],
-          reduce_instance_dims=False,
-          input_signature=[tf.TensorSpec(None, tf.float32)]),
-      dict(
-          testcase_name='sparse',
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0], [0, 2], [1, 1], [1, 2]],
-              values=[1., 2., 3., 4.],
-              dense_shape=[2, 4]),
-          expected_count=4,
-          expected_mean=2.5,
-          expected_var=1.25,
-          reduce_instance_dims=True,
-          input_signature=[
-              tf.SparseTensorSpec([None, 4], tf.float32)
-          ]),
-      dict(
-          testcase_name='sparse_elementwise',
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0], [0, 3], [1, 1], [1, 3]],
-              values=[1., 2., 3., 4.],
-              dense_shape=[2, 5]),
-          expected_count=[1.0, 1.0, 0.0, 2.0, 0.0],
-          expected_mean=[1.0, 3.0, 0.0, 3.0, 0.0],
-          expected_var=[0.0, 0.0, 0.0, 1.0, 0.0],
-          reduce_instance_dims=False,
-          input_signature=[
-              tf.SparseTensorSpec([None, 5], tf.float32)
-          ]),
-  ]))
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers([
+          dict(
+              testcase_name='dense',
+              x=[[[1], [2]], [[3], [4]]],
+              expected_count=4,
+              expected_mean=2.5,
+              expected_var=1.25,
+              reduce_instance_dims=True,
+              input_signature=[tf.TensorSpec(None, tf.float32)]),
+          dict(
+              testcase_name='dense_elementwise',
+              x=[[[1], [2]], [[3], [4]]],
+              expected_count=[[2.], [2.]],
+              expected_mean=[[2.], [3.]],
+              expected_var=[[1.], [1.]],
+              reduce_instance_dims=False,
+              input_signature=[tf.TensorSpec(None, tf.float32)]),
+          dict(
+              testcase_name='sparse',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 2], [1, 1], [1, 2]],
+                  values=[1., 2., 3., 4.],
+                  dense_shape=[2, 4]),
+              expected_count=4,
+              expected_mean=2.5,
+              expected_var=1.25,
+              reduce_instance_dims=True,
+              input_signature=[tf.SparseTensorSpec([None, 4], tf.float32)]),
+          dict(
+              testcase_name='sparse_elementwise',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 3], [1, 1], [1, 3]],
+                  values=[1., 2., 3., 4.],
+                  dense_shape=[2, 5]),
+              expected_count=[1.0, 1.0, 0.0, 2.0, 0.0],
+              expected_mean=[1.0, 3.0, 0.0, 3.0, 0.0],
+              expected_var=[0.0, 0.0, 0.0, 1.0, 0.0],
+              reduce_instance_dims=False,
+              input_signature=[tf.SparseTensorSpec([None, 5], tf.float32)]),
+          dict(
+              testcase_name='sparse_3d_elementwise',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0, 3], [0, 1, 0], [0, 1, 3], [1, 1, 1],
+                           [1, 1, 3]],
+                  values=[-10., 1., 2., 3., 4.],
+                  dense_shape=[2, 3, 5]),
+              expected_count=[[0, 0, 0, 1, 0], [1, 1, 0, 2, 0], [0] * 5],
+              expected_mean=[[0, 0, 0, -10, 0], [1, 3, 0, 3, 0], [0] * 5],
+              expected_var=[[0] * 5, [0, 0, 0, 1, 0], [0] * 5],
+              reduce_instance_dims=False,
+              input_signature=[tf.SparseTensorSpec([None, 3, 5], tf.float32)]),
+      ]))
   def test_reduce_batch_count_mean_and_var(
       self, x, input_signature, expected_count, expected_mean, expected_var,
       reduce_instance_dims, function_handler):
 
     @function_handler(input_signature=input_signature)
     def _reduce_batch_count_mean_and_var(x):
-      return tf_utils.reduce_batch_count_mean_and_var(
+      result = tf_utils.reduce_batch_count_mean_and_var(
           x, reduce_instance_dims=reduce_instance_dims)
+      # Verify that the output shapes are maintained.
+      # TODO(b/178189903,b/38063790): This will fail if _dense_shape_default
+      # isn't set in reduce_batch_count.
+      if not reduce_instance_dims and x.get_shape().ndims:
+        for tensor in result:
+          self.assertEqual(x.get_shape()[1:].as_list(),
+                           tensor.get_shape().as_list())
+      return result
 
     count, mean, var = _reduce_batch_count_mean_and_var(x)
-    self.assertAllEqual(count, expected_count)
-    self.assertAllEqual(mean, expected_mean)
-    self.assertAllEqual(var, expected_var)
+    self.assertAllEqual(expected_count, count)
+    self.assertAllEqual(expected_mean, mean)
+    self.assertAllEqual(expected_var, var)
 
   @test_case.named_parameters([
       dict(
@@ -749,6 +773,7 @@ class TFUtilsTest(test_case.TransformTestCase):
 
     @function_handler(input_signature=input_signature)
     def _reduce_batch_count_l_moments(x):
+      # TODO(b/38063790): Make sure that the shape is maintained.
       return tf_utils.reduce_batch_count_l_moments(
           x, reduce_instance_dims=reduce_instance_dims)
 
@@ -910,6 +935,19 @@ class TFUtilsTest(test_case.TransformTestCase):
               expected_x_max=[3, 2, np.nan],
               input_signature=[tf.SparseTensorSpec([None, None], tf.float32)]),
           dict(
+              testcase_name='sparse_3d_elementwise',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0, 0], [0, 0, 1], [1, 0, 1]],
+                  values=[3, 2, -1],
+                  dense_shape=[2, 3, 3]),
+              reduce_instance_dims=False,
+              expected_x_minus_min=[[-3, 1, np.nan], [np.nan] * 3,
+                                    [np.nan] * 3],
+              expected_x_max=[[3, 2, np.nan], [np.nan] * 3, [np.nan] * 3],
+              input_signature=[
+                  tf.SparseTensorSpec([None, None, None], tf.float32)
+              ]),
+          dict(
               testcase_name='all_nans',
               x=[[np.nan, np.nan, np.nan]],
               # Output of `tf.reduce_max` if all inputs are NaNs for older
@@ -933,8 +971,14 @@ class TFUtilsTest(test_case.TransformTestCase):
 
     @function_handler(input_signature=input_signature)
     def _reduce_batch_minus_min_and_max(x):
-      return tf_utils.reduce_batch_minus_min_and_max(
+      result = tf_utils.reduce_batch_minus_min_and_max(
           x, reduce_instance_dims=reduce_instance_dims)
+      # Verify that the output shapes are maintained.
+      if not reduce_instance_dims:
+        for tensor in result:
+          self.assertEqual(x.get_shape()[1:].as_list(),
+                           tensor.get_shape().as_list())
+      return result
 
     x_minus_min, x_max = _reduce_batch_minus_min_and_max(x)
 

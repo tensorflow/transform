@@ -193,8 +193,11 @@ def sparse_tensor_to_dense_with_shape(x, shape, default_value=0):
       x.dense_shape[i] if size is None else size
       for i, size in enumerate(shape)
   ]
-  dense = tf.compat.v1.sparse_to_dense(x.indices, new_dense_shape, x.values,
-                                       default_value)
+  dense = tf.raw_ops.SparseToDense(
+      sparse_indices=x.indices,
+      output_shape=new_dense_shape,
+      sparse_values=x.values,
+      default_value=default_value)
   dense.set_shape(shape)
   return dense
 

@@ -797,8 +797,17 @@ def var(x, reduce_instance_dims=True, name=None, output_dtype=None):
     return _mean_and_var(x, reduce_instance_dims, output_dtype)[1]
 
 
+def _raise_if_not_2d_sparse_tensor(x: common_types.TensorType,
+                                   msg: str) -> None:
+  # TODO(b/112656428): Support SparseTensors with rank other than 2.
+  if isinstance(x, tf.SparseTensor) and x.get_shape().ndims != 2:
+    raise NotImplementedError(msg)
+
+
 def _mean_and_var(x, reduce_instance_dims=True, output_dtype=None):
   """More efficient combined `mean` and `var`.  See `var`."""
+  _raise_if_not_2d_sparse_tensor(
+      x, 'Mean and var only support SparseTensors with rank 2')
   if output_dtype is None:
     output_dtype = _FLOAT_OUTPUT_DTYPE_MAP.get(x.dtype)
     if output_dtype is None:
@@ -995,6 +1004,8 @@ def _mean_and_var_per_key(x, key, reduce_instance_dims=True, output_dtype=None,
     (B) The filename where the key-value mapping is stored (if
         key_vocabulary_filename is not None).
   """
+  _raise_if_not_2d_sparse_tensor(
+      x, 'Mean and var per key only support SparseTensors with rank 2')
   if output_dtype is None:
     output_dtype = _FLOAT_OUTPUT_DTYPE_MAP.get(x.dtype)
     if output_dtype is None:

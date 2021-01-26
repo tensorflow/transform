@@ -338,6 +338,16 @@ def assert_same_shape(x, y):
     return tf.identity(x), tf.identity(y)
 
 
+# TODO(b/178189903): This is needed because tf.sparse.reduce_* produces a dense
+# tensor which loses its original shape information.
+def _sparse_reduce_batch_keep_shape(
+    sparse_reduce_fn: Callable, sparse_tensor: tf.SparseTensor) -> tf.Tensor:  # pylint: disable=g-bare-generic
+  """Applies a tf.sparse.reduce_* method on the given sparse_tensor."""
+  result = sparse_reduce_fn(sparse_tensor, axis=0)
+  result.set_shape(sparse_tensor.get_shape()[1:])
+  return result
+
+
 def reduce_batch_count(x, reduce_instance_dims):
   """Counts elements in the given tensor.
 
@@ -360,7 +370,13 @@ def reduce_batch_count(x, reduce_instance_dims):
           indices=x.indices,
           values=tf.ones_like(x.values, tf.int64),
           dense_shape=x.dense_shape)
-      return tf.sparse.reduce_sum(ones_like, axis=0)
+      # TODO(b/178189903): Remove this once we no longer lose static shape
+      # information.
+      # TODO(b/160294509): Remove the hasattr contition once TFT no longer
+      # supports TF<2.
+      if hasattr(x, '_dense_shape_default'):
+        ones_like._dense_shape_default = x._dense_shape_default  # pylint: disable=protected-access
+      return _sparse_reduce_batch_keep_shape(tf.sparse.reduce_sum, ones_like)
 
   if reduce_instance_dims:
     return tf.size(input=x)
@@ -643,7 +659,9 @@ def apply_per_key_vocabulary(per_key_filename,
   return numbers if not target_ndims else _align_dims(numbers, target_ndims + 1)
 
 
-def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
+def reduce_batch_count_mean_and_var(
+    x: common_types.TensorType,
+    reduce_instance_dims: bool) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
   """Computes element count, mean and var for the given tensor.
 
   Args:
@@ -665,25 +683,20 @@ def reduce_batch_count_mean_and_var(x, reduce_instance_dims):
 
   if isinstance(x, tf.SparseTensor):
     # This means reduce_instance_dims=False.
-    # TODO(b/112656428): Support SparseTensors with rank other than 2.
-    if x.get_shape().ndims != 2:
-      raise NotImplementedError(
-          'Mean and var only support SparseTensors with rank 2')
-
-    col_count, col_indices = x.dense_shape[1], x.indices[:, 1]
-    x_sum = tf.math.unsorted_segment_sum(x.values, col_indices, col_count)
+    x_sum = _sparse_reduce_batch_keep_shape(tf.sparse.reduce_sum, x)
     x_mean = tf.where(tf.math.greater(x_count, 0),
                       x_sum / x_count,
                       tf.zeros_like(x_count, dtype=x.dtype))
+    x_minus_mean = tf.sparse.add(x, -tf.broadcast_to(x_mean, tf.shape(x)))
+    x_minus_mean_sparse = tf.SparseTensor(x.indices,
+                                          tf.gather_nd(x_minus_mean, x.indices),
+                                          x.dense_shape)
+    sum_of_squares = tf.math.reduce_sum(
+        tf.square(tf.sparse.to_dense(x_minus_mean_sparse)), axis=0)
 
-    mean_values = tf.gather(x_mean, col_indices)
-    x_minus_mean = x.values - mean_values
-
-    col_sum_of_squares = tf.math.unsorted_segment_sum(
-        tf.square(x_minus_mean), col_indices, col_count)
-    x_variance = tf.where(tf.math.greater(x_count, 0),
-                          col_sum_of_squares / x_count,
-                          tf.zeros_like(x_count, dtype=x.dtype))
+    x_variance = tf.where(
+        tf.math.greater(x_count, 0), sum_of_squares / x_count,
+        tf.zeros_like(x_count, dtype=x.dtype))
 
   else:
     x_mean = tf.reduce_sum(x, axis=axis) / x_count
@@ -864,6 +877,8 @@ def reduce_batch_count_l_moments(x, reduce_instance_dims):
     x = x.values
 
   if isinstance(x, tf.SparseTensor):
+    # TODO(b/38063790): Make sure that the shape is maintained for the
+    # reduce_instance_dims=True case.
     batch_size = x.dense_shape[0]
     x_rank_2 = tf.sparse.reshape(x, [batch_size, -1])
     dim_1 = x_rank_2.dense_shape[1]
@@ -1204,7 +1219,8 @@ def serialize_example(features):
   return _encode_proto({'features': features}, 'tensorflow.Example')
 
 
-def _sparse_minus_reduce_min_and_reduce_max(x):
+def _sparse_minus_reduce_min_and_reduce_max(
+    x: tf.SparseTensor) -> Tuple[tf.Tensor, tf.Tensor]:
   """Computes the -min and max of a SparseTensor x.
 
   It differs from sparse_reduce_max in that sparse_reduce_max returns 0 when all
@@ -1221,14 +1237,13 @@ def _sparse_minus_reduce_min_and_reduce_max(x):
   Raises:
     TypeError: If the type of `x` is not supported.
   """
-  if not isinstance(x, tf.SparseTensor):
-    raise TypeError('Expected a SparseTensor, but got %r' % x)
   minus_x = tf.SparseTensor(
       indices=x.indices, values=0 - x.values, dense_shape=x.dense_shape)
   x_count = reduce_batch_count(x, reduce_instance_dims=False)
   batch_has_no_values = tf.equal(x_count, tf.constant(0, dtype=tf.int64))
-  x_batch_max = tf.sparse.reduce_max(sp_input=x, axis=0)
-  x_batch_minus_min = tf.sparse.reduce_max(sp_input=minus_x, axis=0)
+  x_batch_max = _sparse_reduce_batch_keep_shape(tf.sparse.reduce_max, x)
+  x_batch_minus_min = _sparse_reduce_batch_keep_shape(tf.sparse.reduce_max,
+                                                      minus_x)
 
   if x.dtype.is_floating:
     missing_value = tf.constant(_FLOATING_NAN, x.dtype)
@@ -1245,7 +1260,9 @@ def _sparse_minus_reduce_min_and_reduce_max(x):
   return x_batch_minus_min, x_batch_max
 
 
-def reduce_batch_minus_min_and_max(x, reduce_instance_dims):
+def reduce_batch_minus_min_and_max(
+    x: common_types.TensorType,
+    reduce_instance_dims: bool) -> Tuple[tf.Tensor, tf.Tensor]:
   """Computes the -min and max of a tensor x.
 
   NOTE: For TF versions < 2.4, if all feature values are NaNs, the -min and max
