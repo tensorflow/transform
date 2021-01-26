@@ -20,7 +20,7 @@ from __future__ import print_function
 
 import os
 import threading
-from typing import Any, Iterable, Optional
+from typing import Iterable, Optional
 
 # GOOGLE-INITIALIZATION
 
@@ -30,8 +30,6 @@ from tensorflow_transform import tf2_utils
 # `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
 # resolved.
 from tfx_bsl.types import tfx_namedtuple
-
-_DEPRECATED_SENTINEL = object()
 
 
 class Context(object):
@@ -51,7 +49,6 @@ class Context(object):
         example.
     use_deep_copy_optimization: (Optional) If True, makes deep copies of
         PCollections that are used in multiple TFT phases.
-    use_tfxio: Deprecated. Do not set.
     force_tf_compat_v1: (Optional) If True, TFT's public APIs
         (e.g. AnalyzeDataset) will use Tensorflow in compat.v1 mode irrespective
         of installed version of Tensorflow. Defaults to `True`.
@@ -89,20 +86,12 @@ class Context(object):
 
   _thread_local = threading.local()
 
-  # TODO(b/166642620): remove use_tfxio after TFT 0.24 release.
   def __init__(self,
                temp_dir: Optional[str] = None,
                desired_batch_size: Optional[int] = None,
                passthrough_keys: Optional[Iterable[str]] = None,
                use_deep_copy_optimization: Optional[bool] = None,
-               use_tfxio: Any = _DEPRECATED_SENTINEL,
                force_tf_compat_v1: Optional[bool] = None):
-    if use_tfxio is not _DEPRECATED_SENTINEL:
-      tf.compat.v1.logging.warning(
-          'TFT beam APIs accept both the TFXIO format and the instance dict '
-          'format now. There is no need to set use_tfxio any more and it will '
-          'be removed soon.')
-    del use_tfxio
     state = getattr(self._thread_local, 'state', None)
     if not state:
       self._thread_local.state = self._StateStack()

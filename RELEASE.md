@@ -28,6 +28,9 @@
 
 ## Deprecations
 
+*   Parameter `use_tfxio` in the initializer of `Context` is removed (it was
+    deprecated in 0.24.0).
+
 # Version 0.26.0
 
 ## Major Features and Improvements
