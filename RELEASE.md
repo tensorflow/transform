@@ -1,6 +1,16 @@
 <!-- mdlint off(HEADERS_TOO_MANY_H1) -->
 
-# Current Version(Still in Development)
+# Current Version (Still in Development)
+
+## Major Features and Improvements
+
+## Bug Fixes and Other Changes
+
+## Breaking changes
+
+## Deprecations
+
+# Version 0.27.0
 
 ## Major Features and Improvements
 
@@ -18,13 +28,17 @@
     this ensures the input to the `tf.lookup.TextFileInitializer` is the file
     path as the initializer handles wrapping this in a `tf.saved_model.Asset`
     object.
-*   Depends on `tensorflow>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,<2.5`.
 *   Added `tft.annotate_asset` for annotating asset files with a string key that
     can be used to retrieve them in `tft.TFTransformOutput`.
 *   Depends on `apache-beam[gcp]>=2.27,<3`.
 *   Depends on `pyarrow>=1,<3`.
+*   Depends on `tensorflow>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,<2.5`.
+*   Depends on `tensorflow-metadata>=0.27.0,<0.28.0`.
+*   Depends on `tfx-bsl>=0.27.0,<0.28.0`.
 
 ## Breaking changes
+
+*   N/A
 
 ## Deprecations
 
