@@ -628,6 +628,34 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
 
+  def testNpArrayInput(self):
+
+    def preprocessing_fn(inputs):
+      return {'a b': tf.compat.v1.strings.join(
+          [inputs['a'], inputs['b']], separator=' ')}
+
+    input_data = [{
+        'a': np.array('Hello', dtype=object),
+        'b': np.array('world', dtype=object)
+    }, {
+        'a': np.array('Hello', dtype=object),
+        'b': np.array(u'κόσμε', dtype=object)
+    }]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'a': tf.io.FixedLenFeature([], tf.string),
+        'b': tf.io.FixedLenFeature([], tf.string),
+    })
+    expected_data = [{
+        'a b': np.array(b'Hello world', dtype=object)
+    }, {
+        'a b': np.array(u'Hello κόσμε'.encode('utf-8'), dtype=object)
+    }]
+    expected_metadata = tft_unit.metadata_from_feature_spec(
+        {'a b': tf.io.FixedLenFeature([], tf.string)})
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
   @tft_unit.parameters((True,), (False,))
   def testScaleUnitInterval(self, elementwise):
 

@@ -76,8 +76,14 @@ def _make_cast_fn(np_dtype):
   def utf8(s):
     return s if isinstance(s, bytes) else s.encode('utf-8')
 
+  vectorize = np.vectorize(utf8)
+
   def string_cast(x):
-    return map(utf8, x) if isinstance(x, (list, np.ndarray)) else utf8(x)
+    if isinstance(x, list) or isinstance(x, np.ndarray) and x.ndim > 0:
+      return map(utf8, x)
+    elif isinstance(x, np.ndarray):
+      return vectorize(x).tolist()
+    return utf8(x)
 
   if issubclass(np_dtype, np.floating):
     try:
