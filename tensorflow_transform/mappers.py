@@ -342,10 +342,10 @@ def _scale_by_min_max_internal(x, key, output_min, output_max, elementwise,
   x_values = x
   if isinstance(x, tf.SparseTensor):
     if elementwise:
-      # Only supports SparseTensors with rank 2.
-      x.get_shape().assert_has_rank(2)
-      min_x_value = tf.gather(min_x_value, x.indices[:, 1])
-      max_x_value = tf.gather(max_x_value, x.indices[:, 1])
+      min_x_value = tf.gather_nd(
+          tf.broadcast_to(min_x_value, x.dense_shape), x.indices)
+      max_x_value = tf.gather_nd(
+          tf.broadcast_to(max_x_value, x.dense_shape), x.indices)
     x_values = x.values
 
   # If min>=max, then the corresponding input to the min_and_max analyzer either
@@ -547,11 +547,8 @@ def _scale_to_z_score_internal(
   if isinstance(x, tf.SparseTensor):
     x_values = x.values
     if elementwise:
-      # Only supports SparseTensors with rank 2.
-      x.get_shape().assert_has_rank(2)
-
-      x_mean = tf.gather(x_mean, x.indices[:, 1])
-      x_var = tf.gather(x_var, x.indices[:, 1])
+      x_mean = tf.gather_nd(tf.broadcast_to(x_mean, x.dense_shape), x.indices)
+      x_var = tf.gather_nd(tf.broadcast_to(x_var, x.dense_shape), x.indices)
 
   numerator = tf.cast(x_values, x_mean.dtype) - x_mean
   denominator = tf.sqrt(x_var)

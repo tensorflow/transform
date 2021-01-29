@@ -97,13 +97,14 @@ def _mean_output_dtype(input_dtype):
 class BeamImplTest(tft_unit.TransformTestCase):
 
   def setUp(self):
+    super().setUp()
     tf.compat.v1.logging.info('Starting test case: %s', self._testMethodName)
     self._context = beam_impl.Context(
         use_deep_copy_optimization=True, force_tf_compat_v1=True)
     self._context.__enter__()
-    super(BeamImplTest, self).setUp()
 
   def tearDown(self):
+    super().tearDown()
     self._context.__exit__()
 
   def _UseTFCompatV1(self):
@@ -578,6 +579,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     batch_size = 100
     num_instances = batch_size + 1
+    # pylint: disable=g-complex-comprehension
     input_data = [{
         'a': 2,
         'b': i,
@@ -592,6 +594,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'ab': 2*i,
         'i': (len(input_data) - 1) - i,  # Due to reverse lexicographic sorting.
     } for i in range(len(input_data))]
+    # pylint: enable=g-complex-comprehension
     expected_metadata = tft_unit.metadata_from_feature_spec({
         'ab': tf.io.FixedLenFeature([], tf.float32),
         'i': tf.io.FixedLenFeature([], tf.int64),
@@ -1127,12 +1130,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_data = [{'x_scaled': float('nan')}]
     expected_metadata = tft_unit.metadata_from_feature_spec(
         {'x_scaled': tf.io.FixedLenFeature([], tf.float32)})
-    with self.assertRaises(ValueError) as context:
+    with self.assertRaisesRegexp(  # pylint: disable=g-error-prone-assert-raises
+        ValueError, 'output_min must be less than output_max'):
       self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                             preprocessing_fn, expected_data,
                                             expected_metadata)
-    self.assertTrue(
-        'output_min must be less than output_max' in str(context.exception))
 
   def testScaleMinMaxWithEmptyInputs(self):
     # x is repeated `multiple` times to test elementwise mapping.
@@ -1977,14 +1979,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_val_dtype = input_dtype.as_numpy_dtype
     output_dtype = tft_unit.canonical_numeric_dtype(input_dtype).as_numpy_dtype
     input_data = [
-        {'idx': [0, 1], 'val': np.array([0, 1], dtype=input_val_dtype)},
-        {'idx': [1, 3], 'val': np.array([2, 3], dtype=input_val_dtype)},
+        {'idx0': [0, 1], 'idx1': [0, 1], 'val': np.array(
+            [0, 1], dtype=input_val_dtype)},
+        {'idx0': [1, 2], 'idx1': [1, 3], 'val': np.array(
+            [2, 3], dtype=input_val_dtype)},
     ]
     input_metadata = tft_unit.metadata_from_feature_spec({
         'a':
-            tf.io.SparseFeature('idx', 'val',
+            tf.io.SparseFeature(['idx0', 'idx1'], 'val',
                                 tft_unit.canonical_numeric_dtype(input_dtype),
-                                4)
+                                (3, 4))
     })
     if reduce_instance_dims:
       expected_outputs = {
@@ -1996,6 +2000,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'var': np.array(1.25, np.float32),
       }
     else:
+      missing = float('nan')
       if input_dtype.is_floating:
         missing_value_max = float('nan')
         missing_value_min = float('nan')
@@ -2003,15 +2008,113 @@ class BeamImplTest(tft_unit.TransformTestCase):
         missing_value_max = np.iinfo(output_dtype).min
         missing_value_min = np.iinfo(output_dtype).max
       expected_outputs = {
-          'min': np.array([0., 1., missing_value_min, 3.], output_dtype),
-          'max': np.array([0., 2., missing_value_max, 3.], output_dtype),
-          'sum': np.array([0., 3., 0., 3.], output_dtype),
-          'size': np.array([1, 2, 0, 1], np.int64),
-          'mean': np.array([0., 1.5, float('nan'), 3.], np.float32),
-          'var': np.array([0., 0.25, float('nan'), 0.], np.float32),
+          'min':
+              np.array([
+                  [0., missing_value_min, missing_value_min, missing_value_min],
+                  [missing_value_min, 1., missing_value_min, missing_value_min],
+                  [missing_value_min, missing_value_min, missing_value_min, 3.]
+              ], output_dtype),
+          'max':
+              np.array([
+                  [0., missing_value_max, missing_value_max, missing_value_max],
+                  [missing_value_max, 2., missing_value_max, missing_value_max],
+                  [missing_value_max, missing_value_max, missing_value_max, 3.]
+              ], output_dtype),
+          'sum':
+              np.array([[0., 0., 0., 0.], [0., 3., 0., 0.], [0., 0., 0., 3.]],
+                       output_dtype),
+          'size':
+              np.array([[1, 0, 0, 0], [0, 2, 0, 0], [0, 0, 0, 1]], np.int64),
+          'mean':
+              np.array([[0., missing, missing, missing],
+                        [missing, 1.5, missing, missing],
+                        [missing, missing, missing, 3.]], np.float32),
+          'var':
+              np.array([[0., missing, missing, missing],
+                        [missing, 0.25, missing, missing],
+                        [missing, missing, missing, 0.]], np.float32),
       }
     self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
                                expected_outputs)
+
+  @tft_unit.parameters((True,), (False,))
+  def testNumericMappersWithSparseInputs(self, elementwise):
+    def preprocessing_fn(inputs):
+      return {
+          'scale_to_0_1':
+              tft.scale_to_0_1(inputs['a'], elementwise=elementwise),
+          'scale_to_z_score':
+              tft.scale_to_z_score(inputs['a'], elementwise=elementwise),
+          'scale_by_min_max':
+              tft.scale_by_min_max(inputs['a'], elementwise=elementwise),
+      }
+
+    input_data = [
+        {'idx0': [0, 1], 'idx1': [0, 1], 'val': np.array(
+            [0, 1], dtype=np.int64)},
+        {'idx0': [1, 2], 'idx1': [1, 3], 'val': np.array(
+            [2, 3], dtype=np.int64)},
+    ]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'a':
+            tf.io.SparseFeature(['idx0', 'idx1'], 'val',
+                                tft_unit.canonical_numeric_dtype(tf.int64),
+                                (3, 4))
+    })
+    def _sigmoid(x):
+      return 1 / (1 + np.exp(-x))
+    expected_indices_0 = {
+        'scale_to_0_1$sparse_indices_0': np.array([0, 1]),
+        'scale_to_0_1$sparse_indices_1': np.array([0, 1]),
+        'scale_to_z_score$sparse_indices_0': np.array([0, 1]),
+        'scale_to_z_score$sparse_indices_1': np.array([0, 1]),
+        'scale_by_min_max$sparse_indices_0': np.array([0, 1]),
+        'scale_by_min_max$sparse_indices_1': np.array([0, 1]),
+    }
+    expected_indices_1 = {
+        'scale_to_0_1$sparse_indices_0': np.array([1, 2]),
+        'scale_to_0_1$sparse_indices_1': np.array([1, 3]),
+        'scale_to_z_score$sparse_indices_0': np.array([1, 2]),
+        'scale_to_z_score$sparse_indices_1': np.array([1, 3]),
+        'scale_by_min_max$sparse_indices_0': np.array([1, 2]),
+        'scale_by_min_max$sparse_indices_1': np.array([1, 3]),
+    }
+    if elementwise:
+      expected_values_0 = {
+          'scale_to_0_1$sparse_values': np.array([0.5, 0.], dtype=np.float32),
+          'scale_to_z_score$sparse_values': np.array([0, -1], dtype=np.float32),
+          'scale_by_min_max$sparse_values': np.array([0.5, 0.],
+                                                     dtype=np.float32),
+      }
+      expected_values_1 = {
+          'scale_to_0_1$sparse_values': np.array([1., _sigmoid(3)],
+                                                 dtype=np.float32),
+          'scale_to_z_score$sparse_values': np.array([1, 0], dtype=np.float32),
+          'scale_by_min_max$sparse_values': np.array([1., _sigmoid(3)],
+                                                     dtype=np.float32),
+      }
+    else:
+      sqrt_var = np.sqrt(1.25)
+      expected_values_0 = {
+          'scale_to_0_1$sparse_values': np.array([0., 1. / 3.],
+                                                 dtype=np.float32),
+          'scale_to_z_score$sparse_values': np.array(
+              [-1.5 / sqrt_var, -0.5 / sqrt_var], dtype=np.float32),
+          'scale_by_min_max$sparse_values': np.array([0., 1. / 3.],
+                                                     dtype=np.float32),
+      }
+      expected_values_1 = {
+          'scale_to_0_1$sparse_values': np.array([2. / 3., 1.],
+                                                 dtype=np.float32),
+          'scale_to_z_score$sparse_values': np.array(
+              [.5 / sqrt_var, 1.5 / sqrt_var], dtype=np.float32),
+          'scale_by_min_max$sparse_values': np.array([2. / 3., 1.],
+                                                     dtype=np.float32),
+      }
+    expected_outputs = [{**expected_indices_0, **expected_values_0},
+                        {**expected_indices_1, **expected_values_1}]
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_outputs)
 
   def testNumericAnalyzersWithInputsAndAxis(self):
     def analyzer_fn(inputs):

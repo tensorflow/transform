@@ -32,7 +32,7 @@ import functools
 import os
 import pickle
 import re
-from typing import Any, Callable, Collection, List, Optional, Union, Text, Tuple
+from typing import Any, Callable, Collection, List, Optional, Text, Tuple, Type, Union
 # GOOGLE-INITIALIZATION
 import numpy as np
 import pyarrow as pa
@@ -115,7 +115,9 @@ _FLOAT_OUTPUT_DTYPE_MAP = {
 }
 
 
-def apply_analyzer(analyzer_def_cls, *tensor_inputs, **analyzer_def_kwargs):
+def apply_analyzer(analyzer_def_cls: Type[analyzer_nodes.AnalyzerDef],
+                   *tensor_inputs: common_types.TensorType,
+                   **analyzer_def_kwargs: Any) -> Tuple[tf.Tensor, ...]:
   """Applies the analyzer over the whole dataset.
 
   Args:
@@ -137,7 +139,9 @@ def apply_analyzer(analyzer_def_cls, *tensor_inputs, **analyzer_def_kwargs):
   return tuple(map(analyzer_nodes.wrap_as_tensor, output_value_nodes))
 
 
-def _apply_cacheable_combiner(combiner, *tensor_inputs):
+def _apply_cacheable_combiner(
+    combiner: analyzer_nodes.Combiner,
+    *tensor_inputs: common_types.TensorType) -> Tuple[tf.Tensor, ...]:
   """Applies the combiner over the whole dataset possibly utilizing cache."""
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       tensor_inputs)
@@ -160,7 +164,9 @@ def _apply_cacheable_combiner(combiner, *tensor_inputs):
   return tuple(map(analyzer_nodes.wrap_as_tensor, outputs_value_nodes))
 
 
-def _apply_cacheable_combiner_per_key(combiner, *tensor_inputs):
+def _apply_cacheable_combiner_per_key(
+    combiner: analyzer_nodes.Combiner,
+    *tensor_inputs: common_types.TensorType) -> Tuple[tf.Tensor, ...]:
   """Similar to _apply_cacheable_combiner but this is computed per key."""
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       tensor_inputs)
@@ -183,8 +189,10 @@ def _apply_cacheable_combiner_per_key(combiner, *tensor_inputs):
   return tuple(map(analyzer_nodes.wrap_as_tensor, output_value_nodes))
 
 
-def _apply_cacheable_combiner_per_key_large(combiner, key_vocabulary_filename,
-                                            *tensor_inputs):
+def _apply_cacheable_combiner_per_key_large(
+    combiner: analyzer_nodes.Combiner, key_vocabulary_filename: str,
+    *tensor_inputs: common_types.TensorType
+) -> Union[tf.Tensor, common_types.Asset]:
   """Similar to above but saves the combined result to a file."""
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       tensor_inputs)
@@ -222,7 +230,7 @@ def _apply_cacheable_combiner_per_key_large(combiner, key_vocabulary_filename,
 class NumPyCombiner(analyzer_nodes.Combiner):
   """Combines the PCollection only on the 0th dimension using nparray.
 
-  Args:
+  Attributes:
     fn: The numpy function representing the reduction to be done.
     default_accumulator_value: The default value each accumulator entry is
       initialized to.
@@ -320,14 +328,14 @@ def _get_output_shape_from_input(x):
 
 # TODO(b/112414577): Go back to accepting only a single input.
 # Currently we accept multiple inputs so that we can implement min and max
-# with a single combiner.
-def _numeric_combine(inputs,
-                     fn,
-                     default_accumulator_value,
-                     reduce_instance_dims=True,
-                     output_dtypes=None,
-                     key=None,
-                     key_vocabulary_filename=None):
+# with a single combiner. Once this is done, add a return pytype as well.
+def _numeric_combine(inputs: List[tf.Tensor],
+                     fn: Callable[[np.ndarray], np.ndarray],
+                     default_accumulator_value: Union[float, int],
+                     reduce_instance_dims: bool = True,
+                     output_dtypes: Optional[List[tf.DType]] = None,
+                     key: Optional[tf.Tensor] = None,
+                     key_vocabulary_filename: Optional[str] = None):
   """Apply a reduction, defined by a numpy function to multiple inputs.
 
   Args:
@@ -389,7 +397,10 @@ def _numeric_combine(inputs,
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
+def min(  # pylint: disable=redefined-builtin
+    x: common_types.TensorType,
+    reduce_instance_dims: bool = True,
+    name: Optional[str] = None) -> tf.Tensor:
   """Computes the minimum of the values of a `Tensor` over the whole dataset.
 
   In the case of a `SparseTensor` missing values will be used in return value:
@@ -413,7 +424,10 @@ def min(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
+def max(  # pylint: disable=redefined-builtin
+    x: common_types.TensorType,
+    reduce_instance_dims: bool = True,
+    name: Optional[str] = None) -> tf.Tensor:
   """Computes the maximum of the values of a `Tensor` over the whole dataset.
 
   In the case of a `SparseTensor` missing values will be used in return value:
@@ -435,7 +449,9 @@ def max(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-b
     return _min_and_max(x, reduce_instance_dims, name)[1]
 
 
-def _min_and_max(x, reduce_instance_dims=True, name=None):
+def _min_and_max(x: common_types.TensorType,
+                 reduce_instance_dims: bool = True,
+                 name: Optional[str] = None) -> Tuple[tf.Tensor, tf.Tensor]:
   """Computes the min and max of the values of a `Tensor` or `SparseTensor`.
 
   In the case of a `SparseTensor` missing values will be used in return value:
@@ -476,8 +492,13 @@ def _min_and_max(x, reduce_instance_dims=True, name=None):
     return tf.cast(0 - minus_x_min, output_dtype), tf.cast(x_max, output_dtype)
 
 
-def _min_and_max_per_key(x, key, reduce_instance_dims=True,
-                         key_vocabulary_filename=None, name=None):
+def _min_and_max_per_key(
+    x: common_types.TensorType,
+    key: common_types.TensorType,
+    reduce_instance_dims: bool = True,
+    key_vocabulary_filename: Optional[str] = None,
+    name: Optional[str] = None
+) -> Union[Tuple[tf.Tensor, tf.Tensor, tf.Tensor], tf.Tensor]:
   """Computes the min and max of the values of a `Tensor` or `SparseTensor`.
 
   In the case of a `SparseTensor` missing values will be used in return value:
@@ -552,7 +573,9 @@ def _min_and_max_per_key(x, key, reduce_instance_dims=True,
         tf.cast(x_max, output_dtype))
 
 
-def _sum_combine_fn_and_dtype(input_dtype):
+def _sum_combine_fn_and_dtype(
+    input_dtype: tf.DType
+) -> Tuple[tf.DType, Callable[[np.ndarray], np.ndarray]]:
   output_dtype = _SUM_OUTPUT_DTYPE_MAP.get(input_dtype)
   if output_dtype is None:
     raise TypeError('Tensor type %r is not supported' % input_dtype)
@@ -562,7 +585,10 @@ def _sum_combine_fn_and_dtype(input_dtype):
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def sum(x, reduce_instance_dims=True, name=None):  # pylint: disable=redefined-builtin
+def sum(  # pylint: disable=redefined-builtin
+    x: common_types.TensorType,
+    reduce_instance_dims: bool = True,
+    name: Optional[str] = None) -> tf.Tensor:
   """Computes the sum of the values of a `Tensor` over the whole dataset.
 
   Args:
@@ -672,7 +698,9 @@ def histogram(x, boundaries=None, categorical=False, name=None):
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def size(x, reduce_instance_dims=True, name=None):
+def size(x: common_types.TensorType,
+         reduce_instance_dims: bool = True,
+         name: Optional[str] = None) -> tf.Tensor:
   """Computes the total size of instances in a `Tensor` over the whole dataset.
 
   Args:
@@ -698,7 +726,9 @@ def size(x, reduce_instance_dims=True, name=None):
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def count_per_key(key, key_vocabulary_filename=None, name=None):
+def count_per_key(key: common_types.TensorType,
+                  key_vocabulary_filename: Optional[str] = None,
+                  name: Optional[str] = None):
   """Computes the count of each element of a `Tensor`.
 
   Args:
@@ -746,7 +776,10 @@ def count_per_key(key, key_vocabulary_filename=None, name=None):
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
+def mean(x: common_types.TensorType,
+         reduce_instance_dims: bool = True,
+         name: Optional[str] = None,
+         output_dtype: Optional[tf.DType] = None) -> tf.Tensor:
   """Computes the mean of the values of a `Tensor` over the whole dataset.
 
   Args:
@@ -770,7 +803,10 @@ def mean(x, reduce_instance_dims=True, name=None, output_dtype=None):
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def var(x, reduce_instance_dims=True, name=None, output_dtype=None):
+def var(x: common_types.TensorType,
+        reduce_instance_dims: bool = True,
+        name: Optional[str] = None,
+        output_dtype: Optional[tf.DType] = None) -> tf.Tensor:
   """Computes the variance of the values of a `Tensor` over the whole dataset.
 
   Uses the biased variance (0 delta degrees of freedom), as given by
@@ -797,17 +833,8 @@ def var(x, reduce_instance_dims=True, name=None, output_dtype=None):
     return _mean_and_var(x, reduce_instance_dims, output_dtype)[1]
 
 
-def _raise_if_not_2d_sparse_tensor(x: common_types.TensorType,
-                                   msg: str) -> None:
-  # TODO(b/112656428): Support SparseTensors with rank other than 2.
-  if isinstance(x, tf.SparseTensor) and x.get_shape().ndims != 2:
-    raise NotImplementedError(msg)
-
-
 def _mean_and_var(x, reduce_instance_dims=True, output_dtype=None):
   """More efficient combined `mean` and `var`.  See `var`."""
-  _raise_if_not_2d_sparse_tensor(
-      x, 'Mean and var only support SparseTensors with rank 2')
   if output_dtype is None:
     output_dtype = _FLOAT_OUTPUT_DTYPE_MAP.get(x.dtype)
     if output_dtype is None:
@@ -1004,8 +1031,6 @@ def _mean_and_var_per_key(x, key, reduce_instance_dims=True, output_dtype=None,
     (B) The filename where the key-value mapping is stored (if
         key_vocabulary_filename is not None).
   """
-  _raise_if_not_2d_sparse_tensor(
-      x, 'Mean and var per key only support SparseTensors with rank 2')
   if output_dtype is None:
     output_dtype = _FLOAT_OUTPUT_DTYPE_MAP.get(x.dtype)
     if output_dtype is None:
@@ -1235,7 +1260,7 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
                                     b_mean - a_mean)
     else:
       combined_weights_mean = np.ones(shape=combined_total.shape)
-      combined_mean = a_mean + b_count / combined_total * (b_mean - a_mean)
+      combined_mean = a_mean + (b_count / combined_total * (b_mean - a_mean))
 
     if self._compute_variance:
       # TODO(zoyahav): Add an option for weighted variance if needed.
@@ -2096,8 +2121,13 @@ class _QuantilesSketchCacheCoder(analyzer_nodes.CacheCoder):
     None, 'Number of returned quantiles is now always `num_buckets` - 1.',
     'always_return_num_quantiles')
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def quantiles(x, num_buckets, epsilon, weights=None, reduce_instance_dims=True,
-              always_return_num_quantiles=True, name=None):
+def quantiles(x: tf.Tensor,
+              num_buckets: int,
+              epsilon: float,
+              weights: Optional[tf.Tensor] = None,
+              reduce_instance_dims: Optional[bool] = True,
+              always_return_num_quantiles: Optional[bool] = True,
+              name: Optional[str] = None) -> tf.Tensor:
   """Computes the quantile boundaries of a `Tensor` over the whole dataset.
 
   quantile boundaries are computed using approximate quantiles,

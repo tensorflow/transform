@@ -6,6 +6,10 @@
 
 ## Bug Fixes and Other Changes
 
+*   Generic `tf.SparseTensor` input support has been added to
+    `tft.scale_to_0_1`, `tft.scale_to_z_score`, `tft.scale_by_min_max`,
+    `tft.min`, `tft.max`, `tft.mean`, `tft.var`, `tft.sum` and `tft.size`.
+
 ## Breaking changes
 
 ## Deprecations
@@ -51,7 +55,7 @@
 
 *   Initial support added of >2D `SparseTensor`s as inputs and outputs of the
     `preprocessing_fn`. Note that mappers and analyzers may not support those
-    yet, and output >2D `SparseTensor`s will have an unkonwn dense shape.
+    yet, and output >2D `SparseTensor`s will have an unknown dense shape.
 
 ## Bug Fixes and Other Changes
 
