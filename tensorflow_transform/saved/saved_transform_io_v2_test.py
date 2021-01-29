@@ -212,11 +212,7 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
 
   @test_case.named_parameters(*_TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES)
   def test_apply_transform_type_mismatch(self, exported_in_tf1):
-    if exported_in_tf1:
-      exception_type = tf.errors.InvalidArgumentError
-    else:
-      exception_type = ValueError
-    with self.assertRaises(exception_type):
+    with self.assertRaises(tf.errors.InvalidArgumentError):
       input_strings = tf.constant(['bogus'])  # tf.string
       input_features = {'x': input_strings}
       self._get_saved_model_loader(exported_in_tf1).apply_transform_model(

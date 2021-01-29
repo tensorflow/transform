@@ -17,8 +17,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import copy
-
 # GOOGLE-INITIALIZATION
 
 import six
@@ -75,7 +73,6 @@ class SavedModelLoader(object):
       # TODO(b/160550490): Remove local import.
       from tensorflow_transform import tf2_utils  # pylint: disable=g-import-not-at-top
 
-      # Since `input_signature` was specified when exporting the tf function to
       # transform_fn is now a ConcreteFunction, but was a tf.function. We need
       # to handle both to maintain backward compatiblity. If it's a tf.function,
       # since `input_signature` was specified when exporting the tf function to
@@ -200,6 +197,16 @@ class SavedModelLoader(object):
         result[name].set_shape(output.shape)
     return result
 
+  def _format_input_map_as_tensors(self, input_map):
+    """Returns a map from string to `tf.Tensor` or `CompositeTensor`."""
+    result = {}
+    for key, value in input_map.items():
+      if isinstance(value, (tf.Tensor, composite_tensor.CompositeTensor)):
+        result[key] = value
+      else:
+        result[key] = tf.convert_to_tensor(value)
+    return result
+
   def _apply_v2_transform_model(self, logical_input_map):
     """Applies a V2 transform graph to `Tensor`s.
 
@@ -228,7 +235,7 @@ class SavedModelLoader(object):
           self._structured_inputs[input_key])
       feeds = feeds.difference(unfed_input_components)
 
-    modified_inputs = copy.copy(logical_input_map)
+    modified_inputs = self._format_input_map_as_tensors(logical_input_map)
     if unfed_input_keys:
       batch_size = 1
       if logical_input_map:
@@ -240,8 +247,19 @@ class SavedModelLoader(object):
                                           unfed_input_keys))
       modified_inputs.update(missing_inputs)
 
+    flattened_inputs = tf.nest.flatten(modified_inputs, expand_composites=True)
+
+    # self._wrapped.inputs may be longer than flattened_inputs as it also
+    # contains captured inputs. However, we only want the user inputs here so we
+    # don't assert equal length.
+    for input_t, wrapped_input in zip(flattened_inputs, self._wrapped.inputs):
+      try:
+        wrapped_input.shape.assert_is_compatible_with(input_t.shape)
+      except ValueError as e:
+        raise ValueError('{}: {}'.format(input_t, e))
+
+    transformed_features = self._wrapped(*flattened_inputs)
     fetches = self._get_fetches(feeds)
-    transformed_features = self._wrapped(modified_inputs)
     return {key: transformed_features[key] for key in fetches.keys()}
 
   def apply_transform_model(self, logical_input_map):

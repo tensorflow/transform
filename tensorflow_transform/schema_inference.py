@@ -193,7 +193,9 @@ def infer_feature_schema_v2(features, concrete_metadata_fn,
       concrete_metadata_fn.graph)
   # Invoke concrete_metadata_fn with some dummy data.
   inputs = tf2_utils.supply_missing_inputs(structured_inputs, batch_size=1)
-  metadata = collections.defaultdict(list, concrete_metadata_fn(inputs))
+  flattened_inputs = tf.nest.flatten(inputs, expand_composites=True)
+  metadata = collections.defaultdict(list,
+                                     concrete_metadata_fn(*flattened_inputs))
 
   if not evaluate_schema_overrides:
     tensor_ranges = {

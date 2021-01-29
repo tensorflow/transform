@@ -43,6 +43,7 @@ from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.eager import function
+from tensorflow.python.eager import wrap_function
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import lookup_ops
 from tensorflow.python.training.tracking import tracking
@@ -497,6 +498,28 @@ def trace_preprocessing_function(preprocessing_fn,
                                       base_temp_dir)
 
 
+# TODO(b/177606209): Remove once TF supports saving optimized functions.
+# TODO(b/169666856): WrappedFunction.prune does not support composite tensors.
+# Hence, add additional handling when supporting composite tensors in TFT.
+def _optimize_concrete_function(
+    concrete_function: function.ConcreteFunction
+) -> wrap_function.WrappedFunction:
+  """Return an optimized function with the same signature as `concrete_function`."""
+  wrapped_fn = wrap_function.WrappedFunction(
+      concrete_function.graph,
+      variable_holder=wrap_function.VariableHolder(share_variables=True))
+  result = wrapped_fn.prune(
+      feeds=concrete_function.inputs,
+      fetches=concrete_function.structured_outputs,
+      input_signature=concrete_function.structured_input_signature)
+  # TODO(b/178837353): Remove once `prune` retains shape information for all
+  # components.
+  for original_out, pruned_out in zip(concrete_function.outputs,
+                                      result.outputs):
+    pruned_out.set_shape(original_out.get_shape())
+  return result
+
+
 def _write_v2_saved_model(tf_function: function.Function, name: str,
                           saved_model_dir: str) -> function.ConcreteFunction:
   """Writes a TF module with `tf_function` under attr `name` to `saved_model_dir`."""
@@ -523,7 +546,9 @@ def _write_v2_saved_model(tf_function: function.Function, name: str,
   # SavedModel. Since this is no longer the case, we save the concrete function
   # directly.
   if tf.compat.forward_compatible(2020, 10, 8):
-    setattr(module, name, concrete_fn)
+    pruned_function = _optimize_concrete_function(concrete_fn)
+    module.pruned_variables = pruned_function.variables
+    setattr(module, name, pruned_function)
   else:
     setattr(module, name, tf_function)
 
