@@ -14,6 +14,7 @@
 *   Added `tft_beam.PTransformAnalyzer` as a base PTransform class for
     `tft.ptransform_analyzer` users who wish to have access to a base temporary
     directory.
+*   Depends on `numpy>=1.16,<1.20`.
 
 ## Breaking changes
 
