@@ -32,7 +32,7 @@ import tensorflow_transform as tft
 from tensorflow_transform import analyzers
 from tensorflow_transform import common
 from tensorflow_transform import schema_inference
-from tensorflow_transform.beam import impl as beam_impl
+import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tfx_bsl.tfxio import tensor_adapter
@@ -99,7 +99,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def setUp(self):
     super().setUp()
     tf.compat.v1.logging.info('Starting test case: %s', self._testMethodName)
-    self._context = beam_impl.Context(
+    self._context = tft_beam.Context(
         use_deep_copy_optimization=True, force_tf_compat_v1=True)
     self._context.__enter__()
 
@@ -365,7 +365,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     ]
     expected_metadata = tft_unit.metadata_from_feature_spec(
         {'x_scaled': tf.io.FixedLenFeature([], tf.float32)})
-    with beam_impl.Context(use_deep_copy_optimization=with_deep_copy):
+    with tft_beam.Context(use_deep_copy_optimization=with_deep_copy):
       # NOTE: In order to correctly test deep_copy here, we can't pass test_data
       # to assertAnalyzeAndTransformResults.
       # Not passing test_data to assertAnalyzeAndTransformResults means that
@@ -462,9 +462,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x': tf.io.FixedLenFeature([], tf.float32),
         'y': tf.io.FixedLenFeature([], tf.float32)
     })
-    with beam_impl.Context(temp_dir=self.get_temp_dir()):
+    with tft_beam.Context(temp_dir=self.get_temp_dir()):
       transform_fn = ((input_data, input_metadata)
-                      | beam_impl.AnalyzeDataset(preprocessing_fn))
+                      | tft_beam.AnalyzeDataset(preprocessing_fn))
 
     # Take the transform function and use TransformDataset to apply it to
     # some eval data, with missing 'y' column.
@@ -473,7 +473,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x': tf.io.FixedLenFeature([], tf.float32)})
     transformed_eval_data, transformed_eval_metadata = (
         ((eval_data, eval_metadata), transform_fn)
-        | beam_impl.TransformDataset(exclude_outputs=['y_scaled']))
+        | tft_beam.TransformDataset(exclude_outputs=['y_scaled']))
 
     expected_transformed_eval_data = [{'x_scaled': 1.25}]
     expected_transformed_eval_metadata = tft_unit.metadata_from_feature_spec(
@@ -2545,20 +2545,20 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testNestedContextCreateBaseTempDir(self):
     level_1_dir = self.get_temp_dir()
-    with beam_impl.Context(temp_dir=level_1_dir):
+    with tft_beam.Context(temp_dir=level_1_dir):
       self.assertEqual(
-          os.path.join(level_1_dir, beam_impl.Context._TEMP_SUBDIR),
-          beam_impl.Context.create_base_temp_dir())
+          os.path.join(level_1_dir, tft_beam.Context._TEMP_SUBDIR),
+          tft_beam.Context.create_base_temp_dir())
       level_2_dir = self.get_temp_dir()
-      with beam_impl.Context(temp_dir=level_2_dir):
+      with tft_beam.Context(temp_dir=level_2_dir):
         self.assertEqual(
-            os.path.join(level_2_dir, beam_impl.Context._TEMP_SUBDIR),
-            beam_impl.Context.create_base_temp_dir())
+            os.path.join(level_2_dir, tft_beam.Context._TEMP_SUBDIR),
+            tft_beam.Context.create_base_temp_dir())
       self.assertEqual(
-          os.path.join(level_1_dir, beam_impl.Context._TEMP_SUBDIR),
-          beam_impl.Context.create_base_temp_dir())
+          os.path.join(level_1_dir, tft_beam.Context._TEMP_SUBDIR),
+          tft_beam.Context.create_base_temp_dir())
     with self.assertRaises(ValueError):
-      beam_impl.Context.create_base_temp_dir()
+      tft_beam.Context.create_base_temp_dir()
 
   def testCovarianceTwoDimensions(self):
     def analyzer_fn(inputs):
@@ -2627,7 +2627,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_outputs,
         test_data=test_data)
 
-  class _SumCombiner(beam.PTransform):
+  class _SumCombiner(tft_beam.PTransformAnalyzer):
+
+    def __init__(self):
+      super().__init__()
+      self.base_temp_dir_in_expand = None
 
     @staticmethod
     def _flatten_fn(batch_values):
@@ -2644,6 +2648,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
               beam.pvalue.TaggedOutput('1', sums[1])]
 
     def expand(self, pcoll):
+      self.base_temp_dir_in_expand = self.base_temp_dir
       output_tuple = (
           pcoll
           | beam.FlatMap(self._flatten_fn)
@@ -2652,12 +2657,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return (output_tuple['0'], output_tuple['1'])
 
   def testPTransformAnalyzer(self):
+    sum_combiner = self._SumCombiner()
 
     def analyzer_fn(inputs):
       outputs = analyzers.ptransform_analyzer([inputs['x'], inputs['y']],
                                               [tf.int64, tf.int64],
                                               [[], []],
-                                              self._SumCombiner())
+                                              sum_combiner)
       return {'x_sum': outputs[0], 'y_sum': outputs[1]}
 
     # NOTE: We force 10 batches: data has 100 elements and we request a batch
@@ -2671,12 +2677,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x_sum': np.array(100, np.int64),
         'y_sum': np.array(4950, np.int64)
     }
+    self.assertIsNone(sum_combiner.base_temp_dir_in_expand)
     self.assertAnalyzerOutputs(
         input_data,
         input_metadata,
         analyzer_fn,
         expected_outputs,
         desired_batch_size=10)
+    self.assertIsNotNone(sum_combiner.base_temp_dir_in_expand)
+    self.assertStartsWith(sum_combiner.base_temp_dir_in_expand,
+                          self.get_temp_dir())
 
   @unittest.skipIf(not common.IS_ANNOTATIONS_PB_AVAILABLE,
                      'Schema annotations are not available')
@@ -2709,9 +2719,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     temp_dir = self.get_temp_dir()
     # Force a batch size of 1 to ensure that occurences are correctly aggregated
     # across batches when computing the total vocabulary size.
-    with beam_impl.Context(temp_dir=temp_dir, desired_batch_size=1):
+    with tft_beam.Context(temp_dir=temp_dir, desired_batch_size=1):
       transform_fn = ((input_data, input_metadata)
-                      | beam_impl.AnalyzeDataset(preprocessing_fn))
+                      | tft_beam.AnalyzeDataset(preprocessing_fn))
       #  Write transform_fn to serialize annotation collections to SavedModel
       _ = transform_fn | transform_fn_io.WriteTransformFn(temp_dir)
 
@@ -2760,9 +2770,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x': tf.io.FixedLenFeature([], tf.float32),
     })
     temp_dir = self.get_temp_dir()
-    with beam_impl.Context(temp_dir=temp_dir):
+    with tft_beam.Context(temp_dir=temp_dir):
       transform_fn = ((input_data, input_metadata)
-                      | beam_impl.AnalyzeDataset(preprocessing_fn))
+                      | tft_beam.AnalyzeDataset(preprocessing_fn))
       #  Write transform_fn to serialize annotation collections to SavedModel
       _ = transform_fn | transform_fn_io.WriteTransformFn(temp_dir)
 
@@ -2800,9 +2810,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'y': tf.io.FixedLenFeature([], tf.float32),
           'a': tf.io.FixedLenFeature([], tf.string)
       })
-      with beam_impl.Context(temp_dir=self.get_temp_dir()):
+      with tft_beam.Context(temp_dir=self.get_temp_dir()):
         _ = ((input_data, metadata)
-             | 'AnalyzeDataset' >> beam_impl.AnalyzeDataset(preprocessing_fn))
+             | 'AnalyzeDataset' >> tft_beam.AnalyzeDataset(preprocessing_fn))
 
     metrics = pipeline.metrics
     self.assertMetricsCounterEqual(metrics, 'tft_analyzer_vocabulary', 1)
@@ -2832,9 +2842,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         }, {
             'x': [4, 1]
         }])
-        with beam_impl.Context(temp_dir=self.get_temp_dir()):
+        with tft_beam.Context(temp_dir=self.get_temp_dir()):
           _ = ((input_data, metadata)
-               | 'AnalyzeDataset' >> beam_impl.AnalyzeDataset(preprocessing_fn))
+               | 'AnalyzeDataset' >> tft_beam.AnalyzeDataset(preprocessing_fn))
 
   def testPassthroughKeys(self):
     passthrough_key = '__passthrough__'
@@ -2861,12 +2871,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
     with self._makeTestPipeline() as pipeline:
       input_data = (
           pipeline | beam.Create([input_record_batch]))
-      with beam_impl.Context(
+      with tft_beam.Context(
           temp_dir=self.get_temp_dir(),
           passthrough_keys=set([passthrough_key])):
         (transformed_data, _), _ = (
             (input_data, tensor_adapter_config)
-            | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
+            | tft_beam.AnalyzeAndTransformDataset(preprocessing_fn))
 
         def _assert_fn(output_data):
           self.assertCountEqual(expected_data, output_data)
@@ -2913,10 +2923,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                          'transform_output')
     with self._makeTestPipeline() as pipeline:
       input_data = (pipeline | beam.Create([input_record_batch]))
-      with beam_impl.Context(temp_dir=self.get_temp_dir()):
+      with tft_beam.Context(temp_dir=self.get_temp_dir()):
         (transformed_data, transformed_metadata), transform_fn = (
             (input_data, tensor_adapter_config)
-            | beam_impl.AnalyzeAndTransformDataset(lambda inputs: inputs))
+            | tft_beam.AnalyzeAndTransformDataset(lambda inputs: inputs))
 
         transformed_data_coder = tft.coders.ExampleProtoCoder(
             transformed_metadata.schema)
@@ -3042,17 +3052,17 @@ class BeamImplTest(tft_unit.TransformTestCase):
           [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}])
       metadata = tft_unit.metadata_from_feature_spec(
           {'x': tf.io.FixedLenFeature([], tf.float32)})
-      with beam_impl.Context(temp_dir=self.get_temp_dir()):
+      with tft_beam.Context(temp_dir=self.get_temp_dir()):
         transform_fn = (
             (input_data, metadata)
-            | 'AnalyzeDataset' >> beam_impl.AnalyzeDataset(preprocessing_fn))
+            | 'AnalyzeDataset' >> tft_beam.AnalyzeDataset(preprocessing_fn))
 
         # Run transform_columns on some eval dataset.
         eval_data = pipeline | 'CreateEvalData' >> beam.Create(
             [{'x': 6}, {'x': 3}])
         transformed_eval_data, _ = (
             ((eval_data, metadata), transform_fn)
-            | 'TransformDataset' >> beam_impl.TransformDataset())
+            | 'TransformDataset' >> tft_beam.TransformDataset())
         expected_data = [{'x_scaled': 1.25}, {'x_scaled': 0.5}]
         beam_test_util.assert_that(
             transformed_eval_data, equal_to(expected_data))

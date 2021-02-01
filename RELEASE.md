@@ -11,6 +11,9 @@
     `tft.min`, `tft.max`, `tft.mean`, `tft.var`, `tft.sum` and `tft.size`.
 *   Optimize SavedModel written out by `tf.Transform` when using native TF2 to
     speed up loading it.
+*   Added `tft_beam.PTransformAnalyzer` as a base PTransform class for
+    `tft.ptransform_analyzer` users who wish to have access to a base temporary
+    directory.
 
 ## Breaking changes
 

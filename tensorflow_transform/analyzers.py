@@ -2602,7 +2602,8 @@ def ptransform_analyzer(
       element is a list of `ndarray`s.  Each element in the list contains a
       batch of values for the corresponding input tensor of the analyzer.  It
       returns a tuple of `PCollection`, each containing a single element which
-      is an `ndarray`.
+      is an `ndarray`. It may inherit from `tft_beam.PTransformAnalyzer` if
+      access to a temp base directory is needed.
     output_asset_default_values: (Optional) An ordered collection of optional
       `bytes` aligned with output_dtypes/output_shapes. Every item in this
       collection which is not `None` indicates that the output is a TF asset
