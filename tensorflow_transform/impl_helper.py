@@ -166,24 +166,73 @@ def _extract_sparse_components(
             sparse_value))
 
 
-def _decompose_sparse_or_varlen_batch(
-    sparse_value: _SparseTensorValueType, should_decode_as_varlen: bool
-) -> Tuple[Union[_SparseComponentType, List[_SparseComponentType]],
-           _SparseComponentType]:
+def _get_num_values_per_instance_in_sparse_batch(batch_indices: np.ndarray,
+                                                 batch_size: int) -> List[int]:
+  """Computes the number of values per instance of the batch."""
+  result = [0] * batch_size
+  for arr in batch_indices:
+    result[arr[0]] += 1
+  return result
+
+
+def _decompose_sparse_batch(
+    sparse_value: _SparseTensorValueType
+) -> Tuple[List[_SparseComponentType], _SparseComponentType]:
+  """Decomposes a sparse batch into a list of sparse instances.
+
+  Args:
+    sparse_value: A `SparseTensor` or `SparseTensorValue` representing a batch
+      of N sparse instances. The indices of the SparseTensorValue are expected
+      to be sorted by row order.
+
+  Returns:
+    A tuple (instance_indices, instance_values) where the elements are lists
+    of N ndarrays representing the indices and values, respectively, of the
+    instances in the batch. The `instance_indices` include an ndarray per
+    dimension.
+  """
+  batch_indices, batch_values, batch_shape = _extract_sparse_components(
+      sparse_value)
+  batch_size = batch_shape[0]
+  instance_rank = len(batch_shape) - 1
+
+  # Preallocate lists of length batch_size, initialized to empty ndarrays,
+  # representing the indices and values of instances. We can reuse the return
+  # value of _get_empty_array here because it is immutable.
+  instance_values = [_get_empty_array(batch_values.dtype)] * batch_size
+  instance_indices = [[_get_empty_array(batch_indices.dtype)] * instance_rank
+                      for idx in range(batch_size)]
+
+  values_per_instance = _get_num_values_per_instance_in_sparse_batch(
+      batch_indices, batch_size)
+
+  offset = 0
+  for idx, num_values in enumerate(values_per_instance):
+    if num_values < 1:
+      continue
+    instance_values[idx] = batch_values[offset:offset + num_values]
+    for dim in range(instance_rank):
+      # Skipping the first dimension since that is the batch dimension.
+      instance_indices[idx][dim] = batch_indices[offset:offset + num_values,
+                                                 dim + 1]
+    offset += num_values
+  return instance_indices, instance_values
+
+
+def _decompose_varlen_batch(
+    sparse_value: _SparseTensorValueType
+) -> Tuple[_SparseComponentType, _SparseComponentType]:
   """Decomposes a sparse batch into a list of sparse/varlen instances.
 
   Args:
     sparse_value: A `SparseTensor` or `SparseTensorValue` representing a batch
       of N sparse instances. The indices of the SparseTensorValue are expected
       to be sorted by row order.
-    should_decode_as_varlen: A bool indicating if the `sparse_value` should be
-      decomposed as a varlen batch instead of sparse.
 
   Returns:
     A tuple (instance_indices, instance_values) where the elements are lists
     of N ndarrays representing the indices and values, respectively, of the
-    instances in the batch. If the batch is decoded as sparse, the
-    `instance_indices` will include an ndarray per dimension.
+    instances in the batch.
 
   Raises:
     ValueError: If `sparse_value` is neither `SparseTensor` nor
@@ -199,11 +248,7 @@ def _decompose_sparse_or_varlen_batch(
   # representing the indices and values of instances. We can reuse the return
   # value of _get_empty_array here because it is immutable.
   instance_values = [_get_empty_array(batch_values.dtype)] * batch_size
-  if should_decode_as_varlen:
-    instance_indices = [_get_empty_array(batch_indices.dtype)] * batch_size
-  else:
-    instance_indices = [[_get_empty_array(batch_indices.dtype)] * instance_rank
-                        for _ in range(batch_size)]
+  instance_indices = [_get_empty_array(batch_indices.dtype)] * batch_size
 
   # Iterate over the rows in the batch. At each row, consume all the elements
   # that belong to that row.
@@ -229,7 +274,7 @@ def _decompose_sparse_or_varlen_batch(
       # If the current row is empty, leave the default value, which is an
       # empty array.
       pass
-    elif should_decode_as_varlen:
+    else:
       instance_indices[current_row] = batch_indices[start_offset:current_offset,
                                                     1:]
       if instance_rank == 1:
@@ -238,24 +283,13 @@ def _decompose_sparse_or_varlen_batch(
         current_row_indices = instance_indices[current_row]  # type: np.ndarray
         instance_indices[current_row] = current_row_indices.reshape([-1])
       instance_values[current_row] = batch_values[start_offset:current_offset]
-    else:
-      instance_values[current_row] = batch_values[start_offset:current_offset]
-      num_values = len(instance_values[current_row])
-
-      for dimension in range(instance_rank):
-        # We use dimension + 1 because we're ignoring the batch dimension.
-        current_indices = batch_indices[current_row:current_row + num_values,
-                                        dimension + 1]
-        instance_indices[current_row][dimension] = current_indices
-
   return instance_indices, instance_values
 
 
 def _handle_varlen_batch(tensor_or_value: _SparseTensorValueType,
                          name: str) -> _SparseComponentType:
   """Decomposes a varlen tensor value into sparse tensor components."""
-  instance_indices, instance_values = _decompose_sparse_or_varlen_batch(
-      tensor_or_value, should_decode_as_varlen=True)
+  instance_indices, instance_values = _decompose_varlen_batch(tensor_or_value)
   for indices in instance_indices:  # type: np.ndarray
     if len(indices.shape) > 1 or np.any(indices != np.arange(len(indices))):
       raise ValueError('Encountered a SparseTensorValue that cannot be '
@@ -271,12 +305,10 @@ def _handle_sparse_batch(
   """Decomposes a sparse tensor value into sparse tensor components."""
   if len(spec.index_key) == 1:
     index_keys = spec.index_key[0]
-    instance_indices, instance_values = _decompose_sparse_or_varlen_batch(
-        tensor_or_value, should_decode_as_varlen=True)
+    instance_indices, instance_values = _decompose_varlen_batch(tensor_or_value)
   else:
     index_keys = spec.index_key
-    instance_indices, instance_values = _decompose_sparse_or_varlen_batch(
-        tensor_or_value, should_decode_as_varlen=False)
+    instance_indices, instance_values = _decompose_sparse_batch(tensor_or_value)
   result = {}
   if isinstance(index_keys, list):
     assert isinstance(instance_indices, list)

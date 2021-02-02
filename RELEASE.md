@@ -14,6 +14,8 @@
 *   Added `tft_beam.PTransformAnalyzer` as a base PTransform class for
     `tft.ptransform_analyzer` users who wish to have access to a base temporary
     directory.
+*   Fix an issue where >2D `SparseTensor`s may be incorrectly represented in
+    instance_dicts format.
 *   Depends on `numpy>=1.16,<1.20`.
 
 ## Breaking changes

@@ -236,6 +236,29 @@ _ROUNDTRIP_CASES = [
                     values=np.array([0.3]),
                     dense_shape=[2, 10])
         }),
+    dict(
+        testcase_name='2d_sparse_feature',
+        feature_spec={
+            'sparse':
+                tf.io.SparseFeature(['idx0', 'idx1'], 'val', tf.float32,
+                                    [10, 11])
+        },
+        instances=[{
+            'idx0': [],
+            'idx1': [],
+            'val': []
+        }, {
+            'idx0': [9],
+            'idx1': [7],
+            'val': [0.3]
+        }],
+        feed_dict={
+            'sparse':
+                tf.compat.v1.SparseTensorValue(
+                    indices=np.array([[1, 9, 7]]),
+                    values=np.array([0.3]),
+                    dense_shape=[2, 10, 11])
+        }),
 ]
 
 # Non-canonical inputs that will not be the output of to_instance_dicts but
@@ -572,6 +595,48 @@ class ImplHelperTest(test_case.TransformTestCase):
     self.assertLess(
         len(optimized_function.graph.as_graph_def().node),
         len(concrete_function.graph.as_graph_def().node))
+
+  @test_case.named_parameters(
+      dict(
+          testcase_name='_3d',
+          sparse_value=tf.compat.v1.SparseTensorValue(
+              indices=np.array([[0, 0, 1], [0, 1, 2], [1, 1, 1]]),
+              values=np.array([0, 1, 2]),
+              dense_shape=np.array([2, 2, 3])),
+          expected_indices=[[np.array([0, 1]),
+                             np.array([1, 2])], [np.array([1]),
+                                                 np.array([1])]],
+          expected_values=[np.array([0, 1]), np.array([2])]),
+      dict(
+          testcase_name='_4d',
+          sparse_value=tf.compat.v1.SparseTensorValue(
+              indices=np.array([[0, 0, 0, 1], [0, 1, 0, 2], [1, 1, 1, 1]]),
+              values=np.array([0, 1, 2]),
+              dense_shape=np.array([2, 2, 2, 3])),
+          expected_indices=[[
+              np.array([0, 1]),
+              np.array([0, 0]),
+              np.array([1, 2])
+          ], [np.array([1]), np.array([1]),
+              np.array([1])]],
+          expected_values=[np.array([0, 1]), np.array([2])]),
+  )
+  def test_decompose_sparse_batch(self, sparse_value, expected_indices,
+                                  expected_values):
+    indices, values = impl_helper._decompose_sparse_batch(sparse_value)
+    self.assertLen(indices, len(expected_indices))
+    self.assertLen(values, len(expected_values))
+    for idx, (a, b) in enumerate(zip(expected_indices, indices)):
+      self.assertAllEqual(a, b, 'Indices are different at index {}'.format(idx))
+    for idx, (a, b) in enumerate(zip(expected_values, values)):
+      self.assertAllEqual(a, b, 'Values are different at index {}'.format(idx))
+
+  def test_get_num_values_per_instance_in_sparse_batch(self):
+    batch_indices = np.array([[idx % 4, 0, 1, 2] for idx in range(100)])
+    num_values = impl_helper._get_num_values_per_instance_in_sparse_batch(
+        batch_indices, 27)
+    expected_num_values = [25, 25, 25, 25] + [0] * 23
+    self.assertEqual(expected_num_values, num_values)
 
 
 def _subtract_ten_with_tf_while(x):
