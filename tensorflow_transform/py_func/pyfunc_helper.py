@@ -35,6 +35,9 @@ _PYFUNC_COLLECTION_KEY = 'pyfuncs'
 class _PyFuncDef(tfx_namedtuple.namedtuple('_PyFuncDef', ['token', 'func'])):
   """An internal wrapper around tuple(token, func).
 
+  `token` can be either a single token (if the py_func returns a tensor), or a
+  list of tokens (if the py_func returns a list of tensors).
+
   The main purpose of this class is to provides the two methods:
   `from_proto` and `to_proto` that enable storing tuple objects in the graph's
   collections as proto objects.
@@ -74,10 +77,17 @@ def insert_pyfunc(func, Tout, stateful, name, *args):  # pylint: disable=invalid
   """Calls tf.py_func and inserts the `func` in the internal registry."""
   result = tf.compat.v1.py_func(
       func, inp=list(args), Tout=Tout, stateful=stateful, name=name)
-
-  token = result.op.node_def.attr['token'].s
-  tf.compat.v1.add_to_collection(_PYFUNC_COLLECTION_KEY, _PyFuncDef(
-      token, func))
+  # A py_func can either return a tensor or a list. Since we care only about the
+  # op, it doesn't matter which result we take.
+  if isinstance(result, list):
+    first_result = result[0] if result else None
+  else:
+    first_result = result
+  if first_result is None:
+    raise ValueError('func must return a tensor or list of tensors')
+  token = first_result.op.node_def.attr['token'].s
+  tf.compat.v1.add_to_collection(_PYFUNC_COLLECTION_KEY,
+                                 _PyFuncDef(token, func))
   return result
 
 

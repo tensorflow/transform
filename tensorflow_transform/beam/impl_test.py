@@ -525,18 +525,31 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def my_add(x, y):
       return x+y
 
+    def my_list_return(x, y):
+      return [x, y, 2 * x, 2 * y]
+
     def preprocessing_fn(inputs):
       result = {
-          'a+b': tft.apply_pyfunc(
-              my_add, tf.float32, True, 'add', inputs['a'], inputs['b']),
-          'a+c': tft.apply_pyfunc(
-              my_add, tf.float32, True, 'add', inputs['a'], inputs['c']),
-          'ab': tft.apply_pyfunc(
-              my_multiply, tf.float32, False, 'multiply',
-              inputs['a'], inputs['b']),
-          'sum_scaled': tft.scale_to_0_1(
-              tft.apply_pyfunc(
-                  my_add, tf.float32, True, 'add', inputs['a'], inputs['c']))
+          'a+b':
+              tft.apply_pyfunc(my_add, tf.float32, True, 'add', inputs['a'],
+                               inputs['b']),
+          'a+c':
+              tft.apply_pyfunc(my_add, tf.float32, True, 'add', inputs['a'],
+                               inputs['c']),
+          'ab':
+              tft.apply_pyfunc(my_multiply, tf.float32, False, 'multiply',
+                               inputs['a'], inputs['b']),
+          'sum_scaled':
+              tft.scale_to_0_1(
+                  tft.apply_pyfunc(my_add, tf.float32, True, 'add', inputs['a'],
+                                   inputs['c'])),
+          'list':
+              tf.reduce_sum(
+                  tft.apply_pyfunc(
+                      my_list_return,
+                      [tf.float32, tf.float32, tf.float32, tf.float32], True,
+                      'my_list_return', inputs['a'], inputs['b']),
+                  axis=0),
       }
       for value in result.values():
         value.set_shape([1,])
@@ -554,21 +567,34 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'c': tf.io.FixedLenFeature([], tf.float32)
     })
     expected_data = [
-        {'ab': 12, 'a+b': 7, 'a+c': 6, 'sum_scaled': 0.25},
-        {'ab': 2, 'a+b': 3, 'a+c': 4, 'sum_scaled': 0},
-        {'ab': 30, 'a+b': 11, 'a+c': 12, 'sum_scaled': 1},
-        {'ab': 6, 'a+b': 5, 'a+c': 6, 'sum_scaled': 0.25}
+        {'ab': 12, 'a+b': 7, 'a+c': 6, 'list': 21, 'sum_scaled': 0.25},
+        {'ab': 2, 'a+b': 3, 'a+c': 4, 'list': 9, 'sum_scaled': 0},
+        {'ab': 30, 'a+b': 11, 'a+c': 12, 'list': 33, 'sum_scaled': 1},
+        {'ab': 6, 'a+b': 5, 'a+c': 6, 'list': 15, 'sum_scaled': 0.25}
     ]
     # When calling tf.py_func, the output shape is set to unknown.
     expected_metadata = tft_unit.metadata_from_feature_spec({
         'ab': tf.io.FixedLenFeature([], tf.float32),
         'a+b': tf.io.FixedLenFeature([], tf.float32),
         'a+c': tf.io.FixedLenFeature([], tf.float32),
+        'list': tf.io.FixedLenFeature([], tf.float32),
         'sum_scaled': tf.io.FixedLenFeature([], tf.float32)
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata)
+
+  def testAssertsNoReturnPyFunc(self):
+    # Asserts that apply_pyfunc raises an exception if the passed function does
+    # not return anything.
+    if not self._UseTFCompatV1():
+      raise unittest.SkipTest('Test disabled when TF 2.x behavior enabled.')
+
+    def bad_func():
+      return None
+
+    with self.assertRaises(ValueError):
+      tft.apply_pyfunc(bad_func, [], False, 'bad_func')
 
   def testWithMoreThanDesiredBatchSize(self):
     def preprocessing_fn(inputs):
