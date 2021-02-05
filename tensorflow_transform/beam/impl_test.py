@@ -2857,8 +2857,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # Exception type depends on the running being used.
     with self.assertRaisesRegexp(
         (RuntimeError, ValueError, TypeError), 'has type list'):
-      # TODO(b/149997088): Remove this explicit use of DirectRunner.
-      with beam.Pipeline() as pipeline:
+      with self._makeTestPipeline() as pipeline:
         metadata = tft_unit.metadata_from_feature_spec({
             'x': tf.io.FixedLenFeature([], tf.float32),
         })
