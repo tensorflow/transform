@@ -618,13 +618,14 @@ class MappersTest(test_case.TransformTestCase):
         self.assertAllEqual(expected_output, output)
 
   def testHashStringsWithKeySparseInput(self):
-    strings = tf.SparseTensor(indices=[[0, 0], [0, 1], [1, 0], [2, 0]],
-                              values=['$$$', '%^#', '&$!#@', '$$$'],
-                              dense_shape=[3, 2])
+    strings = tf.SparseTensor(
+        indices=[[0, 0, 0], [0, 1, 1], [1, 1, 0], [2, 1, 0]],
+        values=['$$$', '%^#', '&$!#@', '$$$'],
+        dense_shape=[3, 3, 2])
     hash_buckets = 173
-    expected_indices = [[0, 0], [0, 1], [1, 0], [2, 0]]
+    expected_indices = strings.indices
     expected_values = [16, 156, 9, 16]
-    expected_shape = [3, 2]
+    expected_shape = strings.dense_shape
     hashed_strings = mappers.hash_strings(strings, hash_buckets, key=[321, 555])
     self.assertSparseOutput(
         expected_indices=expected_indices,
@@ -639,6 +640,20 @@ class MappersTest(test_case.TransformTestCase):
     expected_outputs = tf.constant(0, dtype=tf.int64)
     bucketized = mappers.apply_buckets(inputs, [quantiles])
     self.assertAllEqual(bucketized, expected_outputs)
+
+  def testApplybucketsToSparseTensor(self):
+    inputs = tf.SparseTensor(
+        indices=[[0, 0, 0], [0, 1, 1], [2, 2, 2]],
+        values=[10, 20, -1],
+        dense_shape=[3, 3, 4])
+    quantiles = [-10, 0, 13]
+    bucketized = mappers.apply_buckets(inputs, [quantiles])
+    self.assertSparseOutput(
+        inputs.indices,
+        tf.constant([2, 3, 1]),
+        inputs.dense_shape,
+        bucketized,
+        close_values=False)
 
   def testApplyBucketsWithNans(self):
     inputs = tf.constant([4.0, float('nan'), float('-inf'), 7.5, 10.0])
@@ -801,20 +816,23 @@ class MappersTest(test_case.TransformTestCase):
     with tf.compat.v1.Graph().as_default():
       with self.test_session() as sess:
         x = tf.SparseTensor(
-            indices=[[0, 0], [1, 2], [3, 4], [1, 4], [6, 1], [3, 2]],
+            indices=[[0, 0, 0], [1, 1, 2], [3, 1, 4], [1, 1, 4], [6, 1, 1],
+                     [3, 1, 2]],
             values=[15, 10, 20, 17, -1111, 21],
-            dense_shape=[7, 5])
-        boundaries = tf.constant([[10, 20]], dtype=tf.int64)
+            dense_shape=[7, 3, 5])
+        boundaries = [[10, 20]]
         output = mappers.apply_buckets_with_interpolation(x, boundaries)
         expected_results = tf.SparseTensor(
-            indices=[[0, 0], [1, 2], [3, 4], [1, 4], [6, 1], [3, 2]],
+            indices=x.indices,
             values=[.5, 0, 1, .7, 0, 1],
-            dense_shape=[7, 5])
+            dense_shape=x.dense_shape)
         actual_results = sess.run(output)
         self.assertAllClose(actual_results.values,
                             expected_results.values,
                             1e-6)
         self.assertAllEqual(actual_results.indices, expected_results.indices)
+        self.assertAllEqual(actual_results.dense_shape,
+                            expected_results.dense_shape)
 
   def testBucketsWithInterpolationUnknownShapeBoundary(self):
     with tf.compat.v1.Graph().as_default():
@@ -830,9 +848,10 @@ class MappersTest(test_case.TransformTestCase):
 
   def testSparseTensorToDenseWithShape(self):
     with tf.compat.v1.Graph().as_default():
-      sparse = tf.compat.v1.sparse_placeholder(tf.int64, shape=[None, None])
-      dense = mappers.sparse_tensor_to_dense_with_shape(sparse, [None, 5])
-      self.assertAllEqual(dense.get_shape().as_list(), [None, 5])
+      sparse = tf.compat.v1.sparse_placeholder(
+          tf.int64, shape=[None, None, None])
+      dense = mappers.sparse_tensor_to_dense_with_shape(sparse, [None, 5, 6])
+      self.assertAllEqual(dense.get_shape().as_list(), [None, 5, 6])
 
   def testSparseTensorLeftAlign(self):
     with tf.compat.v1.Graph().as_default():

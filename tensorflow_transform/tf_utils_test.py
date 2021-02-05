@@ -1029,52 +1029,19 @@ class TFUtilsTest(test_case.TransformTestCase):
     self.assertAllEqual(x_minus_min, expected_x_minus_min)
     self.assertAllEqual(x_max, expected_x_max)
 
-  @test_case.named_parameters(test_case.cross_with_function_handlers([
-      dict(
-          testcase_name='sparse',
-          input_signature=[tf.SparseTensorSpec([None, None], tf.int64)],
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0], [1, 1], [2, 2], [3, 1]],
-              values=[3, 2, -1, 3],
-              dense_shape=[4, 5]),
-          expected_sum=[4, 3],
-          expected_count=[3, 1]),
-      dict(
-          testcase_name='float',
-          input_signature=[tf.TensorSpec([None, None], tf.float32)],
-          x=[[1], [5], [2], [3]],
-          expected_sum=[8, 3],
-          expected_count=[3, 1]),
-      dict(
-          testcase_name='float3dims',
-          input_signature=[tf.TensorSpec([None, None, None], tf.float32)],
-          x=[[[1, 5], [1, 1]],
-             [[5, 1], [5, 5]],
-             [[2, 2], [2, 5]],
-             [[3, -3], [3, 3]]],
-          expected_sum=[35, 6],
-          expected_count=[3, 1]),
-  ]))
-  def test_reduce_batch_count_or_sum_per_key(
-      self, x, input_signature, expected_sum, expected_count,
-      function_handler):
+  @test_case.named_parameters(test_case.FUNCTION_HANDLERS)
+  def test_reduce_batch_count_per_key(self, function_handler):
     key = ['a', 'a', 'a', 'b']
-    input_signature = input_signature + [tf.TensorSpec([None], tf.string)]
     expected_key_vocab = [b'a', b'b']
-
-    @function_handler(input_signature=input_signature)
-    def _reduce_batch_sum_per_key(x, key):
-      return tf_utils.reduce_batch_count_or_sum_per_key(x, key, True)
+    expected_count = [3, 1]
 
     @function_handler(input_signature=[tf.TensorSpec([None], tf.string)])
     def _reduce_batch_count_per_key(key):
-      return tf_utils.reduce_batch_count_or_sum_per_key(None, key, True)
+      return tf_utils.reduce_batch_count_per_key(key)
 
-    key_vocab, key_sums = _reduce_batch_sum_per_key(x, key)
     key_vocab, key_counts = _reduce_batch_count_per_key(key)
 
     self.assertAllEqual(key_vocab, expected_key_vocab)
-    self.assertAllEqual(key_sums, expected_sum)
     self.assertAllEqual(key_counts, expected_count)
 
   @test_case.named_parameters(test_case.cross_with_function_handlers([
@@ -1153,9 +1120,9 @@ class TFUtilsTest(test_case.TransformTestCase):
     exception_cls = tf.errors.InvalidArgumentError
     error_string = 'Condition x == y did not hold element-wise:'
     sparse = tf.SparseTensor(
-        indices=[[0, 0], [1, 1], [2, 2], [3, 1]],
+        indices=[[0, 0, 0], [1, 0, 1], [2, 0, 2], [3, 0, 1]],
         values=[3, 2, -1, 3],
-        dense_shape=[4, 5])
+        dense_shape=[4, 2, 5])
     dense = tf.constant(['a', 'b', 'c', 'd'])
     x, key = tf_utils._validate_and_get_dense_value_key_inputs(sparse, sparse)
     self.assertAllEqual(self.evaluate(x), sparse.values)
@@ -1166,16 +1133,18 @@ class TFUtilsTest(test_case.TransformTestCase):
     self.assertAllEqual(self.evaluate(key), dense)
 
     with tf.compat.v1.Graph().as_default():
-      sparse1 = tf.compat.v1.sparse_placeholder(tf.int64, shape=[None, None])
-      sparse2 = tf.compat.v1.sparse_placeholder(tf.int64, shape=[None, None])
+      sparse1 = tf.compat.v1.sparse_placeholder(
+          tf.int64, shape=[None, None, None])
+      sparse2 = tf.compat.v1.sparse_placeholder(
+          tf.int64, shape=[None, None, None])
       sparse_value1 = tf.compat.v1.SparseTensorValue(
-          indices=[[0, 0], [1, 1], [2, 2], [3, 1]],
+          indices=[[0, 0, 0], [1, 0, 1], [2, 0, 2], [3, 0, 1]],
           values=[3, 2, -1, 3],
-          dense_shape=[4, 5])
+          dense_shape=[4, 2, 5])
       sparse_value2 = tf.compat.v1.SparseTensorValue(
-          indices=[[0, 0], [1, 2], [2, 2], [3, 1]],
+          indices=[[0, 0, 0], [1, 0, 2], [2, 0, 2], [3, 0, 1]],
           values=[3, 2, -1, 3],
-          dense_shape=[4, 5])
+          dense_shape=[4, 2, 5])
 
       with tf.compat.v1.Session() as sess:
         with self.assertRaisesRegexp(exception_cls, error_string):

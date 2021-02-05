@@ -40,6 +40,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import analyzers
+from tensorflow_transform import common_types
 from tensorflow_transform import info_theory
 from tensorflow_transform import tf_utils
 from tensorflow_transform.beam import common
@@ -378,7 +379,8 @@ class _VocabularyOrderAndWriteImpl(beam.PTransform):
     self._vocab_filename = operation.vocab_filename
     self._fingerprint_shuffle = operation.fingerprint_shuffle
     self._input_dtype = operation.input_dtype
-    self._file_format = operation.file_format
+    self._file_format: common_types.VocabularyFileFormatType = (
+        operation.file_format)
 
   def expand(self, inputs):
     counts, = inputs

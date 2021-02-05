@@ -1629,34 +1629,58 @@ class BeamImplTest(tft_unit.TransformTestCase):
         desired_batch_size=10)
 
   @tft_unit.named_parameters(
-      {'testcase_name': '_string',
-       'input_data': [{'key': 'a' if x < 25 else 'b'} for x in range(100)],
-       'input_metadata': tft_unit.metadata_from_feature_spec(
-           {'key': tf.io.FixedLenFeature([], tf.string)}),
-       'expected_outputs': {
-           'elements': np.array([b'a', b'b'], np.object),
-           'counts': np.array([25, 75], np.int64)
-       }
-      },
-      {'testcase_name': '_int',
-       'input_data': [{'key': 0 if x < 25 else 1} for x in range(100)],
-       'input_metadata': tft_unit.metadata_from_feature_spec(
-           {'key': tf.io.FixedLenFeature([], tf.int64)}),
-       'expected_outputs': {
-           'elements': np.array([0, 1], np.int64),
-           'counts': np.array([25, 75], np.int64)
-       }
-      },
-      {'testcase_name': '_int_sparse',
-       'input_data': [{'key': [0] if x < 25 else [1]} for x in range(100)],
-       'input_metadata': tft_unit.metadata_from_feature_spec(
-           {'key': tf.io.VarLenFeature(tf.int64)}),
-       'expected_outputs': {
-           'elements': np.array([0, 1], np.int64),
-           'counts': np.array([25, 75], np.int64)
-       }
-      },
-  )  # pyformat: disable
+      dict(
+          testcase_name='_string',
+          input_data=[{
+              'key': 'a' if x < 25 else 'b'
+          } for x in range(100)],
+          input_metadata=tft_unit.metadata_from_feature_spec(
+              {'key': tf.io.FixedLenFeature([], tf.string)}),
+          expected_outputs={
+              'elements': np.array([b'a', b'b'], np.object),
+              'counts': np.array([25, 75], np.int64)
+          }),
+      dict(
+          testcase_name='_int',
+          input_data=[{
+              'key': 0 if x < 25 else 1
+          } for x in range(100)],
+          input_metadata=tft_unit.metadata_from_feature_spec(
+              {'key': tf.io.FixedLenFeature([], tf.int64)}),
+          expected_outputs={
+              'elements': np.array([0, 1], np.int64),
+              'counts': np.array([25, 75], np.int64)
+          }),
+      dict(
+          testcase_name='_int_sparse',
+          input_data=[{
+              'key': [0] if x < 25 else [1]
+          } for x in range(100)],
+          input_metadata=tft_unit.metadata_from_feature_spec(
+              {'key': tf.io.VarLenFeature(tf.int64)}),
+          expected_outputs={
+              'elements': np.array([0, 1], np.int64),
+              'counts': np.array([25, 75], np.int64)
+          }),
+      dict(
+          testcase_name='_3d_sparse',
+          input_data=[
+              {  # pylint: disable=g-complex-comprehension
+                  'key': [0, 1] if x < 25 else [1],
+                  'idx0': [0, 1] if x < 25 else [0],
+                  'idx1': [0, 1] if x < 25 else [0]
+              } for x in range(100)
+          ],
+          input_metadata=tft_unit.metadata_from_feature_spec({
+              'key':
+                  tf.io.SparseFeature(['idx0', 'idx1'], 'key', tf.int64, [2, 2])
+          }),
+          expected_outputs={
+              'elements': np.array([0, 1], np.int64),
+              'counts': np.array([25, 100], np.int64)
+          },
+      ),
+  )
   def testCountPerKey(self, input_data, input_metadata, expected_outputs):
     def analyzer_fn(inputs):
       elements, counts = analyzers.count_per_key(inputs['key'])
@@ -1671,34 +1695,29 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_outputs)
 
   @tft_unit.named_parameters(
-      {
-          'testcase_name': '_uniform',
-          'input_data': [{
+      dict(
+          testcase_name='_uniform',
+          input_data=[{
               'x': [x]
           } for x in range(10, 100)],
-          'feature_spec': {
-              'x': tf.io.FixedLenFeature([1], tf.int64)
-          },
-          'boundaries': 10 * np.arange(11, dtype=np.float32),
-          'categorical': False,
-          'expected_outputs': {
+          feature_spec={'x': tf.io.FixedLenFeature([1], tf.int64)},
+          boundaries=10 * np.arange(11, dtype=np.float32),
+          categorical=False,
+          expected_outputs={
               'hist':
                   10 * np.array([0] + [1] * 9, np.int64),
               'boundaries':
                   10 * np.arange(11, dtype=np.float32).reshape((1, 11))
-          }
-      },
-      {
-          'testcase_name': '_categorical_string',
-          'input_data': [{
+          }),
+      dict(
+          testcase_name='_categorical_string',
+          input_data=[{
               'x': [str(x % 10) + '_']
           } for x in range(1, 101)],
-          'feature_spec': {
-              'x': tf.io.FixedLenFeature([1], tf.string)
-          },
-          'boundaries': None,
-          'categorical': True,
-          'expected_outputs': {
+          feature_spec={'x': tf.io.FixedLenFeature([1], tf.string)},
+          boundaries=None,
+          categorical=True,
+          expected_outputs={
               'hist':
                   10 * np.ones(10, np.int64),
               'boundaries':
@@ -1709,29 +1728,42 @@ class BeamImplTest(tft_unit.TransformTestCase):
                       ]),
                       dtype=np.object)
           },
-      },
-      {
-          'testcase_name': '_categorical_int',
-          'input_data': [{
+      ),
+      dict(
+          testcase_name='_categorical_int',
+          input_data=[{
               'x': [(x % 10)]
           } for x in range(1, 101)],
-          'feature_spec': {
-              'x': tf.io.FixedLenFeature([1], tf.int64)
-          },
-          'boundaries': None,
-          'categorical': True,
-          'expected_outputs': {
+          feature_spec={'x': tf.io.FixedLenFeature([1], tf.int64)},
+          boundaries=None,
+          categorical=True,
+          expected_outputs={
               'hist': 10 * np.ones(10, np.int64),
               'boundaries': np.arange(10)
-          }
-      },
+          }),
+      dict(
+          testcase_name='_sparse',
+          input_data=[{  # pylint: disable=g-complex-comprehension
+              'val': [(x % 10)],
+              'idx0': [(x % 2)],
+              'idx1': [((x + 1) % 2)]
+          } for x in range(1, 101)],
+          feature_spec={
+              'x':
+                  tf.io.SparseFeature(['idx0', 'idx1'], 'val', tf.int64, [2, 2])
+          },
+          boundaries=None,
+          categorical=True,
+          expected_outputs={
+              'hist': 10 * np.ones(10, np.int64),
+              'boundaries': np.arange(10)
+          }),
   )
   def testHistograms(self, input_data, feature_spec, boundaries, categorical,
                      expected_outputs):
     def analyzer_fn(inputs):
-      counts, bucket_boundaries = analyzers.histogram(tf.stack(inputs['x']),
-                                                      categorical=categorical,
-                                                      boundaries=boundaries)
+      counts, bucket_boundaries = analyzers.histogram(
+          inputs['x'], categorical=categorical, boundaries=boundaries)
       if not categorical:
         bucket_boundaries = tf.math.round(bucket_boundaries)
       return {'hist': counts, 'boundaries': bucket_boundaries}

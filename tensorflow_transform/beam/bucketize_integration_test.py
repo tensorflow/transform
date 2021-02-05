@@ -264,6 +264,38 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
           expected_metadata,
           desired_batch_size=1000)
 
+  def testBucketizeSparseInput(self):
+
+    def preprocessing_fn(inputs):
+      return {
+          'x_bucketized':
+              tft.bucketize(inputs['x'], num_buckets=3, epsilon=0.00001)
+      }
+
+    input_data = [{
+        'val': [x],
+        'idx0': [x % 4],
+        'idx1': [x % 5]
+    } for x in range(1, 10)]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.SparseFeature(['idx0', 'idx1'], 'val', tf.float32, [4, 5]),
+    })
+
+    def compute_bucket(instance):
+      if instance['val'][0] < 4:
+        return 0
+      if instance['val'][0] < 7:
+        return 1
+      return 2
+
+    expected_data = [{
+        'x_bucketized$sparse_values': [compute_bucket(instance)],
+        'x_bucketized$sparse_indices_0': instance['idx0'],
+        'x_bucketized$sparse_indices_1': instance['idx1']
+    } for instance in input_data]
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data)
+
   # Test for all numerical types, each type is in a separate testcase to
   # increase parallelism of test shards and reduce test time.
   @tft_unit.parameters(
@@ -449,7 +481,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
         'key': tf.io.FixedLenFeature([], tf.string)
     })
 
-    def compute_quantile(instance):
+    def compute_bucket(instance):
       if instance['key'] == 'a':
         if instance['x'] < 17:
           return 0
@@ -466,7 +498,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
           return 2
 
     expected_data = [{
-        'x_bucketized': compute_quantile(instance),
+        'x_bucketized': compute_bucket(instance),
         'x': instance['x']
     } for instance in input_data]
     expected_metadata = tft_unit.metadata_from_feature_spec(
@@ -570,7 +602,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
         'key': tf.io.VarLenFeature(tf.string)
     })
 
-    def compute_quantile(instance):
+    def compute_bucket(instance):
       if instance['key'][0] == 'a':
         if instance['x'][0] < 17:
           return 0
@@ -587,7 +619,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
           return 2
 
     expected_data = [{
-        'x_bucketized': [compute_quantile(instance)]
+        'x_bucketized': [compute_bucket(instance)]
     } for instance in input_data]
     expected_metadata = tft_unit.metadata_from_feature_spec(
         {

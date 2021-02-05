@@ -970,6 +970,69 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         expected_metadata,
         expected_vocab_file_contents=expected_vocab_file_contents)
 
+  def testSparseComputeAndApplyVocabulary(self):
+    feature_spec = {
+        'x': tf.io.SparseFeature(['idx0', 'idx1'], 'val', tf.string, [2, 3])
+    }
+    input_metadata = tft_unit.metadata_from_feature_spec(feature_spec)
+
+    input_data = [
+        {
+            'val': ['hello'],
+            'idx0': [0],
+            'idx1': [0]
+        },
+        {
+            'val': ['world'],
+            'idx0': [1],
+            'idx1': [1]
+        },
+        {
+            'val': ['hello', 'goodbye'],
+            'idx0': [0, 1],
+            'idx1': [1, 2]
+        },
+        {
+            'val': ['hello', 'goodbye', ' '],
+            'idx0': [0, 1, 1],
+            'idx1': [0, 1, 2]
+        },
+    ]
+    expected_data = [{
+        'index$sparse_indices_0': [0],
+        'index$sparse_indices_1': [0],
+        'index$sparse_values': [0],
+    }, {
+        'index$sparse_indices_0': [1],
+        'index$sparse_indices_1': [1],
+        'index$sparse_values': [2],
+    }, {
+        'index$sparse_indices_0': [0, 1],
+        'index$sparse_indices_1': [1, 2],
+        'index$sparse_values': [0, 1],
+    }, {
+        'index$sparse_indices_0': [0, 1, 1],
+        'index$sparse_indices_1': [0, 1, 2],
+        'index$sparse_values': [0, 1, 3],
+    }]
+    expected_vocab_file_contents = {
+        'my_vocab': [b'hello', b'goodbye', b'world', b' ']
+    }
+
+    def preprocessing_fn(inputs):
+      index = tft.compute_and_apply_vocabulary(
+          inputs['x'],
+          file_format=self._VocabFormat(),
+          vocab_filename='my_vocab')
+      return {'index': index}
+
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_vocab_file_contents=expected_vocab_file_contents)
+
   # Example on how to use the vocab frequency as part of the transform
   # function.
   def testCreateVocabWithFrequency(self):

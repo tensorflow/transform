@@ -33,7 +33,9 @@ import os
 import pickle
 import re
 from typing import Any, Callable, Collection, List, Optional, Text, Tuple, Type, Union
+
 # GOOGLE-INITIALIZATION
+
 import numpy as np
 import pyarrow as pa
 import tensorflow as tf
@@ -45,7 +47,6 @@ from tensorflow_transform import gaussianization
 from tensorflow_transform import nodes
 from tensorflow_transform import schema_inference
 from tensorflow_transform import tf_utils
-
 from tfx_bsl import sketches
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
 # `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
@@ -53,9 +54,7 @@ from tfx_bsl import sketches
 from tfx_bsl.types import tfx_namedtuple
 
 from google.protobuf import descriptor_pb2
-# pylint: disable=g-direct-tensorflow-import
-from tensorflow.python.util import deprecation
-# pylint: enable=g-direct-tensorflow-import
+from tensorflow.python.util import deprecation  # pylint: disable=g-direct-tensorflow-import
 
 __all__ = [
     'count_per_key',
@@ -81,6 +80,9 @@ __all__ = [
 builtin_max = max
 builtin_min = min
 
+
+DEFAULT_VOCABULARY_FILE_FORMAT = 'text'
+ALLOWED_VOCABULARY_FILE_FORMATS = ('text', 'tfrecord_gzip')
 
 VOCAB_FILENAME_PREFIX = 'vocab_'
 VOCAB_FREQUENCY_FILENAME_PREFIX = 'vocab_frequency_'
@@ -633,7 +635,10 @@ def sum(  # pylint: disable=redefined-builtin
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def histogram(x, boundaries=None, categorical=False, name=None):
+def histogram(x: common_types.TensorType,
+              boundaries: Optional[Union[tf.Tensor, int]] = None,
+              categorical: Optional[bool] = False,
+              name: Optional[str] = None) -> Tuple[tf.Tensor, tf.Tensor]:
   """Computes a histogram over x, given the bin boundaries or bin count.
 
   Ex (1):
@@ -651,10 +656,10 @@ def histogram(x, boundaries=None, categorical=False, name=None):
   Args:
     x: A `Tensor` or `SparseTensor`.
     boundaries: (Optional) A `Tensor` or `int` used to build the histogram;
-        ignored if `categorical` is True. If possible, provide boundaries as
-        multiple sorted values.  Default to 10 intervals over the 0-1 range,
-        or find the min/max if an int is provided (not recommended because
-        multi-phase analysis is inefficient).
+      ignored if `categorical` is True. If possible, provide boundaries as
+      multiple sorted values.  Default to 10 intervals over the 0-1 range, or
+      find the min/max if an int is provided (not recommended because
+      multi-phase analysis is inefficient).
     categorical: (Optional) A `bool` that treats `x` as discrete values if true.
     name: (Optional) A name for this operation.
 
@@ -754,8 +759,7 @@ def count_per_key(key: common_types.TensorType,
 
   with tf.compat.v1.name_scope(name, 'count_per_key'):
     key_dtype = key.dtype
-    batch_keys, batch_counts = tf_utils.reduce_batch_count_or_sum_per_key(
-        x=None, key=key, reduce_instance_dims=True)
+    batch_keys, batch_counts = tf_utils.reduce_batch_count_per_key(key)
 
     output_dtype, sum_fn = _sum_combine_fn_and_dtype(tf.int64)
     numeric_combine_result = _numeric_combine(
@@ -1598,14 +1602,12 @@ class _VocabOrderingType(object):
   MUTUAL_INFORMATION = 5
 
 
-DEFAULT_VOCABULARY_FILE_FORMAT = 'text'
-ALLOWED_VOCABULRY_FILE_FORMATS = ('text', 'tfrecord_gzip')
-
-
 def _register_vocab(
     sanitized_filename: Text,
     vocabulary_key: Optional[Text] = None,
-    file_format: Optional[Text] = DEFAULT_VOCABULARY_FILE_FORMAT):
+    file_format: Optional[
+        common_types.VocabularyFileFormatType] = DEFAULT_VOCABULARY_FILE_FORMAT
+):
   """Register the specificed vocab within the asset map.
 
   Args:
@@ -1627,21 +1629,23 @@ def _register_vocab(
 # TF 1.0. The following TF 2.0 proposal should address this issue in the future
 # https://github.com/tensorflow/community/blob/master/rfcs/20190116-embedding-partitioned-variable.md#goals
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def vocabulary(x,
-               top_k=None,
-               frequency_threshold=None,
-               vocab_filename=None,
-               store_frequency=False,
-               weights=None,
-               labels=None,
-               use_adjusted_mutual_info=False,
-               min_diff_from_avg=None,
-               coverage_top_k=None,
-               coverage_frequency_threshold=None,
-               key_fn=None,
-               fingerprint_shuffle=False,
-               file_format=DEFAULT_VOCABULARY_FILE_FORMAT,
-               name=None):
+def vocabulary(
+    x: common_types.TensorType,
+    top_k: Optional[int] = None,
+    frequency_threshold: Optional[int] = None,
+    vocab_filename: Optional[str] = None,
+    store_frequency: Optional[bool] = False,
+    weights: Optional[tf.Tensor] = None,
+    labels: Optional[tf.Tensor] = None,
+    use_adjusted_mutual_info: Optional[bool] = False,
+    min_diff_from_avg: Optional[int] = None,
+    coverage_top_k: Optional[int] = None,
+    coverage_frequency_threshold: Optional[int] = None,
+    key_fn: Optional[Callable[[Any], Any]] = None,
+    fingerprint_shuffle: Optional[bool] = False,
+    file_format: Optional[
+        common_types.VocabularyFileFormatType] = DEFAULT_VOCABULARY_FILE_FORMAT,
+    name: Optional[str] = None) -> common_types.TemporaryAnalyzerOutputType:
   r"""Computes the unique values of a `Tensor` over the whole dataset.
 
   Computes The unique values taken by `x`, which can be a `Tensor` or
@@ -1701,32 +1705,32 @@ def vocabulary(x,
       full vocabulary is generated.  Absolute frequency means the number of
       occurrences of the element in the dataset, as opposed to the proportion of
       instances that contain that element.
-    vocab_filename: The file name for the vocabulary file. If None, a file
-      name will be chosen based on the current scope. If not None, should be
-      unique within a given preprocessing function.
-      NOTE To make your pipelines resilient to implementation details please
-      set `vocab_filename` when you are using the vocab_filename on a downstream
-      component.
-    store_frequency: If True, frequency of the words is stored in the
-      vocabulary file. In the case labels are provided, the mutual
-      information is stored in the file instead. Each line in the file
-      will be of the form 'frequency word'. NOTE: if this is True then the
-      computed vocabulary cannot be used with `tft.apply_vocabulary` directly,
-      since frequencies are added to the beginning of each row of the
-      vocabulary, which the mapper will not ignore.
+    vocab_filename: The file name for the vocabulary file. If None, a file name
+      will be chosen based on the current scope. If not None, should be unique
+      within a given preprocessing function. NOTE To make your pipelines
+      resilient to implementation details please set `vocab_filename` when you
+      are using the vocab_filename on a downstream component.
+    store_frequency: If True, frequency of the words is stored in the vocabulary
+      file. In the case labels are provided, the mutual information is stored in
+      the file instead. Each line in the file will be of the form
+      'frequency word'. NOTE: if this is True then the computed vocabulary
+      cannot be used with `tft.apply_vocabulary` directly, since frequencies are
+      added to the beginning of each row of the vocabulary, which the mapper
+      will not ignore.
     weights: (Optional) Weights `Tensor` for the vocabulary. It must have the
       same shape as x.
     labels: (Optional) Labels dense `Tensor` for the vocabulary. If provided,
       the vocabulary is calculated based on mutual information with the label,
       rather than frequency. The labels must have the same batch dimension as x.
       If x is sparse, labels should be a 1D tensor reflecting row-wise labels.
-      If x is dense, labels can either be a 1D tensor of row-wise labels, or
-      a dense tensor of the identical shape as x (i.e. element-wise labels).
+      If x is dense, labels can either be a 1D tensor of row-wise labels, or a
+      dense tensor of the identical shape as x (i.e. element-wise labels).
       Labels should be a discrete integerized tensor (If the label is numeric,
       it should first be bucketized; If the label is a string, an integer
       vocabulary should first be applied). Note: `SparseTensor` labels are not
       yet supported (b/134931826). WARNING: When labels are provided, the
-      frequency_threshold argument functions as a mutual information threshold,
+        frequency_threshold argument functions as a mutual information
+        threshold,
       which is a float. TODO(b/116308354): Fix confusing naming.
     use_adjusted_mutual_info: If true, and labels are provided, calculate
       vocabulary using adjusted rather than raw mutual information.
@@ -1751,8 +1755,7 @@ def vocabulary(x,
       etc) will still take effect.
     file_format: (Optional) A str. The format of the resulting vocabulary file.
       Accepted formats are: 'tfrecord_gzip', 'text'. 'tfrecord_gzip' requires
-      tensorflow>=2.4.
-      The default value is 'text'.
+        tensorflow>=2.4. The default value is 'text'.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1777,10 +1780,10 @@ def vocabulary(x,
                      '`coverage_frequency_threshold` if you specify `key_fn` in'
                      ' `vocabulary`.')
 
-  if file_format not in ALLOWED_VOCABULRY_FILE_FORMATS:
+  if file_format not in ALLOWED_VOCABULARY_FILE_FORMATS:
     raise ValueError(
         '"{}" is not an accepted file_format. It should be one of: {}'.format(
-            file_format, ALLOWED_VOCABULRY_FILE_FORMATS))
+            file_format, ALLOWED_VOCABULARY_FILE_FORMATS))
 
   coverage_top_k, coverage_frequency_threshold = (
       _get_top_k_and_frequency_threshold(
@@ -1880,8 +1883,9 @@ def _get_vocabulary_analyzer_inputs(vocab_ordering_type,
     return [reduced_batch.unique_x]
 
 
-def _get_vocabulary_filter_newline_characters(input_dtype: tf.dtypes.DType,
-                                              file_format: str) -> bool:
+def _get_vocabulary_filter_newline_characters(
+    input_dtype: tf.dtypes.DType,
+    file_format: common_types.VocabularyFileFormatType) -> bool:
   return input_dtype == tf.string and file_format == 'text'
 
 
@@ -1901,7 +1905,8 @@ def _vocabulary_analyzer_nodes(
     coverage_top_k: int = None,
     coverage_frequency_threshold: float = 0.0,
     coverage_informativeness_threshold: float = float('-inf'),
-    file_format: str = DEFAULT_VOCABULARY_FILE_FORMAT,
+    file_format: common_types
+    .VocabularyFileFormatType = DEFAULT_VOCABULARY_FILE_FORMAT,
     vocabulary_key: Optional[str] = None
 ) -> common_types.TemporaryAnalyzerOutputType:
   """Internal helper for analyzing vocab. See `vocabulary` doc string."""
@@ -1963,7 +1968,7 @@ def _vocabulary_analyzer_nodes(
   return vocab_filename_tensor
 
 
-def calculate_recommended_min_diff_from_avg(dataset_size):
+def calculate_recommended_min_diff_from_avg(dataset_size: int) -> int:
   """Calculates a recommended min_diff_from_avg argument to tft.vocabulary.
 
   Computes a default min_diff_from_average parameter based on the size of the
@@ -2373,7 +2378,9 @@ class CovarianceCombiner(analyzer_nodes.Combiner):
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def covariance(x, dtype, name=None):
+def covariance(x: tf.Tensor,
+               dtype: tf.DType,
+               name: Optional[str] = None) -> tf.Tensor:
   """Computes the covariance matrix over the whole dataset.
 
   The covariance matrix M is defined as follows:
@@ -2452,7 +2459,10 @@ class PCACombiner(CovarianceCombiner):
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def pca(x, output_dim, dtype, name=None):
+def pca(x: tf.Tensor,
+        output_dim: int,
+        dtype: tf.DType,
+        name: Optional[str] = None) -> tf.Tensor:
   """Computes PCA on the dataset using biased covariance.
 
   The PCA analyzer computes output_dim orthonormal vectors that capture

@@ -398,47 +398,24 @@ def _to_string(x):
     return tf.strings.as_string(x)
 
 
-def reduce_batch_count_or_sum_per_key(x, key, reduce_instance_dims):
-  """Computes per-key sums or counts in the given tensor.
+def reduce_batch_count_per_key(
+    key: common_types.TensorType) -> Tuple[tf.Tensor, tf.Tensor]:
+  """Computes per-key counts in the given tensor.
 
   Args:
-    x: A `Tensor` or `SparseTensor`.  If x is None, return count per key.
-    key: A `Tensor` or `SparseTensor` (cannot be None).
-        Must meet one of the following conditions:
-        1. Both x and key are dense,
-        2. Both x and key are sparse and `key` must exactly match `x` in
-        everything except values,
-        3. The axis=1 index of each x matches its index of dense key.
-    reduce_instance_dims: A bool, if True - collapses the batch and instance
-        dimensions to arrive at a single scalar output. Otherwise, only
-        collapses the batch dimension and outputs a `Tensor` of the same shape
-        as the input. Not supported for `SparseTensor`s.
+    key: A `Tensor` or `SparseTensor`.
 
   Returns:
-    A 2-tuple containing the `Tensor`s (key_vocab, count-or-sum).
+    A 2-tuple containing the `Tensor`s (key_vocab, count_per_key).
   """
-  if isinstance(x, tf.SparseTensor) and not reduce_instance_dims:
-    raise NotImplementedError(
-        'Sum per key only supports reduced dims for SparseTensors')
-
   key = _to_string(key)
 
-  if x is not None:
-    x, key = _validate_and_get_dense_value_key_inputs(x, key)
-    unique = tf.unique(key, out_idx=tf.int64)
-    if reduce_instance_dims and x.get_shape().ndims > 1:
-      sums = tf.math.reduce_sum(x, axis=list(range(1, x.get_shape().ndims)))
-    else:
-      sums = x
-    sums = tf.math.unsorted_segment_sum(sums, unique.idx, tf.size(unique.y))
-  else:
-    if isinstance(key, tf.SparseTensor):
-      key = key.values
-    key.set_shape([None])
-    unique = tf.unique_with_counts(key, out_idx=tf.int64)
-    sums = unique.count
+  if isinstance(key, tf.SparseTensor):
+    key = key.values
+  key.set_shape([None])
+  unique = tf.unique_with_counts(key, out_idx=tf.int64)
 
-  return unique.y, sums
+  return unique.y, unique.count
 
 
 def reorder_histogram(bucket_vocab, counts, boundary_size):
@@ -479,7 +456,10 @@ def reorder_histogram(bucket_vocab, counts, boundary_size):
   return tf.gather(counts, ordering)
 
 
-def apply_bucketize_op(x, boundaries, remove_leftmost_boundary=False):
+def apply_bucketize_op(
+    x: tf.Tensor,
+    boundaries: tf.Tensor,
+    remove_leftmost_boundary: Optional[bool] = False) -> tf.Tensor:
   """Applies the bucketize op to every value in x.
 
   x and boundaries are expected to be in final form (before turning to lists).
@@ -927,7 +907,9 @@ def reduce_batch_count_l_moments(x, reduce_instance_dims):
   return  (count_l1, l1, count_l2, l2, count_l3, l3, count_l4, l4)
 
 
-def _validate_and_get_dense_value_key_inputs(x, key):
+def _validate_and_get_dense_value_key_inputs(
+    x: common_types.TensorType,
+    key: common_types.TensorType) -> Tuple[tf.Tensor, tf.Tensor]:
   """Validate x and key and returns dense representations if feasible.
 
   Check if sparse x and sparse key have identical indices, map key if dense.
@@ -959,7 +941,7 @@ def _validate_and_get_dense_value_key_inputs(x, key):
     return tf.identity(x.values), tf.identity(key.values)
 
 
-def lookup_key(query, key_vocab):
+def lookup_key(query: tf.Tensor, key_vocab: tf.Tensor) -> tf.Tensor:
   """Look up the index of each element in query in key_vocab.
 
   Args:

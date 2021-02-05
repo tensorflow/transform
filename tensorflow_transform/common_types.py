@@ -13,9 +13,11 @@
 # limitations under the License.
 """Common types in tf.transform."""
 
-from typing import Union
+from typing import TypeVar, Union
 
 import tensorflow as tf
+from typing_extensions import Literal
+
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 # TODO(b/160294509): Stop using tracking.TrackableAsset when TF1.15 support is
@@ -31,4 +33,7 @@ FeatureSpecType = Union[tf.io.FixedLenFeature, tf.io.VarLenFeature,
 DomainType = Union[schema_pb2.IntDomain, schema_pb2.FloatDomain,
                    schema_pb2.StringDomain]
 TensorType = Union[tf.Tensor, tf.SparseTensor]
+ConsistentTensorType = TypeVar('ConsistentTensorType', tf.Tensor,
+                               tf.SparseTensor)
 TemporaryAnalyzerOutputType = Union[tf.Tensor, Asset]
+VocabularyFileFormatType = Literal['text', 'tfrecord_gzip']

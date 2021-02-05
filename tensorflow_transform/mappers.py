@@ -56,12 +56,15 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-# GOOGLE-INITIALIZATION
-import six
+from typing import Any, Callable, Iterable, Optional, Tuple, Union
 
+# GOOGLE-INITIALIZATION
+
+import six
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import common
+from tensorflow_transform import common_types
 from tensorflow_transform import gaussianization
 from tensorflow_transform import schema_inference
 from tensorflow_transform import tf_utils
@@ -71,6 +74,8 @@ from tensorflow_transform import tf_utils
 from tfx_bsl.types import tfx_namedtuple
 
 from tensorflow.python.util import deprecation  # pylint: disable=g-direct-tensorflow-import
+
+_BucketBoundariesType = Union[tf.Tensor, Iterable[Union[int, float]]]
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
@@ -172,7 +177,11 @@ def _scale_to_gaussian_internal(x, elementwise, output_dtype):
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def sparse_tensor_to_dense_with_shape(x, shape, default_value=0):
+def sparse_tensor_to_dense_with_shape(
+    x: tf.SparseTensor,
+    shape: Union[tf.TensorShape, Iterable[int]],
+    default_value: Optional[Union[tf.Tensor, int, float,
+                                  str]] = 0) -> tf.Tensor:
   """Converts a `SparseTensor` into a dense tensor and sets its shape.
 
   Args:
@@ -203,18 +212,23 @@ def sparse_tensor_to_dense_with_shape(x, shape, default_value=0):
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def sparse_tensor_left_align(sparse_tensor):
+def sparse_tensor_left_align(sparse_tensor: tf.SparseTensor) -> tf.SparseTensor:
   """Re-arranges a `tf.SparseTensor` and returns a left-aligned version of it.
 
   This mapper can be useful when returning a sparse tensor that may not be
   left-aligned from a preprocessing_fn.
 
   Args:
-    sparse_tensor: A `tf.SparseTensor`.
+    sparse_tensor: A 2D `tf.SparseTensor`.
+
+  Raises:
+    ValueError if `sparse_tensor` is not 2D.
 
   Returns:
     A left-aligned version of sparse_tensor as a `tf.SparseTensor`.
   """
+  if sparse_tensor.get_shape().ndims != 2:
+    raise ValueError('sparse_tensor_left_align requires a 2D input')
   reordered_tensor = tf.sparse.reorder(sparse_tensor)
   transposed_indices = tf.transpose(reordered_tensor.indices)
   row_indices = transposed_indices[0]
@@ -326,7 +340,9 @@ def _scale_by_min_max_internal(x, key, output_min, output_max, elementwise,
     if elementwise:
       raise NotImplementedError('Per-key elementwise reduction not supported')
     key_values = analyzers._min_and_max_per_key(  # pylint: disable=protected-access
-        x, key, reduce_instance_dims=not elementwise,
+        x,
+        key,
+        reduce_instance_dims=True,
         key_vocabulary_filename=key_vocabulary_filename)
     if key_vocabulary_filename is None:
       key_vocab, min_x_value, max_x_value = key_values
@@ -786,22 +802,23 @@ def _count_docs_with_term(term_frequency):
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def compute_and_apply_vocabulary(
-    x,
-    default_value=-1,
-    top_k=None,
-    frequency_threshold=None,
-    num_oov_buckets=0,
-    vocab_filename=None,
-    weights=None,
-    labels=None,
-    use_adjusted_mutual_info=False,
-    min_diff_from_avg=0.0,
-    coverage_top_k=None,
-    coverage_frequency_threshold=None,
-    key_fn=None,
-    fingerprint_shuffle=False,
-    file_format=analyzers.DEFAULT_VOCABULARY_FILE_FORMAT,
-    name=None):
+    x: common_types.ConsistentTensorType,
+    default_value: Optional[Any] = -1,
+    top_k: Optional[int] = None,
+    frequency_threshold: Optional[int] = None,
+    num_oov_buckets: Optional[int] = 0,
+    vocab_filename: Optional[str] = None,
+    weights: Optional[tf.Tensor] = None,
+    labels: Optional[tf.Tensor] = None,
+    use_adjusted_mutual_info: Optional[bool] = False,
+    min_diff_from_avg: Optional[float] = 0.0,
+    coverage_top_k: Optional[int] = None,
+    coverage_frequency_threshold: Optional[int] = None,
+    key_fn: Optional[Callable[[Any], Any]] = None,
+    fingerprint_shuffle: Optional[bool] = False,
+    file_format: Optional[common_types.VocabularyFileFormatType] = analyzers
+    .DEFAULT_VOCABULARY_FILE_FORMAT,
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   r"""Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
   In case one of the tokens contains the '\n' or '\r' characters or is empty it
@@ -936,13 +953,16 @@ def string_to_int(x,
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def apply_vocabulary(x,
-                     deferred_vocab_filename_tensor,
-                     default_value=-1,
-                     num_oov_buckets=0,
-                     lookup_fn=None,
-                     file_format=analyzers.DEFAULT_VOCABULARY_FILE_FORMAT,
-                     name=None):
+def apply_vocabulary(
+    x: common_types.ConsistentTensorType,
+    deferred_vocab_filename_tensor: tf.Tensor,
+    default_value: Optional[Any] = -1,
+    num_oov_buckets: Optional[int] = 0,
+    lookup_fn: Optional[Callable[[common_types.TensorType, tf.Tensor],
+                                 Tuple[tf.Tensor, tf.Tensor]]] = None,
+    file_format: Optional[common_types.VocabularyFileFormatType] = analyzers
+    .DEFAULT_VOCABULARY_FILE_FORMAT,
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   r"""Maps `x` to a vocabulary specified by the deferred tensor.
 
   This function also writes domain statistics about the vocabulary min and max
@@ -1009,7 +1029,7 @@ def apply_vocabulary(x,
         else:
           raise ValueError(
               '"{}" is not an accepted file_format. It should be one of: {}'
-              .format(file_format, analyzers.ALLOWED_VOCABULRY_FILE_FORMATS))
+              .format(file_format, analyzers.ALLOWED_VOCABULARY_FILE_FORMATS))
 
         if num_oov_buckets > 0:
           table = tf.lookup.StaticVocabularyTable(
@@ -1039,7 +1059,6 @@ def apply_vocabulary(x,
     schema_inference.set_tensor_schema_override(
         result.values if isinstance(result, tf.SparseTensor) else result,
         min_value, max_value)
-
     return result
 
 
@@ -1459,7 +1478,11 @@ def word_count(tokens, name=None):
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def hash_strings(strings, hash_buckets, key=None, name=None):
+def hash_strings(
+    strings: common_types.ConsistentTensorType,
+    hash_buckets: int,
+    key: Optional[Iterable[int]] = None,
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   """Hash strings into buckets.
 
   Args:
@@ -1502,8 +1525,13 @@ def hash_strings(strings, hash_buckets, key=None, name=None):
     None, 'Number of generated buckets is now always `num_buckets` - 1.',
     'always_return_num_quantiles')
 @common.log_api_use(common.MAPPER_COLLECTION)
-def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
-              always_return_num_quantiles=True, name=None):
+def bucketize(x: common_types.TensorType,
+              num_buckets: int,
+              epsilon: Optional[float] = None,
+              weights: Optional[tf.Tensor] = None,
+              elementwise: Optional[bool] = False,
+              always_return_num_quantiles: Optional[bool] = True,
+              name: Optional[str] = None) -> common_types.TensorType:
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Args:
@@ -1511,6 +1539,7 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
       to buckets.  For a `SparseTensor` only non-missing values will be included
       in the quantiles computation, and the result of `bucketize` will be a
       `SparseTensor` with non-missing values mapped to buckets.
+      If elementwise=True then `x` must be dense.
     num_buckets: Values in the input `x` are divided into approximately
       equal-sized buckets, where the number of buckets is `num_buckets`. By
       default, the exact number will be available to `bucketize`. If
@@ -1542,7 +1571,9 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
     input values are not uniformly distributed.
 
   Raises:
+    TypeError: If num_buckets is not an int.
     ValueError: If value of num_buckets is not > 1.
+    ValueError: If elementwise=True and x is a `SparseTensor`.
   """
   del always_return_num_quantiles
   with tf.compat.v1.name_scope(name, 'bucketize'):
@@ -1551,6 +1582,10 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
 
     if num_buckets < 1:
       raise ValueError('Invalid num_buckets %d' % num_buckets)
+
+    if isinstance(x, tf.SparseTensor) and elementwise:
+      raise ValueError(
+          'bucketize requires `x` to be dense if `elementwise=True`')
 
     if epsilon is None:
       # See explanation in args documentation for epsilon.
@@ -1579,7 +1614,12 @@ def bucketize(x, num_buckets, epsilon=None, weights=None, elementwise=False,
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def bucketize_per_key(x, key, num_buckets, epsilon=None, name=None):
+def bucketize_per_key(
+    x: common_types.ConsistentTensorType,
+    key: common_types.TensorType,
+    num_buckets: int,
+    epsilon: Optional[float] = None,
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Args:
@@ -1636,14 +1676,15 @@ def _fill_shape(value, shape, dtype):
   return tf.cast(tf.fill(shape, value), dtype)
 
 
-def _apply_buckets_with_keys(x,
-                             key,
-                             key_vocab,
-                             bucket_boundaries,
-                             scale_factor_per_key,
-                             shift_per_key,
-                             num_buckets,
-                             name=None):
+def _apply_buckets_with_keys(
+    x: common_types.ConsistentTensorType,
+    key: common_types.ConsistentTensorType,
+    key_vocab: tf.Tensor,
+    bucket_boundaries: tf.Tensor,
+    scale_factor_per_key: tf.Tensor,
+    shift_per_key: tf.Tensor,
+    num_buckets: int,
+    name: Optional[int] = None) -> common_types.ConsistentTensorType:
   """Bucketize a Tensor or SparseTensor where boundaries depend on the index.
 
   Args:
@@ -1712,7 +1753,10 @@ def _apply_buckets_with_keys(x,
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
+def apply_buckets_with_interpolation(
+    x: common_types.TensorType,
+    bucket_boundaries: _BucketBoundariesType,
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   """Interpolates within the provided buckets and then normalizes to 0 to 1.
 
   A method for normalizing continuous numeric data to the range [0, 1].
@@ -1737,7 +1781,7 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
 
   Args:
     x: A numeric input `Tensor`/`SparseTensor` (tf.float[32|64], tf.int[32|64])
-    bucket_boundaries: Sorted bucket boundaries as a rank-2 `Tensor`.
+    bucket_boundaries: Sorted bucket boundaries as a rank-2 `Tensor` or list.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1747,6 +1791,7 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
 
   """
   with tf.compat.v1.name_scope(name, 'buckets_with_interpolation'):
+    bucket_boundaries = tf.convert_to_tensor(bucket_boundaries)
     tf.compat.v1.assert_rank(bucket_boundaries, 2)
     x_values = x
     compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
@@ -1826,7 +1871,10 @@ def apply_buckets_with_interpolation(x, bucket_boundaries, name=None):
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def apply_buckets(x, bucket_boundaries, name=None):
+def apply_buckets(
+    x: common_types.TensorType,
+    bucket_boundaries: _BucketBoundariesType,
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Each element `e` in `x` is mapped to a positive index `i` for which
@@ -1848,17 +1896,18 @@ def apply_buckets(x, bucket_boundaries, name=None):
     x: A numeric input `Tensor` or `SparseTensor` whose values should be mapped
         to buckets.  For `SparseTensor`s, the non-missing values will be mapped
         to buckets and missing value left missing.
-    bucket_boundaries: A rank 2 `Tensor` representing the bucket boundaries
-        sorted in ascending order.
+    bucket_boundaries: A rank 2 `Tensor` or list representing the bucket
+        boundaries sorted in ascending order.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` of the same shape as `x`, with each element in the
-    returned tensor representing the bucketized value. Bucketized value is
+    A `Tensor` or `SparseTensor` of the same shape as `x`, with each element in
+    the returned tensor representing the bucketized value. Bucketized value is
     in the range [0, len(bucket_boundaries)].
   """
-  tf.compat.v1.assert_rank(bucket_boundaries, 2)
   with tf.compat.v1.name_scope(name, 'apply_buckets'):
+    bucket_boundaries = tf.convert_to_tensor(bucket_boundaries)
+    tf.compat.v1.assert_rank(bucket_boundaries, 2)
 
     bucketized_values = _assign_buckets_all_shapes(x, bucket_boundaries)
 
@@ -1877,14 +1926,15 @@ def apply_buckets(x, bucket_boundaries, name=None):
     return result
 
 
-def _assign_buckets_all_shapes(x, bucket_boundaries):
+def _assign_buckets_all_shapes(x: common_types.TensorType,
+                               bucket_boundaries: tf.Tensor) -> tf.Tensor:
   """Assigns every value in x to a bucket index defined by bucket_boundaries.
 
   Depending on the shape of the x input, we split into individual vectors
   so that the actual _assign_buckets function can operate as expected.
 
   Args:
-    x: a `Tensor` with no more than one dimension.
+    x: a `Tensor` or `SparseTensor` with no more than 2 dimensions.
     bucket_boundaries:  The bucket boundaries represented as a rank 2 `Tensor`.
 
   Returns:
@@ -1919,7 +1969,8 @@ def _assign_buckets_all_shapes(x, bucket_boundaries):
 
 # TODO(b/148278398): Determine how NaN values should be assigned to buckets.
 # Currently it maps to the highest bucket.
-def _assign_buckets(x_values, bucket_boundaries):
+def _assign_buckets(x_values: tf.Tensor,
+                    bucket_boundaries: tf.Tensor) -> tf.Tensor:
   """Assigns every value in x to a bucket index defined by bucket_boundaries.
 
   Args:
@@ -1963,7 +2014,7 @@ def _assign_buckets(x_values, bucket_boundaries):
     return buckets
 
 
-def _annotate_buckets(x, bucket_boundaries):
+def _annotate_buckets(x: tf.Tensor, bucket_boundaries: tf.Tensor) -> None:
   """Annotates a bucketized tensor with the boundaries that were applied.
 
   Creates a deferred annotation for the specified tensor.
@@ -1998,8 +2049,11 @@ def _annotate_buckets(x, bucket_boundaries):
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def estimated_probability_density(x, boundaries=None, categorical=False,
-                                  name=None):
+def estimated_probability_density(x: tf.Tensor,
+                                  boundaries: Optional[Union[tf.Tensor,
+                                                             int]] = None,
+                                  categorical: Optional[bool] = False,
+                                  name: Optional[str] = None) -> tf.Tensor:
   """Computes an approximate probability density at each x, given the bins.
 
   Using this type of fixed-interval method has several benefits compared to
