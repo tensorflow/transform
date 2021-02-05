@@ -585,7 +585,10 @@ def get_traced_metadata_fn(tensor_replacement_map, preprocessing_fn,
     are collections of feature keys/annotations.
   """
 
-  @tf.function(input_signature=[input_signature])
+  # Since this is a TFT-internal function with constant outputs, autograph will
+  # not affect its behavior. It will only increase tracing time, if enabled.
+  # Hence, trace with `autograph=False` here.
+  @tf.function(input_signature=[input_signature], autograph=False)
   def metadata_fn(inputs):
     graph = ops.get_default_graph()
     # The user defined `preprocessing_fn` may directly modify its inputs which

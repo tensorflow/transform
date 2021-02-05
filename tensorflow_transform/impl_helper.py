@@ -443,7 +443,8 @@ def get_traced_transform_fn(preprocessing_fn,
   assert all(
       [isinstance(s, tf.TypeSpec) for s in six.itervalues(input_signature)])
 
-  @tf.function(input_signature=[input_signature])
+  # TODO(b/177672051): Investigate performance impact of enabling autograph.
+  @tf.function(input_signature=[input_signature], autograph=False)
   def transform_fn(inputs):
     graph = ops.get_default_graph()
     # If any analyzers have already been evaluated, pass them using the

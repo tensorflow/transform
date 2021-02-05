@@ -20,6 +20,9 @@
 
 ## Breaking changes
 
+*   Autograph is disabled when the preprocessing fn is traced using tf.function
+    when `force_tf_compat_v1=False` and TF2 behavior is enabled.
+
 ## Deprecations
 
 # Version 0.27.0
