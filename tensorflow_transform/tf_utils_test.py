@@ -693,89 +693,94 @@ class TFUtilsTest(test_case.TransformTestCase):
       self.assertEqual(result.dtype, dtype)
       self.assertAllClose(result, expected_factor)
 
-  @test_case.named_parameters(test_case.cross_with_function_handlers([
-      dict(
-          testcase_name='dense',
-          x=[[[1], [2]], [[3], [4]]],
-          expected_counts=np.array([4., 6., 4., 1.], np.float32),
-          expected_moments=np.array([2.5, 10.0 / 12.0, 0.0, 0.0], np.float32),
-          reduce_instance_dims=True,
-          input_signature=[tf.TensorSpec(None, tf.float32)]),
-      dict(
-          testcase_name='dense_large',
-          x=[2.0, 3.0, 4.0, 2.4, 5.5, 1.2, 5.4, 2.2, 7.1, 1.3, 1.5],
-          expected_counts=np.array([11, 11 * 10 // 2, 11 * 10 * 9 // 6,
-                                    11 * 10 * 9 * 8 // 24], np.float32),
-          expected_moments=np.array(
-              [3.2363636363636363, 1.141818181818182,
-               0.31272727272727263, 0.026666666666666616], np.float32),
-          reduce_instance_dims=True,
-          input_signature=[tf.TensorSpec(None, tf.float32)]),
-      dict(
-          testcase_name='dense_very_large',
-          x=-np.log(1.0 - np.arange(0, 1, 1e-6, dtype=np.float32)),
-          expected_counts=np.array(
-              [1000000, 499999500000.0, 1.66666166667e+17, 4.1666416667125e+22],
-              np.float32),
-          expected_moments=np.array(
-              [0.99999217330, 0.4999936732947, 0.166660839941, 0.0833278399134],
-              np.float32),
-          reduce_instance_dims=True,
-          input_signature=[tf.TensorSpec(None, tf.float32)]),
-      dict(
-          testcase_name='dense_elementwise',
-          x=[[[1], [2]], [[3], [4]]],
-          expected_counts=np.array(
-              [[[2], [2]], [[1], [1]], [[0], [0]], [[0], [0]]], np.float32),
-          expected_moments=np.array(
-              [[[2.0], [3.0]], [[1.0], [1.0]], [[0.0], [0.0]],
-               [[0.0], [0.0]]], np.float32),
-          reduce_instance_dims=False,
-          input_signature=[tf.TensorSpec(None, tf.float32)]),
-      dict(
-          testcase_name='sparse',
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0], [0, 2], [2, 0], [2, 2]],
-              values=[1., 2., 3., 4.],
-              dense_shape=[3, 4]),
-          expected_counts=np.array([4, 6, 4, 1], np.float32),
-          expected_moments=np.array(
-              [2.5, 10.0 / 12.0, 0.0, 0.0], np.float32),
-          reduce_instance_dims=True,
-          input_signature=[
-              tf.SparseTensorSpec([None, 4], tf.float32)
-          ]),
-      dict(
-          testcase_name='sparse_elementwise',
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0, 0], [0, 2, 0], [2, 0, 0], [2, 2, 0],
-                       [3, 3, 0]],
-              values=[1., 2., 3., 4., 5.],
-              dense_shape=[3, 5, 1]),
-          expected_counts=np.array(
-              [[[2], [0], [2], [1], [0]],
-               [[1], [0], [1], [0], [0]],
-               [[0], [0], [0], [0], [0]],
-               [[0], [0], [0], [0], [0]]], np.float32),
-          expected_moments=np.array(
-              [[[2.0], [0.0], [3.0], [5.0], [0.0]],
-               [[1.0], [0.0], [1.0], [0.0], [0.0]],
-               [[0.0], [0.0], [0.0], [0.0], [0.0]],
-               [[0.0], [0.0], [0.0], [0.0], [0.0]]], np.float32),
-          reduce_instance_dims=False,
-          input_signature=[
-              tf.SparseTensorSpec([None, 4, 1], tf.float32)
-          ]),
-  ]))
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers([
+          dict(
+              testcase_name='dense',
+              x=[[[1], [2]], [[3], [4]]],
+              expected_counts=np.array([4., 6., 4., 1.], np.float32),
+              expected_moments=np.array([2.5, 10.0 / 12.0, 0.0, 0.0],
+                                        np.float32),
+              reduce_instance_dims=True,
+              input_signature=[tf.TensorSpec(None, tf.float32)]),
+          dict(
+              testcase_name='dense_large',
+              x=[2.0, 3.0, 4.0, 2.4, 5.5, 1.2, 5.4, 2.2, 7.1, 1.3, 1.5],
+              expected_counts=np.array(
+                  [11, 11 * 10 // 2, 11 * 10 * 9 // 6, 11 * 10 * 9 * 8 // 24],
+                  np.float32),
+              expected_moments=np.array([
+                  3.2363636363636363, 1.141818181818182, 0.31272727272727263,
+                  0.026666666666666616
+              ], np.float32),
+              reduce_instance_dims=True,
+              input_signature=[tf.TensorSpec(None, tf.float32)]),
+          dict(
+              testcase_name='dense_very_large',
+              x=-np.log(1.0 - np.arange(0, 1, 1e-6, dtype=np.float32)),
+              expected_counts=np.array([
+                  1000000, 499999500000.0, 1.66666166667e+17,
+                  4.1666416667125e+22
+              ], np.float32),
+              expected_moments=np.array([
+                  0.99999217330, 0.4999936732947, 0.166660839941,
+                  0.0833278399134
+              ], np.float32),
+              reduce_instance_dims=True,
+              input_signature=[tf.TensorSpec(None, tf.float32)]),
+          dict(
+              testcase_name='dense_elementwise',
+              x=[[[1], [2]], [[3], [4]]],
+              expected_counts=np.array(
+                  [[[2], [2]], [[1], [1]], [[0], [0]], [[0], [0]]], np.float32),
+              expected_moments=np.array([[[2.0], [3.0]], [[1.0], [1.0]],
+                                         [[0.0], [0.0]], [[0.0], [0.0]]],
+                                        np.float32),
+              reduce_instance_dims=False,
+              input_signature=[tf.TensorSpec(None, tf.float32)]),
+          dict(
+              testcase_name='sparse',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 2], [2, 0], [2, 2]],
+                  values=[1., 2., 3., 4.],
+                  dense_shape=[3, 4]),
+              expected_counts=np.array([4, 6, 4, 1], np.float32),
+              expected_moments=np.array([2.5, 10.0 / 12.0, 0.0, 0.0],
+                                        np.float32),
+              reduce_instance_dims=True,
+              input_signature=[tf.SparseTensorSpec([None, 4], tf.float32)]),
+          dict(
+              testcase_name='sparse_elementwise',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0, 0], [0, 2, 0], [2, 0, 0], [2, 2, 0],
+                           [3, 3, 0]],
+                  values=[1., 2., 3., 4., 5.],
+                  dense_shape=[3, 5, 1]),
+              expected_counts=np.array(
+                  [[[2], [0], [2], [1], [0]], [[1], [0], [1], [0], [0]],
+                   [[0], [0], [0], [0], [0]], [[0], [0], [0], [0], [0]]],
+                  np.float32),
+              expected_moments=np.array([[[2.0], [0.0], [3.0], [5.0], [0.0]],
+                                         [[1.0], [0.0], [1.0], [0.0], [0.0]],
+                                         [[0.0], [0.0], [0.0], [0.0], [0.0]],
+                                         [[0.0], [0.0], [0.0], [0.0], [0.0]]],
+                                        np.float32),
+              reduce_instance_dims=False,
+              input_signature=[tf.SparseTensorSpec([None, 5, 1], tf.float32)]),
+      ]))
   def test_reduce_batch_count_l_moments(
       self, x, input_signature, expected_counts, expected_moments,
       reduce_instance_dims, function_handler):
 
     @function_handler(input_signature=input_signature)
     def _reduce_batch_count_l_moments(x):
-      # TODO(b/38063790): Make sure that the shape is maintained.
-      return tf_utils.reduce_batch_count_l_moments(
+      result = tf_utils.reduce_batch_count_l_moments(
           x, reduce_instance_dims=reduce_instance_dims)
+      for tensor in result:
+        if not reduce_instance_dims and x.get_shape().ndims:
+          self.assertEqual(x.get_shape()[1:].as_list(),
+                           tensor.get_shape().as_list())
+      return result
 
     count_and_moments = _reduce_batch_count_l_moments(x)
     counts = count_and_moments[0::2]

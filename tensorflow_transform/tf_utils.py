@@ -869,7 +869,12 @@ def reduce_batch_count_l_moments(x, reduce_instance_dims):
          _condition_l_moments_sparse,
          _iteration_l_moments_sparse,
          [tf.constant(0, dim_1.dtype)] + [initial_values] * 8 + [x_rank_2])
-    final_shape = (() if reduce_instance_dims else tf.shape(x)[1:])
+    if reduce_instance_dims:
+      final_shape = ()
+    elif x.get_shape().ndims and x.get_shape()[1:].is_fully_defined():
+      final_shape = x.get_shape()[1:]
+    else:
+      final_shape = tf.shape(x)[1:]
     l1 = tf.reshape(l1_sum, final_shape)
     l2 = tf.reshape(l2_sum, final_shape)
     l3 = tf.reshape(l3_sum, final_shape)
