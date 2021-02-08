@@ -47,7 +47,7 @@ def _copy_tree(source, destination):
 
   if tf.io.gfile.isdir(source):
     source_dir_name = os.path.basename(os.path.normpath(source))
-    if source_dir_name == impl_helper.METADATA_SAVED_MODEL_DIR_NAME:
+    if source_dir_name == impl_helper.METADATA_DIR_NAME:
       return
 
     tf.io.gfile.makedirs(destination)

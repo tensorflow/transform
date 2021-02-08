@@ -56,7 +56,7 @@ _CACHED_EMPTY_ARRAY_BY_DTYPE = {}
 _VALID_SCOPE_REGEX = re.compile('^[A-Za-z0-9]*$')
 _INVALID_SCOPE_CHAR = re.compile('[^A-Za-z0-9_.\\-/>]')
 
-METADATA_SAVED_MODEL_DIR_NAME = '.tft_metadata_saved_model'
+METADATA_DIR_NAME = '.tft_metadata'
 
 
 def _get_empty_array(dtype):
@@ -654,9 +654,14 @@ def trace_and_write_v2_saved_model(saved_model_dir, preprocessing_fn,
         input_signature,
         base_temp_dir,
         evaluate_schema_overrides=True)
-    concrete_metadata_fn = _write_v2_saved_model(
-        metadata_fn, 'metadata_fn',
-        os.path.join(saved_model_dir, METADATA_SAVED_MODEL_DIR_NAME))
+    concrete_metadata_fn = metadata_fn.get_concrete_function()
+    metadata = dataset_metadata.DatasetMetadata(
+        schema=schema_inference.infer_feature_schema_v2(
+            concrete_transform_fn.structured_outputs,
+            concrete_metadata_fn,
+            evaluate_schema_overrides=True))
+    metadata_io.write_metadata(metadata,
+                               os.path.join(saved_model_dir, METADATA_DIR_NAME))
 
   return concrete_transform_fn, concrete_metadata_fn
 

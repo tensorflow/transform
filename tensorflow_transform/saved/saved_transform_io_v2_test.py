@@ -130,13 +130,14 @@ def _create_test_saved_model(export_in_tf1,
         saved_transform_io.write_saved_transform_from_session(
             session, inputs, outputs, export_path)
   else:
-    impl_helper.trace_and_write_v2_saved_model(
-        saved_model_dir=export_path,
+    transform_fn = impl_helper.get_traced_transform_fn(
         preprocessing_fn=preprocessing_fn,
         input_signature=input_specs,
         base_temp_dir=None,
         tensor_replacement_map=None,
         output_keys_to_name_map=None)
+
+    impl_helper._write_v2_saved_model(transform_fn, 'transform_fn', export_path)
   return export_path
 
 

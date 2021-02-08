@@ -107,6 +107,7 @@ from tensorflow_transform.coders import example_proto_coder
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.saved import saved_transform_io_v2
 from tensorflow_transform.tf_metadata import dataset_metadata
+from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
 from tfx_bsl.beam import shared
 from tfx_bsl.tfxio import tf_example_record
@@ -115,8 +116,6 @@ from tfx_bsl.tfxio.tensor_adapter import TensorAdapter
 # `tfx_namedtuple.namedtuple` or `typing.NamedTuple` once the Spark issue is
 # resolved.
 from tfx_bsl.types import tfx_namedtuple
-
-from tensorflow.python.eager import function  # pylint: disable=g-direct-tensorflow-import
 
 Context = context.Context
 
@@ -805,45 +804,12 @@ def _infer_metadata_from_saved_model_v1(
           schema=schema_inference.infer_feature_schema(outputs, graph, session))
 
 
-def _get_concrete_fn(saved_model_dir: str,
-                     function_name: str) -> function.ConcreteFunction:
-  """Returns concrete function `function_name` from SavedModel at `saved_model_dir`."""
-
-  imported = tf.saved_model.load(saved_model_dir)
-  assert hasattr(imported, function_name), function_name
-
-  # transform_fn and metadata_fn are now ConcreteFunction, but was tf.function.
-  # We need to handle both to maintain backward compatiblity. If they're
-  # tf.function, Since `input_signature` was specified when exporting the tf
-  # function to `SavedModel`, there should be exactly one concrete function
-  # present on loading the `SavedModel`.
-  tf_function = getattr(imported, function_name)
-  if hasattr(tf_function, 'concrete_functions'):
-    assert len(tf_function.concrete_functions) == 1
-    return tf_function.concrete_functions[0]
-  else:
-    return tf_function
-
-
 def _infer_metadata_from_saved_model_v2(
     saved_model_dir: str) -> dataset_metadata.DatasetMetadata:
   """Infers a DatasetMetadata for outputs of a TF2 SavedModel."""
 
-  metadata_path = os.path.join(saved_model_dir,
-                               impl_helper.METADATA_SAVED_MODEL_DIR_NAME)
-  concrete_metadata_fn = _get_concrete_fn(metadata_path, 'metadata_fn')
-  concrete_transform_fn = _get_concrete_fn(saved_model_dir, 'transform_fn')
-
-  structured_outputs = tf.nest.pack_sequence_as(
-      structure=concrete_transform_fn.structured_outputs,
-      flat_sequence=concrete_transform_fn.outputs,
-      expand_composites=True)
-
-  return dataset_metadata.DatasetMetadata(
-      schema=schema_inference.infer_feature_schema_v2(
-          structured_outputs,
-          concrete_metadata_fn,
-          evaluate_schema_overrides=True))
+  metadata_path = os.path.join(saved_model_dir, impl_helper.METADATA_DIR_NAME)
+  return metadata_io.read_metadata(metadata_path)
 
 
 class _InstrumentAPI(beam.PTransform):
