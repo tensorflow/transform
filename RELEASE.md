@@ -4,6 +4,9 @@
 
 ## Major Features and Improvements
 
+*   Large vocabularies are now computed faster due to partially parallelizing
+    `VocabularyOrderAndWrite`.
+
 ## Bug Fixes and Other Changes
 
 *   Generic `tf.SparseTensor` input support has been added to

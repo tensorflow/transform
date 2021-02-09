@@ -32,6 +32,7 @@ import apache_beam as beam
 from apache_beam.transforms.ptransform import ptransform_fn
 from apache_beam.typehints import Any
 from apache_beam.typehints import Dict
+from apache_beam.typehints import Iterable
 from apache_beam.typehints import KV
 from apache_beam.typehints import Tuple
 from apache_beam.typehints import Union
@@ -56,28 +57,48 @@ _VocabIndicatorType = Union[float, int, bytes, Tuple[float, float]]
 # it is no longer needed due to framework improvments.
 _DEFAULT_COMBINE_GLOBALLY_FANOUT = 10
 
+# Size of a batch for pre-sorting in `VocabularyOrderAndWrite`. It was chosen to
+# approximately minimize the stage's wall time for a vocabulary with 100M
+# entries.
+_PRESORT_BATCH_SIZE = 150000
+
+
+@ptransform_fn
+@beam.typehints.with_input_types(KV[_VocabIndicatorType, _VocabTokenType])
+@beam.typehints.with_output_types(Iterable[KV[_VocabIndicatorType,
+                                              _VocabTokenType]])
+def _BatchAndPreSort(counts, sort_kwargs):  # pylint: disable=invalid-name
+  """Batches vocabulary and pre-sorts the batches."""
+  # This PTransform aims to partially parallelize vocabulary sorting in
+  # `VocabularyOrderAndWrite`. Pre-sorting of batches in a parallel mode with
+  # `beam.Map` allows to significantly speed up final single-threaded sorting of
+  # a union in `_OrderElementsFn`. This is because `list.sort()` uses an
+  # adaptive merge sort that identifies pre-existing order in the union. See
+  # https://en.wikipedia.org/wiki/Timsort for more details.
+  return (counts
+          | 'BatchVocabulary' >> beam.BatchElements(
+              min_batch_size=_PRESORT_BATCH_SIZE,
+              max_batch_size=_PRESORT_BATCH_SIZE)
+          | 'SortBatches' >> beam.Map(lambda b: sorted(b, **sort_kwargs)))  # pylint: disable=unnecessary-lambda
+
 
 class _OrderElementsFn(beam.DoFn):
   """Sort the vocabulary by either descending frequency count or hash order."""
 
-  def __init__(self, store_frequency, fingerprint_shuffle, input_dtype):
+  def __init__(self, store_frequency, sort_kwargs, input_dtype):
     self._store_frequency = store_frequency
-    self._fingerprint_shuffle = fingerprint_shuffle
+    self._sort_kwargs = sort_kwargs
     self._input_dtype = input_dtype
 
     # Metrics.
     self._vocab_size = beam.metrics.Metrics.distribution(
         common.METRICS_NAMESPACE, 'vocabulary_size')
 
-  @staticmethod
-  def _fingerprint_sort_fn(v):
-    # hashlib.sha1 expects bytes
-    v = tf.compat.as_bytes(tf.compat.as_str_any(v))
-    return hashlib.sha1(v).digest()
-
-  def process(self, element, counts_iter):
+  def process(self, element, batched_counts_iter):
     del element
-    counts = list(counts_iter)
+    counts = []
+    for c in batched_counts_iter:
+      counts.extend(c)
     self._vocab_size.update(len(counts))
 
     if not counts:
@@ -90,10 +111,7 @@ class _OrderElementsFn(beam.DoFn):
                      b'-1')
       counts = [(1, dummy_value)]
 
-    if self._fingerprint_shuffle:
-      counts.sort(key=lambda kv: self._fingerprint_sort_fn(kv[1]))
-    else:
-      counts.sort(reverse=True)  # Largest first.
+    counts.sort(**self._sort_kwargs)
 
     for count, entry in counts:
       if self._store_frequency:
@@ -386,6 +404,11 @@ class _VocabularyOrderAndWriteImpl(beam.PTransform):
     counts, = inputs
     vocabulary_file = os.path.join(self._base_temp_dir, self._vocab_filename)
 
+    def fingerprint_sort_fn(kv):
+      # hashlib.sha1 expects bytes
+      v = tf.compat.as_bytes(tf.compat.as_str_any(kv[1]))
+      return hashlib.sha1(v).digest()
+
     if self._input_dtype != tf.string.name:
       counts |= 'EncodeNumericalKeys' >> beam.MapTuple(
           lambda v, k: (v, tf.compat.as_bytes(tf.compat.as_str_any(k))))
@@ -401,19 +424,26 @@ class _VocabularyOrderAndWriteImpl(beam.PTransform):
       write_ptransform = 'WriteToText' >> beam.io.WriteToText(
           vocabulary_file, shard_name_template='')
     elif self._file_format == 'tfrecord_gzip':
-      # Setting the suffix as .gz ensures that the vocabulary would be written
-      # GZIP compression.
+      # Setting the suffix as .gz ensures that the vocabulary will be written
+      # with GZIP compression.
       vocabulary_file = '{}.tfrecord.gz'.format(vocabulary_file)
       write_ptransform = 'WriteToTFRecord' >> beam.io.WriteToTFRecord(
           vocabulary_file, shard_name_template='')
+    if self._fingerprint_shuffle:
+      sort_kwargs = dict(key=fingerprint_sort_fn)
+    else:
+      sort_kwargs = dict(reverse=True)  # Largest first.
+
+    batched_counts = counts | 'BatchAndPreSort' >> _BatchAndPreSort(  # pylint: disable=no-value-for-parameter
+        sort_kwargs=sort_kwargs)
 
     vocab_is_written = (
-        counts.pipeline
+        batched_counts.pipeline
         | 'Prepare' >> beam.Create([None])
         | 'OrderElements' >> beam.ParDo(
-            _OrderElementsFn(self._store_frequency, self._fingerprint_shuffle,
+            _OrderElementsFn(self._store_frequency, sort_kwargs,
                              self._input_dtype),
-            counts_iter=beam.pvalue.AsIter(counts))
+            batched_counts_iter=beam.pvalue.AsIter(batched_counts))
         | write_ptransform)
     # Return the vocabulary path.
     wait_for_vocabulary_transform = (

@@ -27,11 +27,14 @@ import apache_beam as beam
 
 import tensorflow as tf
 import tensorflow_transform as tft
+from tensorflow_transform.beam import analyzer_impls
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 
 from tensorflow_metadata.proto.v0 import schema_pb2
+
+mock = tf.compat.v1.test.mock
 
 
 class VocabularyIntegrationTest(tft_unit.TransformTestCase):
@@ -1392,6 +1395,42 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
 
     self.assertEqual([b'hello', b'world'],
                      tft_output.vocabulary_by_name('key_1'))
+
+  @mock.patch.object(analyzer_impls, '_PRESORT_BATCH_SIZE', 2)
+  def testVocabularyPreSort(self):
+    input_data = [
+        dict(x=b'foo'),
+        dict(x=b'hello'),
+        dict(x=b'aaaaa'),
+        dict(x=b'goodbye'),
+        dict(x=b'bar'),
+        dict(x=b'hello'),
+        dict(x=b'goodbye'),
+        dict(x=b'hello'),
+        dict(x=b'hello'),
+        dict(x=b'goodbye'),
+        dict(x=b'aaaaa'),
+    ]
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'x': tf.io.FixedLenFeature([], tf.string)})
+    expected_vocab_file_contents = [(b'hello', 4), (b'goodbye', 3),
+                                    (b'aaaaa', 2), (b'foo', 1), (b'bar', 1)]
+
+    def preprocessing_fn(inputs):
+      tft.vocabulary(
+          inputs['x'],
+          vocab_filename='my_vocab',
+          file_format=self._VocabFormat(),
+          store_frequency=True)
+      return inputs
+
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        input_data,
+        input_metadata,
+        expected_vocab_file_contents={'my_vocab': expected_vocab_file_contents})
 
 
 if __name__ == '__main__':
