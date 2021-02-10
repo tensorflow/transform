@@ -30,6 +30,7 @@ from six import binary_type
 from six import integer_types
 from six import string_types
 from tensorflow_transform import nodes
+from tfx_bsl.telemetry import util
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
 # `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
 # resolved.
@@ -38,7 +39,7 @@ from tfx_bsl.types import tfx_namedtuple
 NUMERIC_TYPE = Union[float, Union[integer_types]]
 PRIMITIVE_TYPE = Union[NUMERIC_TYPE, Union[string_types], binary_type]
 
-METRICS_NAMESPACE = 'tfx.Transform'
+METRICS_NAMESPACE = util.MakeTfxNamespace(['Transform'])
 
 
 # Depending on the environment, (TF 1.x vs 2.x for e.g.,) we may want to
