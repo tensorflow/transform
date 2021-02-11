@@ -305,8 +305,9 @@ def scale_by_min_max_per_key(x,
   Returns:
     A `Tensor`  or `SparseTensor` containing the input column scaled to
     [output_min, output_max] on a per-key basis if a key is provided. If the
-    analysis dataset is empty or contains a single distinct value, then `x` is
-    scaled using a sigmoid function.
+    analysis dataset is empty, contains a single distinct value or the computed
+    key vocabulary doesn't have an entry for `key`, then `x` is scaled using a
+    sigmoid function.
 
   Raises:
     ValueError: If output_min, output_max have the wrong order.
@@ -346,6 +347,8 @@ def _scale_by_min_max_internal(x, key, output_min, output_max, elementwise,
         key_vocabulary_filename=key_vocabulary_filename)
     if key_vocabulary_filename is None:
       key_vocab, min_x_value, max_x_value = key_values
+      # Missing keys will translate to 0 for both min and max which will be
+      # ignored below in the tf.where.
       min_x_value, max_x_value = tf_utils.map_per_key_reductions(
           (min_x_value, max_x_value), key, key_vocab, x)
     else:
@@ -424,7 +427,8 @@ def scale_to_0_1_per_key(
 
   Returns:
     A `Tensor` containing the input column scaled to [0, 1], per key. If the
-    analysis dataset is empty or contains a single distinct value, then `x` is
+    analysis dataset is empty, contains a single distinct value or the computed
+    key vocabulary doesn't have an entry for `key`, then `x` is
     scaled using a sigmoid function.
   """
   with tf.compat.v1.name_scope(name, 'scale_to_0_1_per_key'):
@@ -513,9 +517,9 @@ def scale_to_z_score_per_key(x,
 
     That is, for all keys k: (x - mean(x)) / std_dev(x) for all x with key k.
     If `x` is floating point, the mean will have the same type as `x`. If `x` is
-    integral, the output is cast to tf.float32. If the analysis dataset is empty
-    or contains a single distinct value, then the input is returned without
-    scaling.
+    integral, the output is cast to tf.float32. If the analysis dataset is
+    empty, contains a single distinct value or the computed key vocabulary
+    doesn't have an entry for `key`, then the input is returned without scaling.
 
     Note that TFLearn generally permits only tf.int64 and tf.float32, so casting
     this scaler's output may be necessary.
@@ -549,6 +553,8 @@ def _scale_to_z_score_internal(
         output_dtype=output_dtype)
 
     if key_vocabulary_filename is None:
+      # Missing keys will translate to 0 for both mean and var which will be
+      # ignored below in the tf.where.
       key_vocab, key_means, key_vars = mean_and_var_per_key_result
       x_mean, x_var = tf_utils.map_per_key_reductions((key_means, key_vars),
                                                       key, key_vocab, x)
@@ -1613,6 +1619,7 @@ def bucketize(x: common_types.TensorType,
                       [-1] + x.get_shape().as_list()[1:])
 
 
+# TODO(b/179891014): Implement key_vocabulary_filename for bucketize_per_key.
 @common.log_api_use(common.MAPPER_COLLECTION)
 def bucketize_per_key(
     x: common_types.ConsistentTensorType,
@@ -1637,7 +1644,9 @@ def bucketize_per_key(
   Returns:
     A `Tensor` of the same shape as `x`, with each element in the
     returned tensor representing the bucketized value. Bucketized value is
-    in the range [0, actual_num_buckets).
+    in the range [0, actual_num_buckets). If the computed
+    key vocabulary doesn't have an entry for `key` then the resulting bucket is
+    -1.
 
   Raises:
     ValueError: If value of num_buckets is not > 1.

@@ -1628,6 +1628,79 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_outputs,
         desired_batch_size=10)
 
+  @tft_unit.parameters((True,), (False,))
+  def testPerKeyWithOOVKeys(self, use_vocabulary):
+    def preprocessing_fn(inputs):
+      result = {}
+      result['x_scaled'] = tft.scale_to_0_1_per_key(
+          inputs['x'],
+          inputs['key'],
+          elementwise=False,
+          key_vocabulary_filename='a' if use_vocabulary else None)
+      result['x_z_score'] = tft.scale_to_z_score_per_key(
+          inputs['x'],
+          inputs['key'],
+          elementwise=False,
+          key_vocabulary_filename='b' if use_vocabulary else None)
+      # TODO(b/179891014): Add key_vocabulary_filename to bucketize_per_key once
+      # implemented.
+      result['x_bucketized'] = tft.bucketize_per_key(inputs['x'], inputs['key'],
+                                                     3)
+      return result
+
+    input_data = [
+        dict(x=4, key='a'),
+        dict(x=1, key='a'),
+        dict(x=5, key='a'),
+        dict(x=2, key='a'),
+        dict(x=25, key='b'),
+        dict(x=5, key='b')
+    ]
+    test_data = input_data + [dict(x=5, key='oov')]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([], tf.float32),
+        'key': tf.io.FixedLenFeature([], tf.string)
+    })
+
+    def _sigmoid(x):
+      return 1 / (1 + np.exp(-x))
+
+    expected_data = [{
+        'x_scaled': 0.75,
+        'x_z_score': 0.6324555,
+        'x_bucketized': 2,
+    }, {
+        'x_scaled': 0.0,
+        'x_z_score': -1.264911,
+        'x_bucketized': 0,
+    }, {
+        'x_scaled': 1.0,
+        'x_z_score': 1.264911,
+        'x_bucketized': 2,
+    }, {
+        'x_scaled': 0.25,
+        'x_z_score': -0.6324555,
+        'x_bucketized': 1,
+    }, {
+        'x_scaled': 1.0,
+        'x_z_score': 1.0,
+        'x_bucketized': 2,
+    }, {
+        'x_scaled': 0.0,
+        'x_z_score': -1.0,
+        'x_bucketized': 1,
+    }, {
+        'x_scaled': _sigmoid(5),
+        'x_z_score': 5.0,
+        'x_bucketized': -1,
+    }]
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        test_data=test_data)
+
   @tft_unit.named_parameters(
       dict(
           testcase_name='_string',

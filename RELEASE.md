@@ -19,6 +19,7 @@
     directory.
 *   Fix an issue where >2D `SparseTensor`s may be incorrectly represented in
     instance_dicts format.
+*   Added support for out-of-vocabulary keys for per_key mappers.
 *   Depends on `numpy>=1.16,<1.20`.
 
 ## Breaking changes

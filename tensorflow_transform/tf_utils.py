@@ -633,7 +633,12 @@ def apply_per_key_vocabulary(per_key_filename,
       _construct_table, per_key_filename, key)
 
   sparse_result = tf.compat.v1.strings.split(table_lookup, sep=',')
-  numbers = tf.strings.to_number(tf.sparse.to_dense(sparse_result))
+  dense_result = tf.sparse.to_dense(sparse_result, '0')
+  # Add 0s where dense_result has empty strings.
+  number_strings = tf.where(
+      tf.strings.length(dense_result) > 0, dense_result,
+      tf.fill(tf.shape(dense_result), '0'))
+  numbers = tf.strings.to_number(number_strings)
   # We add 1 to represent the dimension of the multiple associated values found
   # in the vocabulary file (the d values present for every key).
   return numbers if not target_ndims else _align_dims(numbers, target_ndims + 1)
@@ -1037,6 +1042,7 @@ def map_per_key_reductions(tensors_to_map, key, key_vocab, original_input):
     original_input. We are mapping using the key for each original_input,
     but output rank needs to match original_input in the dense case.
     For the sparse case, it is enough for output to match original_input.values.
+    Any missing key would result in a mapping to 0.
   """
 
   _, key = _validate_and_get_dense_value_key_inputs(original_input, key)
@@ -1044,7 +1050,17 @@ def map_per_key_reductions(tensors_to_map, key, key_vocab, original_input):
 
   ndims = None if isinstance(
       original_input, tf.SparseTensor) else original_input.get_shape().ndims
-  mapped_result = [_align_dims(tf.gather(t, key_indices, axis=-1), ndims)
+
+  # Append a 0 to allow mapping OOVs to it.
+  tensors_to_map = [tf.concat([t, [0]], axis=0) for t in tensors_to_map]
+
+  # Replace `-1`s due to OOV with size of key_vocab.
+  adjusted_indices = tf.where(
+      key_indices >= 0, key_indices,
+      tf.cast(
+          tf.fill(tf.shape(key_indices), tf.size(key_vocab)), dtype=tf.int64))
+
+  mapped_result = [_align_dims(tf.gather(t, adjusted_indices, axis=-1), ndims)
                    for t in tensors_to_map]
 
   return tuple(mapped_result)

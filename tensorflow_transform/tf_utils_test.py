@@ -495,7 +495,9 @@ class TFUtilsTest(test_case.TransformTestCase):
             })
         self.assertAllEqual(expected_output, output)
 
-  def test_apply_per_key_vocab(self):
+  @test_case.parameters((True,), (False,))
+  def test_apply_per_key_vocab(self, with_default_value):
+    default_value = '-7,-5' if with_default_value else None
     with tf.compat.v1.Graph().as_default():
       input_tensor = tf.constant(['a', 'b', 'c', 'd', 'e'])
       vocab_filename = os.path.join(self.get_temp_dir(), 'test.txt')
@@ -505,13 +507,17 @@ class TFUtilsTest(test_case.TransformTestCase):
         f.write(encoded_vocab)
 
       output_tensor = tf_utils.apply_per_key_vocabulary(
-          tf.constant(vocab_filename), input_tensor, default_value='0,-5')
+          tf.constant(vocab_filename),
+          input_tensor,
+          default_value=default_value)
 
       with tf.compat.v1.Session() as sess:
         sess.run(tf.compat.v1.tables_initializer())
         output = output_tensor.eval()
 
-      expected_data = [[0, 0], [1, -1], [-1, 1], [-2, 2], [0, -5]]
+      expected_missing_key_result = [-7, -5] if default_value else [0, 0]
+      expected_data = [[0, 0], [1, -1], [-1, 1], [-2, 2],
+                       expected_missing_key_result]
       self.assertAllEqual(output, expected_data)
 
   @test_case.named_parameters(test_case.cross_with_function_handlers([
@@ -1164,8 +1170,7 @@ class TFUtilsTest(test_case.TransformTestCase):
           key_vocab=['a', 'b'],
           reductions=([1, 2], [3, 4]),
           x=[5, 6, 7],
-          expected_results=([2, 1, 2], [4, 3, 4])
-          ),
+          expected_results=([2, 1, 2], [4, 3, 4])),
       dict(
           testcase_name='sparse_tensor',
           key=['b', 'a', 'b'],
@@ -1175,8 +1180,7 @@ class TFUtilsTest(test_case.TransformTestCase):
               indices=[[0, 0], [1, 2], [2, 2], [2, 3]],
               values=[3, 2, -1, 3],
               dense_shape=[3, 5]),
-          expected_results=([2, 1, 2, 2], [4, 3, 4, 4])
-          ),
+          expected_results=([2, 1, 2, 2], [4, 3, 4, 4])),
       dict(
           testcase_name='sparse_tensor_sparse_key',
           key=tf.compat.v1.SparseTensorValue(
@@ -1189,8 +1193,14 @@ class TFUtilsTest(test_case.TransformTestCase):
               indices=[[0, 0], [1, 2], [2, 2], [2, 3]],
               values=[3, 2, -1, 3],
               dense_shape=[3, 5]),
-          expected_results=([2, 1, 2, 2], [4, 3, 4, 4])
-          ),
+          expected_results=([2, 1, 2, 2], [4, 3, 4, 4])),
+      dict(
+          testcase_name='missing_key',
+          key=['b', 'a', 'c'],
+          key_vocab=['z', 'a', 'b'],
+          reductions=([-77, 1, 2], [-99, 3, 4]),
+          x=[5, 6, 7],
+          expected_results=([2, 1, 0], [4, 3, 0])),
   )
   def test_map_per_key_reductions(
       self, key, key_vocab, reductions, x, expected_results):
