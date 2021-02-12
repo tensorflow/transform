@@ -21,6 +21,8 @@ from __future__ import print_function
 
 import six
 import tensorflow as tf
+from tensorflow_transform import graph_tools
+from tensorflow_transform import tf2_utils
 from tensorflow_transform.saved import constants
 from tensorflow_transform.saved import saved_model_loader
 from tensorflow_transform.saved import saved_transform_io
@@ -70,9 +72,6 @@ class SavedModelLoader(object):
           saved_model_dir)
       self._structured_outputs = self._wrapped.structured_outputs
     else:
-      # TODO(b/160550490): Remove local import.
-      from tensorflow_transform import tf2_utils  # pylint: disable=g-import-not-at-top
-
       # transform_fn is now a ConcreteFunction, but was a tf.function. We need
       # to handle both to maintain backward compatiblity. If it's a tf.function,
       # since `input_signature` was specified when exporting the tf function to
@@ -105,9 +104,6 @@ class SavedModelLoader(object):
 
   def _get_output_to_inputs_map(self, output_signature):
     """Get all graph inputs that the tensors in output_signature depend on."""
-    # TODO(b/160550490): Remove local import.
-    from tensorflow_transform import graph_tools  # pylint: disable=g-import-not-at-top
-
     result = {}
     for name, output in six.iteritems(output_signature):
       components = self._get_component_tensors(output)
@@ -223,9 +219,6 @@ class SavedModelLoader(object):
       A dict of logical name to Tensor, as provided by the output signature of
       the transform graph.
     """
-    # TODO(b/160550490): Remove local import.
-    from tensorflow_transform import tf2_utils  # pylint: disable=g-import-not-at-top
-
     feeds = object_identity.ObjectIdentitySet(self._func_graph.inputs)
     unfed_input_keys = (
         set(six.iterkeys(self._structured_inputs)) -
