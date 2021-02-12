@@ -20,6 +20,10 @@
 *   Fix an issue where >2D `SparseTensor`s may be incorrectly represented in
     instance_dicts format.
 *   Added support for out-of-vocabulary keys for per_key mappers.
+*   Added `tft.get_num_buckets_for_transformed_feature` which provides the
+    number of buckets for a transformed feature if it is a direct output of
+    `tft.bucketize`, `tft.apply_buckets`, `tft.compute_and_apply_vocabulary` or
+    `tft.apply_vocabulary`.
 *   Depends on `numpy>=1.16,<1.20`.
 
 ## Breaking changes

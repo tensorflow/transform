@@ -24,12 +24,14 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+from typing import Tuple
 
 # GOOGLE-INITIALIZATION
 
 import six
 import tensorflow as tf
 from tensorflow_transform import common
+from tensorflow_transform import common_types
 from tensorflow_transform import graph_context
 from tensorflow_transform import tf2_utils
 from tensorflow_transform import tf_utils
@@ -335,6 +337,18 @@ def _get_tensor_ranges_v2(metadata):
       tensor.numpy().decode(): (min_value.numpy(), max_value.numpy())
       for (tensor, min_value, max_value) in zip(tensors, min_values, max_values)
   }
+
+
+def get_tensor_schema_override(
+    tensor: common_types.TensorType) -> Tuple[tf.Tensor, tf.Tensor]:
+  """Lookup schema overrides for a `Tensor`  or `SparseTensor`."""
+  if isinstance(tensor, tf.SparseTensor):
+    tensor = tensor.values
+  overrides = _get_tensor_ranges(tensor.graph)
+  min_max = overrides.get(tf_utils.hashable_tensor_or_op(tensor), None)
+  if min_max is None:
+    raise ValueError('Requested tensor does not have recorded min/max values')
+  return min_max
 
 
 def annotate(type_url, proto_message, tensor=None):

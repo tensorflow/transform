@@ -1089,6 +1089,66 @@ def apply_vocab(x,
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
+def get_num_buckets_for_transformed_feature(
+    transformed_feature: common_types.TensorType) -> tf.Tensor:
+  # pyformat: disable
+  """Provides the number of buckets for a transformed feature if annotated.
+
+  This for example can be used for the direct output of `tft.bucketize`,
+  `tft.apply_buckets`, `tft.compute_and_apply_vocabulary`,
+  `tft.apply_vocabulary`.
+  These methods annotate the transformed feature with additional information.
+  If the given `transformed_feature` isn't annotated, this method will fail.
+
+  Example:
+
+  >>> def preprocessing_fn(inputs):
+  ...   bucketized = tft.bucketize(inputs['x'], num_buckets=3)
+  ...   integerized = tft.compute_and_apply_vocabulary(inputs['x'])
+  ...   zeros = tf.zeros_like(inputs['x'], tf.int64)
+  ...   return {
+  ...      'bucketized': bucketized,
+  ...      'bucketized_num_buckets': (
+  ...         zeros + tft.get_num_buckets_for_transformed_feature(bucketized)),
+  ...      'integerized': integerized,
+  ...      'integerized_num_buckets': (
+  ...         zeros + tft.get_num_buckets_for_transformed_feature(integerized)),
+  ...   }
+  >>> raw_data = [dict(x=3),dict(x=23)]
+  >>> feature_spec = dict(x=tf.io.FixedLenFeature([], tf.int64))
+  >>> raw_data_metadata = tft.tf_metadata.dataset_metadata.DatasetMetadata(
+  ...     tft.tf_metadata.schema_utils.schema_from_feature_spec(feature_spec))
+  >>> with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
+  ...   transformed_dataset, transform_fn = (
+  ...       (raw_data, raw_data_metadata)
+  ...       | tft_beam.AnalyzeAndTransformDataset(preprocessing_fn))
+  >>> transformed_data, transformed_metadata = transformed_dataset
+  >>> transformed_data
+  [{'bucketized': 1, 'bucketized_num_buckets': 3,
+   'integerized': 0, 'integerized_num_buckets': 2},
+  {'bucketized': 2, 'bucketized_num_buckets': 3,
+   'integerized': 1, 'integerized_num_buckets': 2}]
+
+  Args:
+    transformed_feature: A `Tensor` or `SparseTensor` which is the direct output
+      of `tft.bucketize`, `tft.apply_buckets`,
+      `tft.compute_and_apply_vocabulary` or `tft.apply_vocabulary`.
+
+  Raises:
+    ValueError: If the given tensor has not been annotated a the number of
+    buckets.
+
+  Returns:
+    A `Tensor` with the number of buckets for the given `transformed_feature`.
+  """
+  # pyformat: enable
+  # Adding 1 to the 2nd Tensor of the returned pair in order to compute max + 1.
+  return tf.cast(
+      schema_inference.get_tensor_schema_override(transformed_feature)[1] + 1,
+      tf.int64)
+
+
+@common.log_api_use(common.MAPPER_COLLECTION)
 def segment_indices(segment_ids, name=None):
   """Returns a `Tensor` of indices within each segment.
 

@@ -2439,10 +2439,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.compute_and_apply_vocabulary(
           tf.compat.v1.strings.split(inputs['a']))
-      out_index, out_values = tft.tfidf(inputs_as_ints, 6)
+      out_index, out_values = tft.tfidf(
+          inputs_as_ints,
+          tft.get_num_buckets_for_transformed_feature(inputs_as_ints))
       return {
           'tf_idf': out_values,
-          'index': out_index
+          'index': out_index,
       }
     input_data = [{'a': 'hello hello world'},
                   {'a': 'hello goodbye hello world'},
@@ -2502,7 +2504,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.compute_and_apply_vocabulary(
           tf.compat.v1.strings.split(inputs['a']))
-      out_index, out_values = tft.tfidf(inputs_as_ints, 6)
+      out_index, out_values = tft.tfidf(
+          inputs_as_ints,
+          tft.get_num_buckets_for_transformed_feature(inputs_as_ints))
       return {
           'tf_idf': out_values,
           'index': out_index
@@ -2598,12 +2602,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_schema)
 
   def testTFIDFWithOOV(self):
-    test_vocab_size = 3
     def preprocessing_fn(inputs):
       inputs_as_ints = tft.compute_and_apply_vocabulary(
-          tf.compat.v1.strings.split(inputs['a']), top_k=test_vocab_size)
-      out_index, out_values = tft.tfidf(inputs_as_ints,
-                                        test_vocab_size+1)
+          tf.compat.v1.strings.split(inputs['a']), top_k=3)
+      out_index, out_values = tft.tfidf(
+          inputs_as_ints,
+          tft.get_num_buckets_for_transformed_feature(inputs_as_ints) + 1)
       return {
           'tf_idf': out_values,
           'index': out_index
