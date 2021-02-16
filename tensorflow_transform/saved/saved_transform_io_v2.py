@@ -17,10 +17,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from typing import Dict, Mapping, Union
+
 # GOOGLE-INITIALIZATION
 
 import six
 import tensorflow as tf
+from tensorflow_transform import common_types
 from tensorflow_transform import graph_tools
 from tensorflow_transform import tf2_utils
 from tensorflow_transform.saved import constants
@@ -46,7 +49,7 @@ class _Loader(load.Loader):
 class SavedModelLoader(object):
   """Handles a SavedModel exported using TF 1.x APIs in TF 2.x."""
 
-  def __init__(self, saved_model_dir):
+  def __init__(self, saved_model_dir: str):
     """Init method for SavedModelLoader.
 
     Args:
@@ -56,43 +59,65 @@ class SavedModelLoader(object):
         respectively).
     """
     if tf.version.VERSION < '2.5':
-      self._imported = load.load_internal(saved_model_dir, loader_cls=_Loader)
-      if isinstance(self._imported, dict):
-        self._imported = self._imported['root']
+      imported = load.load_internal(saved_model_dir, loader_cls=_Loader)
+      if isinstance(imported, dict):
+        imported = imported['root']
     else:
       # TODO(b/160294509): Stop using tf.compat.v2 when TF1.15 support is
       # dropped.
-      self._imported = tf.compat.v2.saved_model.load(saved_model_dir)
-    self.load_v2_in_compat = (
-        constants.TRANSFORM_SIGNATURE in self._imported.signatures)
-    if self.load_v2_in_compat:
-      self._wrapped = self._imported.signatures[constants.TRANSFORM_SIGNATURE]
-      self._func_graph = self._wrapped.graph
-      self._structured_inputs = self._get_input_signature_from_v1_saved_model(
+      imported = tf.compat.v2.saved_model.load(saved_model_dir)
+    load_v2_in_compat = constants.TRANSFORM_SIGNATURE in imported.signatures
+    if load_v2_in_compat:
+      wrapped = imported.signatures[constants.TRANSFORM_SIGNATURE]
+      structured_inputs = self._get_input_signature_from_v1_saved_model(
           saved_model_dir)
-      self._structured_outputs = self._wrapped.structured_outputs
+      structured_outputs = wrapped.structured_outputs
     else:
       # transform_fn is now a ConcreteFunction, but was a tf.function. We need
       # to handle both to maintain backward compatiblity. If it's a tf.function,
       # since `input_signature` was specified when exporting the tf function to
       # `SavedModel`, there should be exactly one concrete function present on
       # loading the `SavedModel`.
-      if hasattr(self._imported.transform_fn, 'concrete_functions'):
-        concrete_functions = self._imported.transform_fn.concrete_functions
+      if hasattr(imported.transform_fn, 'concrete_functions'):
+        concrete_functions = imported.transform_fn.concrete_functions
         assert len(concrete_functions) == 1, concrete_functions
-        self._wrapped = concrete_functions[0]
+        wrapped = concrete_functions[0]
       else:
-        self._wrapped = self._imported.transform_fn
-      self._func_graph = self._wrapped.graph
-      self._structured_inputs = (
-          tf2_utils.get_structured_inputs_from_func_graph(self._func_graph))
-      self._structured_outputs = tf.nest.pack_sequence_as(
-          self._func_graph.structured_outputs,
-          self._func_graph.outputs,
+        wrapped = imported.transform_fn
+      func_graph = wrapped.graph
+      structured_inputs = (
+          tf2_utils.get_structured_inputs_from_func_graph(func_graph))
+      structured_outputs = tf.nest.pack_sequence_as(
+          func_graph.structured_outputs,
+          func_graph.outputs,
           expand_composites=True)
-    self._output_to_inputs_map = (
-        self._get_output_to_inputs_map(self._structured_outputs))
+    outputs_to_inputs_map = (self._get_output_to_inputs_map(structured_outputs))
+    self._initialize(load_v2_in_compat, imported, wrapped, structured_inputs,
+                     structured_outputs, outputs_to_inputs_map)
     saved_transform_io._maybe_register_addon_ops()  # pylint: disable=protected-access
+
+  def _initialize(self, load_v2_in_compat, imported, wrapped, structured_inputs,
+                  structured_outputs, outputs_to_inputs_map):
+    """Initializes all class arguments."""
+    self._load_v2_in_compat = load_v2_in_compat
+    self._imported = imported
+    self._wrapped = wrapped
+    self._func_graph = self._wrapped.graph
+    self._structured_inputs = structured_inputs
+    self._structured_outputs = structured_outputs
+    self._output_to_inputs_map = outputs_to_inputs_map
+    self._unfed_input_keys = None
+    self._feeds = None
+    self._fetches_keys = None
+    self._is_finalized = False
+
+  @property
+  def load_v2_in_compat(self):
+    return self._load_v2_in_compat
+
+  @property
+  def structured_outputs(self):
+    return self._structured_outputs
 
   def _get_input_signature_from_v1_saved_model(self, saved_model_dir):
     """Get structured inputs for a TF1 compat SavedModel."""
@@ -114,7 +139,8 @@ class SavedModelLoader(object):
           sinks, ignore_control_dependencies=True)
     return result
 
-  def _as_operation(self, op_or_tensor):
+  def _as_operation(
+      self, op_or_tensor: Union[tf.Operation, tf.Tensor]) -> tf.Operation:
     if isinstance(op_or_tensor, tf.Tensor):
       return op_or_tensor.op
     return op_or_tensor
@@ -141,7 +167,26 @@ class SavedModelLoader(object):
           'Unsupported tensor. Arg `tensor` is neither a `Tensor` nor a '
           '`CompositeTensor`: {}.'.format(tensor))
 
+  def _get_feeds(self, unfed_input_keys):
+    """Returns set of tensors that will be fed."""
+    if self._is_finalized:
+      return self._feeds
+
+    result = object_identity.ObjectIdentitySet(self._func_graph.inputs)
+    for input_key in unfed_input_keys:
+      unfed_input_components = self._get_component_tensors(
+          self._structured_inputs[input_key])
+      result = result.difference(unfed_input_components)
+    return result
+
+  def _get_unfed_input_keys(self, input_tensor_keys):
+    if self._is_finalized:
+      return self._unfed_input_keys
+
+    return set(self._structured_inputs.keys()).difference(input_tensor_keys)
+
   def _get_fetches(self, feeds):
+    """Returns set of tensors that can be fetched when `feeds` is supplied."""
     result = {}
     for name, output in six.iteritems(self._func_graph.structured_outputs):
       extra_sources = self._output_to_inputs_map[name].difference(feeds)
@@ -151,7 +196,24 @@ class SavedModelLoader(object):
         result[name] = output
     return result
 
-  def _apply_v1_transform_model_in_v2(self, logical_input_map):
+  def _get_fetches_keys(self, feeds):
+    if self._is_finalized:
+      return self._fetches_keys
+
+    return self._get_fetches(feeds).keys()
+
+  def _get_missing_inputs(self, unfed_input_keys, batch_size):
+    """Supplies inputs for `unfed_input_keys`."""
+    result = {}
+    if unfed_input_keys:
+      result = (
+          tf2_utils.supply_missing_inputs(self._structured_inputs, batch_size,
+                                          unfed_input_keys))
+    return result
+
+  def _apply_v1_transform_model_in_v2(
+      self, logical_input_map: Mapping[str, common_types.TensorType]
+  ) -> Dict[str, common_types.TensorType]:
     """Applies a V1 transform graph to `Tensor`s.
 
     This method applies the transformation graph as a pruned function to the
@@ -203,7 +265,9 @@ class SavedModelLoader(object):
         result[key] = tf.convert_to_tensor(value)
     return result
 
-  def _apply_v2_transform_model(self, logical_input_map):
+  def _apply_v2_transform_model(
+      self, logical_input_map: Mapping[str, common_types.TensorType]
+  ) -> Dict[str, common_types.TensorType]:
     """Applies a V2 transform graph to `Tensor`s.
 
     This method applies the transformation graph to the `logical_input_map` to
@@ -219,25 +283,19 @@ class SavedModelLoader(object):
       A dict of logical name to Tensor, as provided by the output signature of
       the transform graph.
     """
-    feeds = object_identity.ObjectIdentitySet(self._func_graph.inputs)
-    unfed_input_keys = (
-        set(six.iterkeys(self._structured_inputs)) -
-        set(six.iterkeys(logical_input_map)))
-    for input_key in unfed_input_keys:
-      unfed_input_components = self._get_component_tensors(
-          self._structured_inputs[input_key])
-      feeds = feeds.difference(unfed_input_components)
 
+    unfed_input_keys = self._get_unfed_input_keys(logical_input_map.keys())
+    feeds = self._get_feeds(unfed_input_keys)
     modified_inputs = self._format_input_map_as_tensors(logical_input_map)
+
     if unfed_input_keys:
       batch_size = 1
       if logical_input_map:
         an_input = next(six.itervalues(logical_input_map))
         if tf.shape(an_input)[0] is not None:
           batch_size = tf.shape(an_input)[0]
-      missing_inputs = (
-          tf2_utils.supply_missing_inputs(self._structured_inputs, batch_size,
-                                          unfed_input_keys))
+
+      missing_inputs = self._get_missing_inputs(unfed_input_keys, batch_size)
       modified_inputs.update(missing_inputs)
 
     flattened_inputs = tf.nest.flatten(modified_inputs, expand_composites=True)
@@ -252,10 +310,12 @@ class SavedModelLoader(object):
         raise ValueError('{}: {}'.format(input_t, e))
 
     transformed_features = self._wrapped(*flattened_inputs)
-    fetches = self._get_fetches(feeds)
-    return {key: transformed_features[key] for key in fetches.keys()}
+    fetches_keys = self._get_fetches_keys(feeds)
+    return {key: transformed_features[key] for key in fetches_keys}
 
-  def apply_transform_model(self, logical_input_map):
+  def apply_transform_model(
+      self, logical_input_map: Mapping[str, common_types.TensorType]
+  ) -> Dict[str, common_types.TensorType]:
     """Applies a transform graph to `Tensor`s.
 
     Args:
@@ -279,49 +339,25 @@ class SavedModelLoader(object):
     else:
       return self._apply_v2_transform_model(logical_input_map)
 
-  def get_dependent_input_output_keys(self, input_keys, exclude_output_keys):
-    """Determine inputs needed to get outputs excluding exclude_output_keys.
+  # TODO(b/177672051): Consider calling finalize in the TransforFeaturesLayer.
+  def finalize(self, input_tensor_keys, output_tensor_keys):
+    """Finalizes the set of inputs with which this SavedModel will be called.
+
+    Note: This is not Thread-safe. Should be called prior to any calls to
+    `apply_transform_model`.
 
     Args:
-      input_keys: A collection of all input keys available to supply to the
+      input_tensor_keys: Set of input keys with which the SavedModel will be
+        called.
+      output_tensor_keys: Set of output keys that should be returned by the
         SavedModel.
-      exclude_output_keys: A collection of output keys returned by the
-        SavedModel that should be excluded.
-
-    Returns:
-      A pair of:
-        required_input_keys: A subset of the input features to this SavedModel
-          that are required to compute the set of output features excluding
-          `exclude_output_keys`. It is sorted to be deterministic.
-        output_keys: The set of output features excluding `exclude_output_keys`.
-          It is sorted to be deterministic.
-
     """
-    # Assert inputs being fed and outputs being excluded are part of the
-    # SavedModel.
-    if set(input_keys).difference(self._structured_inputs.keys()):
+    self._unfed_input_keys = self._get_unfed_input_keys(input_tensor_keys)
+    self._feeds = self._get_feeds(self._unfed_input_keys)
+    unexpected_outputs = (
+        set(output_tensor_keys) - set(self._get_fetches_keys(self._feeds)))
+    if unexpected_outputs:
       raise ValueError(
-          'Input tensor names contained tensors not in graph: {}'.format(
-              input_keys))
-
-    if set(exclude_output_keys).difference(self._structured_outputs.keys()):
-      raise ValueError(
-          'Excluded outputs contained keys not in graph: {}'.format(
-              exclude_output_keys))
-
-    output_keys = (
-        set(self._structured_outputs.keys()).difference(exclude_output_keys))
-
-    # Get all the input tensors that are required to evaluate output_keys.
-    required_inputs = object_identity.ObjectIdentitySet()
-    for key in output_keys:
-      required_inputs.update(self._output_to_inputs_map[key])
-
-    # Get all the input feature names that have atleast one component tensor in
-    # required_inputs.
-    required_input_keys = []
-    for key, tensor in six.iteritems(self._structured_inputs):
-      if any(x in required_inputs for x in self._get_component_tensors(tensor)):
-        required_input_keys.append(key)
-
-    return sorted(required_input_keys), sorted(output_keys)
+          'Unexpected output keys requested: {}'.format(unexpected_outputs))
+    self._fetches_keys = sorted(output_tensor_keys)
+    self._is_finalized = True

@@ -89,12 +89,10 @@ def supply_missing_inputs(structured_inputs, batch_size, missing_keys=None):
       # values to be [i 0 0 ...]. Each index should be compatible with the
       # rank of the SparseTensor. Hence, the number of 0s is dense_rank-1.
       actual_batch_size = tf.shape(values)[0]
-      indices = tf.cast(
-          tf.stack(
-              [tf.range(actual_batch_size, dtype=tf.int32)] +
-              [tf.zeros(actual_batch_size, dtype=tf.int32)] * (dense_rank - 1),
-              axis=1),
-          dtype=tf.int64)
+      indices = tf.stack(
+          [tf.range(actual_batch_size, dtype=tf.int64)] +
+          [tf.zeros(actual_batch_size, dtype=tf.int64)] * (dense_rank - 1),
+          axis=1)
       dense_shape = [actual_batch_size] + [1] * (dense_rank - 1)
       result[key] = tf.SparseTensor(
           indices=indices, values=values, dense_shape=dense_shape)

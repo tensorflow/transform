@@ -545,7 +545,7 @@ def _optimize_concrete_function(
       feeds=concrete_function.inputs,
       fetches=concrete_function.structured_outputs,
       input_signature=concrete_function.structured_input_signature)
-  # TODO(b/178837353): Remove once `prune` retains shape information for all
+  # TODO(b/163329414): Remove once `prune` retains shape information for all
   # components.
   for original_out, pruned_out in zip(concrete_function.outputs,
                                       result.outputs):

@@ -474,6 +474,43 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
       shutil.rmtree(export_path)
       export_path = new_export_path
 
+  def test_finalize(self):
+    input_keys = ['x']
+    output_keys = ['x_scaled']
+
+    input_specs = {
+        'x': tf.TensorSpec([
+            None,
+        ], dtype=tf.float32),
+        'y': tf.TensorSpec([
+            None,
+        ], dtype=tf.float32)
+    }
+
+    def preprocessing_fn(inputs):
+      output = (inputs['x'] - 2.0) / 5.0
+      return {'x_scaled': output, 'x_in': inputs['x'], 'y': inputs['y'] + 1}
+
+    export_path = _create_test_saved_model(
+        False, input_specs, preprocessing_fn, base_dir=self.get_temp_dir())
+    saved_model_loader = saved_transform_io_v2.SavedModelLoader(export_path)
+
+    input_features = {'x': tf.constant([1237.0])}  # tf.float32
+    transformed_features = (
+        saved_model_loader.apply_transform_model(input_features))
+    self.assertCountEqual(['x_in', 'x_scaled'], list(transformed_features))
+    self.assertAllEqual(transformed_features['x_scaled'].numpy(), [247.0])
+    self.assertAllEqual(transformed_features['x_in'].numpy(), [1237.0])
+
+    # Since `finalize` is not thread-safe it is not recommended to call it after
+    # `apply_transform_model` has already been invoked. This is only for unit
+    # testing behavior differences.
+    saved_model_loader.finalize(input_keys, output_keys)
+    transformed_features = (
+        saved_model_loader.apply_transform_model(input_features))
+    self.assertEqual(['x_scaled'], list(transformed_features))
+    self.assertAllEqual(transformed_features['x_scaled'].numpy(), [247.0])
+
 
 if __name__ == '__main__':
   test_case.main()

@@ -244,10 +244,11 @@ class _RunMetaGraphDoFn(beam.DoFn):
       saved_model_loader = saved_transform_io_v2.SavedModelLoader(
           saved_model_dir)
       callable_get_outputs = saved_model_loader.apply_transform_model
-      inputs_tensor_keys, outputs_tensor_keys = (
-          saved_model_loader.get_dependent_input_output_keys(
-              input_tensor_names, exclude_outputs))
-      super().__init__(saved_model_dir, inputs_tensor_keys, outputs_tensor_keys,
+      outputs_tensor_keys = set(
+          saved_model_loader.structured_outputs.keys()).difference(
+              exclude_outputs)
+      saved_model_loader.finalize(input_tensor_names, outputs_tensor_keys)
+      super().__init__(saved_model_dir, input_tensor_names, outputs_tensor_keys,
                        callable_get_outputs)
 
   def __init__(self,
@@ -316,12 +317,8 @@ class _RunMetaGraphDoFn(beam.DoFn):
   def _make_feed_dict(self, batch):
     # If self._use_tf_compat_v1 is True, do not produce eager tensors.
     produce_eager_tensors = not self._use_tf_compat_v1
-    feed_by_name = self._tensor_adapter.ToBatchTensors(
+    return self._tensor_adapter.ToBatchTensors(
         batch, produce_eager_tensors=produce_eager_tensors)
-    return {
-        name: feed_by_name[name]
-        for name in self._graph_state.inputs_tensor_keys
-    }
 
   def _get_passthrough_data_from_recordbatch(self, batch):
     result = {}
@@ -362,13 +359,8 @@ class _RunMetaGraphDoFn(beam.DoFn):
                 self._graph_state.outputs_tensor_keys, outputs_list)
         }
       else:
-        outputs_dict = self._graph_state.callable_get_outputs(feed_dict)
-        # outputs_dict will contain all output keys. Filter out output keys to
-        # exclude.
-        result = {
-            key: outputs_dict[key]
-            for key in self._graph_state.outputs_tensor_keys
-        }
+        result = self._graph_state.callable_get_outputs(feed_dict)
+        assert len(self._graph_state.outputs_tensor_keys) == len(result)
     except Exception as e:
       raise ValueError(
           """An error occured while trying to apply the transformation: "{}".
