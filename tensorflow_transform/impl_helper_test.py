@@ -580,22 +580,6 @@ class ImplHelperTest(test_case.TransformTestCase):
       impl_helper.analyze_in_place(preprocessing_fn, force_tf_compat_v1,
                                    feature_spec, type_spec, output_path)
 
-  def test_optimize_concrete_function(self):
-
-    @tf.function(input_signature=[tf.TensorSpec([], dtype=tf.int64)])
-    def func(x):
-      _ = x + 1
-      z = x + 2
-      return z
-
-    concrete_function = func.get_concrete_function()
-    optimized_function = impl_helper._optimize_concrete_function(
-        concrete_function)  # pylint: disable=protected-access
-
-    self.assertLess(
-        len(optimized_function.graph.as_graph_def().node),
-        len(concrete_function.graph.as_graph_def().node))
-
   @test_case.named_parameters(
       dict(
           testcase_name='_3d',

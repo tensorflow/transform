@@ -137,7 +137,8 @@ def _create_test_saved_model(export_in_tf1,
         tensor_replacement_map=None,
         output_keys_to_name_map=None)
 
-    impl_helper._write_v2_saved_model(transform_fn, 'transform_fn', export_path)
+    saved_transform_io_v2.write_v2_saved_model(transform_fn, 'transform_fn',
+                                               export_path)
   return export_path
 
 
@@ -510,6 +511,22 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
         saved_model_loader.apply_transform_model(input_features))
     self.assertEqual(['x_scaled'], list(transformed_features))
     self.assertAllEqual(transformed_features['x_scaled'].numpy(), [247.0])
+
+  def test_optimize_concrete_function(self):
+
+    @tf.function(input_signature=[tf.TensorSpec([], dtype=tf.int64)])
+    def func(x):
+      _ = x + 1
+      z = x + 2
+      return z
+
+    concrete_function = func.get_concrete_function()
+    optimized_function = saved_transform_io_v2._optimize_concrete_function(  # pylint: disable=protected-access
+        concrete_function)
+
+    self.assertLess(
+        len(optimized_function.graph.as_graph_def().node),
+        len(concrete_function.graph.as_graph_def().node))
 
 
 if __name__ == '__main__':

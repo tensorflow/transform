@@ -30,8 +30,12 @@ from tensorflow_transform.saved import constants
 from tensorflow_transform.saved import saved_model_loader
 from tensorflow_transform.saved import saved_transform_io
 # pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.eager import function
+from tensorflow.python.eager import wrap_function
 from tensorflow.python.framework import composite_tensor
+from tensorflow.python.ops import lookup_ops
 from tensorflow.python.saved_model import load
+from tensorflow.python.training.tracking import tracking
 from tensorflow.python.util import object_identity
 # pylint: enable=g-direct-tensorflow-import
 
@@ -361,3 +365,76 @@ class SavedModelLoader(object):
           'Unexpected output keys requested: {}'.format(unexpected_outputs))
     self._fetches_keys = sorted(output_tensor_keys)
     self._is_finalized = True
+
+
+# TODO(b/177606209): Remove once TF supports saving optimized functions.
+# TODO(b/169666856): WrappedFunction.prune does not support composite tensors.
+# Hence, add additional handling when supporting composite tensors in TFT.
+def _optimize_concrete_function(
+    concrete_function: function.ConcreteFunction
+) -> wrap_function.WrappedFunction:
+  """Returns optimized function with same signature as `concrete_function`."""
+  wrapped_fn = wrap_function.WrappedFunction(
+      concrete_function.graph,
+      variable_holder=wrap_function.VariableHolder(share_variables=True))
+  result = wrapped_fn.prune(
+      feeds=concrete_function.inputs,
+      fetches=concrete_function.structured_outputs,
+      input_signature=concrete_function.structured_input_signature)
+  # TODO(b/163329414): Remove once `prune` retains shape information for all
+  # components.
+  for original_out, pruned_out in zip(concrete_function.outputs,
+                                      result.outputs):
+    pruned_out.set_shape(original_out.get_shape())
+  return result
+
+
+def write_v2_saved_model(tf_function: function.Function, name: str,
+                         saved_model_dir: str) -> function.ConcreteFunction:
+  """Writes `tf_function` under attr `name` to `saved_model_dir`."""
+  module = tf.Module()
+
+  resource_tracker = tracking.ResourceTracker()
+  created_variables = []
+
+  def _variable_creator(next_creator, **kwargs):
+    var = next_creator(**kwargs)
+    created_variables.append(var)
+    return var
+
+  # TODO(b/164921571): Handle generic Trackable objects.
+  # Trace `tf_function` to gather any resources in it using the
+  # resource_tracker. These are then assigned to `module.resources` and tracked
+  # before exporting to SavedModel.
+  with tracking.resource_tracker_scope(
+      resource_tracker), tf.variable_creator_scope(_variable_creator):
+    concrete_fn = tf_function.get_concrete_function()
+
+  # Prior to 2020/10/08, saving a tf.function with a concrete function signature
+  # would ensure that the function was not re-traced in a round-trip to a
+  # SavedModel. Since this is no longer the case, we save the concrete function
+  # directly.
+  if tf.compat.forward_compatible(2020, 10, 8):
+    pruned_function = _optimize_concrete_function(concrete_fn)
+    module.pruned_variables = pruned_function.variables
+    setattr(module, name, pruned_function)
+  else:
+    setattr(module, name, tf_function)
+
+  # Any variables created need to be explicitly tracked.
+  module.created_variables = created_variables
+  # Resources need to be explicitly tracked.
+  module.resources = resource_tracker.resources
+  # TODO(b/158011374) - Stop explicitly tracking initializers. Tracking the
+  # table should be sufficient.
+  initializers = []
+  for resource in module.resources:
+    if isinstance(resource, lookup_ops.InitializableLookupTableBase):
+      initializers.append(resource._initializer)  # pylint: disable=protected-access
+  module.initializers = initializers
+  module.assets = [
+      common_types.Asset(asset_filepath) for asset_filepath in
+      concrete_fn.graph.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)
+  ]
+  tf.saved_model.save(module, saved_model_dir)
+  return concrete_fn
