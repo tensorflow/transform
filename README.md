@@ -39,6 +39,28 @@ recommended way to install `tf.Transform`:
 pip install tensorflow-transform
 ```
 
+### Build TFT from source
+
+To build from source follow the following steps:
+Create a virtual environment by running the commands
+
+```
+python3 -m venv <virtualenv_name>
+source <virtualenv_name>/bin/activate
+pip3 install setuptools wheel
+git clone https://github.com/tensorflow/transform.git
+cd transform
+python3 setup.py bdist_wheel
+```
+
+This will build the TFT wheel in the dist directory. To install the wheel from
+dist directory run the commands
+
+```
+cd dist
+pip3 install tensorflow_transform-<version>-py3-none-any.whl
+```
+
 ### Nightly Packages
 
 TFT also hosts nightly packages at https://pypi-nightly.tensorflow.org on
