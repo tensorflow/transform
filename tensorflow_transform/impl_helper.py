@@ -20,7 +20,7 @@ from __future__ import print_function
 
 import os
 import re
-from typing import Dict, List, Tuple, Union
+from typing import Callable, Dict, List, Mapping, Optional, Tuple, Union
 
 # GOOGLE-INITIALIZATION
 
@@ -553,6 +553,7 @@ def _optimize_concrete_function(
   return result
 
 
+# TODO(b/160550490): Move to saved.saved_transform_io_v2.
 def _write_v2_saved_model(tf_function: function.Function, name: str,
                           saved_model_dir: str) -> function.ConcreteFunction:
   """Writes a TF module with `tf_function` under attr `name` to `saved_model_dir`."""
@@ -604,11 +605,53 @@ def _write_v2_saved_model(tf_function: function.Function, name: str,
   return concrete_fn
 
 
-# TODO(b/160550490): Move to saved.saved_transform_io_v2.
-def trace_and_write_v2_saved_model(saved_model_dir, preprocessing_fn,
-                                   input_signature, base_temp_dir,
-                                   tensor_replacement_map,
-                                   output_keys_to_name_map):
+def _trace_and_write_transform_fn(
+    saved_model_dir: str,
+    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
+                               Mapping[str, common_types.TensorType]],
+    input_signature: Mapping[str, tf.TypeSpec], base_temp_dir: Optional[str],
+    tensor_replacement_map: Optional[Dict[str, tf.Tensor]],
+    output_keys_to_name_map: Optional[Dict[str, str]]
+) -> function.ConcreteFunction:
+  """Trace `preprocessing_fn` and serialize to a SavedModel."""
+  transform_fn = get_traced_transform_fn(
+      preprocessing_fn,
+      input_signature,
+      base_temp_dir,
+      tensor_replacement_map=tensor_replacement_map,
+      output_keys_to_name_map=output_keys_to_name_map)
+  return _write_v2_saved_model(transform_fn, 'transform_fn', saved_model_dir)
+
+
+def _trace_and_get_metadata(
+    concrete_transform_fn: function.ConcreteFunction,
+    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
+                               Mapping[str, common_types.TensorType]],
+    input_signature: Mapping[str, tf.TypeSpec], base_temp_dir: Optional[str],
+    tensor_replacement_map: Optional[Dict[str, tf.Tensor]]
+) -> dataset_metadata.DatasetMetadata:
+  """Compute and return metadata for the outputs of `concrete_transform_fn`."""
+  metadata_fn = schema_inference.get_traced_metadata_fn(
+      tensor_replacement_map,
+      preprocessing_fn,
+      input_signature,
+      base_temp_dir,
+      evaluate_schema_overrides=True)
+  concrete_metadata_fn = metadata_fn.get_concrete_function()
+  return dataset_metadata.DatasetMetadata(
+      schema=schema_inference.infer_feature_schema_v2(
+          concrete_transform_fn.structured_outputs,
+          concrete_metadata_fn,
+          evaluate_schema_overrides=True))
+
+
+def trace_and_write_v2_saved_model(
+    saved_model_dir: str,
+    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
+                               Mapping[str, common_types.TensorType]],
+    input_signature: Mapping[str, tf.TypeSpec], base_temp_dir: Optional[str],
+    tensor_replacement_map: Optional[Dict[str, tf.Tensor]],
+    output_keys_to_name_map: Optional[Dict[str, str]]):
   """Writes out a SavedModelV2 with preprocessing_fn traced using tf.function.
 
   The SavedModel written contains a method called `transform_fn` that
@@ -632,38 +675,18 @@ def trace_and_write_v2_saved_model(saved_model_dir, preprocessing_fn,
       2. A metadata_fn that returns a dictionary containing the deferred
       annotations added to the graph when invoked with any valid input.
   """
-
-  transform_fn = get_traced_transform_fn(
-      preprocessing_fn,
-      input_signature,
-      base_temp_dir,
-      tensor_replacement_map=tensor_replacement_map,
-      output_keys_to_name_map=output_keys_to_name_map)
-
-  concrete_transform_fn = _write_v2_saved_model(transform_fn, 'transform_fn',
-                                                saved_model_dir)
-
-  concrete_metadata_fn = None
+  concrete_transform_fn = _trace_and_write_transform_fn(
+      saved_model_dir, preprocessing_fn, input_signature, base_temp_dir,
+      tensor_replacement_map, output_keys_to_name_map)
   # If the `TENSOR_REPLACEMENTS` graph collection is empty, all TFT analyzers
   # in the `preprocessing_fn` have already been evaluated.
   if not concrete_transform_fn.graph.get_collection(
       analyzer_nodes.TENSOR_REPLACEMENTS):
-    metadata_fn = schema_inference.get_traced_metadata_fn(
-        tensor_replacement_map,
-        preprocessing_fn,
-        input_signature,
-        base_temp_dir,
-        evaluate_schema_overrides=True)
-    concrete_metadata_fn = metadata_fn.get_concrete_function()
-    metadata = dataset_metadata.DatasetMetadata(
-        schema=schema_inference.infer_feature_schema_v2(
-            concrete_transform_fn.structured_outputs,
-            concrete_metadata_fn,
-            evaluate_schema_overrides=True))
+    metadata = _trace_and_get_metadata(concrete_transform_fn, preprocessing_fn,
+                                       input_signature, base_temp_dir,
+                                       tensor_replacement_map)
     metadata_io.write_metadata(metadata,
                                os.path.join(saved_model_dir, METADATA_DIR_NAME))
-
-  return concrete_transform_fn, concrete_metadata_fn
 
 
 def _assert_no_analyzers_in_graph(graph):
@@ -712,27 +735,20 @@ def analyze_in_place(preprocessing_fn, force_tf_compat_v1, feature_specs,
           schema=schema_inference.infer_feature_schema(structured_outputs,
                                                        graph, sess))
   else:
-    concrete_transform_fn, concrete_metadata_fn = (
-        trace_and_write_v2_saved_model(
-            saved_model_dir=transform_fn_path,
-            preprocessing_fn=preprocessing_fn,
-            input_signature=type_specs,
-            base_temp_dir=None,
-            tensor_replacement_map=None,
-            output_keys_to_name_map=None))
+    concrete_transform_fn = _trace_and_write_transform_fn(
+        saved_model_dir=transform_fn_path,
+        preprocessing_fn=preprocessing_fn,
+        input_signature=type_specs,
+        base_temp_dir=None,
+        tensor_replacement_map=None,
+        output_keys_to_name_map=None)
     _assert_no_analyzers_in_graph(concrete_transform_fn.graph)
-    # This should be a no-op as if concrete_metadata_fn is None,
-    # `_assert_no_analyzers_in_graph` should have raised an error.
-    assert concrete_metadata_fn
-    structured_outputs = tf.nest.pack_sequence_as(
-        structure=concrete_transform_fn.structured_outputs,
-        flat_sequence=concrete_transform_fn.outputs,
-        expand_composites=True)
-    transformed_metadata = dataset_metadata.DatasetMetadata(
-        schema=schema_inference.infer_feature_schema_v2(
-            structured_outputs,
-            concrete_metadata_fn,
-            evaluate_schema_overrides=True))
+    transformed_metadata = _trace_and_get_metadata(
+        concrete_transform_fn=concrete_transform_fn,
+        preprocessing_fn=preprocessing_fn,
+        input_signature=type_specs,
+        base_temp_dir=None,
+        tensor_replacement_map=None)
   transformed_metadata_dir = os.path.join(
       transform_output_path, TFTransformOutput.TRANSFORMED_METADATA_DIR)
   metadata_io.write_metadata(transformed_metadata, transformed_metadata_dir)
