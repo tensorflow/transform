@@ -871,7 +871,10 @@ def _mean_and_var(x, reduce_instance_dims=True, output_dtype=None):
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def tukey_location(x, reduce_instance_dims=True, output_dtype=None, name=None):
+def tukey_location(x: common_types.TensorType,
+                   reduce_instance_dims: Optional[bool] = True,
+                   output_dtype: Optional[tf.DType] = None,
+                   name: Optional[str] = None) -> tf.Tensor:
   """Computes the location of the values of a `Tensor` over the whole dataset.
 
   This computes the location of x, assuming a Tukey HH distribution, i.e.
@@ -905,7 +908,10 @@ def tukey_location(x, reduce_instance_dims=True, output_dtype=None, name=None):
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def tukey_scale(x, reduce_instance_dims=True, output_dtype=None, name=None):
+def tukey_scale(x: common_types.TensorType,
+                reduce_instance_dims: Optional[bool] = True,
+                output_dtype: Optional[tf.DType] = None,
+                name: Optional[str] = None) -> tf.Tensor:
   """Computes the scale of the values of a `Tensor` over the whole dataset.
 
   This computes the scale of x, assuming a Tukey HH distribution, i.e.
@@ -940,7 +946,10 @@ def tukey_scale(x, reduce_instance_dims=True, output_dtype=None, name=None):
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def tukey_h_params(x, reduce_instance_dims=True, output_dtype=None, name=None):
+def tukey_h_params(x: common_types.TensorType,
+                   reduce_instance_dims: Optional[bool] = True,
+                   output_dtype: Optional[tf.DType] = None,
+                   name: Optional[str] = None) -> Tuple[tf.Tensor, tf.Tensor]:
   """Computes the h parameters of the values of a `Tensor` over the dataset.
 
   This computes the parameters (hl, hr) of the samples, assuming a Tukey HH
@@ -973,7 +982,11 @@ def tukey_h_params(x, reduce_instance_dims=True, output_dtype=None, name=None):
     return _tukey_parameters(x, reduce_instance_dims, output_dtype)[2:]
 
 
-def _tukey_parameters(x, reduce_instance_dims=True, output_dtype=None):
+def _tukey_parameters(
+    x: common_types.TensorType,
+    reduce_instance_dims: Optional[bool] = True,
+    output_dtype: Optional[tf.DType] = None
+) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
   """Efficient computation of L-moments."""
   if output_dtype is None:
     output_dtype = _FLOAT_OUTPUT_DTYPE_MAP.get(x.dtype)
@@ -1008,9 +1021,14 @@ def _tukey_parameters(x, reduce_instance_dims=True, output_dtype=None):
   return x_loc, x_scale, hl_param, hr_param
 
 
-# pylint: disable=g-doc-return-or-yield
-def _mean_and_var_per_key(x, key, reduce_instance_dims=True, output_dtype=None,
-                          key_vocabulary_filename=None):
+def _mean_and_var_per_key(
+    x: common_types.TensorType,
+    key: common_types.TensorType,
+    reduce_instance_dims: bool = True,
+    output_dtype: Optional[tf.DType] = None,
+    key_vocabulary_filename: Optional[str] = None
+) -> Union[Tuple[tf.Tensor, tf.Tensor, tf.Tensor], tf.Tensor,
+           common_types.Asset]:
   """`mean_and_var` by group, specified by key.
 
   Args:
@@ -1852,7 +1870,8 @@ def _get_vocabulary_analyzer_inputs(vocab_ordering_type,
     x: Tensor to compute vocabulary over.
     labels: Optional tensor of integerized labels.
     weights: Optional tensor of weights.
-  Returns: A list of batch-reduced tensors to feed to vocabulary analysis.
+  Returns:
+    A list of batch-reduced tensors to feed to vocabulary analysis.
   """
   if vocab_ordering_type == _VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION:
     labels = tf.reshape(labels, [-1])

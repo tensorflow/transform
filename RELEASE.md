@@ -11,7 +11,8 @@
 
 *   Generic `tf.SparseTensor` input support has been added to
     `tft.scale_to_0_1`, `tft.scale_to_z_score`, `tft.scale_by_min_max`,
-    `tft.min`, `tft.max`, `tft.mean`, `tft.var`, `tft.sum` and `tft.size`.
+    `tft.min`, `tft.max`, `tft.mean`, `tft.var`, `tft.sum`, `tft.size` and
+    `tft.word_count`.
 *   Optimize SavedModel written out by `tf.Transform` when using native TF2 to
     speed up loading it.
 *   Added `tft_beam.PTransformAnalyzer` as a base PTransform class for

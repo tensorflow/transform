@@ -862,8 +862,6 @@ def reduce_batch_count_l_moments(x, reduce_instance_dims):
     x = x.values
 
   if isinstance(x, tf.SparseTensor):
-    # TODO(b/38063790): Make sure that the shape is maintained for the
-    # reduce_instance_dims=True case.
     batch_size = x.dense_shape[0]
     x_rank_2 = tf.sparse.reshape(x, [batch_size, -1])
     dim_1 = x_rank_2.dense_shape[1]

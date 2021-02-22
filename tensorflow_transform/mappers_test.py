@@ -449,11 +449,15 @@ class MappersTest(test_case.TransformTestCase):
       string_tensor = tf.constant(['abc', 'def', 'fghijklm', 'z', ''])
       tokenized_tensor = tf.compat.v1.string_split(string_tensor, delimiter='')
       output_tensor = mappers.word_count(tokenized_tensor)
+      output_3d_tensor = mappers.word_count(
+          tf.sparse.expand_dims(
+              tf.sparse.expand_dims(tokenized_tensor, axis=1), axis=1))
       with tf.compat.v1.Session():
         output = output_tensor.eval()
         self.assertEqual(5, len(output))
         self.assertEqual(15, sum(output))
         self.assertAllEqual(output, [3, 3, 8, 1, 0])
+        self.assertAllEqual(output, output_3d_tensor.eval())
 
   def testWordCountRagged(self):
     with tf.compat.v1.Graph().as_default():

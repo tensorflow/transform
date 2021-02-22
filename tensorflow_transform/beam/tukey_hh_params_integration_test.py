@@ -144,11 +144,8 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
   def testGaussianizeSparse(self, input_dtype, elementwise):
 
     def preprocessing_fn(inputs):
-      x_gaussianized = tf.sparse.to_dense(
-          tft.scale_to_gaussian(
-              tf.cast(inputs['x'], input_dtype), elementwise=elementwise),
-          default_value=np.nan)
-      x_gaussianized.set_shape([None, 4])
+      x_gaussianized = tft.scale_to_gaussian(
+          tf.cast(inputs['x'], input_dtype), elementwise=elementwise)
       self.assertEqual(x_gaussianized.dtype,
                        impl_test._mean_output_dtype(input_dtype))
       return {
@@ -159,13 +156,16 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
                          844, -16, 508, 669, 617, 502, 532, 517, 479]
     input_data = []
     for idx, v in enumerate(input_data_values):
-      input_data.append({'idx': [0, 1],
-                         'val': [v] + [-input_data_values[-1 - idx]]})
+      input_data.append({
+          'idx0': [1, 1],
+          'idx1': [0, 1],
+          'val': [v, -input_data_values[-1 - idx]]
+      })
     input_metadata = tft_unit.metadata_from_feature_spec({
         'x':
-            tf.io.SparseFeature('idx', 'val',
+            tf.io.SparseFeature(['idx0', 'idx1'], 'val',
                                 tft_unit.canonical_numeric_dtype(input_dtype),
-                                4)
+                                (4, 5))
     })
     if elementwise:
       expected_data_values = [
@@ -182,15 +182,19 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
     expected_data = []
     for idx, v in enumerate(expected_data_values):
       expected_data.append({
-          'x_gaussianized': ([v] + [-expected_data_values[-1 - idx]] +
-                             [float('nan'), float('nan')])
+          'x_gaussianized$sparse_values': ([v,
+                                            -expected_data_values[-1 - idx]]),
+          'x_gaussianized$sparse_indices_0': [1, 1],
+          'x_gaussianized$sparse_indices_1': [0, 1],
       })
 
-    expected_metadata = tft_unit.metadata_from_feature_spec(
-        {'x_gaussianized': tf.io.FixedLenFeature([4], tf.float32)})
     self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata, desired_batch_size=20, beam_pipeline=beam.Pipeline())
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        desired_batch_size=20,
+        beam_pipeline=beam.Pipeline())
 
   @tft_unit.named_parameters(
       dict(
@@ -279,7 +283,7 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
                          844, -16, 508, 669, 617, 502, 532, 517, 479]
     input_data = []
     for idx, v in enumerate(input_data_values):
-      input_data.append({'a': [v] + [-input_data_values[-1 - idx]]})
+      input_data.append({'a': [v, -input_data_values[-1 - idx]]})
     input_metadata = tft_unit.metadata_from_feature_spec({
         'a': tf.io.FixedLenFeature(
             [2], tft_unit.canonical_numeric_dtype(input_dtype))
@@ -452,34 +456,37 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
                          844, -16, 508, 669, 617, 502, 532, 517, 479]
     input_data = []
     for idx, v in enumerate(input_data_values):
-      input_data.append({'idx': [0, 1],
-                         'val': [v] + [-input_data_values[-1 - idx]]})
+      input_data.append({
+          'idx0': [0, 0],
+          'idx1': [0, 1],
+          'val': [v, -input_data_values[-1 - idx]]
+      })
     input_metadata = tft_unit.metadata_from_feature_spec({
         'a':
-        tf.io.SparseFeature('idx', 'val',
-                            tft_unit.canonical_numeric_dtype(input_dtype),
-                            4)
+            tf.io.SparseFeature(['idx0', 'idx1'], 'val',
+                                tft_unit.canonical_numeric_dtype(input_dtype),
+                                (2, 2))
     })
 
     expected_outputs = {
         'tukey_location':
             np.array(
-                [526.89355, -526.89355, 0., 0.] if elementwise else 0.0,
+                [[526.89355, -526.89355], [0., 0.]] if elementwise else 0.0,
                 tft_unit.canonical_numeric_dtype(
                     output_dtypes['tukey_location']).as_numpy_dtype),
         'tukey_scale':
             np.array(
-                [116.73997, 116.73997, 1., 1.] if elementwise else 572.277649,
+                [[116.73997, 116.73997], [1., 1.]] if elementwise else 572.2776,
                 tft_unit.canonical_numeric_dtype(
                     output_dtypes['tukey_scale']).as_numpy_dtype),
         'tukey_hl':
             np.array(
-                [0.6629082, 0.11148566, 0., 0.] if elementwise else 0.0,
+                [[0.6629082, 0.11148566], [0., 0.]] if elementwise else 0.0,
                 tft_unit.canonical_numeric_dtype(
                     output_dtypes['tukey_hl']).as_numpy_dtype),
         'tukey_hr':
             np.array(
-                [0.11148566, 0.6629082, 0., 0.] if elementwise else 0.0,
+                [[0.11148566, 0.6629082], [0., 0.]] if elementwise else 0.0,
                 tft_unit.canonical_numeric_dtype(
                     output_dtypes['tukey_hr']).as_numpy_dtype),
     }

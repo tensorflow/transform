@@ -565,8 +565,8 @@ class TFUtilsTest(test_case.TransformTestCase):
       result = tf_utils.reduce_batch_count(
           x, reduce_instance_dims=reduce_instance_dims)
       # Verify that the output shape is maintained.
-      # TODO(b/178189903,b/38063790): This will fail if _dense_shape_default
-      # isn't set in reduce_batch_count.
+      # TODO(b/178189903): This will fail if _dense_shape_default isn't set in
+      # reduce_batch_count.
       if not reduce_instance_dims and x.get_shape().ndims:
         self.assertEqual(x.get_shape()[1:].as_list(),
                          result.get_shape().as_list())
@@ -637,8 +637,8 @@ class TFUtilsTest(test_case.TransformTestCase):
       result = tf_utils.reduce_batch_count_mean_and_var(
           x, reduce_instance_dims=reduce_instance_dims)
       # Verify that the output shapes are maintained.
-      # TODO(b/178189903,b/38063790): This will fail if _dense_shape_default
-      # isn't set in reduce_batch_count.
+      # TODO(b/178189903): This will fail if _dense_shape_default isn't set in
+      # reduce_batch_count.
       if not reduce_instance_dims and x.get_shape().ndims:
         for tensor in result:
           self.assertEqual(x.get_shape()[1:].as_list(),

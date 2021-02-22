@@ -595,10 +595,12 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
     # size of 10.
     input_data = [{
         'x': [x],
+        'idx0': [0],
+        'idx1': [0],
         'key': ['a'] if x < 50 else ['b']
     } for x in range(1, 100)]
     input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.VarLenFeature(tf.float32),
+        'x': tf.io.SparseFeature(['idx0', 'idx1'], 'x', tf.float32, (2, 2)),
         'key': tf.io.VarLenFeature(tf.string)
     })
 
@@ -619,11 +621,20 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
           return 2
 
     expected_data = [{
-        'x_bucketized': [compute_bucket(instance)]
+        'x_bucketized$sparse_values': [compute_bucket(instance)],
+        'x_bucketized$sparse_indices_0': [0],
+        'x_bucketized$sparse_indices_1': [0],
     } for instance in input_data]
     expected_metadata = tft_unit.metadata_from_feature_spec(
         {
-            'x_bucketized': tf.io.VarLenFeature(tf.int64),
+            'x_bucketized':
+                tf.io.SparseFeature([
+                    'x_bucketized$sparse_indices_0',
+                    'x_bucketized$sparse_indices_1'
+                ],
+                                    'x_bucketized$sparse_values',
+                                    tf.int64, (None, None),
+                                    already_sorted=True),
         }, {
             'x_bucketized':
                 schema_pb2.IntDomain(min=0, max=2, is_categorical=True),

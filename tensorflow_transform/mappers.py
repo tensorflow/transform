@@ -79,7 +79,12 @@ _BucketBoundariesType = Union[tf.Tensor, Iterable[Union[int, float]]]
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def scale_to_gaussian(x, elementwise=False, name=None, output_dtype=None):
+def scale_to_gaussian(
+    x: common_types.ConsistentTensorType,
+    elementwise: bool = False,
+    name: Optional[str] = None,
+    output_dtype: Optional[tf.DType] = None
+) -> common_types.ConsistentTensorType:
   """Returns an (approximately) normal column with mean to 0 and variance 1.
 
   We transform the column to values that are approximately distributed
@@ -132,11 +137,14 @@ def scale_to_gaussian(x, elementwise=False, name=None, output_dtype=None):
         output_dtype=output_dtype)
 
 
-def _scale_to_gaussian_internal(x, elementwise, output_dtype):
+def _scale_to_gaussian_internal(
+    x: common_types.ConsistentTensorType,
+    elementwise: bool = False,
+    output_dtype: Optional[tf.DType] = None
+) -> common_types.ConsistentTensorType:
   """Implementation for scale_to_gaussian."""
   # x_mean will be float16, float32, or float64, depending on type of x.
-  # pylint: disable=protected-access
-  x_loc, x_scale, hl, hr = analyzers._tukey_parameters(
+  x_loc, x_scale, hl, hr = analyzers._tukey_parameters(  # pylint: disable=protected-access
       x, reduce_instance_dims=not elementwise, output_dtype=output_dtype)
 
   compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
@@ -241,15 +249,16 @@ def sparse_tensor_left_align(sparse_tensor: tf.SparseTensor) -> tf.SparseTensor:
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def scale_by_min_max(x,
-                     output_min=0.0,
-                     output_max=1.0,
-                     elementwise=False,
-                     name=None):
+def scale_by_min_max(
+    x: common_types.ConsistentTensorType,
+    output_min: float = 0.0,
+    output_max: float = 1.0,
+    elementwise: bool = False,
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   """Scale a numerical column into the range [output_min, output_max].
 
   Args:
-    x: A numeric `Tensor`.
+    x: A numeric `Tensor` or `SparseTensor`.
     output_min: The minimum of the range of output values.
     output_max: The maximum of the range of output values.
     elementwise: If true, scale each element of the tensor independently.
@@ -274,13 +283,15 @@ def scale_by_min_max(x,
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def scale_by_min_max_per_key(x,
-                             key,
-                             output_min=0.0,
-                             output_max=1.0,
-                             elementwise=False,
-                             key_vocabulary_filename=None,
-                             name=None):
+def scale_by_min_max_per_key(
+    x: common_types.ConsistentTensorType,
+    key: common_types.TensorType,
+    output_min: float = 0.0,
+    output_max: float = 1.0,
+    elementwise: bool = False,
+    key_vocabulary_filename: Optional[str] = None,
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
+  # pyformat: disable
   """Scale a numerical column into a predefined range on a per-key basis.
 
   Args:
@@ -302,18 +313,39 @@ def scale_by_min_max_per_key(x,
       within a given preprocessing function.
     name: (Optional) A name for this operation.
 
+  Example:
+
+  >>> def preprocessing_fn(inputs):
+  ...   return {
+  ...      'scaled': tft.scale_by_min_max_per_key(inputs['x'], inputs['s'])
+  ...   }
+  >>> raw_data = [dict(x=1, s='a'), dict(x=0, s='b'), dict(x=3, s='a')]
+  >>> feature_spec = dict(
+  ...     x=tf.io.FixedLenFeature([], tf.float32),
+  ...     s=tf.io.FixedLenFeature([], tf.string))
+  >>> raw_data_metadata = tft.tf_metadata.dataset_metadata.DatasetMetadata(
+  ...     tft.tf_metadata.schema_utils.schema_from_feature_spec(feature_spec))
+  >>> with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
+  ...   transformed_dataset, transform_fn = (
+  ...       (raw_data, raw_data_metadata)
+  ...       | tft_beam.AnalyzeAndTransformDataset(preprocessing_fn))
+  >>> transformed_data, transformed_metadata = transformed_dataset
+  >>> transformed_data
+  [{'scaled': 0.0}, {'scaled': 0.5}, {'scaled': 1.0}]
+
   Returns:
     A `Tensor`  or `SparseTensor` containing the input column scaled to
     [output_min, output_max] on a per-key basis if a key is provided. If the
-    analysis dataset is empty, contains a single distinct value or the computed
-    key vocabulary doesn't have an entry for `key`, then `x` is scaled using a
-    sigmoid function.
+    analysis dataset is empty, a certain key contains a single distinct value or
+    the computed key vocabulary doesn't have an entry for `key`, then `x` is
+    scaled using a sigmoid function.
 
   Raises:
     ValueError: If output_min, output_max have the wrong order.
     NotImplementedError: If elementwise is True and key is not None.
     InvalidArgumentError: If indices of sparse x and key do not match.
   """
+  # pyformat: enable
   with tf.compat.v1.name_scope(name, 'scale_by_min_max_per_key'):
     if key is None:
       raise ValueError('key is None, call `tft.scale_by_min_max` instead')
@@ -326,8 +358,14 @@ def scale_by_min_max_per_key(x,
         key_vocabulary_filename=key_vocabulary_filename)
 
 
-def _scale_by_min_max_internal(x, key, output_min, output_max, elementwise,
-                               key_vocabulary_filename):
+def _scale_by_min_max_internal(
+    x: common_types.ConsistentTensorType,
+    key: Optional[common_types.TensorType],
+    output_min: float,
+    output_max: float,
+    elementwise: bool,
+    key_vocabulary_filename: Optional[str] = None
+) -> common_types.ConsistentTensorType:
   """Implementation for scale_by_min_max."""
   if output_min >= output_max:
     raise ValueError('output_min must be less than output_max')
@@ -386,18 +424,21 @@ def _scale_by_min_max_internal(x, key, output_min, output_max, elementwise,
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def scale_to_0_1(x, elementwise=False, name=None):
+def scale_to_0_1(
+    x: common_types.ConsistentTensorType,
+    elementwise: bool = False,
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   """Returns a column which is the input column scaled to have range [0,1].
 
   Args:
-    x: A numeric `Tensor`.
+    x: A numeric `Tensor` or `SparseTensor`.
     elementwise: If true, scale each element of the tensor independently.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` containing the input column scaled to [0, 1]. If the analysis
-    dataset is empty or contains a single distinct value, then `x` is scaled
-    using a sigmoid function.
+    A `Tensor` or `SparseTensor` containing the input column scaled to [0, 1].
+    If the analysis dataset is empty or contains a single distinct value, then
+    `x` is scaled using a sigmoid function.
   """
   with tf.compat.v1.name_scope(name, 'scale_to_0_1'):
     return _scale_by_min_max_internal(
@@ -411,26 +452,52 @@ def scale_to_0_1(x, elementwise=False, name=None):
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_to_0_1_per_key(
-    x, key, elementwise=False, key_vocabulary_filename=None, name=None):
+    x: common_types.ConsistentTensorType,
+    key: common_types.TensorType,
+    elementwise: bool = False,
+    key_vocabulary_filename: Optional[str] = None,
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
+  # pyformat: disable
   """Returns a column which is the input column scaled to have range [0,1].
 
   Args:
-    x: A numeric `Tensor`.
-    key: A `Tensor` of type string.
+    x: A numeric `Tensor` or `SparseTensor`.
+    key: A `Tensor` or `SparseTensor` of type string.
     elementwise: If true, scale each element of the tensor independently.
-    key_vocabulary_filename: (Optional) The file name for the per-key file.
-      If None, this combiner will assume the keys fit in memory and will not
-      store the analyzer result in a file. If '', a file name will be chosen
-      based on the current TensorFlow scope. If not '', it should be unique
-      within a given preprocessing function.
+    key_vocabulary_filename: (Optional) The file name for the per-key file. If
+      None, this combiner will assume the keys fit in memory and will not store
+      the analyzer result in a file. If '', a file name will be chosen based on
+      the current TensorFlow scope. If not '', it should be unique within a
+      given preprocessing function.
     name: (Optional) A name for this operation.
 
+  Example:
+
+  >>> def preprocessing_fn(inputs):
+  ...   return {
+  ...      'scaled': tft.scale_to_0_1_per_key(inputs['x'], inputs['s'])
+  ...   }
+  >>> raw_data = [dict(x=1, s='a'), dict(x=0, s='b'), dict(x=3, s='a')]
+  >>> feature_spec = dict(
+  ...     x=tf.io.FixedLenFeature([], tf.float32),
+  ...     s=tf.io.FixedLenFeature([], tf.string))
+  >>> raw_data_metadata = tft.tf_metadata.dataset_metadata.DatasetMetadata(
+  ...     tft.tf_metadata.schema_utils.schema_from_feature_spec(feature_spec))
+  >>> with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
+  ...   transformed_dataset, transform_fn = (
+  ...       (raw_data, raw_data_metadata)
+  ...       | tft_beam.AnalyzeAndTransformDataset(preprocessing_fn))
+  >>> transformed_data, transformed_metadata = transformed_dataset
+  >>> transformed_data
+  [{'scaled': 0.0}, {'scaled': 0.5}, {'scaled': 1.0}]
+
   Returns:
-    A `Tensor` containing the input column scaled to [0, 1], per key. If the
-    analysis dataset is empty, contains a single distinct value or the computed
-    key vocabulary doesn't have an entry for `key`, then `x` is
+    A `Tensor` or `SparseTensor` containing the input column scaled to [0, 1],
+    per key. If the analysis dataset is empty, contains a single distinct value
+    or the computed key vocabulary doesn't have an entry for `key`, then `x` is
     scaled using a sigmoid function.
   """
+  # pyformat: enable
   with tf.compat.v1.name_scope(name, 'scale_to_0_1_per_key'):
     if key is None:
       raise ValueError('key is None, call `tft.scale_to_0_1` instead')
@@ -444,7 +511,12 @@ def scale_to_0_1_per_key(
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
+def scale_to_z_score(
+    x: common_types.ConsistentTensorType,
+    elementwise: bool = False,
+    name: Optional[str] = None,
+    output_dtype: Optional[tf.DType] = None
+) -> common_types.ConsistentTensorType:
   """Returns a standardized column with mean 0 and variance 1.
 
   Scaling to z-score subtracts out the mean and divides by standard deviation.
@@ -479,12 +551,14 @@ def scale_to_z_score(x, elementwise=False, name=None, output_dtype=None):
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def scale_to_z_score_per_key(x,
-                             key,
-                             elementwise=False,
-                             key_vocabulary_filename=None,
-                             name=None,
-                             output_dtype=None):
+def scale_to_z_score_per_key(
+    x: common_types.ConsistentTensorType,
+    key: common_types.TensorType,
+    elementwise: bool = False,
+    key_vocabulary_filename: Optional[str] = None,
+    name: Optional[str] = None,
+    output_dtype: Optional[tf.DType] = None
+) -> common_types.ConsistentTensorType:
   """Returns a standardized column with mean 0 and variance 1, grouped per key.
 
   Scaling to z-score subtracts out the mean and divides by standard deviation.
@@ -536,7 +610,10 @@ def scale_to_z_score_per_key(x,
 
 
 def _scale_to_z_score_internal(
-    x, key, elementwise, key_vocabulary_filename, output_dtype):
+    x: common_types.ConsistentTensorType,
+    key: Optional[common_types.TensorType], elementwise: bool,
+    key_vocabulary_filename: Optional[str],
+    output_dtype: Optional[tf.DType]) -> common_types.ConsistentTensorType:
   """Implementation for scale_to_z_score."""
   # x_mean will be float16, float32, or float64, depending on type of x
   if key is None:
@@ -589,7 +666,12 @@ def _scale_to_z_score_internal(
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def tfidf(x, vocab_size, smooth=True, name=None):
+def tfidf(
+    x: tf.SparseTensor,
+    vocab_size: int,
+    smooth: bool = True,
+    name: Optional[str] = None) -> Tuple[tf.SparseTensor, tf.SparseTensor]:
+  # pyformat: disable
   """Maps the terms in x to their term frequency * inverse document frequency.
 
   The term frequency of a term in a document is calculated as
@@ -600,6 +682,31 @@ def tfidf(x, vocab_size, smooth=True, name=None):
 
 
   Example usage:
+
+  >>> def preprocessing_fn(inputs):
+  ...   integerized = tft.compute_and_apply_vocabulary(inputs['x'])
+  ...   vocab_size = tft.get_num_buckets_for_transformed_feature(integerized)
+  ...   vocab_index, tfidf_weight = tft.tfidf(integerized, vocab_size)
+  ...   return {
+  ...      'index': vocab_index,
+  ...      'tf_idf': tfidf_weight,
+  ...      'integerized': integerized,
+  ...   }
+  >>> raw_data = [dict(x=["I", "like", "pie", "pie", "pie"]),
+  ...             dict(x=["yum", "yum", "pie"])]
+  >>> feature_spec = dict(x=tf.io.VarLenFeature(tf.string))
+  >>> raw_data_metadata = tft.tf_metadata.dataset_metadata.DatasetMetadata(
+  ...     tft.tf_metadata.schema_utils.schema_from_feature_spec(feature_spec))
+  >>> with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
+  ...   transformed_dataset, transform_fn = (
+  ...       (raw_data, raw_data_metadata)
+  ...       | tft_beam.AnalyzeAndTransformDataset(preprocessing_fn))
+  >>> transformed_data, transformed_metadata = transformed_dataset
+  >>> transformed_data
+  [{'index': array([0, 2, 3]), 'integerized': array([3, 2, 0, 0, 0]),
+    'tf_idf': array([0.6, 0.28109303, 0.28109303], dtype=float32)},
+   {'index': array([0, 1]), 'integerized': array([1, 1, 0]),
+    'tf_idf': array([0.33333334, 0.9369768 ], dtype=float32)}]
 
     ```
     example strings: [["I", "like", "pie", "pie", "pie"], ["yum", "yum", "pie]]
@@ -617,7 +724,7 @@ def tfidf(x, vocab_size, smooth=True, name=None):
     one output, as have the second doc's duplicate "yum" strings.
 
   Args:
-    x: A `SparseTensor` representing int64 values (most likely that are the
+    x: A 2D `SparseTensor` representing int64 values (most likely that are the
         result of calling `compute_and_apply_vocabulary` on a tokenized string).
     vocab_size: An int - the count of vocab used to turn the string into int64s
         including any OOV buckets.
@@ -633,7 +740,14 @@ def tfidf(x, vocab_size, smooth=True, name=None):
     Two `SparseTensor`s with indices [index_in_batch, index_in_bag_of_words].
     The first has values vocab_index, which is taken from input `x`.
     The second has values tfidf_weight.
+
+  Raises:
+    ValueError if `x` does not have 2 dimensions.
   """
+  # pyformat: enable
+  if x.get_shape().ndims != 2:
+    raise ValueError('tft.tfidf requires a 2D SparseTensor input. '
+                     'Input had {} dimensions.'.format(x.get_shape().ndims))
 
   def _to_vocab_range(x):
     """Enforces that the vocab_ids in x are positive."""
@@ -659,7 +773,8 @@ def tfidf(x, vocab_size, smooth=True, name=None):
     return _split_tfidfs_to_outputs(tfidfs)
 
 
-def _split_tfidfs_to_outputs(tfidfs):
+def _split_tfidfs_to_outputs(
+    tfidfs: tf.SparseTensor) -> Tuple[tf.SparseTensor, tf.SparseTensor]:
   """Splits [batch, vocab]-weight into [batch, bow]-vocab & [batch, bow]-tfidf.
 
   Args:
@@ -697,7 +812,8 @@ def _split_tfidfs_to_outputs(tfidfs):
   return de_duped_indicies_out, de_duped_tfidf_out  # NOTYPO ('indices')
 
 
-def _to_term_frequency(x, vocab_size):
+def _to_term_frequency(x: tf.SparseTensor,
+                       vocab_size: Union[int, tf.Tensor]) -> tf.SparseTensor:
   """Creates a SparseTensor of term frequency for every doc/term pair.
 
   Args:
@@ -754,7 +870,8 @@ def _to_term_frequency(x, vocab_size):
       dense_shape=term_count_per_doc.dense_shape)
 
 
-def _to_tfidf(term_frequency, reduced_term_freq, corpus_size, smooth):
+def _to_tfidf(term_frequency: tf.SparseTensor, reduced_term_freq: tf.Tensor,
+              corpus_size: tf.Tensor, smooth: bool) -> tf.SparseTensor:
   """Calculates the inverse document frequency of terms in the corpus.
 
   Args:
@@ -789,7 +906,7 @@ def _to_tfidf(term_frequency, reduced_term_freq, corpus_size, smooth):
       dense_shape=term_frequency.dense_shape)
 
 
-def _count_docs_with_term(term_frequency):
+def _count_docs_with_term(term_frequency: tf.SparseTensor) -> tf.Tensor:
   """Computes the number of documents in a batch that contain each term.
 
   Args:
@@ -816,12 +933,12 @@ def compute_and_apply_vocabulary(
     vocab_filename: Optional[str] = None,
     weights: Optional[tf.Tensor] = None,
     labels: Optional[tf.Tensor] = None,
-    use_adjusted_mutual_info: Optional[bool] = False,
+    use_adjusted_mutual_info: bool = False,
     min_diff_from_avg: Optional[float] = 0.0,
     coverage_top_k: Optional[int] = None,
     coverage_frequency_threshold: Optional[int] = None,
     key_fn: Optional[Callable[[Any], Any]] = None,
-    fingerprint_shuffle: Optional[bool] = False,
+    fingerprint_shuffle: bool = False,
     file_format: Optional[common_types.VocabularyFileFormatType] = analyzers
     .DEFAULT_VOCABULARY_FILE_FORMAT,
     name: Optional[str] = None) -> common_types.ConsistentTensorType:
@@ -1149,7 +1266,8 @@ def get_num_buckets_for_transformed_feature(
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def segment_indices(segment_ids, name=None):
+def segment_indices(segment_ids: tf.Tensor,
+                    name: Optional[str] = None) -> tf.Tensor:
   """Returns a `Tensor` of indices within each segment.
 
   segment_ids should be a sequence of non-decreasing non-negative integers that
@@ -1157,8 +1275,11 @@ def segment_indices(segment_ids, name=None):
   2, 1 and 3.  The return value is a `Tensor` containing the indices within each
   segment.
 
-  Example input: [0, 0, 1, 2, 2, 2]
-  Example output: [0, 1, 0, 0, 1, 2]
+  Example:
+
+  >>> result = tft.segment_indices(tf.constant([0, 0, 1, 2, 2, 2]))
+  >>> print(result)
+  tf.Tensor([0 1 0 0 1 2], shape=(6,), dtype=int32)
 
   Args:
     segment_ids: A 1-d `Tensor` containing an non-decreasing sequence of
@@ -1168,6 +1289,11 @@ def segment_indices(segment_ids, name=None):
   Returns:
     A `Tensor` containing the indices within each segment.
   """
+  ndims = segment_ids.get_shape().ndims
+  if ndims != 1 and ndims is not None:
+    raise ValueError(
+        'segment_indices requires a 1-dimensional input. '
+        'segment_indices has {} dimensions.'.format(ndims))
   with tf.compat.v1.name_scope(name, 'segment_indices'):
     # TODO(KesterTong): This is a fundamental operation for segments, write a C++
     # op to do this.
@@ -1340,7 +1466,10 @@ def _deduplicate_tensor_per_row(input_tensor, batch_dim):
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def bag_of_words(tokens, ngram_range, separator, name=None):
+def bag_of_words(tokens: tf.SparseTensor,
+                 ngram_range: Tuple[int, int],
+                 separator: str,
+                 name: Optional[str] = None) -> tf.SparseTensor:
   """Computes a bag of "words" based on the specified ngram configuration.
 
   A light wrapper around tft.ngrams. First computes ngrams, then transforms the
@@ -1361,6 +1490,8 @@ def bag_of_words(tokens, ngram_range, separator, name=None):
     A `SparseTensor` containing the unique set of ngrams from each row of the
       input. Note: the original order of the ngrams may not be preserved.
   """
+  if tokens.get_shape().ndims != 2:
+    raise ValueError('bag_of_words requires `tokens` to be 2-dimensional')
   with tf.compat.v1.name_scope(name, 'bag_of_words'):
     # First compute the ngram representation, which will contain ordered and
     # possibly duplicated ngrams per row.
@@ -1370,7 +1501,10 @@ def bag_of_words(tokens, ngram_range, separator, name=None):
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def ngrams(tokens, ngram_range, separator, name=None):
+def ngrams(tokens: tf.SparseTensor,
+           ngram_range: Tuple[int, int],
+           separator: str,
+           name: Optional[str] = None) -> tf.SparseTensor:
   """Create a `SparseTensor` of n-grams.
 
   Given a `SparseTensor` of tokens, returns a `SparseTensor` containing the
@@ -1382,23 +1516,20 @@ def ngrams(tokens, ngram_range, separator, name=None):
 
   Example:
 
-  `tokens` is a `SparseTensor` with
-
-  indices = [[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2], [1, 3]]
-  values = ['One', 'was', 'Johnny', 'Two', 'was', 'a', 'rat']
-  dense_shape = [2, 4]
-
-  If we set
-  ngrams_range = (1,3)
-  separator = ' '
-
-  output is a `SparseTensor` with
-
-  indices = [[0, 0], [0, 1], [0, 2], ..., [1, 6], [1, 7], [1, 8]]
-  values = ['One', 'One was', 'One was Johnny', 'was', 'was Johnny', 'Johnny',
-            'Two', 'Two was', 'Two was a', 'was', 'was a', 'was a rat', 'a',
-            'a rat', 'rat']
-  dense_shape = [2, 9]
+  >>> tokens = tf.SparseTensor(
+  ...         indices=[[0, 0], [0, 1], [0, 2], [1, 0], [1, 1], [1, 2], [1, 3]],
+  ...         values=['One', 'was', 'Johnny', 'Two', 'was', 'a', 'rat'],
+  ...         dense_shape=[2, 4])
+  >>> print(tft.ngrams(tokens, ngram_range=(1, 3), separator=' '))
+  SparseTensor(indices=tf.Tensor(
+      [[0 0] [0 1] [0 2] [0 3] [0 4] [0 5]
+       [1 0] [1 1] [1 2] [1 3] [1 4] [1 5] [1 6] [1 7] [1 8]],
+       shape=(15, 2), dtype=int64),
+    values=tf.Tensor(
+      [b'One' b'One was' b'One was Johnny' b'was' b'was Johnny' b'Johnny' b'Two'
+       b'Two was' b'Two was a' b'was' b'was a' b'was a rat' b'a' b'a rat'
+       b'rat'], shape=(15,), dtype=string),
+    dense_shape=tf.Tensor([2 9], shape=(2,), dtype=int64))
 
   Args:
     tokens: a two-dimensional`SparseTensor` of dtype `tf.string` containing
@@ -1414,6 +1545,7 @@ def ngrams(tokens, ngram_range, separator, name=None):
     same number of times in the output. For unique ngrams, see tft.bag_of_words.
 
   Raises:
+    ValueError: if `tokens` is not 2D.
     ValueError: if ngram_range[0] < 1 or ngram_range[1] < ngram_range[0]
   """
   # This function is implemented as follows.  Assume we start with the following
@@ -1446,6 +1578,8 @@ def ngrams(tokens, ngram_range, separator, name=None):
   #
   # This results in tensors of ngrams, their batch indices and a boolean mask,
   # which we then use to construct the output SparseTensor.
+  if tokens.get_shape().ndims != 2:
+    raise ValueError('ngrams requires `tokens` to be 2-dimensional')
   with tf.compat.v1.name_scope(name, 'ngrams'):
     if ngram_range[0] < 1 or ngram_range[1] < ngram_range[0]:
       raise ValueError('Invalid ngram_range: %r' % (ngram_range,))
@@ -1508,16 +1642,24 @@ def ngrams(tokens, ngram_range, separator, name=None):
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def word_count(tokens, name=None):
+def word_count(tokens: Union[tf.SparseTensor, tf.RaggedTensor],
+               name: Optional[str] = None) -> tf.Tensor:
+  # pyformat: disable
   """Find the token count of each document/row.
 
   `tokens` is either a `RaggedTensor` or `SparseTensor`, representing tokenized
   strings. This function simply returns size of each row, so the dtype is not
   constrained to string.
 
+  Example:
+  >>> sparse = tf.SparseTensor(indices=[[0, 0], [0, 1], [2, 2]],
+  ...                          values=['a', 'b', 'c'], dense_shape=(4, 4))
+  >>> tft.word_count(sparse)
+  <tf.Tensor: shape=(4,), dtype=int64, numpy=array([2, 0, 1, 0])>
+
   Args:
     tokens: either
-      (1) a two-dimensional `SparseTensor`, or
+      (1) a `SparseTensor`, or
       (2) a `RaggedTensor` with ragged rank of 1, non-ragged rank of 1
       of dtype `tf.string` containing tokens to be counted
     name: (Optional) A name for this operation.
@@ -1528,6 +1670,7 @@ def word_count(tokens, name=None):
   Raises:
     ValueError: if tokens is neither sparse nor ragged
   """
+  # pyformat: enable
   with tf.compat.v1.name_scope(name, 'word_count'):
     if isinstance(tokens, tf.RaggedTensor):
       return tokens.row_lengths()
@@ -1536,7 +1679,7 @@ def word_count(tokens, name=None):
           tf.SparseTensor(indices=tokens.indices,
                           values=tf.ones_like(tokens.values, dtype=tf.int64),
                           dense_shape=tokens.dense_shape),
-          axis=1)
+          axis=list(range(1, tokens.get_shape().ndims)))
       result.set_shape([tokens.shape[0]])
       return result
     else:
@@ -1595,8 +1738,8 @@ def bucketize(x: common_types.TensorType,
               num_buckets: int,
               epsilon: Optional[float] = None,
               weights: Optional[tf.Tensor] = None,
-              elementwise: Optional[bool] = False,
-              always_return_num_quantiles: Optional[bool] = True,
+              elementwise: bool = False,
+              always_return_num_quantiles: bool = True,
               name: Optional[str] = None) -> common_types.TensorType:
   """Returns a bucketized column, with a bucket index assigned to each input.
 
@@ -2121,7 +2264,7 @@ def _annotate_buckets(x: tf.Tensor, bucket_boundaries: tf.Tensor) -> None:
 def estimated_probability_density(x: tf.Tensor,
                                   boundaries: Optional[Union[tf.Tensor,
                                                              int]] = None,
-                                  categorical: Optional[bool] = False,
+                                  categorical: bool = False,
                                   name: Optional[str] = None) -> tf.Tensor:
   """Computes an approximate probability density at each x, given the bins.
 

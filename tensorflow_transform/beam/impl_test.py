@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import itertools
+import math
 import os
 
 # GOOGLE-INITIALIZATION
@@ -36,6 +37,7 @@ import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tfx_bsl.tfxio import tensor_adapter
+
 from google.protobuf import text_format
 import unittest
 from tensorflow_metadata.proto.v0 import schema_pb2
@@ -986,6 +988,101 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn, expected_data,
         expected_metadata,
         expected_vocab_file_contents=per_key_vocab_contents)
+
+  def testScalePerKeySparse(self):
+    def preprocessing_fn(inputs):
+      return {
+          'scaled_by_min_max':
+              tft.scale_by_min_max_per_key(
+                  inputs['x'], inputs['key'], output_min=-1, output_max=1),
+          'scaled_to_0_1':
+              tft.scale_to_0_1_per_key(inputs['x'], inputs['key']),
+          'scaled_to_z_score':
+              tft.scale_to_z_score_per_key(inputs['x'], inputs['key']),
+      }
+
+    input_data = [{
+        'val': [4, 8],
+        's': ['a', 'a']
+    }, {
+        'val': [1, 5],
+        's': ['a', 'a']
+    }, {
+        'val': [5, 9],
+        's': ['a', 'a']
+    }, {
+        'val': [2, 6],
+        's': ['a', 'a']
+    }, {
+        'val': [-2, 0],
+        's': ['b', 'b']
+    }, {
+        'val': [0, 2],
+        's': ['b', 'b']
+    }]
+    indices = [([x % 2] * 2, [x % 3] * 2) for x in range(len(input_data))]
+    indices_x = [{'idx_x_0': a, 'idx_x_1': b} for a, b in indices]
+    indices_key = [{'idx_key_0': a, 'idx_key_1': b} for a, b in indices]
+    input_data = [{**a, **b, **c}
+                  for a, b, c in zip(input_data, indices_x, indices_key)]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x':
+            tf.io.SparseFeature(['idx_x_0', 'idx_x_1'], 'val', tf.float32,
+                                (2, 3)),
+        'key':
+            tf.io.SparseFeature(['idx_key_0', 'idx_key_1'], 's', tf.string,
+                                (2, 3))
+    })
+
+    output_names = ['scaled_by_min_max', 'scaled_to_0_1', 'scaled_to_z_score']
+    expected_indices_prefix = [
+        (('$sparse_indices_0', a), ('$sparse_indices_1', b)) for a, b in indices
+    ]
+    expected_indices = []
+    for idx0, idx1 in expected_indices_prefix:
+      instance = {}
+      for n in output_names:
+        instance.update({n + idx0[0]: idx0[1]})
+        instance.update({n + idx1[0]: idx1[1]})
+      expected_indices.append(instance)
+
+    expected_data = [{
+        'scaled_by_min_max$sparse_values': [-0.25, 0.75],
+        'scaled_to_0_1$sparse_values':
+            np.array([3. / 8., 7. / 8]),
+        'scaled_to_z_score$sparse_values':
+            np.array([-1. / math.sqrt(6.5), 3. / math.sqrt(6.5)])
+    }, {
+        'scaled_by_min_max$sparse_values': [-1.0, 0.0],
+        'scaled_to_0_1$sparse_values': np.array([0., 0.5]),
+        'scaled_to_z_score$sparse_values': np.array([-4. / math.sqrt(6.5), 0.]),
+    }, {
+        'scaled_by_min_max$sparse_values': [0.0, 1.0],
+        'scaled_to_0_1$sparse_values': np.array([0.5, 1.]),
+        'scaled_to_z_score$sparse_values': np.array([0., 4. / math.sqrt(6.5)]),
+    }, {
+        'scaled_by_min_max$sparse_values': [-0.75, 0.25],
+        'scaled_to_0_1$sparse_values':
+            np.array([1. / 8., 5. / 8.]),
+        'scaled_to_z_score$sparse_values':
+            np.array([-3. / math.sqrt(6.5), 1. / math.sqrt(6.5)]),
+    }, {
+        'scaled_by_min_max$sparse_values': np.array([-1., 0.]),
+        'scaled_to_0_1$sparse_values': np.array([0., 0.5]),
+        'scaled_to_z_score$sparse_values': np.array([-2. / math.sqrt(2), 0.]),
+    }, {
+        'scaled_by_min_max$sparse_values': [0.0, 1.0],
+        'scaled_to_0_1$sparse_values': np.array([0.5, 1.]),
+        'scaled_to_z_score$sparse_values': np.array([0., 2. / math.sqrt(2)]),
+    }]
+    expected_data = [{**a, **b}
+                     for a, b in zip(expected_data, expected_indices)]
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        beam_pipeline=beam.Pipeline())
 
   @tft_unit.named_parameters(
       dict(

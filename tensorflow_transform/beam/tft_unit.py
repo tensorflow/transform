@@ -33,6 +33,8 @@ from tensorflow_transform.beam import test_helpers
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
 from tfx_bsl.coders import example_coder
+from tensorflow.python.util.protobuf import compare  # pylint: disable=g-direct-tensorflow-import
+
 
 from tensorflow_metadata.proto.v0 import schema_pb2
 
@@ -354,7 +356,8 @@ class TransformTestCase(test_case.TransformTestCase):
       transformed_schema.ClearField('annotation')
       for feature in transformed_schema.feature:
         feature.ClearField('annotation')
-      self.assertEqual(expected_metadata.schema, transformed_schema)
+      compare.assertProtoEqual(self, expected_metadata.schema,
+                               transformed_schema)
 
     for filename, file_contents in six.iteritems(expected_vocab_file_contents):
       full_filename = tf_transform_output.vocabulary_file_by_name(filename)
