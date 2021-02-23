@@ -4,6 +4,16 @@
 
 ## Major Features and Improvements
 
+## Bug Fixes and Other Changes
+
+## Breaking Changes
+
+## Deprecations
+
+# Version 0.28.0
+
+## Major Features and Improvements
+
 *   Large vocabularies are now computed faster due to partially parallelizing
     `VocabularyOrderAndWrite`.
 
@@ -25,7 +35,10 @@
     number of buckets for a transformed feature if it is a direct output of
     `tft.bucketize`, `tft.apply_buckets`, `tft.compute_and_apply_vocabulary` or
     `tft.apply_vocabulary`.
+*   Depends on `apache-beam[gcp]>=2.28,<3`.
 *   Depends on `numpy>=1.16,<1.20`.
+*   Depends on `tensorflow-metadata>=0.28.0,<0.29.0`.
+*   Depends on `tfx-bsl>=0.28.1,<0.29.0`.
 
 ## Breaking changes
 
