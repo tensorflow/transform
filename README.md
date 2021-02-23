@@ -19,7 +19,7 @@ of examples. `tf.Transform` extends these capabilities to support full-passes
 over the example data.
 
 The output of `tf.Transform` is exported as a
-[TensorFlow graph](http://tensorflow.org/guide/graphs) to use for training and serving.
+[TensorFlow graph](https://www.tensorflow.org/guide/intro_to_graphs) to use for training and serving.
 Using the same graph for both training and serving can prevent skew since the
 same transformations are applied in both stages.
 
