@@ -672,7 +672,8 @@ def build(graph,
               translated_value_node,
               tensor=str(tensor.name),
               is_asset_filepath=is_asset_filepath,
-              label='CreateTensorBinding[{}]'.format(name)))
+              label=analyzer_nodes.sanitize_label(
+                  'CreateTensorBinding[{}]'.format(name))))
       sink_tensors_ready[hashable_tensor] = True
 
     analyzers_input_signature.update(intermediate_output_signature)

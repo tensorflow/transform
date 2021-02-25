@@ -29,7 +29,7 @@ import abc
 import json
 import os
 import struct
-from typing import Optional
+from typing import Optional, Type
 import uuid
 
 # GOOGLE-INITIALIZATION
@@ -55,6 +55,18 @@ from tensorflow.python.framework import ops
 # Key for graph collection containing `TensorSink` objects representing TFT
 # analyzers.
 TENSOR_REPLACEMENTS = 'tft_tensor_replacements'
+
+
+def sanitize_label(label: str) -> str:
+  return label.replace('/', '#')
+
+
+def _make_label(cls: Type[nodes.OperationDef],
+                label: Optional[str] = None) -> str:
+  if label is None:
+    scope = tf.compat.v1.get_default_graph().get_name_scope()
+    label = '{}[{}]'.format(cls.__name__, scope)
+  return sanitize_label(label)
 
 
 class TensorInfo(
@@ -104,15 +116,13 @@ class TensorSource(
     label: A unique label for this operation.
   """
 
-  def __new__(cls, tensors, label=None):
+  def __new__(cls, tensors):
     for tensor in tensors:
       if not isinstance(tensor, tf.Tensor):
         raise TypeError('tensor must be a Tensor, got {} of type {}'.format(
             tensor, type(tensor)))
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
-    return super(TensorSource, cls).__new__(cls, tensors=tensors, label=label)
+    return super(TensorSource, cls).__new__(
+        cls, tensors=tensors, label=_make_label(cls))
 
 
 def get_input_tensors_value_nodes(tensor_inputs):
@@ -451,12 +461,9 @@ class PackedCombineAccumulate(
     label: A unique label for this operation.
   """
 
-  def __new__(cls, combiners, label=None):
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
+  def __new__(cls, combiners, label):
     return super(PackedCombineAccumulate, cls).__new__(
-        cls, combiners=combiners, label=label)
+        cls, combiners=combiners, label=_make_label(cls, label))
 
   @property
   def num_outputs(self):
@@ -479,12 +486,9 @@ class PackedCombineMerge(
     label: A unique label for this operation.
   """
 
-  def __new__(cls, combiners, label=None):
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
+  def __new__(cls, combiners, label):
     return super(PackedCombineMerge, cls).__new__(
-        cls, combiners=combiners, label=label)
+        cls, combiners=combiners, label=_make_label(cls, label))
 
   @property
   def num_outputs(self):
@@ -505,12 +509,9 @@ class CacheableCombineAccumulate(
     label: A unique label for this operation.
   """
 
-  def __new__(cls, combiner, label=None):
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
+  def __new__(cls, combiner):
     return super(CacheableCombineAccumulate, cls).__new__(
-        cls, combiner=combiner, label=label)
+        cls, combiner=combiner, label=_make_label(cls))
 
   @property
   def num_outputs(self):
@@ -539,12 +540,9 @@ class CacheableCombineMerge(
     label: A unique label for this operation.
   """
 
-  def __new__(cls, combiner, label=None):
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
+  def __new__(cls, combiner):
     return super(CacheableCombineMerge, cls).__new__(
-        cls, combiner=combiner, label=label)
+        cls, combiner=combiner, label=_make_label(cls))
 
   @property
   def num_outputs(self):
@@ -593,12 +591,9 @@ class CacheableCombinePerKeyAccumulate(
     label: A unique label for this operation.
   """
 
-  def __new__(cls, combiner, label=None):
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
+  def __new__(cls, combiner):
     return super(CacheableCombinePerKeyAccumulate, cls).__new__(
-        cls, combiner=combiner, label=label)
+        cls, combiner=combiner, label=_make_label(cls))
 
   @property
   def num_outputs(self):
@@ -630,12 +625,9 @@ class CacheableCombinePerKeyMerge(
     label: A unique label for this operation.
   """
 
-  def __new__(cls, combiner, label=None):
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
+  def __new__(cls, combiner):
     return super(CacheableCombinePerKeyMerge, cls).__new__(
-        cls, combiner=combiner, label=label)
+        cls, combiner=combiner, label=_make_label(cls))
 
 
 class CacheableCombinePerKeyFormatKeys(
@@ -654,12 +646,9 @@ class CacheableCombinePerKeyFormatKeys(
     label: A unique label for this operation.
   """
 
-  def __new__(cls, combiner, label=None):
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
+  def __new__(cls, combiner):
     return super(CacheableCombinePerKeyFormatKeys, cls).__new__(
-        cls, combiner=combiner, label=label)
+        cls, combiner=combiner, label=_make_label(cls))
 
   @property
   def output_tensor_infos(self):
@@ -680,12 +669,9 @@ class CacheableCombinePerKeyFormatLarge(
   _CombinePerKeyFormatLargeImpl`.
   """
 
-  def __new__(cls, label=None):
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
+  def __new__(cls):
     return super(CacheableCombinePerKeyFormatLarge, cls).__new__(
-        cls, label=label)
+        cls, label=_make_label(cls))
 
   @property
   def num_outputs(self):
@@ -714,12 +700,9 @@ class ScaleAndFlattenPerKeyBucketBouandaries(
   F(x, key) = x * scale_factor_per_key[key] + shift_per_key[key]
   """
 
-  def __new__(cls, output_tensor_dtype, label=None):
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
+  def __new__(cls, output_tensor_dtype):
     return super(ScaleAndFlattenPerKeyBucketBouandaries, cls).__new__(
-        cls, output_tensor_dtype=output_tensor_dtype, label=label)
+        cls, output_tensor_dtype=output_tensor_dtype, label=_make_label(cls))
 
   @property
   def output_tensor_infos(self):
@@ -738,15 +721,12 @@ class VocabularyAccumulate(
   `tensorflow_transform.beam.analyzer_impls._VocabularyAccumulateImpl`.
   """
 
-  def __new__(cls, vocab_ordering_type, input_dtype=tf.string.name, label=None):
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
+  def __new__(cls, vocab_ordering_type, input_dtype=tf.string.name):
     return super(VocabularyAccumulate, cls).__new__(
         cls,
         vocab_ordering_type=vocab_ordering_type,
         input_dtype=input_dtype,
-        label=label)
+        label=_make_label(cls))
 
   @property
   def num_outputs(self):
@@ -835,11 +815,8 @@ class VocabularyCount(
   The output of this operation is a singleton Integer.
   """
 
-  def __new__(cls, label=None):
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
-    return super(VocabularyCount, cls).__new__(cls, label=label)
+  def __new__(cls):
+    return super(VocabularyCount, cls).__new__(cls, label=_make_label(cls))
 
   @property
   def num_outputs(self):
@@ -860,20 +837,14 @@ class VocabularyMerge(
   See `tft.vocabulary` for a description of the parameters.
   """
 
-  def __new__(cls,
-              vocab_ordering_type,
-              use_adjusted_mutual_info,
-              min_diff_from_avg,
-              label=None):
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
+  def __new__(cls, vocab_ordering_type, use_adjusted_mutual_info,
+              min_diff_from_avg):
     return super(VocabularyMerge, cls).__new__(
         cls,
         vocab_ordering_type=vocab_ordering_type,
         use_adjusted_mutual_info=use_adjusted_mutual_info,
         min_diff_from_avg=min_diff_from_avg,
-        label=label)
+        label=_make_label(cls))
 
   @property
   def num_outputs(self):
@@ -903,11 +874,7 @@ class VocabularyPrune(
               coverage_frequency_threshold=0,
               coverage_informativeness_threshold=float('-inf'),
               key_fn=None,
-              filter_newline_characters=True,
-              label=None):
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
+              filter_newline_characters=True):
     return super(VocabularyPrune, cls).__new__(
         cls,
         top_k=top_k,
@@ -918,7 +885,7 @@ class VocabularyPrune(
         coverage_informativeness_threshold=coverage_informativeness_threshold,
         key_fn=key_fn,
         filter_newline_characters=filter_newline_characters,
-        label=label)
+        label=_make_label(cls))
 
   @property
   def num_outputs(self):
@@ -943,11 +910,7 @@ class VocabularyOrderAndWrite(
               store_frequency,
               fingerprint_shuffle,
               file_format,
-              input_dtype=tf.string.name,
-              label=None):
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
+              input_dtype=tf.string.name):
     return super(VocabularyOrderAndWrite, cls).__new__(
         cls,
         vocab_filename=vocab_filename,
@@ -955,7 +918,7 @@ class VocabularyOrderAndWrite(
         fingerprint_shuffle=fingerprint_shuffle,
         file_format=file_format,
         input_dtype=input_dtype,
-        label=label)
+        label=_make_label(cls))
 
   @property
   def output_tensor_infos(self):
@@ -985,15 +948,12 @@ class PTransform(
     label: A unique label for this operation.
   """
 
-  def __new__(cls, ptransform, output_tensor_info_list, label=None):
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
+  def __new__(cls, ptransform, output_tensor_info_list):
     return super(PTransform, cls).__new__(
         cls,
         ptransform=ptransform,
         output_tensor_info_list=output_tensor_info_list,
-        label=label)
+        label=_make_label(cls))
 
   @property
   def output_tensor_infos(self):
@@ -1070,12 +1030,11 @@ class ExtractCombineMergeOutputs(
     label: A unique label for this operation.
   """
 
-  def __new__(cls, output_tensor_info_list, label=None):
-    if label is None:
-      scope = tf.compat.v1.get_default_graph().get_name_scope()
-      label = '{}[{}]'.format(cls.__name__, scope)
+  def __new__(cls, output_tensor_info_list):
     return super(ExtractCombineMergeOutputs, cls).__new__(
-        cls, output_tensor_info_list=output_tensor_info_list, label=label)
+        cls,
+        output_tensor_info_list=output_tensor_info_list,
+        label=_make_label(cls))
 
   @property
   def output_tensor_infos(self):

@@ -8,6 +8,8 @@
 
 ## Breaking Changes
 
+*   Existing caches (for all analyzers) are automatically invalidated.
+
 ## Deprecations
 
 # Version 0.28.0
