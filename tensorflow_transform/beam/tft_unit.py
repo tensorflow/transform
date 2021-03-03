@@ -356,8 +356,19 @@ class TransformTestCase(test_case.TransformTestCase):
       transformed_schema.ClearField('annotation')
       for feature in transformed_schema.feature:
         feature.ClearField('annotation')
-      compare.assertProtoEqual(self, expected_metadata.schema,
-                               transformed_schema)
+
+      # assertProtoEqual has a size limit on the length of the
+      # serialized as text strings. Therefore, we first try to use
+      # assertProtoEqual, if that fails we try to use assertEqual, if that fails
+      # as well then we raise the exception from assertProtoEqual.
+      try:
+        compare.assertProtoEqual(self, expected_metadata.schema,
+                                 transformed_schema)
+      except AssertionError as compare_exception:
+        try:
+          self.assertEqual(expected_metadata.schema, transformed_schema)
+        except AssertionError:
+          raise compare_exception
 
     for filename, file_contents in six.iteritems(expected_vocab_file_contents):
       full_filename = tf_transform_output.vocabulary_file_by_name(filename)
