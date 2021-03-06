@@ -6,6 +6,11 @@
 
 ## Bug Fixes and Other Changes
 
+*   Added `tft.make_and_track_object` to load and track `tf.Trackable` objects
+    created inside the `preprocessing_fn` (for example, tf.hub models). This API
+    should only be used when `force_tf_compat_v1=False` and TF2 behavior is
+    enabled.
+
 ## Breaking Changes
 
 *   Existing caches (for all analyzers) are automatically invalidated.

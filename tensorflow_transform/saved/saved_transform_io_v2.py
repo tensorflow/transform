@@ -23,6 +23,7 @@ from typing import Dict, Mapping, Union
 
 import six
 import tensorflow as tf
+from tensorflow_transform import annotators
 from tensorflow_transform import common_types
 from tensorflow_transform import graph_tools
 from tensorflow_transform import tf2_utils
@@ -395,6 +396,7 @@ def write_v2_saved_model(tf_function: function.Function, name: str,
   module = tf.Module()
 
   resource_tracker = tracking.ResourceTracker()
+  object_tracker = annotators.ObjectTracker()
   created_variables = []
 
   def _variable_creator(next_creator, **kwargs):
@@ -406,8 +408,9 @@ def write_v2_saved_model(tf_function: function.Function, name: str,
   # Trace `tf_function` to gather any resources in it using the
   # resource_tracker. These are then assigned to `module.resources` and tracked
   # before exporting to SavedModel.
-  with tracking.resource_tracker_scope(
-      resource_tracker), tf.variable_creator_scope(_variable_creator):
+  with tracking.resource_tracker_scope(resource_tracker), \
+       annotators.object_tracker_scope(object_tracker), \
+       tf.variable_creator_scope(_variable_creator):
     concrete_fn = tf_function.get_concrete_function()
 
   # Prior to 2020/10/08, saving a tf.function with a concrete function signature
@@ -425,6 +428,7 @@ def write_v2_saved_model(tf_function: function.Function, name: str,
   module.created_variables = created_variables
   # Resources need to be explicitly tracked.
   module.resources = resource_tracker.resources
+  module.trackable_objects = object_tracker.trackable_objects
   # TODO(b/158011374) - Stop explicitly tracking initializers. Tracking the
   # table should be sufficient.
   initializers = []
