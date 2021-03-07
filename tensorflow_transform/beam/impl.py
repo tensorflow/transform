@@ -324,15 +324,17 @@ class _RunMetaGraphDoFn(beam.DoFn):
     result = {}
     for passthrough_key, column_index in zip(self._passthrough_keys,
                                              self._passthrough_column_indices):
-      passthrough_data_column = batch.column(column_index)
-      # the passthrough column should be of list<primitive> type with each
-      # sub-list being either null or of length 1.
-      assert (pa.types.is_list(passthrough_data_column.type) or
-              pa.types.is_large_list(passthrough_data_column.type))
-      result[passthrough_key] = [
-          None if elem is None else elem[0]
-          for elem in passthrough_data_column.to_pylist()
-      ]
+      if column_index >= 0:
+        # The key is present in the input batch.
+        passthrough_data_column = batch.column(column_index)
+        # the passthrough column should be of list<primitive> type with each
+        # sub-list being either null or of length 1.
+        assert (pa.types.is_list(passthrough_data_column.type) or
+                pa.types.is_large_list(passthrough_data_column.type))
+        result[passthrough_key] = [
+            None if elem is None else elem[0]
+            for elem in passthrough_data_column.to_pylist()
+        ]
     return result
 
   def _handle_batch(self, batch):
@@ -446,7 +448,9 @@ def _convert_and_unbatch_to_instance_dicts(batch_dict, schema,
   # allowed.
   if passthrough_keys:
     batch_dict = copy.copy(batch_dict)
-  passthrough_data = {key: batch_dict.pop(key) for key in passthrough_keys}
+  passthrough_data = {
+      key: batch_dict.pop(key) for key in passthrough_keys if key in batch_dict
+  }
 
   result = impl_helper.to_instance_dicts(schema, batch_dict)
 

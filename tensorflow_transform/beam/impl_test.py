@@ -3079,10 +3079,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
                | 'AnalyzeDataset' >> tft_beam.AnalyzeDataset(preprocessing_fn))
 
   def testPassthroughKeys(self):
-    passthrough_key = '__passthrough__'
+    passthrough_key1 = '__passthrough__'
+    passthrough_key2 = '__passthrough_not_in_input_record_batch__'
 
     def preprocessing_fn(inputs):
-      self.assertNotIn(passthrough_key, inputs)
+      self.assertNotIn(passthrough_key1, inputs)
+      self.assertNotIn(passthrough_key2, inputs)
       return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
 
     x_data = [0., 1., 2.]
@@ -3091,13 +3093,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
         pa.array([[x] for x in x_data], type=pa.list_(pa.float32())),
         pa.array([None if p is None else [p] for p in passthrough_data],
                  type=pa.list_(pa.int64())),
-    ], ['x', passthrough_key])
+    ], ['x', passthrough_key1])
     tensor_adapter_config = tensor_adapter.TensorAdapterConfig(
         input_record_batch.schema,
         {'x': text_format.Parse(
             'dense_tensor { column_name: "x" shape {} }',
             schema_pb2.TensorRepresentation())})
-    expected_data = [{'x_scaled': x / 2.0, passthrough_key: p}
+    expected_data = [{'x_scaled': x / 2.0, passthrough_key1: p}
                      for x, p in zip(x_data, passthrough_data)]
 
     with self._makeTestPipeline() as pipeline:
@@ -3105,7 +3107,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           pipeline | beam.Create([input_record_batch]))
       with tft_beam.Context(
           temp_dir=self.get_temp_dir(),
-          passthrough_keys=set([passthrough_key])):
+          passthrough_keys={passthrough_key1, passthrough_key2}):
         (transformed_data, _), _ = (
             (input_data, tensor_adapter_config)
             | tft_beam.AnalyzeAndTransformDataset(preprocessing_fn))
