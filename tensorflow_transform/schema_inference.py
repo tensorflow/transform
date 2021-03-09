@@ -28,7 +28,6 @@ from typing import Tuple
 
 # GOOGLE-INITIALIZATION
 
-import six
 import tensorflow as tf
 from tensorflow_transform import common
 from tensorflow_transform import common_types
@@ -58,8 +57,7 @@ def _feature_spec_from_batched_tensors(tensors):
         `SparseTensor`, or `RaggedTensor`.
   """
   feature_spec = {}
-  for name, tensor in six.iteritems(tensors):
-    tensor = tensors[name]
+  for name, tensor in tensors.items():
     if tensor.dtype not in (tf.string, tf.int64, tf.float32):
       raise ValueError('Feature {} ({}) had invalid dtype {} for feature spec'
                        .format(name, tensor, tensor.dtype))
@@ -143,14 +141,13 @@ def infer_feature_schema(features, graph, session=None):
         graph, session)
   modified_tensor_ranges = {}
   feature_annotations = {}
-  for name, tensor in six.iteritems(features):
+  for name, tensor in features.items():
     if isinstance(tensor, tf.SparseTensor):
       values = tensor.values
     elif isinstance(tensor, tf.RaggedTensor):
       values = tensor.flat_values
     else:
       values = tensor
-    values = tensor.values if isinstance(tensor, tf.SparseTensor) else tensor
     hashable_values = tf_utils.hashable_tensor_or_op(values)
     if hashable_values in tensor_ranges:
       assert values.dtype == tf.int64
@@ -234,7 +231,7 @@ def _infer_feature_schema_common(features, tensor_ranges, feature_annotations,
   """
   domains = {}
   feature_tags = collections.defaultdict(list)
-  for name, tensor in six.iteritems(features):
+  for name, tensor in features.items():
     if isinstance(tensor, tf.RaggedTensor):
       # Add the 'ragged_tensor' tag which will cause coder and
       # schema_as_feature_spec to raise an error, as currently there is no
