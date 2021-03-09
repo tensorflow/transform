@@ -433,6 +433,8 @@ def _assert_tensorflow_version():
         'Tensorflow version >= 1.15, < 3 is required. Found (%s). Please '
         'install the latest 1.x or 2.x version from '
         'https://github.com/tensorflow/tensorflow. ' % tf.version.VERSION)
+  # TODO(b/149997088): Once TF2 codepaths are used by default, remove this
+  # warning.
   if int(major) == 2:
     tf.compat.v1.logging.warning(
         'Tensorflow version (%s) found. Note that Tensorflow Transform '
@@ -884,6 +886,12 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     self._preprocessing_fn = preprocessing_fn
     self.pipeline = pipeline
     self._use_tf_compat_v1 = Context.get_use_tf_compat_v1()
+    beam.metrics.Metrics.gauge(beam_common.METRICS_NAMESPACE,
+                               'requested_tf_compat_v1').set(
+                                   int(Context._get_force_tf_compat_v1()))
+    beam.metrics.Metrics.gauge(beam_common.METRICS_NAMESPACE,
+                               'running_tf_compat_v1').set(
+                                   int(self._use_tf_compat_v1))
     _assert_tensorflow_version()
 
   def _extract_input_pvalues(self, dataset):
@@ -1146,7 +1154,6 @@ class AnalyzeAndTransformDataset(beam.PTransform):
           strings to `Tensor` or `SparseTensor`s.
     """
     self._preprocessing_fn = preprocessing_fn
-    _assert_tensorflow_version()
 
   def _extract_input_pvalues(self, dataset):
     # This method returns all nested pvalues to inform beam of nested pvalues.
