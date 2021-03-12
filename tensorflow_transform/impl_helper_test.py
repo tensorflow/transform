@@ -17,12 +17,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import copy
 import os
 
 # GOOGLE-INITIALIZATION
 
 import numpy as np
+import pyarrow as pa
 import six
 import tensorflow as tf
 from tensorflow_transform import analyzers
@@ -52,25 +54,27 @@ _FEED_DICT = {
     'a':
         np.array([100, 100]),
     'b':
-        np.array([1.0, 2.0]),
+        np.array([1.0, 2.0], np.float32),
     'c':
-        np.array([[2.0], [4.0]]),
+        np.array([[2.0], [4.0]], np.float32),
     'd':
-        np.array([[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]]),
+        np.array([[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]],
+                 np.float32),
     'e':
         tf.compat.v1.SparseTensorValue(
             indices=np.array([(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]),
-            values=np.array([b'doe', b'a', b'deer', b'a', b'female', b'deer']),
+            values=np.array([b'doe', b'a', b'deer', b'a', b'female', b'deer'],
+                            dtype=object),
             dense_shape=(2, 3)),
     'f':
         tf.compat.v1.SparseTensorValue(
             indices=np.array([(0, 2), (0, 4), (0, 8)]),
-            values=np.array([10.0, 20.0, 30.0]),
+            values=np.array([10.0, 20.0, 30.0], np.float32),
             dense_shape=(2, 10)),
     'g':
         tf.compat.v1.SparseTensorValue(
             indices=np.array([(0, 0, 3), (0, 1, 5), (0, 1, 9)]),
-            values=np.array([110.0, 210.0, 310.0]),
+            values=np.array([110.0, 210.0, 310.0], np.float32),
             dense_shape=(2, 2, 10)),
 }
 
@@ -139,7 +143,7 @@ _ROUNDTRIP_CASES = [
             'varlen':
                 tf.compat.v1.SparseTensorValue(
                     indices=np.empty([0, 2]),
-                    values=np.array([]),
+                    values=np.array([], dtype=object),
                     dense_shape=[1, 0])
         }),
     # Mainly to test the empty-ndarray optimization though this is also
@@ -353,6 +357,64 @@ _TO_INSTANCE_DICT_ERROR_CASES = [
                    r'"\w" had batch dimension \d')),
 ]
 
+_CONVERT_TO_ARROW_ERROR_CASES = [
+    dict(
+        testcase_name='var_len_with_rank_not_2',
+        feature_spec={'a': tf.io.VarLenFeature(tf.float32)},
+        feed_dict={
+            'a':
+                tf.compat.v1.SparseTensorValue(
+                    indices=np.array([(0, 0, 1), (0, 0, 2), (0, 0, 3)]),
+                    values=np.array([10.0, 20.0, 30.0], np.float32),
+                    dense_shape=(1, 10, 10))
+        },
+        error_msg=(r'Expected SparseTensorSpec\(TensorShape\('
+                   r'\[(None|Dimension\(None\)), (None|Dimension\(None\))\]\)'),
+        error_type=TypeError),
+    dict(
+        testcase_name='var_len_with_out_of_order_indices',
+        feature_spec={'a': tf.io.VarLenFeature(tf.float32)},
+        feed_dict={
+            'a':
+                tf.compat.v1.SparseTensorValue(
+                    indices=np.array([(0, 2), (2, 4), (1, 8)]),
+                    values=np.array([10.0, 20.0, 30.0], np.float32),
+                    dense_shape=(3, 20))
+        },
+        error_msg='The sparse indices must be sorted',
+        error_type=AssertionError),
+    dict(
+        testcase_name='var_len_with_different_batch_dim_sizes',
+        feature_spec={
+            'a': tf.io.VarLenFeature(tf.float32),
+            'b': tf.io.VarLenFeature(tf.float32),
+        },
+        feed_dict={
+            'a':
+                tf.compat.v1.SparseTensorValue(
+                    indices=np.array([(0, 0)]),
+                    values=np.array([10.0], np.float32),
+                    dense_shape=(1, 20)),
+            'b':
+                tf.compat.v1.SparseTensorValue(
+                    indices=np.array([(0, 0)]),
+                    values=np.array([10.0], np.float32),
+                    dense_shape=(2, 20)),
+        },
+        error_msg='Arrays were not all the same length'),
+    dict(
+        testcase_name='fixed_len_with_different_batch_dim_sizes',
+        feature_spec={
+            'a': tf.io.FixedLenFeature([], tf.float32),
+            'b': tf.io.FixedLenFeature([], tf.float32),
+        },
+        feed_dict={
+            'a': np.array([1], dtype=np.float32),
+            'b': np.array([1, 2], dtype=np.float32)
+        },
+        error_msg=('Arrays were not all the same length')),
+]
+
 
 def _get_value_from_eager_tensors(eager_tensors):
   """Given a list of eager tensors, get their values in a TF1 compat format."""
@@ -517,6 +579,54 @@ class ImplHelperTest(test_case.TransformTestCase):
     schema = schema_utils.schema_from_feature_spec(feature_spec)
     with self.assertRaisesRegexp(error_type, error_msg):
       impl_helper.to_instance_dicts(schema, feed_dict)
+
+  @test_case.named_parameters(
+      *test_case.cross_named_parameters(_ROUNDTRIP_CASES, [
+          dict(testcase_name='eager_tensors', feed_eager_tensors=True),
+          dict(testcase_name='session_run_values', feed_eager_tensors=False)
+      ]))
+  def test_convert_to_arrow(self, feature_spec, instances, feed_dict,
+                            feed_eager_tensors):
+    if feed_eager_tensors:
+      test_case.skip_if_not_tf2('Tensorflow 2.x required')
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
+    converter = impl_helper.make_tensor_to_arrow_converter(schema)
+    feed_dict_local = copy.copy(feed_dict)
+    if feed_eager_tensors:
+      for key, value in six.iteritems(feed_dict_local):
+        if isinstance(value, tf.compat.v1.SparseTensorValue):
+          feed_dict_local[key] = tf.sparse.SparseTensor.from_value(value)
+        else:
+          feed_dict_local[key] = tf.constant(value)
+    arrow_columns, arrow_schema = impl_helper.convert_to_arrow(
+        schema, converter, feed_dict_local)
+    record_batch = pa.RecordBatch.from_arrays(arrow_columns, arrow_schema)
+
+    # Merge and flatten expected instance dicts.
+    expected = collections.defaultdict(list)
+    for instance_dict in instances:
+      for key, value in instance_dict.items():
+        expected[key].append(np.ravel(value))
+    actual = record_batch.to_pydict()
+    self.assertEqual(len(actual), len(expected))
+    for key, expected_value in expected.items():
+      # Floating-point error breaks exact equality for some floating values.
+      # However, the approximate equality testing fails on strings.
+      if np.issubdtype(expected_value[0].dtype, np.number):
+        self.assertAllClose(actual[key], expected_value)
+      else:
+        np.testing.assert_equal(actual[key], expected_value)
+
+  @test_case.named_parameters(*_CONVERT_TO_ARROW_ERROR_CASES)
+  def test_convert_to_arrow_error(self,
+                                  feature_spec,
+                                  feed_dict,
+                                  error_msg,
+                                  error_type=ValueError):
+    schema = schema_utils.schema_from_feature_spec(feature_spec)
+    converter = impl_helper.make_tensor_to_arrow_converter(schema)
+    with self.assertRaisesRegexp(error_type, error_msg):
+      impl_helper.convert_to_arrow(schema, converter, feed_dict)
 
   @test_case.named_parameters(
       dict(testcase_name='tf_compat_v1', force_tf_compat_v1=True),

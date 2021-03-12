@@ -25,6 +25,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Tuple, Union
 # GOOGLE-INITIALIZATION
 
 import numpy as np
+import pyarrow as pa
 import six
 from six.moves import range  # pylint: disable=redefined-builtin
 from six.moves import zip  # pylint: disable=redefined-builtin
@@ -42,12 +43,13 @@ from tensorflow_transform.saved import saved_transform_io_v2
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
+from tfx_bsl.tfxio import tensor_to_arrow
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.eager import function
 from tensorflow.python.framework import ops
 # pylint: enable=g-direct-tensorflow-import
+from tensorflow_metadata.proto.v0 import schema_pb2
 
-_SparseTensorValueType = Union[tf.SparseTensor, tf.compat.v1.SparseTensorValue]
 _SparseComponentType = List[np.ndarray]
 
 _CACHED_EMPTY_ARRAY_BY_DTYPE = {}
@@ -151,11 +153,11 @@ def _batched_placeholder_from_feature_spec(name, feature_spec):
 
 
 def _extract_sparse_components(
-    sparse_value: _SparseTensorValueType
+    sparse_value: common_types.SparseTensorValueType
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
   if isinstance(sparse_value, tf.SparseTensor):
-    return (sparse_value.indices.numpy(), sparse_value.values.numpy(),
-            sparse_value.dense_shape.numpy())
+    return (np.asarray(sparse_value.indices), np.asarray(sparse_value.values),
+            np.asarray(sparse_value.dense_shape))
   elif isinstance(sparse_value, tf.compat.v1.SparseTensorValue):
     return sparse_value
   else:
@@ -174,7 +176,7 @@ def _get_num_values_per_instance_in_sparse_batch(batch_indices: np.ndarray,
 
 
 def _decompose_sparse_batch(
-    sparse_value: _SparseTensorValueType
+    sparse_value: common_types.SparseTensorValueType
 ) -> Tuple[List[_SparseComponentType], _SparseComponentType]:
   """Decomposes a sparse batch into a list of sparse instances.
 
@@ -218,7 +220,7 @@ def _decompose_sparse_batch(
 
 
 def _decompose_varlen_batch(
-    sparse_value: _SparseTensorValueType
+    sparse_value: common_types.SparseTensorValueType
 ) -> Tuple[_SparseComponentType, _SparseComponentType]:
   """Decomposes a sparse batch into a list of sparse/varlen instances.
 
@@ -284,7 +286,7 @@ def _decompose_varlen_batch(
   return instance_indices, instance_values
 
 
-def _handle_varlen_batch(tensor_or_value: _SparseTensorValueType,
+def _handle_varlen_batch(tensor_or_value: common_types.SparseTensorValueType,
                          name: str) -> _SparseComponentType:
   """Decomposes a varlen tensor value into sparse tensor components."""
   instance_indices, instance_values = _decompose_varlen_batch(tensor_or_value)
@@ -297,8 +299,8 @@ def _handle_varlen_batch(tensor_or_value: _SparseTensorValueType,
 
 
 def _handle_sparse_batch(
-    tensor_or_value: _SparseTensorValueType, spec: common_types.FeatureSpecType,
-    name: str
+    tensor_or_value: common_types.SparseTensorValueType,
+    spec: common_types.FeatureSpecType, name: str
 ) -> Dict[str, Union[List[_SparseComponentType], _SparseComponentType]]:
   """Decomposes a sparse tensor value into sparse tensor components."""
   if len(spec.index_key) == 1:
@@ -344,8 +346,7 @@ def to_instance_dicts(schema, fetches):
   for name, tensor_or_value in six.iteritems(fetches):
     spec = feature_spec[name]
     if isinstance(spec, tf.io.FixedLenFeature):
-      value = tensor_or_value.numpy() if isinstance(
-          tensor_or_value, tf.Tensor) else tensor_or_value
+      value = np.asarray(tensor_or_value)
       batch_dict[name] = [value[i] for i in range(value.shape[0])]
       batch_sizes[name] = value.shape[0]
 
@@ -379,6 +380,96 @@ def to_instance_dicts(schema, fetches):
   # the keys of batch_dict to create a dict.
   return [dict(zip(six.iterkeys(batch_dict), instance_values))
           for instance_values in zip(*six.itervalues(batch_dict))]
+
+
+def _tf_dtype_to_arrow_type(dtype: tf.DType) -> pa.DataType:
+  """Maps a tf data type to a pyarrow data type."""
+  if dtype == tf.string:
+    return pa.large_binary()
+  elif dtype == tf.int64:
+    return pa.int64()
+  elif dtype == tf.float32:
+    return pa.float32()
+  else:
+    raise TypeError('Unable to handle data type {}'.format(dtype))
+
+
+def make_tensor_to_arrow_converter(
+    schema: schema_pb2.Schema) -> tensor_to_arrow.TensorsToRecordBatchConverter:
+  """Constructs a `tf.Tensor` to `pa.RecordBatch` converter."""
+  type_specs = {}
+  feature_specs = schema_utils.schema_as_feature_spec(schema).feature_spec
+  for name, feature_spec in feature_specs.items():
+    if isinstance(feature_spec, tf.io.FixedLenFeature):
+      type_specs[name] = tf.TensorSpec([None] + list(feature_spec.shape),
+                                       feature_spec.dtype)
+    elif isinstance(feature_spec, tf.io.VarLenFeature):
+      type_specs[name] = tf.SparseTensorSpec([None, None], feature_spec.dtype)
+    elif isinstance(feature_spec, tf.io.SparseFeature):
+      # `TensorsToRecordBatchConverter` ignores `SparseFeature`s since arbitrary
+      # `SparseTensor`s are not yet supported. They are handled in
+      # `convert_to_arrow`.
+      # TODO(b/181868576): Handle `SparseFeature`s by the converter once the
+      # support is implemented.
+      pass
+    else:
+      raise ValueError('Invalid feature spec {}.'.format(feature_spec))
+
+  return tensor_to_arrow.TensorsToRecordBatchConverter(type_specs)
+
+
+def convert_to_arrow(
+    schema: schema_pb2.Schema,
+    converter: tensor_to_arrow.TensorsToRecordBatchConverter,
+    fetches: Dict[str, common_types.TensorValueType]
+) -> Tuple[List[pa.Array], pa.Schema]:
+  """Converts fetches to a list of pyarrow arrays and schema.
+
+  Maps the values fetched by `tf.Session.run` or returned by a tf.function to
+  pyarrow format.
+
+  Args:
+    schema: A `Schema` proto.
+    converter: A `tf.Tensor` to `pa.RecordBatch` converter that contains
+      `tf.TypeSpec`s of `FixedLen` and `VarLen` features. Note that the
+      converter doesn't support general `SparseFeature`s, they are handled here.
+    fetches: A dict representing a batch of data, either as returned by
+      `Session.run` or eager tensors.
+
+  Returns:
+    A tuple of a list of pyarrow arrays and schema representing fetches.
+
+  Raises:
+    ValueError: If batch sizes are inconsistent.
+  """
+
+  tensors = {}
+  sparse_arrays = []
+  sparse_fields = []
+  feature_specs = schema_utils.schema_as_feature_spec(schema).feature_spec
+  for name, tensor_or_value in fetches.items():
+    feature_spec = feature_specs[name]
+    if isinstance(feature_spec, tf.io.SparseFeature):
+      sparse_components = _handle_sparse_batch(tensor_or_value, feature_spec,
+                                               name)
+      values_type = pa.large_list(_tf_dtype_to_arrow_type(feature_spec.dtype))
+      indices_type = pa.large_list(pa.int64())
+      sparse_arrays.append(
+          pa.array(
+              sparse_components.pop(feature_spec.value_key), type=values_type))
+      sparse_fields.append(pa.field(feature_spec.value_key, values_type))
+      for indices_key, instance_indices in sparse_components.items():
+        flat_indices = [np.ravel(indices) for indices in instance_indices]
+        sparse_arrays.append(pa.array(flat_indices, type=indices_type))
+        sparse_fields.append(pa.field(indices_key, indices_type))
+    else:
+      tensors[name] = tensor_or_value
+  record_batch = converter.convert(tensors)
+  arrow_schema = record_batch.schema
+  for field in sparse_fields:
+    arrow_schema = arrow_schema.append(field)
+
+  return record_batch.columns + sparse_arrays, arrow_schema
 
 
 # TODO(b/36040669): Consider moving this to where it can be shared with coders.

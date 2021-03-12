@@ -36,6 +36,7 @@ from tensorflow_transform import schema_inference
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
+from tfx_bsl.coders import example_coder
 from tfx_bsl.tfxio import tensor_adapter
 
 from google.protobuf import text_format
@@ -112,15 +113,42 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def _UseTFCompatV1(self):
     return True
 
-  # This is an override that passes force_tf_compat_v1 to the overridden method.
+  def _OutputRecordBatches(self):
+    return False
+
+  def _SkipIfOutputRecordBatches(self):
+    if self._OutputRecordBatches():
+      raise unittest.SkipTest(
+          'Test is disabled when TFT outputs `pa.RecordBatch`es to avoid '
+          'duplicated testing: it does not exercise `TransformDataset` or '
+          '`AnalyzeAndTransformDataset`.')
+
+  def _MakeTransformOutputAssertFn(self, expected, sort=False):
+
+    def _assert_fn(actual):
+      if sort:
+        dict_key_fn = lambda d: sorted(d.items())
+        expected_sorted = sorted(expected, key=dict_key_fn)
+        actual_sorted = sorted(actual, key=dict_key_fn)
+        self.assertCountEqual(expected_sorted, actual_sorted)
+      else:
+        self.assertCountEqual(expected, actual)
+
+    return _assert_fn
+
+  # This is an override that passes force_tf_compat_v1 and output_record_batches
+  # to the overridden method.
   def assertAnalyzeAndTransformResults(self, *args, **kwargs):
     kwargs['force_tf_compat_v1'] = self._UseTFCompatV1()
+    kwargs['output_record_batches'] = self._OutputRecordBatches()
     return super(BeamImplTest,
                  self).assertAnalyzeAndTransformResults(*args, **kwargs)
 
-  # This is an override that passes force_tf_compat_v1 to the overridden method.
+  # This is an override that passes force_tf_compat_v1 and output_record_batches
+  # to the overridden method.
   def assertAnalyzerOutputs(self, *args, **kwargs):
     kwargs['force_tf_compat_v1'] = self._UseTFCompatV1()
+    kwargs['output_record_batches'] = self._OutputRecordBatches()
     return super(BeamImplTest, self).assertAnalyzerOutputs(*args, **kwargs)
 
   def testApplySavedModelSingleInput(self):
@@ -475,13 +503,24 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x': tf.io.FixedLenFeature([], tf.float32)})
     transformed_eval_data, transformed_eval_metadata = (
         ((eval_data, eval_metadata), transform_fn)
-        | tft_beam.TransformDataset(exclude_outputs=['y_scaled']))
+        | tft_beam.TransformDataset(
+            exclude_outputs=['y_scaled'],
+            output_record_batches=self._OutputRecordBatches()))
 
-    expected_transformed_eval_data = [{'x_scaled': 1.25}]
+    if self._OutputRecordBatches():
+      expected_transformed_eval_data = {'x_scaled': [[1.25]]}
+      self.assertLen(transformed_eval_data, 1)
+      # Contains RecordBatch and unary pass-through features dict.
+      self.assertLen(transformed_eval_data[0], 2)
+      self.assertDictEqual(transformed_eval_data[0][0].to_pydict(),
+                           expected_transformed_eval_data)
+      self.assertDictEqual(transformed_eval_data[0][1], {})
+    else:
+      expected_transformed_eval_data = [{'x_scaled': 1.25}]
+      self.assertDataCloseOrEqual(transformed_eval_data,
+                                  expected_transformed_eval_data)
     expected_transformed_eval_metadata = tft_unit.metadata_from_feature_spec(
         {'x_scaled': tf.io.FixedLenFeature([], tf.float32)})
-    self.assertDataCloseOrEqual(transformed_eval_data,
-                                expected_transformed_eval_data)
     self.assertEqual(transformed_eval_metadata.dataset_metadata,
                      expected_transformed_eval_metadata)
 
@@ -591,6 +630,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # not return anything.
     if not self._UseTFCompatV1():
       raise unittest.SkipTest('Test disabled when TF 2.x behavior enabled.')
+
+    self._SkipIfOutputRecordBatches()
 
     def bad_func():
       return None
@@ -1670,6 +1711,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         test_data=test_data)
 
   def testMeanAndVar(self):
+    self._SkipIfOutputRecordBatches()
+
     def analyzer_fn(inputs):
       mean, var = analyzers._mean_and_var(inputs['x'])
       return {
@@ -1696,6 +1739,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         desired_batch_size=10)
 
   def testMeanAndVarPerKey(self):
+    self._SkipIfOutputRecordBatches()
+
     def analyzer_fn(inputs):
       key_vocab, mean, var = analyzers._mean_and_var_per_key(
           inputs['x'], inputs['key'])
@@ -1852,6 +1897,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
       ),
   )
   def testCountPerKey(self, input_data, input_metadata, expected_outputs):
+    self._SkipIfOutputRecordBatches()
+
     def analyzer_fn(inputs):
       elements, counts = analyzers.count_per_key(inputs['key'])
       return {
@@ -1931,6 +1978,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
   )
   def testHistograms(self, input_data, feature_spec, boundaries, categorical,
                      expected_outputs):
+    self._SkipIfOutputRecordBatches()
+
     def analyzer_fn(inputs):
       counts, bucket_boundaries = analyzers.histogram(
           inputs['x'], categorical=categorical, boundaries=boundaries)
@@ -2111,8 +2160,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
               'var': tf.float16
           })
   )
-  def testNumericAnalyzersWithScalarInputs(
-      self, input_dtype, output_dtypes):
+  def testNumericAnalyzersWithScalarInputs(self, input_dtype, output_dtypes):
+    self._SkipIfOutputRecordBatches()
+
     def analyzer_fn(inputs):
       a = tf.cast(inputs['a'], input_dtype)
 
@@ -2188,6 +2238,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
   ], (True, False)))
   def testNumericAnalyzersWithSparseInputs(self, input_dtype,
                                            reduce_instance_dims):
+    self._SkipIfOutputRecordBatches()
+
     def analyzer_fn(inputs):
       return {
           'min':
@@ -2345,6 +2397,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_outputs)
 
   def testNumericAnalyzersWithInputsAndAxis(self):
+    self._SkipIfOutputRecordBatches()
+
     def analyzer_fn(inputs):
       return {
           'min': tft.min(inputs['a'], reduce_instance_dims=False),
@@ -2373,6 +2427,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
   def testNumericAnalyzersWithNDInputsAndAxis(self):
+    self._SkipIfOutputRecordBatches()
+
     def analyzer_fn(inputs):
       return {
           'min': tft.min(inputs['a'], reduce_instance_dims=False),
@@ -2400,6 +2456,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
   def testNumericAnalyzersWithShape1NDInputsAndAxis(self):
+    self._SkipIfOutputRecordBatches()
 
     def analyzer_fn(inputs):
       return {
@@ -2426,6 +2483,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                expected_outputs)
 
   def testNumericAnalyzersWithNDInputs(self):
+    self._SkipIfOutputRecordBatches()
+
     def analyzer_fn(inputs):
       return {
           'min': tft.min(inputs['a']),
@@ -2468,6 +2527,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       ]))
   def testNumericAnalyzersWithEmptyInputs(self, input_dtype, input_shape,
                                           reduce_instance_dims):
+    self._SkipIfOutputRecordBatches()
 
     def analyzer_fn(inputs):
       return {
@@ -2516,6 +2576,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         }])
 
   def testNumericMeanWithSparseTensorReduceFalseOverflow(self):
+    self._SkipIfOutputRecordBatches()
 
     def analyzer_fn(inputs):
       return {'mean': tft.mean(tf.cast(inputs['sparse'], tf.int32), False)}
@@ -2775,24 +2836,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, preprocessing_fn,
         expected_transformed_data, expected_metadata)
 
-  def testNestedContextCreateBaseTempDir(self):
-    level_1_dir = self.get_temp_dir()
-    with tft_beam.Context(temp_dir=level_1_dir):
-      self.assertEqual(
-          os.path.join(level_1_dir, tft_beam.Context._TEMP_SUBDIR),
-          tft_beam.Context.create_base_temp_dir())
-      level_2_dir = self.get_temp_dir()
-      with tft_beam.Context(temp_dir=level_2_dir):
-        self.assertEqual(
-            os.path.join(level_2_dir, tft_beam.Context._TEMP_SUBDIR),
-            tft_beam.Context.create_base_temp_dir())
-      self.assertEqual(
-          os.path.join(level_1_dir, tft_beam.Context._TEMP_SUBDIR),
-          tft_beam.Context.create_base_temp_dir())
-    with self.assertRaises(ValueError):
-      tft_beam.Context.create_base_temp_dir()
-
   def testCovarianceTwoDimensions(self):
+    self._SkipIfOutputRecordBatches()
+
     def analyzer_fn(inputs):
       return {'y': tft.covariance(inputs['x'], dtype=tf.float32)}
 
@@ -2804,6 +2850,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
   def testCovarianceOneDimension(self):
+    self._SkipIfOutputRecordBatches()
+
     def analyzer_fn(inputs):
       return {'y': tft.covariance(inputs['x'], dtype=tf.float32)}
 
@@ -2815,6 +2863,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
   def testCovarianceOneDimensionWithEmptyInputs(self):
+    self._SkipIfOutputRecordBatches()
+
     def analyzer_fn(inputs):
       return {'y': tft.covariance(inputs['x'], dtype=tf.float32)}
 
@@ -2831,6 +2881,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         test_data=test_data)
 
   def testPCAThreeToTwoDimensions(self):
+    self._SkipIfOutputRecordBatches()
+
     def analyzer_fn(inputs):
       return {'y': tft.pca(inputs['x'], 2, dtype=tf.float32)}
 
@@ -2843,6 +2895,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
   def testPCAThreeToTwoDimensionsWithEmptyInputs(self):
+    self._SkipIfOutputRecordBatches()
+
     def analyzer_fn(inputs):
       return {'y': tft.pca(inputs['x'], 2, dtype=tf.float32)}
 
@@ -2889,6 +2943,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return (output_tuple['0'], output_tuple['1'])
 
   def testPTransformAnalyzer(self):
+    self._SkipIfOutputRecordBatches()
+
     sum_combiner = self._SumCombiner()
 
     def analyzer_fn(inputs):
@@ -2924,6 +2980,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
                      'Schema annotations are not available')
   def testSavedModelWithAnnotations(self):
     """Test serialization/deserialization as a saved model with annotations."""
+    self._SkipIfOutputRecordBatches()
+
     def preprocessing_fn(inputs):
       # Bucketization applies annotations to the output schema
       return {
@@ -2983,6 +3041,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
   @unittest.skipIf(not common.IS_ANNOTATIONS_PB_AVAILABLE,
                      'Schema annotations are not available')
   def testSavedModelWithGlobalAnnotations(self):
+    self._SkipIfOutputRecordBatches()
+
     def preprocessing_fn(inputs):
       # Add some arbitrary annotation data at the global schema level.
       boundaries = tf.constant([[1.0]])
@@ -3018,6 +3078,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       self.assertAllClose(list(message.boundaries), [1])
 
   def testPipelineAPICounters(self):
+    self._SkipIfOutputRecordBatches()
 
     def preprocessing_fn(inputs):
       _ = tft.vocabulary(inputs['a'])
@@ -3056,6 +3117,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(metrics, 'tft_mapper_apply_vocabulary', 0)
 
   def testHandleBatchError(self):
+    self._SkipIfOutputRecordBatches()
 
     def preprocessing_fn(inputs):
       return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
@@ -3099,23 +3161,22 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x': text_format.Parse(
             'dense_tensor { column_name: "x" shape {} }',
             schema_pb2.TensorRepresentation())})
-    expected_data = [{'x_scaled': x / 2.0, passthrough_key1: p}
-                     for x, p in zip(x_data, passthrough_data)]
 
     with self._makeTestPipeline() as pipeline:
       input_data = (
           pipeline | beam.Create([input_record_batch]))
       with tft_beam.Context(
           temp_dir=self.get_temp_dir(),
-          passthrough_keys={passthrough_key1, passthrough_key2}):
-        (transformed_data, _), _ = (
-            (input_data, tensor_adapter_config)
-            | tft_beam.AnalyzeAndTransformDataset(preprocessing_fn))
-
-        def _assert_fn(output_data):
-          self.assertCountEqual(expected_data, output_data)
-
-        beam_test_util.assert_that(transformed_data, _assert_fn)
+          passthrough_keys=set([passthrough_key1, passthrough_key2])):
+        (transformed_data,
+         _), _ = ((input_data, tensor_adapter_config)
+                  | tft_beam.AnalyzeAndTransformDataset(
+                      preprocessing_fn,
+                      output_record_batches=self._OutputRecordBatches()))
+        expected_data = [{'x_scaled': x / 2.0, passthrough_key1: p}
+                         for x, p in zip(x_data, passthrough_data)]
+        beam_test_util.assert_that(
+            transformed_data, self._MakeTransformOutputAssertFn(expected_data))
 
   def test3dSparseWithTFXIO(self):
     x_data = [0., 1., 2.]
@@ -3160,14 +3221,28 @@ class BeamImplTest(tft_unit.TransformTestCase):
       with tft_beam.Context(temp_dir=self.get_temp_dir()):
         (transformed_data, transformed_metadata), transform_fn = (
             (input_data, tensor_adapter_config)
-            | tft_beam.AnalyzeAndTransformDataset(lambda inputs: inputs))
+            | tft_beam.AnalyzeAndTransformDataset(
+                lambda inputs: inputs,
+                output_record_batches=self._OutputRecordBatches()))
+        if self._OutputRecordBatches():
 
-        transformed_data_coder = tft.coders.ExampleProtoCoder(
-            transformed_metadata.schema)
+          def record_batch_to_examples(data_batch):
+            # Ignore unary pass-through features.
+            record_batch, _ = data_batch
+            return example_coder.RecordBatchToExamples(record_batch)
+
+          transformed_and_serialized = (
+              transformed_data |
+              'EncodeTransformedData' >> beam.FlatMap(record_batch_to_examples))
+        else:
+          transformed_data_coder = tft.coders.ExampleProtoCoder(
+              transformed_metadata.schema)
+          transformed_and_serialized = (
+              transformed_data | 'EncodeTransformedData' >> beam.Map(
+                  transformed_data_coder.encode))
 
         _ = (
-            transformed_data
-            | 'EncodeTransformedData' >> beam.Map(transformed_data_coder.encode)
+            transformed_and_serialized
             | 'Write' >> beam.io.WriteToTFRecord(
                 materialize_path, shard_name_template=''))
         _ = (
@@ -3207,10 +3282,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
         self.assertProtoEquals(transformed_metadata.schema, expected_metadata)
 
-        def _assert_fn(output_data):
-          self.assertCountEqual(expected_data, output_data)
-
-        beam_test_util.assert_that(transformed_data, _assert_fn)
+        beam_test_util.assert_that(
+            transformed_data, self._MakeTransformOutputAssertFn(expected_data))
 
         def _assert_schemas_equal_fn(schema_dict_list):
           self.assertEqual(1, len(schema_dict_list))
@@ -3271,16 +3344,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def preprocessing_fn(inputs):
       return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
 
-    def equal_to(expected):
-
-      def _equal(actual):
-        dict_key_fn = lambda d: sorted(d.items())
-        sorted_expected = sorted(expected, key=dict_key_fn)
-        sorted_actual = sorted(actual, key=dict_key_fn)
-        if sorted_expected != sorted_actual:
-          raise ValueError('Failed assert: %s == %s' % (expected, actual))
-      return _equal
-
     with self._makeTestPipeline() as pipeline:
       input_data = pipeline | 'CreateTrainingData' >> beam.Create(
           [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}])
@@ -3296,10 +3359,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
             [{'x': 6}, {'x': 3}])
         transformed_eval_data, _ = (
             ((eval_data, metadata), transform_fn)
-            | 'TransformDataset' >> tft_beam.TransformDataset())
+            | 'TransformDataset' >> tft_beam.TransformDataset(
+                output_record_batches=self._OutputRecordBatches()))
         expected_data = [{'x_scaled': 1.25}, {'x_scaled': 0.5}]
         beam_test_util.assert_that(
-            transformed_eval_data, equal_to(expected_data))
+            transformed_eval_data,
+            self._MakeTransformOutputAssertFn(expected_data, sort=True))
 
   def testModifyInputs(self):
 

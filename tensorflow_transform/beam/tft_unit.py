@@ -130,7 +130,8 @@ class TransformTestCase(test_case.TransformTestCase):
                             test_data=None,
                             desired_batch_size=None,
                             beam_pipeline=None,
-                            force_tf_compat_v1=True):
+                            force_tf_compat_v1=True,
+                            output_record_batches=False):
     """Assert that input data and metadata is transformed as expected.
 
     This methods asserts transformed data and transformed metadata match
@@ -159,8 +160,11 @@ class TransformTestCase(test_case.TransformTestCase):
       desired_batch_size: (Optional) A batch size to batch elements by. If not
         provided, a batch size will be computed automatically.
       beam_pipeline: (optional) A Beam Pipeline to use in this test.
-      force_tf_compat_v1: A `Boolean`. If `True`, TFT's public APIs use
+      force_tf_compat_v1: A bool. If `True`, TFT's public APIs use
         Tensorflow in compat.v1 mode.
+      output_record_batches: (optional) A bool. If `True`, `TransformDataset`
+        and `AnalyzeAndTransformDataset` output `pyarrow.RecordBatch`es;
+        otherwise, they output instance dicts.
 
     Raises:
       AssertionError: If the expected output does not match the results of
@@ -220,7 +224,8 @@ class TransformTestCase(test_case.TransformTestCase):
         test_data=test_data,
         desired_batch_size=desired_batch_size,
         beam_pipeline=beam_pipeline,
-        force_tf_compat_v1=force_tf_compat_v1)
+        force_tf_compat_v1=force_tf_compat_v1,
+        output_record_batches=output_record_batches)
 
   def assertAnalyzeAndTransformResults(self,
                                        input_data,
@@ -234,7 +239,8 @@ class TransformTestCase(test_case.TransformTestCase):
                                        desired_batch_size=None,
                                        beam_pipeline=None,
                                        temp_dir=None,
-                                       force_tf_compat_v1=True):
+                                       force_tf_compat_v1=True,
+                                       output_record_batches=False):
     """Assert that input data and metadata is transformed as expected.
 
     This methods asserts transformed data and transformed metadata match
@@ -272,8 +278,11 @@ class TransformTestCase(test_case.TransformTestCase):
       beam_pipeline: (optional) A Beam Pipeline to use in this test.
       temp_dir: If set, it is used as output directory, else a new unique
           directory is created.
-      force_tf_compat_v1: A `Boolean`. If `True`, TFT's public APIs use
-          Tensorflow in compat.v1 mode.
+      force_tf_compat_v1: A bool. If `True`, TFT's public APIs use Tensorflow
+          in compat.v1 mode.
+      output_record_batches: (optional) A bool. If `True`, `TransformDataset`
+          and `AnalyzeAndTransformDataset` output `pyarrow.RecordBatch`es;
+          otherwise, they output instance dicts.
     Raises:
       AssertionError: if the expected data does not match the results of
           transforming input_data according to preprocessing_fn, or
@@ -310,26 +319,39 @@ class TransformTestCase(test_case.TransformTestCase):
         if test_data is None:
           (transformed_data, transformed_metadata), transform_fn = (
               (input_data, input_metadata)
-              | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
+              | beam_impl.AnalyzeAndTransformDataset(
+                  preprocessing_fn,
+                  output_record_batches=output_record_batches))
         else:
           transform_fn = ((input_data, input_metadata)
                           | beam_impl.AnalyzeDataset(preprocessing_fn))
           test_data = pipeline | 'CreateTest' >> beam.Create(test_data)
           transformed_data, transformed_metadata = (
               ((test_data, input_metadata), transform_fn)
-              | beam_impl.TransformDataset())
+              | beam_impl.TransformDataset(
+                  output_record_batches=output_record_batches))
 
         # Write transform_fn so we can test its assets
         _ = transform_fn | transform_fn_io.WriteTransformFn(temp_dir)
 
+        transformed_data_path = os.path.join(temp_dir, 'transformed_data')
         if expected_data is not None:
-          transformed_data_coder = tft.coders.ExampleProtoCoder(
-              transformed_metadata.schema)
+          if output_record_batches:
 
-          transformed_data_path = os.path.join(temp_dir, 'transformed_data')
+            def record_batch_to_examples(data_batch):
+              # Ignore unary pass-through features.
+              record_batch, _ = data_batch
+              return example_coder.RecordBatchToExamples(record_batch)
+
+            encode_ptransform = beam.FlatMap(record_batch_to_examples)
+          else:
+            transformed_data_coder = tft.coders.ExampleProtoCoder(
+                transformed_metadata.schema)
+            encode_ptransform = beam.Map(transformed_data_coder.encode)
+
           _ = (
               transformed_data
-              | beam.Map(transformed_data_coder.encode)
+              | encode_ptransform
               | beam.io.tfrecordio.WriteToTFRecord(
                   transformed_data_path, shard_name_template=''))
 

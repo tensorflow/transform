@@ -83,6 +83,7 @@ from apache_beam.typehints import Any
 from apache_beam.typehints import Dict
 from apache_beam.typehints import Iterable
 from apache_beam.typehints import List
+from apache_beam.typehints import Set
 from apache_beam.typehints import Tuple
 from apache_beam.typehints import Union
 
@@ -92,6 +93,7 @@ import six
 import tensorflow as tf
 from tensorflow_transform import annotators
 from tensorflow_transform import common
+from tensorflow_transform import common_types
 from tensorflow_transform import graph_tools
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
@@ -110,12 +112,16 @@ from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
 from tfx_bsl.beam import shared
+from tfx_bsl.tfxio import tensor_to_arrow
 from tfx_bsl.tfxio import tf_example_record
 from tfx_bsl.tfxio.tensor_adapter import TensorAdapter
+from tfx_bsl.tfxio.tensor_adapter import TensorAdapterConfig
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
-# `tfx_namedtuple.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
 # resolved.
 from tfx_bsl.types import tfx_namedtuple
+
+from tensorflow_metadata.proto.v0 import schema_pb2
 
 Context = context.Context
 
@@ -257,7 +263,8 @@ class _RunMetaGraphDoFn(beam.DoFn):
                passthrough_keys,
                use_tf_compat_v1,
                input_tensor_adapter_config,
-               exclude_outputs=None):
+               exclude_outputs=None,
+               convert_passthrough_data=True):
     """Initialize.
 
     Args:
@@ -272,6 +279,9 @@ class _RunMetaGraphDoFn(beam.DoFn):
         compat.v1 mode.
       input_tensor_adapter_config: Tensor Adapter config.
       exclude_outputs: (Optional) A list of names of outputs to exclude.
+      convert_passthrough_data: (Optional) A boolean indicating whether
+        passthrough data needs to be converted to a Python list. If `False`,
+        the passthrough data will be kept in input format.
     """
     super(_RunMetaGraphDoFn, self).__init__()
     self._use_tf_compat_v1 = use_tf_compat_v1
@@ -298,6 +308,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
     # i-th element in this list contains the index of the column corresponding
     # to self._passthrough_keys[i].
     self._passthrough_column_indices = None
+    self._convert_passthrough_data = convert_passthrough_data
 
     # Metrics.
     self._graph_load_seconds_distribution = beam.metrics.Metrics.distribution(
@@ -320,21 +331,26 @@ class _RunMetaGraphDoFn(beam.DoFn):
     return self._tensor_adapter.ToBatchTensors(
         batch, produce_eager_tensors=produce_eager_tensors)
 
-  def _get_passthrough_data_from_recordbatch(self, batch):
+  def _get_passthrough_data_from_recordbatch(
+      self, batch: pa.RecordBatch
+  ) -> Dict[str, Union[List[beam_common.PRIMITIVE_TYPE], pa.Array]]:
     result = {}
     for passthrough_key, column_index in zip(self._passthrough_keys,
                                              self._passthrough_column_indices):
       if column_index >= 0:
         # The key is present in the input batch.
         passthrough_data_column = batch.column(column_index)
-        # the passthrough column should be of list<primitive> type with each
+        # The passthrough column should be of list<primitive> type with each
         # sub-list being either null or of length 1.
         assert (pa.types.is_list(passthrough_data_column.type) or
                 pa.types.is_large_list(passthrough_data_column.type))
-        result[passthrough_key] = [
-            None if elem is None else elem[0]
-            for elem in passthrough_data_column.to_pylist()
-        ]
+        if self._convert_passthrough_data:
+          result[passthrough_key] = [
+              None if elem is None else elem[0]
+              for elem in passthrough_data_column.to_pylist()
+          ]
+        else:
+          result[passthrough_key] = passthrough_data_column
     return result
 
   def _handle_batch(self, batch):
@@ -470,6 +486,58 @@ def _convert_and_unbatch_to_instance_dicts(batch_dict, schema,
       instance[key] = instance_data
 
   return result
+
+
+def _convert_to_record_batch(
+    batch_dict: Dict[str, Union[common_types.TensorValueType, pa.Array]],
+    schema: schema_pb2.Schema,
+    converter: tensor_to_arrow.TensorsToRecordBatchConverter,
+    passthrough_keys: Set[str],
+    input_metadata: Union[TensorAdapterConfig, dataset_metadata.DatasetMetadata]
+) -> Tuple[pa.RecordBatch, Dict[str, pa.Array]]:
+  """Convert batches of ndarrays to pyarrow.RecordBatch."""
+
+  # Making a copy of batch_dict because mutating PCollection elements is not
+  # allowed.
+  if passthrough_keys:
+    batch_dict = copy.copy(batch_dict)
+  passthrough_data = {
+      key: batch_dict.pop(key) for key in passthrough_keys if key in batch_dict
+  }
+
+  arrow_columns, arrow_schema = impl_helper.convert_to_arrow(
+      schema, converter, batch_dict)
+
+  batch_size = len(arrow_columns[0])
+  # This dict will contain pass-through data with batch size of 1 if it doesn't
+  # match batch size of the transformed data.
+  unary_passthrough_features = {}
+  for key, data in passthrough_data.items():
+    # Only raising a ValueError in case pass-through data has more than one
+    # distinct value. If it has one value and batch_size>1 then it will have to
+    # be handled by the user.
+    # TODO(b/38376110): Restrict to matching batch dimensions and clean this up
+    # once the internal feature key is deprecated.
+    if len(data) not in (batch_size, 1):
+      # The passthrough column should be of list<primitive> type with each
+      # sub-list being either null or of length 1.
+      data_set = set(
+          None if elem is None else elem[0] for elem in data.to_pylist())
+      if len(data_set) == 1:
+        elem = data_set.pop()
+        data = pa.array([None if elem is None else [elem]], type=data.type)
+      else:
+        raise ValueError(
+            'Cannot pass-through data when input and output batch sizes '
+            'are different ({} vs. {})'.format(len(data), batch_size))
+    if len(data) == batch_size:
+      arrow_schema = arrow_schema.append(input_metadata.arrow_schema.field(key))
+      arrow_columns.append(data)
+    else:
+      unary_passthrough_features[key] = data
+
+  return pa.RecordBatch.from_arrays(
+      arrow_columns, schema=arrow_schema), unary_passthrough_features
 
 
 _TensorBinding = tfx_namedtuple.namedtuple(
@@ -726,7 +794,7 @@ class _ApplySavedModelImpl(beam.PTransform):
     def _convert_to_numpy(input_dict):
       """Converts eager tensors to numpy arrays."""
       return {
-          k: v.numpy() if isinstance(v, tf.Tensor) else v
+          k: np.asarray(v) if isinstance(v, tf.Tensor) else v
           for k, v in input_dict.items()
       }
 
@@ -1146,14 +1214,18 @@ class AnalyzeAndTransformDataset(beam.PTransform):
   but may be more efficient since it avoids multiple passes over the data.
   """
 
-  def __init__(self, preprocessing_fn):
+  def __init__(self, preprocessing_fn, output_record_batches=False):
     """Init method.
 
     Args:
       preprocessing_fn: A function that accepts and returns a dictionary from
           strings to `Tensor` or `SparseTensor`s.
+      output_record_batches: (Optional) A bool. If `True`,
+          `AnalyzeAndTransformDataset` outputs `pyarrow.RecordBatch`es;
+          otherwise, outputs instance dicts.
     """
     self._preprocessing_fn = preprocessing_fn
+    self._output_record_batches = output_record_batches
 
   def _extract_input_pvalues(self, dataset):
     # This method returns all nested pvalues to inform beam of nested pvalues.
@@ -1188,8 +1260,10 @@ class AnalyzeAndTransformDataset(beam.PTransform):
           'Deep copying the dataset before applying transformation')
       dataset = (deep_copy.deep_copy(data), metadata)
 
-    transformed_dataset = ((dataset, transform_fn)
-                           | 'TransformDataset' >> TransformDataset())
+    transformed_dataset = (
+        (dataset, transform_fn)
+        | 'TransformDataset' >>
+        TransformDataset(output_record_batches=self._output_record_batches))
     return transformed_dataset, transform_fn
 
 
@@ -1204,6 +1278,14 @@ def _remove_columns_from_metadata(metadata, excluded_columns):
       schema_utils.schema_from_feature_spec(new_feature_spec, new_domains))
 
 
+@beam.typehints.with_input_types(Union[_DATASET_ELEMENT_TYPE, pa.RecordBatch],
+                                 Union[dataset_metadata.DatasetMetadata,
+                                       TensorAdapterConfig, str])
+# TODO(b/160799442): check and uncomment once the TFX Transform component is
+# updated to use `pa.RecordBatches`.
+# @beam.typehints.with_output_types(Union[Tuple[pa.RecordBatch,
+#                                                     Dict[str, pa.Array]],
+#                                               _DATASET_ELEMENT_TYPE])
 class TransformDataset(beam.PTransform):
   """Applies the transformation computed by transforming a Dataset.
 
@@ -1213,10 +1295,13 @@ class TransformDataset(beam.PTransform):
 
   args:
     exclude_outputs: (Optional) Output features that should not be produced.
+    output_record_batches: (Optional) A bool. If `True`, `TransformDataset`
+        outputs `pyarrow.RecordBatch`es; otherwise, outputs instance dicts.
   """
 
-  def __init__(self, exclude_outputs=None):
+  def __init__(self, exclude_outputs=None, output_record_batches=False):
     self._exclude_outputs = exclude_outputs
+    self._output_record_batches = output_record_batches
     _assert_tensorflow_version()
 
   def _extract_input_pvalues(self, dataset_and_transform_fn):
@@ -1244,9 +1329,10 @@ class TransformDataset(beam.PTransform):
         dataset_and_transform_fn)
     if isinstance(input_metadata, dataset_metadata.DatasetMetadata):
       if Context.get_passthrough_keys():
-        raise ValueError('passthrough_keys is set to {} but it is not supported'
-                         'with instance dicts + DatasetMetadata input. Follow '
-                         'the guide to switch to the TFXIO format.')
+        raise ValueError('passthrough_keys is set to {} but it is not '
+                         'supported with instance dicts + DatasetMetadata '
+                         'input. Follow the guide to switch to the TFXIO '
+                         'format.'.format(Context.get_passthrough_keys()))
       tf.compat.v1.logging.warning(
           'You are passing instance dicts and DatasetMetadata to TFT which '
           'will not provide optimal performance. Consider following the TFT '
@@ -1275,7 +1361,7 @@ class TransformDataset(beam.PTransform):
 
     tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_BEAM_RUNNER_TYPE.get(
         type(self.pipeline.runner))
-    output_instances = (
+    output_batches = (
         input_values
         | 'Transform' >> beam.ParDo(
             _RunMetaGraphDoFn(
@@ -1284,13 +1370,26 @@ class TransformDataset(beam.PTransform):
                 use_tf_compat_v1=Context.get_use_tf_compat_v1(),
                 shared_graph_state_handle=shared.Shared(),
                 passthrough_keys=Context.get_passthrough_keys(),
-                exclude_outputs=self._exclude_outputs),
-            saved_model_dir=beam.pvalue.AsSingleton(transform_fn))
-        | 'ConvertAndUnbatch' >> beam.FlatMap(
-            _convert_and_unbatch_to_instance_dicts,
-            schema=output_metadata.schema,
-            passthrough_keys=Context.get_passthrough_keys()))
+                exclude_outputs=self._exclude_outputs,
+                convert_passthrough_data=not self._output_record_batches),
+            saved_model_dir=beam.pvalue.AsSingleton(transform_fn)))
+    if self._output_record_batches:
+      converter = impl_helper.make_tensor_to_arrow_converter(
+          output_metadata.schema)
+      output_data = (
+          output_batches | 'ConvertToRecordBatch' >> beam.Map(
+              _convert_to_record_batch,
+              schema=output_metadata.schema,
+              converter=converter,
+              passthrough_keys=Context.get_passthrough_keys(),
+              input_metadata=input_metadata))
+    else:
+      output_data = (
+          output_batches | 'ConvertAndUnbatchToInstanceDicts' >> beam.FlatMap(
+              _convert_and_unbatch_to_instance_dicts,
+              schema=output_metadata.schema,
+              passthrough_keys=Context.get_passthrough_keys()))
 
-    _clear_shared_state_after_barrier(self.pipeline, output_instances)
+    _clear_shared_state_after_barrier(self.pipeline, output_data)
 
-    return (output_instances, output_metadata)
+    return (output_data, output_metadata)

@@ -4,6 +4,10 @@
 
 ## Major Features and Improvements
 
+*   `tft.AnalyzeAndTransformDataset` and `tft.TransformDataset` can now output
+    `pyarrow.RecordBatch`es. This is controlled by a parameter
+    `output_record_batches` which is set to `False` by default.
+
 ## Bug Fixes and Other Changes
 
 *   Added `tft.make_and_track_object` to load and track `tf.Trackable` objects

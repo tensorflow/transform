@@ -15,6 +15,7 @@
 
 from typing import TypeVar, Union
 
+import numpy as np
 import tensorflow as tf
 from typing_extensions import Literal
 
@@ -33,6 +34,8 @@ FeatureSpecType = Union[tf.io.FixedLenFeature, tf.io.VarLenFeature,
 DomainType = Union[schema_pb2.IntDomain, schema_pb2.FloatDomain,
                    schema_pb2.StringDomain]
 TensorType = Union[tf.Tensor, tf.SparseTensor]
+SparseTensorValueType = Union[tf.SparseTensor, tf.compat.v1.SparseTensorValue]
+TensorValueType = Union[tf.Tensor, np.ndarray, SparseTensorValueType]
 ConsistentTensorType = TypeVar('ConsistentTensorType', tf.Tensor,
                                tf.SparseTensor)
 TemporaryAnalyzerOutputType = Union[tf.Tensor, Asset]
