@@ -24,7 +24,7 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
-from typing import Tuple
+from typing import Callable, Dict, Mapping, Optional, Tuple
 
 # GOOGLE-INITIALIZATION
 
@@ -34,10 +34,14 @@ from tensorflow_transform import common_types
 from tensorflow_transform import graph_context
 from tensorflow_transform import tf2_utils
 from tensorflow_transform import tf_utils
+from tensorflow_transform.saved import saved_transform_io_v2
 from tensorflow_transform.tf_metadata import schema_utils
 
 from google.protobuf import any_pb2
-from tensorflow.python.framework import ops  # pylint: disable=g-direct-tensorflow-import
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.eager import function
+from tensorflow.python.framework import ops
+# pylint: enable=g-direct-tensorflow-import
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 
@@ -188,13 +192,9 @@ def infer_feature_schema_v2(features, concrete_metadata_fn,
   Returns:
     A `Schema` proto.
   """
-  structured_inputs = tf2_utils.get_structured_inputs_from_func_graph(
-      concrete_metadata_fn.graph)
-  # Invoke concrete_metadata_fn with some dummy data.
-  inputs = tf2_utils.supply_missing_inputs(structured_inputs, batch_size=1)
-  flattened_inputs = tf.nest.flatten(inputs, expand_composites=True)
-  metadata = collections.defaultdict(list,
-                                     concrete_metadata_fn(*flattened_inputs))
+  optimized_concrete_fn = saved_transform_io_v2.optimize_concrete_function(
+      concrete_metadata_fn)
+  metadata = collections.defaultdict(list, optimized_concrete_fn())
 
   if not evaluate_schema_overrides:
     tensor_ranges = {
@@ -566,9 +566,12 @@ def _get_schema_overrides(graph,
   return result
 
 
-def get_traced_metadata_fn(tensor_replacement_map, preprocessing_fn,
-                           input_signature, base_temp_dir,
-                           evaluate_schema_overrides):
+def get_traced_metadata_fn(
+    tensor_replacement_map: Optional[Dict[str, tf.Tensor]],
+    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
+                               Mapping[str, common_types.TensorType]],
+    structured_inputs: Mapping[str, common_types.TensorType],
+    base_temp_dir: str, evaluate_schema_overrides: bool) -> function.Function:
   """Get a tf.function that returns a dictionary of annotations.
 
   Annotations are added to graph collections keyed by graph tensor names when
@@ -584,7 +587,7 @@ def get_traced_metadata_fn(tensor_replacement_map, preprocessing_fn,
     tensor_replacement_map: A map from placeholder tensor names to their
       evaluated replacement tensors.
     preprocessing_fn: A user defined python function to be traced.
-    input_signature: TypeSpecs describing the inputs to the `preprocessing_fn`.
+    structured_inputs: A dictionary of placeholder inputs to `preprocessing_fn`.
     base_temp_dir: Base path to write any dummy assets to during tracing.
     evaluate_schema_overrides: If `False`, the returned dictionary contains a
       single key `_TF_METADATA_TENSOR_COLLECTION` as all other annotations are
@@ -599,15 +602,13 @@ def get_traced_metadata_fn(tensor_replacement_map, preprocessing_fn,
   # Since this is a TFT-internal function with constant outputs, autograph will
   # not affect its behavior. It will only increase tracing time, if enabled.
   # Hence, trace with `autograph=False` here.
-  @tf.function(input_signature=[input_signature], autograph=False)
-  def metadata_fn(inputs):
+  @tf.function(input_signature=[], autograph=False)
+  def metadata_fn():
     graph = ops.get_default_graph()
-    # The user defined `preprocessing_fn` may directly modify its inputs which
-    # is not allowed in a tf.function. Hence, we make a copy here.
-    inputs_copy = tf_utils.copy_tensors(inputs)
+    inputs = tf2_utils.supply_missing_inputs(structured_inputs, batch_size=1)
     with graph_context.TFGraphContext(
         temp_dir=base_temp_dir, evaluated_replacements=tensor_replacement_map):
-      transformed_features = preprocessing_fn(inputs_copy)
+      transformed_features = preprocessing_fn(inputs)
 
     # Get a map from tensor value names to feature keys.
     reversed_features = _get_tensor_value_to_key_map(transformed_features)

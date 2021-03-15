@@ -18,20 +18,26 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
+from typing import Collection, Mapping, Optional
 
 # GOOGLE-INITIALIZATION
 
 import tensorflow as tf
-from tensorflow.python import tf2  # pylint: disable=g-direct-tensorflow-import
+from tensorflow_transform import common_types
+# pylint: disable=g-direct-tensorflow-import
+from tensorflow.python import tf2
+from tensorflow.python.framework.func_graph import FuncGraph
+# pylint: enable=g-direct-tensorflow-import
 
 
-def use_tf_compat_v1(force_tf_compat_v1):
+def use_tf_compat_v1(force_tf_compat_v1: bool) -> bool:
   """Evaluate from environment variables if TF should be used in compat.v1 mode."""
   major, _, _ = tf.version.VERSION.split('.')
   return force_tf_compat_v1 or int(major) < 2 or not tf2.enabled()
 
 
-def supply_missing_tensor(batch_size, tensor_shape, tensor_dtype):
+def supply_missing_tensor(batch_size: int, tensor_shape: tf.TensorShape,
+                          tensor_dtype: tf.DType) -> tf.Tensor:
   """Supplies a `tf.Tensor` compatible with `tensor`.
 
   Supports only string and numeric dtypes.
@@ -59,10 +65,18 @@ def supply_missing_tensor(batch_size, tensor_shape, tensor_dtype):
   return tf.zeros(result_shape, dtype=tensor_dtype)
 
 
-def supply_missing_inputs(structured_inputs, batch_size, missing_keys=None):
+def supply_missing_inputs(
+    structured_inputs: Mapping[str, common_types.TensorType],
+    batch_size: int,
+    missing_keys: Optional[Collection[str]] = None
+) -> Mapping[str, common_types.TensorType]:
   """Supply inputs for unfed features.
 
-  Supports only tf.Tensor.
+  Supports only tf.Tensor and tf.SparseTensor.
+
+  Note: Since this returns placeholders, it should be called from within a graph
+  context.
+
   Args:
     structured_inputs: a dict from keys to batches of placeholder graph tensors.
     batch_size: an integer representing the size of the batch returned.
@@ -71,16 +85,20 @@ def supply_missing_inputs(structured_inputs, batch_size, missing_keys=None):
       supplied for all keys.
 
   Returns:
-    A batch of tensors with the same structure as in `structured_inputs`
-    for the keys in `missing_keys`.
+    A batch of placeholders with default values having the same structure as in
+    `structured_inputs` for the keys in `missing_keys`.
   """
   missing_keys = missing_keys or list(structured_inputs)
   result = {}
   for key in missing_keys:
     tensor = structured_inputs[key]
     if isinstance(tensor, tf.Tensor):
-      result[key] = supply_missing_tensor(batch_size, tensor.shape,
-                                          tensor.dtype)
+      missing_tensor = supply_missing_tensor(batch_size, tensor.shape,
+                                             tensor.dtype)
+      # Return placeholders to ensure that tensor shape is not constrained to
+      # the dummy shape of the missing tensor created here during tracing.
+      result[key] = tf.raw_ops.PlaceholderWithDefault(
+          input=missing_tensor, shape=tensor.shape)
     elif isinstance(tensor, tf.SparseTensor):
       values = supply_missing_tensor(batch_size, tensor.values.shape,
                                      tensor.values.dtype)
@@ -93,7 +111,17 @@ def supply_missing_inputs(structured_inputs, batch_size, missing_keys=None):
           [tf.range(actual_batch_size, dtype=tf.int64)] +
           [tf.zeros(actual_batch_size, dtype=tf.int64)] * (dense_rank - 1),
           axis=1)
-      dense_shape = [actual_batch_size] + [1] * (dense_rank - 1)
+      dense_shape = tf.cast(
+          [actual_batch_size] + [1] * (dense_rank - 1), dtype=tf.int64)
+
+      # Return placeholders to ensure that tensor shape is not constrained to
+      # the dummy shape of the missing tensor created here during tracing.
+      indices = tf.raw_ops.PlaceholderWithDefault(
+          input=indices, shape=tensor.indices.shape)
+      values = tf.raw_ops.PlaceholderWithDefault(
+          input=values, shape=tensor.values.shape)
+      dense_shape = tf.raw_ops.PlaceholderWithDefault(
+          input=dense_shape, shape=tensor.dense_shape.shape)
       result[key] = tf.SparseTensor(
           indices=indices, values=values, dense_shape=dense_shape)
     else:
@@ -103,7 +131,8 @@ def supply_missing_inputs(structured_inputs, batch_size, missing_keys=None):
   return result
 
 
-def get_structured_inputs_from_func_graph(func_graph):
+def get_structured_inputs_from_func_graph(
+    func_graph: FuncGraph) -> Mapping[str, common_types.TensorType]:
   """Get structured inputs to a FuncGraph.
 
   Args:

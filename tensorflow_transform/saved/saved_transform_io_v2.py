@@ -27,6 +27,7 @@ from tensorflow_transform import annotators
 from tensorflow_transform import common_types
 from tensorflow_transform import graph_tools
 from tensorflow_transform import tf2_utils
+from tensorflow_transform import tf_utils
 from tensorflow_transform.saved import constants
 from tensorflow_transform.saved import saved_model_loader
 from tensorflow_transform.saved import saved_transform_io
@@ -106,14 +107,13 @@ class SavedModelLoader(object):
     """Initializes all class arguments."""
     self._load_v2_in_compat = load_v2_in_compat
     self._imported = imported
-    self._wrapped = wrapped
-    self._func_graph = self._wrapped.graph
+    self._wrapped_function = wrapped
+    self._func_graph = self._wrapped_function.graph
     self._structured_inputs = structured_inputs
     self._structured_outputs = structured_outputs
     self._output_to_inputs_map = outputs_to_inputs_map
-    self._unfed_input_keys = None
-    self._feeds = None
-    self._fetches_keys = None
+    self._sorted_unfed_input_keys = None
+    self._wrapped_function_finalized = None
     self._is_finalized = False
 
   @property
@@ -174,9 +174,6 @@ class SavedModelLoader(object):
 
   def _get_feeds(self, unfed_input_keys):
     """Returns set of tensors that will be fed."""
-    if self._is_finalized:
-      return self._feeds
-
     result = object_identity.ObjectIdentitySet(self._func_graph.inputs)
     for input_key in unfed_input_keys:
       unfed_input_components = self._get_component_tensors(
@@ -185,9 +182,6 @@ class SavedModelLoader(object):
     return result
 
   def _get_unfed_input_keys(self, input_tensor_keys):
-    if self._is_finalized:
-      return self._unfed_input_keys
-
     return set(self._structured_inputs.keys()).difference(input_tensor_keys)
 
   def _get_fetches(self, feeds):
@@ -202,9 +196,6 @@ class SavedModelLoader(object):
     return result
 
   def _get_fetches_keys(self, feeds):
-    if self._is_finalized:
-      return self._fetches_keys
-
     return self._get_fetches(feeds).keys()
 
   def _get_missing_inputs(self, unfed_input_keys, batch_size):
@@ -219,7 +210,7 @@ class SavedModelLoader(object):
   def _apply_v1_transform_model_in_v2(
       self, logical_input_map: Mapping[str, common_types.TensorType]
   ) -> Dict[str, common_types.TensorType]:
-    """Applies a V1 transform graph to `Tensor`s.
+    """Applies a V1 transform graph to dictionary of Tensors or SparseTensors.
 
     This method applies the transformation graph as a pruned function to the
     `logical_input_map`.
@@ -251,7 +242,7 @@ class SavedModelLoader(object):
       pruned_input_args.append(input_map[name])
 
     fetches = self._get_fetches(feeds)
-    pruned = self._wrapped.prune(feeds, fetches)
+    pruned = self._wrapped_function.prune(feeds, fetches)
     result = pruned(*pruned_input_args)
     # TODO(b/163329414): Remove set_shape when calling pruned no longer produces
     # tensors with unknown shapes.
@@ -270,10 +261,37 @@ class SavedModelLoader(object):
         result[key] = tf.convert_to_tensor(value)
     return result
 
+  def _apply_v2_transform_model_finalized(
+      self, logical_input_map: Mapping[str, common_types.TensorType]
+  ) -> Dict[str, common_types.TensorType]:
+    """Applies a V2 transform graph to dictionary of Tensors or SparseTensors.
+
+    This method applies the transformation graph to the `logical_input_map` to
+    return only outputs that can be computed from the keys provided in
+    `logical_input_map`. It assumes that self.finalize has been called before
+    this method is invoked.
+
+    Args:
+      logical_input_map: a dict of logical name to Tensor.  The logical names
+        must be a subset of those in the input signature of the transform graph,
+        and the corresponding Tensors must have the expected types and shapes.
+
+    Returns:
+      A dict of logical name to Tensor, as provided by the output signature of
+      the transform graph.
+    """
+
+    # Assert that the same keys are fed as this model was finalized with.
+    unfed_input_keys = self._get_unfed_input_keys(logical_input_map.keys())
+    assert sorted(unfed_input_keys) == self._sorted_unfed_input_keys
+
+    modified_inputs = self._format_input_map_as_tensors(logical_input_map)
+    return self._wrapped_function_finalized(modified_inputs)
+
   def _apply_v2_transform_model(
       self, logical_input_map: Mapping[str, common_types.TensorType]
   ) -> Dict[str, common_types.TensorType]:
-    """Applies a V2 transform graph to `Tensor`s.
+    """Applies a V2 transform graph to dictionary of Tensors or SparseTensors.
 
     This method applies the transformation graph to the `logical_input_map` to
     return only outputs that can be computed from the keys provided in
@@ -305,23 +323,24 @@ class SavedModelLoader(object):
 
     flattened_inputs = tf.nest.flatten(modified_inputs, expand_composites=True)
 
-    # self._wrapped.inputs may be longer than flattened_inputs as it also
-    # contains captured inputs. However, we only want the user inputs here so we
-    # don't assert equal length.
-    for input_t, wrapped_input in zip(flattened_inputs, self._wrapped.inputs):
+    # self._wrapped_function.inputs may be longer than flattened_inputs as it
+    # also contains captured inputs. However, we only want the user inputs here
+    # so we don't assert equal length.
+    for input_t, wrapped_input in zip(flattened_inputs,
+                                      self._wrapped_function.inputs):
       try:
         wrapped_input.shape.assert_is_compatible_with(input_t.shape)
       except ValueError as e:
         raise ValueError('{}: {}'.format(input_t, e))
 
-    transformed_features = self._wrapped(*flattened_inputs)
+    transformed_features = self._wrapped_function(*flattened_inputs)
     fetches_keys = self._get_fetches_keys(feeds)
     return {key: transformed_features[key] for key in fetches_keys}
 
   def apply_transform_model(
       self, logical_input_map: Mapping[str, common_types.TensorType]
   ) -> Dict[str, common_types.TensorType]:
-    """Applies a transform graph to `Tensor`s.
+    """Applies a transform graph to dictionary of Tensors or SparseTensors.
 
     Args:
       logical_input_map: a dict of logical name to Tensor.  The logical names
@@ -341,8 +360,33 @@ class SavedModelLoader(object):
 
     if self.load_v2_in_compat:
       return self._apply_v1_transform_model_in_v2(logical_input_map)
+    elif self._is_finalized:
+      return self._apply_v2_transform_model_finalized(logical_input_map)
     else:
       return self._apply_v2_transform_model(logical_input_map)
+
+  def _finalize_wrapped_function(self, unfed_input_keys, fetches_keys):
+    """Constructs a function that can be invoked without `unfed_input_keys`."""
+    original_input_signature = (
+        self._wrapped_function.structured_input_signature[0][0])
+    input_signature = {
+        k: v
+        for k, v in original_input_signature.items()
+        if k not in unfed_input_keys
+    }
+
+    @tf.function(input_signature=[input_signature], autograph=False)
+    def wrapped_finalized(inputs):
+      missing_inputs = self._get_missing_inputs(unfed_input_keys, batch_size=1)
+      # Directly modifying inputs is not allowed in a tf.function. Hence, we
+      # make a deep copy here.
+      inputs_copy = tf_utils.copy_tensors(inputs)
+      inputs_copy.update(missing_inputs)
+      flattened_inputs = tf.nest.flatten(inputs_copy, expand_composites=True)
+      transformed_features = self._wrapped_function(*flattened_inputs)
+      return {key: transformed_features[key] for key in fetches_keys}
+
+    return wrapped_finalized.get_concrete_function()
 
   # TODO(b/177672051): Consider calling finalize in the TransforFeaturesLayer.
   def finalize(self, input_tensor_keys, output_tensor_keys):
@@ -357,21 +401,23 @@ class SavedModelLoader(object):
       output_tensor_keys: Set of output keys that should be returned by the
         SavedModel.
     """
-    self._unfed_input_keys = self._get_unfed_input_keys(input_tensor_keys)
-    self._feeds = self._get_feeds(self._unfed_input_keys)
+    self._sorted_unfed_input_keys = sorted(
+        self._get_unfed_input_keys(input_tensor_keys))
+    feeds = self._get_feeds(self._sorted_unfed_input_keys)
     unexpected_outputs = (
-        set(output_tensor_keys) - set(self._get_fetches_keys(self._feeds)))
+        set(output_tensor_keys) - set(self._get_fetches_keys(feeds)))
     if unexpected_outputs:
       raise ValueError(
           'Unexpected output keys requested: {}'.format(unexpected_outputs))
-    self._fetches_keys = sorted(output_tensor_keys)
+    self._wrapped_function_finalized = self._finalize_wrapped_function(
+        self._sorted_unfed_input_keys, sorted(output_tensor_keys))
     self._is_finalized = True
 
 
 # TODO(b/177606209): Remove once TF supports saving optimized functions.
 # TODO(b/169666856): WrappedFunction.prune does not support composite tensors.
 # Hence, add additional handling when supporting composite tensors in TFT.
-def _optimize_concrete_function(
+def optimize_concrete_function(
     concrete_function: function.ConcreteFunction
 ) -> wrap_function.WrappedFunction:
   """Returns optimized function with same signature as `concrete_function`."""
@@ -418,7 +464,7 @@ def write_v2_saved_model(tf_function: function.Function, name: str,
   # SavedModel. Since this is no longer the case, we save the concrete function
   # directly.
   if tf.compat.forward_compatible(2020, 10, 8):
-    pruned_function = _optimize_concrete_function(concrete_fn)
+    pruned_function = optimize_concrete_function(concrete_fn)
     module.pruned_variables = pruned_function.variables
     setattr(module, name, pruned_function)
   else:

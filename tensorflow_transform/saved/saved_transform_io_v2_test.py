@@ -521,7 +521,7 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
       return z
 
     concrete_function = func.get_concrete_function()
-    optimized_function = saved_transform_io_v2._optimize_concrete_function(  # pylint: disable=protected-access
+    optimized_function = saved_transform_io_v2.optimize_concrete_function(
         concrete_function)
 
     self.assertLess(

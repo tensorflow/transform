@@ -1105,10 +1105,12 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     if self._use_tf_compat_v1:
       schema = schema_inference.infer_feature_schema(structured_outputs, graph)
     else:
+      # Use metadata_fn here as func_graph outputs may be wrapped in an identity
+      # op and hence may not return the same tensors that were annotated.
       metadata_fn = schema_inference.get_traced_metadata_fn(
           tensor_replacement_map={},
           preprocessing_fn=self._preprocessing_fn,
-          input_signature=specs,
+          structured_inputs=structured_inputs,
           base_temp_dir=base_temp_dir,
           evaluate_schema_overrides=False)
       schema = schema_inference.infer_feature_schema_v2(

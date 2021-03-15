@@ -26,6 +26,7 @@ from tensorflow_transform import analyzers
 from tensorflow_transform import common
 from tensorflow_transform import mappers
 from tensorflow_transform import schema_inference
+from tensorflow_transform import tf2_utils
 from tensorflow_transform import test_case
 from tensorflow_transform.tf_metadata import schema_utils_legacy
 from tensorflow_transform.tf_metadata import schema_utils
@@ -85,10 +86,12 @@ class SchemaInferenceTest(test_case.TransformTestCase):
           structure=tf_func.structured_outputs,
           flat_sequence=tf_func.outputs,
           expand_composites=True)
+      structured_inputs = tf2_utils.get_structured_inputs_from_func_graph(
+          tf_func.graph)
       metadata_fn = schema_inference.get_traced_metadata_fn(
           tensor_replacement_map={},
           preprocessing_fn=preprocessing_fn,
-          input_signature=input_signature,
+          structured_inputs=structured_inputs,
           base_temp_dir=os.path.join(self.get_temp_dir(), self._testMethodName),
           evaluate_schema_overrides=create_session)
       schema = schema_inference.infer_feature_schema_v2(

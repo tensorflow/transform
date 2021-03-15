@@ -500,11 +500,14 @@ def _check_valid_sparse_tensor(indices: Union[_SparseComponentType,
 # TODO(b/149997088): Split into two APIs one that will just trace the
 # `preprocessing_fn` using tf.function as is and another that will return
 # specific outputs requested for.
-def get_traced_transform_fn(preprocessing_fn,
-                            input_signature,
-                            base_temp_dir,
-                            tensor_replacement_map=None,
-                            output_keys_to_name_map=None):
+def get_traced_transform_fn(
+    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
+                               Mapping[str, common_types.TensorType]],
+    input_signature: Mapping[str, tf.TypeSpec],
+    base_temp_dir: str,
+    tensor_replacement_map: Optional[Dict[str, tf.Tensor]] = None,
+    output_keys_to_name_map: Optional[Dict[str,
+                                           str]] = None) -> function.Function:
   """Get preprocessing_fn traced using tf.function.
 
   Args:
@@ -644,21 +647,22 @@ def _trace_and_get_metadata(
     concrete_transform_fn: function.ConcreteFunction,
     preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
                                Mapping[str, common_types.TensorType]],
-    input_signature: Mapping[str, tf.TypeSpec], base_temp_dir: Optional[str],
+    base_temp_dir: Optional[str],
     tensor_replacement_map: Optional[Dict[str, tf.Tensor]]
 ) -> dataset_metadata.DatasetMetadata:
   """Compute and return metadata for the outputs of `concrete_transform_fn`."""
+  structured_inputs = tf2_utils.get_structured_inputs_from_func_graph(
+      concrete_transform_fn.graph)
   metadata_fn = schema_inference.get_traced_metadata_fn(
       tensor_replacement_map,
       preprocessing_fn,
-      input_signature,
+      structured_inputs,
       base_temp_dir,
       evaluate_schema_overrides=True)
-  concrete_metadata_fn = metadata_fn.get_concrete_function()
   return dataset_metadata.DatasetMetadata(
       schema=schema_inference.infer_feature_schema_v2(
           concrete_transform_fn.structured_outputs,
-          concrete_metadata_fn,
+          metadata_fn.get_concrete_function(),
           evaluate_schema_overrides=True))
 
 
@@ -700,8 +704,7 @@ def trace_and_write_v2_saved_model(
   if not concrete_transform_fn.graph.get_collection(
       analyzer_nodes.TENSOR_REPLACEMENTS):
     metadata = _trace_and_get_metadata(concrete_transform_fn, preprocessing_fn,
-                                       input_signature, base_temp_dir,
-                                       tensor_replacement_map)
+                                       base_temp_dir, tensor_replacement_map)
     metadata_io.write_metadata(metadata,
                                os.path.join(saved_model_dir, METADATA_DIR_NAME))
 
@@ -763,7 +766,6 @@ def analyze_in_place(preprocessing_fn, force_tf_compat_v1, feature_specs,
     transformed_metadata = _trace_and_get_metadata(
         concrete_transform_fn=concrete_transform_fn,
         preprocessing_fn=preprocessing_fn,
-        input_signature=type_specs,
         base_temp_dir=None,
         tensor_replacement_map=None)
   transformed_metadata_dir = os.path.join(
