@@ -233,7 +233,7 @@ raw_data_metadata = dataset_metadata.DatasetMetadata(
     }))
 ```
 
-The `dataset_schema.Schema` class contains the information needed to parse the
+The `Schema` proto contains the information needed to parse the
 data from its on-disk or in-memory format, into tensors. It is typically
 constructed by calling `schema_utils.schema_from_feature_spec` with a dict
 mapping feature keys to `tf.io.FixedLenFeature`, `tf.io.VarLenFeature`, and
