@@ -123,6 +123,13 @@ from tfx_bsl.types import tfx_namedtuple
 
 from tensorflow_metadata.proto.v0 import schema_pb2
 
+# TODO(b/123325923): Fix the key type here to agree with the actual keys.
+_DatasetElementType = Dict[Any,  # Any -> six.text_type?
+                           Union[beam_common.PRIMITIVE_TYPE,
+                                 # Arbitrarily-nested lists are allowed.
+                                 List[Any], np.generic, np.ndarray]]
+_TransformFnPathType = str
+
 Context = context.Context
 
 _CREATE_SAVED_MODEL_COUNTER_NAME = 'saved_models_created'
@@ -149,12 +156,6 @@ _DEFAULT_TENSORFLOW_CONFIG_BY_BEAM_RUNNER_TYPE = {
     beam.runners.DirectRunner: _FIXED_PARALLELISM_TF_CONFIG,
     fn_api_runner.FnApiRunner: _FIXED_PARALLELISM_TF_CONFIG,
 }
-
-# TODO(b/123325923): Fix the key type here to agree with the actual keys.
-_DATASET_ELEMENT_TYPE = Dict[Any,  # Any -> six.text_type?
-                             Union[beam_common.PRIMITIVE_TYPE,
-                                   # Arbitrarily-nested lists are allowed.
-                                   List[Any], np.generic, np.ndarray]]
 
 # TODO(b/68154497): pylint: disable=no-value-for-parameter
 
@@ -184,8 +185,8 @@ def _clear_shared_state_after_barrier(pipeline, input_barrier):
 
 
 # TODO(b/36223892): Verify that these type hints work and make needed fixes.
-@beam.typehints.with_input_types(
-    Union[List[_DATASET_ELEMENT_TYPE], pa.RecordBatch], str)
+@beam.typehints.with_input_types(Union[List[_DatasetElementType],
+                                       pa.RecordBatch], _TransformFnPathType)
 @beam.typehints.with_output_types(
     Dict[str, Union[np.ndarray, tf.compat.v1.SparseTensorValue]])
 class _RunMetaGraphDoFn(beam.DoFn):
@@ -620,7 +621,7 @@ def _replace_tensors_with_constant_values(saved_model_dir, base_temp_dir,
     beam_nodes.CreateSavedModel,
     tags={beam_common.EnvironmentTags.TF_COMPAT_V1})
 @beam.typehints.with_input_types(_TensorBinding)
-@beam.typehints.with_output_types(str)
+@beam.typehints.with_output_types(_TransformFnPathType)
 class _CreateSavedModelImpl(beam.PTransform):
   """Create a SavedModel from a TF Graph."""
 
@@ -915,7 +916,7 @@ class _InstrumentAPI(beam.PTransform):
                  self._mapper_use_counter))
 
 
-@beam.typehints.with_input_types(_DATASET_ELEMENT_TYPE)
+@beam.typehints.with_input_types(_DatasetElementType)
 @beam.typehints.with_output_types(pa.RecordBatch)
 class _InstanceDictInputToTFXIOInput(beam.PTransform):
   """PTransform that turns instance dicts into RecordBatches."""
@@ -1198,6 +1199,16 @@ class AnalyzeDataset(_AnalyzeDatasetCommon):
     return result
 
 
+@beam.typehints.with_input_types(Union[_DatasetElementType, pa.RecordBatch])
+# This PTransfrom outputs multiple PCollections and the output typehint is
+# checked against each of them. That is why it needs to represent elements of
+# all PCollections at the same time.
+# TODO(b/182935989) Change union to multiple output types once supported.
+@beam.typehints.with_output_types(Union[Union[Union[Tuple[pa.RecordBatch,
+                                                          Dict[str, pa.Array]],
+                                                    _DatasetElementType],
+                                              dataset_metadata.DatasetMetadata],
+                                        _TransformFnPathType])
 class AnalyzeAndTransformDataset(beam.PTransform):
   """Combination of AnalyzeDataset and TransformDataset.
 
@@ -1280,14 +1291,18 @@ def _remove_columns_from_metadata(metadata, excluded_columns):
       schema_utils.schema_from_feature_spec(new_feature_spec, new_domains))
 
 
-@beam.typehints.with_input_types(Union[_DATASET_ELEMENT_TYPE, pa.RecordBatch],
+@beam.typehints.with_input_types(Union[_DatasetElementType, pa.RecordBatch],
                                  Union[dataset_metadata.DatasetMetadata,
-                                       TensorAdapterConfig, str])
-# TODO(b/160799442): check and uncomment once the TFX Transform component is
-# updated to use `pa.RecordBatches`.
-# @beam.typehints.with_output_types(Union[Tuple[pa.RecordBatch,
-#                                                     Dict[str, pa.Array]],
-#                                               _DATASET_ELEMENT_TYPE])
+                                       TensorAdapterConfig,
+                                       _TransformFnPathType])
+# This PTransfrom outputs multiple PCollections and the output typehint is
+# checked against each of them. That is why it needs to represent elements of
+# all PCollections at the same time.
+# TODO(b/182935989) Change union to multiple output types once supported.
+@beam.typehints.with_output_types(Union[Union[Tuple[pa.RecordBatch,
+                                                    Dict[str, pa.Array]],
+                                              _DatasetElementType],
+                                        dataset_metadata.DatasetMetadata])
 class TransformDataset(beam.PTransform):
   """Applies the transformation computed by transforming a Dataset.
 
