@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Coder classes for encoding/decoding CSV into tf.Transform datasets."""
+"""Coder classes for encoding CSV into tf.Transform datasets."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -24,7 +24,6 @@ import six
 from six import moves
 import tensorflow as tf
 from tensorflow_transform.tf_metadata import schema_utils
-from tensorflow.python.util import deprecation  # pylint: disable=g-direct-tensorflow-import
 
 
 # This is in agreement with Tensorflow conversions for Unicode values for both
@@ -157,10 +156,6 @@ class _VarLenFeatureHandler(object):
 class EncodeError(Exception):
   """Base encode error."""
   pass
-
-
-_DECODE_DEPRECATION_MESSAGE = 'TFXIO should be used to decode CSV. '
-'For a reference, take a look at the get_started.md guide for details.'
 
 
 class CsvCoder(object):
@@ -312,7 +307,3 @@ class CsvCoder(object):
         raise TypeError('{} while encoding feature "{}"'.format(
             e, feature_handler.name))
     return self._encoder.encode_record(string_list)
-
-  @deprecation.deprecated(None, _DECODE_DEPRECATION_MESSAGE)
-  def decode(self, csv_string):
-    raise NotImplementedError(_DECODE_DEPRECATION_MESSAGE)

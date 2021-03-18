@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Coder classes for encoding/decoding TF Examples into tf.Transform datasets.
+"""Coder classes for encoding TF Examples into tf.Transform datasets.
 """
 
 # TODO(b/33688275): Rename ExampleProto to just Example, for all aspects of this
@@ -28,7 +28,6 @@ import numpy as np
 import six
 import tensorflow as tf
 from tensorflow_transform.tf_metadata import schema_utils
-from tensorflow.python.util import deprecation  # pylint: disable=g-direct-tensorflow-import
 
 
 # This function needs to be called at pipeline execution time as it depends on
@@ -208,10 +207,6 @@ class _VarLenFeatureHandler(object):
       self._value.extend(casted)
 
 
-_DECODE_DEPRECATION_MESSAGE = 'TFXIO should be used to decode tf.Examples. '
-'For reference, take a look at the get_started.md guide for details.'
-
-
 class ExampleProtoCoder(object):
   """A coder between maybe-serialized TF Examples and tf.Transform datasets."""
 
@@ -282,7 +277,3 @@ class ExampleProtoCoder(object):
     result = tf.train.Example()
     result.CopyFrom(self._encode_example_cache)
     return result
-
-  @deprecation.deprecated(None, _DECODE_DEPRECATION_MESSAGE)
-  def decode(self, example_proto):
-    raise NotImplementedError(_DECODE_DEPRECATION_MESSAGE)

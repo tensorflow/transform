@@ -14,6 +14,11 @@
     created inside the `preprocessing_fn` (for example, tf.hub models). This API
     should only be used when `force_tf_compat_v1=False` and TF2 behavior is
     enabled.
+*   The `decode` method of the available coders (`tft.coders.CsvCoder` and
+    `tft.coders.ExampleProtoCoder`) have been removed. These were deprecated in
+    the 0.25 release.
+    [Canned TFXIO implementations](https://www.tensorflow.org/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio)
+    should be used to read and decode data instead.
 
 ## Breaking Changes
 
