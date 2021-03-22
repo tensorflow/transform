@@ -14,7 +14,7 @@
 """An implementation of tf.Transform using Beam.
 
 The beam implementation takes a user defined preprocessing function (see
-../api.py for how to defined a preprocessing function) and implements it as a
+examples for how to define a preprocessing function) and implements it as a
 Beam PTransform.
 
 The AnalyzeDataset takes the user's preprocessing function and converts into

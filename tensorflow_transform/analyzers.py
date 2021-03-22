@@ -71,7 +71,6 @@ __all__ = [
     'tukey_location',
     'tukey_scale',
     'tukey_h_params',
-    'uniques',
     'var',
     'vocabulary',
 ]
@@ -2016,28 +2015,6 @@ def calculate_recommended_min_diff_from_avg(dataset_size: int) -> int:
           builtin_max(min_value, (dataset_size - small_dataset_size) /
                       (large_dataset_size - small_dataset_size) *
                       (max_value - min_value) + min_value)))
-
-
-@deprecation.deprecated(None, 'Use `tft.vocabulary()` instead.')
-@common.log_api_use(common.ANALYZER_COLLECTION)
-def uniques(x,
-            top_k=None,
-            frequency_threshold=None,
-            vocab_filename=None,
-            store_frequency=False,
-            weights=None,
-            labels=None,
-            name=None):
-  r"""See `tft.vocabulary`."""
-  return vocabulary(
-      x=x,
-      top_k=top_k,
-      frequency_threshold=frequency_threshold,
-      vocab_filename=vocab_filename,
-      store_frequency=store_frequency,
-      weights=weights,
-      labels=labels,
-      name=name)
 
 
 # Code related to this class is performance sensitive, so (micro-)benchmarks

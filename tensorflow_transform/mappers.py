@@ -1048,33 +1048,6 @@ def compute_and_apply_vocabulary(
         file_format=file_format)
 
 
-@deprecation.deprecated(None,
-                        'Use `tft.compute_and_apply_vocabulary()` instead.')
-@common.log_api_use(common.MAPPER_COLLECTION)
-def string_to_int(x,
-                  default_value=-1,
-                  top_k=None,
-                  frequency_threshold=None,
-                  num_oov_buckets=0,
-                  vocab_filename=None,
-                  weights=None,
-                  labels=None,
-                  file_format=analyzers.DEFAULT_VOCABULARY_FILE_FORMAT,
-                  name=None):
-  r"""See `tft.compute_and_apply_vocabulary`."""
-  return compute_and_apply_vocabulary(
-      x=x,
-      default_value=default_value,
-      top_k=top_k,
-      frequency_threshold=frequency_threshold,
-      num_oov_buckets=num_oov_buckets,
-      vocab_filename=vocab_filename,
-      weights=weights,
-      labels=labels,
-      file_format=file_format,
-      name=name)
-
-
 @common.log_api_use(common.MAPPER_COLLECTION)
 def apply_vocabulary(
     x: common_types.ConsistentTensorType,
@@ -1183,26 +1156,6 @@ def apply_vocabulary(
         result.values if isinstance(result, tf.SparseTensor) else result,
         min_value, max_value)
     return result
-
-
-@deprecation.deprecated(None, 'Use `tft.apply_vocabulary()` instead.')
-@common.log_api_use(common.MAPPER_COLLECTION)
-def apply_vocab(x,
-                deferred_vocab_filename_tensor,
-                default_value=-1,
-                num_oov_buckets=0,
-                lookup_fn=None,
-                file_format=analyzers.DEFAULT_VOCABULARY_FILE_FORMAT,
-                name=None):
-  r"""See `tft.apply_vocabulary`."""
-  return apply_vocabulary(
-      x=x,
-      deferred_vocab_filename_tensor=deferred_vocab_filename_tensor,
-      default_value=default_value,
-      num_oov_buckets=num_oov_buckets,
-      lookup_fn=lookup_fn,
-      file_format=file_format,
-      name=name)
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)

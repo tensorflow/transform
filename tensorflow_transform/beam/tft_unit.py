@@ -234,7 +234,6 @@ class TransformTestCase(test_case.TransformTestCase):
                                        expected_data=None,
                                        expected_metadata=None,
                                        expected_vocab_file_contents=None,
-                                       expected_asset_file_contents=None,
                                        test_data=None,
                                        desired_batch_size=None,
                                        beam_pipeline=None,
@@ -266,8 +265,6 @@ class TransformTestCase(test_case.TransformTestCase):
           to their expected content as a list of text lines or a list of tuples
           of frequency and text. Values should be the expected result of calling
           f.readlines() on the given asset files.
-      expected_asset_file_contents: deprecated.  Use
-          expected_vocab_file_contents.
       test_data: (optional) If this is provided then instead of calling
           AnalyzeAndTransformDataset with input_data, this function will call
           AnalyzeDataset with input_data and TransformDataset with test_data.
@@ -287,21 +284,9 @@ class TransformTestCase(test_case.TransformTestCase):
       AssertionError: if the expected data does not match the results of
           transforming input_data according to preprocessing_fn, or
           (if provided) if the expected metadata does not match.
-      ValueError: if expected_vocab_file_contents and
-          expected_asset_file_contents are both set.
     """
-    if (expected_vocab_file_contents is not None and
-        expected_asset_file_contents is not None):
-      raise ValueError('only one of expected_asset_file_contents and '
-                       'expected_asset_file_contents should be set')
-    elif expected_asset_file_contents is not None:
-      tf.compat.v1.logging.warn(
-          'expected_asset_file_contents is deprecated, use '
-          'expected_vocab_file_contents')
 
-    expected_vocab_file_contents = (
-        expected_vocab_file_contents or expected_asset_file_contents or {})
-    del expected_asset_file_contents
+    expected_vocab_file_contents = expected_vocab_file_contents or {}
 
     # Note: we don't separately test AnalyzeDataset and TransformDataset as
     # AnalyzeAndTransformDataset currently simply composes these two

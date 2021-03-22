@@ -19,6 +19,10 @@
     the 0.25 release.
     [Canned TFXIO implementations](https://www.tensorflow.org/tfx/tfx_bsl/api_docs/python/tfx_bsl/public/tfxio)
     should be used to read and decode data instead.
+*   Previously deprecated APIs were removed: `tft.uniques` (replaced by
+    `tft.vocabulary`), `tft.string_to_int` (replaced by
+    `tft.compute_and_apply_vocabulary`), `tft.apply_vocab` (replaced by
+    `tft.apply_vocabulary`), and `tft.apply_function` (identity function).
 
 ## Breaking Changes
 
