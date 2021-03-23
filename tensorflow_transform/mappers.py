@@ -941,7 +941,7 @@ def compute_and_apply_vocabulary(
     fingerprint_shuffle: bool = False,
     file_format: Optional[common_types.VocabularyFileFormatType] = analyzers
     .DEFAULT_VOCABULARY_FILE_FORMAT,
-    name: Optional[str] = None) -> common_types.ConsistentTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:  # TODO(b/64987151): Remove # pytype: disable=annotation-type-mismatch
   r"""Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
   In case one of the tokens contains the '\n' or '\r' characters or is empty it
@@ -1058,7 +1058,7 @@ def apply_vocabulary(
                                  Tuple[tf.Tensor, tf.Tensor]]] = None,
     file_format: Optional[common_types.VocabularyFileFormatType] = analyzers
     .DEFAULT_VOCABULARY_FILE_FORMAT,
-    name: Optional[str] = None) -> common_types.ConsistentTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:  # TODO(b/64987151): Remove # pytype: disable=annotation-type-mismatch
   r"""Maps `x` to a vocabulary specified by the deferred tensor.
 
   This function also writes domain statistics about the vocabulary min and max
