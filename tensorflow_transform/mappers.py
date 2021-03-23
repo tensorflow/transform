@@ -73,8 +73,6 @@ from tensorflow_transform import tf_utils
 # resolved.
 from tfx_bsl.types import tfx_namedtuple
 
-from tensorflow.python.util import deprecation  # pylint: disable=g-direct-tensorflow-import
-
 _BucketBoundariesType = Union[tf.Tensor, Iterable[Union[int, float]]]
 
 
@@ -1681,18 +1679,12 @@ def hash_strings(
   return tf.strings.to_hash_bucket_strong(strings, hash_buckets, key, name=name)
 
 
-# TODO(b/174549940): Remove `always_return_num_quantiles` after TFT 0.27
-# release.
-@deprecation.deprecated_args(
-    None, 'Number of generated buckets is now always `num_buckets` - 1.',
-    'always_return_num_quantiles')
 @common.log_api_use(common.MAPPER_COLLECTION)
 def bucketize(x: common_types.TensorType,
               num_buckets: int,
               epsilon: Optional[float] = None,
               weights: Optional[tf.Tensor] = None,
               elementwise: bool = False,
-              always_return_num_quantiles: bool = True,
               name: Optional[str] = None) -> common_types.TensorType:
   """Returns a bucketized column, with a bucket index assigned to each input.
 
@@ -1703,11 +1695,7 @@ def bucketize(x: common_types.TensorType,
       `SparseTensor` with non-missing values mapped to buckets.
       If elementwise=True then `x` must be dense.
     num_buckets: Values in the input `x` are divided into approximately
-      equal-sized buckets, where the number of buckets is `num_buckets`. By
-      default, the exact number will be available to `bucketize`. If
-      `always_return_num_quantiles` is False, the actual number of
-      buckets computed can be less or more than the requested number. Use the
-      generated metadata to find the computed number of buckets.
+      equal-sized buckets, where the number of buckets is `num_buckets`.
     epsilon: (Optional) Error tolerance, typically a small fraction close to
       zero. If a value is not specified by the caller, a suitable value is
       computed based on experimental results.  For `num_buckets` less
@@ -1721,7 +1709,6 @@ def bucketize(x: common_types.TensorType,
       same shape as x.
     elementwise: (Optional) If true, bucketize each element of the tensor
       independently.
-    always_return_num_quantiles: Deprecated. Do not set.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1737,7 +1724,6 @@ def bucketize(x: common_types.TensorType,
     ValueError: If value of num_buckets is not > 1.
     ValueError: If elementwise=True and x is a `SparseTensor`.
   """
-  del always_return_num_quantiles
   with tf.compat.v1.name_scope(name, 'bucketize'):
     if not isinstance(num_buckets, int):
       raise TypeError('num_buckets must be an int, got %s' % type(num_buckets))

@@ -23,6 +23,8 @@
     `tft.vocabulary`), `tft.string_to_int` (replaced by
     `tft.compute_and_apply_vocabulary`), `tft.apply_vocab` (replaced by
     `tft.apply_vocabulary`), and `tft.apply_function` (identity function).
+*   Removed the `always_return_num_quantiles` arg of `tft.quantiles` and
+    `tft.bucketize` which was deprecated in version 0.26.
 *   Depends on `absl-py>=0.9,<0.13`.
 
 ## Breaking Changes

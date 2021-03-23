@@ -54,7 +54,6 @@ from tfx_bsl import sketches
 from tfx_bsl.types import tfx_namedtuple
 
 from google.protobuf import descriptor_pb2
-from tensorflow.python.util import deprecation  # pylint: disable=g-direct-tensorflow-import
 
 __all__ = [
     'count_per_key',
@@ -2116,18 +2115,12 @@ class _QuantilesSketchCacheCoder(analyzer_nodes.CacheCoder):
     return pickle.loads(encoded_accumulator)
 
 
-# TODO(b/174549940): Remove `always_return_num_quantiles` after TFT 0.27
-# release.
-@deprecation.deprecated_args(
-    None, 'Number of returned quantiles is now always `num_buckets` - 1.',
-    'always_return_num_quantiles')
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def quantiles(x: tf.Tensor,
               num_buckets: int,
               epsilon: float,
               weights: Optional[tf.Tensor] = None,
               reduce_instance_dims: Optional[bool] = True,
-              always_return_num_quantiles: Optional[bool] = True,
               name: Optional[str] = None) -> tf.Tensor:
   """Computes the quantile boundaries of a `Tensor` over the whole dataset.
 
@@ -2139,11 +2132,8 @@ def quantiles(x: tf.Tensor,
   Args:
     x: An input `Tensor`.
     num_buckets: Values in the `x` are divided into approximately equal-sized
-      buckets, where the number of buckets is `num_buckets`. By default, the
-      exact number will be returned, minus one (boundary count is one less).
-      If `always_return_num_quantiles` is False, the actual number of buckets
-      computed can be less or more than the requested number. Use the generated
-      metadata to find the computed number of buckets.
+      buckets, where the number of buckets is `num_buckets`. The number of
+      returned quantiles is `num_buckets` - 1.
     epsilon: Error tolerance, typically a small fraction close to zero (e.g.
       0.01). Higher values of epsilon increase the quantile approximation, and
       hence result in more unequal buckets, but could improve performance,
@@ -2160,7 +2150,6 @@ def quantiles(x: tf.Tensor,
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single output vector. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
-    always_return_num_quantiles: Deprecated. Do not set.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -2169,7 +2158,6 @@ def quantiles(x: tf.Tensor,
     shape x.shape + [num_bucket-1].
     See code below for discussion on the type of bucket boundaries.
   """
-  del always_return_num_quantiles
   # TODO(b/64039847): quantile ops only support float bucket boundaries as this
   # triggers an assertion in MakeQuantileSummaries().
   # The restriction does not apply to inputs, which can be of any integral
