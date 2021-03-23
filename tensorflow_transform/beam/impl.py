@@ -882,7 +882,7 @@ def _infer_metadata_from_saved_model_v2(
 class _InstrumentAPI(beam.PTransform):
   """PTransform that adds metrics for API usage."""
 
-  def __init__(self, tf_graph):
+  def __init__(self, tf_graph, force_tf_compat_v1, use_tf_compat_v1):
 
     def _get_counter_from_graph_collection(collection_name):
       collection = tf_graph.get_collection(collection_name)
@@ -896,12 +896,21 @@ class _InstrumentAPI(beam.PTransform):
         common.ANALYZER_COLLECTION)
     self._mapper_use_counter = _get_counter_from_graph_collection(
         common.MAPPER_COLLECTION)
+    self._force_tf_compat_v1 = force_tf_compat_v1
+    self._use_tf_compat_v1 = use_tf_compat_v1
 
   def expand(self, pipeline):
 
     def _make_and_increment_counters(unused_element, analyzer_counter,
-                                     mapper_counter):
+                                     mapper_counter, force_tf_compat_v1,
+                                     use_tf_compat_v1):
       del unused_element
+      beam.metrics.Metrics.gauge(beam_common.METRICS_NAMESPACE,
+                                 'requested_tf_compat_v1').set(
+                                     int(force_tf_compat_v1))
+      beam.metrics.Metrics.gauge(beam_common.METRICS_NAMESPACE,
+                                 'running_tf_compat_v1').set(
+                                     int(use_tf_compat_v1))
       for counter_prefix, counter in (('tft_analyzer_{}', analyzer_counter),
                                       ('tft_mapper_{}', mapper_counter)):
         for name, count in counter.items():
@@ -913,7 +922,8 @@ class _InstrumentAPI(beam.PTransform):
         | 'CreateSoleAPIUse' >> beam.Create([None])
         | 'CountAPIUse' >>
         beam.Map(_make_and_increment_counters, self._analyzer_use_counter,
-                 self._mapper_use_counter))
+                 self._mapper_use_counter, self._force_tf_compat_v1,
+                 self._use_tf_compat_v1))
 
 
 @beam.typehints.with_input_types(_DatasetElementType)
@@ -955,12 +965,6 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     self._preprocessing_fn = preprocessing_fn
     self.pipeline = pipeline
     self._use_tf_compat_v1 = Context.get_use_tf_compat_v1()
-    beam.metrics.Metrics.gauge(beam_common.METRICS_NAMESPACE,
-                               'requested_tf_compat_v1').set(
-                                   int(Context._get_force_tf_compat_v1()))
-    beam.metrics.Metrics.gauge(beam_common.METRICS_NAMESPACE,
-                               'running_tf_compat_v1').set(
-                                   int(self._use_tf_compat_v1))
     _assert_tensorflow_version()
 
   def _extract_input_pvalues(self, dataset):
@@ -1052,7 +1056,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
 
     # Add a stage that inspects graph collections for API use counts and logs
     # them as a beam metric.
-    _ = (pipeline | 'InstrumentAPI' >> _InstrumentAPI(graph))
+    _ = (pipeline | 'InstrumentAPI' >> _InstrumentAPI(
+        graph, Context._get_force_tf_compat_v1(), self._use_tf_compat_v1))  # pylint: disable=protected-access
 
     asset_map = annotators.get_asset_annotations(graph)
     # TF.HUB can error when unapproved collections are present. So we explicitly
