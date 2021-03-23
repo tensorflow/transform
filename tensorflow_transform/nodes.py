@@ -30,6 +30,8 @@ from __future__ import print_function
 
 import abc
 import collections
+from typing import Collection, Optional, Tuple
+
 from future.utils import with_metaclass
 import pydot
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
@@ -48,7 +50,7 @@ class ValueNode(
     value_index: The index of this value in the outputs of `parent_operation`.
   """
 
-  def __init__(self, parent_operation, value_index):
+  def __init__(self, parent_operation, value_index: int):
     if not isinstance(parent_operation, OperationNode):
       raise TypeError(
           'parent_operation must be a OperationNode, got {} of type {}'.format(
@@ -78,21 +80,21 @@ class OperationDef(with_metaclass(abc.ABCMeta, object)):
   """
 
   @property
-  def num_outputs(self):
+  def num_outputs(self) -> int:
     """The number of outputs returned by this operation."""
     return 1
 
   @abc.abstractproperty
-  def label(self):
+  def label(self) -> str:
     """A unique label for this operation in the graph."""
     pass
 
-  def get_field_str(self, field_name):
+  def get_field_str(self, field_name: str) -> str:
     """Returns a str representation of the requested field."""
     return getattr(self, field_name)
 
   @property
-  def is_partitionable(self):
+  def is_partitionable(self) -> bool:
     """If True, means that this operation can be applied on partitioned data.
 
     Being able to be applied on partitioned data means that partitioning the
@@ -107,7 +109,7 @@ class OperationDef(with_metaclass(abc.ABCMeta, object)):
     return False
 
   @property
-  def cache_coder(self):
+  def cache_coder(self) -> Optional[object]:
     """A CacheCoder object used to cache outputs returned by this operation.
 
     If this doesn't return None, then:
@@ -226,7 +228,7 @@ class Visitor(with_metaclass(abc.ABCMeta, object)):
 class Traverser(object):
   """Class to traverse the DAG of nodes."""
 
-  def __init__(self, visitor):
+  def __init__(self, visitor: Visitor):
     """Init method for Traverser.
 
     Args:
@@ -236,7 +238,7 @@ class Traverser(object):
     self._stack = []
     self._visitor = visitor
 
-  def visit_value_node(self, value_node):
+  def visit_value_node(self, value_node: ValueNode):
     """Visit a value node, and return a corresponding value.
 
     Args:
@@ -248,7 +250,7 @@ class Traverser(object):
     """
     return self._maybe_visit_value_node(value_node)
 
-  def _maybe_visit_value_node(self, value_node):
+  def _maybe_visit_value_node(self, value_node: ValueNode):
     """Visit a value node if not cached, and return a corresponding value.
 
     Args:
@@ -262,7 +264,7 @@ class Traverser(object):
       self._visit_operation(value_node.parent_operation)
     return self._cached_value_nodes_values[value_node]
 
-  def _visit_operation(self, operation):
+  def _visit_operation(self, operation: OperationNode):
     """Visit an `OperationNode`."""
     if operation in self._stack:
       cycle = self._stack[self._stack.index(operation):] + [operation]
@@ -295,7 +297,7 @@ class Traverser(object):
       self._cached_value_nodes_values[output] = value
 
 
-def _escape(line):
+def _escape(line: str) -> str:
   for char in '<>{}':
     line = line.replace(char, '\\%s' % char)
   return line
@@ -312,10 +314,10 @@ class _PrintGraphVisitor(Visitor):
     self._dot_graph.set_node_defaults(shape='Mrecord')
     super(_PrintGraphVisitor, self).__init__()
 
-  def get_dot_graph(self):
+  def get_dot_graph(self) -> pydot.Dot:
     return self._dot_graph
 
-  def visit(self, operation_def, input_nodes):
+  def visit(self, operation_def, input_nodes) -> Tuple[pydot.Node, ...]:
     num_outputs = operation_def.num_outputs
     node_name = operation_def.label
 
@@ -346,11 +348,11 @@ class _PrintGraphVisitor(Visitor):
           pydot.Node(obj_dict={'name': '"{}":{}'.format(node_name, idx)})
           for idx in range(num_outputs))
 
-  def validate_value(self, value):
+  def validate_value(self, value: pydot.Node):
     assert isinstance(value, pydot.Node)
 
 
-def get_dot_graph(leaf_nodes):
+def get_dot_graph(leaf_nodes: Collection[ValueNode]) -> pydot.Dot:
   """Utility to print a graph in a human readable manner.
 
   The format resembles a sequence of calls to apply_operation or

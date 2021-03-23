@@ -1553,8 +1553,8 @@ def _get_vocab_filename(vocab_filename, store_frequency):
 
   Args:
     vocab_filename: The file name for the vocabulary file. If none, the
-      "uniques" scope name in the context of this graph will be used as the file
-      name.
+      "vocabulary" scope name in the context of this graph will be used as the
+      file name.
     store_frequency: A bool that is true when the vocabulary for which this
       generates a filename stores term frequency. False otherwise.
 

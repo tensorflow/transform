@@ -20,8 +20,8 @@ from __future__ import print_function
 import abc
 import os
 import tempfile
-
 # GOOGLE-INITIALIZATION
+from future.utils import with_metaclass
 
 import six
 
@@ -296,9 +296,7 @@ def _create_graph_with_tf_function_while():
   return {'x': x, 'y': larger_than_100(x)}
 
 
-class _Matcher(object):
-
-  __metaclass__ = abc.ABCMeta
+class _Matcher(with_metaclass(abc.ABCMeta, object)):
 
   def _future_proof(self, value):
     if isinstance(value, (six.text_type, str, bytes)):

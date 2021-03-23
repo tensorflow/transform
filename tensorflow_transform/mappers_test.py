@@ -523,7 +523,8 @@ class MappersTest(test_case.TransformTestCase):
         [(3/5), (1/5), (1/5), (1/2), (1/2)],
         [2, 4])
     reduced_term_freq = tf.constant([[2, 1, 1, 1]])
-    output_tensor = mappers._to_tfidf(term_freq, reduced_term_freq, 2, True)
+    output_tensor = mappers._to_tfidf(term_freq, reduced_term_freq,
+                                      tf.constant(2), True)
     log_3_over_2 = 1.4054651
     self.assertSparseOutput(
         expected_indices=[[0, 0], [0, 1], [0, 2], [1, 0], [1, 3]],
@@ -539,7 +540,8 @@ class MappersTest(test_case.TransformTestCase):
         [(3/5), (1/5), (1/5), (1/2), (1/2)],
         [2, 4])
     reduced_term_freq = tf.constant([[2, 1, 1, 1]])
-    output_tensor = mappers._to_tfidf(term_freq, reduced_term_freq, 2, False)
+    output_tensor = mappers._to_tfidf(term_freq, reduced_term_freq,
+                                      tf.constant(2), False)
     log_2_over_1 = 1.6931471
     self.assertSparseOutput(
         expected_indices=[[0, 0], [0, 1], [0, 2], [1, 0], [1, 3]],

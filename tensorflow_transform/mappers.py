@@ -1078,8 +1078,8 @@ def apply_vocabulary(
       Otherwise it is assigned the `default_value`.
     lookup_fn: Optional lookup function, if specified it should take a tensor
       and a deferred vocab filename as an input and return a lookup `op` along
-      with the table size, by default `apply_vocab` constructs a StaticHashTable
-      for the table lookup.
+      with the table size, by default `apply_vocabulary` constructs a
+      StaticHashTable for the table lookup.
     file_format: (Optional) A str. The format of the given vocabulary.
       Accepted formats are: 'tfrecord_gzip', 'text'.
       The default value is 'text'.
@@ -1872,8 +1872,7 @@ def _apply_buckets_with_keys(
     key_values = key.values if isinstance(key, tf.SparseTensor) else key
 
     x_values = tf.cast(x_values, tf.float32)
-    # Convert `key_values` to indices in key_vocab.  We must use apply_function
-    # since this uses a Table.
+    # Convert `key_values` to indices in key_vocab.
     key_indices = tf_utils.lookup_key(key_values, key_vocab)
 
     adjusted_key_indices = tf.where(
