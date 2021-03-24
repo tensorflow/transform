@@ -26,6 +26,9 @@
 *   Removed the `always_return_num_quantiles` arg of `tft.quantiles` and
     `tft.bucketize` which was deprecated in version 0.26.
 *   Depends on `absl-py>=0.9,<0.13`.
+*   Added support for `count_params` method to the `TransformFeaturesLayer`.
+    This will allow to call Keras Model's `summary()` method if the model is
+    using the `TransformFeaturesLayer`.
 
 ## Breaking Changes
 
