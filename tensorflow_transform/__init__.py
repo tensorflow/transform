@@ -18,7 +18,6 @@
 from tensorflow_transform import coders
 from tensorflow_transform.analyzers import *
 from tensorflow_transform.annotators import *
-# Deprecated tft.apply_function placeholder.
 from tensorflow_transform.inspect_preprocessing_fn import *
 from tensorflow_transform.mappers import *
 from tensorflow_transform.output_wrapper import TFTransformOutput
