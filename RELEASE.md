@@ -4,6 +4,16 @@
 
 ## Major Features and Improvements
 
+## Bug Fixes and Other Changes
+
+## Breaking Changes
+
+## Deprecations
+
+# Version 0.29.0
+
+## Major Features and Improvements
+
 *   `tft.AnalyzeAndTransformDataset` and `tft.TransformDataset` can now output
     `pyarrow.RecordBatch`es. This is controlled by a parameter
     `output_record_batches` which is set to `False` by default.
@@ -25,16 +35,20 @@
     `tft.apply_vocabulary`), and `tft.apply_function` (identity function).
 *   Removed the `always_return_num_quantiles` arg of `tft.quantiles` and
     `tft.bucketize` which was deprecated in version 0.26.
-*   Depends on `absl-py>=0.9,<0.13`.
 *   Added support for `count_params` method to the `TransformFeaturesLayer`.
     This will allow to call Keras Model's `summary()` method if the model is
     using the `TransformFeaturesLayer`.
+*   Depends on `absl-py>=0.9,<0.13`.
+*   Depends on `tensorflow-metadata>=0.29.0,<0.30.0`.
+*   Depends on `tfx-bsl>=0.29.0,<0.30.0`.
 
 ## Breaking Changes
 
 *   Existing caches (for all analyzers) are automatically invalidated.
 
 ## Deprecations
+
+*   N/A
 
 # Version 0.28.0
 
