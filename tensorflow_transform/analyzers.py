@@ -250,6 +250,23 @@ class NumPyCombiner(analyzer_nodes.Combiner):
       raise TypeError('Expected all tuples or Nones, but got %r' %
                       output_shapes)
     self._output_shapes = output_shapes
+    if np.isnan(default_accumulator_value):
+      # This case is needed because np.nan != np.nan.
+      self._is_default_sub_accumulator = self._equals_to_scalar_nan
+    else:
+      self._is_default_sub_accumulator = self._equals_to_default_sub_accumulator
+
+  def _equals_to_scalar_nan(self, array):
+    return not array.shape and np.isnan(array)
+
+  def _equals_to_default_sub_accumulator(self, array):
+    # Note that `np.array_equal` below does at most per-element comparison of
+    # 0-dim arrays since `_default_sub_accumulator` is a 0-dim array, and
+    # `np.array_equal` exits early on a shape mismatch.
+    return np.array_equal(array, self._default_sub_accumulator)
+
+  def _is_default_sub_accumulator(self, array):
+    raise NotImplementedError('Implementation should be set in __init__.')
 
   def create_accumulator(self):
     return [
@@ -269,10 +286,8 @@ class NumPyCombiner(analyzer_nodes.Combiner):
     # TODO(b/112414577): Go back to accepting only a single input.
     # See comment in _numeric_combine.
     # If the first subaccumulator is default, then the accumulator is default
-    # and can be discarded. Note that `np.array_equal` below does at most
-    # per-element comparison of 0-dim arrays since `_default_sub_accumulator`
-    # is a 0-dim array, and `np.array_equal` exits early on a shape mismatch.
-    if np.array_equal(accumulator[0], self._default_sub_accumulator):
+    # and can be discarded.
+    if self._is_default_sub_accumulator(accumulator[0]):
       return batch_values
     else:
       return [
@@ -282,12 +297,10 @@ class NumPyCombiner(analyzer_nodes.Combiner):
 
   def merge_accumulators(self, accumulators):
     # If the first subaccumulator is default, then the accumulator is default
-    # and can be discarded. Note that `np.array_equal` below does at most
-    # per-element comparison of 0-dim arrays since `_default_sub_accumulator`
-    # is a 0-dim array, and `np.array_equal` exits early on a shape mismatch.
+    # and can be discarded.
     non_default_accumulators = [
         accumulator for accumulator in accumulators
-        if not np.array_equal(accumulator[0], self._default_sub_accumulator)
+        if not self._is_default_sub_accumulator(accumulator[0])
     ]
     if non_default_accumulators:
       return [
@@ -471,18 +484,19 @@ def _min_and_max(x: common_types.TensorType,
     TypeError: If the type of `x` is not supported.
   """
   with tf.compat.v1.name_scope(name, 'min_and_max'):
-    combine_fn = np.max
+    output_dtype = x.dtype
     if (not reduce_instance_dims and isinstance(x, tf.SparseTensor) and
         x.dtype.is_floating):
       combine_fn = np.nanmax
-
-    output_dtype = x.dtype
+      default_accumulator_value = (np.nan if x.dtype.is_floating else
+                                   -output_dtype.max)
+    else:
+      combine_fn = np.max
+      default_accumulator_value = (-np.inf if x.dtype.is_floating else
+                                   -output_dtype.max)
 
     x_batch_minus_min, x_batch_max = tf_utils.reduce_batch_minus_min_and_max(
         x, reduce_instance_dims)
-
-    default_accumulator_value = (-np.inf if x.dtype.is_floating
-                                 else -output_dtype.max)
 
     minus_x_min, x_max = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
         inputs=[x_batch_minus_min, x_batch_max],
@@ -542,18 +556,19 @@ def _min_and_max_per_key(
     raise NotImplementedError('Per-key elementwise reduction not supported')
 
   with tf.compat.v1.name_scope(name, 'min_and_max_per_key'):
-    combine_fn = np.max
+    output_dtype = x.dtype
     if (not reduce_instance_dims and isinstance(x, tf.SparseTensor) and
         x.dtype.is_floating):
       combine_fn = np.nanmax
-
-    output_dtype = x.dtype
+      default_accumulator_value = (np.nan if x.dtype.is_floating else
+                                   -output_dtype.max)
+    else:
+      combine_fn = np.max
+      default_accumulator_value = (-np.inf if x.dtype.is_floating else
+                                   -output_dtype.max)
 
     key_vocab, x_batch_minus_min, x_batch_max = (
         tf_utils.reduce_batch_minus_min_and_max_per_key(x, key))
-
-    default_accumulator_value = (-np.inf if x.dtype.is_floating
-                                 else -output_dtype.max)
 
     key_values = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
         inputs=[x_batch_minus_min, x_batch_max],
