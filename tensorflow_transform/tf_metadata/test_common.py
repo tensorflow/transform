@@ -19,7 +19,6 @@ from __future__ import print_function
 
 import tensorflow as tf
 
-from tensorflow_transform.tf_metadata import dataset_schema as sch
 from tensorflow_transform.tf_metadata import schema_utils
 
 
@@ -46,29 +45,3 @@ test_feature_spec = {
 
 def get_test_schema():
   return schema_utils.schema_from_feature_spec(test_feature_spec)
-
-
-_COLUMN_SCHEMAS = {
-    # FixedLenFeatures
-    'fixed_categorical_int_with_range': sch.ColumnSchema(
-        sch.IntDomain(tf.int64, -5, 10, True),
-        [], sch.FixedColumnRepresentation()),
-    'fixed_int': sch.ColumnSchema(
-        tf.int64, [5], sch.FixedColumnRepresentation()),
-    'fixed_float': sch.ColumnSchema(
-        tf.float32, [5], sch.FixedColumnRepresentation()),
-    'fixed_string': sch.ColumnSchema(
-        tf.string, [5], sch.FixedColumnRepresentation()),
-    # VarLenFeatures
-    'var_int': sch.ColumnSchema(
-        tf.int64, None, sch.ListColumnRepresentation()),
-    'var_float': sch.ColumnSchema(
-        tf.float32, None, sch.ListColumnRepresentation()),
-    'var_string': sch.ColumnSchema(
-        tf.string, None, sch.ListColumnRepresentation())
-}
-
-
-def get_manually_created_schema():
-  """Provide a test schema built from scratch using the Schema classes."""
-  return sch.Schema(_COLUMN_SCHEMAS)

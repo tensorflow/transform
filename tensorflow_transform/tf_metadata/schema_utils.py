@@ -20,7 +20,6 @@ from __future__ import print_function
 from typing import Dict, Mapping, Optional
 
 # GOOGLE-INITIALIZATION
-
 import tensorflow as tf
 
 from tensorflow_transform import common_types

@@ -6,7 +6,13 @@
 
 ## Bug Fixes and Other Changes
 
+*   Removed the `dataset_schema` module, most methods in it have been deprecated
+    since version 0.14.
+
 ## Breaking Changes
+
+*   `DatasetMetadata` no longer accepts a dict as its input schema. `schema` is
+    expected to be a `Schema` proto now.
 
 ## Deprecations
 

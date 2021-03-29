@@ -17,25 +17,21 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensorflow_transform.tf_metadata import dataset_schema
+from tensorflow_metadata.proto.v0 import schema_pb2
 
 
 class DatasetMetadata(object):
   """A collection of metadata about a dataset.
 
   This is an in-memory representation that may be serialized and deserialized to
-  and from a variety of disk representations.  These disk representations must
-  conform to the directory structure encoded in `DatasetMetadataDirectory`, but
-  may vary in the file formats they write within those directories.
+  and from a variety of disk representations.
   """
 
-  def __init__(self, schema):
-    if isinstance(schema, dict):
-      schema = dataset_schema.Schema(schema)
+  def __init__(self, schema: schema_pb2.Schema):
     self._schema = schema
 
   @property
-  def schema(self):
+  def schema(self) -> schema_pb2.Schema:
     return self._schema
 
   def __eq__(self, other):
