@@ -3255,10 +3255,22 @@ class BeamImplTest(tft_unit.TransformTestCase):
             feature {
               name: "x$sparse_indices_0"
               type: INT
+              # TODO(b/184055743): Once TensorFlow is released with
+              # cl/342914534, uncomment.
+              # int_domain {
+              #   min: 0
+              #   max: 4
+              # }
             }
             feature {
               name: "x$sparse_indices_1"
               type: INT
+              # TODO(b/184055743): Once TensorFlow is released with
+              # cl/342914534 uncomment.
+              #  int_domain {
+              #   min: 0
+              #   max: 4
+              #  }
             }
             feature {
               name: "x$sparse_values"
@@ -3280,14 +3292,28 @@ class BeamImplTest(tft_unit.TransformTestCase):
         if not tft_unit.is_external_environment():
           expected_metadata.generate_legacy_feature_spec = False
 
-        self.assertProtoEquals(transformed_metadata.schema, expected_metadata)
+        # TODO(b/184055743): Once TensorFlow is released with cl/342914534,
+        # remove this.
+        # TODO(b/184057384): Even with cl/342914534,
+        # transformed_metadata.deferred_schema still does not contain the shape
+        # information about the SparseTensor.
+        def int_domain_cleared(schema):
+          result = schema_pb2.Schema()
+          result.CopyFrom(schema)
+          for f in result.feature:
+            f.ClearField('int_domain')
+          return result
+
+        self.assertProtoEquals(int_domain_cleared(transformed_metadata.schema),
+                               expected_metadata)
 
         beam_test_util.assert_that(
             transformed_data, self._MakeTransformOutputAssertFn(expected_data))
 
         def _assert_schemas_equal_fn(schema_dict_list):
           self.assertEqual(1, len(schema_dict_list))
-          self.assertProtoEquals(schema_dict_list[0].schema, expected_metadata)
+          self.assertProtoEquals(
+              int_domain_cleared(schema_dict_list[0].schema), expected_metadata)
 
         beam_test_util.assert_that(
             transformed_metadata.deferred_metadata,
@@ -3298,15 +3324,26 @@ class BeamImplTest(tft_unit.TransformTestCase):
       dataset = tf.data.TFRecordDataset(materialize_path)
       tft_out = tft.TFTransformOutput(transform_output_path)
       transformed_feature_spec = tft_out.transformed_feature_spec()
-      self.assertEqual(
-          transformed_feature_spec, {
-              'x':
-                  tf.io.SparseFeature(
-                      ['x$sparse_indices_0', 'x$sparse_indices_1'],
-                      'x$sparse_values',
-                      tf.float32, [-1, -1],
-                      already_sorted=True)
-          })
+      self.assertLen(transformed_feature_spec, 1)
+      self.assertIn('x', transformed_feature_spec)
+      self.assertIn(
+          transformed_feature_spec['x'],
+          (tf.io.SparseFeature(['x$sparse_indices_0', 'x$sparse_indices_1'],
+                               'x$sparse_values',
+                               tf.float32, [5, 5],
+                               already_sorted=True),
+           # TODO(b/184055743): Once TensorFlow is released with cl/342914534,
+           # remove this.
+           # TODO(b/184057384): Even with cl/342914534, still may not contain
+           # the shape information about the SparseTensor.
+           tf.io.SparseFeature(['x$sparse_indices_0', 'x$sparse_indices_1'],
+                               'x$sparse_values',
+                               tf.float32, [-1, -1],
+                               already_sorted=True)))
+
+      transformed_feature_spec['x'] = tf.io.SparseFeature(
+          ['x$sparse_indices_0', 'x$sparse_indices_1'],
+          'x$sparse_values', tf.float32, [5, 5], already_sorted=True)
 
       def parse_fn(serialized_input):
         result = tf.io.parse_single_example(serialized_input,
@@ -3323,7 +3360,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_sparse_components = [
         np.array([[arr] for arr in zip(x_idx0, x_idx1)]),
         np.array([[x] for x in x_data]),
-        np.array([[-1, -1]] * len(x_data))
+        np.array([[5, 5]] * len(x_data))
     ]
     self.assertLen(transformed_sparse_components,
                    len(expected_sparse_components))
