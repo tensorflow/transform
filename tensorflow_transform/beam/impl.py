@@ -905,12 +905,12 @@ class _InstrumentAPI(beam.PTransform):
                                      mapper_counter, force_tf_compat_v1,
                                      use_tf_compat_v1):
       del unused_element
-      beam.metrics.Metrics.gauge(beam_common.METRICS_NAMESPACE,
-                                 'requested_tf_compat_v1').set(
-                                     int(force_tf_compat_v1))
-      beam.metrics.Metrics.gauge(beam_common.METRICS_NAMESPACE,
-                                 'running_tf_compat_v1').set(
-                                     int(use_tf_compat_v1))
+      beam.metrics.Metrics.counter(beam_common.METRICS_NAMESPACE,
+                                   'requested_tf_compat_v1').inc(
+                                       int(force_tf_compat_v1))
+      beam.metrics.Metrics.counter(beam_common.METRICS_NAMESPACE,
+                                   'running_tf_compat_v1').inc(
+                                       int(use_tf_compat_v1))
       for counter_prefix, counter in (('tft_analyzer_{}', analyzer_counter),
                                       ('tft_mapper_{}', mapper_counter)):
         for name, count in counter.items():

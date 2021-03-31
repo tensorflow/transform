@@ -26,6 +26,7 @@ import tensorflow as tf
 from tensorflow_transform import common_types
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python import tf2
+from tensorflow.python.framework import ops
 from tensorflow.python.framework.func_graph import FuncGraph
 # pylint: enable=g-direct-tensorflow-import
 
@@ -33,7 +34,12 @@ from tensorflow.python.framework.func_graph import FuncGraph
 def use_tf_compat_v1(force_tf_compat_v1: bool) -> bool:
   """Evaluate from environment variables if TF should be used in compat.v1 mode."""
   major, _, _ = tf.version.VERSION.split('.')
-  return force_tf_compat_v1 or int(major) < 2 or not tf2.enabled()
+  # TODO(b/160294509): Use tf.compat.v1 when we stop supporting TF 1.15.
+  # If tf.enable_v2_behavior has been called, but eager execution has been
+  # disabled, force compat v1 behavior. Hence, check
+  # `executing_eagerly_outside_functions` as well.
+  return (force_tf_compat_v1 or int(major) < 2 or not tf2.enabled() or
+          not ops.executing_eagerly_outside_functions())
 
 
 def supply_missing_tensor(batch_size: int, tensor_shape: tf.TensorShape,

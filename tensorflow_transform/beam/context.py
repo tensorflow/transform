@@ -102,9 +102,7 @@ class Context(object):
     self._desired_batch_size = desired_batch_size
     self._passthrough_keys = passthrough_keys
     self._use_deep_copy_optimization = use_deep_copy_optimization
-    # If tf.enable_v2_behavior has been called, but eager execution has been
-    # disabled, force compat v1 behavior.
-    self._force_tf_compat_v1 = not tf.executing_eagerly() or force_tf_compat_v1
+    self._force_tf_compat_v1 = force_tf_compat_v1
 
   def __enter__(self):
     # Previous State's properties are inherited if not explicitly specified.
