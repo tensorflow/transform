@@ -176,6 +176,10 @@ def _ApplyThresholdsAndTopK(  # pylint: disable=invalid-name
       def map_key_to_count_and_term(kv, key_fn):
         """Parses key from term with `key_fn` and maps it to count and term."""
         count, term = kv
+        # TODO(b/184196242): Ideally we wouldn't be producing numpy.float64
+        # counts in the first place, as opposed to casting to float here. See
+        # also b/79751861.
+        count = float(count) if isinstance(count, np.float64) else count
         key = key_fn(term)
         return key, (count, term)
 
