@@ -521,10 +521,10 @@ class ImplHelperTest(test_case.TransformTestCase):
     self.assertEqual(features['dense_string'].dtype, tf.string)
 
     self.assertEqual(type(features['_sparse_underscored']), tf.SparseTensor)
-    # TODO(b/184055743): Once TensorFlow is released with cl/342914534,
-    # only keep the assertion of [None, None, 17].
-    self.assertIn(features['_sparse_underscored'].get_shape().as_list(),
-                  ([None, None, 17], [None, None, None]))
+    # TODO(zoyahav): Change last dimension size to 17 once SparseTensors propogate
+    # static dense_shape from typespec correctly.
+    self.assertEqual(features['_sparse_underscored'].get_shape().as_list(),
+                     [None, None, None])
     self.assertEqual(features['_sparse_underscored'].dtype, tf.string)
 
     self.assertEqual(type(features['ragged_string']), tf.RaggedTensor)
