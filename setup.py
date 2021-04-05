@@ -101,6 +101,6 @@ setup(
     long_description=_LONG_DESCRIPTION,
     long_description_content_type='text/markdown',
     keywords='tensorflow transform tfx',
-    url='https://www.tensorflow.org/tfx/transform',
+    url='https://www.tensorflow.org/tfx/transform/get_started',
     download_url='https://github.com/tensorflow/transform/tags',
     requires=[])
