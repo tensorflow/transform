@@ -32,6 +32,7 @@ import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import analyzers
 from tensorflow_transform import common
+from tensorflow_transform import pretrained_models
 from tensorflow_transform import schema_inference
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.beam import tft_unit
@@ -180,7 +181,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     def preprocessing_fn(inputs):
       x = inputs['x']
-      output_col = tft.apply_saved_model(
+      output_col = pretrained_models.apply_saved_model(
           export_dir, x, tags=[tf.saved_model.SERVING])
       return {'out': output_col}
 
@@ -233,7 +234,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     def preprocessing_fn(inputs):
       x = inputs['x']
-      output_col = tft.apply_saved_model(
+      output_col = pretrained_models.apply_saved_model(
           export_dir, x, tags=[tf.saved_model.SERVING])
       return {'out': output_col}
 
@@ -292,7 +293,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       x = inputs['x']
       y = inputs['y']
       z = inputs['z']
-      sum_column = tft.apply_saved_model(
+      sum_column = pretrained_models.apply_saved_model(
           export_dir, {
               'name1': x,
               'name3': z,
@@ -350,7 +351,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def preprocessing_fn(inputs):
       x = inputs['x']
       y = inputs['y']
-      out_value = tft.apply_function_with_checkpoint(
+      out_value = pretrained_models.apply_function_with_checkpoint(
           tensor_fn, [x, y], checkpoint_path)
       return {'out': out_value}
 
