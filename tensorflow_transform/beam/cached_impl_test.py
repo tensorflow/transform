@@ -1114,11 +1114,6 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(p2.metrics, 'saved_models_created',
                                    _ZERO_PHASE_NUM_SAVED_MODELS)
 
-    self.assertMetricsCounterEqual(p2.metrics, 'num_instances', 0)
-    self.assertMetricsCounterEqual(p2.metrics, 'cache_entries_decoded', 1)
-    self.assertMetricsCounterEqual(p2.metrics, 'cache_entries_encoded', 0)
-    self.assertMetricsCounterEqual(p2.metrics, 'saved_models_created', 1)
-
     # Modifying the tf.function contents causes cache invalidation.
     run_result = self._run_pipeline(
         feature_spec,
@@ -1135,7 +1130,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(p3.metrics, 'num_instances', 2)
     self.assertMetricsCounterEqual(p3.metrics, 'cache_entries_decoded', 0)
     self.assertMetricsCounterEqual(p3.metrics, 'cache_entries_encoded', 1)
-    self.assertMetricsCounterEqual(p3.metrics, 'saved_models_created', 2)
+    self.assertMetricsCounterEqual(p3.metrics, 'saved_models_created',
+                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
 
   @tft_unit.named_parameters(_TF_VERSION_NAMED_PARAMETERS)
   def test_changing_constant_fails_cache(self, use_tf_compat_v1):
