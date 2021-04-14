@@ -86,6 +86,7 @@ from apache_beam.typehints import List
 from apache_beam.typehints import Set
 from apache_beam.typehints import Tuple
 from apache_beam.typehints import Union
+from apache_beam.utils import shared
 
 import numpy as np
 import pyarrow as pa
@@ -111,7 +112,6 @@ from tensorflow_transform.saved import saved_transform_io_v2
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
-from tfx_bsl.beam import shared
 from tfx_bsl.tfxio import tensor_to_arrow
 from tfx_bsl.tfxio import tf_example_record
 from tfx_bsl.tfxio.tensor_adapter import TensorAdapter
