@@ -456,6 +456,14 @@ def reorder_histogram(bucket_vocab, counts, boundary_size):
   return tf.gather(counts, ordering)
 
 
+# TODO(b/62379925): Remove this once all supported TF versions have
+# tf.data.experimental.DatasetInitializer.
+def is_vocabulary_tfrecord_supported():
+  return ((hasattr(tf.data.experimental, 'DatasetInitializer') or
+           hasattr(tf.lookup.experimental, 'DatasetInitializer')) and
+          tf.version.VERSION >= '2.4')
+
+
 def apply_bucketize_op(
     x: tf.Tensor,
     boundaries: tf.Tensor,
@@ -486,9 +494,11 @@ def apply_bucketize_op(
   return bucket_indices
 
 
-# TODO(b/62379925): Remove this once TF 2.3 is no longer supported.
+# TODO(b/62379925): Remove this once all supported TF versions have
+# tf.data.experimental.DatasetInitializer.
 class _DatasetInitializerCompat(
-    getattr(tf.lookup.experimental, 'DatasetInitializer', object)):
+    getattr(tf.data.experimental, 'DatasetInitializer',
+            getattr(tf.lookup.experimental, 'DatasetInitializer', object))):
   """Extends DatasetInitializer when possible and registers the init_op."""
 
   def __init__(self, *args, **kwargs):

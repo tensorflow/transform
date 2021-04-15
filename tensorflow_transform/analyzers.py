@@ -1943,8 +1943,7 @@ def _vocabulary_analyzer_nodes(
 ) -> common_types.TemporaryAnalyzerOutputType:
   """Internal helper for analyzing vocab. See `vocabulary` doc string."""
   if (file_format == 'tfrecord_gzip' and
-      (not hasattr(tf.lookup.experimental, 'DatasetInitializer') or
-       tf.version.VERSION < '2.4')):
+      not tf_utils.is_vocabulary_tfrecord_supported()):
     raise ValueError(
         'Vocabulary file_format "tfrecord_gzip" requires TF version >= 2.4')
 

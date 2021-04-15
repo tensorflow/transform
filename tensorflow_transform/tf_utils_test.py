@@ -1366,7 +1366,7 @@ class TFUtilsTest(test_case.TransformTestCase):
 class VocabTFUtilsTest(test_case.TransformTestCase):
 
   def setUp(self):
-    if (not hasattr(tf.lookup.experimental, 'DatasetInitializer') and
+    if (not tf_utils.is_vocabulary_tfrecord_supported() and
         test_case.is_external_environment()):
       raise unittest.SkipTest('Test requires DatasetInitializer')
     super(VocabTFUtilsTest, self).setUp()

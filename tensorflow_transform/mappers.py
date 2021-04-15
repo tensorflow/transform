@@ -1091,8 +1091,7 @@ def apply_vocabulary(
     assigned default_value.
   """
   if (file_format == 'tfrecord_gzip' and
-      (not hasattr(tf.lookup.experimental, 'DatasetInitializer') or
-       tf.version.VERSION < '2.4')):
+      not tf_utils.is_vocabulary_tfrecord_supported()):
     raise ValueError(
         'Vocabulary file_format "tfrecord_gzip" requires TF version >= 2.4')
   with tf.compat.v1.name_scope(name, 'apply_vocab'):

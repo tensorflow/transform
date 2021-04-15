@@ -17,7 +17,7 @@
 
 # GOOGLE-INITIALIZATION
 
-import tensorflow as tf
+from tensorflow_transform import tf_utils
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam import vocabulary_integration_test
 
@@ -29,8 +29,8 @@ class TFRecordVocabularyIntegrationTest(
 
   def setUp(self):
     if (tft_unit.is_external_environment() and
-        (not hasattr(tf.lookup.experimental, 'DatasetInitializer') or
-         tf.version.VERSION < '2.4') or tft_unit.is_tf_api_version_1()):
+        not tf_utils.is_vocabulary_tfrecord_supported() or
+        tft_unit.is_tf_api_version_1()):
       raise unittest.SkipTest('Test requires async DatasetInitializer')
     super(TFRecordVocabularyIntegrationTest, self).setUp()
 
