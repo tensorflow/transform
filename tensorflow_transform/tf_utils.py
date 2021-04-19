@@ -1360,13 +1360,34 @@ def track_asset_analyzer_output(eager_asset_path: ops.EagerTensor,
   graph = ops.get_default_graph()
   graph.add_to_collection(
       _ASSET_REPLACEMENTS,
-      (hashable_tensor_or_op(eager_asset_path), graph_tensor))
+      (hashable_tensor_or_op(graph_tensor), eager_asset_path))
+
+
+def _get_asset_analyzer_output_and_control_dependency(
+    asset_filepath: _AssetFileType
+) -> Tuple[_AssetFileType, Optional[tf.Tensor]]:
+  """Returns a tuple of (asset filepath, control dependency)."""
+  control_dependency = None
+  asset_replacements_coll = ops.get_default_graph().get_collection(
+      _ASSET_REPLACEMENTS)
+  if not asset_replacements_coll:
+    return asset_filepath, control_dependency
+
+  if not isinstance(asset_filepath, tf.Tensor):
+    raise ValueError('Expected asset_filepath ({}) to be a tf.Tensor.'.format(
+        asset_filepath))
+  eager_asset_filepath = dict(asset_replacements_coll).get(
+      hashable_tensor_or_op(asset_filepath), None)
+  if eager_asset_filepath:
+    control_dependency = asset_filepath
+    asset_filepath = eager_asset_filepath
+  return asset_filepath, control_dependency
 
 
 def _lookup_table(
     table: lookup_ops.LookupInterface, x: common_types.TensorType,
     control_dependency: Optional[tf.Tensor]) -> common_types.TensorType:
-  """Return the result of looking up `x` in `table` with an optional depndency on `control_dependency`."""
+  """Look up x in table with an optional depndency on control_dependency."""
   with contextlib.ExitStack() as stack:
     # tf.control_dependencies([tensor]) adds a dependency to tensor.op. Wrap the
     # tensor in an identity op to ensure that walking the graph from `result`
@@ -1398,6 +1419,11 @@ def construct_and_lookup_table(
 
   """
   graph = ops.get_default_graph()
+  # If table is lifted into an initialization scope, add a control dependency
+  # on the graph tensor used to track this analyzer in
+  # `analyzer_nodes.TENSOR_REPLACEMENTS`.
+  asset_filepath, control_dependency = (
+      _get_asset_analyzer_output_and_control_dependency(asset_filepath))
   with contextlib.ExitStack() as stack:
     # TODO(b/165884902): Use tf.inside_function after dropping TF 2.3 support.
     if isinstance(graph, func_graph.FuncGraph) and isinstance(
@@ -1407,12 +1433,4 @@ def construct_and_lookup_table(
       stack.enter_context(tf.init_scope())
 
     table = construct_table_callable(asset_filepath)
-    # If table is lifted into an initialization scope, add a control dependency
-    # on the graph tensor used to track this analyzer in
-    # `analyzer_nodes.TENSOR_REPLACEMENTS`.
-    control_dependency = None
-    asset_replacements_coll = graph.get_collection(_ASSET_REPLACEMENTS)
-    if asset_replacements_coll and isinstance(asset_filepath, tf.Tensor):
-      control_dependency = dict(asset_replacements_coll).get(
-          hashable_tensor_or_op(asset_filepath), None)
   return table, _lookup_table(table, x, control_dependency)

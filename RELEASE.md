@@ -8,6 +8,9 @@
 
 *   Removed the `dataset_schema` module, most methods in it have been deprecated
     since version 0.14.
+*   Fix a bug where having an analyzer operate on the output of `tft.vocabulary`
+    would cause it to evaluate incorrectly when `force_tf_compat_v1=False` with
+    TF2 behaviors enabled.
 
 ## Breaking Changes
 

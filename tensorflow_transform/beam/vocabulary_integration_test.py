@@ -1432,6 +1432,57 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         input_metadata,
         expected_vocab_file_contents={'my_vocab': expected_vocab_file_contents})
 
+  def testVocabularyCustomLookup(self):
+    if self._VocabFormat() != 'text':
+      raise tft_unit.SkipTest('Test only applicable to text format.')
+
+    input_data = [
+        dict(x=b'bar'),
+        dict(x=b'foo'),
+        dict(x=b'bar'),
+        dict(x=b'bar'),
+        dict(x=b'foo'),
+    ]
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'x': tf.io.FixedLenFeature([], tf.string)})
+    expected_data = [
+        dict(x=b'bar', x_int=0, x_int_mean=0.4),
+        dict(x=b'bar', x_int=0, x_int_mean=0.4),
+        dict(x=b'bar', x_int=0, x_int_mean=0.4),
+        dict(x=b'foo', x_int=1, x_int_mean=0.4),
+        dict(x=b'foo', x_int=1, x_int_mean=0.4),
+    ]
+    expected_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([], tf.string),
+        'x_int': tf.io.FixedLenFeature([], tf.int64),
+        'x_int_mean': tf.io.FixedLenFeature([], tf.float32)
+    })
+    expected_vocab_file_contents = [(b'bar'), (b'foo')]
+
+    def preprocessing_fn(inputs):
+      vocab_path = tft.vocabulary(
+          inputs['x'],
+          vocab_filename='my_vocab',
+          file_format=self._VocabFormat())
+      initializer = tf.lookup.TextFileInitializer(
+          vocab_path,
+          key_dtype=tf.string,
+          key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
+          value_dtype=tf.int64,
+          value_index=tf.lookup.TextFileIndex.LINE_NUMBER)
+      table = tf.lookup.StaticHashTable(initializer, default_value=-1)
+      x_int = table.lookup(inputs['x'])
+      x_int_mean = tf.zeros_like(x_int, dtype=tf.float32) + tft.mean(x_int)
+      return {'x': inputs['x'], 'x_int': x_int, 'x_int_mean': x_int_mean}
+
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata,
+        expected_vocab_file_contents={'my_vocab': expected_vocab_file_contents})
+
 
 if __name__ == '__main__':
   tft_unit.main()

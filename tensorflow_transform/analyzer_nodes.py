@@ -275,9 +275,7 @@ def _bind_future_as_tensor_v2(
                                            temporary_analyzer_info.graph_tensor)
       graph.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
                               eager_asset_path)
-      return eager_asset_path
-    else:
-      return temporary_analyzer_info.graph_tensor
+    return temporary_analyzer_info.graph_tensor
 
 
 def bind_future_as_tensor(
