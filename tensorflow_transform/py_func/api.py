@@ -20,6 +20,7 @@ from __future__ import print_function
 from tensorflow_transform.py_func import pyfunc_helper
 
 
+# TODO(b/178867088): Figure out the TF2 compatibility plan for this API.
 def apply_pyfunc(func, Tout, stateful=True, name=None, *args):  # pylint: disable=invalid-name
   """Applies a python function to some `Tensor`s.
 
@@ -41,6 +42,9 @@ def apply_pyfunc(func, Tout, stateful=True, name=None, *args):  # pylint: disabl
   But unpickling requires a Python environment, so there it's not possible to
   provide support in non-Python languages for loading such ops.  Therefore
   loading these ops in libraries such as TensorFlow Serving is not supported.
+
+  Note: This API can only be used when TF2 is disabled or
+  `tft_beam.Context.force_tf_compat_v1=True`.
 
   Args:
     func: A Python function, which accepts a list of NumPy `ndarray` objects

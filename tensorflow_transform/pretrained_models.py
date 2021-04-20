@@ -103,6 +103,9 @@ def apply_saved_model(model_dir, inputs, tags, signature_name=None,
   `model_dir`, `tags` and `signature_name`. Note that the SavedModel will be
   converted to an all-constants graph.
 
+  Note: This API can only be used when TF2 is disabled or
+  `tft_beam.Context.force_tf_compat_v1=True`.
+
   Args:
     model_dir: A path containing a SavedModel.
     inputs: A dict whose keys are the names from the input signature and whose
@@ -225,6 +228,9 @@ def apply_function_with_checkpoint(fn, inputs, checkpoint, include=None,
   all-constants graph, so ops requiring graph collections, such as table lookup
   (which requires a table init op being added to TABLE_INITIALIZERS collection),
   are not supported.
+
+  Note: This API can only be used when TF2 is disabled or
+  `tft_beam.Context.force_tf_compat_v1=True`.
 
   Args:
     fn: A tensor-in-tensor-out function that may contain variables.
