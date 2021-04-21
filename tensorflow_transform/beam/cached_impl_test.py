@@ -388,7 +388,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
     specs = feature_spec
     base_temp_dir = None
     if not use_tf_compat_v1:
-      specs = tft_unit.feature_spec_as_type_spec(specs)
+      specs = impl_helper.get_type_specs_from_feature_specs(specs)
       base_temp_dir = self.base_test_dir
     graph, structured_inputs, structured_outputs = (
         impl_helper.trace_preprocessing_function(

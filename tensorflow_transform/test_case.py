@@ -342,36 +342,3 @@ class TransformTestCase(parameterized.TestCase, tf.test.TestCase):
         dict(zip(a, b)) for a, b in zip(list_of_keys, list_of_values)
     ]
     return self._SortedDicts(unsorted_dict_list)
-
-
-def feature_spec_as_type_spec(feature_spec):
-  """Returns `tf.TensorSpec`/`tf.SparseTensorSpec`s for the given feature spec.
-
-  Returns a dictionary of type_spec with the same type and shape as defined by
-  `feature_spec`.
-
-  Args:
-    feature_spec: A TensorFlow feature spec.
-
-  Returns:
-    A dictionary from strings to `tf.TensorSpec` or `tf.SparseTensorSpec`s.
-
-  Raises:
-    ValueError: If the feature spec contains feature types not supported.
-  """
-  result = {}
-
-  for name, spec in feature_spec.items():
-    if spec.dtype not in (tf.int64, tf.float32, tf.string):
-      raise ValueError('Feature {} ({}) had invalid dtype'.format(name, spec))
-    if isinstance(spec, tf.io.FixedLenFeature):
-      result[name] = tf.TensorSpec(shape=[None] + spec.shape, dtype=spec.dtype)
-    elif isinstance(spec, tf.io.VarLenFeature):
-      result[name] = tf.SparseTensorSpec(shape=[None, None], dtype=spec.dtype)
-    elif isinstance(spec, tf.io.SparseFeature):
-      result[name] = tf.SparseTensorSpec(
-          shape=[None, spec.size], dtype=spec.dtype)
-    else:
-      raise TypeError('Feature spec {} of type {} is not supported for feature '
-                      '{}'.format(spec, type(spec), name))
-  return result

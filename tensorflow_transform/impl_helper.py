@@ -394,17 +394,30 @@ def _tf_dtype_to_arrow_type(dtype: tf.DType) -> pa.DataType:
     raise TypeError('Unable to handle data type {}'.format(dtype))
 
 
-def make_tensor_to_arrow_converter(
-    schema: schema_pb2.Schema) -> tensor_to_arrow.TensorsToRecordBatchConverter:
-  """Constructs a `tf.Tensor` to `pa.RecordBatch` converter."""
-  type_specs = {}
-  feature_specs = schema_utils.schema_as_feature_spec(schema).feature_spec
+def get_type_specs_from_feature_specs(
+    feature_specs: Dict[str, common_types.FeatureSpecType]
+) -> Dict[str, tf.TypeSpec]:
+  """Returns `tf.TensorSpec`/`tf.SparseTensorSpec`s for the given feature spec.
+
+  Returns a dictionary of type_spec with the same type and shape as defined by
+  `feature_specs`.
+
+  Args:
+    feature_specs: A TensorFlow feature spec.
+
+  Returns:
+    A dictionary from strings to `tf.TensorSpec` or `tf.SparseTensorSpec`s.
+
+  Raises:
+    ValueError: If the feature spec contains feature types not supported.
+  """
+  result = {}
   for name, feature_spec in feature_specs.items():
     if isinstance(feature_spec, tf.io.FixedLenFeature):
-      type_specs[name] = tf.TensorSpec([None] + list(feature_spec.shape),
-                                       feature_spec.dtype)
+      result[name] = tf.TensorSpec([None] + list(feature_spec.shape),
+                                   feature_spec.dtype)
     elif isinstance(feature_spec, tf.io.VarLenFeature):
-      type_specs[name] = tf.SparseTensorSpec([None, None], feature_spec.dtype)
+      result[name] = tf.SparseTensorSpec([None, None], feature_spec.dtype)
     elif isinstance(feature_spec, tf.io.SparseFeature):
       # `TensorsToRecordBatchConverter` ignores `SparseFeature`s since arbitrary
       # `SparseTensor`s are not yet supported. They are handled in
@@ -414,7 +427,14 @@ def make_tensor_to_arrow_converter(
       pass
     else:
       raise ValueError('Invalid feature spec {}.'.format(feature_spec))
+  return result
 
+
+def make_tensor_to_arrow_converter(
+    schema: schema_pb2.Schema) -> tensor_to_arrow.TensorsToRecordBatchConverter:
+  """Constructs a `tf.Tensor` to `pa.RecordBatch` converter."""
+  feature_specs = schema_utils.schema_as_feature_spec(schema).feature_spec
+  type_specs = get_type_specs_from_feature_specs(feature_specs)
   return tensor_to_arrow.TensorsToRecordBatchConverter(type_specs)
 
 

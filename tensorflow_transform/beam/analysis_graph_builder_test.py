@@ -404,7 +404,7 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
       test_case.skip_if_not_tf2('Tensorflow 2.x required')
     specs = (
         feature_spec if use_tf_compat_v1 else
-        test_case.feature_spec_as_type_spec(feature_spec))
+        impl_helper.get_type_specs_from_feature_specs(feature_spec))
     graph, structured_inputs, structured_outputs = (
         impl_helper.trace_preprocessing_function(
             preprocessing_fn,
@@ -480,7 +480,7 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
     feature_spec = {'x': tf.io.FixedLenFeature([], tf.float32)}
     specs = (
         feature_spec if use_tf_compat_v1 else
-        test_case.feature_spec_as_type_spec(feature_spec))
+        impl_helper.get_type_specs_from_feature_specs(feature_spec))
     with mock.patch(
         'tensorflow_transform.beam.analysis_graph_builder.'
         'analyzer_cache.make_cache_entry_key',
@@ -513,7 +513,7 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
     feature_spec = {'x': tf.io.FixedLenFeature([], tf.float32)}
     specs = (
         feature_spec if use_tf_compat_v1 else
-        test_case.feature_spec_as_type_spec(feature_spec))
+        impl_helper.get_type_specs_from_feature_specs(feature_spec))
     with mock.patch(
         'tensorflow_transform.beam.analysis_graph_builder.'
         'analyzer_cache.make_cache_entry_key',
