@@ -72,13 +72,13 @@ def supply_missing_tensor(batch_size: int, tensor_shape: tf.TensorShape,
 
 
 def supply_missing_inputs(
-    structured_inputs: Mapping[str, common_types.TensorType],
+    structured_inputs: Mapping[str, common_types.InputTensorType],
     batch_size: int,
     missing_keys: Optional[Collection[str]] = None
-) -> Mapping[str, common_types.TensorType]:
+) -> Mapping[str, common_types.InputTensorType]:
   """Supply inputs for unfed features.
 
-  Supports only tf.Tensor and tf.SparseTensor.
+  Supports only tf.Tensor, tf.SparseTensor and tf.RaggedTensor.
 
   Note: Since this returns placeholders, it should be called from within a graph
   context.
@@ -95,14 +95,15 @@ def supply_missing_inputs(
     `structured_inputs` for the keys in `missing_keys`.
   """
   missing_keys = missing_keys or list(structured_inputs)
+  # Return placeholders to ensure that tensor shape is not constrained to the
+  # dummy shape of the missing tensor created here during tracing.
   result = {}
   for key in missing_keys:
     tensor = structured_inputs[key]
-    if isinstance(tensor, tf.Tensor):
+    if isinstance(tensor, tf.Tensor) or (isinstance(tensor, tf.RaggedTensor) and
+                                         tensor.ragged_rank == 0):
       missing_tensor = supply_missing_tensor(batch_size, tensor.shape,
                                              tensor.dtype)
-      # Return placeholders to ensure that tensor shape is not constrained to
-      # the dummy shape of the missing tensor created here during tracing.
       result[key] = tf.raw_ops.PlaceholderWithDefault(
           input=missing_tensor, shape=tensor.shape)
     elif isinstance(tensor, tf.SparseTensor):
@@ -120,8 +121,6 @@ def supply_missing_inputs(
       dense_shape = tf.cast(
           [actual_batch_size] + [1] * (dense_rank - 1), dtype=tf.int64)
 
-      # Return placeholders to ensure that tensor shape is not constrained to
-      # the dummy shape of the missing tensor created here during tracing.
       indices = tf.raw_ops.PlaceholderWithDefault(
           input=indices, shape=tensor.indices.shape)
       values = tf.raw_ops.PlaceholderWithDefault(
@@ -130,15 +129,33 @@ def supply_missing_inputs(
           input=dense_shape, shape=tensor.dense_shape.shape)
       result[key] = tf.SparseTensor(
           indices=indices, values=values, dense_shape=dense_shape)
+    elif isinstance(tensor, tf.RaggedTensor):
+      # Builds a ragged tensor similar to tf.ragged.placeholder, except with
+      # default values for all components.
+      ragged_rank = tensor.ragged_rank
+      values = supply_missing_tensor(batch_size, tensor.flat_values.shape,
+                                     tensor.flat_values.dtype)
+      result[key] = tf.raw_ops.PlaceholderWithDefault(
+          input=values, shape=tensor.flat_values.shape)
+      for _ in range(ragged_rank):
+        # row_splits[0] should be 0 and row_splits[-1] should be values.shape[0]
+        # for any ragged tensor. Hence, use this as the default.
+        row_splits = tf.constant([0] + [values.shape[0]], dtype=tf.int64)
+        values = tf.RaggedTensor.from_row_splits(
+            values, row_splits, validate=False)
+        row_splits = tf.raw_ops.PlaceholderWithDefault(
+            input=row_splits, shape=[None])
+        result[key] = tf.RaggedTensor.from_row_splits(
+            result[key], row_splits, validate=False)
     else:
       # TODO(b/169666856): Add support for generic CompositeTensors.
       raise ValueError('Received unsupported input tensor type. Only '
-                       'dense/sparse tensors are currently supported.')
+                       'dense/sparse/ragged tensors are currently supported.')
   return result
 
 
 def get_structured_inputs_from_func_graph(
-    func_graph: FuncGraph) -> Mapping[str, common_types.TensorType]:
+    func_graph: FuncGraph) -> Mapping[str, common_types.InputTensorType]:
   """Get structured inputs to a FuncGraph.
 
   Args:

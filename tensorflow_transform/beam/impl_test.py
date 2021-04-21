@@ -3334,6 +3334,80 @@ class BeamImplTest(tft_unit.TransformTestCase):
       self.assertAllEqual(expected[1], transformed[1])
       self.assertAllEqual(expected[2], transformed[2])
 
+  def testRaggedWithTFXIO(self):
+    # TODO(b/169666856): Expand test to include testing TransformDataset when
+    # it is supported.
+    self._SkipIfOutputRecordBatches()
+
+    x_data = [[[1], [], [2, 3]], [[]]]
+    input_record_batch = pa.RecordBatch.from_arrays([
+        pa.array([x for x in x_data],
+                 type=pa.large_list(pa.large_list(pa.int64()))),
+    ], ['x'])
+    tensor_adapter_config = tensor_adapter.TensorAdapterConfig(
+        input_record_batch.schema, {
+            'x':
+                text_format.Parse(
+                    """ragged_tensor {
+                          feature_path {
+                            step: "x"
+                          }
+                          row_partition_dtype: INT64
+                        }""", schema_pb2.TensorRepresentation())
+        })
+
+    def preprocessing_fn(inputs):
+      return {'x_ones': tf.ragged.map_flat_values(tf.ones_like, inputs['x'])}
+
+    transform_output_path = os.path.join(self.get_temp_dir(),
+                                         'transform_output')
+    with self._makeTestPipeline() as pipeline:
+      input_data = (pipeline | beam.Create([input_record_batch]))
+      with tft_beam.Context(temp_dir=self.get_temp_dir()):
+        transform_fn = (
+            (input_data, tensor_adapter_config)
+            | 'AnalyzeDataset' >> tft_beam.AnalyzeDataset(preprocessing_fn))
+        _ = transform_fn | 'WriteTransform' >> tft.beam.WriteTransformFn(
+            transform_output_path)
+
+        _, transformed_metadata = transform_fn
+        expected_metadata = text_format.Parse(
+            """
+            feature {
+              name: "x_ones"
+              type: INT
+              annotation {
+                tag: "ragged_tensor"
+              }
+            }""", schema_pb2.Schema())
+        if not tft_unit.is_external_environment():
+          expected_metadata.generate_legacy_feature_spec = False
+
+        self.assertProtoEquals(transformed_metadata.schema, expected_metadata)
+
+        def _assert_schemas_equal_fn(schema_dict_list):
+          self.assertEqual(1, len(schema_dict_list))
+          self.assertProtoEquals(schema_dict_list[0].schema, expected_metadata)
+
+        beam_test_util.assert_that(
+            transformed_metadata.deferred_metadata,
+            _assert_schemas_equal_fn,
+            label='assert_deferred_metadata')
+
+    with tf.Graph().as_default():
+      tft_out = tft.TFTransformOutput(transform_output_path)
+      inputs = {
+          'x': tf.ragged.constant([[[1], [], [2, 3]], [[1]]], dtype=tf.int64)
+      }
+      outputs = tft_out.transform_raw_features(inputs)
+      flat_outputs = tf.nest.flatten(outputs['x_ones'], expand_composites=True)
+      expected_flat_outputs = tf.nest.flatten(
+          tf.ragged.constant([[[1], [], [1, 1]], [[1]]], dtype=tf.int64),
+          expand_composites=True)
+      with tf.compat.v1.Session():
+        for expected, transformed in zip(expected_flat_outputs, flat_outputs):
+          self.assertAllEqual(expected.eval(), transformed.eval())
+
   def testPipelineWithoutAutomaterialization(self):
     # Other tests pass lists instead of PCollections and thus invoke
     # automaterialization where each call to a beam PTransform will implicitly

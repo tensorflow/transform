@@ -208,8 +208,8 @@ class SavedModelLoader(object):
     return result
 
   def _apply_v1_transform_model_in_v2(
-      self, logical_input_map: Mapping[str, common_types.TensorType]
-  ) -> Dict[str, common_types.TensorType]:
+      self, logical_input_map: Mapping[str, common_types.InputTensorType]
+  ) -> Dict[str, common_types.InputTensorType]:
     """Applies a V1 transform graph to dictionary of Tensors or SparseTensors.
 
     This method applies the transformation graph as a pruned function to the
@@ -262,8 +262,8 @@ class SavedModelLoader(object):
     return result
 
   def _apply_v2_transform_model_finalized(
-      self, logical_input_map: Mapping[str, common_types.TensorType]
-  ) -> Dict[str, common_types.TensorType]:
+      self, logical_input_map: Mapping[str, common_types.InputTensorType]
+  ) -> Dict[str, common_types.InputTensorType]:
     """Applies a V2 transform graph to dictionary of Tensors or SparseTensors.
 
     This method applies the transformation graph to the `logical_input_map` to
@@ -289,8 +289,8 @@ class SavedModelLoader(object):
     return self._wrapped_function_finalized(modified_inputs)
 
   def _apply_v2_transform_model(
-      self, logical_input_map: Mapping[str, common_types.TensorType]
-  ) -> Dict[str, common_types.TensorType]:
+      self, logical_input_map: Mapping[str, common_types.InputTensorType]
+  ) -> Dict[str, common_types.InputTensorType]:
     """Applies a V2 transform graph to dictionary of Tensors or SparseTensors.
 
     This method applies the transformation graph to the `logical_input_map` to
@@ -338,8 +338,8 @@ class SavedModelLoader(object):
     return {key: transformed_features[key] for key in fetches_keys}
 
   def apply_transform_model(
-      self, logical_input_map: Mapping[str, common_types.TensorType]
-  ) -> Dict[str, common_types.TensorType]:
+      self, logical_input_map: Mapping[str, common_types.InputTensorType]
+  ) -> Dict[str, common_types.InputTensorType]:
     """Applies a transform graph to dictionary of Tensors or SparseTensors.
 
     Args:

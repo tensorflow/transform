@@ -501,8 +501,8 @@ def _check_valid_sparse_tensor(indices: Union[_SparseComponentType,
 # `preprocessing_fn` using tf.function as is and another that will return
 # specific outputs requested for.
 def get_traced_transform_fn(
-    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
-                               Mapping[str, common_types.TensorType]],
+    preprocessing_fn: Callable[[Mapping[str, common_types.InputTensorType]],
+                               Mapping[str, common_types.InputTensorType]],
     input_signature: Mapping[str, tf.TypeSpec],
     base_temp_dir: str,
     tensor_replacement_map: Optional[Dict[str, tf.Tensor]] = None,
@@ -625,12 +625,12 @@ def trace_preprocessing_function(preprocessing_fn,
 
 def _trace_and_write_transform_fn(
     saved_model_dir: str,
-    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
-                               Mapping[str, common_types.TensorType]],
+    preprocessing_fn: Callable[[Mapping[str, common_types.InputTensorType]],
+                               Mapping[str, common_types.InputTensorType]],
     input_signature: Mapping[str, tf.TypeSpec], base_temp_dir: Optional[str],
     tensor_replacement_map: Optional[Dict[str, tf.Tensor]],
-    output_keys_to_name_map: Optional[Dict[str, str]]
-) -> function.ConcreteFunction:
+    output_keys_to_name_map: Optional[Dict[str,
+                                           str]]) -> function.ConcreteFunction:
   """Trace `preprocessing_fn` and serialize to a SavedModel."""
   transform_fn = get_traced_transform_fn(
       preprocessing_fn,
@@ -645,8 +645,8 @@ def _trace_and_write_transform_fn(
 
 def _trace_and_get_metadata(
     concrete_transform_fn: function.ConcreteFunction,
-    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
-                               Mapping[str, common_types.TensorType]],
+    preprocessing_fn: Callable[[Mapping[str, common_types.InputTensorType]],
+                               Mapping[str, common_types.InputTensorType]],
     base_temp_dir: Optional[str],
     tensor_replacement_map: Optional[Dict[str, tf.Tensor]]
 ) -> dataset_metadata.DatasetMetadata:
@@ -668,8 +668,8 @@ def _trace_and_get_metadata(
 
 def trace_and_write_v2_saved_model(
     saved_model_dir: str,
-    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
-                               Mapping[str, common_types.TensorType]],
+    preprocessing_fn: Callable[[Mapping[str, common_types.InputTensorType]],
+                               Mapping[str, common_types.InputTensorType]],
     input_signature: Mapping[str, tf.TypeSpec], base_temp_dir: Optional[str],
     tensor_replacement_map: Optional[Dict[str, tf.Tensor]],
     output_keys_to_name_map: Optional[Dict[str, str]]):

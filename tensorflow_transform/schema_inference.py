@@ -568,9 +568,9 @@ def _get_schema_overrides(graph,
 
 def get_traced_metadata_fn(
     tensor_replacement_map: Optional[Dict[str, tf.Tensor]],
-    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
-                               Mapping[str, common_types.TensorType]],
-    structured_inputs: Mapping[str, common_types.TensorType],
+    preprocessing_fn: Callable[[Mapping[str, common_types.InputTensorType]],
+                               Mapping[str, common_types.InputTensorType]],
+    structured_inputs: Mapping[str, common_types.InputTensorType],
     base_temp_dir: str, evaluate_schema_overrides: bool) -> function.Function:
   """Get a tf.function that returns a dictionary of annotations.
 
