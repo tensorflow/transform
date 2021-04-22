@@ -51,7 +51,7 @@ class Context(object):
         PCollections that are used in multiple TFT phases.
     force_tf_compat_v1: (Optional) If True, TFT's public APIs
         (e.g. AnalyzeDataset) will use Tensorflow in compat.v1 mode irrespective
-        of installed version of Tensorflow. Defaults to `True`.
+        of installed version of Tensorflow. Defaults to `False`.
 
   Note that the temp dir should be accessible to worker jobs, e.g. if running
   with the Cloud Dataflow runner, the temp dir should be on GCS and should have
@@ -179,7 +179,7 @@ class Context(object):
     state = cls._get_topmost_state_frame()
     if state.force_tf_compat_v1 is not None:
       return state.force_tf_compat_v1
-    return True
+    return False
 
   @classmethod
   def get_use_tf_compat_v1(cls) -> bool:

@@ -13,7 +13,7 @@
 # limitations under the License.
 """Common types in tf.transform."""
 
-from typing import TypeVar, Union
+from typing import Iterable, TypeVar, Union
 
 import numpy as np
 import tensorflow as tf
@@ -29,6 +29,8 @@ else:
   from tensorflow.python.training.tracking import tracking  # pylint: disable=g-direct-tensorflow-import, g-import-not-at-top
   Asset = tracking.TrackableAsset  # pylint: disable=invalid-name
 
+# TODO(b/185719271): Define BucketBoundariesType at module level of mappers.py.
+BucketBoundariesType = Union[tf.Tensor, Iterable[Union[int, float]]]
 FeatureSpecType = Union[tf.io.FixedLenFeature, tf.io.VarLenFeature,
                         tf.io.SparseFeature]
 DomainType = Union[schema_pb2.IntDomain, schema_pb2.FloatDomain,

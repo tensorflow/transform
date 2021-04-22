@@ -73,8 +73,6 @@ from tensorflow_transform import tf_utils
 # resolved.
 from tfx_bsl.types import tfx_namedtuple
 
-_BucketBoundariesType = Union[tf.Tensor, Iterable[Union[int, float]]]
-
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_to_gaussian(
@@ -1904,7 +1902,7 @@ def _apply_buckets_with_keys(
 @common.log_api_use(common.MAPPER_COLLECTION)
 def apply_buckets_with_interpolation(
     x: common_types.TensorType,
-    bucket_boundaries: _BucketBoundariesType,
+    bucket_boundaries: common_types.BucketBoundariesType,
     name: Optional[str] = None) -> common_types.ConsistentTensorType:
   """Interpolates within the provided buckets and then normalizes to 0 to 1.
 
@@ -2022,7 +2020,7 @@ def apply_buckets_with_interpolation(
 @common.log_api_use(common.MAPPER_COLLECTION)
 def apply_buckets(
     x: common_types.TensorType,
-    bucket_boundaries: _BucketBoundariesType,
+    bucket_boundaries: common_types.BucketBoundariesType,
     name: Optional[str] = None) -> common_types.ConsistentTensorType:
   """Returns a bucketized column, with a bucket index assigned to each input.
 

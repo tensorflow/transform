@@ -42,7 +42,9 @@ class _SourcedTensorsVisitor(nodes.Visitor):
     assert isinstance(value, nodes.ValueNode)
 
 
-def get_analyze_input_columns(preprocessing_fn, specs, force_tf_compat_v1=True):
+def get_analyze_input_columns(preprocessing_fn,
+                              specs,
+                              force_tf_compat_v1=False):
   """Return columns that are required inputs of `AnalyzeDataset`.
 
   Args:
@@ -50,18 +52,17 @@ def get_analyze_input_columns(preprocessing_fn, specs, force_tf_compat_v1=True):
     specs: A dict of feature name to tf.TypeSpecs. If `force_tf_compat_v1` is
       True, this can also be feature specifications.
     force_tf_compat_v1: (Optional) If `True`, use Tensorflow in compat.v1 mode.
-      Defaults to `True`.
+      Defaults to `False`.
 
   Returns:
     A list of columns that are required inputs of analyzers.
   """
-  if not force_tf_compat_v1:
+  use_tf_compat_v1 = tf2_utils.use_tf_compat_v1(force_tf_compat_v1)
+  if not use_tf_compat_v1:
     assert all([isinstance(s, tf.TypeSpec) for s in specs.values()]), specs
   graph, structured_inputs, _ = (
       impl_helper.trace_preprocessing_function(
-          preprocessing_fn,
-          specs,
-          use_tf_compat_v1=tf2_utils.use_tf_compat_v1(force_tf_compat_v1)))
+          preprocessing_fn, specs, use_tf_compat_v1=use_tf_compat_v1))
 
   tensor_sinks = graph.get_collection(analyzer_nodes.TENSOR_REPLACEMENTS)
   visitor = _SourcedTensorsVisitor()
@@ -75,7 +76,7 @@ def get_analyze_input_columns(preprocessing_fn, specs, force_tf_compat_v1=True):
 
 def get_transform_input_columns(preprocessing_fn,
                                 specs,
-                                force_tf_compat_v1=True):
+                                force_tf_compat_v1=False):
   """Return columns that are required inputs of `TransformDataset`.
 
   Args:
@@ -83,19 +84,18 @@ def get_transform_input_columns(preprocessing_fn,
     specs: A dict of feature name to tf.TypeSpecs. If `force_tf_compat_v1` is
       True, this can also be feature specifications.
     force_tf_compat_v1: (Optional) If `True`, use Tensorflow in compat.v1 mode.
-      Defaults to `True`.
+      Defaults to `False`.
 
   Returns:
     A list of columns that are required inputs of the transform `tf.Graph`
     defined by `preprocessing_fn`.
   """
-  if not force_tf_compat_v1:
+  use_tf_compat_v1 = tf2_utils.use_tf_compat_v1(force_tf_compat_v1)
+  if not use_tf_compat_v1:
     assert all([isinstance(s, tf.TypeSpec) for s in specs.values()]), specs
   graph, structured_inputs, structured_outputs = (
       impl_helper.trace_preprocessing_function(
-          preprocessing_fn,
-          specs,
-          use_tf_compat_v1=tf2_utils.use_tf_compat_v1(force_tf_compat_v1)))
+          preprocessing_fn, specs, use_tf_compat_v1=use_tf_compat_v1))
 
   transform_input_tensors = graph_tools.get_dependent_inputs(
       graph, structured_inputs, structured_outputs)
