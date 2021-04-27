@@ -86,6 +86,7 @@ class TFTransformOutput(object):
     self._raw_metadata = None
     self._transform_features_layer = None
     self._exported_as_v1_value = None
+    self._transformed_domains = None
 
   @property
   def transformed_metadata(self) -> dataset_metadata.DatasetMetadata:
@@ -128,8 +129,10 @@ class TFTransformOutput(object):
       A dict from feature names to one of schema_pb2.IntDomain,
       schema_pb2.StringDomain or schema_pb2.FloatDomain.
     """
-    return schema_utils.schema_as_feature_spec(
-        self.transformed_metadata.schema).domains
+    if self._transformed_domains is None:
+      self._transformed_domains = schema_utils.schema_as_feature_spec(
+          self.transformed_metadata.schema).domains
+    return self._transformed_domains
 
   def vocabulary_file_by_name(self, vocab_filename: str) -> Optional[str]:
     """Returns the vocabulary file path created in the preprocessing function.
@@ -219,10 +222,8 @@ class TFTransformOutput(object):
     """Returns the number of buckets for an integerized transformed feature."""
     # Do checks that this tensor can be wrapped in
     # sparse_column_with_integerized_feature
-    domains = schema_utils.schema_as_feature_spec(
-        self.transformed_metadata.schema).domains
     try:
-      domain = domains[name]
+      domain = self.transformed_domains()[name]
     except KeyError:
       raise ValueError('Column {} did not have a domain provided.'.format(name))
     if not isinstance(domain, schema_pb2.IntDomain):
