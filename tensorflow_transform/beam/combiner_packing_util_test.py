@@ -17,8 +17,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from unittest import mock
+
 # GOOGLE-INITIALIZATION
-import mock
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import impl_helper
@@ -26,8 +27,6 @@ from tensorflow_transform import nodes
 from tensorflow_transform.beam import analysis_graph_builder
 from tensorflow_transform.beam import combiner_packing_util
 from tensorflow_transform import test_case
-
-mock = tf.compat.v1.test.mock
 
 
 def _preprocessing_fn_with_packable_analyzer_single_phase(inputs):
