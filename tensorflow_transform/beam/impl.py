@@ -441,7 +441,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
     yield self._handle_batch(batch)
 
 
-def _assert_tensorflow_version():
+def _assert_tensorflow_version(use_tf_compat_v1):
   """Check that we're using a compatible TF version."""
   # Fail with a clear error in case we are not using a compatible TF version.
   major, minor, _ = tf.version.VERSION.split('.')
@@ -450,12 +450,11 @@ def _assert_tensorflow_version():
         'Tensorflow version >= 1.15, < 3 is required. Found (%s). Please '
         'install the latest 1.x or 2.x version from '
         'https://github.com/tensorflow/tensorflow. ' % tf.version.VERSION)
-  # TODO(b/149997088): Once TF2 codepaths are used by default, remove this
-  # warning.
-  if int(major) == 2:
+  if int(major) == 2 and use_tf_compat_v1:
     tf.compat.v1.logging.warning(
-        'Tensorflow version (%s) found. Note that Tensorflow Transform '
-        'support for TF 2.0 is currently in beta, and features such as '
+        'Tensorflow version (%s) found. However Tensorflow Transform '
+        'is running in tf.compat.v1 mode. This could be either because TF2 '
+        'was disabled or `Context.force_tf_compat_v1=True`. Features such as '
         'tf.function may not work as intended. ' % tf.version.VERSION)
 
 
@@ -965,7 +964,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     self._preprocessing_fn = preprocessing_fn
     self.pipeline = pipeline
     self._use_tf_compat_v1 = Context.get_use_tf_compat_v1()
-    _assert_tensorflow_version()
+    _assert_tensorflow_version(self._use_tf_compat_v1)
 
   def _extract_input_pvalues(self, dataset):
     # This method returns all nested pvalues to inform beam of nested pvalues.
@@ -1324,7 +1323,8 @@ class TransformDataset(beam.PTransform):
   def __init__(self, exclude_outputs=None, output_record_batches=False):
     self._exclude_outputs = exclude_outputs
     self._output_record_batches = output_record_batches
-    _assert_tensorflow_version()
+    self._use_tf_compat_v1 = Context.get_use_tf_compat_v1()
+    _assert_tensorflow_version(self._use_tf_compat_v1)
 
   def _extract_input_pvalues(self, dataset_and_transform_fn):
     # This method returns all nested pvalues to inform beam of nested pvalues.
@@ -1389,7 +1389,7 @@ class TransformDataset(beam.PTransform):
             _RunMetaGraphDoFn(
                 tf_config,
                 input_tensor_adapter_config=input_tensor_adapter_config,
-                use_tf_compat_v1=Context.get_use_tf_compat_v1(),
+                use_tf_compat_v1=self._use_tf_compat_v1,
                 shared_graph_state_handle=shared.Shared(),
                 passthrough_keys=Context.get_passthrough_keys(),
                 exclude_outputs=self._exclude_outputs,
