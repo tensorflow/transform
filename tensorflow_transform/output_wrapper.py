@@ -262,6 +262,14 @@ class TFTransformOutput(object):
     only return features transformed from the given 'raw_features', set
     `drop_unused_features` to True.
 
+    Note: If eager execution is enabled and this API is invoked inside a
+    tf.function or an API that uses tf.function such as dataset.map, please use
+    `transform_features_layer` instead. It separates out loading of the
+    transform graph and hence resources will not be initialized on each
+    invocation. This can have significant performance improvement if the
+    transform graph was exported as a TF1 SavedModel and guarantees correctness
+    if it was exported as a TF2 SavedModel.
+
     Args:
       raw_features: A dict whose keys are feature names and values are `Tensor`s
         or `SparseTensor`s.
