@@ -370,17 +370,6 @@ def _partially_apply_saved_transform_impl(saved_model_dir,
   return unbound_inputs, outputs
 
 
-def partially_apply_saved_transform(saved_model_dir, logical_input_map,
-                                    tensor_replacement_map=None):
-  """Deprecated alias for partially_apply_saved_transform_internal."""
-  tf.compat.v1.logging.warn(
-      'partially_apply_saved_transform is deprecated.  Use the '
-      'transform_raw_features method of the TFTrandformOutput class instead.')
-  return partially_apply_saved_transform_internal(saved_model_dir,
-                                                  logical_input_map,
-                                                  tensor_replacement_map)
-
-
 def partially_apply_saved_transform_internal(saved_model_dir,
                                              logical_input_map,
                                              tensor_replacement_map=None):
