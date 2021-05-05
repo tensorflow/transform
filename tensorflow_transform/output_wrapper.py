@@ -538,5 +538,7 @@ def _override_parent_methods(keep_items):
       doc_controls.do_not_generate_docs(getattr(TransformFeaturesLayer, name))
 
 
-_override_parent_methods(
-    keep_items=['call', 'build', 'compute_mask', 'add_loss', 'count_params'])
+_override_parent_methods(keep_items=[
+    'call', 'build', 'compute_mask', 'add_loss', 'count_params',
+    'finalize_state'
+])
