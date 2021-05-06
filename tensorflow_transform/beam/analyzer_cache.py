@@ -35,8 +35,9 @@ from tfx_bsl.types import tfx_namedtuple
 # This should be advanced whenever a non-backwards compatible change is made
 # that affects analyzer cache. For example, changing accumulator format.
 _CACHE_VERSION_NUMBER = 1
-_CACHE_VERSION = tf.compat.as_bytes('__v{}__{}.{}_'.format(
-    _CACHE_VERSION_NUMBER, sys.version_info.major, sys.version_info.minor))
+_PYTHON_VERSION = '{}.{}'.format(sys.version_info.major, sys.version_info.minor)
+_CACHE_VERSION = tf.compat.as_bytes('__v{}__{}_'.format(_CACHE_VERSION_NUMBER,
+                                                        _PYTHON_VERSION))
 
 _CACHE_COMPONENT_CHARACTER_REPLACEMENTS = (
     ('/', '-'),
