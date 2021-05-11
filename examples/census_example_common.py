@@ -31,6 +31,7 @@ import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
 from tfx_bsl.public import tfxio
+from tfx_bsl.coders.example_coder import RecordBatchToExamples
 
 CATEGORICAL_FEATURE_KEYS = [
     'workclass',
@@ -203,15 +204,21 @@ def transform_data(train_data_file, test_data_file, working_dir):
       # the schema to read the CSV data, but we also need it to interpret
       # raw_data.
       raw_dataset = (raw_data, csv_tfxio.TensorAdapterConfig())
-      transformed_dataset, transform_fn = (
-          raw_dataset | tft_beam.AnalyzeAndTransformDataset(preprocessing_fn))
-      transformed_data, transformed_metadata = transformed_dataset
-      transformed_data_coder = tft.coders.ExampleProtoCoder(
-          transformed_metadata.schema)
 
+      # The TFXIO output format is chosen for improved performance.
+      transformed_dataset, transform_fn = (
+          raw_dataset | tft_beam.AnalyzeAndTransformDataset(
+              preprocessing_fn, output_record_batches=True))
+
+      # Transformed metadata is not necessary for encoding.
+      transformed_data, _ = transformed_dataset
+
+      # Extract transformed RecordBatches, encode and write them to the given
+      # directory.
       _ = (
           transformed_data
-          | 'EncodeTrainData' >> beam.Map(transformed_data_coder.encode)
+          | 'EncodeTrainData' >>
+          beam.FlatMapTuple(lambda batch, _: RecordBatchToExamples(batch))
           | 'WriteTrainData' >> beam.io.WriteToTFRecord(
               os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE)))
 
@@ -230,14 +237,20 @@ def transform_data(train_data_file, test_data_file, working_dir):
 
       raw_test_dataset = (raw_test_data, csv_tfxio.TensorAdapterConfig())
 
+      # The TFXIO output format is chosen for improved performance.
       transformed_test_dataset = (
-          (raw_test_dataset, transform_fn) | tft_beam.TransformDataset())
-      # Don't need transformed data schema, it's the same as before.
+          (raw_test_dataset, transform_fn)
+          | tft_beam.TransformDataset(output_record_batches=True))
+
+      # Transformed metadata is not necessary for encoding.
       transformed_test_data, _ = transformed_test_dataset
 
+      # Extract transformed RecordBatches, encode and write them to the given
+      # directory.
       _ = (
           transformed_test_data
-          | 'EncodeTestData' >> beam.Map(transformed_data_coder.encode)
+          | 'EncodeTestData' >>
+          beam.FlatMapTuple(lambda batch, _: RecordBatchToExamples(batch))
           | 'WriteTestData' >> beam.io.WriteToTFRecord(
               os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE)))
 

@@ -48,7 +48,18 @@ def _unpickle_proto(name, serialized_proto):
   return _PROTO_CLS_BY_NAME[name].FromString(serialized_proto)
 
 
-def fix_proto_pickling():
+def _pickle_tensor_spec(tensor_spec):
+  return _unpickle_tensor_spec, (tensor_spec.shape.as_list(),
+                                 tensor_spec.dtype.as_numpy_dtype)
+
+
+def _unpickle_tensor_spec(shape, numpy_dtype):
+  return tf.TensorSpec(shape, tf.as_dtype(numpy_dtype))
+
+
+def fix_internal_object_pickling():
   """Fix pickling issues (see b/121323638)."""
   for proto_cls in _PROTO_CLASSES:
     copyreg.pickle(proto_cls, _pickle_proto)
+
+  copyreg.pickle(tf.TensorSpec, _pickle_tensor_spec)

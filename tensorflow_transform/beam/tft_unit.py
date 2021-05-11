@@ -321,13 +321,9 @@ class TransformTestCase(test_case.TransformTestCase):
         transformed_data_path = os.path.join(temp_dir, 'transformed_data')
         if expected_data is not None:
           if output_record_batches:
-
-            def record_batch_to_examples(data_batch):
-              # Ignore unary pass-through features.
-              record_batch, _ = data_batch
-              return example_coder.RecordBatchToExamples(record_batch)
-
-            encode_ptransform = beam.FlatMap(record_batch_to_examples)
+            # Extract transformed RecordBatches and convert them to tf.Examples.
+            encode_ptransform = beam.FlatMapTuple(
+                lambda batch, _: example_coder.RecordBatchToExamples(batch))
           else:
             transformed_data_coder = tft.coders.ExampleProtoCoder(
                 transformed_metadata.schema)

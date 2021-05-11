@@ -32,6 +32,7 @@ import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
 from tfx_bsl.public import tfxio
+from tfx_bsl.coders.example_coder import RecordBatchToExamples
 
 
 VOCAB_SIZE = 20000
@@ -197,26 +198,31 @@ def transform_data(working_dir):
             LABEL_KEY: inputs[LABEL_KEY]
         }
 
-      (transformed_train_data, transformed_metadata), transform_fn = (
+      # Transformed metadata is not necessary for encoding.
+      # The TFXIO output format is chosen for improved performance.
+      (transformed_train_data, _), transform_fn = (
           (train_data, tfxio_train_data.TensorAdapterConfig())
           | 'AnalyzeAndTransform' >> tft_beam.AnalyzeAndTransformDataset(
-              preprocessing_fn))
-      transformed_data_coder = tft.coders.ExampleProtoCoder(
-          transformed_metadata.schema)
+              preprocessing_fn, output_record_batches=True))
 
       transformed_test_data, _ = (
           ((test_data, tfxio_test_data.TensorAdapterConfig()), transform_fn)
-          | 'Transform' >> tft_beam.TransformDataset())
+          |
+          'Transform' >> tft_beam.TransformDataset(output_record_batches=True))
 
+      # Extract transformed RecordBatches, encode and write them to the given
+      # directory.
       _ = (
           transformed_train_data
-          | 'EncodeTrainData' >> beam.Map(transformed_data_coder.encode)
+          | 'EncodeTrainData' >>
+          beam.FlatMapTuple(lambda batch, _: RecordBatchToExamples(batch))
           | 'WriteTrainData' >> beam.io.WriteToTFRecord(
               os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE)))
 
       _ = (
           transformed_test_data
-          | 'EncodeTestData' >> beam.Map(transformed_data_coder.encode)
+          | 'EncodeTestData' >>
+          beam.FlatMapTuple(lambda batch, _: RecordBatchToExamples(batch))
           | 'WriteTestData' >> beam.io.WriteToTFRecord(
               os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE)))
 
