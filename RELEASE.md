@@ -8,6 +8,9 @@
 
 ## Breaking Changes
 
+*   `tft.ptransform_analyzer` has been moved under `tft.experimental`. The order
+    of args in the API has also been changed.
+
 ## Deprecations
 
 # Version 0.30.0

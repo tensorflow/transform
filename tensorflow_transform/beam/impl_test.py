@@ -2949,10 +2949,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
     sum_combiner = self._SumCombiner()
 
     def analyzer_fn(inputs):
-      outputs = analyzers.ptransform_analyzer([inputs['x'], inputs['y']],
-                                              [tf.int64, tf.int64],
-                                              [[], []],
-                                              sum_combiner)
+      outputs = tft.experimental.ptransform_analyzer([inputs['x'], inputs['y']],
+                                                     sum_combiner,
+                                                     [tf.int64, tf.int64],
+                                                     [[], []])
       return {'x_sum': outputs[0], 'y_sum': outputs[1]}
 
     # NOTE: We force 10 batches: data has 100 elements and we request a batch
