@@ -2914,7 +2914,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_outputs,
         test_data=test_data)
 
-  class _SumCombiner(tft_beam.PTransformAnalyzer):
+  class _SumCombiner(tft_beam.experimental.PTransformAnalyzer):
 
     def __init__(self):
       super().__init__()

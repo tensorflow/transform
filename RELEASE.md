@@ -14,6 +14,7 @@
 
 *   `tft.ptransform_analyzer` has been moved under `tft.experimental`. The order
     of args in the API has also been changed.
+*   `tft_beam.PTransformAnalyzer` has been moved under `tft_beam.experimental`.
 
 ## Deprecations
 

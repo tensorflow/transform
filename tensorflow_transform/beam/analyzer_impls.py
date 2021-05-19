@@ -45,6 +45,7 @@ from tensorflow_transform import common_types
 from tensorflow_transform import info_theory
 from tensorflow_transform import tf_utils
 from tensorflow_transform.beam import common
+from tensorflow_transform.beam import experimental
 
 
 _VocabOrderingType = analyzers._VocabOrderingType  # pylint: disable=protected-access
@@ -1253,28 +1254,13 @@ class _CombinePerKeyFormatLargeImpl(beam.PTransform):
             lambda k, v: (to_str(','.join(map(to_str, v))), k)))
 
 
-class PTransformAnalyzer(beam.PTransform):
-  """A PTransform analyzer's base class which provides a temp dir if needed."""
-
-  def __init__(self):
-    self._base_temp_dir = None
-
-  @property
-  def base_temp_dir(self):
-    return self._base_temp_dir
-
-  @base_temp_dir.setter
-  def base_temp_dir(self, val):
-    self._base_temp_dir = val
-
-
 @common.register_ptransform(analyzer_nodes.PTransform)
 class _PTransformImpl(beam.PTransform):
   """Implements a registered PTransform node by passing through the inputs."""
 
   def __init__(self, operation, extra_args):
     self._ptransform = operation.ptransform
-    if isinstance(self._ptransform, PTransformAnalyzer):
+    if isinstance(self._ptransform, experimental.PTransformAnalyzer):
       self._ptransform.base_temp_dir = common.get_unique_temp_path(
           extra_args.base_temp_dir)
 

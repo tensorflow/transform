@@ -115,8 +115,9 @@ def ptransform_analyzer(
       element is a list of `ndarray`s.  Each element in the list contains a
       batch of values for the corresponding input tensor of the analyzer.  It
       returns a tuple of `PCollection`, each containing a single element which
-      is an `ndarray`. It may inherit from `tft_beam.PTransformAnalyzer` if
-      access to a temp base directory is needed.
+      is an `ndarray`. It may inherit from
+      `tft_beam.experimental.PTransformAnalyzer` if access to a temp base
+      directory is needed.
     output_dtypes: An ordered collection of TensorFlow dtypes of the output of
       the analyzer.
     output_shapes: An ordered collection of shapes of the output of the
