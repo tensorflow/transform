@@ -298,6 +298,29 @@ and its (batched) shape should be `[batch_size, 2]`.
 `TensorRepresentation` is a Protobuf defined in
 [TensorFlow Metadata](https://github.com/tensorflow/metadata/blob/v0.22.2/tensorflow_metadata/proto/v0/schema.proto#L592).
 
+## Compatibility with TensorFlow
+
+`tf.Transform` provides support for exporting the `transform_fn` above either as
+a TF 1.x or a TF 2.x SavedModel. The default behavior before the `0.30` release
+exported a TF 1.x SavedModel. Starting with the `0.30` release, the default
+behavior is to export a TF 2.x SavedModel unless TF 2.x behaviors are explicitly
+disabled (by calling `tf.compat.v1.disable_v2_behavior()` for example).
+
+If using TF 1.x concepts such as `Estimators` and `Sessions`, you can retain the
+previous behavior by passing `force_tf_compat_v1=True` to
+[`tft_beam.Context`](https://www.tensorflow.org/tfx/transform/api_docs/python/tft_beam/Context)
+if using `tf.Transform` as a standalone library or to the
+[Transform](https://www.tensorflow.org/tfx/api_docs/python/tfx/components/Transform)
+component in TFX.
+
+When exporting the `transform_fn` as a TF 2.x SavedModel, the `preprocessing_fn`
+is expected to be traceable using `tf.function`. Additionally, if running your
+pipeline remotely (for example with the `DataflowRunner`), ensure that the
+`preprocessing_fn` and any dependencies are packaged properly as described
+[here](https://beam.apache.org/documentation/sdks/python-pipeline-dependencies/#multiple-file-dependencies).
+
+Known issues with using `tf.Transform` to export a TF 2.x SavedModel are
+documented [here](https://www.tensorflow.org/tfx/transform/tf2_support).
 
 ## Input and output with Apache Beam
 
