@@ -251,14 +251,14 @@ class TFTransformOutput(object):
   def transform_raw_features(
       self,
       raw_features: Mapping[str, common_types.InputTensorType],
-      drop_unused_features: Optional[bool] = False
+      drop_unused_features: Optional[bool] = True  # LEGACY_VALUE=False
   ) -> Dict[str, common_types.InputTensorType]:
     """Takes a dict of tensors representing raw features and transforms them.
 
     Takes a dictionary of `Tensor`s or `SparseTensor`s that represent the raw
     features, and applies the transformation defined by tf.Transform.
 
-    By default it returns all transformed features defined by tf.Transform. To
+    If False it returns all transformed features defined by tf.Transform. To
     only return features transformed from the given 'raw_features', set
     `drop_unused_features` to True.
 

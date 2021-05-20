@@ -15,6 +15,8 @@
 *   `tft.ptransform_analyzer` has been moved under `tft.experimental`. The order
     of args in the API has also been changed.
 *   `tft_beam.PTransformAnalyzer` has been moved under `tft_beam.experimental`.
+*   The default value of the `drop_unused_features` parameter to
+   `TFTransformOutput.transform_raw_features` is now True.
 
 ## Deprecations
 
