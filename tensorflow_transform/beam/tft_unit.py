@@ -113,9 +113,13 @@ class TransformTestCase(test_case.TransformTestCase):
   def _makeTestPipeline(self):
     return self._TestPipeline(**test_helpers.make_test_beam_pipeline_kwargs())
 
-  def assertMetricsCounterEqual(self, metrics, name, expected_count):
+  def assertMetricsCounterEqual(self, metrics, name, expected_count,
+                                namespaces_list=None):
+    metrics_filter = beam.metrics.MetricsFilter().with_name(name)
+    if namespaces_list:
+      metrics_filter = metrics_filter.with_namespaces(namespaces_list)
     metric = metrics.query(
-        beam.metrics.metric.MetricsFilter().with_name(name))['counters']
+        metrics_filter)['counters']
     committed = sum([r.committed for r in metric])
     attempted = sum([r.attempted for r in metric])
     self.assertEqual(committed, attempted)
