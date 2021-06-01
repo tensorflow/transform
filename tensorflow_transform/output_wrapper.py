@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Mapping, Optional
 
 # GOOGLE-INITIALIZATION
 
+import numpy as np
 import six
 import tensorflow as tf
 from tensorflow_transform import common_types
@@ -44,7 +45,7 @@ from tensorflow_metadata.proto.v0 import schema_pb2
 
 def _get_tensor_value(tensor_or_eager_tensor: tf.Tensor) -> Any:
   if ops.executing_eagerly_outside_functions():
-    return tensor_or_eager_tensor.numpy()
+    return np.asarray(tensor_or_eager_tensor)
   else:
     with tf.compat.v1.Session():
       return tensor_or_eager_tensor.eval()

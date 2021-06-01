@@ -186,11 +186,12 @@ def _eager_function_handler(input_signature):
                      for value, tensor_spec in zip(inputs, input_signature)]
         output = fn(*constants)
         if hasattr(output, '_make'):
-          return output._make([tensor.numpy() for tensor in output])
+          return output._make([np.asarray(tensor) for tensor in output])
         if isinstance(output, (tuple, list)):
-          return [tensor.numpy() for tensor in output]
+          return [np.asarray(tensor) for tensor in output]
         else:
-          return output.numpy()
+          return np.asarray(output)
+
     return _run_eagerly
   return wrapper
 
