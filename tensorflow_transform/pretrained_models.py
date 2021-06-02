@@ -19,13 +19,6 @@ signatures, or use a tensor-in-tensor-out function which includes variables
 together with a specified checkpoint.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# GOOGLE-INITIALIZATION
-
-import six
 import tensorflow as tf
 
 
@@ -152,7 +145,7 @@ def apply_saved_model(model_dir, inputs, tags, signature_name=None,
           'The SavedModel contains multiple signatures (%r) but signature_name '
           'was not specified.' % (meta_graph.signature_def.keys(),))
     else:
-      signature = next(six.itervalues(meta_graph.signature_def))
+      signature = next(iter(meta_graph.signature_def.values()))
 
   # Generate mapping from tensors in the graph to the input tensors.
   if isinstance(inputs, dict):
@@ -169,7 +162,7 @@ def apply_saved_model(model_dir, inputs, tags, signature_name=None,
         '`inputs` was not a dict.' % (signature.inputs.keys(),))
   else:
     input_name_to_tensor_map = {
-        next(six.itervalues(signature.inputs)).name: inputs
+        next(iter(signature.inputs.values())).name: inputs
     }
 
   # Get output tensor names.
@@ -190,7 +183,7 @@ def apply_saved_model(model_dir, inputs, tags, signature_name=None,
         'output_keys_in_signature was not specified.'
         % (signature.outputs.keys(),))
   else:
-    output_tensor_names = [next(six.itervalues(signature.outputs)).name]
+    output_tensor_names = [next(iter(signature.outputs.values())).name]
     output_single_tensor = True
 
   # Convert_variables_to_constants() requires op name.

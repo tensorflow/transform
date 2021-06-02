@@ -14,15 +14,9 @@
 """Example using census data from UCI repository."""
 
 # pylint: disable=g-bad-import-order
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import argparse
 import os
 import tempfile
-
-# GOOGLE-INITIALIZATION
 
 import apache_beam as beam
 import tensorflow.compat.v2 as tf
@@ -30,8 +24,8 @@ import tensorflow_transform as tft
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
-from tfx_bsl.public import tfxio
 from tfx_bsl.coders.example_coder import RecordBatchToExamples
+from tfx_bsl.public import tfxio
 
 CATEGORICAL_FEATURE_KEYS = [
     'workclass',

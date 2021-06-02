@@ -13,17 +13,10 @@
 # limitations under the License.
 """Tests for tensorflow_transform.graph_tools."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import abc
 import os
 import tempfile
-# GOOGLE-INITIALIZATION
 from future.utils import with_metaclass
-
-import six
 
 import tensorflow as tf
 from tensorflow_transform import graph_tools
@@ -299,7 +292,7 @@ def _create_graph_with_tf_function_while():
 class _Matcher(with_metaclass(abc.ABCMeta, object)):
 
   def _future_proof(self, value):
-    if isinstance(value, (six.text_type, str, bytes)):
+    if isinstance(value, (str, bytes)):
       new_to_old = {}
       for new, old in new_to_old.items():
         value = value.replace(new, old)
@@ -1272,7 +1265,7 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
         if isinstance(x, tf.Tensor):
           self.assertLessEqual(len(parents), 1)
           return x.name
-        if isinstance(x, (six.text_type, str, bytes)):
+        if isinstance(x, (str, bytes)):
           return x
         raise ValueError('Unexpected type: {}'.format(x))
 
@@ -1303,7 +1296,7 @@ def _value_to_matcher(value, add_quotes=False):
     return _OpMatcher(str(value.node_def.name))
   if isinstance(value, tf.Tensor):
     return _TensorMatcher(str(value.name))
-  if isinstance(value, (six.text_type, str, bytes)):
+  if isinstance(value, (str, bytes)):
     if add_quotes:
       return '\'{}\''.format(value)
     else:

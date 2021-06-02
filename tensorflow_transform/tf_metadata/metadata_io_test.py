@@ -14,14 +14,8 @@
 """Tests for dataset_metadata.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
 import tempfile
-
-# GOOGLE-INITIALIZATION
 
 from tensorflow_transform.tf_metadata import test_common
 from tensorflow_transform.tf_metadata import dataset_metadata

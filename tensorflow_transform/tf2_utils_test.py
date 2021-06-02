@@ -13,12 +13,6 @@
 # limitations under the License.
 """Tests for tensorflow_transform.tf2_utils."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# GOOGLE-INITIALIZATION
-
 import tensorflow as tf
 from tensorflow_transform import tf2_utils
 from tensorflow_transform import test_case

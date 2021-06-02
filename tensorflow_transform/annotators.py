@@ -17,13 +17,9 @@ This module contains functions that are used in the preprocessing function to
 annotate key aspects and make them easily accessible to downstream components.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import contextlib
 import os
-from typing import Callable, List, Text
+from typing import Callable, List
 
 import tensorflow as tf
 
@@ -41,7 +37,7 @@ _ASSET_FILENAME_COLLECTION = 'tft_asset_filename_collection'
 _OBJECT_TRACKER = None
 
 
-class ObjectTracker(object):
+class ObjectTracker:
   """A class that tracks a list of trackable objects."""
 
   __slots__ = ['_trackable_objects']
@@ -175,7 +171,7 @@ def clear_asset_annotations(graph: tf.Graph):
   graph.clear_collection(_ASSET_FILENAME_COLLECTION)
 
 
-def annotate_asset(asset_key: Text, asset_filename: Text):
+def annotate_asset(asset_key: str, asset_filename: str):
   """Creates mapping between user-defined keys and SavedModel assets.
 
   This mapping is made available in `BeamDatasetMetadata` and is also used to

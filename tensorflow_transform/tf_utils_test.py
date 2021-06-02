@@ -13,13 +13,7 @@
 # limitations under the License.
 """Tests for tensorflow_transform.tf_utils."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
-
-# GOOGLE-INITIALIZATION
 
 import numpy as np
 import tensorflow as tf
@@ -50,7 +44,7 @@ def _construct_table(asset_file_path,
   return tf.lookup.StaticHashTable(initializer, default_value=default_value)
 
 
-class _SparseTensorSpec(object):
+class _SparseTensorSpec:
 
   def __init__(self, shape, dtype):
     self._shape = shape
@@ -1369,7 +1363,7 @@ class VocabTFUtilsTest(test_case.TransformTestCase):
     if (not tf_utils.is_vocabulary_tfrecord_supported() and
         test_case.is_external_environment()):
       raise unittest.SkipTest('Test requires DatasetInitializer')
-    super(VocabTFUtilsTest, self).setUp()
+    super().setUp()
 
   def _write_tfrecords(self, path, bytes_records):
     with tf.io.TFRecordWriter(path, 'GZIP') as writer:

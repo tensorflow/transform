@@ -13,15 +13,9 @@
 # limitations under the License.
 """Tensorflow-transform ExampleProtoCoder tests."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
 import pickle
 import sys
-
-# GOOGLE-INITIALIZATION
 
 from absl import flags
 
@@ -212,7 +206,7 @@ def _binary_to_example(serialized_proto):
 class ExampleProtoCoderTest(test_case.TransformTestCase):
 
   def setUp(self):
-    super(ExampleProtoCoderTest, self).setUp()
+    super().setUp()
     # Verify that the implementation we requested via the Flag is honoured.
     assert api_implementation.Type() == flags.FLAGS.proto_implementation_type
 

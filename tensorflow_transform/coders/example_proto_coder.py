@@ -18,14 +18,7 @@
 # API (eg Classes, Files, Benchmarks etc).
 
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# GOOGLE-INITIALIZATION
-
 import numpy as np
-import six
 import tensorflow as tf
 from tensorflow_transform.tf_metadata import schema_utils
 
@@ -126,7 +119,7 @@ def _make_feature_value_fn(dtype):
   return lambda feature: feature.bytes_list.value
 
 
-class _FixedLenFeatureHandler(object):
+class _FixedLenFeatureHandler:
   """Handler for `FixedLenFeature` values.
 
   `FixedLenFeature` values will be parsed to a list of the corresponding
@@ -169,7 +162,7 @@ class _FixedLenFeatureHandler(object):
       self._value.extend(self._cast_fn(flattened_values))
 
 
-class _VarLenFeatureHandler(object):
+class _VarLenFeatureHandler:
   """Handler for `VarLenFeature` values.
 
   `VarLenFeature` values will be parsed as an array of the corresponding dtype.
@@ -207,7 +200,7 @@ class _VarLenFeatureHandler(object):
       self._value.extend(casted)
 
 
-class ExampleProtoCoder(object):
+class ExampleProtoCoder:
   """A coder between maybe-serialized TF Examples and tf.Transform datasets."""
 
   def __init__(self, schema, serialized=True):
@@ -232,8 +225,8 @@ class ExampleProtoCoder(object):
     # optimization and implementation are correct and thread-compatible.
     self._encode_example_cache = tf.train.Example()
     self._feature_handlers = []
-    for name, feature_spec in six.iteritems(
-        schema_utils.schema_as_feature_spec(schema).feature_spec):
+    for name, feature_spec in schema_utils.schema_as_feature_spec(
+        schema).feature_spec.items():
       if isinstance(feature_spec, tf.io.FixedLenFeature):
         self._feature_handlers.append(
             _FixedLenFeatureHandler(name, feature_spec))

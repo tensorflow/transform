@@ -14,21 +14,12 @@
 """Helper/utility functions that a tf-transform implementation would find handy.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
 import re
 from typing import Callable, Dict, List, Mapping, Optional, Tuple, Union
 
-# GOOGLE-INITIALIZATION
-
 import numpy as np
 import pyarrow as pa
-import six
-from six.moves import range  # pylint: disable=redefined-builtin
-from six.moves import zip  # pylint: disable=redefined-builtin
 
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
@@ -80,13 +71,13 @@ def batched_placeholders_from_specs(specs):
   Raises:
     ValueError: when the TypeSpec or feature spec has an unsupported dtype.
   """
-  if not (all([_is_feature_spec(s) for s in six.itervalues(specs)]) or
-          all([isinstance(s, tf.TypeSpec) for s in six.itervalues(specs)])):
+  if not (all([_is_feature_spec(s) for s in specs.values()]) or
+          all([isinstance(s, tf.TypeSpec) for s in specs.values()])):
     raise TypeError('Specs must be all tf.TypeSpecs or feature specs. '
                     'Mixing is not allowed. Got: {}'.format(specs))
 
   result = {}
-  for name, spec in six.iteritems(specs):
+  for name, spec in specs.items():
     if isinstance(spec, tf.RaggedTensorSpec):
       # TODO(b/159717195): clean up protected-access
       spec_dtype = spec._dtype  # pylint: disable=protected-access
@@ -343,7 +334,7 @@ def to_instance_dicts(schema, fetches):
   batch_dict = {}
   batch_sizes = {}
   feature_spec = schema_utils.schema_as_feature_spec(schema).feature_spec
-  for name, tensor_or_value in six.iteritems(fetches):
+  for name, tensor_or_value in fetches.items():
     spec = feature_spec[name]
     if isinstance(spec, tf.io.FixedLenFeature):
       value = np.asarray(tensor_or_value)
@@ -365,21 +356,23 @@ def to_instance_dicts(schema, fetches):
 
   # Check batch size is the same for each output.  Note this assumes that
   # fetches is not empty.
-  batch_size = next(six.itervalues(batch_sizes))
-  for name, batch_size_for_name in six.iteritems(batch_sizes):
+  batch_size = next(iter(batch_sizes.values()))
+  for name, batch_size_for_name in batch_sizes.items():
     if batch_size_for_name != batch_size:
       raise ValueError(
           'Inconsistent batch sizes: "{}" had batch dimension {}, "{}" had'
           ' batch dimension {}'.format(name, batch_size_for_name,
-                                       next(six.iterkeys(batch_sizes)),
+                                       next(iter(batch_sizes.keys())),
                                        batch_size))
 
   # The following is the simplest way to convert batch_dict from a dict of
   # iterables to a list of dicts.  It does this by first extracting the values
   # of batch_dict, and reversing the order of iteration, then recombining with
   # the keys of batch_dict to create a dict.
-  return [dict(zip(six.iterkeys(batch_dict), instance_values))
-          for instance_values in zip(*six.itervalues(batch_dict))]
+  return [
+      dict(zip(batch_dict, instance_values))
+      for instance_values in zip(*batch_dict.values())
+  ]
 
 
 def _tf_dtype_to_arrow_type(dtype: tf.DType) -> pa.DataType:
@@ -552,8 +545,7 @@ def get_traced_transform_fn(
     dictionary values.
   """
 
-  assert all(
-      [isinstance(s, tf.TypeSpec) for s in six.itervalues(input_signature)])
+  assert all([isinstance(s, tf.TypeSpec) for s in input_signature.values()])
 
   # TODO(b/177672051): Investigate performance impact of enabling autograph.
   @tf.function(input_signature=[input_signature], autograph=False)
@@ -578,7 +570,7 @@ def get_traced_transform_fn(
     else:
       return {
           key: graph.get_tensor_by_name(value)
-          for key, value in six.iteritems(output_keys_to_name_map)
+          for key, value in output_keys_to_name_map.items()
       }
 
   return transform_fn

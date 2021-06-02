@@ -13,14 +13,8 @@
 # limitations under the License.
 """TF2 utils."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import copy
 from typing import Collection, Mapping, Optional
-
-# GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 from tensorflow_transform import common_types

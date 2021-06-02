@@ -13,13 +13,8 @@
 # limitations under the License.
 """Tests for transform_fn_io."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
 
-# GOOGLE-INITIALIZATION
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
 import tensorflow as tf

@@ -51,16 +51,10 @@ Apache Beam as the underlying framework.  See beam/impl.py for how to use the
 Beam implementation.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
 from typing import Any, Callable, Iterable, Optional, Tuple, Union
 
-# GOOGLE-INITIALIZATION
 
-import six
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import common
@@ -1100,10 +1094,9 @@ def apply_vocabulary(
     if lookup_fn:
       result, table_size = lookup_fn(x, deferred_vocab_filename_tensor)
     else:
-      if (deferred_vocab_filename_tensor is None
-          or (isinstance(deferred_vocab_filename_tensor,
-                         (six.binary_type, six.text_type))
-              and not deferred_vocab_filename_tensor)):
+      if (deferred_vocab_filename_tensor is None or
+          (isinstance(deferred_vocab_filename_tensor,
+                      (bytes, str)) and not deferred_vocab_filename_tensor)):
         raise ValueError('`deferred_vocab_filename_tensor` must not be empty.')
 
       def _construct_table(asset_filepath):

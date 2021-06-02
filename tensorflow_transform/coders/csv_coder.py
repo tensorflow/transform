@@ -12,15 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Coder classes for encoding CSV into tf.Transform datasets."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import csv
-# GOOGLE-INITIALIZATION
 
 import numpy as np
-import six
 from six import moves
 import tensorflow as tf
 from tensorflow_transform.tf_metadata import schema_utils
@@ -79,7 +73,7 @@ def _make_cast_fn(dtype):
     return _elements_to_bytes
 
 
-class _FixedLenFeatureHandler(object):
+class _FixedLenFeatureHandler:
   """Handler for `FixedLenFeature` values.
 
   `FixedLenFeature` values will be parsed as a scalar or an array of the
@@ -126,7 +120,7 @@ class _FixedLenFeatureHandler(object):
       string_list[self._index] = _to_string(flattened_values[0])
 
 
-class _VarLenFeatureHandler(object):
+class _VarLenFeatureHandler:
   """Handler for `VarLenFeature` values.
 
   `VarLenFeature` values will be parsed as an array of values of the
@@ -158,10 +152,10 @@ class EncodeError(Exception):
   pass
 
 
-class CsvCoder(object):
+class CsvCoder:
   """A coder to encode CSV formatted data."""
 
-  class _WriterWrapper(object):
+  class _WriterWrapper:
     """A wrapper for csv.writer to make it picklable."""
 
     def __init__(self, delimiter):
@@ -255,8 +249,8 @@ class CsvCoder(object):
         return index
 
     self._feature_handlers = []
-    for name, feature_spec in six.iteritems(
-        schema_utils.schema_as_feature_spec(schema).feature_spec):
+    for name, feature_spec in schema_utils.schema_as_feature_spec(
+        schema).feature_spec.items():
       if isinstance(feature_spec, tf.io.FixedLenFeature):
         self._feature_handlers.append(
             _FixedLenFeatureHandler(name, feature_spec, index(name),

@@ -13,10 +13,6 @@
 # limitations under the License.
 """Tests for tensorflow_transform.test_case."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import re
 
 from tensorflow_transform import test_case

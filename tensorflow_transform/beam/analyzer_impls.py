@@ -13,18 +13,12 @@
 # limitations under the License.
 """Beam implementations of tf.Transform canonical analyzers."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import functools
 import hashlib
 import itertools
 import math
 import os
 from typing import List
-
-# GOOGLE-INITIALIZATION
 
 from absl import logging
 import apache_beam as beam
@@ -276,7 +270,7 @@ class _VocabularyCountImpl(beam.PTransform):
   """Counts the total number of tokens in the vocabulary."""
 
   def __init__(self, operation, extra_args):
-    super(_VocabularyCountImpl, self).__init__()
+    super().__init__()
 
   def expand(self, inputs):
     pcoll, = inputs
@@ -858,7 +852,7 @@ class _PackedCombinerWrapper(beam.combiners.TupleCombineFn):
       is_combining_accumulators: A bool which indicates whether this is
         combining single or batched inputs, or already accumulated objects.
     """
-    super(_PackedCombinerWrapper, self).__init__(*[
+    super().__init__(*[
         _CombinerWrapper(c.combiner, is_combining_accumulators)
         for c in combiner_ops
     ])
@@ -882,12 +876,12 @@ class _PackedCombinerWrapper(beam.combiners.TupleCombineFn):
           accumulator[index], value)
       return accumulator
     else:
-      return super(_PackedCombinerWrapper, self).add_input(
+      return super().add_input(
           accumulator,
           [tuple(element[key] for key in keys) for keys in self._combiner_keys])
 
   def extract_output(self, accumulator):
-    outputs = super(_PackedCombinerWrapper, self).extract_output(accumulator)
+    outputs = super().extract_output(accumulator)
     return {
         combiner_label: output
         for combiner_label, output in zip(self._combiner_labels, outputs)
@@ -1243,7 +1237,7 @@ class _CombinePerKeyFormatLargeImpl(beam.PTransform):
   """An analyzer that formats output before writing to file for per-key case."""
 
   def __init__(self, operation, extra_args):
-    super(_CombinePerKeyFormatLargeImpl, self).__init__()
+    super().__init__()
 
   def expand(self, inputs):
     to_str = tf.compat.as_str_any

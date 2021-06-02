@@ -13,10 +13,6 @@
 # limitations under the License.
 """Stubs for handling legacy fields of the Schema proto."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 
 def should_set_generate_legacy_feature_spec(feature_spec):
   del feature_spec  # unused

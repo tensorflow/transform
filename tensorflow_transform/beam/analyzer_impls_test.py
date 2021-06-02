@@ -13,12 +13,6 @@
 # limitations under the License.
 """Tests for tensorflow_transform.beam.analyzer_impls."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# GOOGLE-INITIALIZATION
-
 import apache_beam as beam
 
 import numpy as np

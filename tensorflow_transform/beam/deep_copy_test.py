@@ -13,13 +13,7 @@
 # limitations under the License.
 """Unit tests for tensorflow_transform.beam.deep_copy."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import collections
-
-# GOOGLE-INITIALIZATION
 
 import apache_beam as beam
 from apache_beam import pvalue

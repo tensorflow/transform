@@ -23,17 +23,10 @@ outputs with constants.  We analyze the structure of the graph to determine
 which analyzers to run in each phase.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import collections
 import itertools
 import uuid
 
-# GOOGLE-INITIALIZATION
-
-import six
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import tf_utils
@@ -158,7 +151,7 @@ class _UnexpectedPlaceholderError(Exception):
   def __init__(self, op, func_graph_name):
     tensor = op.outputs[0]
     msg = 'An unexpected placeholder was encountered ({})'.format(tensor)
-    super(_UnexpectedPlaceholderError, self).__init__(msg)
+    super().__init__(msg)
     self.tensor = tensor
     self.func_graph_name = func_graph_name
 
@@ -167,7 +160,7 @@ class _UnexpectedTableError(Exception):
 
   def __init__(self, op, func_graph_name):
     msg = 'An unexpected initializable table was encountered ({})'.format(op)
-    super(_UnexpectedTableError, self).__init__(msg)
+    super().__init__(msg)
     self.op = op
     self.func_graph_name = func_graph_name
 
@@ -221,7 +214,7 @@ class _SourceInfo(
   pass
 
 
-class _GraphAnalyzer(object):
+class _GraphAnalyzer:
   """Class that analyzes a graph to determine readiness of tensors."""
 
   def __init__(self, source_info_dict, translate_path_fn, graph):
@@ -511,7 +504,7 @@ def _set_unique_value_in_dict(input_dict, key, value):
   input_dict[tf_utils.hashable_tensor_or_op(key)] = value
 
 
-class InitializableGraphAnalyzer(object):
+class InitializableGraphAnalyzer:
   """Determines which tensors will be ready when running the graph.
 
   Determines which tensors from `fetches` are ready to run, using following
@@ -645,13 +638,13 @@ class InitializableGraphAnalyzer(object):
       a dictionary from source tensors to _SourceInfos.
     """
     result = {}
-    for tensor_or_op, is_ready in six.iteritems(replaced_tensors_ready):
+    for tensor_or_op, is_ready in replaced_tensors_ready.items():
       for component in _decompose_tensor_or_op(
           tf_utils.deref_tensor_or_op(tensor_or_op)):
         result[tf_utils.hashable_tensor_or_op(component)] = _SourceInfo(
             is_ready, None)
 
-    for name, tensor in six.iteritems(input_signature):
+    for name, tensor in input_signature.items():
       if isinstance(tensor, tf.Tensor):
         _set_unique_value_in_dict(result, tensor,
                                   _SourceInfo(True, '{}$tensor'.format(name)))
@@ -758,7 +751,7 @@ class InitializableGraphAnalyzer(object):
           self._graph_analyzer.analyze_tensor(component).dependent_sources)
 
     result = {}
-    for name, tensor in six.iteritems(self._input_signature):
+    for name, tensor in self._input_signature.items():
       if any(
           tf_utils.hashable_tensor_or_op(component) in dependents
           for component in _decompose_tensor_or_op(tensor)):
@@ -787,9 +780,9 @@ def get_dependent_inputs(graph, input_tensors, output_tensors):
     producing output_tensors
   """
   if isinstance(output_tensors, list):
-    output_iterator = output_tensors
+    output_container = output_tensors
   else:
-    output_iterator = six.itervalues(output_tensors)
+    output_container = output_tensors.values()
 
   # Since this method may be called before all tensor replacements are ready, to
   # fulfill the precondition of InitializableGraphAnalyzer, we fake the
@@ -800,10 +793,10 @@ def get_dependent_inputs(graph, input_tensors, output_tensors):
   graph_analyzer = InitializableGraphAnalyzer(graph, input_tensors,
                                               sink_tensors_ready)
   dependent_inputs = {}
-  for output_tensor in output_iterator:
+  for output_tensor in output_container:
     dependent_inputs.update(graph_analyzer.get_dependent_inputs(output_tensor))
   return {
       name: tensor
-      for name, tensor in six.iteritems(input_tensors)
+      for name, tensor in input_tensors.items()
       if name in dependent_inputs
   }

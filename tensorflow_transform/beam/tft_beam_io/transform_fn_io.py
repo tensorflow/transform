@@ -13,10 +13,6 @@
 # limitations under the License.
 """Transforms to read/write transform functions from disk."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
 
 import apache_beam as beam
@@ -68,7 +64,7 @@ class WriteTransformFn(beam.PTransform):
   """
 
   def __init__(self, path):
-    super(WriteTransformFn, self).__init__()
+    super().__init__()
     self._path = path
 
   def _extract_input_pvalues(self, transform_fn):
@@ -127,7 +123,7 @@ class ReadTransformFn(beam.PTransform):
   """Reads a TransformFn written by WriteTransformFn."""
 
   def __init__(self, path):
-    super(ReadTransformFn, self).__init__()
+    super().__init__()
     self._path = path
 
   def expand(self, pvalue):

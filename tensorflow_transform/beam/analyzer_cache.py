@@ -13,19 +13,12 @@
 # limitations under the License.
 """Module which allows a pipeilne to define and utilize cached analyzers."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
 import pickle
 import re
 import sys
 
-# GOOGLE-INITIALIZATION
-
 import apache_beam as beam
-import six
 import tensorflow as tf
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
 # `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
@@ -71,7 +64,7 @@ class DatasetKey(tfx_namedtuple.namedtuple('DatasetKey', ['key'])):
     if self.is_flattened_dataset_key():
       return str(DatasetKey('FlattenedDataset'))
     else:
-      return super(DatasetKey, self).__str__()
+      return super().__str__()
 
   def __hash__(self):
     return hash(self.key)
@@ -93,7 +86,7 @@ def _get_dataset_cache_path(base_dir, dataset_key):
   return os.path.join(base_dir, dataset_key.key)
 
 
-class _ManifestFile(object):
+class _ManifestFile:
   """A manifest file wrapper used to read and write tft cache manifest files."""
 
   # TODO(b/37788560): Use artifacts instead.
@@ -167,11 +160,10 @@ class _ManifestFile(object):
 class _WriteToTFRecordGzip(beam.io.WriteToTFRecord):
 
   def __init__(self, file_path_prefix):
-    super(_WriteToTFRecordGzip, self).__init__(
-        file_path_prefix, file_name_suffix='.gz')
+    super().__init__(file_path_prefix, file_name_suffix='.gz')
 
 
-@beam.typehints.with_input_types(six.binary_type)
+@beam.typehints.with_input_types(bytes)
 class WriteAnalysisCacheToFS(beam.PTransform):
   """Writes a cache object that can be read by ReadAnalysisCacheFromFS.
 
@@ -211,8 +203,9 @@ class WriteAnalysisCacheToFS(beam.PTransform):
     start_cache_idx = max(manifest.values()) + 1 if manifest else 0
 
     cache_is_written = []
-    for cache_key_idx, (cache_entry_key, cache_pcoll) in enumerate(
-        six.iteritems(cache_dict), start_cache_idx):
+    for cache_key_idx, (cache_entry_key,
+                        cache_pcoll) in enumerate(cache_dict.items(),
+                                                  start_cache_idx):
       path = os.path.join(dataset_key_dir, str(cache_key_idx))
       manifest[cache_entry_key] = cache_key_idx
       cache_is_written.append(

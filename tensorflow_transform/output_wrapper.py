@@ -13,18 +13,11 @@
 # limitations under the License.
 """Utilities for consuming tf.Transform output during training."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import json
 import os
 from typing import Any, Dict, List, Mapping, Optional
 
-# GOOGLE-INITIALIZATION
-
 import numpy as np
-import six
 import tensorflow as tf
 from tensorflow_transform import common_types
 from tensorflow_transform import graph_tools
@@ -64,7 +57,7 @@ class _TransformedFeaturesDict(dict):
     return super().pop(key, default)
 
 
-class TFTransformOutput(object):
+class TFTransformOutput:
   """A wrapper around the output of the tf.Transform."""
 
   # Locations relative to the base output directory, where outputs of
@@ -308,10 +301,10 @@ class TFTransformOutput(object):
       graph = tf.compat.v1.get_default_graph()
       graph_analyzer = graph_tools.InitializableGraphAnalyzer(
           graph, raw_features,
-          [(t, False) for t in six.itervalues(unbounded_raw_features)])
+          [(t, False) for t in unbounded_raw_features.values()])
       return {
           name: feature
-          for name, feature in six.iteritems(transformed_features)
+          for name, feature in transformed_features.items()
           if graph_analyzer.ready_to_run(feature)
       }
     else:
@@ -441,7 +434,7 @@ class TransformFeaturesLayer(tf.keras.Model):
   def __init__(self,
                tft_output: TFTransformOutput,
                exported_as_v1: Optional[bool] = None):
-    super(TransformFeaturesLayer, self).__init__(trainable=False)
+    super().__init__(trainable=False)
     self._tft_output = tft_output
     if exported_as_v1 is None:
       self._exported_as_v1 = saved_transform_io.exported_as_v1(

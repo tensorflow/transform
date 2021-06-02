@@ -1,4 +1,3 @@
-# Lint as: python3
 # coding=utf-8
 #
 # Copyright 2017 Google Inc. All Rights Reserved.
@@ -15,13 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Tests for tft.vocabulary and tft.compute_and_apply_vocabulary."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import os
-
-# GOOGLE-INITIALIZATION
 
 import apache_beam as beam
 
@@ -43,7 +37,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
     tf.compat.v1.logging.info('Starting test case: %s', self._testMethodName)
     self._context = beam_impl.Context(force_tf_compat_v1=True)
     self._context.__enter__()
-    super(VocabularyIntegrationTest, self).setUp()
+    super().setUp()
 
   def _VocabFormat(self):
     return 'text'

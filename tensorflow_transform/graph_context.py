@@ -13,16 +13,9 @@
 # limitations under the License.
 """Context manager for TF Graph when it is being traced."""
 
-from __future__ import absolute_import
-from __future__ import division
-# Using Type Annotations.
-from __future__ import print_function
-
 import os
 import threading
 from typing import Any, Dict, Optional
-
-# GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
@@ -31,7 +24,7 @@ import tensorflow as tf
 from tfx_bsl.types import tfx_namedtuple
 
 
-class TFGraphContext(object):
+class TFGraphContext:
   """A context manager to pass global state to a TF graph when it is traced.
 
   All the attributes in this context are kept on a thread local state.

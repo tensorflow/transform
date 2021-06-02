@@ -21,18 +21,12 @@ computing a mean or vocabulary.  It also contains a special `OperationDef`,
 tuple of `Tensor`s into a `PCollection`.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import abc
 import json
 import os
 import struct
 from typing import Optional, Type
 import uuid
-
-# GOOGLE-INITIALIZATION
 
 from future.utils import with_metaclass
 import numpy as np
@@ -302,7 +296,7 @@ def wrap_as_tensor(
       analyzer_def.output_tensor_infos[output_value_node.value_index])
 
 
-class Combiner(object):
+class Combiner:
   """Analyze using combiner function.
 
   This object mirrors a beam.CombineFn, that will receive a beam PCollection
@@ -553,7 +547,7 @@ class _CombinerPerKeyAccumulatorCoder(CacheCoder):
   def __init__(self, value_coder):
     self._combiner_coder = value_coder
     self._vocabulary_coder = _BaseKVCoder()
-    super(_CombinerPerKeyAccumulatorCoder, self).__init__()
+    super().__init__()
 
   def __repr__(self):
     return '<{}[{}[{}]]>'.format(self.__class__.__name__,
@@ -745,7 +739,7 @@ class _BaseKVCoder(CacheCoder):
   def __init__(self):
     self._lengths_prefix_format = 'qq'
     self._lengths_prefix_length = struct.calcsize(self._lengths_prefix_format)
-    super(_BaseKVCoder, self).__init__()
+    super().__init__()
 
   def encode_cache(self, accumulator):
     token, value = accumulator
@@ -769,7 +763,7 @@ class _VocabularyAccumulatorCoder(_BaseKVCoder):
 
   def __init__(self, input_dtype=tf.string.name):
     self._input_dtype = tf.dtypes.as_dtype(input_dtype)
-    super(_VocabularyAccumulatorCoder, self).__init__()
+    super().__init__()
 
   def encode_cache(self, accumulator):
     token, value = accumulator
@@ -783,11 +777,10 @@ class _VocabularyAccumulatorCoder(_BaseKVCoder):
           for a in (value.count, value.mean, value.variance, value.weight)
       ]
     value = tf.compat.as_bytes(json.dumps(value))
-    return super(_VocabularyAccumulatorCoder, self).encode_cache((token, value))
+    return super().encode_cache((token, value))
 
   def decode_cache(self, encoded_accumulator):
-    accumulator = super(_VocabularyAccumulatorCoder, self).decode_cache(
-        encoded_accumulator)
+    accumulator = super().decode_cache(encoded_accumulator)
     token, value = accumulator
     if self._input_dtype is not tf.string:
       token = json.loads(tf.compat.as_text(token))
@@ -987,7 +980,7 @@ class DecodeCache(
   def get_field_str(self, field_name):
     if field_name == 'cache_key':
       return '<bytes>'
-    return super(DecodeCache, self).get_field_str(field_name)
+    return super().get_field_str(field_name)
 
   @property
   def is_partitionable(self):

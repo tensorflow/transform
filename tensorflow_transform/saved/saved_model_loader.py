@@ -13,12 +13,6 @@
 # limitations under the License.
 """Utility functions to build input_fns for use with tf.Learn."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# GOOGLE-INITIALIZATION
-
 from tensorflow_transform.saved import constants
 from tensorflow.python.saved_model import loader_impl  # pylint: disable=g-direct-tensorflow-import
 

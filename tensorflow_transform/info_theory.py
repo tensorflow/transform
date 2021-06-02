@@ -13,10 +13,6 @@
 # limitations under the License.
 """Utilities for information-theoretic preprocessing algorithms."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import math
 
 # math.log2 was added in Python 3.3

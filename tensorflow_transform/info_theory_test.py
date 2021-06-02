@@ -13,12 +13,6 @@
 # limitations under the License.
 """Tests for tensorflow_transform.info_theory."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# GOOGLE-INITIALIZATION
-
 from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensorflow_transform import info_theory
 from tensorflow_transform import test_case

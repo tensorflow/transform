@@ -24,10 +24,6 @@ An `OperationNode` has inputs and outputs that are `ValueNode`s. Each
 `ValueNode` has exactly one parent `OperationNode`.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import abc
 import collections
 from typing import Collection, Optional, Tuple
@@ -60,7 +56,7 @@ class ValueNode(
       raise ValueError(
           'value_index was {} but parent_operation had {} outputs'.format(
               value_index, num_outputs))
-    super(ValueNode, self).__init__()
+    super().__init__()
 
   def __iter__(self):
     raise ValueError('ValueNode is not iterable')
@@ -119,7 +115,7 @@ class OperationDef(with_metaclass(abc.ABCMeta, object)):
     return None
 
 
-class OperationNode(object):
+class OperationNode:
   """A placeholder that will ultimately be translated to a PTransform.
 
   Attributes:
@@ -225,7 +221,7 @@ class Visitor(with_metaclass(abc.ABCMeta, object)):
     pass
 
 
-class Traverser(object):
+class Traverser:
   """Class to traverse the DAG of nodes."""
 
   def __init__(self, visitor: Visitor):
@@ -312,7 +308,7 @@ class _PrintGraphVisitor(Visitor):
     self._dot_graph.obj_dict = collections.OrderedDict(
         sorted(self._dot_graph.obj_dict.items(), key=lambda t: t[0]))
     self._dot_graph.set_node_defaults(shape='Mrecord')
-    super(_PrintGraphVisitor, self).__init__()
+    super().__init__()
 
   def get_dot_graph(self) -> pydot.Dot:
     return self._dot_graph

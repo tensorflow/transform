@@ -14,16 +14,10 @@
 """Example using census data from UCI repository."""
 
 # pylint: disable=g-bad-import-order
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import math
 import os
 import pprint
 import tempfile
-
-# GOOGLE-INITIALIZATION
 
 from absl import logging
 import tensorflow.compat.v2 as tf

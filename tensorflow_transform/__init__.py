@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Init module for TF.Transform."""
-# GOOGLE-INITIALIZATION
 
 # pylint: disable=wildcard-import
 from tensorflow_transform import coders

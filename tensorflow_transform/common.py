@@ -13,17 +13,10 @@
 # limitations under the License.
 """Constants and types shared by tf.Transform package."""
 
-from __future__ import absolute_import
-from __future__ import division
-# Using Type Annotations.
-from __future__ import print_function
-
 import collections
 import contextlib
 import functools
 from typing import Any, Callable, Generator
-
-# GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 

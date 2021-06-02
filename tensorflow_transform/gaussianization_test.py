@@ -13,12 +13,6 @@
 # limitations under the License.
 """Tests for tensorflow_transform.gaussianization."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# GOOGLE-INITIALIZATION
-
 import numpy as np
 from tensorflow_transform import gaussianization
 from tensorflow_transform import test_case

@@ -15,19 +15,13 @@
 # limitations under the License.
 """Tests for cached tf.Transform analysis."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import functools
 import os
 import struct
-# GOOGLE-INITIALIZATION
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
 import numpy as np
 
-import six
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import analyzer_nodes
@@ -361,7 +355,7 @@ def mock_out_cache_hash(test_fn):
 class CachedImplTest(tft_unit.TransformTestCase):
 
   def setUp(self):
-    super(CachedImplTest, self).setUp()
+    super().setUp()
     self.base_test_dir = os.path.join(
         os.environ.get('TEST_UNDECLARED_OUTPUTS_DIR', self.get_temp_dir()),
         self._testMethodName)
@@ -373,7 +367,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
 
   def tearDown(self):
     self._context.__exit__()
-    super(CachedImplTest, self).tearDown()
+    super().tearDown()
 
   def _get_running_index(self):
     self._running_index += 1
@@ -1035,7 +1029,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
     span_1_key = analyzer_cache.DatasetKey('span-1')
 
     def preprocessing_fn(inputs):
-      return {k: tf.identity(v) for k, v in six.iteritems(inputs)}
+      return {k: tf.identity(v) for k, v in inputs.items()}
 
     input_metadata = dataset_metadata.DatasetMetadata(
         schema_utils.schema_from_feature_spec({

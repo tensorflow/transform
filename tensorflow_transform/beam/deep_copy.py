@@ -24,12 +24,6 @@ _MATERIALIZATION_BARRIER_TRANSFORMS as a materialization boundary for this
 purpose.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# GOOGLE-INITIALIZATION
-
 import apache_beam as beam
 from apache_beam import pipeline as beam_pipeline
 from apache_beam import pvalue

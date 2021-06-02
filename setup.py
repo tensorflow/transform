@@ -39,8 +39,8 @@ __version__ = globals_dict['__version__']
 
 
 def _make_required_install_packages():
-  # Make sure to sync the versions of common dependencies (absl-py, numpy,
-  # six, and protobuf) with TF and pyarrow version with tfx-bsl.
+  # Make sure to sync the versions of common dependencies (absl-py, numpy, and
+  # protobuf) with TF and pyarrow version with tfx-bsl.
   return [
       'absl-py>=0.9,<0.13',
       'apache-beam[gcp]>=2.29,<3',
@@ -48,7 +48,6 @@ def _make_required_install_packages():
       'protobuf>=3.9.2,<4',
       'pyarrow>=1,<3',
       'pydot>=1.2,<2',
-      'six>=1.12,<2',
       'tensorflow' + select_constraint(
           '>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,<2.6'),
       'tensorflow-metadata' + select_constraint(

@@ -26,8 +26,6 @@ the computation that takes place outside of TensorFlow.
 
 from typing import Any, Collection, List, Optional, Tuple, Type
 
-# GOOGLE-INITIALIZATION
-
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import common

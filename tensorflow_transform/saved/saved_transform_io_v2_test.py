@@ -13,17 +13,11 @@
 # limitations under the License.
 """Tests for saved_transform_io_v2."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
 import shutil
 import tempfile
 
-# GOOGLE-INITIALIZATION
 import numpy as np
-import six
 import tensorflow as tf
 from tensorflow_transform import impl_helper
 from tensorflow_transform import tf_utils
@@ -109,7 +103,7 @@ def _create_test_saved_model(export_in_tf1,
     with tf.compat.v1.Graph().as_default():
       with tf.compat.v1.Session().as_default() as session:
         inputs = {}
-        for key in six.iterkeys(input_specs):
+        for key in input_specs:
           tensor_spec = input_specs[key]
           if isinstance(tensor_spec, tf.TensorSpec):
             inputs[key] = tf.compat.v1.placeholder(

@@ -6,6 +6,8 @@
 
 ## Bug Fixes and Other Changes
 
+*   Stopped depending on `six`.
+
 ## Breaking Changes
 
 ## Deprecations

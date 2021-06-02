@@ -13,12 +13,6 @@
 # limitations under the License.
 """Tests for inspect_preprocessing_fn."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# GOOGLE-INITIALIZATION
-import six
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import inspect_preprocessing_fn
@@ -54,7 +48,7 @@ def _non_identity_ops_preprocessing_fn(inputs):
 
 
 def _renaming_preprocessing_fn(inputs):
-  return {'id_{}'.format(key): value for key, value in six.iteritems(inputs)}
+  return {'id_{}'.format(key): value for key, value in inputs.items()}
 
 
 @tf.function

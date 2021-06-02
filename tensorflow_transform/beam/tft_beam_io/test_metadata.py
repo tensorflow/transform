@@ -13,10 +13,6 @@
 # limitations under the License.
 """Test metadata for tft_beam_io tests."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import tensorflow as tf
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils

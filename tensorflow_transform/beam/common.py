@@ -13,16 +13,10 @@
 # limitations under the License.
 """Constants and types shared by tf.Transform Beam package."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import collections
 import enum
 import os
 import uuid
-
-# GOOGLE-INITIALIZATION
 
 import apache_beam as beam
 from apache_beam.typehints import Union
@@ -69,7 +63,7 @@ def get_unique_temp_path(base_temp_dir):
   return os.path.join(base_temp_dir, uuid.uuid4().hex)
 
 
-class _PtransformWrapper(object):
+class _PtransformWrapper:
   """A wrapper around registered implementations of beam nodes."""
   _GENERAL_ENVIRONMENT_TAG = object()
 

@@ -13,15 +13,9 @@
 # limitations under the License.
 """Functions to create the implementation graph."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import collections
 import copy
 import hashlib
-
-# GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
@@ -190,7 +184,7 @@ class _OptimizationView(
     del hashed_path
     self._validate_flattened_view(flattened_view)
     self._validate_fine_grained_view(fine_grained_view)
-    super(_OptimizationView, self).__init__()
+    super().__init__()
 
   def _validate_flattened_view(self, view):
     assert view is self.flattened_view

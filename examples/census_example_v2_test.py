@@ -13,14 +13,8 @@
 # limitations under the License.
 """Tests for census_example_v2."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
 import shutil
-
-# GOOGLE-INITIALIZATION
 
 import tensorflow.compat.v2 as tf
 import census_example_common
@@ -105,7 +99,7 @@ _CLASSIFICATION_REQUEST_TEXT_PB = """model_spec { name: "%s" }
 class CensusExampleV2Test(tft_test_case.TransformTestCase):
 
   def setUp(self):
-    super(CensusExampleV2Test, self).setUp()
+    super().setUp()
     if (not tf2.enabled() or
         tft_test_case.is_external_environment() and tf.version.VERSION < '2.3'):
       raise tft_test_case.SkipTest('This test requires TF version >= 2.3')

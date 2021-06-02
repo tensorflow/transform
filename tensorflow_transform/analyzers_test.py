@@ -13,13 +13,7 @@
 # limitations under the License.
 """Tests for tensorflow_transform.analyzers."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import pickle
-
-# GOOGLE-INITIALIZATION
 
 import numpy as np
 import tensorflow as tf

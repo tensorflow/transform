@@ -13,10 +13,6 @@
 # limitations under the License.
 """Utility functions to use py_funcs in tf.transform."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import dill
 import tensorflow as tf
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to

@@ -13,16 +13,9 @@
 # limitations under the License.
 """Utility functions to build input_fns for use with tf.Learn."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
 import re
 
-# GOOGLE-INITIALIZATION
-
-import six
 import tensorflow as tf
 from tensorflow_transform.py_func import pyfunc_helper
 from tensorflow_transform.saved import constants
@@ -137,7 +130,7 @@ def _expand_input_map(logical_input_map, input_signature):
     specified in `logical_input_map`.
   """
   result = {}
-  for logical_name, replacement in six.iteritems(logical_input_map):
+  for logical_name, replacement in logical_input_map.items():
     tensor_info = input_signature[logical_name]
     encoding = tensor_info.WhichOneof('encoding')
     if encoding == 'coo_sparse':
@@ -220,8 +213,8 @@ def _partially_apply_saved_transform_impl(saved_model_dir,
   }
 
   # Check for inputs that were not part of the input signature.
-  unexpected_inputs = (set(six.iterkeys(logical_input_map)) -
-                       set(six.iterkeys(input_signature)))
+  unexpected_inputs = (
+      set(logical_input_map.keys()) - set(input_signature.keys()))
   if unexpected_inputs:
     raise ValueError('Unexpected inputs '
                      'to transform: {}'.format(unexpected_inputs))
@@ -359,13 +352,15 @@ def _partially_apply_saved_transform_impl(saved_model_dir,
       raise ValueError('Unsupported TensorInfo encoding %s' % encoding)
   outputs = {
       logical_name: lookup_tensor_or_sparse_or_composite_tensor(tensor_info)
-      for logical_name, tensor_info in six.iteritems(output_signature)}
+      for logical_name, tensor_info in output_signature.items()
+  }
   # Do the same for input tensors, although such tensors should never be in the
   # input_map since identical tensors in an input_map would be an error.
   unbound_inputs = {
       logical_name: lookup_tensor_or_sparse_or_composite_tensor(tensor_info)
-      for logical_name, tensor_info in six.iteritems(input_signature)
-      if logical_name not in logical_input_map}
+      for logical_name, tensor_info in input_signature.items()
+      if logical_name not in logical_input_map
+  }
 
   return unbound_inputs, outputs
 

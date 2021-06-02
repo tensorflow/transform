@@ -13,21 +13,14 @@
 # limitations under the License.
 """Library for Tensorflow Transform test cases."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from builtins import zip  # pylint: disable=redefined-builtin,g-importing-member
 import functools
 import inspect
 import itertools
 import os
 
-# GOOGLE-INITIALIZATION
-
 from absl.testing import parameterized
 import numpy as np
-import six
 import tensorflow as tf
 
 import unittest
@@ -286,9 +279,8 @@ class TransformTestCase(parameterized.TestCase, tf.test.TestCase):
       raise e
 
   def _assertValuesCloseOrEqual(self, a_value, b_value, msg=None):
-    if (isinstance(a_value, (six.binary_type, six.text_type)) or
-        isinstance(a_value, list) and a_value and
-        isinstance(a_value[0], (six.binary_type, six.text_type)) or
+    if (isinstance(a_value, (bytes, str)) or isinstance(a_value, list) and
+        a_value and isinstance(a_value[0], (bytes, str)) or
         isinstance(a_value, np.ndarray) and a_value.dtype == np.object):
       self.assertAllEqual(a_value, b_value)
     else:

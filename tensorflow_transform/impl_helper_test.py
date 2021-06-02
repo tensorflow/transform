@@ -13,19 +13,12 @@
 # limitations under the License.
 """Tests for tensorflow_transform.impl_helper."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import collections
 import copy
 import os
 
-# GOOGLE-INITIALIZATION
-
 import numpy as np
 import pyarrow as pa
-import six
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import impl_helper
@@ -565,7 +558,7 @@ class ImplHelperTest(test_case.TransformTestCase):
     schema = schema_utils.schema_from_feature_spec(feature_spec)
     feed_dict_local = copy.copy(feed_dict)
     if feed_eager_tensors:
-      for key, value in six.iteritems(feed_dict_local):
+      for key, value in feed_dict_local.items():
         if isinstance(value, tf.compat.v1.SparseTensorValue):
           feed_dict_local[key] = tf.sparse.SparseTensor.from_value(value)
         else:
@@ -593,7 +586,7 @@ class ImplHelperTest(test_case.TransformTestCase):
     converter = impl_helper.make_tensor_to_arrow_converter(schema)
     feed_dict_local = copy.copy(feed_dict)
     if feed_eager_tensors:
-      for key, value in six.iteritems(feed_dict_local):
+      for key, value in feed_dict_local.items():
         if isinstance(value, tf.compat.v1.SparseTensorValue):
           feed_dict_local[key] = tf.sparse.SparseTensor.from_value(value)
         else:

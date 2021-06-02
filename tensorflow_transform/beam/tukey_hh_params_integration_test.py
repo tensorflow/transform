@@ -1,4 +1,3 @@
-# Lint as: python3
 # Copyright 2020 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,8 +14,6 @@
 """Tests for tft.tukey_* calls (Tukey HH parameters)."""
 
 import itertools
-
-# GOOGLE-INITIALIZATION
 
 import apache_beam as beam
 import numpy as np
@@ -100,11 +97,11 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
   def setUp(self):
     self._context = beam_impl.Context(use_deep_copy_optimization=True)
     self._context.__enter__()
-    super(TukeyHHParamsIntegrationTest, self).setUp()
+    super().setUp()
 
   def tearDown(self):
     self._context.__exit__()
-    super(TukeyHHParamsIntegrationTest, self).tearDown()
+    super().tearDown()
 
   @tft_unit.named_parameters(*_SCALE_TO_GAUSSIAN_TEST_CASES)
   def testGaussianize(self, input_data, output_data, elementwise):

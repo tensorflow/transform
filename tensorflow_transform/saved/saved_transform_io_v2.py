@@ -13,15 +13,8 @@
 # limitations under the License.
 """Utility functions to save and load from SavedModels in TF 2.x."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from typing import Dict, Mapping, Union
 
-# GOOGLE-INITIALIZATION
-
-import six
 import tensorflow as tf
 from tensorflow_transform import annotators
 from tensorflow_transform import common_types
@@ -52,7 +45,7 @@ class _Loader(load.Loader):
     return result
 
 
-class SavedModelLoader(object):
+class SavedModelLoader:
   """Handles a SavedModel exported using TF 1.x APIs in TF 2.x."""
 
   def __init__(self, saved_model_dir: str):
@@ -135,7 +128,7 @@ class SavedModelLoader(object):
   def _get_output_to_inputs_map(self, output_signature):
     """Get all graph inputs that the tensors in output_signature depend on."""
     result = {}
-    for name, output in six.iteritems(output_signature):
+    for name, output in output_signature.items():
       components = self._get_component_tensors(output)
       sinks = [self._as_operation(component) for component in components]
       # Ignore control dependencies when walking the graph as we only care about
@@ -187,7 +180,7 @@ class SavedModelLoader(object):
   def _get_fetches(self, feeds):
     """Returns set of tensors that can be fetched when `feeds` is supplied."""
     result = {}
-    for name, output in six.iteritems(self._func_graph.structured_outputs):
+    for name, output in self._func_graph.structured_outputs.items():
       extra_sources = self._output_to_inputs_map[name].difference(feeds)
       # If output does not depend on an input placeholder that is not being fed,
       # add it to fetches.
@@ -232,7 +225,7 @@ class SavedModelLoader(object):
 
     feeds = []
     pruned_input_args = []
-    for name in six.iterkeys(input_map):
+    for name in input_map:
       tensor = self._func_graph.get_tensor_by_name(name)
       try:
         tensor.shape.assert_is_compatible_with(input_map[name].shape)
@@ -314,7 +307,7 @@ class SavedModelLoader(object):
     if unfed_input_keys:
       batch_size = 1
       if logical_input_map:
-        an_input = next(six.itervalues(logical_input_map))
+        an_input = next(iter(logical_input_map.values()))
         if tf.shape(an_input)[0] is not None:
           batch_size = tf.shape(an_input)[0]
 
@@ -352,8 +345,7 @@ class SavedModelLoader(object):
       the transform graph.
     """
     unexpected_inputs = (
-        set(six.iterkeys(logical_input_map)) -
-        set(six.iterkeys(self._structured_inputs)))
+        set(logical_input_map.keys()) - set(self._structured_inputs.keys()))
     if unexpected_inputs:
       raise ValueError(
           'Unexpected inputs to transform: {}'.format(unexpected_inputs))

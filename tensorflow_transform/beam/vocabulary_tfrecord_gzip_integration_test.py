@@ -1,4 +1,3 @@
-# Lint as: python3
 #
 # Copyright 2020 Google Inc. All Rights Reserved.
 #
@@ -15,8 +14,6 @@
 # limitations under the License.
 """Tests for tfrecord_gzip tft.vocabulary and tft.compute_and_apply_vocabulary."""
 
-# GOOGLE-INITIALIZATION
-
 from tensorflow_transform import tf_utils
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam import vocabulary_integration_test
@@ -32,7 +29,7 @@ class TFRecordVocabularyIntegrationTest(
         not tf_utils.is_vocabulary_tfrecord_supported() or
         tft_unit.is_tf_api_version_1()):
       raise unittest.SkipTest('Test requires async DatasetInitializer')
-    super(TFRecordVocabularyIntegrationTest, self).setUp()
+    super().setUp()
 
   def _VocabFormat(self):
     return 'tfrecord_gzip'

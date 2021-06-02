@@ -1,4 +1,3 @@
-# Lint as: python3
 # Copyright 2017 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,10 +16,7 @@
 import contextlib
 import random
 
-# GOOGLE-INITIALIZATION
-
 import numpy as np
-from six.moves import range
 
 import tensorflow as tf
 import tensorflow_transform as tft
@@ -94,11 +90,11 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
     self._context = beam_impl.Context(
         use_deep_copy_optimization=True, force_tf_compat_v1=True)
     self._context.__enter__()
-    super(BucketizeIntegrationTest, self).setUp()
+    super().setUp()
 
   def tearDown(self):
     self._context.__exit__()
-    super(BucketizeIntegrationTest, self).tearDown()
+    super().tearDown()
 
   @tft_unit.parameters(
       # Test for all integral types, each type is in a separate testcase to

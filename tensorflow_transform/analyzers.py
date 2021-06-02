@@ -24,17 +24,12 @@ the graph as a `Analyzer` which is not a TensorFlow op, but a placeholder for
 the computation that takes place outside of TensorFlow.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import functools
 import os
 import pickle
 import re
-from typing import Any, Callable, Collection, List, Optional, Text, Tuple, Union
+from typing import Any, Callable, Collection, List, Optional, Tuple, Union
 
-# GOOGLE-INITIALIZATION
 
 import numpy as np
 import pyarrow as pa
@@ -1592,7 +1587,7 @@ def _get_top_k_and_frequency_threshold(top_k, frequency_threshold):
   return top_k, frequency_threshold
 
 
-class _VocabOrderingType(object):
+class _VocabOrderingType:
   """Class for all vocab ordering types."""
   # Orders vocabulary based on the simple frequency of the token
   FREQUENCY = 1
@@ -1609,8 +1604,8 @@ class _VocabOrderingType(object):
 
 
 def _register_vocab(
-    sanitized_filename: Text,
-    vocabulary_key: Optional[Text] = None,
+    sanitized_filename: str,
+    vocabulary_key: Optional[str] = None,
     file_format: Optional[
         common_types.VocabularyFileFormatType] = DEFAULT_VOCABULARY_FILE_FORMAT
 ):
@@ -2394,7 +2389,7 @@ class PCACombiner(CovarianceCombiner):
 
   def __init__(self, output_shape, output_dim=None, numpy_dtype=np.float64):
     """Store pca output dimension, shape and dtype for precision."""
-    super(PCACombiner, self).__init__(output_shape, numpy_dtype=numpy_dtype)
+    super().__init__(output_shape, numpy_dtype=numpy_dtype)
     self._output_dim = output_dim
 
   def extract_output(self, accumulator):

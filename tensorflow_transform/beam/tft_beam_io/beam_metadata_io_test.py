@@ -13,14 +13,8 @@
 # limitations under the License.
 """Tests for beam_metadata_io."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import json
 import os
-
-# GOOGLE-INITIALIZATION
 
 import apache_beam as beam
 import tensorflow as tf

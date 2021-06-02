@@ -13,10 +13,6 @@
 # limitations under the License.
 """Same as bucketize_integration_test.py, except TF2 Beam APIs are exercised."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import tensorflow as tf
 from tensorflow_transform.beam import bucketize_integration_test
 from tensorflow_transform.beam import impl as beam_impl
@@ -27,7 +23,7 @@ class BucketizeIntegrationV2Test(
     bucketize_integration_test.BucketizeIntegrationTest):
 
   def setUp(self):
-    super(BucketizeIntegrationV2Test, self).setUp()
+    super().setUp()
     tft_unit.skip_if_not_tf2('Tensorflow 2.x required')
     tf.compat.v1.logging.info('Starting test case: %s', self._testMethodName)
     self._force_tf_compat_v1_context = beam_impl.Context(
@@ -38,15 +34,13 @@ class BucketizeIntegrationV2Test(
   # method.
   def assertAnalyzeAndTransformResults(self, *args, **kwargs):
     kwargs['force_tf_compat_v1'] = False
-    return super(BucketizeIntegrationV2Test,
-                 self).assertAnalyzeAndTransformResults(*args, **kwargs)
+    return super().assertAnalyzeAndTransformResults(*args, **kwargs)
 
   # This is an override that passes force_tf_compat_v1=False to the overridden
   # method.
   def assertAnalyzerOutputs(self, *args, **kwargs):
     kwargs['force_tf_compat_v1'] = False
-    return super(BucketizeIntegrationV2Test,
-                 self).assertAnalyzerOutputs(*args, **kwargs)
+    return super().assertAnalyzerOutputs(*args, **kwargs)
 
 
 if __name__ == '__main__':

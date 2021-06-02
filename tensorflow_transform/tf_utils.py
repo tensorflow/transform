@@ -13,13 +13,8 @@
 # limitations under the License.
 """TF utils for computing information over given data."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import contextlib
 from typing import Callable, Optional, Tuple, Union
-# GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 from tensorflow_transform import common_types
@@ -506,10 +501,10 @@ class _DatasetInitializerCompat(
       raise NotImplementedError(
           'Cannot create a DatasetInitializer with this version of TF: {}'
           .format(tf.__version__))
-    super(_DatasetInitializerCompat, self).__init__(*args, **kwargs)
+    super().__init__(*args, **kwargs)
 
   def initialize(self, table):
-    init_op = super(_DatasetInitializerCompat, self).initialize(table)
+    init_op = super().initialize(table)
     collection_ref = tf.compat.v1.get_collection_ref(
         tf.compat.v1.GraphKeys.TABLE_INITIALIZERS)
     if init_op not in collection_ref:

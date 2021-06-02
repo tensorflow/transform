@@ -13,12 +13,6 @@
 # limitations under the License.
 """Tests for simple_example."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# GOOGLE-INITIALIZATION
-
 import tensorflow as tf
 import simple_example
 

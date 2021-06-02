@@ -17,10 +17,6 @@ A write/read cycle will render all metadata deferred, but in general users
 should avoid doing this anyway and pass around live metadata objects.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import json
 import os
 
@@ -72,7 +68,7 @@ class WriteMetadata(beam.PTransform):
       write_to_unique_subdirectory: (Optional) A bool indicating whether to
         write the metadata out to `path` or a unique subdirectory under `path`.
     """
-    super(WriteMetadata, self).__init__()
+    super().__init__()
     self._path = path
     self._write_to_unique_subdirectory = write_to_unique_subdirectory
     self.pipeline = pipeline

@@ -13,16 +13,9 @@
 # limitations under the License.
 """Context manager for tensorflow-transform."""
 
-from __future__ import absolute_import
-from __future__ import division
-# Using Type Annotations.
-from __future__ import print_function
-
 import os
 import threading
 from typing import Iterable, Optional
-
-# GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 from tensorflow_transform import tf2_utils
@@ -32,7 +25,7 @@ from tensorflow_transform import tf2_utils
 from tfx_bsl.types import tfx_namedtuple
 
 
-class Context(object):
+class Context:
   """Context manager for tensorflow-transform.
 
   All the attributes in this context are kept on a thread local state.
@@ -73,7 +66,7 @@ class Context(object):
       """Return `_State` object with all fields set to `None`."""
       return cls(*(None,) * len(cls._fields))
 
-  class _StateStack(object):
+  class _StateStack:
     """Stack of states for this context manager (found in thread-local storage).
     """
 

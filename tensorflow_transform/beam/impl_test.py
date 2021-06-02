@@ -13,21 +13,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import itertools
 import math
 import os
 
-# GOOGLE-INITIALIZATION
-
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
 import numpy as np
 import pyarrow as pa
-from six.moves import range
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import analyzers
@@ -142,15 +136,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def assertAnalyzeAndTransformResults(self, *args, **kwargs):
     kwargs['force_tf_compat_v1'] = self._UseTFCompatV1()
     kwargs['output_record_batches'] = self._OutputRecordBatches()
-    return super(BeamImplTest,
-                 self).assertAnalyzeAndTransformResults(*args, **kwargs)
+    return super().assertAnalyzeAndTransformResults(*args, **kwargs)
 
   # This is an override that passes force_tf_compat_v1 and output_record_batches
   # to the overridden method.
   def assertAnalyzerOutputs(self, *args, **kwargs):
     kwargs['force_tf_compat_v1'] = self._UseTFCompatV1()
     kwargs['output_record_batches'] = self._OutputRecordBatches()
-    return super(BeamImplTest, self).assertAnalyzerOutputs(*args, **kwargs)
+    return super().assertAnalyzerOutputs(*args, **kwargs)
 
   def testApplySavedModelSingleInput(self):
     def save_model_with_single_input(instance, export_dir):

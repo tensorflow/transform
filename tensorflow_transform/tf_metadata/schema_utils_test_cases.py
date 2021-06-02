@@ -13,12 +13,6 @@
 # limitations under the License.
 """Test cases associated with schema_utils_legacy."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# GOOGLE-INITIALIZATION
-
 import tensorflow as tf
 
 from tensorflow_metadata.proto.v0 import schema_pb2

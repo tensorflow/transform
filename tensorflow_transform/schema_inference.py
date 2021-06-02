@@ -19,14 +19,8 @@ set.  This module will also contain any schema propagation logic, i.e. deducing
 the schema of a tensor from its parents in the graph.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import collections
 from typing import Callable, Dict, Mapping, Optional, Tuple
-
-# GOOGLE-INITIALIZATION
 
 import tensorflow as tf
 from tensorflow_transform import common

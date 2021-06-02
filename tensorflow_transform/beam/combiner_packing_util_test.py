@@ -13,13 +13,8 @@
 # limitations under the License.
 """Tests for tensorflow_transform.analysis_graph_builder."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from unittest import mock
 
-# GOOGLE-INITIALIZATION
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import impl_helper

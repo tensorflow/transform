@@ -35,13 +35,7 @@ c) Finally, we remove the redundant flatten and packed merge nodes.
 
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import collections
-
-# GOOGLE-INITIALIZATION
 
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import nodes
@@ -86,7 +80,7 @@ class _InspectAccumulateCombineVisitor(_ValidationVisitor):
   """
 
   def __init__(self):
-    super(_InspectAccumulateCombineVisitor, self).__init__()
+    super().__init__()
     # Group all packable combines. We pack all the combines that have the same
     # grand parent.
     # {grand_parent_label: List of packable _CombinerOpWrapper's}
@@ -147,7 +141,7 @@ class _PackAccumulateCombineVisitor(_ValidationVisitor):
   """
 
   def __init__(self, packable_combines):
-    super(_PackAccumulateCombineVisitor, self).__init__()
+    super().__init__()
     self._packable_combines = packable_combines
 
     self._combine_to_grand_parent = {}
@@ -207,7 +201,7 @@ class _InspectMergeCombineVisitor(_ValidationVisitor):
   """A visitor that inspects the graph and looks for merge combine nodes."""
 
   def __init__(self):
-    super(_InspectMergeCombineVisitor, self).__init__()
+    super().__init__()
     # Gather all the packable merge combines.
     # Dict {ExtractCombineMergeOutputs (child of CacheableCombineMerge) label:
     #       _CombinerOpWrapper}
@@ -275,7 +269,7 @@ class _PackMergeCombineVisitor(_ValidationVisitor):
   """
 
   def __init__(self, packable_combine_extract_outputs):
-    super(_PackMergeCombineVisitor, self).__init__()
+    super().__init__()
     self._packable_combine_extract_outputs = packable_combine_extract_outputs
     # Gather all the input nodes that we need to flatten to be passed as input
     # to the packed merge node.
@@ -354,7 +348,7 @@ class _RemoveRedundantPackedMergeCombineVisitor(_ValidationVisitor):
   """
 
   def __init__(self, final_packed_merge_combine_label):
-    super(_RemoveRedundantPackedMergeCombineVisitor, self).__init__()
+    super().__init__()
     self._final_packed_merge_combine_label = final_packed_merge_combine_label
 
   def visit(self, operation_def, input_values):

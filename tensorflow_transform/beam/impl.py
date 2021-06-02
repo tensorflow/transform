@@ -68,10 +68,6 @@ entrypoints into our code where this happens and creating a
 # TODO(KesterTong): Refactor and rename now that "TransformFn" is the path to a
 # SavedModel, not an in-memory object.
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import copy
 import datetime
 import os
@@ -90,7 +86,6 @@ from apache_beam.utils import shared
 
 import numpy as np
 import pyarrow as pa
-import six
 import tensorflow as tf
 from tensorflow_transform import annotators
 from tensorflow_transform import common
@@ -197,7 +192,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
   inputs are required to produce the included outputs.
   """
 
-  class _GraphStateCommon(object):
+  class _GraphStateCommon:
     """A container for a shared graph state."""
 
     def __init__(self, saved_model_dir, input_tensor_keys, output_tensor_keys,
@@ -284,7 +279,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
         passthrough data needs to be converted to a Python list. If `False`,
         the passthrough data will be kept in input format.
     """
-    super(_RunMetaGraphDoFn, self).__init__()
+    super().__init__()
     self._use_tf_compat_v1 = use_tf_compat_v1
     self._input_tensor_adapter_config = input_tensor_adapter_config
     self._exclude_outputs = (
@@ -472,7 +467,7 @@ def _convert_and_unbatch_to_instance_dicts(batch_dict, schema,
 
   result = impl_helper.to_instance_dicts(schema, batch_dict)
 
-  for key, data in six.iteritems(passthrough_data):
+  for key, data in passthrough_data.items():
     data_set = set(data)
     if len(data_set) == 1:
       # Relaxing ValueError below to only trigger in case pass-through data
@@ -1091,8 +1086,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
 
     if cache_value_nodes is not None:
       output_cache_pcoll_dict = {}
-      for (dataset_key,
-           cache_key), value_node in six.iteritems(cache_value_nodes):
+      for (dataset_key, cache_key), value_node in cache_value_nodes.items():
         if dataset_key not in output_cache_pcoll_dict:
           output_cache_pcoll_dict[dataset_key] = {}
         output_cache_pcoll_dict[dataset_key][cache_key] = (
@@ -1200,15 +1194,13 @@ class AnalyzeDatasetWithCache(_AnalyzeDatasetCommon):
   def _extract_input_pvalues(self, dataset):
     # This method returns all nested pvalues to inform beam of nested pvalues.
     super_dataset = self._make_parent_dataset(dataset)
-    _, pvalues = super(AnalyzeDatasetWithCache,
-                       self)._extract_input_pvalues(super_dataset)
+    _, pvalues = super()._extract_input_pvalues(super_dataset)
     return dataset, pvalues
 
   def expand(self, dataset):
     input_values_pcoll_dict = dataset[1] or dict()
     analyzer_cache.validate_dataset_keys(input_values_pcoll_dict.keys())
-    return super(AnalyzeDatasetWithCache,
-                 self).expand(self._make_parent_dataset(dataset))
+    return super().expand(self._make_parent_dataset(dataset))
 
 
 class AnalyzeDataset(_AnalyzeDatasetCommon):
@@ -1231,8 +1223,7 @@ class AnalyzeDataset(_AnalyzeDatasetCommon):
 
   def expand(self, dataset):
     input_values, input_metadata = dataset
-    result, cache = super(AnalyzeDataset, self).expand((input_values, None,
-                                                        None, input_metadata))
+    result, cache = super().expand((input_values, None, None, input_metadata))
     assert not cache
     return result
 

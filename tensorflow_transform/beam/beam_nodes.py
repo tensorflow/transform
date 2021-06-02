@@ -40,12 +40,6 @@ The `OperationDef` subclasses defined here are implemented in
 `tensorflow_transform.beam.impl`.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-# GOOGLE-INITIALIZATION
-
 import tensorflow as tf
 from tensorflow_transform import nodes
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
@@ -123,7 +117,7 @@ class CreateSavedModel(
             self._get_tensor_type_name(value), value.shape.as_list(),
             value.dtype)
       return str(copied)
-    return super(CreateSavedModel, self).get_field_str(field_name)
+    return super().get_field_str(field_name)
 
 
 class ExtractInputForSavedModel(

@@ -13,17 +13,10 @@
 # limitations under the License.
 """Library for testing Tensorflow Transform."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
 import tempfile
 
-# GOOGLE-INITIALIZATION
-
 import apache_beam as beam
-import six
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform.beam import impl as beam_impl
@@ -180,16 +173,15 @@ class TransformTestCase(test_case.TransformTestCase):
       analyzer_outputs = analyzer_fn(inputs)
 
       # Check that keys of analyzer_outputs match expected_output.
-      six.assertCountEqual(self, analyzer_outputs.keys(),
-                           expected_outputs.keys())
+      self.assertCountEqual(analyzer_outputs.keys(), expected_outputs.keys())
 
       # Get batch size from any input tensor.
-      an_input = next(six.itervalues(inputs))
+      an_input = next(iter(inputs.values()))
       batch_size = tf.shape(input=an_input)[0]
 
       # Add a batch dimension and broadcast the analyzer outputs.
       result = {}
-      for key, output_tensor in six.iteritems(analyzer_outputs):
+      for key, output_tensor in analyzer_outputs.items():
         # Get the expected shape, and set it.
         output_shape = list(expected_outputs[key].shape)
         try:
@@ -215,7 +207,7 @@ class TransformTestCase(test_case.TransformTestCase):
       expected_data = [expected_outputs] * len(test_data)
     expected_metadata = metadata_from_feature_spec({
         key: tf.io.FixedLenFeature(value.shape, tf.as_dtype(value.dtype))
-        for key, value in six.iteritems(expected_outputs)
+        for key, value in expected_outputs.items()
     })
 
     self.assertAnalyzeAndTransformResults(
@@ -376,6 +368,6 @@ class TransformTestCase(test_case.TransformTestCase):
         except AssertionError:
           raise compare_exception
 
-    for filename, file_contents in six.iteritems(expected_vocab_file_contents):
+    for filename, file_contents in expected_vocab_file_contents.items():
       full_filename = tf_transform_output.vocabulary_file_by_name(filename)
       self.AssertVocabularyContents(full_filename, file_contents)
