@@ -45,7 +45,7 @@ def _make_required_install_packages():
       'absl-py>=0.9,<0.13',
       'apache-beam[gcp]>=2.29,<3',
       'numpy>=1.16,<1.20',
-      'protobuf>=3.9.2,<4',
+      'protobuf>=3.13,<4',
       'pyarrow>=1,<3',
       'pydot>=1.2,<2',
       'tensorflow' + select_constraint(

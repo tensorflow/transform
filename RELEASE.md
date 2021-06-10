@@ -7,6 +7,7 @@
 ## Bug Fixes and Other Changes
 
 *   Stopped depending on `six`.
+*   Depends on `protobuf>=3.13,<4`.
 
 ## Breaking Changes
 
