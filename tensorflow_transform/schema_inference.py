@@ -20,7 +20,7 @@ the schema of a tensor from its parents in the graph.
 """
 
 import collections
-from typing import Callable, Dict, Mapping, Optional, Tuple
+from typing import Callable, Mapping, Tuple
 
 import tensorflow as tf
 from tensorflow_transform import common
@@ -186,9 +186,7 @@ def infer_feature_schema_v2(features, concrete_metadata_fn,
   Returns:
     A `Schema` proto.
   """
-  optimized_concrete_fn = saved_transform_io_v2.optimize_concrete_function(
-      concrete_metadata_fn)
-  metadata = collections.defaultdict(list, optimized_concrete_fn())
+  metadata = collections.defaultdict(list, concrete_metadata_fn())
 
   if not evaluate_schema_overrides:
     tensor_ranges = {
@@ -561,11 +559,11 @@ def _get_schema_overrides(graph,
 
 
 def get_traced_metadata_fn(
-    tensor_replacement_map: Optional[Dict[str, tf.Tensor]],
     preprocessing_fn: Callable[[Mapping[str, common_types.InputTensorType]],
                                Mapping[str, common_types.InputTensorType]],
     structured_inputs: Mapping[str, common_types.InputTensorType],
-    base_temp_dir: str, evaluate_schema_overrides: bool) -> function.Function:
+    tf_graph_context: graph_context.TFGraphContext,
+    evaluate_schema_overrides: bool) -> function.Function:
   """Get a tf.function that returns a dictionary of annotations.
 
   Annotations are added to graph collections keyed by graph tensor names when
@@ -578,21 +576,20 @@ def get_traced_metadata_fn(
   returned by this method is invoked.
 
   Args:
-    tensor_replacement_map: A map from placeholder tensor names to their
-      evaluated replacement tensors.
     preprocessing_fn: A user defined python function to be traced.
     structured_inputs: A dictionary of placeholder inputs to `preprocessing_fn`.
-    base_temp_dir: Base path to write any dummy assets to during tracing.
+    tf_graph_context: A `TFGraphContext` context manager to invoke the
+      `preprocessing_fn` in.
     evaluate_schema_overrides: If `False`, the returned dictionary contains a
       single key `_TF_METADATA_TENSOR_COLLECTION` as all other annotations are
       deferred. Else, the returned dictionary contains several deferred
       annotations.
 
   Returns:
-    A dictionary whose keys represent the types of annotations and the values
-    are collections of feature keys/annotations.
+    A tf.function which when invoked returns a dictionary whose keys represent
+    the types of annotations and the values are collections of feature
+    keys/annotations.
   """
-
   # Since this is a TFT-internal function with constant outputs, autograph will
   # not affect its behavior. It will only increase tracing time, if enabled.
   # Hence, trace with `autograph=False` here.
@@ -600,8 +597,7 @@ def get_traced_metadata_fn(
   def metadata_fn():
     graph = ops.get_default_graph()
     inputs = tf2_utils.supply_missing_inputs(structured_inputs, batch_size=1)
-    with graph_context.TFGraphContext(
-        temp_dir=base_temp_dir, evaluated_replacements=tensor_replacement_map):
+    with tf_graph_context:
       transformed_features = preprocessing_fn(inputs)
 
     # Get a map from tensor value names to feature keys.
@@ -636,4 +632,10 @@ def get_traced_metadata_fn(
                                 ], _TF_METADATA_EXTRA_ANNOTATION_GLOBAL))
     return result
 
-  return metadata_fn
+  # Though this tf.function is not serialized to SavedModel, if it is capturing
+  # any resources, they need to be tracked to ensure they are not garbage
+  # collected.
+  module = tf_graph_context.module_to_export
+  saved_transform_io_v2.trace_and_update_module(module, metadata_fn,
+                                                'metadata_fn')
+  return module.metadata_fn

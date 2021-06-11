@@ -19,9 +19,10 @@ annotate key aspects and make them easily accessible to downstream components.
 
 import contextlib
 import os
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 import tensorflow as tf
+from tensorflow_transform.graph_context import TFGraphContext
 
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.framework import func_graph
@@ -49,8 +50,25 @@ class ObjectTracker:
   def trackable_objects(self) -> List[base.Trackable]:
     return self._trackable_objects
 
-  def add_trackable_object(self, trackable_object: base.Trackable):
-    self._trackable_objects.append(trackable_object)
+  def add_trackable_object(self, trackable_object: base.Trackable,
+                           name: Optional[str]):
+    """Add `trackable_object` to list of objects tracked."""
+    if name is None:
+      self._trackable_objects.append(trackable_object)
+    else:
+      module = TFGraphContext.get_module_to_export()
+      # The `preprocessing_fn` should always be invoked within a TFGraphContext.
+      # If not, module will be None.
+      if module is None:
+        raise RuntimeError(
+            f'No module found to track {name} with. Check that the '
+            '`preprocessing_fn` is invoked within a `TFGraphContext` with a '
+            'valid `TFGraphContext.module_to_export`.')
+      if hasattr(module, name):
+        raise ValueError(
+            f'An object with name {name} is already being tracked. Check that a '
+            'unique name was passed.')
+      setattr(module, name, trackable_object)
 
 
 # Thread-Hostile
@@ -68,6 +86,7 @@ def object_tracker_scope(object_tracker: ObjectTracker):
     A scope in which the object_tracker is active.
   """
   global _OBJECT_TRACKER
+  # Multiple nested object_tracker_scope calls are not expected.
   assert _OBJECT_TRACKER is None
   _OBJECT_TRACKER = object_tracker
   try:
@@ -76,17 +95,33 @@ def object_tracker_scope(object_tracker: ObjectTracker):
     _OBJECT_TRACKER = None
 
 
+def _get_object(name: str) -> Optional[base.Trackable]:
+  """If an object is being tracked using `name` return it, else None."""
+  module = TFGraphContext.get_module_to_export()
+  # The `preprocessing_fn` should always be invoked within a TFGraphContext. If
+  # not, module will be None.
+  if module is None:
+    raise RuntimeError(
+        f'No module found to track {name} with. Check that the `preprocessing_fn` is'
+        ' invoked within a `TFGraphContext` with a valid '
+        '`TFGraphContext.module_to_export`.')
+  return getattr(module, name, None)
+
+
 # Thread-Hostile
-def _track_object(trackable: base.Trackable):
+def _track_object(trackable: base.Trackable, name: Optional[str]):
   """Add `trackable` to the object trackers active in this scope."""
   global _OBJECT_TRACKER
-  if _OBJECT_TRACKER is not None:
-    _OBJECT_TRACKER.add_trackable_object(trackable)
+  # The transform tf.function should always be traced
+  # (call to get_concrete_function) within an object_tracker_scope.
+  assert _OBJECT_TRACKER is not None
+  _OBJECT_TRACKER.add_trackable_object(trackable, name)
 
 
 # Thread-Hostile
-def make_and_track_object(
-    trackable_factory_callable: Callable[[], base.Trackable]) -> base.Trackable:
+def make_and_track_object(trackable_factory_callable: Callable[[],
+                                                               base.Trackable],
+                          name: Optional[str] = None) -> base.Trackable:
   # pyformat: disable
   """Keeps track of the object created by invoking `trackable_factory_callable`.
 
@@ -100,6 +135,9 @@ def make_and_track_object(
   Args:
     trackable_factory_callable: A callable that creates and returns a Trackable
       object.
+    name: (Optional) Provide a unique name to track this object with. If the
+      Trackable object created is a Keras Layer or Model this is needed for
+      proper tracking.
 
   Example:
 
@@ -132,9 +170,15 @@ def make_and_track_object(
     raise ValueError('This API should only be invoked inside the user defined '
                      '`preprocessing_fn` with TF2 behaviors enabled and '
                      '`force_tf_compat_v1=False`. ')
-  with tf.init_scope():
-    result = trackable_factory_callable()
-    _track_object(result)
+  result = _get_object(name) if name is not None else None
+  if result is None:
+    with tf.init_scope():
+      result = trackable_factory_callable()
+      if name is None and isinstance(result, tf.keras.layers.Layer):
+        raise ValueError(
+            'Please pass a unique `name` to this API to ensure Keras objects '
+            'are tracked correctly.')
+      _track_object(result, name)
   return result
 
 

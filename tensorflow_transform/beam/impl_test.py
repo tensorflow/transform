@@ -3462,6 +3462,55 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_outputs)
 
+  def testLoadKerasModelInPreprocessingFn(self):
+
+    if self._UseTFCompatV1():
+      raise unittest.SkipTest(
+          '`tft.make_and_track_object` is only supported when TF2 behavior is '
+          'enabled.')
+
+    def _create_model(features, target):
+      inputs = [
+          tf.keras.Input(shape=(1,), name=f, dtype=tf.float32) for f in features
+      ]
+      x = tf.keras.layers.Concatenate()(inputs)
+      x = tf.keras.layers.Dense(64, activation='relu')(x)
+      outputs = tf.keras.layers.Dense(1, activation='sigmoid', name=target)(x)
+      model = tf.keras.Model(inputs=inputs, outputs=outputs)
+      model.compile(
+          loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+      n = 50
+      model.fit(
+          {
+              f: tf.constant([np.random.uniform() for _ in range(n)
+                             ]) for f in features
+          },
+          {target: tf.constant([np.random.randint(2) for _ in range(n)])},
+      )
+      return model
+
+    test_base_dir = os.path.join(self.get_temp_dir(), self._testMethodName)
+    # Create and save a test Keras model
+    features = ['f1', 'f2']
+    target = 't'
+    keras_model = _create_model(features, target)
+    keras_model_dir = os.path.join(test_base_dir, 'keras_model')
+    keras_model.save(keras_model_dir)
+
+    def preprocessing_fn(inputs):
+      model = tft.make_and_track_object(
+          lambda: tf.keras.models.load_model(keras_model_dir), name='keras')
+      return {'prediction': model(inputs)}
+
+    input_data = [{'f1': 1.0, 'f2': 0.0}, {'f1': 2.0, 'f2': 3.0}]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'f1': tf.io.FixedLenFeature([], tf.float32),
+        'f2': tf.io.FixedLenFeature([], tf.float32)
+    })
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn)
+
 
 if __name__ == '__main__':
   tft_unit.main()

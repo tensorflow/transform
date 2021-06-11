@@ -23,6 +23,7 @@ import pyarrow as pa
 
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
+from tensorflow_transform import annotators
 from tensorflow_transform import common_types
 from tensorflow_transform import graph_context
 from tensorflow_transform import schema_inference
@@ -517,8 +518,7 @@ def get_traced_transform_fn(
     preprocessing_fn: Callable[[Mapping[str, common_types.InputTensorType]],
                                Mapping[str, common_types.InputTensorType]],
     input_signature: Mapping[str, tf.TypeSpec],
-    base_temp_dir: str,
-    tensor_replacement_map: Optional[Dict[str, tf.Tensor]] = None,
+    tf_graph_context: graph_context.TFGraphContext,
     output_keys_to_name_map: Optional[Dict[str,
                                            str]] = None) -> function.Function:
   """Get preprocessing_fn traced using tf.function.
@@ -527,9 +527,8 @@ def get_traced_transform_fn(
     preprocessing_fn: A user defined python function to be traced.
     input_signature: `tf.TypeSpec`s describing the inputs to the
       `preprocessing_fn`.
-    base_temp_dir: Base path to write any dummy assets to during tracing.
-    tensor_replacement_map: (Optional) A map from placeholder tensor names to
-      their evaluated replacement tensors.
+    tf_graph_context: A `TFGraphContext` context manager to invoke the
+      `preprocessing_fn` in.
     output_keys_to_name_map: (Optional) A map from output dictionary keys to the
       names of the tensors that they represent.
 
@@ -557,8 +556,7 @@ def get_traced_transform_fn(
     # The user defined `preprocessing_fn` may directly modify its inputs which
     # is not allowed in a tf.function. Hence, we make a copy here.
     inputs_copy = tf_utils.copy_tensors(inputs)
-    with graph_context.TFGraphContext(
-        temp_dir=base_temp_dir, evaluated_replacements=tensor_replacement_map):
+    with tf_graph_context:
       transformed_features = preprocessing_fn(inputs_copy)
     # An empty `TENSOR_REPLACEMENTS` collection symbolizes that there is no
     # analyzer left for Transform to evaluate. Either if this collection is
@@ -597,8 +595,13 @@ def _trace_preprocessing_fn_v1(preprocessing_fn, specs):
 
 def _trace_preprocessing_fn_v2(preprocessing_fn, specs, base_temp_dir):
   """Trace TF2 graph for `preprocessing_fn`."""
-  concrete_fn = get_traced_transform_fn(preprocessing_fn, specs,
-                                        base_temp_dir).get_concrete_function()
+  tf_graph_context = graph_context.TFGraphContext(
+      module_to_export=tf.Module(),
+      temp_dir=base_temp_dir,
+      evaluated_replacements=None)
+  with annotators.object_tracker_scope(annotators.ObjectTracker()):
+    concrete_fn = get_traced_transform_fn(
+        preprocessing_fn, specs, tf_graph_context).get_concrete_function()
   return (concrete_fn.graph,
           tf2_utils.get_structured_inputs_from_func_graph(concrete_fn.graph),
           concrete_fn.structured_outputs)
@@ -644,15 +647,18 @@ def _trace_and_write_transform_fn(
     output_keys_to_name_map: Optional[Dict[str,
                                            str]]) -> function.ConcreteFunction:
   """Trace `preprocessing_fn` and serialize to a SavedModel."""
+  tf_graph_context = graph_context.TFGraphContext(
+      module_to_export=tf.Module(),
+      temp_dir=base_temp_dir,
+      evaluated_replacements=tensor_replacement_map)
   transform_fn = get_traced_transform_fn(
       preprocessing_fn,
       input_signature,
-      base_temp_dir,
-      tensor_replacement_map=tensor_replacement_map,
+      tf_graph_context,
       output_keys_to_name_map=output_keys_to_name_map)
-  return saved_transform_io_v2.write_v2_saved_model(transform_fn,
-                                                    'transform_fn',
-                                                    saved_model_dir)
+  return saved_transform_io_v2.write_v2_saved_model(
+      tf_graph_context.module_to_export, transform_fn, 'transform_fn',
+      saved_model_dir)
 
 
 def _trace_and_get_metadata(
@@ -665,16 +671,19 @@ def _trace_and_get_metadata(
   """Compute and return metadata for the outputs of `concrete_transform_fn`."""
   structured_inputs = tf2_utils.get_structured_inputs_from_func_graph(
       concrete_transform_fn.graph)
-  metadata_fn = schema_inference.get_traced_metadata_fn(
-      tensor_replacement_map,
+  tf_graph_context = graph_context.TFGraphContext(
+      module_to_export=tf.Module(),
+      temp_dir=base_temp_dir,
+      evaluated_replacements=tensor_replacement_map)
+  concrete_metadata_fn = schema_inference.get_traced_metadata_fn(
       preprocessing_fn,
       structured_inputs,
-      base_temp_dir,
+      tf_graph_context,
       evaluate_schema_overrides=True)
   return dataset_metadata.DatasetMetadata(
       schema=schema_inference.infer_feature_schema_v2(
           concrete_transform_fn.structured_outputs,
-          metadata_fn.get_concrete_function(),
+          concrete_metadata_fn,
           evaluate_schema_overrides=True))
 
 

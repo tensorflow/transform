@@ -90,6 +90,7 @@ import tensorflow as tf
 from tensorflow_transform import annotators
 from tensorflow_transform import common
 from tensorflow_transform import common_types
+from tensorflow_transform import graph_context
 from tensorflow_transform import graph_tools
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
@@ -1106,15 +1107,18 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     else:
       # Use metadata_fn here as func_graph outputs may be wrapped in an identity
       # op and hence may not return the same tensors that were annotated.
-      metadata_fn = schema_inference.get_traced_metadata_fn(
-          tensor_replacement_map={},
+      tf_graph_context = graph_context.TFGraphContext(
+          module_to_export=tf.Module(),
+          temp_dir=base_temp_dir,
+          evaluated_replacements={})
+      concrete_metadata_fn = schema_inference.get_traced_metadata_fn(
           preprocessing_fn=self._preprocessing_fn,
           structured_inputs=structured_inputs,
-          base_temp_dir=base_temp_dir,
+          tf_graph_context=tf_graph_context,
           evaluate_schema_overrides=False)
       schema = schema_inference.infer_feature_schema_v2(
           structured_outputs,
-          metadata_fn.get_concrete_function(),
+          concrete_metadata_fn,
           evaluate_schema_overrides=False)
     deferred_metadata = (
         transform_fn_pcoll

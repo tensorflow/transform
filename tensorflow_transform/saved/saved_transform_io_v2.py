@@ -428,11 +428,9 @@ def optimize_concrete_function(
   return result
 
 
-def write_v2_saved_model(tf_function: function.Function, name: str,
-                         saved_model_dir: str) -> function.ConcreteFunction:
-  """Writes `tf_function` under attr `name` to `saved_model_dir`."""
-  module = tf.Module()
-
+def trace_and_update_module(module: tf.Module, tf_function: function.Function,
+                            name: str) -> tf.Module:
+  """Traces `tf_function` and saves under attr `name` of `module`."""
   resource_tracker = tracking.ResourceTracker()
   object_tracker = annotators.ObjectTracker()
   created_variables = []
@@ -478,5 +476,13 @@ def write_v2_saved_model(tf_function: function.Function, name: str,
       common_types.Asset(asset_filepath) for asset_filepath in
       concrete_fn.graph.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)
   ]
+  return concrete_fn
+
+
+def write_v2_saved_model(module: tf.Module, tf_function: function.Function,
+                         name: str,
+                         saved_model_dir: str) -> function.ConcreteFunction:
+  """Writes `tf_function` under attr `name` of `module` to `saved_model_dir`."""
+  concrete_fn = trace_and_update_module(module, tf_function, name)
   tf.saved_model.save(module, saved_model_dir)
   return concrete_fn

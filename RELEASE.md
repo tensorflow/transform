@@ -6,6 +6,9 @@
 
 ## Bug Fixes and Other Changes
 
+*   Support invoking Keras models inside the `preprocessing_fn` using
+    `tft.make_and_track_object` when `force_tf_compat_v1=False` with TF2
+    behaviors enabled.
 *   Stopped depending on `six`.
 *   Depends on `protobuf>=3.13,<4`.
 

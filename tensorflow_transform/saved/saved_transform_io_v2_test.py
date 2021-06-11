@@ -19,6 +19,7 @@ import tempfile
 
 import numpy as np
 import tensorflow as tf
+from tensorflow_transform import graph_context
 from tensorflow_transform import impl_helper
 from tensorflow_transform import tf_utils
 from tensorflow_transform import test_case
@@ -124,15 +125,17 @@ def _create_test_saved_model(export_in_tf1,
         saved_transform_io.write_saved_transform_from_session(
             session, inputs, outputs, export_path)
   else:
+    module = tf.Module()
+    tf_graph_context = graph_context.TFGraphContext(
+        module_to_export=module, temp_dir=None, evaluated_replacements=None)
     transform_fn = impl_helper.get_traced_transform_fn(
         preprocessing_fn=preprocessing_fn,
         input_signature=input_specs,
-        base_temp_dir=None,
-        tensor_replacement_map=None,
+        tf_graph_context=tf_graph_context,
         output_keys_to_name_map=None)
 
-    saved_transform_io_v2.write_v2_saved_model(transform_fn, 'transform_fn',
-                                               export_path)
+    saved_transform_io_v2.write_v2_saved_model(module, transform_fn,
+                                               'transform_fn', export_path)
   return export_path
 
 
