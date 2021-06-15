@@ -1125,9 +1125,8 @@ def apply_vocabulary(
               initializer, default_value=default_value)
         return table
 
-      table, result = tf_utils.construct_and_lookup_table(
+      result, table_size = tf_utils.construct_and_lookup_table(
           _construct_table, deferred_vocab_filename_tensor, x)
-      table_size = table.size()
 
     # Specify schema overrides which will override the values in the schema
     # with the min and max values, which are deferred as they are only known

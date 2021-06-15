@@ -9,6 +9,9 @@
 *   Support invoking Keras models inside the `preprocessing_fn` using
     `tft.make_and_track_object` when `force_tf_compat_v1=False` with TF2
     behaviors enabled.
+*   Fix an issue when computing the metadata for a function with automatic
+    control dependencies added where dependencies on inputs which should not be
+    evaluated was being retained.
 *   Stopped depending on `six`.
 *   Depends on `protobuf>=3.13,<4`.
 

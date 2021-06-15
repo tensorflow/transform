@@ -49,7 +49,7 @@ def _get_preprocessing_fn_asset_table(asset_file):
     return tf.lookup.StaticHashTable(initializer, default_value=-1)
 
   def preprocessing_fn(inputs):
-    unused_table, output = tf_utils.construct_and_lookup_table(
+    output, unused_table_size = tf_utils.construct_and_lookup_table(
         construct_table, asset_file, inputs['input'])
     return {'output': output}
 
@@ -509,21 +509,75 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
     self.assertEqual(['x_scaled'], list(transformed_features))
     self.assertAllEqual(transformed_features['x_scaled'].numpy(), [247.0])
 
-  def test_optimize_concrete_function(self):
+  @test_case.named_parameters(
+      dict(
+          testcase_name='_strip_control_dependencies',
+          strip_control_dependencies=True),
+      dict(
+          testcase_name='_keep_control_dependencies',
+          strip_control_dependencies=False))
+  def test_optimize_concrete_function(self, strip_control_dependencies):
 
     @tf.function(input_signature=[tf.TensorSpec([], dtype=tf.int64)])
     def func(x):
-      _ = x + 1
       z = x + 2
+      with tf.init_scope():
+        initializer = tf.lookup.KeyValueTensorInitializer([0, 1, 2],
+                                                          ['a', 'b', 'c'],
+                                                          key_dtype=tf.int64,
+                                                          value_dtype=tf.string)
+        table = tf.lookup.StaticHashTable(initializer, default_value='NAN')
+      _ = table.lookup(x)
       return z
 
     concrete_function = func.get_concrete_function()
     optimized_function = saved_transform_io_v2.optimize_concrete_function(
-        concrete_function)
+        concrete_function,
+        strip_control_dependencies=strip_control_dependencies)
 
-    self.assertLess(
-        len(optimized_function.graph.as_graph_def().node),
-        len(concrete_function.graph.as_graph_def().node))
+    if strip_control_dependencies:
+      self.assertLess(
+          len(optimized_function.graph.as_graph_def().node),
+          len(concrete_function.graph.as_graph_def().node))
+    else:
+      self.assertEqual(
+          len(optimized_function.graph.as_graph_def().node),
+          len(concrete_function.graph.as_graph_def().node))
+
+  def test_strip_control_dependencies(self):
+
+    @tf.function(input_signature=[tf.TensorSpec([], dtype=tf.int64)])
+    def func(x):
+      with tf.init_scope():
+        initializer_1 = tf.lookup.KeyValueTensorInitializer(
+            [0, 1, 2], ['a', 'b', 'c'],
+            key_dtype=tf.int64,
+            value_dtype=tf.string)
+        table_1 = tf.lookup.StaticHashTable(initializer_1, default_value='NAN')
+        size = table_1.size()
+        initializer_2 = tf.lookup.KeyValueTensorInitializer(
+            ['a', 'b', 'c'], [-1, 0, 1],
+            key_dtype=tf.string,
+            value_dtype=tf.int64)
+        table_2 = tf.lookup.StaticHashTable(initializer_2, default_value=-777)
+      y = table_1.lookup(x)
+      _ = table_2.lookup(y)
+      z = x + size
+      return {'x': x, 'z': z}
+
+    concrete_function = func.get_concrete_function()
+    optimized_function = saved_transform_io_v2.optimize_concrete_function(
+        concrete_function, strip_control_dependencies=True)
+    expected_output = {'x': 0, 'z': 3}
+    output = optimized_function(tf.constant(0, tf.int64))
+    self.assertEqual(output, expected_output)
+
+    flat_outputs = tf.nest.flatten(
+        concrete_function.structured_outputs, expand_composites=True)
+    expected_flat_outputs = [t.op.inputs[0] for t in flat_outputs]
+    new_flat_outputs = (
+        saved_transform_io_v2._strip_control_dependencies(flat_outputs))
+    self.assertEqual(new_flat_outputs, expected_flat_outputs)
 
 
 if __name__ == '__main__':

@@ -1490,13 +1490,12 @@ class VocabTFUtilsTest(test_case.TransformTestCase):
     @function_handler(
         input_signature=[tf.TensorSpec(shape=[None], dtype=tf.string)])
     def foo(input_tensor):
-      table, output_tensor = tf_utils.construct_and_lookup_table(
+      output_tensor, unused_table_size = tf_utils.construct_and_lookup_table(
           _construct_table, asset_path_input_fn(vocab_filename), input_tensor)
-      return table.lookup(input_tensor), output_tensor
+      return output_tensor
 
     expected_data = [0, 1, 1, 2, -1]
-    table_lookup_output_tensor, output_tensor = foo(['a', 'b', 'c', 'd', 'e'])
-    self.assertAllEqual(table_lookup_output_tensor, expected_data)
+    output_tensor = foo(['a', 'b', 'c', 'd', 'e'])
     self.assertAllEqual(output_tensor, expected_data)
 
 

@@ -13,7 +13,7 @@
 # limitations under the License.
 """Utility functions to save and load from SavedModels in TF 2.x."""
 
-from typing import Dict, Mapping, Union
+from typing import Dict, Iterable, Mapping, Union
 
 import tensorflow as tf
 from tensorflow_transform import annotators
@@ -406,19 +406,43 @@ class SavedModelLoader:
     self._is_finalized = True
 
 
+def _strip_control_dependencies(
+    flat_tensor_list: Iterable[tf.Tensor]) -> Iterable[tf.Tensor]:
+  """Strips control dependencies common to all tensors in `flat_tensor_list`."""
+
+  # If an automatic control dependency node was added, all output tensors will
+  # be the result of Identity ops with the original output tensor value as an
+  # input and the automatic control dependencies as control inputs.
+  if not all([t.op.type == 'Identity' for t in flat_tensor_list]):
+    return flat_tensor_list
+
+  if not all([len(t.op.inputs) == 1 for t in flat_tensor_list]):
+    return flat_tensor_list
+
+  return [t.op.inputs[0] for t in flat_tensor_list]
+
+
 # TODO(b/177606209): Remove once TF supports saving optimized functions.
 # TODO(b/169666856): WrappedFunction.prune does not support composite tensors.
 # Hence, add additional handling when supporting composite tensors in TFT.
 def optimize_concrete_function(
-    concrete_function: function.ConcreteFunction
-) -> wrap_function.WrappedFunction:
+    concrete_function: function.ConcreteFunction,
+    strip_control_dependencies: bool) -> wrap_function.WrappedFunction:
   """Returns optimized function with same signature as `concrete_function`."""
   wrapped_fn = wrap_function.WrappedFunction(
       concrete_function.graph,
       variable_holder=wrap_function.VariableHolder(share_variables=True))
+  fetches = concrete_function.structured_outputs
+  if strip_control_dependencies:
+    flat_outputs = _strip_control_dependencies(
+        tf.nest.flatten(fetches, expand_composites=True))
+    fetches = tf.nest.pack_sequence_as(
+        concrete_function.structured_outputs,
+        flat_outputs,
+        expand_composites=True)
   result = wrapped_fn.prune(
       feeds=concrete_function.inputs,
-      fetches=concrete_function.structured_outputs,
+      fetches=fetches,
       input_signature=concrete_function.structured_input_signature)
   # TODO(b/163329414): Remove once `prune` retains shape information for all
   # components.
@@ -428,9 +452,24 @@ def optimize_concrete_function(
   return result
 
 
-def trace_and_update_module(module: tf.Module, tf_function: function.Function,
-                            name: str) -> tf.Module:
-  """Traces `tf_function` and saves under attr `name` of `module`."""
+def trace_and_update_module(
+    module: tf.Module, tf_function: function.Function, name: str,
+    strip_control_dependencies: bool) -> function.ConcreteFunction:
+  """Traces `tf_function` and saves under attr `name` of `module`.
+
+  Args:
+    module: A saveable module which will contain the traced `tf_function` under
+      attr `name`.
+    tf_function: A tf.function to trace.
+    name: A name to same the traced `tf_function` to.
+    strip_control_dependencies: Boolean. If True, automatic control dependencies
+      will be stripped from the outputs of `tf_function`. This should almost
+      always be False. It is useful only if you want to use the structure of the
+      TF graph to perform any graph manipulations.
+
+  Returns:
+    The concrete function obtained from tracing `tf_function`.
+  """
   resource_tracker = tracking.ResourceTracker()
   object_tracker = annotators.ObjectTracker()
   created_variables = []
@@ -454,7 +493,8 @@ def trace_and_update_module(module: tf.Module, tf_function: function.Function,
   # SavedModel. Since this is no longer the case, we save the concrete function
   # directly.
   if tf.compat.forward_compatible(2020, 10, 8):
-    pruned_function = optimize_concrete_function(concrete_fn)
+    pruned_function = optimize_concrete_function(concrete_fn,
+                                                 strip_control_dependencies)
     module.pruned_variables = pruned_function.variables
     setattr(module, name, pruned_function)
   else:
@@ -483,6 +523,7 @@ def write_v2_saved_model(module: tf.Module, tf_function: function.Function,
                          name: str,
                          saved_model_dir: str) -> function.ConcreteFunction:
   """Writes `tf_function` under attr `name` of `module` to `saved_model_dir`."""
-  concrete_fn = trace_and_update_module(module, tf_function, name)
+  concrete_fn = trace_and_update_module(
+      module, tf_function, name, strip_control_dependencies=False)
   tf.saved_model.save(module, saved_model_dir)
   return concrete_fn

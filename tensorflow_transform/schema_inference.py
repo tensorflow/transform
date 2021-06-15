@@ -635,7 +635,12 @@ def get_traced_metadata_fn(
   # Though this tf.function is not serialized to SavedModel, if it is capturing
   # any resources, they need to be tracked to ensure they are not garbage
   # collected.
+  # We strip control dependencies from this function as we only want to evaluate
+  # annotations which are constants available at graph construction time and
+  # have no dependency on inputs.
+  # TODO(b/149352022): Re-factor metadata computation when it is possible to
+  # evaluate non output tensors from a func graph.
   module = tf_graph_context.module_to_export
-  saved_transform_io_v2.trace_and_update_module(module, metadata_fn,
-                                                'metadata_fn')
+  saved_transform_io_v2.trace_and_update_module(
+      module, metadata_fn, 'metadata_fn', strip_control_dependencies=True)
   return module.metadata_fn

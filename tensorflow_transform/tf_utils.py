@@ -634,7 +634,7 @@ def apply_per_key_vocabulary(per_key_filename,
         delimiter=' ')
     return tf.lookup.StaticHashTable(initializer, default_value=default_value)
 
-  unused_table, table_lookup = construct_and_lookup_table(
+  table_lookup, unused_table_size = construct_and_lookup_table(
       _construct_table, per_key_filename, key)
 
   sparse_result = tf.compat.v1.strings.split(table_lookup, sep=',')
@@ -1398,7 +1398,7 @@ def construct_and_lookup_table(
     construct_table_callable: Callable[[_AssetFileType],
                                        lookup_ops.LookupInterface],
     asset_filepath: _AssetFileType, x: common_types.TensorType
-) -> Tuple[lookup_ops.LookupInterface, common_types.TensorType]:
+) -> Tuple[common_types.TensorType, common_types.TensorType]:
   """Construct a table and look x up in it.
 
   Args:
@@ -1410,7 +1410,7 @@ def construct_and_lookup_table(
       tf.int[8|16|32|64] to which the table lookup should be applied.
 
   Returns:
-    A tuple of the table and the result from looking x up in it.
+    A tuple of the result from looking x up in a table and the table's size.
 
   """
   graph = ops.get_default_graph()
@@ -1428,4 +1428,5 @@ def construct_and_lookup_table(
       stack.enter_context(tf.init_scope())
 
     table = construct_table_callable(asset_filepath)
-  return table, _lookup_table(table, x, control_dependency)
+    table_size = table.size()
+  return _lookup_table(table, x, control_dependency), table_size
