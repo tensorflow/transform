@@ -489,13 +489,34 @@ class TFUtilsTest(test_case.TransformTestCase):
             })
         self.assertAllEqual(expected_output, output)
 
-  @test_case.parameters((True,), (False,))
-  def test_apply_per_key_vocab(self, with_default_value):
+  @test_case.named_parameters([
+      dict(
+          testcase_name='_with_default',
+          with_default_value=True,
+          input_keys=['a', 'b', 'c', 'd', 'e']),
+      dict(
+          testcase_name='_wihout_default',
+          with_default_value=False,
+          input_keys=['a', 'b', 'c', 'd', 'e']),
+      dict(
+          testcase_name='_single_oov_key',
+          with_default_value=False,
+          input_keys=['e'])
+  ])
+  def test_apply_per_key_vocab(self, with_default_value, input_keys):
     default_value = '-7,-5' if with_default_value else None
+    vocab_data = [('0,0', 'a'), ('1,-1', 'b'), ('-1,1', 'c'), ('-2,2', 'd')]
+    expected_missing_key_result = [-7, -5] if default_value else [0, 0]
+    expected_lookup_results = {
+        'a': [0, 0],
+        'b': [1, -1],
+        'c': [-1, 1],
+        'd': [-2, 2],
+    }
+
     with tf.compat.v1.Graph().as_default():
-      input_tensor = tf.constant(['a', 'b', 'c', 'd', 'e'])
+      input_tensor = tf.constant(input_keys)
       vocab_filename = os.path.join(self.get_temp_dir(), 'test.txt')
-      vocab_data = [('0,0', 'a'), ('1,-1', 'b'), ('-1,1', 'c'), ('-2,2', 'd')]
       encoded_vocab = '\n'.join([' '.join(pair) for pair in vocab_data])
       with tf.io.gfile.GFile(vocab_filename, 'w') as f:
         f.write(encoded_vocab)
@@ -509,9 +530,10 @@ class TFUtilsTest(test_case.TransformTestCase):
         sess.run(tf.compat.v1.tables_initializer())
         output = output_tensor.eval()
 
-      expected_missing_key_result = [-7, -5] if default_value else [0, 0]
-      expected_data = [[0, 0], [1, -1], [-1, 1], [-2, 2],
-                       expected_missing_key_result]
+      expected_data = [
+          expected_lookup_results.get(key, expected_missing_key_result)
+          for key in input_keys
+      ]
       self.assertAllEqual(output, expected_data)
 
   @test_case.named_parameters(test_case.cross_with_function_handlers([

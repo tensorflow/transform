@@ -595,14 +595,15 @@ def _split_vocabulary_entries(batched_vocab_lines):
     return split[1], split[0]
 
 
-def apply_per_key_vocabulary(per_key_filename,
-                             key,
-                             default_value=None,
-                             target_ndims=None):
+def apply_per_key_vocabulary(
+    per_key_filename: common_types.TensorType,
+    key: common_types.TensorType,
+    default_value: Optional[str] = None,
+    target_ndims: Optional[int] = None) -> common_types.TensorType:
   """Apply a stored key-value mapping to a set of keys.
 
-  We expect the values stored in per_key_filename to be comma-delimited numbers,
-  such that it has the following form:
+  We expect the values stored in per_key_filename to be two comma-delimited
+  numbers, such that it has the following form:
   a 1,3
   b 2,4
   if a and b are the keys corresponding to each row.
@@ -617,12 +618,12 @@ def apply_per_key_vocabulary(per_key_filename,
         in a single Tensor).
 
   Returns:
-    A `Tensor` representing the mapped values of shape [None, d, ...], where d
-    is the number of separate values computed by the analyzer and with extra
-    dimensions added according to `target_dims`.
+    A `Tensor` representing the mapped values of shape [None, 2, ...], where
+    extra dimensions are added according to `target_dims`.
+    If no default value is given, maps oov keys to [0, 0].
   """
   if default_value is None:
-    default_value = ''
+    default_value = '0,0'
 
   def _construct_table(asset_filepath):
     initializer = tf.lookup.TextFileInitializer(
