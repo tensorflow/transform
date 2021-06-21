@@ -146,12 +146,13 @@ def transform_data(train_data_file, test_data_file, working_dir):
 
     # For the label column we provide the mapping from string to index.
     table_keys = ['>50K', '<=50K']
-    initializer = tf.lookup.KeyValueTensorInitializer(
-        keys=table_keys,
-        values=tf.cast(tf.range(len(table_keys)), tf.int64),
-        key_dtype=tf.string,
-        value_dtype=tf.int64)
-    table = tf.lookup.StaticHashTable(initializer, default_value=-1)
+    with tf.init_scope():
+      initializer = tf.lookup.KeyValueTensorInitializer(
+          keys=table_keys,
+          values=tf.cast(tf.range(len(table_keys)), tf.int64),
+          key_dtype=tf.string,
+          value_dtype=tf.int64)
+      table = tf.lookup.StaticHashTable(initializer, default_value=-1)
     # Remove trailing periods for test data when the data is read with tf.data.
     label_str = tf.strings.regex_replace(inputs[LABEL_KEY], r'\.', '')
     label_str = tf.strings.strip(label_str)

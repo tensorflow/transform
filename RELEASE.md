@@ -12,6 +12,8 @@
 *   Fix an issue when computing the metadata for a function with automatic
     control dependencies added where dependencies on inputs which should not be
     evaluated was being retained.
+*   Census TFT example: wrapped table initialization with a tf.init_scope() in
+    order to avoid reinitializing the table for each batch of data.
 *   Stopped depending on `six`.
 *   Depends on `protobuf>=3.13,<4`.
 
