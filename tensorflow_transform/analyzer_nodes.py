@@ -847,7 +847,7 @@ class VocabularyPrune(
         'top_k', 'frequency_threshold', 'informativeness_threshold',
         'coverage_top_k', 'coverage_frequency_threshold',
         'coverage_informativeness_threshold', 'key_fn',
-        'filter_newline_characters', 'label'
+        'filter_newline_characters', 'input_dtype', 'label'
     ]), nodes.OperationDef):
   """An operation that filters and orders a computed vocabulary.
 
@@ -860,6 +860,7 @@ class VocabularyPrune(
   def __new__(cls,
               top_k,
               frequency_threshold,
+              input_dtype,
               informativeness_threshold=float('-inf'),
               coverage_top_k=None,
               coverage_frequency_threshold=0,
@@ -876,6 +877,7 @@ class VocabularyPrune(
         coverage_informativeness_threshold=coverage_informativeness_threshold,
         key_fn=key_fn,
         filter_newline_characters=filter_newline_characters,
+        input_dtype=input_dtype,
         label=_make_label(cls))
 
   @property
@@ -886,7 +888,7 @@ class VocabularyPrune(
 class VocabularyOrderAndWrite(
     tfx_namedtuple.namedtuple('VocabularyOrderAndWrite', [
         'vocab_filename', 'store_frequency', 'input_dtype', 'label',
-        'fingerprint_shuffle', 'file_format'
+        'fingerprint_shuffle', 'file_format', 'input_is_sorted'
     ]), AnalyzerDef):
   """An analyzer that writes vocabulary files from an accumulator.
 
@@ -901,7 +903,8 @@ class VocabularyOrderAndWrite(
               store_frequency,
               fingerprint_shuffle,
               file_format,
-              input_dtype=tf.string.name):
+              input_dtype=tf.string.name,
+              input_is_sorted=False):
     return super(VocabularyOrderAndWrite, cls).__new__(
         cls,
         vocab_filename=vocab_filename,
@@ -909,6 +912,7 @@ class VocabularyOrderAndWrite(
         fingerprint_shuffle=fingerprint_shuffle,
         file_format=file_format,
         input_dtype=input_dtype,
+        input_is_sorted=input_is_sorted,
         label=_make_label(cls))
 
   @property

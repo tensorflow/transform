@@ -4,6 +4,9 @@
 
 ## Major Features and Improvements
 
+*   Improved resource usage for `tft.vocabulary` when `top_k` is set by removing
+    stages performing repetitive sorting.
+
 ## Bug Fixes and Other Changes
 
 *   Support invoking Keras models inside the `preprocessing_fn` using

@@ -334,6 +334,12 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           x_data=[1, 2, 2, 3],
           x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
           expected_vocab_file_contents=[b'2', b'3', b'1']),
+      dict(
+          testcase_name='_int_feature_with_top_k',
+          x_data=[111, 2, 2, 3],
+          top_k=2,
+          x_feature_spec=tf.io.FixedLenFeature([], tf.int64),
+          expected_vocab_file_contents=[b'2', b'3']),
   ] + _WITH_LABEL_PARAMS))
   def testVocabulary(self,
                      x_data,

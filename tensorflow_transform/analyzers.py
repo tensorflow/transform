@@ -1945,7 +1945,8 @@ def _vocabulary_analyzer_nodes(
       frequency_threshold=frequency_threshold,
       informativeness_threshold=informativeness_threshold,
       filter_newline_characters=_get_vocabulary_filter_newline_characters(
-          input_dtype, file_format))
+          input_dtype, file_format),
+      input_dtype=input_dtype)
 
   vocab_filename_node = nodes.apply_operation(
       analyzer_nodes.VocabularyOrderAndWrite,
@@ -1954,7 +1955,12 @@ def _vocabulary_analyzer_nodes(
       store_frequency=store_frequency,
       fingerprint_shuffle=fingerprint_shuffle,
       input_dtype=input_dtype,
-      file_format=file_format)
+      file_format=file_format,
+      # LINT.IfChange(input_is_sorted)
+      input_is_sorted=(top_k is not None and key_fn is None and
+                       not fingerprint_shuffle)
+      # LINT.ThenChange(beam/analyzer_impls.py:top_k_impl)
+  )
 
   total_vocab_size_node = nodes.apply_operation(analyzer_nodes.VocabularyCount,
                                                 merge_output_value_node)

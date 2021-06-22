@@ -18,7 +18,6 @@ import hashlib
 import itertools
 import math
 import os
-from typing import List
 
 from absl import logging
 import apache_beam as beam
@@ -28,6 +27,7 @@ from apache_beam.typehints import Any
 from apache_beam.typehints import Dict
 from apache_beam.typehints import Iterable
 from apache_beam.typehints import KV
+from apache_beam.typehints import List
 from apache_beam.typehints import Tuple
 from apache_beam.typehints import Union
 
@@ -77,6 +77,31 @@ def _BatchAndPreSort(counts, sort_kwargs):  # pylint: disable=invalid-name
           | 'SortBatches' >> beam.Map(lambda b: sorted(b, **sort_kwargs)))  # pylint: disable=unnecessary-lambda
 
 
+def maybe_add_empty_vocabulary_dummy(
+    counts: List[KV[_VocabIndicatorType,
+                    _VocabTokenType]], dtype: Union[tf.dtypes.DType, str]
+) -> List[KV[_VocabIndicatorType, _VocabTokenType]]:
+  """Returns a list with a dummy token if counts list is empty."""
+  if not counts:
+    # TODO(b/62272023) remove this workaround if/when fixed on tensorflow.
+    # If the vocabulary is empty add a dummy value with count one so
+    # the tensorflow index operations don't fail to initialize with empty
+    # tensors downstream.
+    dummy_value = (b'49d0cd50-04bb-48c0-bc6f-5b575dce351a'
+                   if tf.dtypes.as_dtype(dtype) == tf.string else b'-1')
+    return [(1, dummy_value)]
+  else:
+    return counts
+
+
+def _count_and_token_to_bytes(count: _VocabIndicatorType,
+                              token: _VocabTokenType) -> bytes:
+  # Converts `token` (bytes) to unicode first as otherwise the result will
+  # look like b"1 b'real_string'" in PY3. We convert everything to bytes
+  # afterwards to get b'1 real_string'.
+  return tf.compat.as_bytes('{} {}'.format(count, tf.compat.as_str_any(token)))
+
+
 class _OrderElementsFn(beam.DoFn):
   """Sort the vocabulary by either descending frequency count or hash order."""
 
@@ -95,26 +120,13 @@ class _OrderElementsFn(beam.DoFn):
     for c in batched_counts_iter:
       counts.extend(c)
     self._vocab_size.update(len(counts))
-
-    if not counts:
-      # TODO(b/62272023) remove this workaround if/when fixed on tensorflow.
-      # If the vocabulary is empty add a dummy value with count one so
-      # the tensorflow index operations don't fail to initialize with empty
-      # tensors downstream.
-      dummy_value = (b'49d0cd50-04bb-48c0-bc6f-5b575dce351a'
-                     if tf.dtypes.as_dtype(self._input_dtype) == tf.string else
-                     b'-1')
-      counts = [(1, dummy_value)]
+    counts = maybe_add_empty_vocabulary_dummy(counts, self._input_dtype)
 
     counts.sort(**self._sort_kwargs)
 
     for count, entry in counts:
       if self._store_frequency:
-        # Converts `entry` (bytes) to unicode first as otherwise the result will
-        # look like b"1 b'real_string'" in PY3. We convert everything to bytes
-        # afterwards to get b'1 real_string'.
-        yield tf.compat.as_bytes('{} {}'.format(count,
-                                                tf.compat.as_str_any(entry)))
+        yield _count_and_token_to_bytes(count, entry)
       else:
         yield entry
 
@@ -130,6 +142,7 @@ def _ApplyThresholdsAndTopK(  # pylint: disable=invalid-name
     counts,
     frequency_threshold,
     top_k,
+    input_dtype,
     info_threshold=float('-inf'),
     key_fn=None):
   """Applies `frequency_threshold` and `top_k` to (count, value) pairs."""
@@ -163,6 +176,10 @@ def _ApplyThresholdsAndTopK(  # pylint: disable=invalid-name
 
   counts |= 'FlattenToSingleMetric' >> beam.Map(flatten_to_single_metric)
 
+  if input_dtype != tf.string.name:
+    counts |= 'EncodeNumericalTerms' >> beam.MapTuple(
+        lambda k, v: (k, tf.compat.as_bytes(tf.compat.as_str_any(v))))
+
   if top_k is not None:
     # TODO(katsiapis): Perhaps enhance Beam's Top to accept an N that can
     # signify "unlimited" and then we can simplify a lot of our code (though
@@ -185,9 +202,18 @@ def _ApplyThresholdsAndTopK(  # pylint: disable=invalid-name
           | 'CoverageTop(%s)' % top_k >> beam.combiners.Top.LargestPerKey(top_k)
           | 'FlattenCoverageTerms' >> beam.FlatMap(lambda kv: kv[1]))
     else:
-      counts = (counts
-                | 'Top(%s)' % top_k >> beam.combiners.Top.Of(top_k)
-                | 'FlattenList' >> beam.FlatMap(lambda lst: lst))
+      # LINT.IfChange(top_k_impl)
+      # Stages that follow this block rely on the sorted order of `Top.Of`'s
+      # output and fusion with the `FlattenList`. If changing this part of
+      # implementation, either make sure that these hold true or adjust the
+      # appropriate arg of `VocabularyOrderAndWrite` node.
+      counts = (
+          counts
+          | 'Top(%s)' % top_k >> beam.combiners.Top.Of(top_k)
+          | 'MaybeAddDummy' >> beam.Map(
+              maybe_add_empty_vocabulary_dummy, dtype=input_dtype)
+          | 'FlattenList' >> beam.FlatMap(lambda lst: lst))
+      # LINT.ThenChange(../analyzers.py:input_is_sorted)
 
   return counts
 
@@ -332,6 +358,7 @@ class _VocabularyPruneImpl(beam.PTransform):
         operation.coverage_informativeness_threshold)
     self._key_fn = operation.key_fn
     self._filter_newline_characters = operation.filter_newline_characters
+    self._input_dtype = operation.input_dtype
 
   def expand(self, inputs):
     if self._top_k is not None and self._top_k < 0:
@@ -365,7 +392,7 @@ class _VocabularyPruneImpl(beam.PTransform):
         pcoll
         | 'ApplyThresholdsAndTopK' >> (
             _ApplyThresholdsAndTopK(  # pylint: disable=no-value-for-parameter
-                self._frequency_threshold, self._top_k,
+                self._frequency_threshold, self._top_k, self._input_dtype,
                 self._informativeness_threshold, None)))
 
     if self._key_fn:
@@ -375,7 +402,8 @@ class _VocabularyPruneImpl(beam.PTransform):
           pcoll | 'ApplyCoverageThresholdAndTopK' >> (
               _ApplyThresholdsAndTopK(  # pylint: disable=no-value-for-parameter
                   self._coverage_frequency_threshold, self._coverage_top_k,
-                  self._coverage_informativeness_threshold, self._key_fn)))
+                  self._input_dtype, self._coverage_informativeness_threshold,
+                  self._key_fn)))
 
       result = ((result, coverage_counts)
                 | 'MergeStandardAndCoverageArms' >> beam.Flatten()
@@ -398,6 +426,7 @@ class _VocabularyOrderAndWriteImpl(beam.PTransform):
     self._input_dtype = operation.input_dtype
     self._file_format: common_types.VocabularyFileFormatType = (
         operation.file_format)
+    self._input_is_sorted = operation.input_is_sorted
 
   def expand(self, inputs):
     counts, = inputs
@@ -408,17 +437,19 @@ class _VocabularyOrderAndWriteImpl(beam.PTransform):
       v = tf.compat.as_bytes(tf.compat.as_str_any(kv[1]))
       return hashlib.sha1(v).digest()
 
-    if self._input_dtype != tf.string.name:
-      counts |= 'EncodeNumericalKeys' >> beam.MapTuple(
-          lambda v, k: (v, tf.compat.as_bytes(tf.compat.as_str_any(k))))
-
     # TODO(b/62379925) For now force a single file. We can write a sharded
     # file instead.
-    # TODO(b/67863471) Here we are relying on fusion (an implementation
+    # TODO(b/190580668) Here we are relying on fusion (an implementation
     # detail) for the ordering to be maintained when the results are written
-    # to disk. Perform the write within the body of `OrderElements` maybe
+    # to disk. This includes fusion of `_OrderElementsFn` and writing PTransform
+    # when `_input_is_sorted` is false and fusion of the last stage in
+    # `_ApplyThresholdsAndTopK` and writing PTransform when `_input_is_sorted`
+    # is true.
+    # Perform the write within the body of `OrderElements` maybe
     # `OrderElementsAndWrite`. This would mean using TF IO instead of Beam
     # IO so it's perhaps not great.
+    # Alternatively, we could verify the proper ordering after vocabulary is
+    # written during `TransformDataset` stage.
     if self._file_format == 'text':
       write_ptransform = 'WriteToText' >> beam.io.WriteToText(
           vocabulary_file, shard_name_template='')
@@ -428,22 +459,31 @@ class _VocabularyOrderAndWriteImpl(beam.PTransform):
       vocabulary_file = '{}.tfrecord.gz'.format(vocabulary_file)
       write_ptransform = 'WriteToTFRecord' >> beam.io.WriteToTFRecord(
           vocabulary_file, shard_name_template='')
-    if self._fingerprint_shuffle:
-      sort_kwargs = dict(key=fingerprint_sort_fn)
+
+    if self._input_is_sorted:
+      assert not self._fingerprint_shuffle
+      if self._store_frequency:
+        formatted_vocabulary = (
+            counts | 'ToBytes' >> beam.MapTuple(_count_and_token_to_bytes))
+      else:
+        formatted_vocabulary = counts | 'ExtractTokens' >> beam.Values()
     else:
-      sort_kwargs = dict(reverse=True)  # Largest first.
+      if self._fingerprint_shuffle:
+        sort_kwargs = dict(key=fingerprint_sort_fn)
+      else:
+        sort_kwargs = dict(reverse=True)  # Largest first.
+      batched_counts = counts | 'BatchAndPreSort' >> _BatchAndPreSort(  # pylint: disable=no-value-for-parameter
+          sort_kwargs=sort_kwargs)
 
-    batched_counts = counts | 'BatchAndPreSort' >> _BatchAndPreSort(  # pylint: disable=no-value-for-parameter
-        sort_kwargs=sort_kwargs)
+      formatted_vocabulary = (
+          batched_counts.pipeline
+          | 'Prepare' >> beam.Create([None])
+          | 'OrderElements' >> beam.ParDo(
+              _OrderElementsFn(self._store_frequency, sort_kwargs,
+                               self._input_dtype),
+              batched_counts_iter=beam.pvalue.AsIter(batched_counts)))
+    vocab_is_written = formatted_vocabulary | write_ptransform
 
-    vocab_is_written = (
-        batched_counts.pipeline
-        | 'Prepare' >> beam.Create([None])
-        | 'OrderElements' >> beam.ParDo(
-            _OrderElementsFn(self._store_frequency, sort_kwargs,
-                             self._input_dtype),
-            batched_counts_iter=beam.pvalue.AsIter(batched_counts))
-        | write_ptransform)
     # Return the vocabulary path.
     wait_for_vocabulary_transform = (
         counts.pipeline
