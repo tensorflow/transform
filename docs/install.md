@@ -95,8 +95,9 @@ other *untested* combinations may also work.
 
 tensorflow-transform                                                            | apache-beam[gcp] | pyarrow | tensorflow        | tensorflow-metadata | tfx-bsl
 ------------------------------------------------------------------------------- | ---------------- | ------- | ----------------- | ------------------- | -------
-[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) | 2.29.0           | 2.0.0   | nightly (1.x/2.x) | 1.0.0               | 1.0.0
-[1.0.0](https://github.com/tensorflow/transform/blob/v1.0.0/RELEASE.md)        | 2.29.0           | 2.0.0   | 1.15 / 2.5        | 1.0.0               | 1.0.0
+[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) | 2.29.0           | 2.0.0   | nightly (1.x/2.x) | 1.1.0               | 1.1.0
+[1.1.0](https://github.com/tensorflow/transform/blob/v1.1.0/RELEASE.md)         | 2.29.0           | 2.0.0   | 1.15.2 / 2.5      | 1.1.0               | 1.1.0
+[1.0.0](https://github.com/tensorflow/transform/blob/v1.0.0/RELEASE.md)         | 2.29.0           | 2.0.0   | 1.15 / 2.5        | 1.0.0               | 1.0.0
 [0.30.0](https://github.com/tensorflow/transform/blob/v0.30.0/RELEASE.md)       | 2.28.0           | 2.0.0   | 1.15 / 2.4        | 0.30.0              | 0.30.0
 [0.29.0](https://github.com/tensorflow/transform/blob/v0.29.0/RELEASE.md)       | 2.28.0           | 2.0.0   | 1.15 / 2.4        | 0.29.0              | 0.29.0
 [0.28.0](https://github.com/tensorflow/transform/blob/v0.28.0/RELEASE.md)       | 2.28.0           | 2.0.0   | 1.15 / 2.4        | 0.28.0              | 0.28.1
