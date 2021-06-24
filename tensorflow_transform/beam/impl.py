@@ -35,38 +35,7 @@ row of the original dataset.
 There is also an AnalyzeAndTransformDataset PTransform that applies
 AnalyzeDataset and TransformDataset to the same input dataset, possibly with
 optimizations.
-
-Typical usage of these functions is shown below.
-
-def preprocessing_fn(inputs):
-  ...
-
-with beam.Pipeline(...) as p:
-  with beam_impl.Context(temp_dir=my_temp_dir):
-    input = p | beam_impl.read_examples(..., schema)
-    transformed, transform_fn = ((input, schema)
-        | beam_impl.AnalyzeAndTransformDataset(preprocessing_fn))
-    transformed | beam_impl.write_examples_and_metadata(
-        examples_path, metadata_path)
-    transform_fn | beam_impl.write_transform_fn(transform_fn_path)
-
-Implementation note: TensorFlow code (including our code) makes frequent use of
-the default graph.  We want to avoid adding to the default graph, or including
-the default graph in our own SavedModel's.  This means that wherever we call
-TensorFlow code (or our code that uses the default graph) we should create a
-graph and mark it as the default.  This is achieved by identifying the
-entrypoints into our code where this happens and creating a
-"with ... .as_default()" block.  There are four places this happens.
-
-1) In AnalyzeDataset.expand() which is typically called from the main thread
-2) In _GraphStateCommon.__init__ which is called from the worker running
-   _RunMetaGraphDoFn
-3) In _replace_tensors_with_constant_values, which is called in a beam.Map.
-4) In extract_scalar_constants, which is called in a beam.Map.
 """
-# TODO(KesterTong): Document data format.
-# TODO(KesterTong): Refactor and rename now that "TransformFn" is the path to a
-# SavedModel, not an in-memory object.
 
 import copy
 import datetime
