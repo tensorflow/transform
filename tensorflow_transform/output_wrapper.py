@@ -534,5 +534,5 @@ def _override_parent_methods(keep_items):
 
 _override_parent_methods(keep_items=[
     'call', 'build', 'compute_mask', 'add_loss', 'count_params',
-    'finalize_state'
+    'finalize_state', 'save_spec'
 ])
