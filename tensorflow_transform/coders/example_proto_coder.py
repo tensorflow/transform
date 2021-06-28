@@ -130,7 +130,6 @@ class _FixedLenFeatureHandler:
     self._name = name
     self._np_dtype = feature_spec.dtype.as_numpy_dtype
     self._value_fn = _make_feature_value_fn(feature_spec.dtype)
-    self._shape = feature_spec.shape
     self._rank = len(feature_spec.shape)
     self._size = 1
     for dim in feature_spec.shape:

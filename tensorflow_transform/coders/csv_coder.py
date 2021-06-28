@@ -20,14 +20,6 @@ import tensorflow as tf
 from tensorflow_transform.tf_metadata import schema_utils
 
 
-# This is in agreement with Tensorflow conversions for Unicode values for both
-# Python 2 and 3 (and also works for non-Unicode objects).
-# TODO(b/123241312): Remove this fn since we will only support bytes input.
-def _to_bytes(x):
-  """Converts x to bytes."""
-  return tf.compat.as_bytes(x)
-
-
 def _to_string(x):
   """Converts x to string.
 
@@ -44,35 +36,6 @@ def _to_string(x):
   return tf.compat.as_str_any(x)
 
 
-def _elements_to_bytes(x):
-  if isinstance(x, (list, np.ndarray)):
-    return list(map(_to_bytes, x))
-  return _to_bytes(x)
-
-
-# TODO(b/119621361): Consider harmonizing _make_cast_fn() for all coders.
-def _make_cast_fn(dtype):
-  """Return a function to extract the typed value from the feature.
-
-  For performance reasons it is preferred to have the cast fn
-  constructed once (for each handler).
-
-  Args:
-    dtype: The type of the Tensorflow feature.
-
-  Returns:
-    A function to extract the value field from a string depending on dtype.
-  """
-  if dtype.is_integer:
-    # In Python 2, if the value is too large to fit into an int, int(..) returns
-    # a long, but ints are cheaper to use when possible.
-    return int
-  elif dtype.is_floating:
-    return float
-  else:
-    return _elements_to_bytes
-
-
 class _FixedLenFeatureHandler:
   """Handler for `FixedLenFeature` values.
 
@@ -83,7 +46,6 @@ class _FixedLenFeatureHandler:
 
   def __init__(self, name, feature_spec, index, encoder=None):
     self._name = name
-    self._cast_fn = _make_cast_fn(feature_spec.dtype)
     self._default_value = feature_spec.default_value
     self._index = index
     self._encoder = encoder
@@ -130,7 +92,6 @@ class _VarLenFeatureHandler:
 
   def __init__(self, name, dtype, index, encoder=None):
     self._name = name
-    self._cast_fn = _make_cast_fn(dtype)
     self._np_dtype = dtype.as_numpy_dtype
     self._index = index
     self._encoder = encoder
@@ -145,11 +106,6 @@ class _VarLenFeatureHandler:
       string_list[self._index] = self._encoder.encode_record(values)
     else:
       string_list[self._index] = _to_string(values[0]) if values else ''
-
-
-class EncodeError(Exception):
-  """Base encode error."""
-  pass
 
 
 class CsvCoder:
