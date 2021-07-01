@@ -89,7 +89,7 @@ from tfx_bsl.types import tfx_namedtuple
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 # TODO(b/123325923): Fix the key type here to agree with the actual keys.
-_DatasetElementType = Dict[Any,  # Any -> six.text_type?
+_DatasetElementType = Dict[Any,  # Any -> str?
                            Union[beam_common.PRIMITIVE_TYPE,
                                  # Arbitrarily-nested lists are allowed.
                                  List[Any], np.generic, np.ndarray]]

@@ -20,9 +20,6 @@ import uuid
 
 import apache_beam as beam
 from apache_beam.typehints import Union
-from six import binary_type
-from six import integer_types
-from six import string_types
 from tensorflow_transform import nodes
 from tfx_bsl.telemetry import util
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
@@ -30,8 +27,8 @@ from tfx_bsl.telemetry import util
 # resolved.
 from tfx_bsl.types import tfx_namedtuple
 
-NUMERIC_TYPE = Union[float, Union[integer_types]]
-PRIMITIVE_TYPE = Union[NUMERIC_TYPE, Union[string_types], binary_type]
+NUMERIC_TYPE = Union[float, int]
+PRIMITIVE_TYPE = Union[NUMERIC_TYPE, str, bytes]
 
 METRICS_NAMESPACE = util.MakeTfxNamespace(['Transform'])
 

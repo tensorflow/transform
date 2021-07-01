@@ -13,7 +13,7 @@
 # limitations under the License.
 """Functions to fix pickling of certain objects (see b/121323638)."""
 
-from six.moves import copyreg
+import copyreg
 import tensorflow as tf
 from tensorflow_transform import common
 from tensorflow_metadata.proto.v0 import schema_pb2

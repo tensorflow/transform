@@ -13,9 +13,9 @@
 # limitations under the License.
 """Coder classes for encoding CSV into tf.Transform datasets."""
 import csv
+import io
 
 import numpy as np
-from six import moves
 import tensorflow as tf
 from tensorflow_transform.tf_metadata import schema_utils
 
@@ -121,7 +121,7 @@ class CsvCoder:
         delimiter: A one-character string used to separate fields.
       """
       self._state = (delimiter)
-      self._buffer = moves.cStringIO()
+      self._buffer = io.StringIO()
 
       # Since we use self._writer to encode individual rows, we set
       # lineterminator='' so that self._writer doesn't add a newline.

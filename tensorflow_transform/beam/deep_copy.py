@@ -24,12 +24,12 @@ _MATERIALIZATION_BARRIER_TRANSFORMS as a materialization boundary for this
 purpose.
 """
 
+import queue
+
 import apache_beam as beam
 from apache_beam import pipeline as beam_pipeline
 from apache_beam import pvalue
 from apache_beam.pvalue import PCollection
-
-from six.moves import queue
 
 
 _MATERIALIZATION_BARRIER_TRANSFORMS = set([

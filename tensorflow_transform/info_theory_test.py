@@ -13,7 +13,6 @@
 # limitations under the License.
 """Tests for tensorflow_transform.info_theory."""
 
-from six.moves import xrange  # pylint: disable=redefined-builtin
 from tensorflow_transform import info_theory
 from tensorflow_transform import test_case
 
@@ -31,11 +30,11 @@ def _make_hypergeometric_pmf_sum_up_to_one_parameters():
   num_chunks = 15
   assert range_length % num_chunks == 0
   chunk_size = int(range_length / num_chunks)
-  sub_ranges = [(x, x + chunk_size) for x in xrange(start, end, chunk_size)]
+  sub_ranges = [(x, x + chunk_size) for x in range(start, end, chunk_size)]
   return [  # pylint: disable=g-complex-comprehension
       dict(
           testcase_name='{}_to_{}'.format(a, b),
-          test_range=xrange(a, b),
+          test_range=range(a, b),
           n=end,
           y_j=start) for a, b in sub_ranges
   ]
