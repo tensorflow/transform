@@ -46,9 +46,6 @@ from tensorflow_transform.beam import beam_nodes
 from tfx_bsl.types import tfx_namedtuple
 
 
-# Used for debugging only. This will point to the most recent graph built.
-_ANALYSIS_GRAPH = None
-
 _CombinerOpWrapper = tfx_namedtuple.namedtuple('_CombinerOpWrapper',
                                                ['combiner', 'keys', 'label'])
 
