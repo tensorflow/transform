@@ -66,6 +66,16 @@ class SchemaUtilsTest(parameterized.TestCase):
     with self.assertRaisesRegex(error_class, error_msg):
       schema_utils.schema_from_feature_spec(feature_spec, domain)
 
+  @parameterized.named_parameters(
+      *schema_utils_test_cases.RAGGED_VALUE_FEATURES_AND_TENSOR_REPRESENTATIONS)
+  def test_pop_ragged_source_columns(self, name, tensor_representation,
+                                     feature_by_name, expected_value_feature,
+                                     truncated_feature_by_name):
+    value_feature = schema_utils.pop_ragged_source_columns(
+        name, tensor_representation, feature_by_name)
+    self.assertEqual(value_feature, expected_value_feature)
+    self.assertEqual(feature_by_name, truncated_feature_by_name)
+
 
 if __name__ == '__main__':
   unittest.main()

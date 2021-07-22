@@ -14,6 +14,8 @@
 """Test cases associated with schema_utils_legacy."""
 
 import tensorflow as tf
+from tensorflow_transform import common_types
+from google.protobuf import text_format
 
 from tensorflow_metadata.proto.v0 import schema_pb2
 
@@ -21,21 +23,21 @@ EQUIVALENT_FEATURE_SPEC_AND_SCHEMAS = [
     # Test different dtypes
     {
         'testcase_name': 'int',
-        'ascii_proto': '''feature: {name: "x" type: INT}''',
+        'ascii_proto': """feature: {name: "x" type: INT}""",
         'feature_spec': {
             'x': tf.io.VarLenFeature(tf.int64)
         }
     },
     {
         'testcase_name': 'string',
-        'ascii_proto': '''feature: {name: "x" type: BYTES}''',
+        'ascii_proto': """feature: {name: "x" type: BYTES}""",
         'feature_spec': {
             'x': tf.io.VarLenFeature(tf.string)
         }
     },
     {
         'testcase_name': 'float',
-        'ascii_proto': '''feature: {name: "x" type: FLOAT}''',
+        'ascii_proto': """feature: {name: "x" type: FLOAT}""",
         'feature_spec': {
             'x': tf.io.VarLenFeature(tf.float32)
         }
@@ -71,7 +73,7 @@ EQUIVALENT_FEATURE_SPEC_AND_SCHEMAS = [
     },
     {
         'testcase_name': 'var_len',
-        'ascii_proto': '''feature: {name: "x" type: INT}''',
+        'ascii_proto': """feature: {name: "x" type: INT}""",
         'feature_spec': {
             'x': tf.io.VarLenFeature(tf.int64)
         }
@@ -278,9 +280,9 @@ NON_ROUNDTRIP_SCHEMAS = [
 INVALID_SCHEMA_PROTOS = [
     {
         'testcase_name': 'no_type',
-        'ascii_proto': '''
+        'ascii_proto': """
           feature: {name: "x"}
-          ''',
+          """,
         'error_msg': 'Feature "x" had invalid type TYPE_UNKNOWN'
     },
     {
@@ -298,7 +300,7 @@ INVALID_SCHEMA_PROTOS = [
         'testcase_name':
             'sparse_feature_no_index_int_domain',
         'ascii_proto':
-            '''
+            """
           feature {
             name: "index_key"
             type: INT
@@ -312,7 +314,7 @@ INVALID_SCHEMA_PROTOS = [
             index_feature {name: "index_key"}
             value_feature {name: "value_key"}
           }
-          ''',
+          """,
         'error_msg':
             r'Cannot determine dense shape of sparse feature "x"'
     },
@@ -452,3 +454,315 @@ INVALID_FEATURE_SPECS = [
         'error_class': TypeError
     },
 ]
+
+_FEATURE_BY_NAME = {
+    'x':
+        text_format.Parse(
+            """
+        name: "x"
+        type: INT
+        int_domain { min: 0 max: 9 }
+    """, schema_pb2.Feature()),
+    'ragged$value':
+        text_format.Parse(
+            """
+        name: "ragged$value"
+        type: FLOAT
+    """, schema_pb2.Feature()),
+    'ragged$row_lengths_1':
+        text_format.Parse(
+            """
+        name: "ragged$row_lengths_1"
+        type: INT
+    """, schema_pb2.Feature()),
+    'ragged$row_lengths_2':
+        text_format.Parse(
+            """
+        name: "ragged$row_lengths_2"
+        type: INT
+    """, schema_pb2.Feature()),
+}
+
+RAGGED_VALUE_FEATURES_AND_TENSOR_REPRESENTATIONS = [
+    {
+        'testcase_name':
+            '1d',
+        'name':
+            'ragged_1d',
+        'tensor_representation':
+            text_format.Parse(
+                """
+          ragged_tensor {
+            feature_path { step: "ragged$value" }
+          }
+        """, schema_pb2.TensorRepresentation()),
+        'feature_by_name':
+            _FEATURE_BY_NAME.copy(),
+        'expected_value_feature':
+            _FEATURE_BY_NAME['ragged$value'],
+        'truncated_feature_by_name': {
+            'x': _FEATURE_BY_NAME['x'],
+            'ragged$row_lengths_1': _FEATURE_BY_NAME['ragged$row_lengths_1'],
+            'ragged$row_lengths_2': _FEATURE_BY_NAME['ragged$row_lengths_2'],
+        },
+    },
+    {
+        'testcase_name':
+            '2d',
+        'name':
+            'ragged_2d',
+        'tensor_representation':
+            text_format.Parse(
+                """
+          ragged_tensor {
+            feature_path { step: "ragged$value" }
+            partition { row_length: "ragged$row_lengths_1" }
+          }
+        """, schema_pb2.TensorRepresentation()),
+        'feature_by_name':
+            _FEATURE_BY_NAME.copy(),
+        'expected_value_feature':
+            _FEATURE_BY_NAME['ragged$value'],
+        'truncated_feature_by_name': {
+            'x': _FEATURE_BY_NAME['x'],
+            'ragged$row_lengths_2': _FEATURE_BY_NAME['ragged$row_lengths_2'],
+        },
+    },
+    {
+        'testcase_name':
+            '3d',
+        'name':
+            'ragged_3d',
+        'tensor_representation':
+            text_format.Parse(
+                """
+          ragged_tensor {
+            feature_path { step: "ragged$value" }
+            partition { row_length: "ragged$row_lengths_1" }
+            partition { row_length: "ragged$row_lengths_2" }
+          }
+        """, schema_pb2.TensorRepresentation()),
+        'feature_by_name':
+            _FEATURE_BY_NAME.copy(),
+        'expected_value_feature':
+            _FEATURE_BY_NAME['ragged$value'],
+        'truncated_feature_by_name': {
+            'x': _FEATURE_BY_NAME['x'],
+        },
+    },
+]
+
+if common_types.is_ragged_feature_available():
+  EQUIVALENT_FEATURE_SPEC_AND_SCHEMAS.extend([
+      {
+          'testcase_name':
+              'ragged_float',
+          'ascii_proto':
+              """
+              feature {
+                name: "value"
+                type: FLOAT
+              }
+              tensor_representation_group {
+                key: ""
+                value {
+                  tensor_representation {
+                    key: "x"
+                    value {
+                      ragged_tensor {
+                        feature_path { step: "value" }
+                      }
+                    }
+                  }
+                }
+              }
+            """,
+          'feature_spec': {
+              'x':
+                  tf.io.RaggedFeature(
+                      tf.float32,
+                      value_key='value',
+                      partitions=[],
+                      row_splits_dtype=tf.int64),
+          },
+      },
+      {
+          'testcase_name':
+              'ragged_int',
+          'ascii_proto':
+              """
+              feature {
+                name: "value"
+                type: INT
+              }
+              tensor_representation_group {
+                key: ""
+                value {
+                  tensor_representation {
+                    key: "x"
+                    value {
+                      ragged_tensor {
+                        feature_path { step: "value" }
+                      }
+                    }
+                  }
+                }
+              }
+            """,
+          'feature_spec': {
+              'x':
+                  tf.io.RaggedFeature(
+                      tf.int64,
+                      value_key='value',
+                      partitions=[],
+                      row_splits_dtype=tf.int64),
+          },
+      },
+      {
+          'testcase_name':
+              'ragged_uniform_row_length',
+          'ascii_proto':
+              """
+              feature {
+                name: "value"
+                type: FLOAT
+              }
+              tensor_representation_group {
+                key: ""
+                value {
+                  tensor_representation {
+                    key: "x"
+                    value {
+                      ragged_tensor {
+                        feature_path { step: "value" }
+                        partition { uniform_row_length: 4}
+                      }
+                    }
+                  }
+                }
+              }
+            """,
+          'feature_spec': {
+              'x':
+                  tf.io.RaggedFeature(
+                      tf.float32,
+                      value_key='value',
+                      partitions=[
+                          tf.io.RaggedFeature.UniformRowLength(length=4),  # pytype: disable=attribute-error
+                      ],
+                      row_splits_dtype=tf.int64),
+          },
+      },
+      {
+          'testcase_name':
+              'ragged_row_lengths',
+          'ascii_proto':
+              """
+              feature {
+                name: "value"
+                type: FLOAT
+              }
+              feature {
+                name: "row_length_1"
+                type: INT
+              }
+              feature {
+                name: "row_length_2"
+                type: INT
+              }
+              tensor_representation_group {
+                key: ""
+                value {
+                  tensor_representation {
+                    key: "x"
+                    value {
+                      ragged_tensor {
+                        feature_path { step: "value" }
+                        partition { row_length: "row_length_1"}
+                        partition { row_length: "row_length_2"}
+                      }
+                    }
+                  }
+                }
+              }
+            """,
+          'feature_spec': {
+              'x':
+                  tf.io.RaggedFeature(
+                      tf.float32,
+                      value_key='value',
+                      partitions=[
+                          tf.io.RaggedFeature.RowLengths(key='row_length_1'),  # pytype: disable=attribute-error
+                          tf.io.RaggedFeature.RowLengths(key='row_length_2'),  # pytype: disable=attribute-error
+                      ],
+                      row_splits_dtype=tf.int64),
+          },
+      },
+  ])
+
+  INVALID_SCHEMA_PROTOS.extend([{
+      'testcase_name':
+          'ragged_feature_non_int_row_lengths',
+      'ascii_proto':
+          """
+              feature {
+                name: "value"
+                type: FLOAT
+              }
+              feature {
+                name: "row_length"
+                type: FLOAT
+              }
+              tensor_representation_group {
+                key: ""
+                value {
+                  tensor_representation {
+                    key: "x"
+                    value {
+                      ragged_tensor {
+                        feature_path { step: "value" }
+                        partition { row_length: "row_length"}
+                      }
+                    }
+                  }
+                }
+              }
+            """,
+      'error_msg':
+          r'Row length feature "row_length" is not an integer feature'
+  }, {
+      'testcase_name':
+          'ragged_feature_conflicting_name',
+      'ascii_proto':
+          """
+              feature {
+                name: "x"
+                type: FLOAT
+              }
+              feature {
+                name: "value"
+                type: FLOAT
+              }
+              feature {
+                name: "row_length"
+                type: INT
+              }
+              tensor_representation_group {
+                key: ""
+                value {
+                  tensor_representation {
+                    key: "x"
+                    value {
+                      ragged_tensor {
+                        feature_path { step: "value" }
+                        partition { row_length: "row_length"}
+                      }
+                    }
+                  }
+                }
+              }
+            """,
+      'error_msg':
+          r'Ragged TensorRepresentation name "x" conflicts with a different '
+          'feature'
+  }])

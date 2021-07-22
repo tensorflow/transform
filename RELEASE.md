@@ -4,6 +4,9 @@
 
 ## Major Features and Improvements
 
+*   Added `RaggedTensor` support to output schema inference and transformed
+    tensors conversion to instance dicts and `pa.RecordBatch` with TF 2.x.
+
 ## Bug Fixes and Other Changes
 
 ## Breaking Changes

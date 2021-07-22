@@ -16,9 +16,9 @@
 import os
 
 import tensorflow as tf
-
 from tensorflow_transform import analyzers
 from tensorflow_transform import common
+from tensorflow_transform import common_types
 from tensorflow_transform import graph_context
 from tensorflow_transform import mappers
 from tensorflow_transform import schema_inference
@@ -256,8 +256,10 @@ class SchemaInferenceTest(test_case.TransformTestCase):
       message_type = annotations_pb2.BucketBoundaries.DESCRIPTOR.full_name
       sizes = tf.expand_dims([tf.size(boundaries)], axis=0)
       message_proto = tf.raw_ops.EncodeProto(
-          sizes=sizes, values=[tf.cast(boundaries, tf.float32)],
-          field_names=['boundaries'], message_type=message_type)[0]
+          sizes=sizes,
+          values=[tf.cast(boundaries, tf.float32)],
+          field_names=['boundaries'],
+          message_type=message_type)[0]
       type_url = os.path.join('type.googleapis.com', message_type)
       schema_inference.annotate(type_url, message_proto)
       return {
@@ -287,25 +289,77 @@ class SchemaInferenceTest(test_case.TransformTestCase):
               tf.RaggedTensor.from_row_splits(
                   values=tf.constant([3, 1, 4, 1, 5, 9, 2, 6], tf.int64),
                   row_splits=[0, 4, 4, 7, 8, 8]),
+          'bar':
+              tf.RaggedTensor.from_row_splits(
+                  values=tf.RaggedTensor.from_row_splits(
+                      values=tf.ones([5], tf.float32), row_splits=[0, 2, 3, 5]),
+                  row_splits=[0, 0, 0, 2, 2, 4]),
       }
 
     schema = self._get_schema(
         preprocessing_fn, use_compat_v1, create_session=True)
-    expected_schema_ascii = """feature {
-name: "foo"
-type: INT
-annotation {
-tag: "ragged_tensor"
-}
-}
-"""
+    if common_types.is_ragged_feature_available():
+      expected_schema_ascii = """
+        feature {
+          name: "bar$ragged_values"
+          type: FLOAT
+        }
+        feature {
+          name: "bar$row_lengths_1"
+          type: INT
+        }
+        feature {
+          name: "foo$ragged_values"
+          type: INT
+        }
+        tensor_representation_group {
+          key: ""
+          value {
+            tensor_representation {
+              key: "foo"
+              value {
+                ragged_tensor {
+                  feature_path { step: "foo$ragged_values" }
+                }
+              }
+            }
+            tensor_representation {
+              key: "bar"
+              value {
+                ragged_tensor {
+                  feature_path { step: "bar$ragged_values" }
+                  partition { row_length: "bar$row_lengths_1"}
+                }
+              }
+            }
+          }
+        }
+        """
+    else:
+      expected_schema_ascii = """
+        feature {
+          name: "bar"
+          type: FLOAT
+          annotation {
+            tag: "ragged_tensor"
+          }
+        }
+        feature {
+          name: "foo"
+          type: INT
+          annotation {
+            tag: "ragged_tensor"
+          }
+        }
+        """
     expected_schema = text_format.Parse(expected_schema_ascii,
                                         schema_pb2.Schema())
     schema_utils_legacy.set_generate_legacy_feature_spec(expected_schema, False)
     self.assertProtoEquals(expected_schema, schema)
-    with self.assertRaisesRegexp(ValueError,
-                                 'Feature "foo" had tag "ragged_tensor"'):
-      schema_utils.schema_as_feature_spec(schema)
+    if not common_types.is_ragged_feature_available():
+      with self.assertRaisesRegexp(ValueError,
+                                   'Feature "bar" had tag "ragged_tensor"'):
+        schema_utils.schema_as_feature_spec(schema)
 
 
 if __name__ == '__main__':

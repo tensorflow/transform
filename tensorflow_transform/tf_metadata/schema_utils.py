@@ -13,18 +13,24 @@
 # limitations under the License.
 """Utilities for using the tf.Metadata Schema within TensorFlow."""
 
-from typing import Dict, Mapping, Optional
+from typing import Dict, List, Mapping, Optional, Tuple
 
 import tensorflow as tf
 
 from tensorflow_transform import common_types
 from tensorflow_transform.tf_metadata import schema_utils_legacy
+from tfx_bsl.tfxio import tensor_representation_util
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
 # `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
 # resolved.
 from tfx_bsl.types import tfx_namedtuple
 
+from tensorflow_metadata.proto.v0 import path_pb2
 from tensorflow_metadata.proto.v0 import schema_pb2
+
+# We use an empty name for the default tensor representation group in the output
+# schema. It contains all ragged output tensor representations.
+TENSOR_REPRESENTATION_GROUP = ''
 
 
 def schema_from_feature_spec(
@@ -36,8 +42,8 @@ def schema_from_feature_spec(
   Args:
     feature_spec: A TensorFlow feature spec
     domains: (optional) a dict whose keys are feature names and values are one
-        of schema_pb2.IntDomain, schema_pb2.StringDomain or
-        schema_pb2.FloatDomain.
+      of schema_pb2.IntDomain, schema_pb2.StringDomain or
+      schema_pb2.FloatDomain.
 
   Returns:
     A Schema proto
@@ -69,10 +75,72 @@ def schema_from_feature_spec(
         result.feature.add().CopyFrom(f)
       result.feature.add().CopyFrom(value_feature)
       result.sparse_feature.add().CopyFrom(sparse_feature)
+
+    elif common_types.is_ragged_feature(spec):
+      (value_feature, partitions_features, ragged_tensor_representation) = (
+          _ragged_tensor_representation_from_feature_spec(spec, name, domains))
+      result.feature.add().CopyFrom(value_feature)
+      for f in partitions_features:
+        result.feature.add().CopyFrom(f)
+      tensor_representation_map = result.tensor_representation_group[
+          TENSOR_REPRESENTATION_GROUP].tensor_representation
+      tensor_representation_map[name].CopyFrom(ragged_tensor_representation)
+
     else:
       result.feature.add().CopyFrom(
           _feature_from_feature_spec(spec, name, domains))
   return result
+
+
+def _ragged_tensor_representation_from_feature_spec(
+    spec: common_types.RaggedFeature, name: str,
+    domains: Dict[str, common_types.DomainType]
+) -> Tuple[schema_pb2.Feature, List[schema_pb2.Feature],
+           schema_pb2.TensorRepresentation]:
+  """Returns representation of a RaggedTensor from a feature spec.
+
+  Args:
+    spec: A tf.io.RaggedFeature feature spec.
+    name: Feature name.
+    domains: A dict whose keys are feature names and values are one of
+      schema_pb2.IntDomain, schema_pb2.StringDomain or schema_pb2.FloatDomain.
+
+  Returns:
+    A tuple (value_feature, partitions_features, ragged_tensor_rep),
+      where value_feature represents RaggedTensor values, partitions_features
+      represent row lengths partitions and ragged_tensor_rep - ragged
+      TensorRepresentation.
+
+  Raises:
+    ValueError: If the feature spec contains partition types different from
+      UniformRowLength and RowLengths.
+  """
+  value_feature = schema_pb2.Feature(name=spec.value_key or name)
+  _set_type(name, value_feature, spec.dtype)
+  _set_domain(name, value_feature, domains.get(name))
+
+  ragged_tensor = schema_pb2.TensorRepresentation.RaggedTensor(
+      feature_path=path_pb2.Path(step=[spec.value_key or name]))
+
+  partitions_features = []
+  for partition in spec.partitions:
+    if isinstance(partition, tf.io.RaggedFeature.UniformRowLength):  # pytype: disable=attribute-error
+      ragged_tensor.partition.append(
+          schema_pb2.TensorRepresentation.RaggedTensor.Partition(
+              uniform_row_length=partition.length))
+    elif isinstance(partition, tf.io.RaggedFeature.RowLengths):  # pytype: disable=attribute-error
+      ragged_tensor.partition.append(
+          schema_pb2.TensorRepresentation.RaggedTensor.Partition(
+              row_length=partition.key))
+      partitions_features.append(
+          schema_pb2.Feature(name=partition.key, type=schema_pb2.INT))
+    else:
+      raise ValueError(
+          'RaggedFeature can only be created with UniformRowLength and '
+          'RowLengths partitions.')
+
+  return value_feature, partitions_features, schema_pb2.TensorRepresentation(
+      ragged_tensor=ragged_tensor)
 
 
 def _sparse_feature_from_feature_spec(spec, name, domains):
@@ -115,8 +183,7 @@ def _sparse_feature_from_feature_spec(spec, name, domains):
   _set_domain(name, value_feature, domains.get(name))
 
   # Create a sparse feature which refers to the index and value features.
-  value_feature_ref = schema_pb2.SparseFeature.ValueFeature(
-      name=spec.value_key)
+  value_feature_ref = schema_pb2.SparseFeature.ValueFeature(name=spec.value_key)
   sparse_feature = schema_pb2.SparseFeature(
       name=name,
       is_sorted=True if spec.already_sorted else None,
@@ -141,10 +208,9 @@ def _feature_from_feature_spec(spec, name, domains):
   elif isinstance(spec, tf.io.VarLenFeature):
     feature = schema_pb2.Feature(name=name)
   else:
-    raise TypeError(
-        'Spec for feature "{}" was {} of type {}, expected a '
-        'FixedLenFeature, VarLenFeature or SparseFeature'.format(
-            name, spec, type(spec)))
+    raise TypeError('Spec for feature "{}" was {} of type {}, expected a '
+                    'FixedLenFeature, VarLenFeature or SparseFeature'.format(
+                        name, spec, type(spec)))
 
   _set_type(name, feature, spec.dtype)
   _set_domain(name, feature, domains.get(name))
@@ -160,8 +226,7 @@ def _set_type(name, feature, dtype):
   elif dtype == tf.string:
     feature.type = schema_pb2.BYTES
   else:
-    raise ValueError(
-        'Feature "{}" has invalid dtype {}'.format(name, dtype))
+    raise ValueError('Feature "{}" has invalid dtype {}'.format(name, dtype))
 
 
 def _set_domain(name, feature, domain):
@@ -176,8 +241,7 @@ def _set_domain(name, feature, domain):
   elif isinstance(domain, schema_pb2.FloatDomain):
     feature.float_domain.CopyFrom(domain)
   else:
-    raise ValueError(
-        'Feature "{}" has invalid domain {}'.format(name, domain))
+    raise ValueError('Feature "{}" has invalid domain {}'.format(name, domain))
 
 
 SchemaAsFeatureSpecResult = tfx_namedtuple.TypedNamedTuple(
@@ -185,10 +249,9 @@ SchemaAsFeatureSpecResult = tfx_namedtuple.TypedNamedTuple(
     [('feature_spec', Dict[str, common_types.FeatureSpecType]),
      ('domains', Dict[str, common_types.DomainType])])
 
-
 # A tag used to indicate that a feature was inferred from a RaggedTensor.  A
-# Schema containing such a feature cannot be conerted to a feature spec,
-# because there is no feature spec for a RaggedTensor.
+# Schema containing such a feature cannot be conerted to a feature spec in
+# TF 1.x, because there is no feature spec for a RaggedTensor.
 RAGGED_TENSOR_TAG = 'ragged_tensor'
 
 
@@ -237,11 +300,28 @@ def schema_as_feature_spec(
   for feature in schema_proto.sparse_feature:
     if _include_in_parsing_spec(feature):
       feature_spec[feature.name], domains[feature.name] = (
-          _sparse_feature_as_feature_spec(
-              feature, feature_by_name, string_domains))
+          _sparse_feature_as_feature_spec(feature, feature_by_name,
+                                          string_domains))
+
+  # Handle ragged `TensorRepresentation`s.
+  tensor_representations = (
+      tensor_representation_util.GetTensorRepresentationsFromSchema(
+          schema_proto, TENSOR_REPRESENTATION_GROUP))
+  if tensor_representations is not None:
+    for name, tensor_representation in tensor_representations.items():
+      if name in feature_by_name:
+        raise ValueError(
+            'Ragged TensorRepresentation name "{}" conflicts with a different '
+            'feature in the same schema.'.format(name))
+      (feature_spec[name], domains[name]) = (
+          _ragged_tensor_representation_as_feature_spec(name,
+                                                        tensor_representation,
+                                                        feature_by_name,
+                                                        string_domains))
 
   # Generate a `tf.FixedLenFeature` or `tf.VarLenFeature` for each element of
-  # `schema_proto.feature` that was not referenced by a `SparseFeature`.
+  # `schema_proto.feature` that was not referenced by a `SparseFeature` or a
+  # ragged `TensorRepresentation`.
   for name, feature in feature_by_name.items():
     if _include_in_parsing_spec(feature):
       feature_spec[name], domains[name] = _feature_as_feature_spec(
@@ -249,8 +329,9 @@ def schema_as_feature_spec(
 
   schema_utils_legacy.check_for_unsupported_features(schema_proto)
 
-  domains = {name: domain for name, domain in domains.items()
-             if domain is not None}
+  domains = {
+      name: domain for name, domain in domains.items() if domain is not None
+  }
   return SchemaAsFeatureSpecResult(feature_spec, domains)
 
 
@@ -272,6 +353,69 @@ def _get_domain(feature, string_domains):
           feature.name, feature.domain)
       return None
   return getattr(feature, domain_info)
+
+
+def pop_ragged_source_columns(
+    name: str, tensor_representation: schema_pb2.TensorRepresentation,
+    feature_by_name: Dict[str, schema_pb2.Feature]) -> schema_pb2.Feature:
+  """Removes source columns of a ragged tensor from the given features dict.
+
+  Args:
+    name: Name of the ragged tensor.
+    tensor_representation: Ragged TensorRepresentation.
+    feature_by_name: Dict of features that contains source columns of the ragged
+      TensorRepresentation.
+
+  Returns:
+    Value feature of the ragged tensor.
+
+  Raises:
+    ValueError: If any of the source columns are missing in the features dict.
+  """
+  source_columns = (
+      tensor_representation_util.GetSourceColumnsFromTensorRepresentation(
+          tensor_representation))
+  missing_column_error_format = (
+      'Ragged feature "{}" referred to value feature "{}" which did not exist '
+      'in the schema or was referred to as an index or value multiple times.')
+
+  assert source_columns
+  assert len(source_columns[0].steps()) == 1, (name, source_columns[0].steps())
+  try:
+    value_feature = feature_by_name.pop(source_columns[0].steps()[0])
+  except KeyError:
+    raise ValueError(
+        missing_column_error_format.format(name, source_columns[0].steps()[0]))
+  for column_path in source_columns[1:]:
+    assert len(column_path.steps()) == 1, (name, column_path.steps())
+    try:
+      row_length_feature = feature_by_name.pop(column_path.steps()[0])
+    except KeyError:
+      raise ValueError(
+          missing_column_error_format.format(name,
+                                             column_path.steps()[0]))
+    if row_length_feature.type != schema_pb2.FeatureType.INT:
+      raise ValueError(
+          'Row length feature "{}" is not an integer feature.'.format(
+              row_length_feature.name))
+  return value_feature
+
+
+def _ragged_tensor_representation_as_feature_spec(
+    name: str, tensor_representation: schema_pb2.TensorRepresentation,
+    feature_by_name: Dict[str, schema_pb2.Feature],
+    string_domains: Dict[str, common_types.DomainType]
+) -> Tuple[common_types.RaggedFeature, Optional[common_types.DomainType]]:
+  """Returns a representation of a RaggedTensor as a feature spec."""
+  if not common_types.is_ragged_feature_available():
+    raise ValueError('RaggedFeature is not supported in TF 1.x.')
+
+  value_feature = pop_ragged_source_columns(name, tensor_representation,
+                                            feature_by_name)
+  spec = tensor_representation_util.CreateTfExampleParserConfig(
+      tensor_representation, value_feature.type)
+  domain = _get_domain(value_feature, string_domains)
+  return spec, domain
 
 
 def _sparse_feature_as_feature_spec(feature, feature_by_name, string_domains):
@@ -379,9 +523,8 @@ _DEPRECATED_LIFECYCLE_STAGES = [
 
 
 def _include_in_parsing_spec(feature):
-  return not (
-      schema_utils_legacy.get_deprecated(feature) or
-      feature.lifecycle_stage in _DEPRECATED_LIFECYCLE_STAGES)
+  return not (schema_utils_legacy.get_deprecated(feature) or
+              feature.lifecycle_stage in _DEPRECATED_LIFECYCLE_STAGES)
 
 
 def _legacy_schema_from_feature_spec(feature_spec, domains=None):
@@ -429,8 +572,8 @@ def _legacy_schema_from_feature_spec(feature_spec, domains=None):
         raise ValueError(
             'When inferring legacy schema from feature spec, feature "{}" had '
             'default_value {}, but FixedLenFeature must have '
-            'default_value=None or {}'.format(
-                name, spec.default_value, expected_default_value))
+            'default_value=None or {}'.format(name, spec.default_value,
+                                              expected_default_value))
 
       feature = result.feature.add(
           name=name,
@@ -526,8 +669,8 @@ def _legacy_feature_as_feature_spec(feature):
             feature.name, feature.value_count.max))
 
   # Use heuristics to infer the shape and representation.
-  if (feature.value_count.min == feature.value_count.max
-      and feature.value_count.min == 1):
+  if (feature.value_count.min == feature.value_count.max and
+      feature.value_count.min == 1):
     # Case 1: value_count.min == value_count.max == 1.  Infer a FixedLenFeature
     # with rank 0 and a default value.
     tf.compat.v1.logging.info(
@@ -536,8 +679,8 @@ def _legacy_feature_as_feature_spec(feature):
     default_value = _legacy_infer_default_value(feature, dtype)
     return tf.io.FixedLenFeature([], dtype, default_value)
 
-  elif (feature.value_count.min == feature.value_count.max
-        and feature.value_count.min > 1):
+  elif (feature.value_count.min == feature.value_count.max and
+        feature.value_count.min > 1):
     # Case 2: value_count.min == value_count.max > 1.  Infer a FixedLenFeature
     # with rank 1 and a default value.
     tf.compat.v1.logging.info(

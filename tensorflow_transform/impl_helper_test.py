@@ -13,7 +13,6 @@
 # limitations under the License.
 """Tests for tensorflow_transform.impl_helper."""
 
-import collections
 import copy
 import os
 
@@ -21,11 +20,11 @@ import numpy as np
 import pyarrow as pa
 import tensorflow as tf
 from tensorflow_transform import analyzers
+from tensorflow_transform import common_types
 from tensorflow_transform import impl_helper
 from tensorflow_transform import test_case
 from tensorflow_transform.output_wrapper import TFTransformOutput
 from tensorflow_transform.tf_metadata import schema_utils
-
 
 _FEATURE_SPEC = {
     'a':
@@ -71,6 +70,31 @@ _FEED_DICT = {
             dense_shape=(2, 2, 10)),
 }
 
+_MULTIPLE_FEATURES_CASE_RECORD_BATCH = {
+    'a':
+        pa.array([[100], [100]], type=pa.large_list(pa.int64())),
+    'b':
+        pa.array([[1.0], [2.0]], type=pa.large_list(pa.float32())),
+    'c':
+        pa.array([[2.0], [4.0]], type=pa.large_list(pa.float32())),
+    'd':
+        pa.array([[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0]],
+                 type=pa.large_list(pa.float32())),
+    'e':
+        pa.array([[b'doe', b'a', b'deer'], [b'a', b'female', b'deer']],
+                 type=pa.large_list(pa.large_binary())),
+    'idx':
+        pa.array([[2, 4, 8], []], type=pa.large_list(pa.int64())),
+    'val':
+        pa.array([[10.0, 20.0, 30.0], []], type=pa.large_list(pa.float32())),
+    'g_idx0':
+        pa.array([[0, 1, 1], []], type=pa.large_list(pa.int64())),
+    'g_idx1':
+        pa.array([[3, 5, 9], []], type=pa.large_list(pa.int64())),
+    'g_val':
+        pa.array([[110.0, 210.0, 310.0], []], type=pa.large_list(pa.float32())),
+}
+
 _ROUNDTRIP_CASES = [
     dict(
         testcase_name='multiple_features',
@@ -98,6 +122,7 @@ _ROUNDTRIP_CASES = [
             'g_idx1': [],
             'g_val': [],
         }],
+        record_batch=_MULTIPLE_FEATURES_CASE_RECORD_BATCH,
         feed_dict=_FEED_DICT),
     dict(
         testcase_name='multiple_features_ndarrays',
@@ -125,6 +150,7 @@ _ROUNDTRIP_CASES = [
             'g_idx1': np.array([], np.float32),
             'g_val': np.array([], np.float32),
         }],
+        record_batch=_MULTIPLE_FEATURES_CASE_RECORD_BATCH,
         feed_dict=_FEED_DICT),
     dict(
         testcase_name='empty_var_len_feature',
@@ -132,6 +158,9 @@ _ROUNDTRIP_CASES = [
         instances=[{
             'varlen': []
         }],
+        record_batch={
+            'varlen': pa.array([[]], type=pa.large_list(pa.large_binary())),
+        },
         feed_dict={
             'varlen':
                 tf.compat.v1.SparseTensorValue(
@@ -153,6 +182,10 @@ _ROUNDTRIP_CASES = [
         }, {
             'varlen': []
         }],
+        record_batch={
+            'varlen':
+                pa.array([[0], [], [1], []], type=pa.large_list(pa.int64())),
+        },
         feed_dict={
             'varlen':
                 tf.compat.v1.SparseTensorValue(
@@ -172,6 +205,11 @@ _ROUNDTRIP_CASES = [
         }, {
             'varlen': []
         }],
+        record_batch={
+            'varlen':
+                pa.array([[0.5], [], [1.5], []],
+                         type=pa.large_list(pa.float32())),
+        },
         feed_dict={
             'varlen':
                 tf.compat.v1.SparseTensorValue(
@@ -191,6 +229,11 @@ _ROUNDTRIP_CASES = [
         }, {
             'varlen': []
         }],
+        record_batch={
+            'varlen':
+                pa.array([[b'a'], [], [b'b'], []],
+                         type=pa.large_list(pa.large_binary())),
+        },
         feed_dict={
             'varlen':
                 tf.compat.v1.SparseTensorValue(
@@ -207,11 +250,15 @@ _ROUNDTRIP_CASES = [
             'idx': [],
             'val': []
         }],
+        record_batch={
+            'idx': pa.array([[]], type=pa.large_list(pa.int64())),
+            'val': pa.array([[]], type=pa.large_list(pa.large_binary())),
+        },
         feed_dict={
             'sparse':
                 tf.compat.v1.SparseTensorValue(
                     indices=np.empty([0, 2]),
-                    values=np.array([]),
+                    values=np.array([], np.object),
                     dense_shape=[1, 10])
         }),
     dict(
@@ -226,6 +273,10 @@ _ROUNDTRIP_CASES = [
             'idx': [9],
             'val': [0.3]
         }],
+        record_batch={
+            'idx': pa.array([[], [9]], type=pa.large_list(pa.int64())),
+            'val': pa.array([[], [0.3]], type=pa.large_list(pa.float32())),
+        },
         feed_dict={
             'sparse':
                 tf.compat.v1.SparseTensorValue(
@@ -249,6 +300,11 @@ _ROUNDTRIP_CASES = [
             'idx1': [7],
             'val': [0.3]
         }],
+        record_batch={
+            'idx0': pa.array([[], [9]], type=pa.large_list(pa.int64())),
+            'idx1': pa.array([[], [7]], type=pa.large_list(pa.int64())),
+            'val': pa.array([[], [0.3]], type=pa.large_list(pa.float32())),
+        },
         feed_dict={
             'sparse':
                 tf.compat.v1.SparseTensorValue(
@@ -257,6 +313,94 @@ _ROUNDTRIP_CASES = [
                     dense_shape=[2, 10, 11])
         }),
 ]
+
+if common_types.is_ragged_feature_available():
+  _FEATURE_SPEC.update({
+      'h':
+          tf.io.RaggedFeature(tf.float32, value_key='h_val'),
+      'i':
+          tf.io.RaggedFeature(
+              tf.float32,
+              value_key='i_val',
+              partitions=[tf.io.RaggedFeature.RowLengths('i_row_lengths1')]),  # pytype: disable=attribute-error
+      'j':
+          tf.io.RaggedFeature(
+              tf.float32,
+              value_key='j_val',
+              partitions=[
+                  tf.io.RaggedFeature.RowLengths('j_row_lengths1'),  # pytype: disable=attribute-error
+                  tf.io.RaggedFeature.RowLengths('j_row_lengths2'),  # pytype: disable=attribute-error
+              ]),
+  })
+
+  _FEED_DICT.update({
+      'h':
+          tf.compat.v1.ragged.RaggedTensorValue(
+              values=np.array([1., 2., 3., 4., 5.], dtype=np.float32),
+              row_splits=np.array([0, 3, 5])),
+      'i':
+          tf.compat.v1.ragged.RaggedTensorValue(
+              values=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=np.array([1., 2., 3., 3., 3., 1.], np.float32),
+                  row_splits=np.array([0, 0, 3, 6])),
+              row_splits=np.array([0, 2, 3])),
+      'j':
+          tf.compat.v1.ragged.RaggedTensorValue(
+              values=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=np.array([1., 2., 3., 4., 5.], np.float32),
+                      row_splits=np.array([0, 2, 3, 4, 5])),
+                  row_splits=np.array([0, 2, 3, 4])),
+              row_splits=np.array([0, 2, 3])),
+  })
+
+  _MULTIPLE_FEATURES_CASE_RECORD_BATCH.update({
+      'h':
+          pa.array([[1., 2., 3.], [4., 5.]], type=pa.large_list(pa.float32())),
+      'i':
+          pa.array([[[], [1., 2., 3.]], [[3., 3., 1.]]],
+                   type=pa.large_list(pa.large_list(pa.float32()))),
+      'j':
+          pa.array([[[[1., 2.], [3.]], [[4.]]], [[[5.]]]],
+                   type=pa.large_list(
+                       pa.large_list(pa.large_list(pa.float32())))),
+  })
+
+  # multiple_features
+  _ROUNDTRIP_CASES[0]['instances'][0].update({
+      'h_val': [1., 2., 3.],
+      'i_val': [1., 2., 3.],
+      'i_row_lengths1': [0, 3],
+      'j_val': [1., 2., 3., 4.],
+      'j_row_lengths1': [2, 1],
+      'j_row_lengths2': [2, 1, 1],
+  })
+  _ROUNDTRIP_CASES[0]['instances'][1].update({
+      'h_val': [4., 5.],
+      'i_val': [3., 3., 1.],
+      'i_row_lengths1': [3],
+      'j_val': [5.],
+      'j_row_lengths1': [1],
+      'j_row_lengths2': [1],
+  })
+
+  # multiple_features_ndarrays
+  _ROUNDTRIP_CASES[1]['instances'][0].update({
+      'h_val': np.array([1., 2., 3.], np.float32),
+      'i_val': np.array([1., 2., 3.], np.float32),
+      'i_row_lengths1': np.array([0, 3]),
+      'j_val': np.array([1., 2., 3., 4], np.float32),
+      'j_row_lengths1': np.array([2, 1]),
+      'j_row_lengths2': np.array([2, 1, 1]),
+  })
+  _ROUNDTRIP_CASES[1]['instances'][1].update({
+      'h_val': np.array([4., 5.], np.float32),
+      'i_val': np.array([3., 3., 1.], np.float32),
+      'i_row_lengths1': np.array([3]),
+      'j_val': np.array([5.], np.float32),
+      'j_row_lengths1': np.array([1]),
+      'j_row_lengths2': np.array([1]),
+  })
 
 # Non-canonical inputs that will not be the output of to_instance_dicts but
 # are valid inputs to make_feed_dict.
@@ -409,20 +553,16 @@ _CONVERT_TO_ARROW_ERROR_CASES = [
 ]
 
 
-def _get_value_from_eager_tensors(eager_tensors):
-  """Given a list of eager tensors, get their values in a TF1 compat format."""
-  result = []
-  for tensor in eager_tensors:
-    if isinstance(tensor, tf.Tensor):
-      result.append(tensor.numpy())
-    elif isinstance(tensor, tf.sparse.SparseTensor):
-      result.append(
-          tf.compat.v1.SparseTensorValue(
-              indices=tensor.indices.numpy(),
-              values=tensor.values.numpy(),
-              dense_shape=tensor.dense_shape.numpy()))
+def _eager_tensor_from_values(values):
+  result = {}
+  for key, value in values.items():
+    if isinstance(value, tf.compat.v1.SparseTensorValue):
+      result[key] = tf.sparse.SparseTensor.from_value(value)
+    elif isinstance(value, tf.compat.v1.ragged.RaggedTensorValue):
+      result[key] = tf.RaggedTensor.from_row_splits(value.values,
+                                                    value.row_splits)
     else:
-      raise ValueError('Expected tf.Tensor or tf.SparseTensor')
+      result[key] = tf.constant(value)
   return result
 
 
@@ -458,8 +598,7 @@ class ImplHelperTest(test_case.TransformTestCase):
     self.assertEqual(features['fixed_len_float'].get_shape().as_list(),
                      [None, 2, 3])
     self.assertEqual(type(features['fixed_len_string']), tf.Tensor)
-    self.assertEqual(features['fixed_len_string'].get_shape().as_list(),
-                     [None])
+    self.assertEqual(features['fixed_len_string'].get_shape().as_list(), [None])
     self.assertEqual(type(features['var_len_int']), tf.SparseTensor)
     self.assertEqual(features['var_len_int'].get_shape().as_list(),
                      [None, None])
@@ -546,69 +685,54 @@ class ImplHelperTest(test_case.TransformTestCase):
           'f2': tf.io.FixedLenFeature(dtype=tf.int64, shape=[None]),
       })
 
-  @test_case.named_parameters(
-      *test_case.cross_named_parameters(_ROUNDTRIP_CASES, [
+  @test_case.named_parameters(*test_case.cross_named_parameters(
+      _ROUNDTRIP_CASES, [
           dict(testcase_name='eager_tensors', feed_eager_tensors=True),
           dict(testcase_name='session_run_values', feed_eager_tensors=False)
       ]))
-  def test_to_instance_dicts(self, feature_spec, instances, feed_dict,
-                             feed_eager_tensors):
+  def test_to_instance_dicts(self, feature_spec, instances, record_batch,
+                             feed_dict, feed_eager_tensors):
+    del record_batch
     if feed_eager_tensors:
       test_case.skip_if_not_tf2('Tensorflow 2.x required')
     schema = schema_utils.schema_from_feature_spec(feature_spec)
-    feed_dict_local = copy.copy(feed_dict)
-    if feed_eager_tensors:
-      for key, value in feed_dict_local.items():
-        if isinstance(value, tf.compat.v1.SparseTensorValue):
-          feed_dict_local[key] = tf.sparse.SparseTensor.from_value(value)
-        else:
-          feed_dict_local[key] = tf.constant(value)
+    feed_dict_local = (
+        _eager_tensor_from_values(feed_dict)
+        if feed_eager_tensors else copy.copy(feed_dict))
     result = impl_helper.to_instance_dicts(schema, feed_dict_local)
     np.testing.assert_equal(instances, result)
 
   @test_case.named_parameters(*_TO_INSTANCE_DICT_ERROR_CASES)
-  def test_to_instance_dicts_error(self, feature_spec, feed_dict, error_msg,
+  def test_to_instance_dicts_error(self,
+                                   feature_spec,
+                                   feed_dict,
+                                   error_msg,
                                    error_type=ValueError):
     schema = schema_utils.schema_from_feature_spec(feature_spec)
     with self.assertRaisesRegexp(error_type, error_msg):
       impl_helper.to_instance_dicts(schema, feed_dict)
 
-  @test_case.named_parameters(
-      *test_case.cross_named_parameters(_ROUNDTRIP_CASES, [
+  @test_case.named_parameters(*test_case.cross_named_parameters(
+      _ROUNDTRIP_CASES, [
           dict(testcase_name='eager_tensors', feed_eager_tensors=True),
           dict(testcase_name='session_run_values', feed_eager_tensors=False)
       ]))
-  def test_convert_to_arrow(self, feature_spec, instances, feed_dict,
-                            feed_eager_tensors):
+  def test_convert_to_arrow(self, feature_spec, instances, record_batch,
+                            feed_dict, feed_eager_tensors):
+    del instances
     if feed_eager_tensors:
       test_case.skip_if_not_tf2('Tensorflow 2.x required')
     schema = schema_utils.schema_from_feature_spec(feature_spec)
     converter = impl_helper.make_tensor_to_arrow_converter(schema)
-    feed_dict_local = copy.copy(feed_dict)
-    if feed_eager_tensors:
-      for key, value in feed_dict_local.items():
-        if isinstance(value, tf.compat.v1.SparseTensorValue):
-          feed_dict_local[key] = tf.sparse.SparseTensor.from_value(value)
-        else:
-          feed_dict_local[key] = tf.constant(value)
+    feed_dict_local = (
+        _eager_tensor_from_values(feed_dict)
+        if feed_eager_tensors else copy.copy(feed_dict))
     arrow_columns, arrow_schema = impl_helper.convert_to_arrow(
         schema, converter, feed_dict_local)
-    record_batch = pa.RecordBatch.from_arrays(arrow_columns, arrow_schema)
-
-    # Merge and flatten expected instance dicts.
-    expected = collections.defaultdict(list)
-    for instance_dict in instances:
-      for key, value in instance_dict.items():
-        expected[key].append(np.ravel(value))
-    actual = record_batch.to_pydict()
-    self.assertEqual(len(actual), len(expected))
-    for key, expected_value in expected.items():
-      # Floating-point error breaks exact equality for some floating values.
-      # However, the approximate equality testing fails on strings.
-      if np.issubdtype(expected_value[0].dtype, np.number):
-        self.assertAllClose(actual[key], expected_value)
-      else:
-        np.testing.assert_equal(actual[key], expected_value)
+    actual = pa.RecordBatch.from_arrays(arrow_columns, schema=arrow_schema)
+    expected = pa.RecordBatch.from_arrays(
+        list(record_batch.values()), names=list(record_batch.keys()))
+    np.testing.assert_equal(actual.to_pydict(), expected.to_pydict())
 
   @test_case.named_parameters(*_CONVERT_TO_ARROW_ERROR_CASES)
   def test_convert_to_arrow_error(self,
@@ -725,6 +849,80 @@ class ImplHelperTest(test_case.TransformTestCase):
     expected_num_values = [25, 25, 25, 25] + [0] * 23
     self.assertEqual(expected_num_values, num_values)
 
+  @test_case.named_parameters(
+      dict(
+          testcase_name='_3d',
+          ragged_tensor=tf.compat.v1.ragged.RaggedTensorValue(
+              values=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=np.array([10., 20., 30.]),
+                      row_splits=np.array([0, 0, 1, 3])),  # row_lengths2
+                  row_splits=np.array([0, 1, 1, 3])),  # row_lengths1
+              row_splits=np.array([0, 2, 3])),  # batch dimension
+          spec=tf.io.RaggedFeature(  # pylint: disable=g-long-ternary
+              tf.float32,
+              value_key='ragged_3d_val',
+              partitions=[
+                  tf.io.RaggedFeature.RowLengths('ragged_3d_row_lengths1'),
+                  tf.io.RaggedFeature.RowLengths('ragged_3d_row_lengths2'),
+              ]) if common_types.is_ragged_feature_available() else None,  # pytype: disable=attribute-error
+          expected_components={
+              'ragged_3d_val': [
+                  np.array([], dtype=np.float32),
+                  np.array([10., 20., 30.])
+              ],
+              'ragged_3d_row_lengths1': [np.array([1, 0]),
+                                         np.array([2])],
+              'ragged_3d_row_lengths2': [np.array([0]),
+                                         np.array([1, 2])],
+          },
+      ),
+      dict(
+          testcase_name='_4d',
+          ragged_tensor=tf.compat.v1.ragged.RaggedTensorValue(
+              values=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array([b'a', b'b', b'c', b'd']),
+                          row_splits=np.array([0, 1, 1, 3, 4])),  # row_lengths3
+                      row_splits=np.array([0, 2, 2, 4])),  # row_lengths2
+                  row_splits=np.array([0, 1, 1, 3])),  # row_lengths1
+              row_splits=np.array([0, 2, 2, 3])),  # batch dimension
+          spec=tf.io.RaggedFeature(  # pylint: disable=g-long-ternary
+              tf.float32,
+              value_key='ragged_4d_val',
+              partitions=[
+                  tf.io.RaggedFeature.RowLengths('ragged_4d_row_lengths1'),
+                  tf.io.RaggedFeature.RowLengths('ragged_4d_row_lengths2'),
+                  tf.io.RaggedFeature.RowLengths('ragged_4d_row_lengths3'),
+              ]) if common_types.is_ragged_feature_available() else None,  # pytype: disable=attribute-error
+          expected_components={
+              'ragged_4d_val': [
+                  np.array([b'a']),
+                  np.array([], dtype=object),
+                  np.array([b'b', b'c', b'd'])
+              ],
+              'ragged_4d_row_lengths1': [
+                  np.array([1, 0]),
+                  np.array([]), np.array([2])
+              ],
+              'ragged_4d_row_lengths2': [
+                  np.array([2]), np.array([]),
+                  np.array([0, 2])
+              ],
+              'ragged_4d_row_lengths3': [
+                  np.array([1, 0]),
+                  np.array([]),
+                  np.array([2, 1])
+              ],
+          },
+      ))
+  def test_handle_ragged_batch(self, ragged_tensor, spec, expected_components):
+    test_case.skip_if_not_tf2('RaggedFeature is not available in TF 1.x')
+    result = impl_helper._handle_ragged_batch(
+        ragged_tensor, spec, name='ragged')
+    np.testing.assert_equal(result, expected_components)
+
 
 def _subtract_ten_with_tf_while(x):
   """Subtracts 10 from x using control flow ops.
@@ -738,11 +936,14 @@ def _subtract_ten_with_tf_while(x):
   Returns:
     A tensor representing x - 10.
   """
+
   def stop_condition(counter, x_minus_counter):
     del x_minus_counter  # unused
     return tf.less(counter, 10)
+
   def iteration(counter, x_minus_counter):
     return tf.add(counter, 1), tf.add(x_minus_counter, -1)
+
   initial_values = [tf.constant(0), x]
   return tf.while_loop(
       cond=stop_condition, body=iteration, loop_vars=initial_values)[1]

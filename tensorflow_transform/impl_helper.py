@@ -11,8 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Helper/utility functions that a tf-transform implementation would find handy.
-"""
+"""Helper/utility functions that a tf-transform implementation would find handy."""
 
 import os
 import re
@@ -42,7 +41,8 @@ from tensorflow.python.framework import ops
 # pylint: enable=g-direct-tensorflow-import
 from tensorflow_metadata.proto.v0 import schema_pb2
 
-_SparseComponentType = List[np.ndarray]
+_CompositeInstanceComponentType = np.ndarray
+_CompositeComponentType = List[_CompositeInstanceComponentType]
 
 _CACHED_EMPTY_ARRAY_BY_DTYPE = {}
 _VALID_SCOPE_REGEX = re.compile('^[A-Za-z0-9]*$')
@@ -85,8 +85,8 @@ def batched_placeholders_from_specs(specs):
     else:
       spec_dtype = spec.dtype
     if spec_dtype not in (tf.int64, tf.float32, tf.string):
-      raise ValueError('Feature {} ({}, {}) had invalid dtype'
-                       .format(name, spec, type(spec)))
+      raise ValueError('Feature {} ({}, {}) had invalid dtype'.format(
+          name, spec, type(spec)))
     if isinstance(spec, tf.TypeSpec):
       result[name] = _batched_placeholder_from_typespec(name, spec)
     else:
@@ -96,8 +96,10 @@ def batched_placeholders_from_specs(specs):
 
 
 def _is_feature_spec(spec):
-  return isinstance(spec, (
-      tf.io.VarLenFeature, tf.io.SparseFeature, tf.io.FixedLenFeature))
+  if isinstance(
+      spec, (tf.io.VarLenFeature, tf.io.SparseFeature, tf.io.FixedLenFeature)):
+    return True
+  return common_types.is_ragged_feature(spec)
 
 
 def _sanitize_scope_name(name):
@@ -140,8 +142,8 @@ def _batched_placeholder_from_feature_spec(name, feature_spec):
     return tf.compat.v1.sparse_placeholder(
         feature_spec.dtype, shape, name=scope_name)
 
-  raise ValueError('Unsupported feature spec: {}({}) for feature {}'
-                   .format(feature_spec, type(feature_spec), name))
+  raise ValueError('Unsupported feature spec: {}({}) for feature {}'.format(
+      feature_spec, type(feature_spec), name))
 
 
 def _extract_sparse_components(
@@ -169,7 +171,7 @@ def _get_num_values_per_instance_in_sparse_batch(batch_indices: np.ndarray,
 
 def _decompose_sparse_batch(
     sparse_value: common_types.SparseTensorValueType
-) -> Tuple[List[_SparseComponentType], _SparseComponentType]:
+) -> Tuple[List[_CompositeComponentType], _CompositeComponentType]:
   """Decomposes a sparse batch into a list of sparse instances.
 
   Args:
@@ -213,7 +215,7 @@ def _decompose_sparse_batch(
 
 def _decompose_varlen_batch(
     sparse_value: common_types.SparseTensorValueType
-) -> Tuple[_SparseComponentType, _SparseComponentType]:
+) -> Tuple[_CompositeComponentType, _CompositeComponentType]:
   """Decomposes a sparse batch into a list of sparse/varlen instances.
 
   Args:
@@ -279,7 +281,7 @@ def _decompose_varlen_batch(
 
 
 def _handle_varlen_batch(tensor_or_value: common_types.SparseTensorValueType,
-                         name: str) -> _SparseComponentType:
+                         name: str) -> _CompositeComponentType:
   """Decomposes a varlen tensor value into sparse tensor components."""
   instance_indices, instance_values = _decompose_varlen_batch(tensor_or_value)
   for indices in instance_indices:  # type: np.ndarray
@@ -293,7 +295,7 @@ def _handle_varlen_batch(tensor_or_value: common_types.SparseTensorValueType,
 def _handle_sparse_batch(
     tensor_or_value: common_types.SparseTensorValueType,
     spec: common_types.FeatureSpecType, name: str
-) -> Dict[str, Union[List[_SparseComponentType], _SparseComponentType]]:
+) -> Dict[str, Union[List[_CompositeComponentType], _CompositeComponentType]]:
   """Decomposes a sparse tensor value into sparse tensor components."""
   if len(spec.index_key) == 1:
     index_keys = spec.index_key[0]
@@ -310,6 +312,66 @@ def _handle_sparse_batch(
     result[index_keys] = instance_indices
   result[spec.value_key] = instance_values
   _check_valid_sparse_tensor(instance_indices, instance_values, spec.size, name)
+  return result
+
+
+def _get_ragged_instance_component(
+    component_batch: _CompositeInstanceComponentType, batch_splits: np.ndarray,
+    instance_idx: int) -> _CompositeInstanceComponentType:
+  """Extracts an instance component from a flat batch with given splits."""
+  instance_begin = batch_splits[instance_idx]
+  instance_end = batch_splits[instance_idx + 1]
+  return component_batch[instance_begin:instance_end]
+
+
+def _handle_ragged_batch(tensor_or_value: common_types.RaggedTensorValueType,
+                         spec: common_types.FeatureSpecType,
+                         name: str) -> Dict[str, _CompositeComponentType]:
+  """Decomposes a ragged tensor or value into ragged tensor components."""
+  if isinstance(tensor_or_value, tf.RaggedTensor):
+    nested_row_splits = tuple(
+        x.numpy() for x in tensor_or_value.nested_row_splits)
+    flat_values = tensor_or_value.flat_values.numpy()
+  elif isinstance(tensor_or_value, tf.compat.v1.ragged.RaggedTensorValue):
+    nested_row_splits = tensor_or_value.nested_row_splits
+    flat_values = tensor_or_value.flat_values
+  else:
+    raise ValueError('Expected RaggedTensor or RaggedTensorValue , but '
+                     'got {}'.format(tensor_or_value))
+
+  result = {}
+  # The outermost row split represents batch dimension.
+  batch_splits = nested_row_splits[0]
+  batch_size = len(batch_splits) - 1
+  if len(nested_row_splits) != len(spec.partitions) + 1:
+    raise NotImplementedError(
+        'Ragged tensors with non-ragged dimensions are not supported, ragged '
+        'rank of feature "{}" is {}, partitions '
+        'are {}'.format(name,
+                        len(nested_row_splits) - 1, spec.partitions))
+
+  # Iterate over all but batch dimension splits.
+  for row_splits, partition in zip(nested_row_splits[1:], spec.partitions):
+    if isinstance(partition, tf.io.RaggedFeature.RowLengths):  # pytype: disable=attribute-error
+      row_lengths = row_splits[1:] - row_splits[:-1]
+      result[partition.key] = [
+          _get_ragged_instance_component(row_lengths, batch_splits, idx)
+          for idx in range(batch_size)
+      ]
+    else:
+      raise NotImplementedError(
+          'Only `RowLengths` partitions of ragged features are supported, got '
+          '{} for ragged feature "{}"'.format(type(partition), name))
+
+    # Translate batch split indices for the current dimension to the
+    # next dimension.
+    batch_splits = row_splits[batch_splits]
+
+  # Split flat values according to the innermost dimension batch splits.
+  result[spec.value_key] = [
+      _get_ragged_instance_component(flat_values, batch_splits, idx)
+      for idx in range(batch_size)
+  ]
   return result
 
 
@@ -349,6 +411,11 @@ def to_instance_dicts(schema, fetches):
 
     elif isinstance(spec, tf.io.SparseFeature):
       batch_dict_update = _handle_sparse_batch(tensor_or_value, spec, name)
+      batch_dict.update(batch_dict_update)
+      batch_sizes[name] = len(batch_dict_update[spec.value_key])
+
+    elif common_types.is_ragged_feature(spec):
+      batch_dict_update = _handle_ragged_batch(tensor_or_value, spec, name)
       batch_dict.update(batch_dict_update)
       batch_sizes[name] = len(batch_dict_update[spec.value_key])
 
@@ -419,6 +486,18 @@ def get_type_specs_from_feature_specs(
       # TODO(b/181868576): Handle `SparseFeature`s by the converter once the
       # support is implemented.
       pass
+    elif common_types.is_ragged_feature(feature_spec):
+      # Number of dimensions is number of partitions + 1 + 1 batch dimension.
+      shape = [None, None]
+      for partition in feature_spec.partitions:
+        if isinstance(partition, tf.io.RaggedFeature.UniformRowLength):  # pytype: disable=attribute-error
+          shape.append(partition.length)
+        else:
+          shape.append(None)
+      result[name] = tf.RaggedTensorSpec(
+          shape=shape,
+          dtype=feature_spec.dtype,
+          row_splits_dtype=feature_spec.row_splits_dtype)
     else:
       raise ValueError('Invalid feature spec {}.'.format(feature_spec))
   return result
@@ -487,9 +566,9 @@ def convert_to_arrow(
 
 
 # TODO(b/36040669): Consider moving this to where it can be shared with coders.
-def _check_valid_sparse_tensor(indices: Union[_SparseComponentType,
-                                              List[_SparseComponentType]],
-                               values: _SparseComponentType,
+def _check_valid_sparse_tensor(indices: Union[_CompositeComponentType,
+                                              List[_CompositeComponentType]],
+                               values: _CompositeComponentType,
                                size: Union[int, List[int]], name: str):
   """Validates sparse tensor components."""
   # Check that all indices are in range.

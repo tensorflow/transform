@@ -22,6 +22,7 @@ the schema of a tensor from its parents in the graph.
 import collections
 from typing import Callable, Mapping, Tuple
 
+from absl import logging
 import tensorflow as tf
 from tensorflow_transform import common
 from tensorflow_transform import common_types
@@ -30,6 +31,7 @@ from tensorflow_transform import tf2_utils
 from tensorflow_transform import tf_utils
 from tensorflow_transform.saved import saved_transform_io_v2
 from tensorflow_transform.tf_metadata import schema_utils
+from tfx_bsl.tfxio import tensor_representation_util
 
 from google.protobuf import any_pb2
 # pylint: disable=g-direct-tensorflow-import
@@ -37,6 +39,43 @@ from tensorflow.python.eager import function
 from tensorflow.python.framework import ops
 # pylint: enable=g-direct-tensorflow-import
 from tensorflow_metadata.proto.v0 import schema_pb2
+
+
+def _ragged_feature_spec_from_batched_tensor(name, tensor):
+  """Infer `tf.io.RaggedFeature` from a batched `tf.RaggedTensor`."""
+  if common_types.is_ragged_feature_available():
+    logging.warn(
+        'Feature %s is a RaggedTensor, its support is currently '
+        'experimental', name)
+
+    values = tensor.values
+    partitions = []
+    row_lengths_partition_idx = 1
+    # Ignore batch dimension.
+    for dim in values.shape[1:]:
+      if isinstance(dim, int):
+        partitions.append(
+            tf.io.RaggedFeature.UniformRowLength(  # pytype: disable=attribute-error
+                length=dim))
+      else:
+        partitions.append(
+            tf.io.RaggedFeature.RowLengths(  # pytype: disable=attribute-error
+                key='{}$row_lengths_{}'.format(name,
+                                               row_lengths_partition_idx)))
+        row_lengths_partition_idx += 1
+
+    return tf.io.RaggedFeature(
+        dtype=tensor.dtype,
+        value_key='{}$ragged_values'.format(name),
+        partitions=partitions,
+        row_splits_dtype=tensor.row_splits.dtype)
+  else:
+    logging.warn(
+        'Feature %s was a RaggedTensor.  A Schema will be generated but the '
+        'Schema cannot be used with a coder (e.g. to materialize output '
+        'data) or to generated a feature spec.', name)
+    # Arbitrarily select VarLenFeature.
+    return tf.io.VarLenFeature(tensor.dtype)
 
 
 def _feature_spec_from_batched_tensors(tensors):
@@ -57,8 +96,9 @@ def _feature_spec_from_batched_tensors(tensors):
   feature_spec = {}
   for name, tensor in tensors.items():
     if tensor.dtype not in (tf.string, tf.int64, tf.float32):
-      raise ValueError('Feature {} ({}) had invalid dtype {} for feature spec'
-                       .format(name, tensor, tensor.dtype))
+      raise ValueError(
+          'Feature {} ({}) had invalid dtype {} for feature spec'.format(
+              name, tensor, tensor.dtype))
     if isinstance(tensor, tf.SparseTensor):
       shape = tensor.get_shape()
       if shape.ndims > 2:
@@ -87,17 +127,12 @@ def _feature_spec_from_batched_tensors(tensors):
       feature_spec[name] = tf.io.FixedLenFeature(shape.as_list()[1:],
                                                  tensor.dtype)
     elif isinstance(tensor, tf.RaggedTensor):
-      tf.compat.v1.logging.warn(
-          'Feature %s was a RaggedTensor.  A Schema will be generated but the '
-          'Schema cannot be used with a coder (e.g. to materialize output '
-          'data) or to generated a feature spec.', name)
-      # Arbitrarily select VarLenFeature.
-      feature_spec[name] = tf.io.VarLenFeature(tensor.dtype)
+      feature_spec[name] = (
+          _ragged_feature_spec_from_batched_tensor(name, tensor))
     else:
       raise TypeError(
           'Expected a Tensor, SparseTensor, or RaggedTensor got {} of type {} '
-          'for feature {}'
-          .format(tensor, type(tensor), name))
+          'for feature {}'.format(tensor, type(tensor), name))
 
   return feature_spec
 
@@ -118,9 +153,9 @@ def infer_feature_schema(features, graph, session=None):
   If annotations have been specified, they are added to the output schema.
 
   Args:
-    features: A dict mapping column names to `Tensor` or `SparseTensor`s. The
-      `Tensor` or `SparseTensor`s should have a 0'th dimension which is
-      interpreted as the batch dimension.
+    features: A dict mapping column names to `Tensor`, `SparseTensor` or
+      `RaggedTensor`. The `Tensor`, `SparseTensor` or `RaggedTensor` should have
+      a 0'th dimension which is interpreted as the batch dimension.
     graph: A `tf.Graph` used to determine schema overrides.
     session: (optional) A `tf.Session` used to compute schema overrides.  If
       None, schema overrides will not be computed.
@@ -224,10 +259,11 @@ def _infer_feature_schema_common(features, tensor_ranges, feature_annotations,
   domains = {}
   feature_tags = collections.defaultdict(list)
   for name, tensor in features.items():
-    if isinstance(tensor, tf.RaggedTensor):
+    if (isinstance(tensor, tf.RaggedTensor) and
+        not common_types.is_ragged_feature_available()):
       # Add the 'ragged_tensor' tag which will cause coder and
-      # schema_as_feature_spec to raise an error, as currently there is no
-      # feature spec for ragged tensors.
+      # schema_as_feature_spec to raise an error, as there is no feature spec
+      # for ragged tensors in TF 1.x.
       feature_tags[name].append(schema_utils.RAGGED_TENSOR_TAG)
     if name in tensor_ranges:
       min_value, max_value = tensor_ranges[name]
@@ -250,6 +286,16 @@ def _infer_feature_schema_common(features, tensor_ranges, feature_annotations,
     value_feature = feature_protos_by_name.pop(
         sparse_feature.value_feature.name)
     feature_protos_by_name[sparse_feature.name] = value_feature
+
+  # Handle ragged tensor representations.
+  tensor_representations = (
+      tensor_representation_util.GetTensorRepresentationsFromSchema(
+          schema_proto, schema_utils.TENSOR_REPRESENTATION_GROUP))
+  if tensor_representations is not None:
+    for name, tensor_representation in tensor_representations.items():
+      feature_protos_by_name[name] = schema_utils.pop_ragged_source_columns(
+          name, tensor_representation, feature_protos_by_name)
+
   # Update annotations
   for feature_name, annotations in feature_annotations.items():
     feature_proto = feature_protos_by_name[feature_name]
@@ -311,8 +357,10 @@ def _get_tensor_ranges(graph):
   max_values = graph.get_collection(_TF_METADATA_TENSOR_MAX_COLLECTION)
   assert len(tensors) == len(min_values), '{} != {}'.format(tensors, min_values)
   assert len(tensors) == len(max_values), '{} != {}'.format(tensors, max_values)
-  return dict(zip(map(tf_utils.hashable_tensor_or_op, tensors),
-                  zip(min_values, max_values)))
+  return dict(
+      zip(
+          map(tf_utils.hashable_tensor_or_op, tensors),
+          zip(min_values, max_values)))
 
 
 def _get_tensor_ranges_v2(metadata):

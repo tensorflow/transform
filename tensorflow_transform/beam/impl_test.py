@@ -26,6 +26,7 @@ import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import analyzers
 from tensorflow_transform import common
+from tensorflow_transform import common_types
 from tensorflow_transform import pretrained_models
 from tensorflow_transform import schema_inference
 import tensorflow_transform.beam as tft_beam
@@ -3304,8 +3305,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     x_data = [[[1], [], [2, 3]], [[]]]
     input_record_batch = pa.RecordBatch.from_arrays([
-        pa.array([x for x in x_data],
-                 type=pa.large_list(pa.large_list(pa.int64()))),
+        pa.array(x_data, type=pa.large_list(pa.large_list(pa.int64()))),
     ], ['x'])
     tensor_adapter_config = tensor_adapter.TensorAdapterConfig(
         input_record_batch.schema, {
@@ -3334,15 +3334,42 @@ class BeamImplTest(tft_unit.TransformTestCase):
             transform_output_path)
 
         _, transformed_metadata = transform_fn
-        expected_metadata = text_format.Parse(
-            """
-            feature {
-              name: "x_ones"
-              type: INT
-              annotation {
-                tag: "ragged_tensor"
+        if common_types.is_ragged_feature_available():
+          expected_metadata = text_format.Parse(
+              """
+              feature {
+                name: "x_ones$ragged_values"
+                type: INT
               }
-            }""", schema_pb2.Schema())
+              feature {
+                name: "x_ones$row_lengths_1"
+                type: INT
+              }
+              tensor_representation_group {
+                key: ""
+                value {
+                  tensor_representation {
+                    key: "x_ones"
+                    value {
+                      ragged_tensor {
+                        feature_path { step: "x_ones$ragged_values" }
+                        partition { row_length: "x_ones$row_lengths_1"}
+                      }
+                    }
+                  }
+                }
+              }""", schema_pb2.Schema())
+        else:
+          expected_metadata = text_format.Parse(
+              """
+              feature {
+                name: "x_ones"
+                type: INT
+                annotation {
+                  tag: "ragged_tensor"
+                }
+              }""", schema_pb2.Schema())
+
         if not tft_unit.is_external_environment():
           expected_metadata.generate_legacy_feature_spec = False
 
