@@ -11,15 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Coder classes for encoding TF Examples into tf.Transform datasets.
-"""
+"""Coder classes for encoding TF Examples into tf.Transform datasets."""
 
 # TODO(b/33688275): Rename ExampleProto to just Example, for all aspects of this
 # API (eg Classes, Files, Benchmarks etc).
 
-
 import numpy as np
 import tensorflow as tf
+from tensorflow_transform import common_types
 from tensorflow_transform.tf_metadata import schema_utils
 
 
@@ -37,9 +36,11 @@ def _make_cast_fn(np_dtype):
 
   Args:
     np_dtype: The numpy type of the Tensorflow feature.
+
   Returns:
     A function to extract the value field from a string depending on dtype.
   """
+
   # There seems to be a great degree of variability for handling automatic
   # conversions across types and across API implementation of the Python
   # protocol buffer library.
@@ -80,8 +81,8 @@ def _make_cast_fn(np_dtype):
   if issubclass(np_dtype, np.floating):
     try:
       float_list = tf.train.FloatList()
-      float_list.value.append(np.float32(0.1))       # Any dummy value will do.
-      float_list.value.append(np.array(0.1))         # Any dummy value will do.
+      float_list.value.append(np.float32(0.1))  # Any dummy value will do.
+      float_list.value.append(np.array(0.1))  # Any dummy value will do.
       float_list.value.extend(np.array([0.1, 0.2]))  # Any dummy values will do.
       return identity
     except TypeError:
@@ -89,8 +90,8 @@ def _make_cast_fn(np_dtype):
   elif issubclass(np_dtype, np.integer):
     try:
       int64_list = tf.train.Int64List()
-      int64_list.value.append(np.int64(1))       # Any dummy value will do.
-      int64_list.value.append(np.array(1))       # Any dummy value will do.
+      int64_list.value.append(np.int64(1))  # Any dummy value will do.
+      int64_list.value.append(np.array(1))  # Any dummy value will do.
       int64_list.value.extend(np.array([1, 2]))  # Any dummy values will do.
       return identity
     except TypeError:
@@ -107,6 +108,7 @@ def _make_feature_value_fn(dtype):
 
   Args:
     dtype: The type of the Tensorflow feature.
+
   Returns:
     A function to extract the value field from the feature depending on dtype.
   """
@@ -209,6 +211,7 @@ class ExampleProtoCoder:
       schema: A `Schema` proto.
       serialized: Whether to encode serialized Example protos (as opposed to
         in-memory Example protos).
+
     Raises:
       ValueError: If `schema` is invalid.
     """
@@ -241,10 +244,21 @@ class ExampleProtoCoder:
               _VarLenFeatureHandler(index_key, tf.int64))
         self._feature_handlers.append(
             _VarLenFeatureHandler(feature_spec.value_key, feature_spec.dtype))
+      elif common_types.is_ragged_feature(feature_spec):
+        for partition in feature_spec.partitions:
+          if isinstance(partition, tf.io.RaggedFeature.RowLengths):
+            self._feature_handlers.append(
+                _VarLenFeatureHandler(partition.key, tf.int64))
+          else:
+            raise ValueError('Only `RowLengths` partitions of ragged features '
+                             'are supported, got {}'.format(type(partition)))
+        self._feature_handlers.append(
+            _VarLenFeatureHandler(feature_spec.value_key, feature_spec.dtype))
       else:
-        raise ValueError('feature_spec should be one of tf.FixedLenFeature, '
-                         'tf.VarLenFeature or tf.SparseFeature: %s was %s' %
-                         (name, type(feature_spec)))
+        raise ValueError('feature_spec should be one of tf.io.FixedLenFeature, '
+                         'tf.io.VarLenFeature, tf.io.SparseFeature or '
+                         'tf.io.RaggedFeature: "{}" was {}'.format(
+                             name, type(feature_spec)))
 
     for feature_handler in self._feature_handlers:
       feature_handler.initialize_encode_cache(self._encode_example_cache)

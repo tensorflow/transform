@@ -3299,8 +3299,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
       self.assertAllEqual(expected[2], transformed[2])
 
   def testRaggedWithTFXIO(self):
-    # TODO(b/169666856): Expand test to include testing TransformDataset when
-    # it is supported.
+    # TODO(b/169666856): Expand test to include case
+    # `output_record_batches=True` once supported.
     self._SkipIfOutputRecordBatches()
 
     x_data = [[[1], [], [2, 3]], [[]]]
@@ -3322,81 +3322,84 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def preprocessing_fn(inputs):
       return {'x_ones': tf.ragged.map_flat_values(tf.ones_like, inputs['x'])}
 
-    transform_output_path = os.path.join(self.get_temp_dir(),
-                                         'transform_output')
-    with self._makeTestPipeline() as pipeline:
-      input_data = (pipeline | beam.Create([input_record_batch]))
-      with tft_beam.Context(temp_dir=self.get_temp_dir()):
-        transform_fn = (
-            (input_data, tensor_adapter_config)
-            | 'AnalyzeDataset' >> tft_beam.AnalyzeDataset(preprocessing_fn))
-        _ = transform_fn | 'WriteTransform' >> tft.beam.WriteTransformFn(
-            transform_output_path)
+    if common_types.is_ragged_feature_available():
+      expected_data = [
+          {
+              'x_ones$ragged_values': [1, 1, 1],
+              'x_ones$row_lengths_1': [1, 0, 2]
+          },
+          {
+              'x_ones$ragged_values': [],
+              'x_ones$row_lengths_1': [0]
+          },
+      ]
+      expected_metadata = tft_unit.metadata_from_feature_spec({
+          'x_ones':
+              tf.io.RaggedFeature(
+                  tf.int64,
+                  value_key='x_ones$ragged_values',
+                  partitions=[
+                      tf.io.RaggedFeature.RowLengths('x_ones$row_lengths_1')  # pytype: disable=attribute-error
+                  ]),
+      })
+      self.assertAnalyzeAndTransformResults([input_record_batch],
+                                            tensor_adapter_config,
+                                            preprocessing_fn,
+                                            expected_data=expected_data,
+                                            expected_metadata=expected_metadata)
+    else:
+      transform_output_path = os.path.join(self.get_temp_dir(),
+                                           'transform_output')
+      with self._makeTestPipeline() as pipeline:
+        input_data = (pipeline | beam.Create([input_record_batch]))
+        with tft_beam.Context(temp_dir=self.get_temp_dir()):
+          transform_fn = (
+              (input_data, tensor_adapter_config)
+              | 'AnalyzeDataset' >> tft_beam.AnalyzeDataset(preprocessing_fn))
+          _ = transform_fn | 'WriteTransform' >> tft.beam.WriteTransformFn(
+              transform_output_path)
 
-        _, transformed_metadata = transform_fn
-        if common_types.is_ragged_feature_available():
+          _, transformed_metadata = transform_fn
+
           expected_metadata = text_format.Parse(
               """
-              feature {
-                name: "x_ones$ragged_values"
-                type: INT
-              }
-              feature {
-                name: "x_ones$row_lengths_1"
-                type: INT
-              }
-              tensor_representation_group {
-                key: ""
-                value {
-                  tensor_representation {
-                    key: "x_ones"
-                    value {
-                      ragged_tensor {
-                        feature_path { step: "x_ones$ragged_values" }
-                        partition { row_length: "x_ones$row_lengths_1"}
-                      }
-                    }
+                feature {
+                  name: "x_ones"
+                  type: INT
+                  annotation {
+                    tag: "ragged_tensor"
                   }
-                }
-              }""", schema_pb2.Schema())
-        else:
-          expected_metadata = text_format.Parse(
-              """
-              feature {
-                name: "x_ones"
-                type: INT
-                annotation {
-                  tag: "ragged_tensor"
-                }
-              }""", schema_pb2.Schema())
+                }""", schema_pb2.Schema())
 
-        if not tft_unit.is_external_environment():
-          expected_metadata.generate_legacy_feature_spec = False
+          if not tft_unit.is_external_environment():
+            expected_metadata.generate_legacy_feature_spec = False
 
-        self.assertProtoEquals(transformed_metadata.schema, expected_metadata)
+          self.assertProtoEquals(transformed_metadata.schema, expected_metadata)
 
-        def _assert_schemas_equal_fn(schema_dict_list):
-          self.assertEqual(1, len(schema_dict_list))
-          self.assertProtoEquals(schema_dict_list[0].schema, expected_metadata)
+          def _assert_schemas_equal_fn(schema_dict_list):
+            self.assertEqual(1, len(schema_dict_list))
+            self.assertProtoEquals(schema_dict_list[0].schema,
+                                   expected_metadata)
 
-        beam_test_util.assert_that(
-            transformed_metadata.deferred_metadata,
-            _assert_schemas_equal_fn,
-            label='assert_deferred_metadata')
+          beam_test_util.assert_that(
+              transformed_metadata.deferred_metadata,
+              _assert_schemas_equal_fn,
+              label='assert_deferred_metadata')
 
-    with tf.Graph().as_default():
-      tft_out = tft.TFTransformOutput(transform_output_path)
-      inputs = {
-          'x': tf.ragged.constant([[[1], [], [2, 3]], [[1]]], dtype=tf.int64)
-      }
-      outputs = tft_out.transform_raw_features(inputs)
-      flat_outputs = tf.nest.flatten(outputs['x_ones'], expand_composites=True)
-      expected_flat_outputs = tf.nest.flatten(
-          tf.ragged.constant([[[1], [], [1, 1]], [[1]]], dtype=tf.int64),
-          expand_composites=True)
-      with tf.compat.v1.Session():
-        for expected, transformed in zip(expected_flat_outputs, flat_outputs):
-          self.assertAllEqual(expected.eval(), transformed.eval())
+      with tf.Graph().as_default():
+        tft_out = tft.TFTransformOutput(transform_output_path)
+        inputs = {
+            'x': tf.ragged.constant([[[1], [], [2, 3]], [[1]]], dtype=tf.int64)
+        }
+        outputs = tft_out.transform_raw_features(inputs)
+        flat_outputs = tf.nest.flatten(
+            outputs['x_ones'], expand_composites=True)
+        expected_flat_outputs = tf.nest.flatten(
+            tf.ragged.constant([[[1], [], [1, 1]], [[1]]], dtype=tf.int64),
+            expand_composites=True)
+        with tf.compat.v1.Session():
+          for expected, transformed in zip(expected_flat_outputs, flat_outputs):
+            self.assertAllEqual(expected.eval(), transformed.eval())
 
   def testPipelineWithoutAutomaterialization(self):
     # Other tests pass lists instead of PCollections and thus invoke
