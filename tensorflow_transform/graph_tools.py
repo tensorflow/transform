@@ -26,6 +26,7 @@ which analyzers to run in each phase.
 import collections
 import itertools
 import uuid
+from absl import logging
 
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
@@ -569,13 +570,12 @@ class InitializableGraphAnalyzer:
         continue
 
       if isinstance(graph, tf_func_graph.FuncGraph):
-        tf.compat.v1.logging.warning('Tables initialized inside a tf.function '
-                                     'will be re-initialized on every '
-                                     'invocation of the function. This '
-                                     're-initialization can have significant '
-                                     'impact on performance. Consider lifting '
-                                     'them out of the graph context using '
-                                     '`tf.init_scope`.')
+        self._log_warning('Tables initialized inside a tf.function  will be'
+                          ' re-initialized on every invocation of the function.'
+                          ' This  re-initialization can have significant impact'
+                          ' on performance. Consider lifting  them out of the'
+                          ' graph context using  `tf.init_scope`.: {}'.format(
+                              table_init_op_or_tensor.name))
 
       table_init_op, table_input_ops = (
           self._get_table_init_op_and_inputs(table_init_op_or_tensor))
@@ -592,6 +592,9 @@ class InitializableGraphAnalyzer:
     # initialized.
     self._graph_analyzer = _GraphAnalyzer(complete_source_info_dict,
                                           translate_path_fn, graph)
+
+  def _log_warning(self, message: str):
+    logging.warning(message)
 
   def _get_table_init_op_and_inputs(self, table_init_op_or_tensor):
     """Get a tuple of table init op and keys for its input ops."""
@@ -759,6 +762,13 @@ class InitializableGraphAnalyzer:
     return result
 
 
+class _QuietInitializableGraphAnalyzer(InitializableGraphAnalyzer):
+  """A `InitializableGraphAnalyzer` which doesn't log any warnings."""
+
+  def _log_warning(self, message: str):
+    pass
+
+
 def get_dependent_inputs(graph, input_tensors, output_tensors):
   """Returns tensors in input_tensors that (transitively) produce output_tensors.
 
@@ -790,8 +800,8 @@ def get_dependent_inputs(graph, input_tensors, output_tensors):
   # tensors doesn't affect the correctness of dependencies tracing.
   tensor_sinks = graph.get_collection(analyzer_nodes.TENSOR_REPLACEMENTS)
   sink_tensors_ready = [(sink.tensor, False) for sink in tensor_sinks]
-  graph_analyzer = InitializableGraphAnalyzer(graph, input_tensors,
-                                              sink_tensors_ready)
+  graph_analyzer = _QuietInitializableGraphAnalyzer(graph, input_tensors,
+                                                    sink_tensors_ready)
   dependent_inputs = {}
   for output_tensor in output_container:
     dependent_inputs.update(graph_analyzer.get_dependent_inputs(output_tensor))

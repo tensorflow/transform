@@ -1041,7 +1041,7 @@ def compute_and_apply_vocabulary(
 @common.log_api_use(common.MAPPER_COLLECTION)
 def apply_vocabulary(
     x: common_types.ConsistentTensorType,
-    deferred_vocab_filename_tensor: tf.Tensor,
+    deferred_vocab_filename_tensor: common_types.TemporaryAnalyzerOutputType,
     default_value: Optional[Any] = -1,
     num_oov_buckets: Optional[int] = 0,
     lookup_fn: Optional[Callable[[common_types.TensorType, tf.Tensor],
