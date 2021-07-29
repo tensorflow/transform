@@ -1707,6 +1707,8 @@ def bucketize(x: common_types.TensorType,
     can be different than num_buckets hint, for example in case the number of
     distinct values is smaller than num_buckets, or in cases where the
     input values are not uniformly distributed.
+    NaN values are mapped to the last bucket. Values with NaN weights are
+    ignored in bucket boundaries calculation.
 
   Raises:
     TypeError: If num_buckets is not an int.

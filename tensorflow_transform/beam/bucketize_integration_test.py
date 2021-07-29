@@ -81,7 +81,18 @@ def _construct_test_bucketization_parameters():
       (range(1, 100), [25, 50, 75], False, 0.00001, True, True),
   )
   dtypes = (tf.int32, tf.int64, tf.float32, tf.float64, tf.double)
-  return (x + (dtype,) for x in args_without_dtype for dtype in dtypes)
+
+  args_with_dtype = [
+      # Tests for handling np.nan input values.
+      (list(range(1, 100)) + [np.nan] * 10, [25, 50, 75], False, 0.01,
+       True, True, tf.float32),
+      (list(range(1, 100)) + [np.nan] * 10, [25, 50, 75], False, 0.01,
+       False, True, tf.float32),
+      (list(range(1, 100)) + [np.nan] * 10, [25, 50, 75], False, 0.01,
+       False, False, tf.float32),
+  ]
+  return ([x + (dtype,) for x in args_without_dtype for dtype in dtypes] +
+          args_with_dtype)
 
 
 class BucketizeIntegrationTest(tft_unit.TransformTestCase):
@@ -134,8 +145,10 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
 
     # Sort the input based on value, index is used to create expected_data.
     indexed_input = enumerate(test_inputs)
-
-    sorted_list = sorted(indexed_input, key=lambda p: p[1])
+    # We put all np.nans in the end of the list so that they get assigned to the
+    # last bucket.
+    sorted_list = sorted(
+        indexed_input, key=lambda p: np.inf if np.isnan(p[1]) else p[1])
 
     # Expected data has the same size as input, one bucket per input value.
     expected_data = [None] * len(test_inputs)
@@ -295,15 +308,18 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
   # Test for all numerical types, each type is in a separate testcase to
   # increase parallelism of test shards and reduce test time.
   @tft_unit.parameters(
-      (tf.int32,),
-      (tf.int64,),
-      (tf.float32,),
-      (tf.float64,),
-      (tf.double,),
+      (tf.int32, False),
+      (tf.int64, False),
+      (tf.float32, False),
+      (tf.float32, True),
+      (tf.float64, False),
+      (tf.float64, True),
+      (tf.double, False),
+      (tf.double, True),
       # TODO(b/64836936): Enable test after bucket inconsistency is fixed.
-      # (tf.float16,)
+      # (tf.float16, False)
   )
-  def testQuantileBucketsWithWeights(self, input_dtype):
+  def testQuantileBucketsWithWeights(self, input_dtype, with_nans):
 
     def analyzer_fn(inputs):
       return {
@@ -316,6 +332,14 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
       }
 
     input_data = [{'x': [x], 'weights': [x / 100.]} for x in range(1, 3000)]
+    if with_nans:
+      input_data += [{
+          'x': [np.nan],
+          'weights': [100000]
+      }, {
+          'x': [100000],
+          'weights': [np.nan]
+      }]
     input_metadata = tft_unit.metadata_from_feature_spec({
         'x':
             tf.io.FixedLenFeature(

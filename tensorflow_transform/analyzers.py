@@ -2114,10 +2114,11 @@ def quantiles(x: tf.Tensor,
               name: Optional[str] = None) -> tf.Tensor:
   """Computes the quantile boundaries of a `Tensor` over the whole dataset.
 
-  quantile boundaries are computed using approximate quantiles,
+  Quantile boundaries are computed using approximate quantiles,
   and error tolerance is specified using `epsilon`. The boundaries divide the
   input tensor into approximately equal `num_buckets` parts.
   See go/squawd for details, and how to control the error due to approximation.
+  NaN input values and values with NaN weights are ignored.
 
   Args:
     x: An input `Tensor`.

@@ -6,6 +6,9 @@
 
 ## Bug Fixes and Other Changes
 
+*  `tft.quantiles` now ignores NaNs in input values and weights. Previously,
+   NaNs would lead to incorrect boundaries calculation.
+
 ## Breaking Changes
 
 ## Deprecations
