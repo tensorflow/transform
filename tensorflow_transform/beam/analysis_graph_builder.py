@@ -489,7 +489,7 @@ def get_analysis_dataset_keys(preprocessing_fn,
                               specs,
                               dataset_keys,
                               input_cache,
-                              force_tf_compat_v1=True):
+                              force_tf_compat_v1):
   """Computes the dataset keys that are required in order to perform analysis.
 
   Args:
@@ -499,8 +499,7 @@ def get_analysis_dataset_keys(preprocessing_fn,
     dataset_keys: A set of strings which are dataset keys, they uniquely
       identify these datasets across analysis runs.
     input_cache: A cache dictionary.
-    force_tf_compat_v1: (Optional) If `True`, use Tensorflow in compat.v1 mode.
-      Defaults to `True`.
+    force_tf_compat_v1: If `True`, use Tensorflow in compat.v1 mode.
 
   Returns:
     A set of dataset keys that are required for analysis.
@@ -523,7 +522,7 @@ def get_analysis_dataset_keys(preprocessing_fn,
 def get_analysis_cache_entry_keys(preprocessing_fn,
                                   specs,
                                   dataset_keys,
-                                  force_tf_compat_v1=True):
+                                  force_tf_compat_v1):
   """Computes the cache entry keys that would be useful for analysis.
 
   Args:
@@ -532,8 +531,7 @@ def get_analysis_cache_entry_keys(preprocessing_fn,
       True, this can also be feature specifications.
     dataset_keys: A set of strings which are dataset keys, they uniquely
       identify these datasets across analysis runs.
-    force_tf_compat_v1: (Optional) If `True`, use Tensorflow in compat.v1 mode.
-      Defaults to `True`.
+    force_tf_compat_v1: If `True`, use Tensorflow in compat.v1 mode.
 
   Returns:
     A set of cache entry keys which would be useful for analysis.
