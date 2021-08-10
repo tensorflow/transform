@@ -993,6 +993,10 @@ class _AnalyzeDatasetCommon(beam.PTransform):
       input_tensor_adapter_config = input_metadata
 
     specs = TensorAdapter(input_tensor_adapter_config).OriginalTypeSpecs()
+
+    if not specs:
+      raise ValueError('The input metadata is empty.')
+
     base_temp_dir = Context.create_base_temp_dir()
     # TODO(b/149997088): Do not pass base_temp_dir here as this graph does not
     # need to be serialized to SavedModel.

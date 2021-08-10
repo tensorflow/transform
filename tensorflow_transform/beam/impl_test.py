@@ -3462,6 +3462,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_outputs)
 
+  def testEmptySchema(self):
+    with self.assertRaisesRegexp(  # pylint: disable=g-error-prone-assert-raises
+        ValueError, 'The input metadata is empty.'):
+      self.assertAnalyzeAndTransformResults(
+          input_data=[{'x': x} for x in range(5)],
+          input_metadata=tft_unit.metadata_from_feature_spec({}),
+          preprocessing_fn=lambda inputs: inputs)  # pyformat: disable
+
   def testLoadKerasModelInPreprocessingFn(self):
 
     if self._UseTFCompatV1():

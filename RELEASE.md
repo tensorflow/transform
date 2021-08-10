@@ -6,8 +6,11 @@
 
 ## Bug Fixes and Other Changes
 
-*  `tft.quantiles` now ignores NaNs in input values and weights. Previously,
-   NaNs would lead to incorrect boundaries calculation.
+*   `tft.quantiles` now ignores NaNs in input values and weights. Previously,
+    NaNs would lead to incorrect boundaries calculation.
+*   Improved error message for `tft_beam.AnalyzeDataset`,
+    `tft_beam.AnalyzeAndTransformDataset` and `tft_beam.AnalyzeDatasetWithCache`
+    when the input metadata is empty.
 
 ## Breaking Changes
 
