@@ -13,6 +13,7 @@
 # limitations under the License.
 """Utility functions to build input_fns for use with tf.Learn."""
 
+import importlib
 import os
 import re
 
@@ -156,10 +157,18 @@ _PARTITIONED_VARIABLE_NAME_RE = re.compile(r'^(.*)/part_(\d*)$')
 
 # TODO(b/159982957): Replace this with a mechinism that registers any custom op.
 def _maybe_register_addon_ops():
-  try:
-    import tensorflow_text as _  # pylint: disable=g-import-not-at-top
-  except (ImportError, tf.errors.NotFoundError):
-    pass
+  """Optionally import libraries to register additional TF ops."""
+
+  def _try_import(name):
+    try:
+      importlib.import_module(name)
+    except (ImportError, tf.errors.NotFoundError):
+      tf.compat.v1.logging.info('{} is not available.'.format(name))
+      pass
+
+  _try_import('tensorflow_text')
+  _try_import('tensorflow_decision_forests')
+  _try_import('struct2tensor')
 
 
 def _partially_apply_saved_transform_impl(saved_model_dir,

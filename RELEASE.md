@@ -11,6 +11,8 @@
 *   Improved error message for `tft_beam.AnalyzeDataset`,
     `tft_beam.AnalyzeAndTransformDataset` and `tft_beam.AnalyzeDatasetWithCache`
     when the input metadata is empty.
+*   Added best-effort TensorFlow Decision Forests (TF-DF) and Struct2Tensor op
+    registration when loading transformation graphs.
 
 ## Breaking Changes
 
