@@ -355,7 +355,9 @@ def reduce_batch_count(x, reduce_instance_dims):
 
   Returns:
     The element count of `x`. The result is either a scalar if
-    reduce_instance_dims is True, otherwise a `Tensor` of the same shape as `x`.
+    reduce_instance_dims is True, otherwise a `Tensor` having shape of `x`
+    without the first (batch) dimension. NaNs and infinite input values are
+    ignored.
   """
   if isinstance(x, tf.SparseTensor):
     if reduce_instance_dims:
@@ -363,7 +365,7 @@ def reduce_batch_count(x, reduce_instance_dims):
     else:
       ones_like = tf.SparseTensor(
           indices=x.indices,
-          values=tf.ones_like(x.values, tf.int64),
+          values=tf.cast(_is_finite(x.values), tf.int64),
           dense_shape=x.dense_shape)
       # TODO(b/178189903): Remove this once we no longer lose static shape
       # information.
@@ -372,6 +374,12 @@ def reduce_batch_count(x, reduce_instance_dims):
       if hasattr(x, '_dense_shape_default'):
         ones_like._dense_shape_default = x._dense_shape_default  # pylint: disable=protected-access
       return _sparse_reduce_batch_keep_shape(tf.sparse.reduce_sum, ones_like)
+
+  # Exlude NaNs and infinite elements from size calculation. They can only occur
+  # in tensors with floating data types.
+  if x.dtype.is_floating:
+    finite_mask = tf.cast(tf.math.is_finite(x), tf.int64)
+    return tf.reduce_sum(finite_mask, axis=None if reduce_instance_dims else 0)
 
   if reduce_instance_dims:
     return tf.size(input=x)
@@ -650,6 +658,13 @@ def apply_per_key_vocabulary(
   return numbers if not target_ndims else _align_dims(numbers, target_ndims + 1)
 
 
+def _is_finite(x: tf.Tensor) -> tf.Tensor:
+  """Extension of `tf.math.is_finite` that works with all dtypes."""
+  if x.dtype.is_floating:
+    return tf.math.is_finite(x)
+  return tf.fill(tf.shape(x), True)
+
+
 def reduce_batch_count_mean_and_var(
     x: common_types.TensorType,
     reduce_instance_dims: bool) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
@@ -663,7 +678,8 @@ def reduce_batch_count_mean_and_var(
         as the input.
 
   Returns:
-    A 3-tuple containing the `Tensor`s (count, mean, var).
+    A 3-tuple containing the `Tensor`s (count, mean, var). NaNs and infinite
+    input values are ignored.
   """
   if isinstance(x, tf.SparseTensor) and reduce_instance_dims:
     x = x.values
@@ -674,26 +690,32 @@ def reduce_batch_count_mean_and_var(
 
   if isinstance(x, tf.SparseTensor):
     # This means reduce_instance_dims=False.
-    x_sum = _sparse_reduce_batch_keep_shape(tf.sparse.reduce_sum, x)
-    x_mean = tf.where(tf.math.greater(x_count, 0),
-                      x_sum / x_count,
-                      tf.zeros_like(x_count, dtype=x.dtype))
-    x_minus_mean = tf.sparse.add(x, -tf.broadcast_to(x_mean, tf.shape(x)))
+
+    finite_x = tf.SparseTensor(
+        indices=x.indices,
+        values=tf.where(
+            _is_finite(x.values), x.values, tf.zeros_like(x.values)),
+        dense_shape=x.dense_shape)
+    x_sum = _sparse_reduce_batch_keep_shape(tf.sparse.reduce_sum, finite_x)
+    x_mean = tf.math.divide_no_nan(x_sum, x_count)
+    x_minus_mean = tf.sparse.add(finite_x,
+                                 -tf.broadcast_to(x_mean, tf.shape(x)))
     x_minus_mean_sparse = tf.SparseTensor(x.indices,
                                           tf.gather_nd(x_minus_mean, x.indices),
                                           x.dense_shape)
     sum_of_squares = tf.math.reduce_sum(
         tf.square(tf.sparse.to_dense(x_minus_mean_sparse)), axis=0)
-
-    x_variance = tf.where(
-        tf.math.greater(x_count, 0), sum_of_squares / x_count,
-        tf.zeros_like(x_count, dtype=x.dtype))
+    x_variance = tf.math.divide_no_nan(sum_of_squares, x_count)
 
   else:
-    x_mean = tf.reduce_sum(x, axis=axis) / x_count
-    x_minus_mean = x - x_mean
-    x_variance = tf.reduce_sum(
-        input_tensor=tf.square(x_minus_mean), axis=axis) / x_count
+    zeros_like_x = tf.zeros_like(x)
+    x_is_finite = _is_finite(x)
+    x_sum = tf.reduce_sum(tf.where(x_is_finite, x, zeros_like_x), axis=axis)
+    x_mean = tf.math.divide_no_nan(x_sum, x_count)
+    x_minus_mean = tf.where(x_is_finite, x - x_mean, zeros_like_x)
+    sum_of_squares = tf.reduce_sum(
+        input_tensor=tf.square(x_minus_mean), axis=axis)
+    x_variance = tf.math.divide_no_nan(sum_of_squares, x_count)
 
   return (x_count, x_mean, x_variance)
 
@@ -1087,7 +1109,8 @@ def reduce_batch_count_mean_and_var_per_key(x, key, reduce_instance_dims):
         as the input. Not supported for `SparseTensor`s.
 
   Returns:
-    A 4-tuple containing the `Tensor`s (key_vocab, count, mean, var).
+    A 4-tuple containing the `Tensor`s (key_vocab, count, mean, var). NaNs and
+    infinite input values are ignored.
   """
 
   if isinstance(x, tf.SparseTensor):
@@ -1097,28 +1120,33 @@ def reduce_batch_count_mean_and_var_per_key(x, key, reduce_instance_dims):
 
   x, key = _validate_and_get_dense_value_key_inputs(x, key)
 
-  unique = tf.unique_with_counts(key, out_idx=tf.int64)
-  x_count = unique.count
-  x_count = tf.cast(x_count, x.dtype)
-  if not reduce_instance_dims:
-    x_count = tf.tile(tf.expand_dims(x_count, axis=-1), [1, x.shape[1]])
+  unique = tf.unique(key, out_idx=tf.int64)
+  x_is_finite = _is_finite(x)
 
+  finite_x = tf.where(x_is_finite, x, tf.zeros_like(x))
   if reduce_instance_dims:
-    sums = tf.reduce_sum(x, axis=1) if x.get_shape().ndims != 1 else x
+    x_count = tf.cast(x_is_finite, x.dtype)
+    if x.get_shape().ndims != 1:
+      x_count = tf.reduce_sum(x_count, axis=1)
+    x_count = tf.math.unsorted_segment_sum(x_count, unique.idx,
+                                           tf.size(unique.y))
+    sums = tf.reduce_sum(
+        finite_x, axis=1) if x.get_shape().ndims != 1 else finite_x
     sums = tf.math.unsorted_segment_sum(sums, unique.idx, tf.size(unique.y))
   else:
-    sums = tf.math.unsorted_segment_sum(x, unique.idx, tf.size(unique.y))
+    sums = tf.math.unsorted_segment_sum(finite_x, unique.idx, tf.size(unique.y))
+    x_count = tf.math.unsorted_segment_sum(
+        tf.cast(x_is_finite, tf.float32), unique.idx, tf.size(unique.y))
 
-  means = tf.cast(sums, x.dtype) / x_count
-  sum_sqs = tf.math.unsorted_segment_sum(tf.square(x),
-                                         unique.idx,
-                                         tf.size(input=unique.y))
+  means = tf.math.divide_no_nan(tf.cast(sums, x.dtype), x_count)
+  sum_sqs = tf.math.unsorted_segment_sum(
+      tf.square(finite_x), unique.idx, tf.size(input=unique.y))
   if sum_sqs.get_shape().ndims != 1 and reduce_instance_dims:
     sum_sqs = tf.reduce_sum(sum_sqs, axis=1)
 
-  variances = sum_sqs / x_count - tf.square(means)
+  variances = tf.math.divide_no_nan(sum_sqs, x_count) - tf.square(means)
 
-  return unique.y, x_count, means, variances
+  return unique.y, tf.cast(x_count, tf.int64), means, variances
 
 
 # Code for serializing and example proto

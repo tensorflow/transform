@@ -536,45 +536,74 @@ class TFUtilsTest(test_case.TransformTestCase):
       ]
       self.assertAllEqual(output, expected_data)
 
-  @test_case.named_parameters(test_case.cross_with_function_handlers([
-      dict(
-          testcase_name='dense',
-          x=[[[1], [2]], [[1], [2]]],
-          expected_result=4,
-          reduce_instance_dims=True,
-          input_signature=[tf.TensorSpec(None, tf.int64)]),
-      dict(
-          testcase_name='dense_elementwise',
-          x=[[[1], [2]], [[1], [2]]],
-          expected_result=[[2], [2]],
-          reduce_instance_dims=False,
-          input_signature=[tf.TensorSpec(None, tf.int64)]),
-      dict(
-          testcase_name='sparse',
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0, 0], [0, 2, 0], [1, 1, 0], [1, 2, 0]],
-              values=[1., 2., 3., 4.],
-              dense_shape=[2, 4, 1]),
-          expected_result=4,
-          reduce_instance_dims=True,
-          input_signature=[
-              tf.SparseTensorSpec([None, 4, 1], tf.float32)
-          ]),
-      dict(
-          testcase_name='sparse_elementwise',
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0, 0], [0, 2, 0], [1, 1, 0], [1, 2, 0]],
-              values=[1., 2., 3., 4.],
-              dense_shape=[2, 4, 1]),
-          expected_result=[[1], [1], [2], [0]],
-          reduce_instance_dims=False,
-          input_signature=[
-              tf.SparseTensorSpec([None, 4, 1], tf.float32)
-          ]),
-  ]))
-  def test_reduce_batch_count(
-      self, x, input_signature, expected_result, reduce_instance_dims,
-      function_handler):
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers([
+          dict(
+              testcase_name='dense',
+              x=[[[1], [2]], [[1], [2]]],
+              expected_result=4,
+              reduce_instance_dims=True,
+              input_signature=[tf.TensorSpec(None, tf.int64)]),
+          dict(
+              testcase_name='dense_with_nans',
+              x=[[[1], [np.nan]], [[1], [2]]],
+              expected_result=3,
+              reduce_instance_dims=True,
+              input_signature=[tf.TensorSpec(None, tf.float32)]),
+          dict(
+              testcase_name='dense_elementwise',
+              x=[[[1], [2]], [[1], [2]]],
+              expected_result=[[2], [2]],
+              reduce_instance_dims=False,
+              input_signature=[tf.TensorSpec(None, tf.int64)]),
+          dict(
+              testcase_name='dense_elementwise_with_nans',
+              x=[[[1], [2]], [[1], [np.nan]]],
+              expected_result=[[2], [1]],
+              reduce_instance_dims=False,
+              input_signature=[tf.TensorSpec(None, tf.float32)]),
+          dict(
+              testcase_name='sparse',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0, 0], [0, 2, 0], [1, 1, 0], [1, 2, 0]],
+                  values=[1., 2., 3., 4.],
+                  dense_shape=[2, 4, 1]),
+              expected_result=4,
+              reduce_instance_dims=True,
+              input_signature=[tf.SparseTensorSpec([None, 4, 1], tf.float32)]),
+          dict(
+              testcase_name='sparse_with_nans',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0, 0], [0, 2, 0], [1, 1, 0], [1, 2, 0],
+                           [1, 3, 0]],
+                  values=[1., 2., 3., 4., np.nan],
+                  dense_shape=[2, 4, 1]),
+              expected_result=4,
+              reduce_instance_dims=True,
+              input_signature=[tf.SparseTensorSpec([None, 4, 1], tf.float32)]),
+          dict(
+              testcase_name='sparse_elementwise',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0, 0], [0, 2, 0], [1, 1, 0], [1, 2, 0]],
+                  values=[1., 2., 3., 4.],
+                  dense_shape=[2, 4, 1]),
+              expected_result=[[1], [1], [2], [0]],
+              reduce_instance_dims=False,
+              input_signature=[
+                  tf.SparseTensorSpec([None, 4, 1], tf.float32)]),
+          dict(
+              testcase_name='sparse_elementwise_with_nans',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0, 0], [0, 2, 0], [1, 1, 0], [1, 2, 0],
+                           [1, 3, 0]],
+                  values=[1., 2., 3., 4., np.nan],
+                  dense_shape=[2, 4, 1]),
+              expected_result=[[1], [1], [2], [0]],
+              reduce_instance_dims=False,
+              input_signature=[tf.SparseTensorSpec([None, 4, 1], tf.float32)]),
+      ]))
+  def test_reduce_batch_count(self, x, input_signature, expected_result,
+                              reduce_instance_dims, function_handler):
 
     @function_handler(input_signature=input_signature)
     def _reduce_batch_count(x):
@@ -602,8 +631,24 @@ class TFUtilsTest(test_case.TransformTestCase):
               reduce_instance_dims=True,
               input_signature=[tf.TensorSpec(None, tf.float32)]),
           dict(
+              testcase_name='dense_with_nans',
+              x=[[[1], [2]], [[3], [np.nan]], [[np.nan], [4]]],
+              expected_count=4,
+              expected_mean=2.5,
+              expected_var=1.25,
+              reduce_instance_dims=True,
+              input_signature=[tf.TensorSpec(None, tf.float32)]),
+          dict(
               testcase_name='dense_elementwise',
               x=[[[1], [2]], [[3], [4]]],
+              expected_count=[[2.], [2.]],
+              expected_mean=[[2.], [3.]],
+              expected_var=[[1.], [1.]],
+              reduce_instance_dims=False,
+              input_signature=[tf.TensorSpec(None, tf.float32)]),
+          dict(
+              testcase_name='dense_elementwise_with_nans',
+              x=[[[1], [2]], [[3], [np.nan]], [[np.nan], [4]]],
               expected_count=[[2.], [2.]],
               expected_mean=[[2.], [3.]],
               expected_var=[[1.], [1.]],
@@ -621,10 +666,32 @@ class TFUtilsTest(test_case.TransformTestCase):
               reduce_instance_dims=True,
               input_signature=[tf.SparseTensorSpec([None, 4], tf.float32)]),
           dict(
+              testcase_name='sparse_with_nans',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 2], [1, 1], [1, 2], [1, 3]],
+                  values=[1., 2., 3., 4., np.nan],
+                  dense_shape=[2, 4]),
+              expected_count=4,
+              expected_mean=2.5,
+              expected_var=1.25,
+              reduce_instance_dims=True,
+              input_signature=[tf.SparseTensorSpec([None, 4], tf.float32)]),
+          dict(
               testcase_name='sparse_elementwise',
               x=tf.compat.v1.SparseTensorValue(
                   indices=[[0, 0], [0, 3], [1, 1], [1, 3]],
                   values=[1., 2., 3., 4.],
+                  dense_shape=[2, 5]),
+              expected_count=[1.0, 1.0, 0.0, 2.0, 0.0],
+              expected_mean=[1.0, 3.0, 0.0, 3.0, 0.0],
+              expected_var=[0.0, 0.0, 0.0, 1.0, 0.0],
+              reduce_instance_dims=False,
+              input_signature=[tf.SparseTensorSpec([None, 5], tf.float32)]),
+          dict(
+              testcase_name='sparse_elementwise_with_nans',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 3], [1, 1], [1, 2], [1, 3]],
+                  values=[1., 2., 3., np.nan, 4.],
                   dense_shape=[2, 5]),
               expected_count=[1.0, 1.0, 0.0, 2.0, 0.0],
               expected_mean=[1.0, 3.0, 0.0, 3.0, 0.0],
@@ -813,61 +880,115 @@ class TFUtilsTest(test_case.TransformTestCase):
       self.assertEqual(moments[i].dtype, expected_moments[i].dtype)
       self.assertAllClose(moments[i], expected_moments[i], rtol=1e-8)
 
-  @test_case.named_parameters(test_case.cross_with_function_handlers([
-      dict(
-          testcase_name='dense',
-          x=[[1], [2], [3], [4], [4]],
-          key=['a', 'a', 'a', 'b', 'a'],
-          expected_key_vocab=[b'a', b'b'],
-          expected_count=[4., 1.],
-          expected_mean=[2.5, 4.],
-          expected_var=[1.25, 0.],
-          reduce_instance_dims=True,
-          input_signature=[tf.TensorSpec([None, 1], tf.float32),
-                           tf.TensorSpec([None], tf.string)]),
-      dict(
-          testcase_name='dense_elementwise',
-          x=[[1, 2], [3, 4], [1, 2]],
-          key=['a', 'a', 'b'],
-          expected_key_vocab=[b'a', b'b'],
-          expected_count=[[2., 2.], [1., 1.]],
-          expected_mean=[[2., 3.], [1., 2.]],
-          expected_var=[[1., 1.], [0., 0.]],
-          reduce_instance_dims=False,
-          input_signature=[tf.TensorSpec([None, 2], tf.float32),
-                           tf.TensorSpec([None], tf.string)]),
-      dict(
-          testcase_name='sparse',
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 3]],
-              values=[1., 2., 3., 4., 4.],
-              dense_shape=[3, 4]),
-          key=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 3]],
-              values=['a', 'a', 'a', 'a', 'b'],
-              dense_shape=[3, 4]),
-          expected_key_vocab=[b'a', b'b'],
-          expected_count=[4, 1],
-          expected_mean=[2.5, 4],
-          expected_var=[1.25, 0],
-          reduce_instance_dims=True,
-          input_signature=[tf.SparseTensorSpec([None, 4], tf.float32),
-                           tf.SparseTensorSpec([None, 4], tf.string)]),
-      dict(
-          testcase_name='sparse_x_dense_key',
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 3]],
-              values=[1., 2., 3., 4., 4.],
-              dense_shape=[3, 4]),
-          key=['a', 'a', 'b'],
-          expected_key_vocab=[b'a', b'b'],
-          expected_count=[4, 1],
-          expected_mean=[2.5, 4],
-          expected_var=[1.25, 0],
-          reduce_instance_dims=True,
-          input_signature=[tf.SparseTensorSpec([None, 4], tf.float32),
-                           tf.TensorSpec([None], tf.string)]),
-  ]))
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers([
+          dict(
+              testcase_name='dense',
+              x=[[1], [2], [3], [4], [4]],
+              key=['a', 'a', 'a', 'b', 'a'],
+              expected_key_vocab=[b'a', b'b'],
+              expected_count=[4., 1.],
+              expected_mean=[2.5, 4.],
+              expected_var=[1.25, 0.],
+              reduce_instance_dims=True,
+              input_signature=[
+                  tf.TensorSpec([None, 1], tf.float32),
+                  tf.TensorSpec([None], tf.string)
+              ]),
+          dict(
+              testcase_name='dense_with_nans',
+              x=[[1], [2], [3], [4], [4], [np.nan], [np.nan]],
+              key=['a', 'a', 'a', 'b', 'a', 'a', 'b'],
+              expected_key_vocab=[b'a', b'b'],
+              expected_count=[4., 1.],
+              expected_mean=[2.5, 4.],
+              expected_var=[1.25, 0.],
+              reduce_instance_dims=True,
+              input_signature=[
+                  tf.TensorSpec([None, 1], tf.float32),
+                  tf.TensorSpec([None], tf.string)
+              ]),
+          dict(
+              testcase_name='dense_elementwise',
+              x=[[1, 2], [3, 4], [1, 2]],
+              key=['a', 'a', 'b'],
+              expected_key_vocab=[b'a', b'b'],
+              expected_count=[[2., 2.], [1., 1.]],
+              expected_mean=[[2., 3.], [1., 2.]],
+              expected_var=[[1., 1.], [0., 0.]],
+              reduce_instance_dims=False,
+              input_signature=[
+                  tf.TensorSpec([None, 2], tf.float32),
+                  tf.TensorSpec([None], tf.string)
+              ]),
+          dict(
+              testcase_name='dense_elementwise_with_nans',
+              x=[[1, 2], [3, 4], [1, 2], [np.nan, np.nan]],
+              key=['a', 'a', 'b', 'a'],
+              expected_key_vocab=[b'a', b'b'],
+              expected_count=[[2., 2.], [1., 1.]],
+              expected_mean=[[2., 3.], [1., 2.]],
+              expected_var=[[1., 1.], [0., 0.]],
+              reduce_instance_dims=False,
+              input_signature=[
+                  tf.TensorSpec([None, 2], tf.float32),
+                  tf.TensorSpec([None], tf.string)
+              ]),
+          dict(
+              testcase_name='sparse',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 3]],
+                  values=[1., 2., 3., 4., 4.],
+                  dense_shape=[3, 4]),
+              key=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 3]],
+                  values=['a', 'a', 'a', 'a', 'b'],
+                  dense_shape=[3, 4]),
+              expected_key_vocab=[b'a', b'b'],
+              expected_count=[4, 1],
+              expected_mean=[2.5, 4],
+              expected_var=[1.25, 0],
+              reduce_instance_dims=True,
+              input_signature=[
+                  tf.SparseTensorSpec([None, 4], tf.float32),
+                  tf.SparseTensorSpec([None, 4], tf.string)
+              ]),
+          dict(
+              testcase_name='sparse_with_nans',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 2], [2, 3]],
+                  values=[1., 2., 3., 4., np.nan, 4.],
+                  dense_shape=[3, 4]),
+              key=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 2], [2, 3]],
+                  values=['a', 'a', 'a', 'a', 'a', 'b'],
+                  dense_shape=[3, 4]),
+              expected_key_vocab=[b'a', b'b'],
+              expected_count=[4, 1],
+              expected_mean=[2.5, 4],
+              expected_var=[1.25, 0],
+              reduce_instance_dims=True,
+              input_signature=[
+                  tf.SparseTensorSpec([None, 4], tf.float32),
+                  tf.SparseTensorSpec([None, 4], tf.string)
+              ]),
+          dict(
+              testcase_name='sparse_x_dense_key',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 2], [1, 1], [1, 2], [2, 3]],
+                  values=[1., 2., 3., 4., 4.],
+                  dense_shape=[3, 4]),
+              key=['a', 'a', 'b'],
+              expected_key_vocab=[b'a', b'b'],
+              expected_count=[4, 1],
+              expected_mean=[2.5, 4],
+              expected_var=[1.25, 0],
+              reduce_instance_dims=True,
+              input_signature=[
+                  tf.SparseTensorSpec([None, 4], tf.float32),
+                  tf.TensorSpec([None], tf.string)
+              ]),
+      ]))
   def test_reduce_batch_count_mean_and_var_per_key(
       self, x, key, input_signature, expected_key_vocab, expected_count,
       expected_mean, expected_var, reduce_instance_dims, function_handler):

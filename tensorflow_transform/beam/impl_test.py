@@ -82,6 +82,19 @@ _SCALE_TO_Z_SCORE_TEST_CASES = [
          elementwise=True),
 ]
 
+_SCALE_TO_Z_SCORE_NAN_TEST_CASES = [
+    dict(
+        testcase_name='with_nans',
+        input_data=np.array([[1], [np.nan], [np.nan], [2]], np.float32),
+        output_data=np.array([[-1.0], [np.nan], [np.nan], [1.0]], np.float32),
+        elementwise=False),
+    dict(
+        testcase_name='with_nans_elementwise',
+        input_data=np.array([[1, np.nan], [np.nan, 2]], np.float32),
+        output_data=np.array([[0, np.nan], [np.nan, 0]], np.float32),
+        elementwise=True),
+]
+
 
 def sum_output_dtype(input_dtype):
   """Returns the output dtype for tft.sum."""
@@ -1296,8 +1309,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_metadata,
         test_data=test_data)
 
-  @tft_unit.named_parameters(*_SCALE_TO_Z_SCORE_TEST_CASES)
+  @tft_unit.named_parameters(*(_SCALE_TO_Z_SCORE_TEST_CASES +
+                               _SCALE_TO_Z_SCORE_NAN_TEST_CASES))
   def testScaleToZScore(self, input_data, output_data, elementwise):
+
     def preprocessing_fn(inputs):
       x = inputs['x']
       x_cast = tf.cast(x, tf.as_dtype(input_data.dtype))
@@ -1380,6 +1395,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
                            float('nan')]  # [(2 - 3) / 5, (4 - 3) / 5]
           }
       ]
+    if input_dtype.is_floating:
+      input_data.append({'idx': [0, 1], 'val': [np.nan, np.nan]})
+      expected_data.append({
+          'x_scaled': [float('nan'),
+                       float('nan'),
+                       float('nan'),
+                       float('nan')]
+      })
     expected_metadata = tft_unit.metadata_from_feature_spec(
         {'x_scaled': tf.io.FixedLenFeature([4], tf.float32)})
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
@@ -1486,37 +1509,50 @@ class BeamImplTest(tft_unit.TransformTestCase):
       }
 
     np_dtype = np.float32
-    input_data = [{
-        'x': np.array([-4], dtype=np_dtype),
-        'y': np.array([0], dtype=np_dtype),
-        's': 3,
-        'key': 'a',
-    }, {
-        'x': np.array([10], dtype=np_dtype),
-        'y': np.array([0], dtype=np_dtype),
-        's': -3,
-        'key': 'a',
-    }, {
-        'x': np.array([1], dtype=np_dtype),
-        'y': np.array([0], dtype=np_dtype),
-        's': 3,
-        'key': 'b',
-    }, {
-        'x': np.array([2], dtype=np_dtype),
-        'y': np.array([0], dtype=np_dtype),
-        's': 3,
-        'key': 'a',
-    }, {
-        'x': np.array([4], dtype=np_dtype),
-        'y': np.array([0], dtype=np_dtype),
-        's': -3,
-        'key': 'a',
-    }, {
-        'x': np.array([-1], dtype=np_dtype),
-        'y': np.array([0], dtype=np_dtype),
-        's': -3,
-        'key': 'b',
-    }]
+    input_data = [
+        {
+            'x': np.array([-4], dtype=np_dtype),
+            'y': np.array([0], dtype=np_dtype),
+            's': 3,
+            'key': 'a',
+        },
+        {
+            'x': np.array([10], dtype=np_dtype),
+            'y': np.array([0], dtype=np_dtype),
+            's': -3,
+            'key': 'a',
+        },
+        {
+            'x': np.array([1], dtype=np_dtype),
+            'y': np.array([0], dtype=np_dtype),
+            's': 3,
+            'key': 'b',
+        },
+        {
+            'x': np.array([2], dtype=np_dtype),
+            'y': np.array([0], dtype=np_dtype),
+            's': 3,
+            'key': 'a',
+        },
+        {
+            'x': np.array([4], dtype=np_dtype),
+            'y': np.array([0], dtype=np_dtype),
+            's': -3,
+            'key': 'a',
+        },
+        {
+            'x': np.array([-1], dtype=np_dtype),
+            'y': np.array([0], dtype=np_dtype),
+            's': -3,
+            'key': 'b',
+        },
+        {
+            'x': np.array([np.nan], dtype=np_dtype),
+            'y': np.array([np.nan], dtype=np_dtype),
+            's': np.nan,
+            'key': 'b',
+        },
+    ]
     # 'a':
     # Mean(x) = 3, Mean(y) = 0
     # Var(x) = (-7^2 + -1^2 + 7^2 + 1^2) / 4 = 25, Var(y) = 0
@@ -1555,7 +1591,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
             'x_scaled': [-1.],  # [(1 - 0) / 1, (-1 - 0) / 1]
             'y_scaled': [0.],
             's_scaled': -1.,
-        }
+        },
+        {
+            'x_scaled': [np.nan],
+            'y_scaled': [np.nan],
+            's_scaled': np.nan,
+        },
     ]
 
     input_metadata = tft_unit.metadata_from_feature_spec({
@@ -1638,6 +1679,19 @@ class BeamImplTest(tft_unit.TransformTestCase):
                          float('nan')]  # [(-1 - 0) / 1, (4 - 3) / 5]
         }
     ]
+    if input_dtype.is_floating:
+      input_data.append({
+          'idx': [0, 1],
+          'val': [np.nan, np.nan],
+          'key_idx': [0, 1],
+          'key': ['a', 'b']
+      })
+      expected_data.append({
+          'x_scaled': [float('nan'),
+                       float('nan'),
+                       float('nan'),
+                       float('nan')]
+      })
     expected_metadata = tft_unit.metadata_from_feature_spec(
         {'x_scaled': tf.io.FixedLenFeature([4], tf.float32)})
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
@@ -1662,7 +1716,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x': tf.io.FixedLenFeature([1], tf.float32)})
     test_data = [{'x': [100]}, {'x': [1]}, {'x': [12]}]
     expected_data = [{'x_scaled': [v], 'x_scaled_elementwise': [v] * multiple}
-                     for v in [100, 1, 12]]
+                     for v in [100., 1., 12.]]
     expected_metadata = tft_unit.metadata_from_feature_spec({
         'x_scaled': tf.io.FixedLenFeature([1], tf.float32),
         'x_scaled_elementwise': tf.io.FixedLenFeature([multiple], tf.float32)
@@ -1685,13 +1739,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'var': var
       }
 
-    # NOTE: We force 10 batches: data has 100 elements and we request a batch
+    # NOTE: We force 11 batches: data has 110 elements and we request a batch
     # size of 10.
-    input_data = [{'x': [x]}
-                  for x in range(1, 101)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature([1], tf.int64)
-    })
+    input_data = [{'x': [x if x < 101 else np.nan]} for x in range(1, 111)]
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'x': tf.io.FixedLenFeature([1], tf.float32)})
     expected_outputs = {
         'mean': np.float32(50.5),
         'var': np.float32(833.25)
@@ -1715,12 +1767,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'var': tf.round(100 * var) / 100.0
       }
 
-    # NOTE: We force 10 batches: data has 100 elements and we request a batch
+    # NOTE: We force 12 batches: data has 120 elements and we request a batch
     # size of 10.
     input_data = [{'x': [x], 'key': 'a' if x < 50 else 'b'}
-                  for x in range(1, 101)]
+                  for x in range(1, 101)] + [{'x': [np.nan], 'key': 'a'}] * 20
     input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature([1], tf.int64),
+        'x': tf.io.FixedLenFeature([1], tf.float32),
         'key': tf.io.FixedLenFeature([], tf.string)
     })
     expected_outputs = {

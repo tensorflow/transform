@@ -781,6 +781,7 @@ def mean(x: common_types.TensorType,
   Returns:
     A `Tensor` containing the mean. If `x` is floating point, the mean will have
     the same type as `x`. If `x` is integral, the output is cast to float32.
+    NaNs and infinite input values are ignored.
 
   Raises:
     TypeError: If the type of `x` is not supported.
@@ -811,7 +812,7 @@ def var(x: common_types.TensorType,
   Returns:
     A `Tensor` containing the variance. If `x` is floating point, the variance
     will have the same type as `x`. If `x` is integral, the output is cast to
-    float32.
+    float32. NaNs and infinite input values are ignored.
 
   Raises:
     TypeError: If the type of `x` is not supported.
@@ -1035,6 +1036,7 @@ def _mean_and_var_per_key(
         second two have same type as `x` (if key_vocabulary_filename is None).
     (B) The filename where the key-value mapping is stored (if
         key_vocabulary_filename is not None).
+    NaNs and infinite input values are ignored.
   """
   if output_dtype is None:
     output_dtype = _FLOAT_OUTPUT_DTYPE_MAP.get(x.dtype)

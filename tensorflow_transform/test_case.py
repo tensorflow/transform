@@ -323,8 +323,9 @@ class TransformTestCase(parameterized.TestCase, tf.test.TestCase):
         x.tolist() if isinstance(x, np.ndarray) else x for x in maybe_arrays]
 
   def _SortedDicts(self, list_of_dicts):
-    # Sorts dicts by their unordered (key, value) pairs.
-    return sorted(list_of_dicts, key=lambda d: sorted(d.items()))
+    # Sorts dicts by their unordered (key, value) pairs. We use string ordering
+    # to ensure consistent comparison of NaNs with numbers.
+    return sorted(list_of_dicts, key=lambda d: str(sorted(d.items())))
 
   def _SortedData(self, list_of_dicts_of_arrays):
     list_of_values = [

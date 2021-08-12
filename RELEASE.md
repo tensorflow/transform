@@ -6,8 +6,8 @@
 
 ## Bug Fixes and Other Changes
 
-*   `tft.quantiles` now ignores NaNs in input values and weights. Previously,
-    NaNs would lead to incorrect boundaries calculation.
+*   `tft.quantiles`, `tft.mean` and `tft.var` now ignore NaNs and infinite input
+    values. Previously, these would lead to incorrect output calculation.
 *   Improved error message for `tft_beam.AnalyzeDataset`,
     `tft_beam.AnalyzeAndTransformDataset` and `tft_beam.AnalyzeDatasetWithCache`
     when the input metadata is empty.
@@ -15,6 +15,8 @@
     registration when loading transformation graphs.
 
 ## Breaking Changes
+
+*   Existing `tft.mean` and `tft.var` caches are automatically invalidated.
 
 ## Deprecations
 
