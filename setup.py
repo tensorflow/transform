@@ -44,15 +44,12 @@ def _make_required_install_packages():
   return [
       'absl-py>=0.9,<0.13',
       'apache-beam[gcp]>=2.31,<3',
-      # TODO(b/193746372): Remove bigquery dependency after TF 2.6 becomes
-      # available.
-      'google-cloud-bigquery>=1.28.0,<2.21',
       'numpy>=1.16,<1.20',
       'protobuf>=3.13,<4',
       'pyarrow>=1,<3',
       'pydot>=1.2,<2',
       'tensorflow' + select_constraint(
-          '>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,<2.6'),
+          '>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,<2.7'),
       'tensorflow-metadata' + select_constraint(
           default='>=1.2.0,<1.3.0',
           nightly='>=1.3.0.dev',

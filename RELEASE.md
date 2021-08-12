@@ -13,6 +13,8 @@
     when the input metadata is empty.
 *   Added best-effort TensorFlow Decision Forests (TF-DF) and Struct2Tensor op
     registration when loading transformation graphs.
+*   Depends on
+    `tensorflow>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,<2.7`.
 
 ## Breaking Changes
 
