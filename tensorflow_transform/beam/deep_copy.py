@@ -175,11 +175,15 @@ def _clone_items(pipeline, to_clone):
       pipeline.applied_labels.add(new_label)
 
       # Update inputs.
-      new_inputs = []
-      for old_input in item.inputs:
-        new_input = pcollection_replacements.get(old_input, old_input)
-        new_inputs.append(new_input)
-      new_inputs = tuple(new_inputs)
+      if hasattr(item, 'main_inputs'):
+        new_inputs = {
+            tag: pcollection_replacements.get(old_input, old_input)
+            for tag, old_input in item.main_inputs.items()
+        }
+      else:
+        new_inputs = tuple(
+            pcollection_replacements.get(old_input, old_input)
+            for old_input in item.inputs)
 
       # Create the copy. Note that in the copy, copied.outputs will start out
       # empty. Any outputs that are used will be repopulated in the PCollection
