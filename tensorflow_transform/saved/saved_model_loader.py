@@ -17,10 +17,6 @@ from tensorflow_transform.saved import constants
 from tensorflow.python.saved_model import loader_impl  # pylint: disable=g-direct-tensorflow-import
 
 
-# This file is forked and refactored from saved_model/loader_impl.py
-# TODO(b/123242568): refactor, moving most of this back into saved_model.
-
-
 def parse_saved_model(saved_model_dir):
   return loader_impl.parse_saved_model(saved_model_dir)
 
