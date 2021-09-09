@@ -47,6 +47,7 @@ from tfx_bsl import sketches
 # `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
 # resolved.
 from tfx_bsl.types import tfx_namedtuple
+from typing_extensions import Literal
 
 from google.protobuf import descriptor_pb2
 
@@ -73,7 +74,7 @@ builtin_max = max
 builtin_min = min
 
 
-DEFAULT_VOCABULARY_FILE_FORMAT = 'text'
+DEFAULT_VOCABULARY_FILE_FORMAT: Literal['text'] = 'text'
 ALLOWED_VOCABULARY_FILE_FORMATS = ('text', 'tfrecord_gzip')
 
 VOCAB_FILENAME_PREFIX = 'vocab_'
@@ -931,7 +932,7 @@ def tukey_scale(x: common_types.TensorType,
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def tukey_h_params(x: common_types.TensorType,
-                   reduce_instance_dims: Optional[bool] = True,
+                   reduce_instance_dims: bool = True,
                    output_dtype: Optional[tf.DType] = None,
                    name: Optional[str] = None) -> Tuple[tf.Tensor, tf.Tensor]:
   """Computes the h parameters of the values of a `Tensor` over the dataset.
@@ -968,7 +969,7 @@ def tukey_h_params(x: common_types.TensorType,
 
 def _tukey_parameters(
     x: common_types.TensorType,
-    reduce_instance_dims: Optional[bool] = True,
+    reduce_instance_dims: bool = True,
     output_dtype: Optional[tf.DType] = None
 ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
   """Efficient computation of L-moments."""
@@ -1110,8 +1111,8 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
   def __init__(self,
                output_numpy_dtype,
                output_shape: Optional[Collection[Optional[int]]] = None,
-               compute_variance: Optional[bool] = True,
-               compute_weighted: Optional[bool] = False):
+               compute_variance: bool = True,
+               compute_weighted: bool = False):
     """Init method for WeightedMeanAndVarCombiner.
 
     Args:
@@ -1605,12 +1606,10 @@ class _VocabOrderingType:
   MUTUAL_INFORMATION = 5
 
 
-def _register_vocab(
-    sanitized_filename: str,
-    vocabulary_key: Optional[str] = None,
-    file_format: Optional[
-        common_types.VocabularyFileFormatType] = DEFAULT_VOCABULARY_FILE_FORMAT
-):
+def _register_vocab(sanitized_filename: str,
+                    vocabulary_key: Optional[str] = None,
+                    file_format: common_types
+                    .VocabularyFileFormatType = DEFAULT_VOCABULARY_FILE_FORMAT):
   """Register the specificed vocab within the asset map.
 
   Args:
@@ -1640,14 +1639,14 @@ def vocabulary(
     store_frequency: Optional[bool] = False,
     weights: Optional[tf.Tensor] = None,
     labels: Optional[tf.Tensor] = None,
-    use_adjusted_mutual_info: Optional[bool] = False,
+    use_adjusted_mutual_info: bool = False,
     min_diff_from_avg: Optional[int] = None,
     coverage_top_k: Optional[int] = None,
     coverage_frequency_threshold: Optional[int] = None,
     key_fn: Optional[Callable[[Any], Any]] = None,
     fingerprint_shuffle: Optional[bool] = False,
-    file_format: Optional[
-        common_types.VocabularyFileFormatType] = DEFAULT_VOCABULARY_FILE_FORMAT,
+    file_format: common_types
+    .VocabularyFileFormatType = DEFAULT_VOCABULARY_FILE_FORMAT,
     name: Optional[str] = None) -> common_types.TemporaryAnalyzerOutputType:
   r"""Computes the unique values of a `Tensor` over the whole dataset.
 
@@ -2112,7 +2111,7 @@ def quantiles(x: tf.Tensor,
               num_buckets: int,
               epsilon: float,
               weights: Optional[tf.Tensor] = None,
-              reduce_instance_dims: Optional[bool] = True,
+              reduce_instance_dims: bool = True,
               name: Optional[str] = None) -> tf.Tensor:
   """Computes the quantile boundaries of a `Tensor` over the whole dataset.
 

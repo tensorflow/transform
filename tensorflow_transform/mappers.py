@@ -178,8 +178,7 @@ def _scale_to_gaussian_internal(
 def sparse_tensor_to_dense_with_shape(
     x: tf.SparseTensor,
     shape: Union[tf.TensorShape, Iterable[int]],
-    default_value: Optional[Union[tf.Tensor, int, float,
-                                  str]] = 0) -> tf.Tensor:
+    default_value: Union[tf.Tensor, int, float, str] = 0) -> tf.Tensor:
   """Converts a `SparseTensor` into a dense tensor and sets its shape.
 
   Args:
@@ -916,22 +915,23 @@ def _count_docs_with_term(term_frequency: tf.SparseTensor) -> tf.Tensor:
 @common.log_api_use(common.MAPPER_COLLECTION)
 def compute_and_apply_vocabulary(
     x: common_types.ConsistentTensorType,
-    default_value: Optional[Any] = -1,
+    default_value: Any = -1,
     top_k: Optional[int] = None,
     frequency_threshold: Optional[int] = None,
-    num_oov_buckets: Optional[int] = 0,
+    num_oov_buckets: int = 0,
     vocab_filename: Optional[str] = None,
     weights: Optional[tf.Tensor] = None,
     labels: Optional[tf.Tensor] = None,
     use_adjusted_mutual_info: bool = False,
-    min_diff_from_avg: Optional[float] = 0.0,
+    min_diff_from_avg: float = 0.0,
     coverage_top_k: Optional[int] = None,
     coverage_frequency_threshold: Optional[int] = None,
     key_fn: Optional[Callable[[Any], Any]] = None,
     fingerprint_shuffle: bool = False,
-    file_format: Optional[common_types.VocabularyFileFormatType] = analyzers
+    file_format: common_types.VocabularyFileFormatType = analyzers
     .DEFAULT_VOCABULARY_FILE_FORMAT,
-    name: Optional[str] = None) -> common_types.ConsistentTensorType:  # TODO(b/64987151): Remove # pytype: disable=annotation-type-mismatch
+    name: Optional[str] = None
+) -> common_types.ConsistentTensorType:  # TODO(b/64987151, b/197716941): Remove # pytype: disable=annotation-type-mismatch
   r"""Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
   In case one of the tokens contains the '\n' or '\r' characters or is empty it
@@ -1042,13 +1042,14 @@ def compute_and_apply_vocabulary(
 def apply_vocabulary(
     x: common_types.ConsistentTensorType,
     deferred_vocab_filename_tensor: common_types.TemporaryAnalyzerOutputType,
-    default_value: Optional[Any] = -1,
-    num_oov_buckets: Optional[int] = 0,
+    default_value: Any = -1,
+    num_oov_buckets: int = 0,
     lookup_fn: Optional[Callable[[common_types.TensorType, tf.Tensor],
                                  Tuple[tf.Tensor, tf.Tensor]]] = None,
-    file_format: Optional[common_types.VocabularyFileFormatType] = analyzers
+    file_format: common_types.VocabularyFileFormatType = analyzers
     .DEFAULT_VOCABULARY_FILE_FORMAT,
-    name: Optional[str] = None) -> common_types.ConsistentTensorType:  # TODO(b/64987151): Remove # pytype: disable=annotation-type-mismatch
+    name: Optional[str] = None
+) -> common_types.ConsistentTensorType:
   r"""Maps `x` to a vocabulary specified by the deferred tensor.
 
   This function also writes domain statistics about the vocabulary min and max

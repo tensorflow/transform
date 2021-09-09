@@ -245,7 +245,7 @@ class TFTransformOutput:
   def transform_raw_features(
       self,
       raw_features: Mapping[str, common_types.InputTensorType],
-      drop_unused_features: Optional[bool] = True  # LEGACY_VALUE=False
+      drop_unused_features: bool = True  # LEGACY_VALUE=False
   ) -> Dict[str, common_types.InputTensorType]:
     """Takes a dict of tensors representing raw features and transforms them.
 

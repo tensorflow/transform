@@ -467,22 +467,21 @@ def is_vocabulary_tfrecord_supported():
           tf.version.VERSION >= '2.4')
 
 
-def apply_bucketize_op(
-    x: tf.Tensor,
-    boundaries: tf.Tensor,
-    remove_leftmost_boundary: Optional[bool] = False) -> tf.Tensor:
+def apply_bucketize_op(x: tf.Tensor,
+                       boundaries: tf.Tensor,
+                       remove_leftmost_boundary: bool = False) -> tf.Tensor:
   """Applies the bucketize op to every value in x.
 
   x and boundaries are expected to be in final form (before turning to lists).
 
   Args:
     x: a `Tensor` of dtype float32 with no more than one dimension.
-    boundaries:  The bucket boundaries represented as a rank 2 `Tensor`
-        of tf.int32|64. Should be sorted.
+    boundaries:  The bucket boundaries represented as a rank 2 `Tensor` of
+      tf.int32|64. Should be sorted.
     remove_leftmost_boundary (Optional): Remove lowest boundary if True.
-        BoostedTreesBucketize op assigns according to upper bound, and therefore
-        the leftmost boundary is assumed to be the upper bound of the first
-        bucket. If a lower bound is present, the indexes will be off by 1.
+      BoostedTreesBucketize op assigns according to upper bound, and therefore
+      the leftmost boundary is assumed to be the upper bound of the first
+      bucket. If a lower bound is present, the indexes will be off by 1.
 
   Returns:
     A `Tensor` of dtype int64 with the same shape as `x`, and each element in
