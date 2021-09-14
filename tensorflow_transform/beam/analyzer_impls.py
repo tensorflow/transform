@@ -132,12 +132,8 @@ class _OrderElementsFn(beam.DoFn):
 
 
 @ptransform_fn
-@beam.typehints.with_input_types(KV[_VocabIndicatorType,
-                                    Union[_VocabTokenType, Tuple[List[float],
-                                                                 bytes]]])
-@beam.typehints.with_output_types(KV[_VocabIndicatorType,
-                                     Union[_VocabTokenType, Tuple[List[float],
-                                                                  bytes]]])
+@beam.typehints.with_input_types(KV[_VocabIndicatorType, _VocabTokenType])
+@beam.typehints.with_output_types(KV[_VocabIndicatorType, _VocabTokenType])
 def _ApplyThresholdsAndTopK(  # pylint: disable=invalid-name
     counts,
     frequency_threshold,
@@ -276,6 +272,11 @@ class _VocabularyAccumulateImpl(beam.PTransform):
       combine_transform = beam.CombinePerKey(sum)
     elif self._vocab_ordering_type == _VocabOrderingType.WEIGHTED_LABELS:
       flatten_map_fn = _flatten_value_and_labeled_weights_to_list_of_tuples
+      # TODO(b/199789764) This returns a type outside of
+      # _VocabAccumulatedIndicatorType union -
+      # it is only supported by the specific contrib transform (vocab_map).
+      # This probably should be moved to vocab_map itself in order to not make
+      # every transform to support this type.
       combine_transform = beam.CombinePerKey(sum_labeled_weights)
     else:
       flatten_map_fn = _flatten_value_to_list
@@ -331,6 +332,11 @@ class _VocabularyMergeImpl(beam.PTransform):
           self._min_diff_from_avg,
           compute_weighted=False)
     elif self._vocab_ordering_type == _VocabOrderingType.WEIGHTED_LABELS:
+      # TODO(b/199789764) This returns a type outside of
+      # _VocabAccumulatedIndicatorType union -
+      # it is only supported by the specific contrib transform (vocab_map).
+      # This probably should be moved to vocab_map itself in order to not make
+      # every transform to support this type.
       combine_transform = beam.CombinePerKey(sum_labeled_weights)
     else:
       combine_transform = beam.CombinePerKey(sum)
