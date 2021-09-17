@@ -28,15 +28,11 @@ from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 
 from tensorflow_metadata.proto.v0 import schema_pb2
 
-mock = tf.compat.v1.test.mock
-
 
 class VocabularyIntegrationTest(tft_unit.TransformTestCase):
 
   def setUp(self):
     tf.compat.v1.logging.info('Starting test case: %s', self._testMethodName)
-    self._context = beam_impl.Context(force_tf_compat_v1=True)
-    self._context.__enter__()
     super().setUp()
 
   def _VocabFormat(self):
@@ -1396,7 +1392,6 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
     self.assertEqual([b'hello', b'world'],
                      tft_output.vocabulary_by_name('key_1'))
 
-  @mock.patch.object(analyzer_impls, '_PRESORT_BATCH_SIZE', 2)
   def testVocabularyPreSort(self):
     input_data = [
         dict(x=b'foo'),
@@ -1424,13 +1419,17 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           store_frequency=True)
       return inputs
 
-    self.assertAnalyzeAndTransformResults(
-        input_data,
-        input_metadata,
-        preprocessing_fn,
-        input_data,
-        input_metadata,
-        expected_vocab_file_contents={'my_vocab': expected_vocab_file_contents})
+    with tf.compat.v1.test.mock.patch.object(analyzer_impls,
+                                             '_PRESORT_BATCH_SIZE', 2):
+      self.assertAnalyzeAndTransformResults(
+          input_data,
+          input_metadata,
+          preprocessing_fn,
+          input_data,
+          input_metadata,
+          expected_vocab_file_contents={
+              'my_vocab': expected_vocab_file_contents
+          })
 
   def testVocabularyCustomLookup(self):
     if self._VocabFormat() != 'text':
@@ -1483,6 +1482,33 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         expected_metadata,
         expected_vocab_file_contents={'my_vocab': expected_vocab_file_contents})
 
+  def testStringOpsWithAutomaticControlDependencies(self):
+
+    def preprocessing_fn(inputs):
+      month_str = tf.strings.substr(
+          inputs['date'], pos=5, len=3, unit='UTF8_CHAR')
+
+      # The table created here will add an automatic control dependency.
+      month_int = tft.compute_and_apply_vocabulary(month_str)
+      return {'month_int': month_int}
+
+    input_data = [{'date': '2021-May-31'}, {'date': '2021-Jun-01'}]
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'date': tf.io.FixedLenFeature([], tf.string)})
+    expected_data = [{'month_int': 0}, {'month_int': 1}]
+    max_index = len(expected_data) - 1
+    expected_metadata = tft_unit.metadata_from_feature_spec(
+        {
+            'month_int': tf.io.FixedLenFeature([], tf.int64),
+        }, {
+            'month_int':
+                schema_pb2.IntDomain(
+                    min=-1, max=max_index, is_categorical=True),
+        })
+
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
 
 if __name__ == '__main__':
   tft_unit.main()

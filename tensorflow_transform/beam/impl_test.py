@@ -111,16 +111,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def setUp(self):
     super().setUp()
     tf.compat.v1.logging.info('Starting test case: %s', self._testMethodName)
-    self._context = tft_beam.Context(
-        use_deep_copy_optimization=True, force_tf_compat_v1=True)
+    self._context = tft_beam.Context(use_deep_copy_optimization=True)
     self._context.__enter__()
 
   def tearDown(self):
     super().tearDown()
     self._context.__exit__()
-
-  def _UseTFCompatV1(self):
-    return True
 
   def _OutputRecordBatches(self):
     return False
@@ -144,20 +140,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         self.assertCountEqual(expected, actual)
 
     return _assert_fn
-
-  # This is an override that passes force_tf_compat_v1 and output_record_batches
-  # to the overridden method.
-  def assertAnalyzeAndTransformResults(self, *args, **kwargs):
-    kwargs['force_tf_compat_v1'] = self._UseTFCompatV1()
-    kwargs['output_record_batches'] = self._OutputRecordBatches()
-    return super().assertAnalyzeAndTransformResults(*args, **kwargs)
-
-  # This is an override that passes force_tf_compat_v1 and output_record_batches
-  # to the overridden method.
-  def assertAnalyzerOutputs(self, *args, **kwargs):
-    kwargs['force_tf_compat_v1'] = self._UseTFCompatV1()
-    kwargs['output_record_batches'] = self._OutputRecordBatches()
-    return super().assertAnalyzerOutputs(*args, **kwargs)
 
   def testApplySavedModelSingleInput(self):
     def save_model_with_single_input(instance, export_dir):
@@ -565,7 +547,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_metadata)
 
   def testPyFuncs(self):
-    if not self._UseTFCompatV1():
+    if not tft_unit.is_tf_api_version_1():
       raise unittest.SkipTest('Test disabled when TF 2.x behavior enabled.')
 
     def my_multiply(x, y):
@@ -636,7 +618,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testAssertsNoReturnPyFunc(self):
     # Asserts that apply_pyfunc raises an exception if the passed function does
     # not return anything.
-    if not self._UseTFCompatV1():
+    if not tft_unit.is_tf_api_version_1():
       raise unittest.SkipTest('Test disabled when TF 2.x behavior enabled.')
 
     self._SkipIfOutputRecordBatches()
@@ -3524,7 +3506,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testLoadKerasModelInPreprocessingFn(self):
 
-    if self._UseTFCompatV1():
+    if tft_unit.is_tf_api_version_1():
       raise unittest.SkipTest(
           '`tft.make_and_track_object` is only supported when TF2 behavior is '
           'enabled.')

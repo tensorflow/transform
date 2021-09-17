@@ -126,7 +126,7 @@ class TransformTestCase(test_case.TransformTestCase):
                             test_data=None,
                             desired_batch_size=None,
                             beam_pipeline=None,
-                            force_tf_compat_v1=True,
+                            force_tf_compat_v1=False,
                             output_record_batches=False):
     """Assert that input data and metadata is transformed as expected.
 
@@ -233,7 +233,7 @@ class TransformTestCase(test_case.TransformTestCase):
                                        desired_batch_size=None,
                                        beam_pipeline=None,
                                        temp_dir=None,
-                                       force_tf_compat_v1=True,
+                                       force_tf_compat_v1=False,
                                        output_record_batches=False):
     """Assert that input data and metadata is transformed as expected.
 
