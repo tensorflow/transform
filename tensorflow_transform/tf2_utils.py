@@ -163,7 +163,8 @@ def get_structured_inputs_from_func_graph(
   # the structure of the first arg, which for the preprocessing function is
   # the dictionary of features.
   input_signature = func_graph.structured_input_signature[0][0]
-  num_captures = len(func_graph.internal_captures)
+  num_captures = len(func_graph.internal_captures +
+                     func_graph.deferred_internal_captures)
   # `func_graph.inputs` contains placeholders that represent regular inputs
   # followed by captured inputs. We are only interested in the regular inputs.
   graph_inputs = copy.copy(func_graph.inputs)
