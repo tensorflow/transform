@@ -13,7 +13,7 @@
 # limitations under the License.
 """Utility functions to save and load from SavedModels in TF 2.x."""
 
-from typing import Dict, Iterable, Mapping, Union
+from typing import Any, Dict, Iterable, Mapping, Tuple, Union
 
 import tensorflow as tf
 from tensorflow_transform import annotators
@@ -21,6 +21,7 @@ from tensorflow_transform import common_types
 from tensorflow_transform import graph_tools
 from tensorflow_transform import tf2_utils
 from tensorflow_transform import tf_utils
+from tensorflow_transform.py_func import pyfunc_helper
 from tensorflow_transform.saved import constants
 from tensorflow_transform.saved import saved_model_loader
 from tensorflow_transform.saved import saved_transform_io
@@ -45,6 +46,80 @@ class _Loader(load.Loader):
     return result
 
 
+def _restore_from_v1_saved_model(
+    restored_function: function.ConcreteFunction, saved_model_dir: str
+) -> Tuple[function.ConcreteFunction, Mapping[str, Any],
+           Mapping[str, common_types.InputTensorType]]:
+  """Restores an exported TF1 compat SavedModel."""
+  saved_model = saved_model_loader.parse_saved_model(saved_model_dir)
+  meta_graph_def = saved_model_loader.choose_meta_graph_def_and_raise(
+      saved_model)
+  signature = meta_graph_def.signature_def[constants.TRANSFORM_SIGNATURE]
+  # Re-register pyfuncs, if any.
+  graph_def = pyfunc_helper.register_pyfuncs_from_saved_transform(
+      restored_function.graph, meta_graph_def, loaded_in_tf2=True)
+  if graph_def is None:
+    return (restored_function, signature.inputs,
+            restored_function.structured_outputs)
+
+  inputs = [t.name for t in restored_function.graph.inputs]
+  outputs = [t.name for t in restored_function.graph.outputs]
+  wrapped = wrap_function.function_from_graph_def(graph_def, inputs, outputs)
+  structured_outputs = (
+      tf.nest.pack_sequence_as(
+          restored_function.structured_outputs,
+          wrapped.outputs,
+          expand_composites=True))
+  wrapped = wrapped.prune(wrapped.inputs, structured_outputs)
+  return (wrapped, signature.inputs, wrapped.structured_outputs)
+
+
+def _as_operation(op_or_tensor: Union[tf.Operation, tf.Tensor]) -> tf.Operation:
+  if isinstance(op_or_tensor, tf.Tensor):
+    return op_or_tensor.op
+  return op_or_tensor
+
+
+def _get_component_tensors(
+    tensor: Union[tf.Tensor, composite_tensor.CompositeTensor]
+) -> Iterable[tf.Tensor]:
+  """Get all component tensors.
+
+  Args:
+    tensor: A `Tensor` or `CompositeTensor`.
+
+  Returns:
+    All `Tensor` components of `tensor`.
+
+  Raises:
+    ValueError if supplied `tensor` parameter is neither a `Tensor` nor a
+    `CompositeTensor`.
+  """
+  if isinstance(tensor, tf.Tensor):
+    return [tensor]
+  elif isinstance(tensor, composite_tensor.CompositeTensor):
+    return tf.nest.flatten(tensor, expand_composites=True)
+  else:
+    raise ValueError(
+        'Unsupported tensor. Arg `tensor` is neither a `Tensor` nor a '
+        f'`CompositeTensor`: {tensor}.')
+
+
+def _get_output_to_inputs_map(
+    output_signature: Mapping[str, common_types.InputTensorType]
+) -> Dict[str, Iterable[tf.Tensor]]:
+  """Gets all graph inputs that the tensors in output_signature depend on."""
+  result = {}
+  for name, output in output_signature.items():
+    components = _get_component_tensors(output)
+    sinks = [_as_operation(component) for component in components]
+    # Ignore control dependencies when walking the graph as we only care about
+    # which user defined inputs this output depends on.
+    result[name] = graph_tools.retrieve_sources(
+        sinks, ignore_control_dependencies=True)
+  return result
+
+
 class SavedModelLoader:
   """Handles a SavedModel exported using TF 1.x APIs in TF 2.x."""
 
@@ -57,20 +132,19 @@ class SavedModelLoader:
         defined in `../constants.py` ('transform' and 'transform_signature',
         respectively).
     """
+    # TODO(b/160294509): Stop using tf.compat.v2 when TF1.15 support is
+    # dropped.
     if tf.version.VERSION < '2.5':
       imported = load.load_internal(saved_model_dir, loader_cls=_Loader)
       if isinstance(imported, dict):
         imported = imported['root']
     else:
-      # TODO(b/160294509): Stop using tf.compat.v2 when TF1.15 support is
-      # dropped.
       imported = tf.compat.v2.saved_model.load(saved_model_dir)
     load_v2_in_compat = constants.TRANSFORM_SIGNATURE in imported.signatures
     if load_v2_in_compat:
-      wrapped = imported.signatures[constants.TRANSFORM_SIGNATURE]
-      structured_inputs = self._get_input_signature_from_v1_saved_model(
-          saved_model_dir)
-      structured_outputs = wrapped.structured_outputs
+      restored_function = imported.signatures[constants.TRANSFORM_SIGNATURE]
+      wrapped, structured_inputs, structured_outputs = (
+          _restore_from_v1_saved_model(restored_function, saved_model_dir))
     else:
       # transform_fn is now a ConcreteFunction, but was a tf.function. We need
       # to handle both to maintain backward compatiblity. If it's a tf.function,
@@ -90,7 +164,7 @@ class SavedModelLoader:
           func_graph.structured_outputs,
           func_graph.outputs,
           expand_composites=True)
-    outputs_to_inputs_map = (self._get_output_to_inputs_map(structured_outputs))
+    outputs_to_inputs_map = _get_output_to_inputs_map(structured_outputs)
     self._initialize(load_v2_in_compat, imported, wrapped, structured_inputs,
                      structured_outputs, outputs_to_inputs_map)
     saved_transform_io._maybe_register_addon_ops()  # pylint: disable=protected-access
@@ -117,70 +191,25 @@ class SavedModelLoader:
   def structured_outputs(self):
     return self._structured_outputs
 
-  def _get_input_signature_from_v1_saved_model(self, saved_model_dir):
-    """Get structured inputs for a TF1 compat SavedModel."""
-    saved_model = saved_model_loader.parse_saved_model(saved_model_dir)
-    meta_graph_def = saved_model_loader.choose_meta_graph_def_and_raise(
-        saved_model)
-    signature = meta_graph_def.signature_def[constants.TRANSFORM_SIGNATURE]
-    return signature.inputs
-
-  def _get_output_to_inputs_map(self, output_signature):
-    """Get all graph inputs that the tensors in output_signature depend on."""
-    result = {}
-    for name, output in output_signature.items():
-      components = self._get_component_tensors(output)
-      sinks = [self._as_operation(component) for component in components]
-      # Ignore control dependencies when walking the graph as we only care about
-      # which user defined inputs this output depends on.
-      result[name] = graph_tools.retrieve_sources(
-          sinks, ignore_control_dependencies=True)
-    return result
-
-  def _as_operation(
-      self, op_or_tensor: Union[tf.Operation, tf.Tensor]) -> tf.Operation:
-    if isinstance(op_or_tensor, tf.Tensor):
-      return op_or_tensor.op
-    return op_or_tensor
-
-  def _get_component_tensors(self, tensor):
-    """Get all component tensors.
-
-    Args:
-      tensor: A `Tensor` or `CompositeTensor`.
-
-    Returns:
-      All `Tensor` components of `tensor`.
-
-    Raises:
-      ValueError if supplied `tensor` parameter is neither a `Tensor` nor a
-      `CompositeTensor`.
-    """
-    if isinstance(tensor, tf.Tensor):
-      return [tensor]
-    elif isinstance(tensor, composite_tensor.CompositeTensor):
-      return tf.nest.flatten(tensor, expand_composites=True)
-    else:
-      raise ValueError(
-          'Unsupported tensor. Arg `tensor` is neither a `Tensor` nor a '
-          '`CompositeTensor`: {}.'.format(tensor))
-
-  def _get_feeds(self, unfed_input_keys):
+  def _get_feeds(self, unfed_input_keys: Iterable[str]) -> Iterable[tf.Tensor]:
     """Returns set of tensors that will be fed."""
     result = object_identity.ObjectIdentitySet(self._func_graph.inputs)
     for input_key in unfed_input_keys:
-      unfed_input_components = self._get_component_tensors(
+      unfed_input_components = _get_component_tensors(
           self._structured_inputs[input_key])
       result = result.difference(unfed_input_components)
     return result
 
-  def _get_unfed_input_keys(self, input_tensor_keys):
+  def _get_unfed_input_keys(self,
+                            input_tensor_keys: Iterable[str]) -> Iterable[str]:
     return set(self._structured_inputs.keys()).difference(input_tensor_keys)
 
-  def _get_fetches(self, feeds):
+  def _get_fetches(
+      self,
+      feeds: Iterable[tf.Tensor]) -> Dict[str, common_types.InputTensorType]:
     """Returns set of tensors that can be fetched when `feeds` is supplied."""
     result = {}
-    for name, output in self._func_graph.structured_outputs.items():
+    for name, output in self._structured_outputs.items():
       extra_sources = self._output_to_inputs_map[name].difference(feeds)
       # If output does not depend on an input placeholder that is not being fed,
       # add it to fetches.
@@ -188,10 +217,12 @@ class SavedModelLoader:
         result[name] = output
     return result
 
-  def _get_fetches_keys(self, feeds):
+  def _get_fetches_keys(self, feeds: Iterable[tf.Tensor]) -> Iterable[str]:
     return self._get_fetches(feeds).keys()
 
-  def _get_missing_inputs(self, unfed_input_keys, batch_size):
+  def _get_missing_inputs(
+      self, unfed_input_keys: Iterable[str],
+      batch_size: int) -> Dict[str, common_types.InputTensorType]:
     """Supplies inputs for `unfed_input_keys`."""
     result = {}
     if unfed_input_keys:
@@ -357,7 +388,9 @@ class SavedModelLoader:
     else:
       return self._apply_v2_transform_model(logical_input_map)
 
-  def _finalize_wrapped_function(self, unfed_input_keys, fetches_keys):
+  def _finalize_wrapped_function(
+      self, unfed_input_keys: Iterable[str],
+      fetches_keys: Iterable[str]) -> function.ConcreteFunction:
     """Constructs a function that can be invoked without `unfed_input_keys`."""
     original_input_signature = (
         self._wrapped_function.structured_input_signature[0][0])
@@ -380,8 +413,9 @@ class SavedModelLoader:
 
     return wrapped_finalized.get_concrete_function()
 
-  # TODO(b/177672051): Consider calling finalize in the TransforFeaturesLayer.
-  def finalize(self, input_tensor_keys, output_tensor_keys):
+  # TODO(b/177672051): Consider calling finalize in the TransformFeaturesLayer.
+  def finalize(self, input_tensor_keys: Iterable[str],
+               output_tensor_keys: Iterable[str]):
     """Finalizes the set of inputs with which this SavedModel will be called.
 
     Note: This is not Thread-safe. Should be called prior to any calls to

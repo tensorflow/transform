@@ -23,12 +23,15 @@ from tensorflow_transform import graph_context
 from tensorflow_transform import impl_helper
 from tensorflow_transform import tf_utils
 from tensorflow_transform import test_case
+from tensorflow_transform.py_func.api import apply_pyfunc
+from tensorflow_transform.saved import constants
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.saved import saved_transform_io_v2
 
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.core.protobuf import meta_graph_pb2
 from tensorflow.python.lib.io import file_io
+from tensorflow.python.ops import script_ops
 # pylint: enable=g-direct-tensorflow-import
 
 _TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES = [
@@ -578,6 +581,83 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
     new_flat_outputs = (
         saved_transform_io_v2._strip_control_dependencies(flat_outputs))
     self.assertEqual(new_flat_outputs, expected_flat_outputs)
+
+  def test_restore_from_v1_saved_model_with_pyfuncs(self):
+    input_specs = {
+        'a': tf.TensorSpec([
+            None,
+        ], dtype=tf.float32),
+        'b': tf.TensorSpec([
+            None,
+        ], dtype=tf.float32),
+    }
+
+    def my_add(x, y):
+      return x + y
+
+    def func(inputs):
+      result = {
+          'a+b':
+              apply_pyfunc(my_add, tf.float32, True, 'add', inputs['a'],
+                           inputs['b'])
+      }
+      for value in result.values():
+        value.set_shape([1])
+      return result
+
+    saved_model_path_v1 = _create_test_saved_model(True, input_specs, func,
+                                                   'export_v1')
+    # Clear PyFunc registry to mimic loading a SavedModel in a new runtime.
+    script_ops._py_funcs._funcs.clear()  # pylint: disable=protected-access
+
+    imported = tf.compat.v2.saved_model.load(saved_model_path_v1)
+    imported_function = imported.signatures[constants.TRANSFORM_SIGNATURE]
+    input_keys = ['a', 'b']
+    inputs = [
+        tf.constant([2.0], dtype=tf.float32),
+        tf.constant([3.0], dtype=tf.float32)
+    ]
+    input_kwargs = {k: v for k, v in zip(input_keys, inputs)}
+    expected_output = 5.0
+    restored_function, _, _ = (
+        saved_transform_io_v2._restore_from_v1_saved_model(
+            imported_function, saved_model_path_v1))
+    with self.assertRaisesRegex(tf.errors.InvalidArgumentError,
+                                'callback.*pyfunc_'):
+      imported_function(**input_kwargs)
+    self.assertEqual(restored_function(*inputs)['a+b'], expected_output)
+
+  def test_restore_from_v1_saved_model_without_pyfuncs(self):
+    input_specs = {
+        'a': tf.TensorSpec([
+            None,
+        ], dtype=tf.float32),
+        'b': tf.TensorSpec([
+            None,
+        ], dtype=tf.float32),
+    }
+
+    def func(inputs):
+      result = {'a+b': inputs['a'] + inputs['b']}
+      for value in result.values():
+        value.set_shape([1])
+      return result
+
+    saved_model_path_v1 = _create_test_saved_model(True, input_specs, func,
+                                                   'export_v1')
+
+    imported = tf.compat.v2.saved_model.load(saved_model_path_v1)
+    imported_function = imported.signatures[constants.TRANSFORM_SIGNATURE]
+    input_kwargs = {
+        'a': tf.constant([2.0], dtype=tf.float32),
+        'b': tf.constant([3.0], dtype=tf.float32)
+    }
+    expected_output = 5.0
+    restored_function, _, _ = (
+        saved_transform_io_v2._restore_from_v1_saved_model(
+            imported_function, saved_model_path_v1))
+    self.assertEqual(imported_function(**input_kwargs)['a+b'], expected_output)
+    self.assertEqual(restored_function(**input_kwargs)['a+b'], expected_output)
 
 
 if __name__ == '__main__':

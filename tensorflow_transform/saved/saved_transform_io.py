@@ -251,7 +251,8 @@ def _partially_apply_saved_transform_impl(saved_model_dir,
 
   # If the saved_model contained py_funcs, will reinsert them in the graph
   # here and update their associated token in the model.
-  pyfunc_helper.register_pyfuncs_from_saved_transform(graph, meta_graph_def)
+  _ = pyfunc_helper.register_pyfuncs_from_saved_transform(
+      graph, meta_graph_def, loaded_in_tf2=False)
 
   # Save the ASSET_FILEPATHS before importing the MetaGraphDef
   current_assets = graph.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)

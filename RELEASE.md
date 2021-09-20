@@ -6,6 +6,9 @@
 
 ## Bug Fixes and Other Changes
 
+*   Fix re-loading a transform graph containing pyfuncs exported as a TF1
+    SavedModel(added using `tft.apply_pyfunc`) in TF2.
+
 ## Breaking Changes
 
 ## Deprecations

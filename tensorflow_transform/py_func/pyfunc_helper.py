@@ -87,7 +87,7 @@ def insert_pyfunc(func, Tout, stateful, name, *args):  # pylint: disable=invalid
   return result
 
 
-def register_pyfuncs_from_saved_transform(graph, meta_graph):
+def register_pyfuncs_from_saved_transform(graph, meta_graph, loaded_in_tf2):
   """Registers `py_func`s in the MetaGraphDef.
 
   Takes the picked `py_func`s stored in the MetaGraphDef and adds them to the
@@ -104,9 +104,17 @@ def register_pyfuncs_from_saved_transform(graph, meta_graph):
     meta_graph: The MetaGraphDef containing the `py_func`s.  All the `py_func`
        ops in the graph will be modified in-place to have their token point to
        the newly regsitered function.
+    loaded_in_tf2: A boolean indicating whether the saved transform is being
+       re-loaded in TF1 or TF2.
+
+  Returns:
+    Modified graph_def if pyfuncs were found, else None.
+
+  Raises:
+    ValueError if an unregistered pyfunc is encountered in `graph`.
   """
   if _PYFUNC_COLLECTION_KEY not in meta_graph.collection_def:
-    return
+    return None
 
   # TODO(b/35929054) to enable it in TF itself. Once supported,
   # we should refactor this code to remove extra work for pickling and
@@ -131,11 +139,26 @@ def register_pyfuncs_from_saved_transform(graph, meta_graph):
       token = output_tensor.op.get_attr('token')
       new_tokens_by_old_token[func_def.token] = token
 
+  if loaded_in_tf2:
+    graph_def = graph.as_graph_def()
+    # Since we are updating the GraphDef of the graph in whose context pyfuncs
+    # were re-inserted, new tokens will also be present.
+    expected_tokens_in_graph_def = (
+        list(new_tokens_by_old_token.keys()) +
+        list(new_tokens_by_old_token.values()))
+  else:
+    graph_def = meta_graph.graph_def
+    expected_tokens_in_graph_def = new_tokens_by_old_token.keys()
   # Swap the old token stored for the function with the new one, if there are
   # any tokens to change.
   if new_tokens_by_old_token:
-    for node in meta_graph.graph_def.node:
+    for node in graph_def.node:
       if node.op == 'PyFunc' or node.op == 'PyFuncStateless':
-        assert node.attr['token'].s in new_tokens_by_old_token, (
-            'Function: %r was not registered' % node.name)
-        node.attr['token'].s = new_tokens_by_old_token[node.attr['token'].s]
+        token = node.attr['token']
+        new_token = new_tokens_by_old_token.get(token.s, None)
+        if new_token is not None:
+          token.s = new_token
+        else:
+          if token.s not in expected_tokens_in_graph_def:
+            raise ValueError(f'Function: {node.name} was not registered')
+  return graph_def
