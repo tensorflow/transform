@@ -3333,10 +3333,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
       self.assertAllEqual(expected[2], transformed[2])
 
   def testRaggedWithTFXIO(self):
-    # TODO(b/169666856): Expand test to include case
-    # `output_record_batches=True` once supported.
-    self._SkipIfOutputRecordBatches()
-
     x_data = [[[1], [], [2, 3]], [[]]]
     input_record_batch = pa.RecordBatch.from_arrays([
         pa.array(x_data, type=pa.large_list(pa.large_list(pa.int64()))),
