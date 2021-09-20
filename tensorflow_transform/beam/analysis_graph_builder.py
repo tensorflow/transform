@@ -117,8 +117,17 @@ class _ReadyVisitor(nodes.Visitor):
 
   def __init__(self, graph_analyzer):
     self._graph_analyzer = graph_analyzer
+    self._visited_operation_def_labels = set()
+
+  def _validate_operation_label_uniqueness(self, operation_def):
+    assert operation_def.label not in self._visited_operation_def_labels, (
+        f'An operation with label {operation_def.label} '
+        'already exists in the operations graph.')
+    self._visited_operation_def_labels.add(operation_def.label)
 
   def visit(self, operation_def, input_values):
+    self._validate_operation_label_uniqueness(operation_def)
+
     if isinstance(operation_def, analyzer_nodes.TensorSource):
       is_ready = all(self._graph_analyzer.ready_to_run(tensor)
                      for tensor in operation_def.tensors)

@@ -20,6 +20,7 @@ import tensorflow_transform as tft
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
+from tensorflow_transform import tf2_utils
 from tensorflow_transform.beam import analysis_graph_builder
 from tensorflow_transform import test_case
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
@@ -523,6 +524,42 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
                                      ]).to_string()
     self.WriteRenderedDotFile(dot_string)
     self.assertCountEqual(cache_entry_keys, [mocked_cache_entry_key])
+
+  def test_duplicate_label_error(self):
+
+    def _preprocessing_fn(inputs):
+
+      class _Analyzer(
+          tfx_namedtuple.namedtuple('_Analyzer', ['label']),
+          nodes.OperationDef):
+        pass
+
+      input_values_node = nodes.apply_operation(
+          analyzer_nodes.TensorSource, tensors=[inputs['x']])
+      intermediate_value_node = nodes.apply_operation(
+          _Analyzer, input_values_node, label='SameLabel')
+      output_value_node = nodes.apply_operation(
+          _Analyzer, intermediate_value_node, label='SameLabel')
+      x_chained = analyzer_nodes.bind_future_as_tensor(
+          output_value_node,
+          analyzer_nodes.TensorInfo(tf.float32, (17, 27), None))
+      return {'x_chained': x_chained}
+
+    feature_spec = {'x': tf.io.FixedLenFeature([], tf.float32)}
+    use_tf_compat_v1 = tf2_utils.use_tf_compat_v1(False)
+    specs = (
+        feature_spec if use_tf_compat_v1 else
+        impl_helper.get_type_specs_from_feature_specs(feature_spec))
+    graph, structured_inputs, structured_outputs = (
+        impl_helper.trace_preprocessing_function(
+            _preprocessing_fn,
+            specs,
+            use_tf_compat_v1=use_tf_compat_v1,
+            base_temp_dir=os.path.join(self.get_temp_dir(),
+                                       self._testMethodName)))
+    with self.assertRaisesRegex(AssertionError, 'SameLabel'):
+      _ = analysis_graph_builder.build(graph, structured_inputs,
+                                       structured_outputs)
 
 
 if __name__ == '__main__':

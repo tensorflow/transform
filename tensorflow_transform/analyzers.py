@@ -521,7 +521,7 @@ def _min_and_max_per_key(
     TypeError: If the type of `x` is not supported.
   """
   if key is None:
-    raise ValueError('A key is required for _mean_and_var_per_key')
+    raise ValueError('A key is required for _min_and_max_per_key')
 
   if not reduce_instance_dims:
     raise NotImplementedError('Per-key elementwise reduction not supported')
