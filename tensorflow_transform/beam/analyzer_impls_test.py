@@ -117,6 +117,13 @@ class AnalyzerImplsTest(tft_unit.TransformTestCase):
           expected_scales=np.array([0.333333333, 333333.333, 0.166666667]),
           expected_shifts=np.array([0, -999999, 1.66666667]),
           expected_num_buckets=np.array(5)),
+      dict(
+          testcase_name='SingleBoundary',
+          input_boundaries=np.array([[1], [2]]),
+          expected_boundaries=np.array([0]),
+          expected_scales=np.array([1., 1.]),
+          expected_shifts=np.array([-1, -1]),
+          expected_num_buckets=np.array(2)),
   )
   def testJoinBoundarieRows(self, input_boundaries, expected_boundaries,
                             expected_scales, expected_shifts,

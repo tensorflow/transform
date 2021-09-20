@@ -215,7 +215,8 @@ def _ApplyThresholdsAndTopK(  # pylint: disable=invalid-name
 
 
 # Experimental
-def sum_labeled_weights(accs):
+def sum_labeled_weights(
+    accs: List[Tuple[float, List[float]]]) -> Tuple[float, List[float]]:
   """Sums up a collection of labeled-weight tables.
 
   Args:
@@ -413,7 +414,7 @@ class _VocabularyPruneImpl(beam.PTransform):
 
       result = ((result, coverage_counts)
                 | 'MergeStandardAndCoverageArms' >> beam.Flatten()
-                | 'RemoveDuplicates' >> beam.RemoveDuplicates())
+                | 'RemoveDuplicates' >> beam.Distinct())
 
     return result
 
@@ -500,7 +501,8 @@ class _VocabularyOrderAndWriteImpl(beam.PTransform):
     return (wait_for_vocabulary_transform,)
 
 
-def _flatten_value_to_list(batch_values):
+def _flatten_value_to_list(
+    batch_values: Tuple[np.ndarray, ...]) -> Iterable[Any]:
   """Converts an N-D dense or sparse batch to a 1-D list."""
   batch_value, = batch_values
 
@@ -510,7 +512,8 @@ def _flatten_value_to_list(batch_values):
   return batch_value.tolist()
 
 
-def _flatten_value_and_weights_to_list_of_tuples(batch_values):
+def _flatten_value_and_weights_to_list_of_tuples(
+    batch_values: Tuple[np.ndarray, ...]) -> Iterable[Any]:
   """Converts a batch of vocabulary and weights to a list of KV tuples."""
   batch_value, weights = batch_values
 
@@ -523,7 +526,8 @@ def _flatten_value_and_weights_to_list_of_tuples(batch_values):
 
 
 # Experimental
-def _flatten_value_and_labeled_weights_to_list_of_tuples(batch_values):
+def _flatten_value_and_labeled_weights_to_list_of_tuples(
+    batch_values: Tuple[np.ndarray, ...]) -> Iterable[Any]:
   """Converts a batch of vocabulary and labeled weights to a list of KV tuples.
 
   Args:
@@ -1032,7 +1036,8 @@ def _merge_outputs_by_key(keys_and_outputs, outputs_dtype):
                                                     dtype=dtype.as_numpy_dtype))
 
 
-def _make_strictly_increasing_boundaries_rows(boundary_matrix):
+def _make_strictly_increasing_boundaries_rows(
+    boundary_matrix: np.ndarray) -> np.ndarray:
   """Converts a 2-d array of increasing rows to strictly increasing rows.
 
   Args:
@@ -1060,7 +1065,9 @@ def _make_strictly_increasing_boundaries_rows(boundary_matrix):
   return np.insert(corrected_boundaries, 0, boundary_matrix[:, 0], axis=1)
 
 
-def _join_boundary_rows(boundary_matrix):
+def _join_boundary_rows(
+    boundary_matrix: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
   """Joins boundaries per key, by scaling and shifting them.
 
   This returns a new list of boundaries which is composed from the given 2-d
@@ -1090,7 +1097,12 @@ def _join_boundary_rows(boundary_matrix):
   # Max boundary for each row.
   max_boundary = np.max(boundary_matrix, axis=1)
 
-  scale = 1.0 / (max_boundary - min_boundary)
+  boundary_difference = max_boundary - min_boundary
+  scale = np.divide(
+      1.0,
+      boundary_difference,
+      out=np.ones_like(boundary_difference),
+      where=boundary_difference != 0)
 
   # Shifts what would shift values so that when applied to min[key_id] we
   # get: min[key_id] * scale[key_id] + shift[key_id] = key_id
