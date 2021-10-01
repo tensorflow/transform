@@ -44,6 +44,15 @@ def _construct_table(asset_file_path,
   return tf.lookup.StaticHashTable(initializer, default_value=default_value)
 
 
+def _value_to_tensor(value):
+  if isinstance(value, tf.compat.v1.SparseTensorValue):
+    return tf.compat.v1.convert_to_tensor_or_sparse_tensor(value)
+  elif isinstance(value, tf.compat.v1.ragged.RaggedTensorValue):
+    return tf.ragged.constant(value.to_list())
+  else:
+    return tf.constant(value)
+
+
 class _SparseTensorSpec:
 
   def __init__(self, shape, dtype):
@@ -129,32 +138,85 @@ class TFUtilsTest(test_case.TransformTestCase):
         self.assertAllEqual(sample_tensors['ragged'].row_splits,
                             ragged_value.row_splits)
 
-  @test_case.named_parameters(test_case.cross_with_function_handlers([
-      dict(
-          testcase_name='rank1',
-          x=['a', 'b', 'a'],
-          weights=[1, 1, 2],
-          expected_unique_x=[b'a', b'b'],
-          expected_summed_weights_per_x=[3, 1]),
-      dict(
-          testcase_name='rank2',
-          x=[['a', 'b', 'a'], ['b', 'a', 'b']],
-          weights=[[1, 2, 1], [1, 2, 2]],
-          expected_unique_x=[b'a', b'b'],
-          expected_summed_weights_per_x=[4, 5]),
-      dict(
-          testcase_name='rank3',
-          x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
-             [['a', 'b', 'a'], ['b', 'a', 'b']]],
-          weights=[[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]],
-          expected_unique_x=[b'a', b'b'],
-          expected_summed_weights_per_x=[9, 7]),
-  ]))
-  def test_reduce_batch_weighted_counts(
-      self, x, weights, expected_unique_x, expected_summed_weights_per_x,
-      function_handler):
-    input_signature = [tf.TensorSpec(None, tf.string),
-                       tf.TensorSpec(None, tf.float32)]
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers([
+          dict(
+              testcase_name='2d',
+              tensor=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=np.array([1.2, 1., 1.2, 1.]),
+                  row_splits=np.array([0, 2, 4])),
+              rowids=[0, 0, 1, 1],
+              tensor_spec=tf.RaggedTensorSpec([None, None], tf.float32)),
+          dict(
+              testcase_name='3d',
+              tensor=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=np.array([1.2, 1., 1.2, 1.]),
+                      row_splits=np.array([0, 3, 4])),
+                  row_splits=np.array([0, 1, 1, 2])),
+              rowids=[0, 0, 0, 2],
+              tensor_spec=tf.RaggedTensorSpec([None, None, None], tf.float32)),
+      ]))
+  def test_get_ragged_batch_value_rowids(self, tensor, rowids, tensor_spec,
+                                         function_handler):
+
+    @function_handler(input_signature=[tensor_spec])
+    def get_ragged_batch_value_rowids(tensor):
+      return tf_utils._get_ragged_batch_value_rowids(tensor)
+
+    self.assertAllEqual(get_ragged_batch_value_rowids(tensor), rowids)
+
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers([
+          dict(
+              testcase_name='rank1',
+              x=['a', 'b', 'a'],
+              x_spec=tf.TensorSpec(None, tf.string),
+              weights=[1, 1, 2],
+              expected_unique_x=[b'a', b'b'],
+              expected_summed_weights_per_x=[3, 1]),
+          dict(
+              testcase_name='rank2',
+              x=[['a', 'b', 'a'], ['b', 'a', 'b']],
+              x_spec=tf.TensorSpec(None, tf.string),
+              weights=[[1, 2, 1], [1, 2, 2]],
+              expected_unique_x=[b'a', b'b'],
+              expected_summed_weights_per_x=[4, 5]),
+          dict(
+              testcase_name='rank3',
+              x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
+                 [['a', 'b', 'a'], ['b', 'a', 'b']]],
+              x_spec=tf.TensorSpec(None, tf.string),
+              weights=[[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]],
+              expected_unique_x=[b'a', b'b'],
+              expected_summed_weights_per_x=[9, 7]),
+          dict(
+              testcase_name='sparse',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [0, 1], [2, 1]],
+                  values=['a', 'a', 'b'],
+                  dense_shape=[4, 2]),
+              x_spec=tf.SparseTensorSpec([4, 2], tf.string),
+              weights=[2, 3, 4],
+              expected_unique_x=[b'a', b'b'],
+              expected_summed_weights_per_x=[5, 4]),
+          dict(
+              testcase_name='ragged',
+              x=tf.compat.v1.ragged.RaggedTensorValue(  # pylint: disable=g-long-lambda
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=np.array(['a', 'b', 'b', 'a']),
+                      row_splits=np.array([0, 2, 4])),
+                  row_splits=np.array([0, 2])),
+              x_spec=tf.RaggedTensorSpec([None, None, None], tf.string),
+              weights=[2, 3, 4, 6],
+              expected_unique_x=[b'a', b'b'],
+              expected_summed_weights_per_x=[8, 7]),
+      ]))
+  def test_reduce_batch_weighted_counts(self, x, x_spec, weights,
+                                        expected_unique_x,
+                                        expected_summed_weights_per_x,
+                                        function_handler):
+    input_signature = [x_spec, tf.TensorSpec(None, tf.float32)]
     @function_handler(input_signature=input_signature)
     def _reduce_batch_weighted_counts(x, weights):
       (unique_x, summed_weights_per_x, summed_positive_per_x_and_y,
@@ -313,86 +375,122 @@ class TFUtilsTest(test_case.TransformTestCase):
     self.assertAllEqual(result.counts_per_x,
                         expected_result.counts_per_x)
 
-  @test_case.named_parameters(test_case.cross_with_function_handlers([
-      dict(
-          testcase_name='rank1_with_binary_y',
-          x=['a', 'b', 'a'],
-          y=[0, 1, 1],
-          expected_result=tf_utils.ReducedBatchWeightedCounts(
-              [b'a', b'b', b'global_y_count_sentinel'], [2, 1, 3],
-              [[1, 1], [0, 1], [1, 2]], [2, 1, 3]),
-          input_signature=[tf.TensorSpec(None, tf.string),
-                           tf.TensorSpec(None, tf.int64)]),
-      dict(
-          testcase_name='rank1_with_multi_class_y',
-          x=['yes', 'no', 'yes', 'maybe', 'yes'],
-          y=[1, 1, 0, 2, 3],
-          expected_result=tf_utils.ReducedBatchWeightedCounts(
-              [b'yes', b'no', b'maybe', b'global_y_count_sentinel'],
-              [3, 1, 1, 5],
-              [[1, 1, 0, 1], [0, 1, 0, 0], [0, 0, 1, 0], [1, 2, 1, 1]],
-              [3, 1, 1, 5]),
-          input_signature=[tf.TensorSpec(None, tf.string),
-                           tf.TensorSpec(None, tf.int64)]),
-      dict(
-          testcase_name='rank2_with_binary_y',
-          x=[['a', 'b', 'a'], ['b', 'a', 'b']],
-          y=[[1, 0, 1], [1, 0, 0]],
-          expected_result=tf_utils.ReducedBatchWeightedCounts(
-              [b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
-              [[1, 2], [2, 1], [3, 3]], [3, 3, 6]),
-          input_signature=[tf.TensorSpec(None, tf.string),
-                           tf.TensorSpec(None, tf.int64)]),
-      dict(
-          testcase_name='rank2_with_missing_y_values',
-          x=[['a', 'b', 'a'], ['b', 'a', 'b']],
-          y=[[2, 0, 2], [2, 0, 0]],
-          # The label 1 isn't in the batch but it will have a position (with
-          # weights of 0) in the resulting array.
-          expected_result=tf_utils.ReducedBatchWeightedCounts(
-              [b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
-              [[1, 0, 2], [2, 0, 1], [3, 0, 3]], [3, 3, 6]),
-          input_signature=[tf.TensorSpec(None, tf.string),
-                           tf.TensorSpec(None, tf.int64)]),
-      dict(
-          testcase_name='rank2_with_multi_class_y',
-          x=[['a', 'b', 'a'], ['b', 'a', 'b']],
-          y=[[1, 0, 1], [1, 0, 2]],
-          expected_result=tf_utils.ReducedBatchWeightedCounts(
-              [b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
-              [[1, 2, 0], [1, 1, 1], [2, 3, 1]], [3, 3, 6]),
-          input_signature=[tf.TensorSpec(None, tf.string),
-                           tf.TensorSpec(None, tf.int64)]),
-      dict(
-          testcase_name='rank3_with_binary_y',
-          x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
-             [['a', 'b', 'a'], ['b', 'a', 'b']]],
-          y=[[[1, 1, 0], [1, 0, 1]], [[1, 0, 1], [1, 0, 1]]],
-          expected_result=tf_utils.ReducedBatchWeightedCounts(
-              [b'a', b'b', b'global_y_count_sentinel'], [6, 6, 12],
-              [[3, 3], [1, 5], [4, 8]], [6, 6, 12]),
-          input_signature=[tf.TensorSpec(None, tf.string),
-                           tf.TensorSpec(None, tf.int64)]),
-      dict(
-          testcase_name='sparse',
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0], [2, 1]], values=['a', 'b'], dense_shape=[4, 2]),
-          y=[0, 1, 0, 0],
-          expected_result=tf_utils.ReducedBatchWeightedCounts(
-              [b'a', b'b', b'global_y_count_sentinel'], [1, 1, 4],
-              [[1, 0], [1, 0], [3, 1]], [1, 1, 4]),
-          input_signature=[tf.SparseTensorSpec([None, 2], tf.string),
-                           tf.TensorSpec([None], tf.int64)]),
-      dict(
-          testcase_name='empty_sparse',
-          x=tf.compat.v1.SparseTensorValue(
-              indices=np.empty([0, 2]), values=[], dense_shape=[4, 2]),
-          y=[1, 0, 1, 1],
-          expected_result=tf_utils.ReducedBatchWeightedCounts(
-              [b'global_y_count_sentinel'], [4], [[1, 3]], [4]),
-          input_signature=[tf.SparseTensorSpec([None, 2], tf.string),
-                           tf.TensorSpec([None], tf.int64)]),
-  ]))
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers([
+          dict(
+              testcase_name='rank1_with_binary_y',
+              x=['a', 'b', 'a'],
+              y=[0, 1, 1],
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'a', b'b', b'global_y_count_sentinel'], [2, 1, 3],
+                  [[1, 1], [0, 1], [1, 2]], [2, 1, 3]),
+              input_signature=[
+                  tf.TensorSpec(None, tf.string),
+                  tf.TensorSpec(None, tf.int64)
+              ]),
+          dict(
+              testcase_name='rank1_with_multi_class_y',
+              x=['yes', 'no', 'yes', 'maybe', 'yes'],
+              y=[1, 1, 0, 2, 3],
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'yes', b'no', b'maybe', b'global_y_count_sentinel'],
+                  [3, 1, 1, 5],
+                  [[1, 1, 0, 1], [0, 1, 0, 0], [0, 0, 1, 0], [1, 2, 1, 1]],
+                  [3, 1, 1, 5]),
+              input_signature=[
+                  tf.TensorSpec(None, tf.string),
+                  tf.TensorSpec(None, tf.int64)
+              ]),
+          dict(
+              testcase_name='rank2_with_binary_y',
+              x=[['a', 'b', 'a'], ['b', 'a', 'b']],
+              y=[[1, 0, 1], [1, 0, 0]],
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
+                  [[1, 2], [2, 1], [3, 3]], [3, 3, 6]),
+              input_signature=[
+                  tf.TensorSpec(None, tf.string),
+                  tf.TensorSpec(None, tf.int64)
+              ]),
+          dict(
+              testcase_name='rank2_with_missing_y_values',
+              x=[['a', 'b', 'a'], ['b', 'a', 'b']],
+              y=[[2, 0, 2], [2, 0, 0]],
+              # The label 1 isn't in the batch but it will have a position (with
+              # weights of 0) in the resulting array.
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
+                  [[1, 0, 2], [2, 0, 1], [3, 0, 3]], [3, 3, 6]),
+              input_signature=[
+                  tf.TensorSpec(None, tf.string),
+                  tf.TensorSpec(None, tf.int64)
+              ]),
+          dict(
+              testcase_name='rank2_with_multi_class_y',
+              x=[['a', 'b', 'a'], ['b', 'a', 'b']],
+              y=[[1, 0, 1], [1, 0, 2]],
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
+                  [[1, 2, 0], [1, 1, 1], [2, 3, 1]], [3, 3, 6]),
+              input_signature=[
+                  tf.TensorSpec(None, tf.string),
+                  tf.TensorSpec(None, tf.int64)
+              ]),
+          dict(
+              testcase_name='rank3_with_binary_y',
+              x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
+                 [['a', 'b', 'a'], ['b', 'a', 'b']]],
+              y=[[[1, 1, 0], [1, 0, 1]], [[1, 0, 1], [1, 0, 1]]],
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'a', b'b', b'global_y_count_sentinel'], [6, 6, 12],
+                  [[3, 3], [1, 5], [4, 8]], [6, 6, 12]),
+              input_signature=[
+                  tf.TensorSpec(None, tf.string),
+                  tf.TensorSpec(None, tf.int64)
+              ]),
+          dict(
+              testcase_name='sparse',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [2, 1]],
+                  values=['a', 'b'],
+                  dense_shape=[4, 2]),
+              y=[0, 1, 0, 0],
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'a', b'b', b'global_y_count_sentinel'], [1, 1, 4],
+                  [[1, 0], [1, 0], [3, 1]], [1, 1, 4]),
+              input_signature=[
+                  tf.SparseTensorSpec([None, 2], tf.string),
+                  tf.TensorSpec([None], tf.int64)
+              ]),
+          dict(
+              testcase_name='empty_sparse',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=np.empty([0, 2]), values=[], dense_shape=[4, 2]),
+              y=[1, 0, 1, 1],
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'global_y_count_sentinel'], [4], [[1, 3]], [4]),
+              input_signature=[
+                  tf.SparseTensorSpec([None, 2], tf.string),
+                  tf.TensorSpec([None], tf.int64)
+              ]),
+          dict(
+              testcase_name='ragged',
+              x=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array(['a', 'b', 'a', 'b', 'b']),
+                          row_splits=np.array([0, 2, 3, 4, 5])),
+                      row_splits=np.array([0, 2, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              y=[1, 0],
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'a', b'b', b'global_y_count_sentinel'], [2, 3, 2],
+                  [[0, 2], [1, 2], [1, 1]], [2, 3, 2]),
+              input_signature=[
+                  tf.RaggedTensorSpec([None, None, None, None], tf.string),
+                  tf.TensorSpec([None], tf.int64)
+              ]),
+      ]))
   def test_reduce_batch_coocurrences_no_weights(
       self, x, y, expected_result, input_signature, function_handler):
     @function_handler(input_signature=input_signature)
@@ -515,7 +613,7 @@ class TFUtilsTest(test_case.TransformTestCase):
     }
 
     with tf.compat.v1.Graph().as_default():
-      input_tensor = tf.constant(input_keys)
+      input_tensor = _value_to_tensor(input_keys)
       vocab_filename = os.path.join(self.get_temp_dir(), 'test.txt')
       encoded_vocab = '\n'.join([' '.join(pair) for pair in vocab_data])
       with tf.io.gfile.GFile(vocab_filename, 'w') as f:
@@ -589,8 +687,7 @@ class TFUtilsTest(test_case.TransformTestCase):
                   dense_shape=[2, 4, 1]),
               expected_result=[[1], [1], [2], [0]],
               reduce_instance_dims=False,
-              input_signature=[
-                  tf.SparseTensorSpec([None, 4, 1], tf.float32)]),
+              input_signature=[tf.SparseTensorSpec([None, 4, 1], tf.float32)]),
           dict(
               testcase_name='sparse_elementwise_with_nans',
               x=tf.compat.v1.SparseTensorValue(
@@ -601,6 +698,66 @@ class TFUtilsTest(test_case.TransformTestCase):
               expected_result=[[1], [1], [2], [0]],
               reduce_instance_dims=False,
               input_signature=[tf.SparseTensorSpec([None, 4, 1], tf.float32)]),
+          dict(
+              testcase_name='ragged',
+              x=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array([1., 2., 3., 4., 5.], np.float32),
+                          row_splits=np.array([0, 2, 3, 4, 5])),
+                      row_splits=np.array([0, 2, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              expected_result=5,
+              reduce_instance_dims=True,
+              input_signature=[
+                  tf.RaggedTensorSpec([None, None, None, None], tf.float32)
+              ]),
+          dict(
+              testcase_name='ragged_with_nans',
+              x=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array([1., 2., 3., 4., 5., np.nan],
+                                          np.float32),
+                          row_splits=np.array([0, 2, 3, 4, 6])),
+                      row_splits=np.array([0, 2, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              expected_result=5,
+              reduce_instance_dims=True,
+              input_signature=[
+                  tf.RaggedTensorSpec([None, None, None, None], tf.float32)
+              ]),
+          dict(
+              testcase_name='ragged_elementwise',
+              x=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array([1., 2., 3., 4., 5.], np.float32),
+                          row_splits=np.array([0, 2, 2, 4, 5])),
+                      row_splits=np.array([0, 3, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              expected_result=[[[2, 1], [0., 0], [1, 1]],
+                               [[0, 0], [0, 0], [0, 0]]],
+              reduce_instance_dims=False,
+              input_signature=[
+                  tf.RaggedTensorSpec([None, None, None, None], tf.float32)
+              ]),
+          dict(
+              testcase_name='ragged_elementwise_with_nans',
+              x=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array([1., 2., 3., 4., 5., np.nan],
+                                          np.float32),
+                          row_splits=np.array([0, 2, 2, 4, 6])),
+                      row_splits=np.array([0, 3, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              expected_result=[[[2, 1], [0., 0], [1, 1]],
+                               [[0, 0], [0, 0], [0, 0]]],
+              reduce_instance_dims=False,
+              input_signature=[
+                  tf.RaggedTensorSpec([None, None, None, None], tf.float32)
+              ]),
       ]))
   def test_reduce_batch_count(self, x, input_signature, expected_result,
                               reduce_instance_dims, function_handler):
@@ -612,7 +769,8 @@ class TFUtilsTest(test_case.TransformTestCase):
       # Verify that the output shape is maintained.
       # TODO(b/178189903): This will fail if _dense_shape_default isn't set in
       # reduce_batch_count.
-      if not reduce_instance_dims and x.get_shape().ndims:
+      if (not isinstance(x, tf.RaggedTensor) and not reduce_instance_dims and
+          x.get_shape().ndims):
         self.assertEqual(x.get_shape()[1:].as_list(),
                          result.get_shape().as_list())
       return result
@@ -710,6 +868,78 @@ class TFUtilsTest(test_case.TransformTestCase):
               expected_var=[[0] * 5, [0, 0, 0, 1, 0], [0] * 5],
               reduce_instance_dims=False,
               input_signature=[tf.SparseTensorSpec([None, 3, 5], tf.float32)]),
+          dict(
+              testcase_name='ragged',
+              x=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array([1., 2., 3., 4., 5.], np.float32),
+                          row_splits=np.array([0, 2, 3, 4, 5])),
+                      row_splits=np.array([0, 2, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              expected_count=5,
+              expected_mean=3,
+              expected_var=2,
+              reduce_instance_dims=True,
+              input_signature=[
+                  tf.RaggedTensorSpec([None, None, None, None], tf.float32)
+              ]),
+          dict(
+              testcase_name='ragged_with_nans',
+              x=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array([1., 2., 3., 4., 5., np.nan],
+                                          np.float32),
+                          row_splits=np.array([0, 2, 3, 4, 6])),
+                      row_splits=np.array([0, 2, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              expected_count=5,
+              expected_mean=3,
+              expected_var=2,
+              reduce_instance_dims=True,
+              input_signature=[
+                  tf.RaggedTensorSpec([None, None, None, None], tf.float32)
+              ]),
+          dict(
+              testcase_name='ragged_elementwise',
+              x=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array([1., 2., 3., 4., 5.], np.float32),
+                          row_splits=np.array([0, 2, 2, 4, 5])),
+                      row_splits=np.array([0, 3, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              expected_count=[[[2., 1.], [0., 0.], [1., 1.]],
+                              [[0., 0.], [0., 0.], [0., 0.]]],
+              expected_mean=[[[3., 2.], [0., 0.], [3., 4.]],
+                             [[0., 0.], [0., 0.], [0., 0.]]],
+              expected_var=[[[4., 0.], [0., 0.], [0., 0.]],
+                            [[0., 0.], [0., 0.], [0., 0.]]],
+              reduce_instance_dims=False,
+              input_signature=[
+                  tf.RaggedTensorSpec([None, None, None, None], tf.float32)
+              ]),
+          dict(
+              testcase_name='ragged_elementwise_with_nans',
+              x=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array([1., 2., 3., 4., 5., np.nan],
+                                          np.float32),
+                          row_splits=np.array([0, 2, 2, 4, 6])),
+                      row_splits=np.array([0, 3, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              expected_count=[[[2., 1.], [0., 0.], [1., 1.]],
+                              [[0., 0.], [0., 0.], [0., 0.]]],
+              expected_mean=[[[3., 2.], [0., 0.], [3., 4.]],
+                             [[0., 0.], [0., 0.], [0., 0.]]],
+              expected_var=[[[4., 0.], [0., 0.], [0., 0.]],
+                            [[0., 0.], [0., 0.], [0., 0.]]],
+              reduce_instance_dims=False,
+              input_signature=[
+                  tf.RaggedTensorSpec([None, None, None, None], tf.float32)
+              ]),
       ]))
   def test_reduce_batch_count_mean_and_var(
       self, x, input_signature, expected_count, expected_mean, expected_var,
@@ -722,7 +952,8 @@ class TFUtilsTest(test_case.TransformTestCase):
       # Verify that the output shapes are maintained.
       # TODO(b/178189903): This will fail if _dense_shape_default isn't set in
       # reduce_batch_count.
-      if not reduce_instance_dims and x.get_shape().ndims:
+      if (not isinstance(x, tf.RaggedTensor) and not reduce_instance_dims and
+          x.get_shape().ndims):
         for tensor in result:
           self.assertEqual(x.get_shape()[1:].as_list(),
                            tensor.get_shape().as_list())
@@ -856,6 +1087,21 @@ class TFUtilsTest(test_case.TransformTestCase):
                                         np.float32),
               reduce_instance_dims=False,
               input_signature=[tf.SparseTensorSpec([None, 5, 1], tf.float32)]),
+          dict(
+              testcase_name='ragged',
+              x=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array([1., 2., 3., 4., 5.], np.float32),
+                          row_splits=np.array([0, 2, 3, 4, 5])),
+                      row_splits=np.array([0, 2, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              expected_counts=np.array([5., 10., 10., 5.], np.float32),
+              expected_moments=np.array([3., 1., 0., 0.], np.float32),
+              reduce_instance_dims=True,
+              input_signature=[
+                  tf.RaggedTensorSpec([None, None, None, None], tf.float32)
+              ]),
       ]))
   def test_reduce_batch_count_l_moments(
       self, x, input_signature, expected_counts, expected_moments,
@@ -988,6 +1234,70 @@ class TFUtilsTest(test_case.TransformTestCase):
                   tf.SparseTensorSpec([None, 4], tf.float32),
                   tf.TensorSpec([None], tf.string)
               ]),
+          dict(
+              testcase_name='ragged',
+              x=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array([3., 2., 3., 4., 5.], np.float32),
+                          row_splits=np.array([0, 2, 3, 4, 5])),
+                      row_splits=np.array([0, 2, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              key=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array(['a', 'a', 'b', 'a', 'b']),
+                          row_splits=np.array([0, 2, 3, 4, 5])),
+                      row_splits=np.array([0, 2, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              expected_key_vocab=[b'a', b'b'],
+              expected_count=[3, 2],
+              expected_mean=[3, 4],
+              expected_var=[np.float32(0.666667), 1.],
+              reduce_instance_dims=True,
+              input_signature=[
+                  tf.RaggedTensorSpec([None, None, None, None], tf.float32),
+                  tf.RaggedTensorSpec([None, None, None, None], tf.string)
+              ]),
+          dict(
+              testcase_name='ragged_x_dense_key',
+              x=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array([3., 2., 3., 4., 5.], np.float32),
+                          row_splits=np.array([0, 2, 3, 4, 5])),
+                      row_splits=np.array([0, 2, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              key=['a', 'b'],
+              expected_key_vocab=[b'a', b'b'],
+              expected_count=[4, 1],
+              expected_mean=[3, 5],
+              expected_var=[.5, 0.],
+              reduce_instance_dims=True,
+              input_signature=[
+                  tf.RaggedTensorSpec([2, None, None, None], tf.float32),
+                  tf.TensorSpec([2], tf.string)
+              ]),
+          dict(
+              testcase_name='ragged_with_nans',
+              x=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array([3., 2., 3., 4., 5., np.nan],
+                                          np.float32),
+                          row_splits=np.array([0, 2, 3, 4, 6])),
+                      row_splits=np.array([0, 2, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              key=['a', 'b'],
+              expected_key_vocab=[b'a', b'b'],
+              expected_count=[4, 1],
+              expected_mean=[3, 5],
+              expected_var=[.5, 0.],
+              reduce_instance_dims=True,
+              input_signature=[
+                  tf.RaggedTensorSpec([2, None, None, None], tf.float32),
+                  tf.TensorSpec([2], tf.string)
+              ]),
       ]))
   def test_reduce_batch_count_mean_and_var_per_key(
       self, x, key, input_signature, expected_key_vocab, expected_count,
@@ -1096,6 +1406,39 @@ class TFUtilsTest(test_case.TransformTestCase):
                   tf.SparseTensorSpec([None, None, None], tf.float32)
               ]),
           dict(
+              testcase_name='ragged',
+              x=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=np.array([1., 2., 3., 4., 5.], np.float32),
+                      row_splits=np.array([0, 2, 3, 5])),
+                  row_splits=np.array([0, 2, 3])),
+              reduce_instance_dims=True,
+              expected_x_minus_min=-1.,
+              expected_x_max=5.,
+              input_signature=[
+                  tf.RaggedTensorSpec([2, None, None], tf.float32)
+              ]),
+          dict(
+              testcase_name='ragged_elementwise',
+              x=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array([1., 2., 3., 4., 5.], np.float32),
+                          row_splits=np.array([0, 2, 2, 4, 5])),
+                      row_splits=np.array([0, 3, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              reduce_instance_dims=False,
+              expected_x_minus_min=[[[-1.0, -2.0], [np.nan, np.nan],
+                                     [-3.0, -4.0]],
+                                    [[np.nan, np.nan], [np.nan, np.nan],
+                                     [np.nan, np.nan]]],
+              expected_x_max=[[[5.0, 2.0], [np.nan, np.nan], [3.0, 4.0]],
+                              [[np.nan, np.nan], [np.nan, np.nan],
+                               [np.nan, np.nan]]],
+              input_signature=[
+                  tf.RaggedTensorSpec([2, None, None, None], tf.float32)
+              ]),
+          dict(
               testcase_name='all_nans',
               x=[[np.nan, np.nan, np.nan]],
               # Output of `tf.reduce_max` if all inputs are NaNs for older
@@ -1122,7 +1465,7 @@ class TFUtilsTest(test_case.TransformTestCase):
       result = tf_utils.reduce_batch_minus_min_and_max(
           x, reduce_instance_dims=reduce_instance_dims)
       # Verify that the output shapes are maintained.
-      if not reduce_instance_dims:
+      if (not reduce_instance_dims and not isinstance(x, tf.RaggedTensor)):
         for tensor in result:
           self.assertEqual(x.get_shape()[1:].as_list(),
                            tensor.get_shape().as_list())
@@ -1133,38 +1476,72 @@ class TFUtilsTest(test_case.TransformTestCase):
     self.assertAllEqual(x_minus_min, expected_x_minus_min)
     self.assertAllEqual(x_max, expected_x_max)
 
-  @test_case.named_parameters(test_case.cross_with_function_handlers([
-      dict(
-          testcase_name='sparse',
-          input_signature=[tf.SparseTensorSpec([None, None], tf.int64)],
-          x=tf.compat.v1.SparseTensorValue(
-              indices=[[0, 0], [1, 1], [2, 2], [3, 1]],
-              values=[3, 2, -1, 3],
-              dense_shape=[4, 5]),
-          expected_x_minus_min=[1, -3],
-          expected_x_max=[3, 3]),
-      dict(
-          testcase_name='float',
-          input_signature=[tf.TensorSpec([None, None], tf.float32)],
-          x=[[1], [5], [2], [3]],
-          expected_x_minus_min=[-1, -3],
-          expected_x_max=[5, 3]),
-      dict(
-          testcase_name='float3dims',
-          input_signature=[tf.TensorSpec([None, None, None], tf.float32)],
-          x=[[[1, 5], [1, 1]],
-             [[5, 1], [5, 5]],
-             [[2, 2], [2, 5]],
-             [[3, -3], [3, 3]]],
-          expected_x_minus_min=[-1, 3],
-          expected_x_max=[5, 3]),
-  ]))
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers([
+          dict(
+              testcase_name='sparse',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [1, 1], [2, 2], [3, 1]],
+                  values=[3, 2, -1, 3],
+                  dense_shape=[4, 5]),
+              key=['a', 'a', 'a', 'b'],
+              expected_key_vocab=[b'a', b'b'],
+              expected_x_minus_min=[1, -3],
+              expected_x_max=[3, 3],
+              input_signature=[
+                  tf.SparseTensorSpec([None, None], tf.int64),
+                  tf.TensorSpec([None], tf.string)
+              ]),
+          dict(
+              testcase_name='float',
+              x=[[1], [5], [2], [3]],
+              key=['a', 'a', 'a', 'b'],
+              expected_key_vocab=[b'a', b'b'],
+              expected_x_minus_min=[-1, -3],
+              expected_x_max=[5, 3],
+              input_signature=[
+                  tf.TensorSpec([None, None], tf.float32),
+                  tf.TensorSpec([None], tf.string)
+              ]),
+          dict(
+              testcase_name='float3dims',
+              x=[[[1, 5], [1, 1]], [[5, 1], [5, 5]], [[2, 2], [2, 5]],
+                 [[3, -3], [3, 3]]],
+              key=['a', 'a', 'a', 'b'],
+              expected_key_vocab=[b'a', b'b'],
+              expected_x_minus_min=[-1, 3],
+              expected_x_max=[5, 3],
+              input_signature=[
+                  tf.TensorSpec([None, None, None], tf.float32),
+                  tf.TensorSpec([None], tf.string)
+              ]),
+          dict(
+              testcase_name='ragged',
+              x=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array([3., 2., 3., 4., 5.], np.float32),
+                          row_splits=np.array([0, 2, 3, 4, 5])),
+                      row_splits=np.array([0, 2, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              key=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=tf.compat.v1.ragged.RaggedTensorValue(
+                          values=np.array(['a', 'a', 'b', 'a', 'b']),
+                          row_splits=np.array([0, 2, 3, 4, 5])),
+                      row_splits=np.array([0, 2, 3, 4])),
+                  row_splits=np.array([0, 2, 3])),
+              expected_key_vocab=[b'a', b'b'],
+              expected_x_minus_min=[-2., -3.],
+              expected_x_max=[4., 5.],
+              input_signature=[
+                  tf.RaggedTensorSpec([None, None, None, None], tf.float32),
+                  tf.RaggedTensorSpec([None, None, None, None], tf.string)
+              ]),
+      ]))
   def test_reduce_batch_minus_min_and_max_per_key(
-      self, x, input_signature, expected_x_minus_min, expected_x_max,
-      function_handler):
-    key = ['a', 'a', 'a', 'b']
-    input_signature = input_signature + [tf.TensorSpec([None], tf.string)]
-    expected_key_vocab = [b'a', b'b']
+      self, x, key, expected_key_vocab, expected_x_minus_min, expected_x_max,
+      input_signature, function_handler):
 
     @function_handler(input_signature=input_signature)
     def _reduce_batch_minus_min_and_max_per_key(x, key):
@@ -1177,13 +1554,38 @@ class TFUtilsTest(test_case.TransformTestCase):
     self.assertAllEqual(x_minus_min, expected_x_minus_min)
     self.assertAllEqual(x_max, expected_x_max)
 
-  @test_case.named_parameters(test_case.FUNCTION_HANDLERS)
-  def test_reduce_batch_count_per_key(self, function_handler):
-    key = ['a', 'a', 'a', 'b']
-    expected_key_vocab = [b'a', b'b']
-    expected_count = [3, 1]
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers([
+          dict(
+              testcase_name='dense',
+              key=['a', 'a', 'a', 'b'],
+              spec=tf.TensorSpec([None], tf.string),
+              expected_key_vocab=[b'a', b'b'],
+              expected_count=[3, 1]),
+          dict(
+              testcase_name='sparse',
+              key=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 0], [1, 1], [2, 2], [3, 1]],
+                  values=[3, 2, -1, 3],
+                  dense_shape=[4, 5]),
+              spec=tf.SparseTensorSpec([4, 5], tf.int64),
+              expected_key_vocab=[b'3', b'2', b'-1'],
+              expected_count=[2, 1, 1]),
+          dict(
+              testcase_name='ragged',
+              key=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=tf.compat.v1.ragged.RaggedTensorValue(
+                      values=np.array([1.2, 1., 1.2, 1.]),
+                      row_splits=np.array([0, 2, 4])),
+                  row_splits=np.array([0, 2])),
+              spec=tf.RaggedTensorSpec([1, None, None], tf.float32),
+              expected_key_vocab=[b'1.200000', b'1.000000'],
+              expected_count=[2, 2]),
+      ]))
+  def test_reduce_batch_count_per_key(self, key, spec, expected_key_vocab,
+                                      expected_count, function_handler):
 
-    @function_handler(input_signature=[tf.TensorSpec([None], tf.string)])
+    @function_handler(input_signature=[spec])
     def _reduce_batch_count_per_key(key):
       return tf_utils.reduce_batch_count_per_key(key)
 
@@ -1300,6 +1702,48 @@ class TFUtilsTest(test_case.TransformTestCase):
                                                                      sparse2),
                    feed_dict={sparse1: sparse_value1, sparse2: sparse_value2})
 
+  def test_convert_ragged_indices(self):
+    exception_cls = tf.errors.InvalidArgumentError
+    error_string = 'Condition x == y did not hold element-wise:'
+    ragged = tf.RaggedTensor.from_row_splits(
+        values=tf.RaggedTensor.from_row_splits(
+            values=np.array([1.2, 1., 1.2, 1.]), row_splits=np.array([0, 2,
+                                                                      4])),
+        row_splits=np.array([0, 1, 2]))
+    dense = tf.constant(['a', 'b'])
+    dense_result = tf.constant(['a', 'a', 'b', 'b'])
+    x, key = tf_utils._validate_and_get_dense_value_key_inputs(ragged, ragged)
+    self.assertAllEqual(self.evaluate(x), ragged.flat_values)
+    self.assertAllEqual(self.evaluate(key), ragged.flat_values)
+
+    x, key = tf_utils._validate_and_get_dense_value_key_inputs(ragged, dense)
+    self.assertAllEqual(self.evaluate(x), ragged.flat_values)
+    self.assertAllEqual(self.evaluate(key), dense_result)
+
+    with tf.compat.v1.Graph().as_default():
+      ragged1 = tf.compat.v1.ragged.placeholder(tf.float32, 2)
+      ragged2 = tf.compat.v1.ragged.placeholder(tf.float32, 2)
+      ragged_value1 = tf.compat.v1.ragged.RaggedTensorValue(
+          values=tf.compat.v1.ragged.RaggedTensorValue(
+              values=np.array([1.2, 1., 1.2, 1.]),
+              row_splits=np.array([0, 2, 4])),
+          row_splits=np.array([0, 2]))
+      ragged_value2 = tf.compat.v1.ragged.RaggedTensorValue(
+          values=tf.compat.v1.ragged.RaggedTensorValue(
+              values=np.array([1.2, 1., 1.2, 1.]),
+              row_splits=np.array([0, 3, 4])),
+          row_splits=np.array([0, 2]))
+
+      with tf.compat.v1.Session() as sess:
+        with self.assertRaisesRegex(exception_cls, error_string):
+          sess.run(
+              tf_utils._validate_and_get_dense_value_key_inputs(
+                  ragged1, ragged2),
+              feed_dict={
+                  ragged1: ragged_value1,
+                  ragged2: ragged_value2
+              })
+
   @test_case.named_parameters(
       dict(
           testcase_name='dense_tensor',
@@ -1309,7 +1753,7 @@ class TFUtilsTest(test_case.TransformTestCase):
           x=[5, 6, 7],
           expected_results=([2, 1, 2], [4, 3, 4])),
       dict(
-          testcase_name='sparse_tensor',
+          testcase_name='sparse_tensor_dense_key',
           key=['b', 'a', 'b'],
           key_vocab=['a', 'b'],
           reductions=([1, 2], [3, 4]),
@@ -1332,6 +1776,32 @@ class TFUtilsTest(test_case.TransformTestCase):
               dense_shape=[3, 5]),
           expected_results=([2, 1, 2, 2], [4, 3, 4, 4])),
       dict(
+          testcase_name='ragged_tensor_dense_key',
+          key=['a', 'b', 'a'],
+          key_vocab=['a', 'b'],
+          reductions=([1, 2], [3, 4]),
+          x=tf.compat.v1.ragged.RaggedTensorValue(
+              values=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=np.array([1.2, 1., 1.2, 1.]),
+                  row_splits=np.array([0, 2, 4])),
+              row_splits=np.array([0, 1, 2, 2])),
+          expected_results=([1, 1, 2, 2], [3, 3, 4, 4])),
+      dict(
+          testcase_name='ragged_tensor_ragged_key',
+          key=tf.compat.v1.ragged.RaggedTensorValue(
+              values=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=np.array(['a', 'b', 'b', 'a']),
+                  row_splits=np.array([0, 2, 4])),
+              row_splits=np.array([0, 2])),
+          key_vocab=['a', 'b'],
+          reductions=([1, 2], [3, 4]),
+          x=tf.compat.v1.ragged.RaggedTensorValue(
+              values=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=np.array([1.2, 1., 1.2, 1.]),
+                  row_splits=np.array([0, 2, 4])),
+              row_splits=np.array([0, 2])),
+          expected_results=([1, 2, 2, 1], [3, 4, 4, 3])),
+      dict(
           testcase_name='missing_key',
           key=['b', 'a', 'c'],
           key_vocab=['z', 'a', 'b'],
@@ -1342,16 +1812,10 @@ class TFUtilsTest(test_case.TransformTestCase):
   def test_map_per_key_reductions(
       self, key, key_vocab, reductions, x, expected_results):
     with tf.compat.v1.Graph().as_default():
-      if isinstance(key, tf.compat.v1.SparseTensorValue):
-        key = tf.compat.v1.convert_to_tensor_or_sparse_tensor(key)
-      else:
-        key = tf.constant(key)
+      key = _value_to_tensor(key)
       key_vocab = tf.constant(key_vocab)
       reductions = tuple([tf.constant(t) for t in reductions])
-      if isinstance(x, tf.compat.v1.SparseTensorValue):
-        x = tf.compat.v1.convert_to_tensor_or_sparse_tensor(x)
-      else:
-        x = tf.constant(x)
+      x = _value_to_tensor(x)
       expected_results = tuple(tf.constant(t) for t in expected_results)
       results = tf_utils.map_per_key_reductions(reductions, key, key_vocab, x)
       with tf.compat.v1.Session() as sess:

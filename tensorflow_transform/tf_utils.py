@@ -82,12 +82,22 @@ def _copy_tensor_or_composite_tensor(tensor):
   return _copy_tensor(tensor)
 
 
-def reduce_batch_weighted_counts(x, weights=None):
+def _get_ragged_batch_value_rowids(tensor: tf.RaggedTensor) -> tf.Tensor:
+  nested_value_rowids = tensor.nested_value_rowids()
+  result = nested_value_rowids[-1]
+  for value_rowids in reversed(nested_value_rowids[:-1]):
+    result = tf.gather(value_rowids, result)
+  return result
+
+
+def reduce_batch_weighted_counts(
+    x: common_types.InputTensorType,
+    weights: Optional[tf.Tensor] = None) -> ReducedBatchWeightedCounts:
   """Performs batch-wise reduction to produce (possibly weighted) counts.
 
   Args:
-    x: Input `Tensor`.
-    weights: (Optional) Weights input `Tensor`.
+    x: Input `Tensor` or `CompositeTensor`.
+    weights: (Optional) Input weights.
 
   Returns:
     a named tuple of...
@@ -97,11 +107,13 @@ def reduce_batch_weighted_counts(x, weights=None):
   """
   if isinstance(x, tf.SparseTensor):
     x = x.values
+  elif isinstance(x, tf.RaggedTensor):
+    x = x.flat_values
   if weights is None:
     # TODO(b/112916494): Always do batch wise reduction once possible.
 
     return ReducedBatchWeightedCounts(tf.reshape(x, [-1]), None, None, None)
-  # TODO(b/134075780): Revisit expected weights shape when input is sparse.
+  # TODO(b/134075780): Revisit expected weights shape when input is composite.
   x, weights = assert_same_shape(x, weights)
   weights = tf.reshape(weights, [-1])
   x = tf.reshape(x, [-1])
@@ -112,10 +124,11 @@ def reduce_batch_weighted_counts(x, weights=None):
                                     None)
 
 
-def reduce_batch_weighted_cooccurrences(x_input,
-                                        y_input,
-                                        weights_input=None,
-                                        extend_with_sentinel_counts=True):
+def reduce_batch_weighted_cooccurrences(
+    x_input: common_types.InputTensorType,
+    y_input: tf.Tensor,
+    weights_input: Optional[tf.Tensor] = None,
+    extend_with_sentinel_counts: bool = True) -> ReducedBatchWeightedCounts:
   """Performs batch-wise reduction to produce weighted co-occurrences.
 
   Computes the weighted co-occurrence of each feature value in x, for each value
@@ -124,9 +137,9 @@ def reduce_batch_weighted_cooccurrences(x_input,
   that is used to accumulate the global distribution of y values.
 
   Args:
-    x_input: Input `Tensor` or `SparseTensor`.
-    y_input: Integer `Tensor` or `SparseTensor` with which to compute the
-      co-occurrence with x_input.
+    x_input: Input `Tensor` or `CompositeTensor`.
+    y_input: Integer `Tensor` with which to compute the co-occurrence with
+      x_input.
     weights_input: (Optional) Weights input `Tensor`.
     extend_with_sentinel_counts: If True, the reduced batch will be extended
       a sentinel value that accumlate the total distribution of y values. Should
@@ -152,6 +165,14 @@ def reduce_batch_weighted_cooccurrences(x_input,
     with tf.control_dependencies([assert_eq]):
       y = tf.gather(y_input, batch_indices)
     x = x_input.values
+  elif isinstance(x_input, tf.RaggedTensor):
+    # Each batch instance in x corresponds to a single value in y.
+    x_row_indices = _get_ragged_batch_value_rowids(x_input)
+    assert_compatible = tf.debugging.assert_greater_equal(
+        tf.shape(y_input, out_type=tf.int64)[0], x_input.bounding_shape(axis=0))
+    with tf.control_dependencies([assert_compatible]):
+      x = tf.ensure_shape(x_input.flat_values, [None])
+      y = tf.gather(y_input, x_row_indices)
   else:
     y = y_input
     x = x_input
@@ -343,15 +364,15 @@ def _sparse_reduce_batch_keep_shape(
   return result
 
 
-def reduce_batch_count(x, reduce_instance_dims):
+def reduce_batch_count(x: common_types.InputTensorType,
+                       reduce_instance_dims: bool) -> tf.Tensor:
   """Counts elements in the given tensor.
 
   Args:
-    x: A `Tensor` or `SparseTensor`.
+    x: A `Tensor` or `CompositeTensor`.
     reduce_instance_dims: A bool, if True - collapses the batch and instance
-        dimensions to arrive at a single scalar output. Otherwise, only
-        collapses the batch dimension and outputs a `Tensor` of the same shape
-        as the input.
+      dimensions to arrive at a single scalar output. Otherwise, only collapses
+      the batch dimension and outputs a `Tensor` of the same shape as the input.
 
   Returns:
     The element count of `x`. The result is either a scalar if
@@ -374,6 +395,12 @@ def reduce_batch_count(x, reduce_instance_dims):
       if hasattr(x, '_dense_shape_default'):
         ones_like._dense_shape_default = x._dense_shape_default  # pylint: disable=protected-access
       return _sparse_reduce_batch_keep_shape(tf.sparse.reduce_sum, ones_like)
+  elif isinstance(x, tf.RaggedTensor):
+    if reduce_instance_dims:
+      x = x.flat_values
+    else:
+      finite_mask = tf.cast(_is_finite(x), tf.int64)
+      return tf.math.reduce_sum(finite_mask, axis=0).to_tensor()
 
   # Exlude NaNs and infinite elements from size calculation. They can only occur
   # in tensors with floating data types.
@@ -389,7 +416,8 @@ def reduce_batch_count(x, reduce_instance_dims):
   return tf.fill(x_shape[1:], x_shape[0])
 
 
-def _to_string(x):
+def _to_string(x: common_types.InputTensorType) -> common_types.InputTensorType:
+  """Converts values in the given `Tensor` or `CompositeTensor` to strings."""
   if x.dtype is tf.string:
     return x
   elif isinstance(x, tf.SparseTensor):
@@ -397,31 +425,37 @@ def _to_string(x):
         values=tf.strings.as_string(x.values),
         indices=x.indices,
         dense_shape=x.dense_shape)
+  elif isinstance(x, tf.RaggedTensor):
+    return tf.RaggedTensor.from_row_splits(
+        values=_to_string(x.values), row_splits=x.row_splits)
   else:
     return tf.strings.as_string(x)
 
 
 def reduce_batch_count_per_key(
-    key: common_types.TensorType) -> Tuple[tf.Tensor, tf.Tensor]:
+    key: common_types.InputTensorType) -> Tuple[tf.Tensor, tf.Tensor]:
   """Computes per-key counts in the given tensor.
 
   Args:
-    key: A `Tensor` or `SparseTensor`.
+    key: A `Tensor` or `CompositeTensor`.
 
   Returns:
-    A 2-tuple containing the `Tensor`s (key_vocab, count_per_key).
+    A 2-tuple containing the tensor's (key_vocab, count_per_key).
   """
   key = _to_string(key)
 
   if isinstance(key, tf.SparseTensor):
     key = key.values
+  elif isinstance(key, tf.RaggedTensor):
+    key = key.flat_values
   key.set_shape([None])
   unique = tf.unique_with_counts(key, out_idx=tf.int64)
 
   return unique.y, unique.count
 
 
-def reorder_histogram(bucket_vocab, counts, boundary_size):
+def reorder_histogram(bucket_vocab: tf.Tensor, counts: tf.Tensor,
+                      boundary_size: int) -> tf.Tensor:
   """Return the histogram counts in indexed order, and zero out missing values.
 
   The count_elements analyzer returns counts in alphanumeric order, only for the
@@ -439,10 +473,10 @@ def reorder_histogram(bucket_vocab, counts, boundary_size):
 
   Args:
     bucket_vocab: A `Tensor` that names the buckets corresponding to the count
-        information returned.
+      information returned.
     counts: A `Tensor` that matches the bucket_vocab.
     boundary_size: A scalar that provides information about how big the returned
-        counts should be.
+      counts should be.
 
   Returns:
     counts: A `Tensor` of size boundary_size corresponding to counts of all
@@ -461,7 +495,7 @@ def reorder_histogram(bucket_vocab, counts, boundary_size):
 
 # TODO(b/62379925): Remove this once all supported TF versions have
 # tf.data.experimental.DatasetInitializer.
-def is_vocabulary_tfrecord_supported():
+def is_vocabulary_tfrecord_supported() -> bool:
   return ((hasattr(tf.data.experimental, 'DatasetInitializer') or
            hasattr(tf.lookup.experimental, 'DatasetInitializer')) and
           tf.version.VERSION >= '2.4')
@@ -602,11 +636,10 @@ def _split_vocabulary_entries(batched_vocab_lines):
     return split[1], split[0]
 
 
-def apply_per_key_vocabulary(
-    per_key_filename: common_types.TensorType,
-    key: common_types.TensorType,
-    default_value: Optional[str] = None,
-    target_ndims: Optional[int] = None) -> common_types.TensorType:
+def apply_per_key_vocabulary(per_key_filename: tf.Tensor,
+                             key: tf.Tensor,
+                             default_value: Optional[str] = None,
+                             target_ndims: Optional[int] = None) -> tf.Tensor:
   """Apply a stored key-value mapping to a set of keys.
 
   We expect the values stored in per_key_filename to be two comma-delimited
@@ -617,12 +650,12 @@ def apply_per_key_vocabulary(
 
   Args:
     per_key_filename:  The file name for the per-key vocabulary file.
-    key: A Tensor` of dtype tf.string, which will determine which values are
-        returned.
+    key: A `Tensor` of dtype tf.string, which will determine which values are
+      returned.
     default_value: (Optional) A string that determines the default output for
-        keys that are not found.
+      keys that are not found.
     target_ndims: (Optional) The requested rank of each returned value (wrapped
-        in a single Tensor).
+      in a single Tensor).
 
   Returns:
     A `Tensor` representing the mapped values of shape [None, 2, ...], where
@@ -657,66 +690,102 @@ def apply_per_key_vocabulary(
   return numbers if not target_ndims else _align_dims(numbers, target_ndims + 1)
 
 
-def _is_finite(x: tf.Tensor) -> tf.Tensor:
+def _is_finite(x: common_types.InputTensorType) -> common_types.InputTensorType:
   """Extension of `tf.math.is_finite` that works with all dtypes."""
   if x.dtype.is_floating:
     return tf.math.is_finite(x)
-  return tf.fill(tf.shape(x), True)
+  return tf.ones_like(x, dtype=tf.bool)
+
+
+def _reduce_batch_count_mean_and_var_sparse(
+    x: tf.SparseTensor) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+  """Computes elementwise count, mean and var for the given sparse tensor."""
+  x_count = tf.cast(reduce_batch_count(x, reduce_instance_dims=False), x.dtype)
+  finite_x = tf.SparseTensor(
+      indices=x.indices,
+      values=tf.where(_is_finite(x.values), x.values, tf.zeros_like(x.values)),
+      dense_shape=x.dense_shape)
+  x_sum = _sparse_reduce_batch_keep_shape(tf.sparse.reduce_sum, finite_x)
+  x_mean = tf.math.divide_no_nan(x_sum, x_count)
+  x_minus_mean = tf.sparse.add(finite_x, -tf.broadcast_to(x_mean, tf.shape(x)))
+  x_minus_mean_sparse = tf.SparseTensor(x.indices,
+                                        tf.gather_nd(x_minus_mean, x.indices),
+                                        x.dense_shape)
+  sum_of_squares = tf.math.reduce_sum(
+      tf.square(tf.sparse.to_dense(x_minus_mean_sparse)), axis=0)
+  x_variance = tf.math.divide_no_nan(sum_of_squares, x_count)
+  return (x_count, x_mean, x_variance)
+
+
+def _reduce_batch_count_mean_and_var_ragged(
+    x: tf.RaggedTensor) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+  """Computes elementwise count, mean and var for the given ragged tensor."""
+  zeros_like_x = tf.zeros_like(x)
+  x_is_finite = _is_finite(x)
+  x_sum = tf.reduce_sum(tf.where(x_is_finite, x, zeros_like_x), axis=0)
+  dense_x_count = tf.cast(
+      reduce_batch_count(x, reduce_instance_dims=False), x.dtype)
+  x_count = tf.RaggedTensor.from_tensor(
+      dense_x_count, lengths=x_sum.nested_row_lengths())
+  x_mean = tf.math.divide_no_nan(x_sum, x_count).to_tensor()
+  dense_x = x.to_tensor()
+  dense_x_is_finite = _is_finite(dense_x)
+  x_minus_mean = tf.where(dense_x_is_finite, dense_x - x_mean,
+                          tf.zeros_like(dense_x))
+  x_minus_mean = tf.RaggedTensor.from_tensor(
+      x_minus_mean, lengths=x.nested_row_lengths())
+  sum_of_squares = tf.reduce_sum(input_tensor=tf.square(x_minus_mean), axis=0)
+  x_variance = tf.math.divide_no_nan(sum_of_squares, x_count)
+  return (dense_x_count, x_mean, x_variance.to_tensor())
+
+
+def _reduce_batch_count_mean_and_var_dense(
+    x: tf.Tensor,
+    reduce_instance_dims: bool) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+  """Computes count, mean and var for the given dense tensor."""
+  axis = None if reduce_instance_dims else 0
+  x_count = tf.cast(reduce_batch_count(x, reduce_instance_dims), x.dtype)
+  zeros_like_x = tf.zeros_like(x)
+  x_is_finite = _is_finite(x)
+  x_sum = tf.reduce_sum(tf.where(x_is_finite, x, zeros_like_x), axis=axis)
+  x_mean = tf.math.divide_no_nan(x_sum, x_count)
+  x_minus_mean = tf.where(x_is_finite, x - x_mean, zeros_like_x)
+  sum_of_squares = tf.reduce_sum(
+      input_tensor=tf.square(x_minus_mean), axis=axis)
+  x_variance = tf.math.divide_no_nan(sum_of_squares, x_count)
+  return (x_count, x_mean, x_variance)
 
 
 def reduce_batch_count_mean_and_var(
-    x: common_types.TensorType,
+    x: common_types.InputTensorType,
     reduce_instance_dims: bool) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
   """Computes element count, mean and var for the given tensor.
 
   Args:
-    x: A `Tensor` or `SparseTensor`.
+    x: A `Tensor` or `CompositeTensor`.
     reduce_instance_dims: A bool, if True - collapses the batch and instance
         dimensions to arrive at a single scalar output. Otherwise, only
         collapses the batch dimension and outputs a `Tensor` of the same shape
         as the input.
 
   Returns:
-    A 3-tuple containing the `Tensor`s (count, mean, var). NaNs and infinite
+    A 3-tuple containing the tensor's (count, mean, var). NaNs and infinite
     input values are ignored.
   """
-  if isinstance(x, tf.SparseTensor) and reduce_instance_dims:
-    x = x.values
-
-  x_count = tf.cast(reduce_batch_count(x, reduce_instance_dims), x.dtype)
-
-  axis = None if reduce_instance_dims else 0
-
   if isinstance(x, tf.SparseTensor):
-    # This means reduce_instance_dims=False.
-
-    finite_x = tf.SparseTensor(
-        indices=x.indices,
-        values=tf.where(
-            _is_finite(x.values), x.values, tf.zeros_like(x.values)),
-        dense_shape=x.dense_shape)
-    x_sum = _sparse_reduce_batch_keep_shape(tf.sparse.reduce_sum, finite_x)
-    x_mean = tf.math.divide_no_nan(x_sum, x_count)
-    x_minus_mean = tf.sparse.add(finite_x,
-                                 -tf.broadcast_to(x_mean, tf.shape(x)))
-    x_minus_mean_sparse = tf.SparseTensor(x.indices,
-                                          tf.gather_nd(x_minus_mean, x.indices),
-                                          x.dense_shape)
-    sum_of_squares = tf.math.reduce_sum(
-        tf.square(tf.sparse.to_dense(x_minus_mean_sparse)), axis=0)
-    x_variance = tf.math.divide_no_nan(sum_of_squares, x_count)
-
+    if reduce_instance_dims:
+      return _reduce_batch_count_mean_and_var_dense(
+          x.values, reduce_instance_dims=True)
+    else:
+      return _reduce_batch_count_mean_and_var_sparse(x)
+  elif isinstance(x, tf.RaggedTensor):
+    if reduce_instance_dims:
+      return _reduce_batch_count_mean_and_var_dense(
+          x.flat_values, reduce_instance_dims=True)
+    else:
+      return _reduce_batch_count_mean_and_var_ragged(x)
   else:
-    zeros_like_x = tf.zeros_like(x)
-    x_is_finite = _is_finite(x)
-    x_sum = tf.reduce_sum(tf.where(x_is_finite, x, zeros_like_x), axis=axis)
-    x_mean = tf.math.divide_no_nan(x_sum, x_count)
-    x_minus_mean = tf.where(x_is_finite, x - x_mean, zeros_like_x)
-    sum_of_squares = tf.reduce_sum(
-        input_tensor=tf.square(x_minus_mean), axis=axis)
-    x_variance = tf.math.divide_no_nan(sum_of_squares, x_count)
-
-  return (x_count, x_mean, x_variance)
+    return _reduce_batch_count_mean_and_var_dense(x, reduce_instance_dims)
 
 
 def _num_terms_and_factors(num_samples, dtype):
@@ -866,14 +935,17 @@ def _iteration_l_moments_dense(
           l2_factors, l3_factors, l4_factors, x_rank_2)
 
 
-def reduce_batch_count_l_moments(x, reduce_instance_dims):
+def reduce_batch_count_l_moments(
+    x: common_types.InputTensorType, reduce_instance_dims: bool
+) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor,
+           tf.Tensor, tf.Tensor]:
   """Computes element first 4 L-moments and the corresponding counts.
 
   Computes the first 4 L-moments (https://en.wikipedia.org/wiki/L-moment) and
   the number of samples, pairs, etc. used to compute them.
 
   Args:
-    x: A `Tensor` or `SparseTensor`.
+    x: A `Tensor` or `CompositeTensor`.
     reduce_instance_dims: A bool, if True - collapses the batch and instance
         dimensions to arrive at a single scalar output. Otherwise, only
         collapses the batch dimension and outputs a `Tensor` of the same shape
@@ -887,6 +959,12 @@ def reduce_batch_count_l_moments(x, reduce_instance_dims):
   """
   if isinstance(x, tf.SparseTensor) and reduce_instance_dims:
     x = x.values
+  elif isinstance(x, tf.RaggedTensor):
+    if reduce_instance_dims:
+      x = x.flat_values
+    else:
+      raise NotImplementedError(
+          'L-moments only support reduced dims for RaggedTensors')
 
   if isinstance(x, tf.SparseTensor):
     batch_size = x.dense_shape[0]
@@ -943,37 +1021,60 @@ def reduce_batch_count_l_moments(x, reduce_instance_dims):
 
 
 def _validate_and_get_dense_value_key_inputs(
-    x: common_types.TensorType,
-    key: common_types.TensorType) -> Tuple[tf.Tensor, tf.Tensor]:
+    x: common_types.InputTensorType,
+    key: common_types.InputTensorType) -> Tuple[tf.Tensor, tf.Tensor]:
   """Validate x and key and returns dense representations if feasible.
 
   Check if sparse x and sparse key have identical indices, map key if dense.
 
   Args:
-    x: A `Tensor` or `SparseTensor`.
-    key: A `Tensor` or `SparseTensor`. Must be `Tensor` if x is `SparseTensor`.
+    x: A `Tensor` or `CompositeTensor`.
+    key: A `Tensor` or `CompositeTensor`. Must be `Tensor` if x is `Tensor`.
 
   Returns:
-    The values of x and key if both are sparse, the values of x and a mapped key
-    if only x is sparse, or the original x and key if both are dense.
+    The values of x and key if both are composite, the values of x and a mapped
+    key if only x is composite, or the original x and key if both are dense.
   """
 
   if isinstance(x, tf.Tensor) and isinstance(key, tf.Tensor):
     return x, key
-  elif isinstance(x, tf.Tensor) and isinstance(key, tf.SparseTensor):
+  elif isinstance(x, tf.Tensor):
     raise ValueError('A dense key is required if x is dense')
+
+  elif isinstance(x, tf.SparseTensor) and isinstance(key, tf.SparseTensor):
+    assert_shape = tf.debugging.assert_equal(x.dense_shape, key.dense_shape)
+    assert_eq = tf.debugging.assert_equal(x.indices, key.indices)
+    with tf.control_dependencies([assert_eq, assert_shape]):
+      return tf.identity(x.values), tf.identity(key.values)
   elif isinstance(x, tf.SparseTensor) and isinstance(key, tf.Tensor):
     # In this case, the row of x corresponds to the key at that row.
     x_row_indices = x.indices[:, 0]
-    assert_compatible = tf.compat.v1.assert_greater_equal(
-        tf.size(key, out_type=tf.int64), x.dense_shape[0])
+    assert_compatible = tf.debugging.assert_greater_equal(
+        tf.shape(key, out_type=tf.int64)[0], x.dense_shape[0])
     with tf.control_dependencies([assert_compatible]):
       return x.values, tf.gather(key, x_row_indices)
+  elif isinstance(x, tf.SparseTensor):
+    raise ValueError('A sparse or dense key is required if x is sparse')
 
-  assert_shape = tf.compat.v1.assert_equal(x.dense_shape, key.dense_shape)
-  assert_eq = tf.compat.v1.assert_equal(x.indices, key.indices)
-  with tf.control_dependencies([assert_eq, assert_shape]):
-    return tf.identity(x.values), tf.identity(key.values)
+  elif isinstance(x, tf.RaggedTensor) and isinstance(key, tf.RaggedTensor):
+    x.shape.assert_is_compatible_with(key.shape)
+    assert_ops = [
+        tf.debugging.assert_equal(x_split, key_split) for x_split, key_split in
+        zip(x.nested_row_splits, key.nested_row_splits)
+    ]
+    with tf.control_dependencies(assert_ops):
+      return (tf.ensure_shape(tf.identity(x.flat_values), [None]),
+              tf.ensure_shape(tf.identity(key.flat_values), [None]))
+  elif isinstance(x, tf.RaggedTensor) and isinstance(key, tf.Tensor):
+    # Each batch instance in x corresponds to a single element in key.
+    x_row_indices = _get_ragged_batch_value_rowids(x)
+    assert_compatible = tf.debugging.assert_greater_equal(
+        tf.shape(key, out_type=tf.int64)[0], x.bounding_shape(axis=0))
+    with tf.control_dependencies([assert_compatible]):
+      return (tf.ensure_shape(x.flat_values,
+                              [None]), tf.gather(key, x_row_indices))
+  else:
+    raise ValueError('A ragged or dense key is required if x is ragged')
 
 
 def lookup_key(query: tf.Tensor, key_vocab: tf.Tensor) -> tf.Tensor:
@@ -1030,7 +1131,7 @@ def lookup_key(query: tf.Tensor, key_vocab: tf.Tensor) -> tf.Tensor:
   return _check_input_size_and_lookup_key()
 
 
-def _align_dims(tensor, target_ndims):
+def _align_dims(tensor: tf.Tensor, target_ndims: int) -> tf.Tensor:
   """Expand the rank of input tensor until it matches the target rank.
 
   Non-elementwise per-key reduce returns a tensor with rank 1 (batch).
@@ -1052,15 +1153,18 @@ def _align_dims(tensor, target_ndims):
   return tensor
 
 
-def map_per_key_reductions(tensors_to_map, key, key_vocab, original_input):
+def map_per_key_reductions(
+    tensors_to_map: Tuple[tf.Tensor, ...], key: common_types.InputTensorType,
+    key_vocab: tf.Tensor,
+    original_input: common_types.InputTensorType) -> Tuple[tf.Tensor, ...]:
   """Rearrange the reduced per-key result to correspond to the original keys.
 
   Args:
     tensors_to_map: A tuple of 1-D `Tensor`s that are same shape as key_vocab,
         to be mapped to respective key.
-    key: A `Tensor` or `SparseTensor`.
+    key: A `Tensor` or `CompositeTensor`.
     key_vocab: A 1-D `Tensor`.
-    original_input: A `Tensor` or `SparseTensor`.
+    original_input: A `Tensor` or `CompositeTensor`.
 
   Returns:
     A tuple same length as tensors_to_map, of `Tensor`s the same dimension as
@@ -1073,8 +1177,9 @@ def map_per_key_reductions(tensors_to_map, key, key_vocab, original_input):
   _, key = _validate_and_get_dense_value_key_inputs(original_input, key)
   key_indices = lookup_key(key, key_vocab)
 
-  ndims = None if isinstance(
-      original_input, tf.SparseTensor) else original_input.get_shape().ndims
+  ndims = (None if isinstance(original_input,
+                              (tf.SparseTensor, tf.RaggedTensor)) else
+           original_input.get_shape().ndims)
 
   # Append a 0 to allow mapping OOVs to it.
   tensors_to_map = [tf.concat([t, [0]], axis=0) for t in tensors_to_map]
@@ -1091,31 +1196,35 @@ def map_per_key_reductions(tensors_to_map, key, key_vocab, original_input):
   return tuple(mapped_result)
 
 
-def reduce_batch_count_mean_and_var_per_key(x, key, reduce_instance_dims):
+def reduce_batch_count_mean_and_var_per_key(
+    x: common_types.InputTensorType, key: common_types.InputTensorType,
+    reduce_instance_dims: bool
+) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
   """Computes per-key element count, mean and var for the given tensor.
 
   Args:
-    x: A `Tensor` or `SparseTensor`.
-    key: A `Tensor` or `SparseTensor` (cannot be None).
+    x: A `Tensor` or `CompositeTensor`.
+    key: A `Tensor` or `CompositeTensor` (cannot be None).
         Must meet one of the following conditions:
         1. Both x and key are dense,
-        2. Both x and key are sparse and `key` must exactly match `x` in
+        2. Both x and key are composite and `key` must exactly match `x` in
         everything except values,
-        3. The axis=1 index of each x matches its index of dense key.
+        3. The axis=1 index of each element of sparse x matches its index of
+        dense key.
     reduce_instance_dims: A bool, if True - collapses the batch and instance
         dimensions to arrive at a single scalar output. Otherwise, only
         collapses the batch dimension and outputs a `Tensor` of the same shape
-        as the input. Not supported for `SparseTensor`s.
+        as the input. Not supported for `CompositeTensor`s.
 
   Returns:
     A 4-tuple containing the `Tensor`s (key_vocab, count, mean, var). NaNs and
     infinite input values are ignored.
   """
 
-  if isinstance(x, tf.SparseTensor):
+  if isinstance(x, (tf.SparseTensor, tf.RaggedTensor)):
     if not reduce_instance_dims:
       raise NotImplementedError(
-          'Mean and var per key only support reduced dims for SparseTensors')
+          'Mean and var per key only support reduced dims for CompositeTensors')
 
   x, key = _validate_and_get_dense_value_key_inputs(x, key)
 
@@ -1129,8 +1238,9 @@ def reduce_batch_count_mean_and_var_per_key(x, key, reduce_instance_dims):
       x_count = tf.reduce_sum(x_count, axis=1)
     x_count = tf.math.unsorted_segment_sum(x_count, unique.idx,
                                            tf.size(unique.y))
-    sums = tf.reduce_sum(
-        finite_x, axis=1) if x.get_shape().ndims != 1 else finite_x
+    sums = (
+        tf.reduce_sum(finite_x, axis=1)
+        if x.get_shape().ndims != 1 else finite_x)
     sums = tf.math.unsorted_segment_sum(sums, unique.idx, tf.size(unique.y))
   else:
     sums = tf.math.unsorted_segment_sum(finite_x, unique.idx, tf.size(unique.y))
@@ -1253,6 +1363,13 @@ def serialize_example(features):
   return _encode_proto({'features': features}, 'tensorflow.Example')
 
 
+def _get_missing_value(dtype: tf.DType) -> tf.Tensor:
+  if dtype.is_floating:
+    return tf.constant(_FLOATING_NAN, dtype)
+  else:
+    return tf.constant(dtype.min + 1, dtype)
+
+
 def _sparse_minus_reduce_min_and_reduce_max(
     x: tf.SparseTensor) -> Tuple[tf.Tensor, tf.Tensor]:
   """Computes the -min and max of a SparseTensor x.
@@ -1278,12 +1395,7 @@ def _sparse_minus_reduce_min_and_reduce_max(
   x_batch_max = _sparse_reduce_batch_keep_shape(tf.sparse.reduce_max, x)
   x_batch_minus_min = _sparse_reduce_batch_keep_shape(tf.sparse.reduce_max,
                                                       minus_x)
-
-  if x.dtype.is_floating:
-    missing_value = tf.constant(_FLOATING_NAN, x.dtype)
-  else:
-    missing_value = tf.constant(x.dtype.min + 1, x.dtype)
-
+  missing_value = _get_missing_value(x.dtype)
   x_batch_max = tf.where(batch_has_no_values,
                          tf.fill(tf.shape(input=x_batch_max), missing_value),
                          x_batch_max)
@@ -1295,7 +1407,7 @@ def _sparse_minus_reduce_min_and_reduce_max(
 
 
 def reduce_batch_minus_min_and_max(
-    x: common_types.TensorType,
+    x: common_types.InputTensorType,
     reduce_instance_dims: bool) -> Tuple[tf.Tensor, tf.Tensor]:
   """Computes the -min and max of a tensor x.
 
@@ -1303,14 +1415,14 @@ def reduce_batch_minus_min_and_max(
   will both be -inf (consistent with`tf.reduce_max`).
 
   Args:
-    x: A `tf.Tensor`.
+    x: A `Tensor` or `CompositeTensor`.
     reduce_instance_dims: A bool indicating whether this should collapse the
       batch and instance dimensions to arrive at a single scalar output, or only
       collapse the batch dimension and outputs a vector of the same shape as the
       input.
 
   Returns:
-    The computed `tf.Tensor`s (batch -min, batch max) pair.
+    The computed tensor's (batch -min, batch max) pair.
   """
   # In TF < 2.3, neg(x) would throw an exception, if x was tf.int16. Hence, cast
   # to tf.int32.
@@ -1323,6 +1435,8 @@ def reduce_batch_minus_min_and_max(
   if reduce_instance_dims:
     if isinstance(x, tf.SparseTensor):
       x = x.values
+    elif isinstance(x, tf.RaggedTensor):
+      x = x.flat_values
 
     x_batch_max = tf.reduce_max(input_tensor=x)
     x_batch_minus_min = tf.reduce_max(input_tensor=tf.zeros_like(x) - x)
@@ -1331,22 +1445,32 @@ def reduce_batch_minus_min_and_max(
   elif isinstance(x, tf.SparseTensor):
     return _sparse_minus_reduce_min_and_reduce_max(x)
 
+  x_batch_max = tf.reduce_max(input_tensor=x, axis=0)
+  if isinstance(x, tf.RaggedTensor):
+    x_batch_minus_min = tf.reduce_max(input_tensor=tf.math.negative(x), axis=0)
+    missing_value = _get_missing_value(x.dtype)
+    return (x_batch_minus_min.to_tensor(default_value=missing_value),
+            x_batch_max.to_tensor(default_value=missing_value))
   else:
-    return (tf.reduce_max(input_tensor=0 - x, axis=0),
-            tf.reduce_max(input_tensor=x, axis=0))
+    # TODO(iindyk): switch to `tf.math.negative` when analyzer cache will get
+    # invalidated next time.
+    return (tf.reduce_max(input_tensor=0 - x, axis=0), x_batch_max)
 
 
-def reduce_batch_minus_min_and_max_per_key(x, key):
+def reduce_batch_minus_min_and_max_per_key(
+    x: common_types.InputTensorType, key: common_types.InputTensorType
+) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
   """Computes the -min and max of a tensor x.
 
   Args:
-    x: A `tf.Tensor` or `SparseTensor`.
-    key: A `Tensor` or `SparseTensor`.
+    x: A `Tensor` or `CompositeTensor`.
+    key: A `Tensor` or `CompositeTensor`.
         Must meet one of the following conditions:
         1. Both x and key are dense,
-        2. Both x and key are sparse and `key` must exactly match `x` in
+        2. Both x and key are composite and `key` must exactly match `x` in
         everything except values,
-        3. The axis=1 index of each x matches its index of dense key.
+        3. The axis=1 index of each element of sparse x matches its index of
+        dense key.
   Returns:
     A 3-tuple containing the `Tensor`s (key_vocab, min_per_key, max_per_key).
   """

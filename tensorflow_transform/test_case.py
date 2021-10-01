@@ -115,6 +115,10 @@ def _make_placeholder(tensor_spec):
   if isinstance(tensor_spec, tf.SparseTensorSpec):
     return tf.compat.v1.sparse_placeholder(
         shape=tensor_spec.shape, dtype=tensor_spec.dtype)
+  if isinstance(tensor_spec, tf.RaggedTensorSpec):
+    # TODO(b/160294509): Switch to public APIs once TF 1 support is dropped.
+    return tf.compat.v1.ragged.placeholder(
+        tensor_spec._dtype, tensor_spec._ragged_rank, value_shape=())  # pylint: disable=protected-access
   else:
     return tf.compat.v1.placeholder(
         shape=tensor_spec.shape, dtype=tensor_spec.dtype)
@@ -147,6 +151,15 @@ def _graph_function_handler(input_signature):
   return wrapper
 
 
+def _ragged_value_as_constant(value, dtype):
+  if isinstance(value, tf.compat.v1.ragged.RaggedTensorValue):
+    return tf.RaggedTensor.from_row_splits(
+        values=_ragged_value_as_constant(value.values, dtype),
+        row_splits=tf.constant(value.row_splits, dtype=tf.int64))
+  else:
+    return tf.constant(value, dtype=dtype)
+
+
 def _wrap_as_constant(value, tensor_spec):
   """Wrap a value as a constant, using tensor_spec for shape and type info."""
   if isinstance(tensor_spec, tf.SparseTensorSpec):
@@ -154,6 +167,9 @@ def _wrap_as_constant(value, tensor_spec):
         indices=tf.constant(value.indices, dtype=tf.int64),
         values=tf.constant(value.values, dtype=tensor_spec.dtype),
         dense_shape=tf.constant(value.dense_shape, dtype=tf.int64))
+  elif isinstance(tensor_spec, tf.RaggedTensorSpec):
+    # TODO(b/160294509): Switch to public APIs once TF 1 support is dropped.
+    result = _ragged_value_as_constant(value, tensor_spec._dtype)  # pylint: disable=protected-access
   else:
     result = tf.constant(value, dtype=tensor_spec.dtype)
     result.shape.assert_is_compatible_with(tensor_spec.shape)
@@ -181,7 +197,13 @@ def _eager_function_handler(input_signature):
         if hasattr(output, '_make'):
           return output._make([np.asarray(tensor) for tensor in output])
         if isinstance(output, (tuple, list)):
-          return [np.asarray(tensor) for tensor in output]
+          return [
+              tensor.to_list()
+              if isinstance(tensor, tf.RaggedTensor) else np.asarray(tensor)
+              for tensor in output
+          ]
+        elif isinstance(output, tf.RaggedTensor):
+          return output.to_list()
         else:
           return np.asarray(output)
 
