@@ -998,12 +998,9 @@ class _AnalyzeDatasetCommon(beam.PTransform):
       raise ValueError('The input metadata is empty.')
 
     base_temp_dir = Context.create_base_temp_dir()
-    # TODO(b/149997088): Do not pass base_temp_dir here as this graph does not
-    # need to be serialized to SavedModel.
     graph, structured_inputs, structured_outputs = (
         impl_helper.trace_preprocessing_function(self._preprocessing_fn, specs,
-                                                 self._use_tf_compat_v1,
-                                                 base_temp_dir))
+                                                 self._use_tf_compat_v1))
 
     # At this point we check that the preprocessing_fn has at least one
     # output. This is because if we allowed the output of preprocessing_fn to
@@ -1082,7 +1079,6 @@ class _AnalyzeDatasetCommon(beam.PTransform):
       # op and hence may not return the same tensors that were annotated.
       tf_graph_context = graph_context.TFGraphContext(
           module_to_export=tf.Module(),
-          temp_dir=base_temp_dir,
           evaluated_replacements={})
       concrete_metadata_fn = schema_inference.get_traced_metadata_fn(
           preprocessing_fn=self._preprocessing_fn,

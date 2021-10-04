@@ -86,7 +86,6 @@ class SchemaInferenceTest(test_case.TransformTestCase):
           tf_func.graph)
       tf_graph_context = graph_context.TFGraphContext(
           module_to_export=tf.Module(),
-          temp_dir=os.path.join(self.get_temp_dir(), self._testMethodName),
           evaluated_replacements={})
       concrete_metadata_fn = schema_inference.get_traced_metadata_fn(
           preprocessing_fn=preprocessing_fn,

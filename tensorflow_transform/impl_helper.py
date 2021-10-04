@@ -744,7 +744,6 @@ def _trace_and_get_metadata(
     concrete_transform_fn: function.ConcreteFunction,
     preprocessing_fn: Callable[[Mapping[str, common_types.InputTensorType]],
                                Mapping[str, common_types.InputTensorType]],
-    base_temp_dir: Optional[str],
     tensor_replacement_map: Optional[Dict[str, tf.Tensor]]
 ) -> dataset_metadata.DatasetMetadata:
   """Compute and return metadata for the outputs of `concrete_transform_fn`."""
@@ -752,7 +751,6 @@ def _trace_and_get_metadata(
       concrete_transform_fn.graph)
   tf_graph_context = graph_context.TFGraphContext(
       module_to_export=tf.Module(),
-      temp_dir=base_temp_dir,
       evaluated_replacements=tensor_replacement_map)
   concrete_metadata_fn = schema_inference.get_traced_metadata_fn(
       preprocessing_fn,
@@ -804,7 +802,7 @@ def trace_and_write_v2_saved_model(
   if not concrete_transform_fn.graph.get_collection(
       analyzer_nodes.TENSOR_REPLACEMENTS):
     metadata = _trace_and_get_metadata(concrete_transform_fn, preprocessing_fn,
-                                       base_temp_dir, tensor_replacement_map)
+                                       tensor_replacement_map)
     metadata_io.write_metadata(metadata,
                                os.path.join(saved_model_dir, METADATA_DIR_NAME))
 
@@ -866,7 +864,6 @@ def analyze_in_place(preprocessing_fn, force_tf_compat_v1, feature_specs,
     transformed_metadata = _trace_and_get_metadata(
         concrete_transform_fn=concrete_transform_fn,
         preprocessing_fn=preprocessing_fn,
-        base_temp_dir=None,
         tensor_replacement_map=None)
   transformed_metadata_dir = os.path.join(
       transform_output_path, TFTransformOutput.TRANSFORMED_METADATA_DIR)
