@@ -655,7 +655,7 @@ def build(graph,
     translate_visitor.intermediate_output_signature = (
         intermediate_output_signature)
     translate_visitor.extracted_values_dict = extracted_values_dict
-    for analyzer_name, tensor, value_node, is_asset_filepath in tensor_sinks:
+    for tensor, value_node, is_asset_filepath in tensor_sinks:
       hashable_tensor = tf_utils.hashable_tensor_or_op(tensor)
       # Don't compute a binding/sink/replacement that's already been computed
       if sink_tensors_ready[hashable_tensor]:
@@ -671,7 +671,7 @@ def build(graph,
           nodes.apply_operation(
               beam_nodes.CreateTensorBinding,
               translated_value_node,
-              tensor=analyzer_name,
+              tensor=str(tensor.name),
               is_asset_filepath=is_asset_filepath,
               label=analyzer_nodes.sanitize_label(
                   'CreateTensorBinding[{}]'.format(name))))

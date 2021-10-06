@@ -72,16 +72,13 @@ class TFGraphContext:
 
   def __enter__(self):
     assert getattr(self._thread_local, 'current_state', None) is None
-    assert getattr(self._thread_local, 'analyzer_idx', None) is None
     self._thread_local.current_state = self._State(
         module_to_export=self._module_to_export,
         temp_dir=self._temp_dir,
         evaluated_replacements=self._evaluated_replacements)
-    self._thread_local.analyzer_idx = -1
 
   def __exit__(self, *exn_info):
     self._thread_local.current_state = None
-    self._thread_local.analyzer_idx = None
 
   @property
   def module_to_export(self):
@@ -92,12 +89,6 @@ class TFGraphContext:
     if hasattr(cls._thread_local, 'current_state'):
       return cls._thread_local.current_state
     return cls._State.make_empty()
-
-  @classmethod
-  def increment_analyzer_idx(cls) -> int:
-    assert getattr(cls._thread_local, 'analyzer_idx', None) is not None
-    cls._thread_local.analyzer_idx += 1
-    return cls._thread_local.analyzer_idx
 
   @classmethod
   def get_or_create_temp_dir(cls) -> Optional[str]:

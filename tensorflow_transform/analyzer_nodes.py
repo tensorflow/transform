@@ -124,7 +124,7 @@ def get_input_tensors_value_nodes(tensor_inputs):
 
 
 TensorSink = tfx_namedtuple.namedtuple(
-    'TensorSink', ['name', 'tensor', 'future', 'is_asset_filepath'])
+    'TensorSink', ['tensor', 'future', 'is_asset_filepath'])
 
 
 def _bind_future_as_tensor_v1(future: nodes.ValueNode,
@@ -133,9 +133,8 @@ def _bind_future_as_tensor_v1(future: nodes.ValueNode,
   """Bind a future value as a tensor to a TF1 graph."""
   result = tf.compat.v1.placeholder(tensor_info.dtype, tensor_info.shape, name)
   is_asset_filepath = tensor_info.temporary_asset_value is not None
-  tf.compat.v1.add_to_collection(
-      TENSOR_REPLACEMENTS,
-      TensorSink(str(result.name), result, future, is_asset_filepath))
+  tf.compat.v1.add_to_collection(TENSOR_REPLACEMENTS,
+                                 TensorSink(result, future, is_asset_filepath))
   return result
 
 
@@ -171,6 +170,7 @@ def _get_temporary_analyzer_output(
       # serialized and a temporary asset file is written out . Else, a
       # placeholder is returned.
       # TODO(b/164921571) Support temporary files in tfrecord format.
+      # TODO(b/149997088): Reduce number of temporary files written out.
       if temp_dir:
         with tf.init_scope():
           # TODO(b/170111921): This temporary file should have a unique name to
@@ -186,11 +186,6 @@ def _get_temporary_analyzer_output(
             shape=tensor_info.shape,
             name=name)
       else:
-        # TODO(b/170111921): This placeholder should have a unique name to avoid
-        # namespace collisions between tensors that contain data of different
-        # dtypes.
-        suffix = uuid.uuid4().hex
-        name = f'{name}_{suffix}' if name else suffix
         graph_tensor = tf.raw_ops.Placeholder(
             dtype=tensor_info.dtype, shape=tensor_info.shape, name=name)
     else:
@@ -242,25 +237,31 @@ def _bind_future_as_tensor_v2(
       temp_dir, tensor_info, name)
   is_asset_filepath = tensor_info.temporary_asset_value is not None
 
+  # TODO(b/149997088): Switch to using a counter instead of tensor names.
   # Check if an evaluated value exists for this analyzer node.
   evaluated_replacements = TFGraphContext.get_evaluated_replacements()
   # evaluated_replacements is a dictionary from placeholder name to evaluated
   # tensor.
   # If `preprocessing_fn` was traced previously and this future was then
   # evaluated in a TFT phase, the result will be present in this dictionary.
-  analyzer_idx = TFGraphContext.increment_analyzer_idx()
-  analyzer_name = f'tft_analyzer_name_{analyzer_idx}'
+  analyzer_name = temporary_analyzer_info.graph_tensor.name
   if (evaluated_replacements is not None and
       analyzer_name in evaluated_replacements):
     replaced_result = evaluated_replacements[analyzer_name]
     if is_asset_filepath:
       graph.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
                               replaced_result)
-    return replaced_result
+      return replaced_result
+    else:
+      # Without the identity wrapper some V2 tests fail with AttributeError:
+      # Tensor.name is meaningless when eager execution is enabled.
+      # TODO(b/149997088): Remove the identity wrapper once we no longer rely on
+      # tensor names.
+      return tf.identity(replaced_result)
   else:
     graph.add_to_collection(
         TENSOR_REPLACEMENTS,
-        TensorSink(analyzer_name, temporary_analyzer_info.graph_tensor, future,
+        TensorSink(temporary_analyzer_info.graph_tensor, future,
                    is_asset_filepath))
     eager_asset_path = temporary_analyzer_info.eager_asset_path
     if is_asset_filepath and eager_asset_path is not None:
