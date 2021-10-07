@@ -14,7 +14,6 @@
 """Functions to create the implementation graph."""
 
 import collections
-import copy
 import hashlib
 
 import tensorflow as tf
@@ -35,73 +34,6 @@ from tfx_bsl.types import tfx_namedtuple
 
 # Used for debugging only. This will point to the most recent graph built.
 _ANALYSIS_GRAPH = None
-
-
-def _serialize_op_attr(op_attr):
-  """Deterministicly serializes tf.Operation attrs since it is a map."""
-  sorted_attributes = sorted(op_attr.items(), key=lambda kv: kv[0])
-  if 'f' in op_attr:
-    # This is a tf.Function node, and it includes attributes that are
-    # inconsistent across runs such as _gradient_op_type, config_proto, so we
-    # only keep input and output types since other information will arrive from
-    # the FuncGraph attributes.
-    sorted_attributes = [
-        kv for kv in sorted_attributes if kv[0] in ('Tin', 'Tout')
-    ]
-  result = []
-  for key, attr_value in sorted_attributes:
-    result.append(key)
-    attr_value = copy.deepcopy(attr_value)
-    if attr_value.list.func:
-      raise ValueError(
-          'Unable to serialize op attributes that contain a `list.func` field')
-    if attr_value.HasField('func'):
-      # There should be a separate call for the FuncGraph attributes.
-      attr_value.ClearField('func')
-    result.append(attr_value.SerializeToString())
-  return result
-
-
-def _describe_path_as_analyzer_cache_hash(x, parents=None):
-  """Constructs a hash to describe a unique TF graph path.
-
-  Note: We do not rely on names for hashing since it can be fragile.
-
-  Args:
-    x: One of (None, tf.Operation, tf.Tensor, str), the current TF graph node.
-    parents: (Optional) a list of bytes, results of previous calls to this
-      function, where x was an ancestor to the current node x.
-
-  Returns:
-    A bytes hash of the path from x to its sources. None if x is None.
-  """
-  # This may happen in cases where tensors are outputs of previous analyzers,
-  # we don't need to describe a path for those.
-  if x is None:
-    assert parents is None
-    return None
-  parents = parents or []
-  if any(p is None for p in parents):
-    return None
-
-  if isinstance(x, tf.Operation):
-    values = _serialize_op_attr(x.node_def.attr)
-  elif isinstance(x, tf.Tensor):
-    # No need to add x.op to the hash since that should be included in parents.
-    values = [tf.compat.as_str_any(x.value_index)]
-  else:
-    assert isinstance(x, (str, bytes))
-    values = [x]
-
-  h = hashlib.sha1()
-  for value in values:
-    encoded = tf.compat.as_bytes(value)
-    h.update(encoded)
-
-  for p in parents:
-    h.update(p)
-
-  return h.digest()
 
 
 def _tensor_name(tensor):
@@ -631,7 +563,7 @@ def build(graph,
     # in this phase, based in whether their dependencies are ready.
     graph_analyzer = graph_tools.InitializableGraphAnalyzer(
         graph, input_signature, list(sink_tensors_ready.items()),
-        _describe_path_as_analyzer_cache_hash)
+        graph_tools.describe_path_as_analyzer_cache_hash)
     ready_traverser = nodes.Traverser(_ReadyVisitor(graph_analyzer))
 
     # Now create and apply a SavedModel with all tensors in tensor_bindings

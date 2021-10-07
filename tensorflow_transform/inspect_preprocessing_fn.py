@@ -21,22 +21,6 @@ from tensorflow_transform import nodes
 from tensorflow_transform import tf2_utils
 
 
-class _SourcedTensorsVisitor(nodes.Visitor):
-  """Visitor used to extract tensors that are inputs to `TensorSource` nodes."""
-
-  def __init__(self):
-    self.sourced_tensors = []
-
-  def visit(self, operation_def, input_values):
-    if isinstance(operation_def, analyzer_nodes.TensorSource):
-      for tensor in operation_def.tensors:
-        self.sourced_tensors.append(tensor)
-    return nodes.OperationNode(operation_def, input_values).outputs
-
-  def validate_value(self, value):
-    assert isinstance(value, nodes.ValueNode)
-
-
 def get_analyze_input_columns(preprocessing_fn,
                               specs,
                               force_tf_compat_v1=False):
@@ -60,7 +44,7 @@ def get_analyze_input_columns(preprocessing_fn,
           preprocessing_fn, specs, use_tf_compat_v1=use_tf_compat_v1))
 
   tensor_sinks = graph.get_collection(analyzer_nodes.TENSOR_REPLACEMENTS)
-  visitor = _SourcedTensorsVisitor()
+  visitor = graph_tools.SourcedTensorsVisitor()
   for tensor_sink in tensor_sinks:
     nodes.Traverser(visitor).visit_value_node(tensor_sink.future)
 

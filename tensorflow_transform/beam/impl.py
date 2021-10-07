@@ -622,6 +622,7 @@ class _CreateSavedModelImpl(beam.PTransform):
 
 def _create_v2_saved_model(tensor_replacement_map, base_temp_dir,
                            preprocessing_fn, input_signature,
+                           baseline_analyzers_fingerprint,
                            output_keys_to_name_map):
   """Writes out a SavedModelV2 with preprocessing_fn traced using tf.function.
 
@@ -636,6 +637,8 @@ def _create_v2_saved_model(tensor_replacement_map, base_temp_dir,
     base_temp_dir: Base path to write SavedModel and temporary artifacts to.
     preprocessing_fn: A user defined python function to be traced.
     input_signature: TypeSpecs describing the inputs to the `preprocessing_fn`.
+    baseline_analyzers_fingerprint: A mapping from analyzer name to a set of
+      paths that define its fingerprint.
     output_keys_to_name_map: A map from output dictionary keys to the names of
       the tensors that they represent.
 
@@ -645,6 +648,7 @@ def _create_v2_saved_model(tensor_replacement_map, base_temp_dir,
   saved_model_dir = beam_common.get_unique_temp_path(base_temp_dir)
   impl_helper.trace_and_write_v2_saved_model(saved_model_dir, preprocessing_fn,
                                              input_signature, base_temp_dir,
+                                             baseline_analyzers_fingerprint,
                                              tensor_replacement_map,
                                              output_keys_to_name_map)
   return saved_model_dir
@@ -662,6 +666,7 @@ class _CreateSavedModelImplV2(beam.PTransform):
     self._preprocessing_fn = extra_args.preprocessing_fn
     self._input_signature = extra_args.input_specs
     self._output_signature = operation.output_signature
+    self._analyzers_fingerprint = extra_args.analyzers_fingerprint
 
   def _maybe_get_output_tensor_names_dict(self):
     # output_signature will contain CompositeTensors only if this is the final
@@ -685,7 +690,8 @@ class _CreateSavedModelImplV2(beam.PTransform):
         input_pcoll
         | 'CreateSavedModel' >> beam.Map(
             _create_v2_saved_model, self._base_temp_dir, self._preprocessing_fn,
-            self._input_signature, self._maybe_get_output_tensor_names_dict())
+            self._input_signature, self._analyzers_fingerprint,
+            self._maybe_get_output_tensor_names_dict())
         | 'Count' >>
         beam_common.IncrementCounter(_CREATE_SAVED_MODEL_COUNTER_NAME))
 
@@ -1032,6 +1038,9 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     # clear out the collections in the graph.
     annotators.clear_asset_annotations(graph)
 
+    analyzers_fingerprint = graph_tools.get_analyzers_fingerprint(
+        graph, structured_inputs) if not self._use_tf_compat_v1 else None
+
     tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_BEAM_RUNNER_TYPE.get(
         type(pipeline.runner))
     extra_args = beam_common.ConstructBeamPipelineVisitor.ExtraArgs(
@@ -1046,7 +1055,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
         input_tensor_adapter_config=input_tensor_adapter_config,
         use_tf_compat_v1=self._use_tf_compat_v1,
         cache_pcoll_dict=dataset_cache_dict,
-        preprocessing_fn=self._preprocessing_fn)
+        preprocessing_fn=self._preprocessing_fn,
+        analyzers_fingerprint=analyzers_fingerprint)
 
     transform_fn_future, cache_value_nodes = analysis_graph_builder.build(
         graph,

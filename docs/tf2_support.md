@@ -7,6 +7,18 @@ a TensorFlow 2.x SavedModel.
 
 ## New in tf.Transform with TF 2.x
 
+#### Loading Keras models within the `preprocessing_fn`
+
+Please use the `tft.make_and_track_object` API to load Keras models as shown in
+the example below.
+
+```python
+def preprocessing_fn(inputs):
+  keras_model = tft.make_and_track_object(lambda: tf.keras.models.load_model(...), name='_unique_name')
+  ...
+  return {'keras_model_output': keras_model(inputs[...])}
+```
+
 ### Using TF 2.x tf.hub modules
 
 TF 2.x hub modules work in `tf.Transform` only when the `preprocessing_fn` is
@@ -26,6 +38,13 @@ def preprocessing_fn(inputs):
 
 If migrating an existing `tf.Transform` pipeline from TF 1.x to TF 2.x, the
 following issues may be encountered:
+
+### RuntimeError: The order of analyzers in your `preprocessing_fn` appears to be non-deterministic.
+
+In TF 2.x, the `preprocessing_fn` provided by the user is traced several times.
+If the order in which TFT analyzers are encountered changes with each trace,
+this error will be raised. This can be fixed by removing any non-determinism in
+the order in which TFT analyzers are invoked.
 
 ### Output of `transform_raw_features` does not contain expected feature.
 
@@ -60,19 +79,6 @@ BaselineClassifier. Please
 [disable TF 2.x in `tf.Transform`](https://www.tensorflow.org/tfx/transform/tf2_support#retaining_the_legacy_tftransform_behavior).
 
 ## Known issues / Features not yet supported
-
-### Loading Keras models within the `preprocessing_fn` is not supported.
-
-This will raise the following exception -
-
-```shell
-ValueError: tf.function-decorated function tried to create variables on non-first call.
-```
-
-Please
-[disable TF 2.x in `tf.Transform`](https://www.tensorflow.org/tfx/transform/tf2_support#retaining_the_legacy_tftransform_behavior)
-if it works for your use case (it is not guaranteed to work with Keras models
-either).
 
 ### Outputting vocabularies in TFRecord format is not yet supported.
 

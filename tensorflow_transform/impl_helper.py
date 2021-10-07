@@ -15,7 +15,7 @@
 
 import os
 import re
-from typing import Callable, Dict, List, Mapping, Optional, Tuple, Union
+from typing import Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 
 import numpy as np
 import pyarrow as pa
@@ -25,6 +25,7 @@ from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import annotators
 from tensorflow_transform import common_types
 from tensorflow_transform import graph_context
+from tensorflow_transform import graph_tools
 from tensorflow_transform import schema_inference
 from tensorflow_transform import tf2_utils
 from tensorflow_transform import tf_utils
@@ -742,14 +743,13 @@ def _trace_and_write_transform_fn(
 
 def _trace_and_get_metadata(
     concrete_transform_fn: function.ConcreteFunction,
+    structured_inputs: Mapping[str, common_types.InputTensorType],
     preprocessing_fn: Callable[[Mapping[str, common_types.InputTensorType]],
                                Mapping[str, common_types.InputTensorType]],
     base_temp_dir: Optional[str],
     tensor_replacement_map: Optional[Dict[str, tf.Tensor]]
 ) -> dataset_metadata.DatasetMetadata:
   """Compute and return metadata for the outputs of `concrete_transform_fn`."""
-  structured_inputs = tf2_utils.get_structured_inputs_from_func_graph(
-      concrete_transform_fn.graph)
   tf_graph_context = graph_context.TFGraphContext(
       module_to_export=tf.Module(),
       temp_dir=base_temp_dir,
@@ -766,11 +766,31 @@ def _trace_and_get_metadata(
           evaluate_schema_overrides=True))
 
 
+def _validate_analyzers_fingerprint(
+    baseline_analyzers_fingerprint: Mapping[str, Set[bytes]], graph: tf.Graph,
+    structured_inputs: Mapping[str, common_types.InputTensorType]):
+  """Validates analyzers fingerprint in `graph` is same as baseline."""
+  analyzers_fingerprint = graph_tools.get_analyzers_fingerprint(
+      graph, structured_inputs)
+  for analyzer in analyzers_fingerprint:
+    if analyzer not in baseline_analyzers_fingerprint:
+      raise ValueError(f'Unknown analyzer node ({analyzer}) encountered.')
+    if (baseline_analyzers_fingerprint[analyzer].difference(
+        analyzers_fingerprint[analyzer])):
+      raise RuntimeError(
+          'The order of analyzers in your `preprocessing_fn` appears to be '
+          'non-deterministic. This can be fixed either by changing your '
+          '`preprocessing_fn` such that tf.Transform analyzers are encountered '
+          'in a deterministic order or by passing a unique name to each '
+          'analyzer API call.')
+
+
 def trace_and_write_v2_saved_model(
     saved_model_dir: str,
     preprocessing_fn: Callable[[Mapping[str, common_types.InputTensorType]],
                                Mapping[str, common_types.InputTensorType]],
     input_signature: Mapping[str, tf.TypeSpec], base_temp_dir: Optional[str],
+    baseline_analyzers_fingerprint: Mapping[str, Set[bytes]],
     tensor_replacement_map: Optional[Dict[str, tf.Tensor]],
     output_keys_to_name_map: Optional[Dict[str, str]]):
   """Writes out a SavedModelV2 with preprocessing_fn traced using tf.function.
@@ -785,6 +805,8 @@ def trace_and_write_v2_saved_model(
     preprocessing_fn: A user defined python function to be traced.
     input_signature: TypeSpecs describing the inputs to the `preprocessing_fn`.
     base_temp_dir: Base path to write temporary artifacts to.
+    baseline_analyzers_fingerprint: A mapping from analyzer name to a set of
+      paths that define its fingerprint.
     tensor_replacement_map: A map from placeholder tensor names to their
       evaluated replacement tensors.
     output_keys_to_name_map: A map from output dictionary keys to the names of
@@ -795,16 +817,27 @@ def trace_and_write_v2_saved_model(
       1. The traced preprocessing_fn.
       2. A metadata_fn that returns a dictionary containing the deferred
       annotations added to the graph when invoked with any valid input.
+
+  Raises:
+    RuntimeError: if analyzers in `preprocessing_fn` are encountered in a
+    non-deterministic order.
   """
   concrete_transform_fn = _trace_and_write_transform_fn(
       saved_model_dir, preprocessing_fn, input_signature, base_temp_dir,
       tensor_replacement_map, output_keys_to_name_map)
+  structured_inputs = tf2_utils.get_structured_inputs_from_func_graph(
+      concrete_transform_fn.graph)
+  _validate_analyzers_fingerprint(baseline_analyzers_fingerprint,
+                                  concrete_transform_fn.graph,
+                                  structured_inputs)
+
   # If the `TENSOR_REPLACEMENTS` graph collection is empty, all TFT analyzers
   # in the `preprocessing_fn` have already been evaluated.
   if not concrete_transform_fn.graph.get_collection(
       analyzer_nodes.TENSOR_REPLACEMENTS):
-    metadata = _trace_and_get_metadata(concrete_transform_fn, preprocessing_fn,
-                                       base_temp_dir, tensor_replacement_map)
+    metadata = _trace_and_get_metadata(concrete_transform_fn, structured_inputs,
+                                       preprocessing_fn, base_temp_dir,
+                                       tensor_replacement_map)
     metadata_io.write_metadata(metadata,
                                os.path.join(saved_model_dir, METADATA_DIR_NAME))
 
@@ -863,8 +896,11 @@ def analyze_in_place(preprocessing_fn, force_tf_compat_v1, feature_specs,
         tensor_replacement_map=None,
         output_keys_to_name_map=None)
     _assert_no_analyzers_in_graph(concrete_transform_fn.graph)
+    structured_inputs = tf2_utils.get_structured_inputs_from_func_graph(
+        concrete_transform_fn.graph)
     transformed_metadata = _trace_and_get_metadata(
         concrete_transform_fn=concrete_transform_fn,
+        structured_inputs=structured_inputs,
         preprocessing_fn=preprocessing_fn,
         base_temp_dir=None,
         tensor_replacement_map=None)

@@ -49,6 +49,9 @@ from tensorflow.python.framework import ops
 # Key for graph collection containing `TensorSink` objects representing TFT
 # analyzers.
 TENSOR_REPLACEMENTS = 'tft_tensor_replacements'
+# Key for graph collection containing `TensorSink` objects representing TFT
+# analyzers irrespective of whether they have been evaluated or not.
+ALL_REPLACEMENTS = 'tft_all_replacements'
 
 
 def sanitize_label(label: str) -> str:
@@ -245,6 +248,9 @@ def _bind_future_as_tensor_v2(
   # If `preprocessing_fn` was traced previously and this future was then
   # evaluated in a TFT phase, the result will be present in this dictionary.
   analyzer_name = temporary_analyzer_info.graph_tensor.name
+  tensor_sink = TensorSink(temporary_analyzer_info.graph_tensor, future,
+                           is_asset_filepath)
+  graph.add_to_collection(ALL_REPLACEMENTS, tensor_sink)
   if (evaluated_replacements is not None and
       analyzer_name in evaluated_replacements):
     replaced_result = evaluated_replacements[analyzer_name]
@@ -259,10 +265,7 @@ def _bind_future_as_tensor_v2(
       # tensor names.
       return tf.identity(replaced_result)
   else:
-    graph.add_to_collection(
-        TENSOR_REPLACEMENTS,
-        TensorSink(temporary_analyzer_info.graph_tensor, future,
-                   is_asset_filepath))
+    graph.add_to_collection(TENSOR_REPLACEMENTS, tensor_sink)
     eager_asset_path = temporary_analyzer_info.eager_asset_path
     if is_asset_filepath and eager_asset_path is not None:
       tf_utils.track_asset_analyzer_output(eager_asset_path,

@@ -24,12 +24,17 @@ which analyzers to run in each phase.
 """
 
 import collections
+import copy
+import hashlib
 import itertools
+from typing import Mapping, List, Optional, Set, Union
 import uuid
 from absl import logging
 
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
+from tensorflow_transform import common_types
+from tensorflow_transform import nodes
 from tensorflow_transform import tf_utils
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
 # `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
@@ -810,3 +815,125 @@ def get_dependent_inputs(graph, input_tensors, output_tensors):
       for name, tensor in input_tensors.items()
       if name in dependent_inputs
   }
+
+
+def _serialize_op_attr(op_attr):
+  """Deterministicly serializes tf.Operation attrs since it is a map."""
+  sorted_attributes = sorted(op_attr.items(), key=lambda kv: kv[0])
+  if 'f' in op_attr:
+    # This is a tf.Function node, and it includes attributes that are
+    # inconsistent across runs such as _gradient_op_type, config_proto, so we
+    # only keep input and output types since other information will arrive from
+    # the FuncGraph attributes.
+    sorted_attributes = [
+        kv for kv in sorted_attributes if kv[0] in ('Tin', 'Tout')
+    ]
+  result = []
+  for key, attr_value in sorted_attributes:
+    result.append(key)
+    attr_value = copy.deepcopy(attr_value)
+    if attr_value.list.func:
+      raise ValueError(
+          'Unable to serialize op attributes that contain a `list.func` field')
+    if attr_value.HasField('func'):
+      # There should be a separate call for the FuncGraph attributes.
+      attr_value.ClearField('func')
+    result.append(attr_value.SerializeToString())
+  return result
+
+
+def describe_path_as_analyzer_cache_hash(
+    x: Optional[Union[tf.Operation, tf.Tensor, str]],
+    parents: Optional[List[bytes]] = None) -> Optional[bytes]:
+  """Constructs a hash to describe a unique TF graph path.
+
+  Note: We do not rely on names for hashing since it can be fragile.
+
+  Args:
+    x: The current TF graph node.
+    parents: Results of previous calls to this function, where x was an ancestor
+      to the current node x.
+
+  Returns:
+    A bytes hash of the path from x to its sources. None if x is None.
+  """
+  # This may happen in cases where tensors are outputs of previous analyzers,
+  # we don't need to describe a path for those.
+  if x is None:
+    assert parents is None
+    return None
+  parents = parents or []
+  if any(p is None for p in parents):
+    return None
+
+  if isinstance(x, tf.Operation):
+    values = _serialize_op_attr(x.node_def.attr)
+  elif isinstance(x, tf.Tensor):
+    # No need to add x.op to the hash since that should be included in parents.
+    values = [tf.compat.as_str_any(x.value_index)]
+  else:
+    assert isinstance(x, (str, bytes))
+    values = [x]
+
+  h = hashlib.sha1()
+  for value in values:
+    encoded = tf.compat.as_bytes(value)
+    h.update(encoded)
+
+  for p in parents:
+    h.update(p)
+
+  return h.digest()
+
+
+class SourcedTensorsVisitor(nodes.Visitor):
+  """Visitor used to extract tensors that are inputs to `TensorSource` nodes."""
+
+  def __init__(self):
+    self.sourced_tensors = []
+
+  def visit(self, operation_def, input_values):
+    if isinstance(operation_def, analyzer_nodes.TensorSource):
+      for tensor in operation_def.tensors:
+        self.sourced_tensors.append(tensor)
+    return nodes.OperationNode(operation_def, input_values).outputs
+
+  def validate_value(self, value):
+    assert isinstance(value, nodes.ValueNode)
+
+
+def get_analyzers_fingerprint(
+    graph: tf.Graph,
+    structured_inputs: Mapping[str, common_types.InputTensorType]
+) -> Mapping[str, Set[bytes]]:
+  """Computes fingerprints for all analyzers in `graph`.
+
+  Args:
+    graph: a TF Graph.
+    structured_inputs: a dict from keys to batches of placeholder graph tensors.
+
+  Returns:
+    A mapping from analyzer name to a set of paths that define its fingerprint.
+  """
+  result = {}
+  tensor_sinks = graph.get_collection(analyzer_nodes.ALL_REPLACEMENTS)
+  # The value for the keys in this dictionary are unused and can be arbitrary.
+  sink_tensors_ready = {
+      tf_utils.hashable_tensor_or_op(tensor_sink.tensor): False
+      for tensor_sink in tensor_sinks
+  }
+  graph_analyzer = InitializableGraphAnalyzer(
+      graph, structured_inputs, list(sink_tensors_ready.items()),
+      describe_path_as_analyzer_cache_hash)
+  for tensor_sink in tensor_sinks:
+    # Retrieve tensors that are inputs to the analyzer's value node.
+    visitor = SourcedTensorsVisitor()
+    nodes.Traverser(visitor).visit_value_node(tensor_sink.future)
+    paths = []
+    for tensor in visitor.sourced_tensors:
+      # Obtain fingerprint for each tensor that is an input to the value node.
+      path = graph_analyzer.get_unique_path(tensor)
+      if path is not None:
+        paths.append(path)
+    result[str(tensor_sink.tensor.name)] = set(paths)
+  return result

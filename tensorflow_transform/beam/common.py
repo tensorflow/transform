@@ -166,6 +166,7 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
           'use_tf_compat_v1',
           'cache_pcoll_dict',
           'preprocessing_fn',
+          'analyzers_fingerprint',
       ])
 
   def __init__(self, extra_args):
