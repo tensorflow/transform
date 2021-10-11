@@ -2150,10 +2150,8 @@ def quantiles(x: tf.Tensor,
     shape x.shape + [num_bucket-1].
     See code below for discussion on the type of bucket boundaries.
   """
-  # TODO(b/64039847): quantile ops only support float bucket boundaries as this
-  # triggers an assertion in MakeQuantileSummaries().
-  # The restriction does not apply to inputs, which can be of any integral
-  # dtype including tf.int32, tf.int64, tf.flost64 and tf.double.
+  # Quantile ops convert input values to double under the hood. Keep bucket
+  # boundaries as float for all numeric types.
   bucket_dtype = tf.float32
   with tf.compat.v1.name_scope(name, 'quantiles'):
     if weights is None:
@@ -2212,10 +2210,8 @@ def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
   """
   if key.dtype != tf.string:
     raise ValueError('key must have type tf.string')
-  # TODO(b/64039847): quantile ops only support float bucket boundaries as this
-  # triggers an assertion in MakeQuantileSummaries().
-  # The restriction does not apply to inputs, which can be of any integral
-  # dtype including tf.int32, tf.int64, tf.flost64 and tf.double.
+  # Quantile ops convert input values to double under the hood. Keep bucket
+  # boundaries as float for all numeric types.
   bucket_dtype = tf.float32
   with tf.compat.v1.name_scope(name, 'quantiles_by_key'):
     combiner = QuantilesCombiner(
