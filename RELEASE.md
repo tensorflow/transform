@@ -10,6 +10,7 @@
     SavedModel(added using `tft.apply_pyfunc`) in TF2.
 *   Raise a RuntimeError if order of analyzers in traced Tensorflow Graph is
     non-deterministic in TF2.
+*   Depends on `pyarrow>=1,<6`.
 
 ## Breaking Changes
 

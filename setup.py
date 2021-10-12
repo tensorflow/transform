@@ -46,7 +46,7 @@ def _make_required_install_packages():
       'apache-beam[gcp]>=2.31,<3',
       'numpy>=1.16,<1.20',
       'protobuf>=3.13,<4',
-      'pyarrow>=1,<3',
+      'pyarrow>=1,<6',
       'pydot>=1.2,<2',
       'tensorflow' + select_constraint(
           '>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,<2.7'),
