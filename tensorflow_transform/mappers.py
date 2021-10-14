@@ -931,7 +931,7 @@ def compute_and_apply_vocabulary(
     file_format: common_types.VocabularyFileFormatType = analyzers
     .DEFAULT_VOCABULARY_FILE_FORMAT,
     name: Optional[str] = None
-) -> common_types.ConsistentTensorType:  # TODO(b/64987151, b/197716941): Remove # pytype: disable=annotation-type-mismatch
+) -> common_types.ConsistentTensorType:
   r"""Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
   In case one of the tokens contains the '\n' or '\r' characters or is empty it
