@@ -132,9 +132,11 @@ def supply_missing_inputs(
       result[key] = tf.raw_ops.PlaceholderWithDefault(
           input=values, shape=tensor.flat_values.shape)
       for _ in range(ragged_rank):
-        # row_splits[0] should be 0 and row_splits[-1] should be values.shape[0]
-        # for any ragged tensor. Hence, use this as the default.
-        row_splits = tf.constant([0] + [values.shape[0]], dtype=tf.int64)
+        if isinstance(values, tf.RaggedTensor):
+          values_batch_size = values.bounding_shape(axis=0)
+        else:
+          values_batch_size = tf.shape(values)[0]
+        row_splits = tf.range(values_batch_size + 1, dtype=tf.int64)
         values = tf.RaggedTensor.from_row_splits(
             values, row_splits, validate=False)
         row_splits = tf.raw_ops.PlaceholderWithDefault(
