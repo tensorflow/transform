@@ -21,6 +21,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import analyzers
+from tensorflow_transform import common_types
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam import tft_unit
 from tensorflow_metadata.proto.v0 import schema_pb2
@@ -93,6 +94,171 @@ def _construct_test_bucketization_parameters():
   ]
   return ([x + (dtype,) for x in args_without_dtype for dtype in dtypes] +
           args_with_dtype)
+
+
+def _compute_simple_per_key_bucket(val, key):
+  # Computes per-key bucket for input_data = [1, 2, ..., 100],
+  # key = ['a' if val <50 else 'b'].
+  if key == 'a':
+    if val < 17:
+      return 0
+    elif val < 33:
+      return 1
+    else:
+      return 2
+  else:
+    if val < 66:
+      return 0
+    elif val < 83:
+      return 1
+    else:
+      return 2
+
+
+_BUCKETIZE_COMPOSITE_INPUT_TEST_CASES = [
+    dict(
+        testcase_name='sparse',
+        input_data=[{
+            'val': [x],
+            'idx0': [x % 4],
+            'idx1': [x % 5]
+        } for x in range(1, 10)],
+        input_metadata=tft_unit.metadata_from_feature_spec({
+            'x':
+                tf.io.SparseFeature(['idx0', 'idx1'], 'val', tf.float32,
+                                    [4, 5]),
+        }),
+        expected_data=[{
+            'x_bucketized$sparse_values': [(x - 1) // 3],
+            'x_bucketized$sparse_indices_0': [x % 4],
+            'x_bucketized$sparse_indices_1': [x % 5]
+        } for x in range(1, 10)])
+]
+
+_BUCKETIZE_PER_KEY_TEST_CASES = [
+    dict(
+        testcase_name='dense',
+        input_data=[{
+            'x': x,
+            'key': 'a' if x < 50 else 'b'
+        } for x in range(1, 100)],
+        input_metadata=tft_unit.metadata_from_feature_spec({
+            'x': tf.io.FixedLenFeature([], tf.float32),
+            'key': tf.io.FixedLenFeature([], tf.string)
+        }),
+        expected_data=[{
+            'x_bucketized':
+                _compute_simple_per_key_bucket(x, 'a' if x < 50 else 'b')
+        } for x in range(1, 100)],
+        expected_metadata=tft_unit.metadata_from_feature_spec(
+            {
+                'x_bucketized': tf.io.FixedLenFeature([], tf.int64),
+            }, {
+                'x_bucketized':
+                    schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
+            })),
+    dict(
+        testcase_name='sparse',
+        input_data=[{
+            'x': [x],
+            'idx0': [0],
+            'idx1': [0],
+            'key': ['a'] if x < 50 else ['b']
+        } for x in range(1, 100)],
+        input_metadata=tft_unit.metadata_from_feature_spec({
+            'x': tf.io.SparseFeature(['idx0', 'idx1'], 'x', tf.float32, (2, 2)),
+            'key': tf.io.VarLenFeature(tf.string)
+        }),
+        expected_data=[{
+            'x_bucketized$sparse_values': [
+                _compute_simple_per_key_bucket(x, 'a' if x < 50 else 'b')
+            ],
+            'x_bucketized$sparse_indices_0': [0],
+            'x_bucketized$sparse_indices_1': [0],
+        } for x in range(1, 100)],
+        expected_metadata=tft_unit.metadata_from_feature_spec(
+            {
+                'x_bucketized':
+                    tf.io.SparseFeature([
+                        'x_bucketized$sparse_indices_0',
+                        'x_bucketized$sparse_indices_1'
+                    ],
+                                        'x_bucketized$sparse_values',
+                                        tf.int64, (None, None),
+                                        already_sorted=True),
+            }, {
+                'x_bucketized':
+                    schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
+            })),
+]
+
+if common_types.is_ragged_feature_available():
+  _BUCKETIZE_COMPOSITE_INPUT_TEST_CASES.append(
+      dict(
+          testcase_name='ragged',
+          input_data=[{
+              'val': [x, 10 - x],
+              'row_lengths': [0, x % 3, 2 - x % 3],
+          } for x in range(1, 10)],
+          input_metadata=tft_unit.metadata_from_feature_spec({
+              'x':
+                  tf.io.RaggedFeature(
+                      tf.int64,
+                      value_key='val',
+                      partitions=[
+                          tf.io.RaggedFeature.RowLengths('row_lengths')  # pytype: disable=attribute-error
+                      ]),
+          }),
+          expected_data=[{
+              'x_bucketized$ragged_values': [(x - 1) // 3, (9 - x) // 3],
+              'x_bucketized$row_lengths_1': [0, x % 3, 2 - x % 3],
+          } for x in range(1, 10)]))
+  _BUCKETIZE_PER_KEY_TEST_CASES.append(
+      dict(
+          testcase_name='ragged',
+          input_data=[{
+              'val': [x, x],
+              'row_lengths': [x % 3, 2 - (x % 3)],
+              'key_val': ['a', 'a'] if x < 50 else ['b', 'b'],
+              'key_row_lengths': [x % 3, 2 - (x % 3)],
+          } for x in range(1, 100)],
+          input_metadata=tft_unit.metadata_from_feature_spec({
+              'x':
+                  tf.io.RaggedFeature(
+                      tf.int64,
+                      value_key='val',
+                      partitions=[
+                          tf.io.RaggedFeature.RowLengths('row_lengths')  # pytype: disable=attribute-error
+                      ]),
+              'key':
+                  tf.io.RaggedFeature(
+                      tf.string,
+                      value_key='key_val',
+                      partitions=[
+                          tf.io.RaggedFeature.RowLengths('key_row_lengths')  # pytype: disable=attribute-error
+                      ]),
+          }),
+          expected_data=[{
+              'x_bucketized$ragged_values': [
+                  _compute_simple_per_key_bucket(x, 'a' if x < 50 else 'b'),
+              ] * 2,
+              'x_bucketized$row_lengths_1': [x % 3, 2 - (x % 3)],
+          } for x in range(1, 100)],
+          expected_metadata=tft_unit.metadata_from_feature_spec(
+              {
+                  'x_bucketized':
+                      tf.io.RaggedFeature(
+                          tf.int64,
+                          value_key='x_bucketized$ragged_values',
+                          partitions=[
+                              tf.io.RaggedFeature.RowLengths(  # pytype: disable=attribute-error
+                                  'x_bucketized$row_lengths_1')
+                          ]),
+              },
+              {
+                  'x_bucketized':
+                      schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
+              })))
 
 
 class BucketizeIntegrationTest(tft_unit.TransformTestCase):
@@ -272,35 +438,15 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
           expected_metadata,
           desired_batch_size=1000)
 
-  def testBucketizeSparseInput(self):
+  @tft_unit.named_parameters(*_BUCKETIZE_COMPOSITE_INPUT_TEST_CASES)
+  def testBucketizeCompositeInput(self, input_data, input_metadata,
+                                  expected_data):
 
     def preprocessing_fn(inputs):
       return {
           'x_bucketized':
               tft.bucketize(inputs['x'], num_buckets=3, epsilon=0.00001)
       }
-
-    input_data = [{
-        'val': [x],
-        'idx0': [x % 4],
-        'idx1': [x % 5]
-    } for x in range(1, 10)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.SparseFeature(['idx0', 'idx1'], 'val', tf.float32, [4, 5]),
-    })
-
-    def compute_bucket(instance):
-      if instance['val'][0] < 4:
-        return 0
-      if instance['val'][0] < 7:
-        return 1
-      return 2
-
-    expected_data = [{
-        'x_bucketized$sparse_values': [compute_bucket(instance)],
-        'x_bucketized$sparse_indices_0': instance['idx0'],
-        'x_bucketized$sparse_indices_1': instance['idx1']
-    } for instance in input_data]
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data)
 
@@ -482,59 +628,18 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
         expected_outputs,
         desired_batch_size=10)
 
-  def testBucketizePerKey(self):
+  @tft_unit.named_parameters(*_BUCKETIZE_PER_KEY_TEST_CASES)
+  def testBucketizePerKey(self, input_data, input_metadata, expected_data,
+                          expected_metadata):
 
     def preprocessing_fn(inputs):
       x_bucketized = tft.bucketize_per_key(
           inputs['x'], inputs['key'], num_buckets=3, epsilon=0.00001)
-      return {'x': inputs['x'], 'x_bucketized': x_bucketized}
+      return {'x_bucketized': x_bucketized}
 
-    # NOTE: We force 10 batches: data has 100 elements and we request a batch
-    # size of 10.
-    input_data = [{
-        'x': x,
-        'key': 'a' if x < 50 else 'b'
-    } for x in range(1, 100)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature([], tf.float32),
-        'key': tf.io.FixedLenFeature([], tf.string)
-    })
-
-    def compute_bucket(instance):
-      if instance['key'] == 'a':
-        if instance['x'] < 17:
-          return 0
-        elif instance['x'] < 33:
-          return 1
-        else:
-          return 2
-      else:
-        if instance['x'] < 66:
-          return 0
-        elif instance['x'] < 83:
-          return 1
-        else:
-          return 2
-
-    expected_data = [{
-        'x_bucketized': compute_bucket(instance),
-        'x': instance['x']
-    } for instance in input_data]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
-        {
-            'x': tf.io.FixedLenFeature([], tf.float32),
-            'x_bucketized': tf.io.FixedLenFeature([], tf.int64),
-        }, {
-            'x_bucketized':
-                schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
-        })
-    self.assertAnalyzeAndTransformResults(
-        input_data,
-        input_metadata,
-        preprocessing_fn,
-        expected_data,
-        expected_metadata,
-        desired_batch_size=10)
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
 
   def testBucketizePerKeyWithInfrequentKeys(self):
 
@@ -594,69 +699,6 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
         }, {
             'x_bucketized':
                 schema_pb2.IntDomain(min=0, max=3, is_categorical=True),
-        })
-    self.assertAnalyzeAndTransformResults(
-        input_data,
-        input_metadata,
-        preprocessing_fn,
-        expected_data,
-        expected_metadata,
-        desired_batch_size=10)
-
-  def testBucketizePerKeySparse(self):
-
-    def preprocessing_fn(inputs):
-      x_bucketized = tft.bucketize_per_key(
-          inputs['x'], inputs['key'], num_buckets=3, epsilon=0.00001)
-      return {'x_bucketized': x_bucketized}
-
-    # NOTE: We force 10 batches: data has 100 elements and we request a batch
-    # size of 10.
-    input_data = [{
-        'x': [x],
-        'idx0': [0],
-        'idx1': [0],
-        'key': ['a'] if x < 50 else ['b']
-    } for x in range(1, 100)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.SparseFeature(['idx0', 'idx1'], 'x', tf.float32, (2, 2)),
-        'key': tf.io.VarLenFeature(tf.string)
-    })
-
-    def compute_bucket(instance):
-      if instance['key'][0] == 'a':
-        if instance['x'][0] < 17:
-          return 0
-        elif instance['x'][0] < 33:
-          return 1
-        else:
-          return 2
-      else:
-        if instance['x'][0] < 66:
-          return 0
-        elif instance['x'][0] < 83:
-          return 1
-        else:
-          return 2
-
-    expected_data = [{
-        'x_bucketized$sparse_values': [compute_bucket(instance)],
-        'x_bucketized$sparse_indices_0': [0],
-        'x_bucketized$sparse_indices_1': [0],
-    } for instance in input_data]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
-        {
-            'x_bucketized':
-                tf.io.SparseFeature([
-                    'x_bucketized$sparse_indices_0',
-                    'x_bucketized$sparse_indices_1'
-                ],
-                                    'x_bucketized$sparse_values',
-                                    tf.int64, (None, None),
-                                    already_sorted=True),
-        }, {
-            'x_bucketized':
-                schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
         })
     self.assertAnalyzeAndTransformResults(
         input_data,

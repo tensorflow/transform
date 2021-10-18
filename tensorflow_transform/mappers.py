@@ -137,7 +137,7 @@ def _scale_to_gaussian_internal(
   x_loc, x_scale, hl, hr = analyzers._tukey_parameters(  # pylint: disable=protected-access
       x, reduce_instance_dims=not elementwise, output_dtype=output_dtype)
 
-  compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
+  compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
   x_values = x
 
   x_var = analyzers.var(x, reduce_instance_dims=not elementwise,
@@ -384,7 +384,7 @@ def _scale_by_min_max_internal(
       min_x_value, max_x_value = (
           -minus_min_max_for_key[:, 0], minus_min_max_for_key[:, 1])
 
-  compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
+  compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
   x_values = x
   if isinstance(x, tf.SparseTensor):
     if elementwise:
@@ -629,7 +629,7 @@ def _scale_to_z_score_internal(
           mean_and_var_per_key_result, key, target_ndims=x.get_shape().ndims)
       x_mean, x_var = (mean_var_for_key[:, 0], mean_var_for_key[:, 1])
 
-  compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
+  compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
   x_values = x
 
   if isinstance(x, tf.SparseTensor):
@@ -914,7 +914,7 @@ def _count_docs_with_term(term_frequency: tf.SparseTensor) -> tf.Tensor:
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def compute_and_apply_vocabulary(
-    x: common_types.ConsistentTensorType,
+    x: common_types.ConsistentInputTensorType,
     default_value: Any = -1,
     top_k: Optional[int] = None,
     frequency_threshold: Optional[int] = None,
@@ -931,7 +931,7 @@ def compute_and_apply_vocabulary(
     file_format: common_types.VocabularyFileFormatType = analyzers
     .DEFAULT_VOCABULARY_FILE_FORMAT,
     name: Optional[str] = None
-) -> common_types.ConsistentTensorType:
+) -> common_types.ConsistentInputTensorType:
   r"""Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
   In case one of the tokens contains the '\n' or '\r' characters or is empty it
@@ -944,7 +944,7 @@ def compute_and_apply_vocabulary(
   operation.
 
   Args:
-    x: A `Tensor` or `SparseTensor` of type tf.string or tf.int[8|16|32|64].
+    x: A `Tensor` or `CompositeTensor` of type tf.string or tf.int[8|16|32|64].
     default_value: The value to use for out-of-vocabulary values, unless
       'num_oov_buckets' is greater than zero.
     top_k: Limit the generated vocabulary to the first `top_k` elements. If set
@@ -976,8 +976,8 @@ def compute_and_apply_vocabulary(
       a dense tensor of the identical shape as x (i.e. element-wise labels).
       Labels should be a discrete integerized tensor (If the label is numeric,
       it should first be bucketized; If the label is a string, an integer
-      vocabulary should first be applied). Note: `SparseTensor` labels are not
-      yet supported (b/134931826). WARNING: when labels are provided, the
+      vocabulary should first be applied). Note: `CompositeTensor` labels are
+      not yet supported (b/134931826). WARNING: when labels are provided, the
       frequency_threshold argument functions as a mutual information threshold,
       which is a float. TODO(b/116308354): Fix confusing naming.
     use_adjusted_mutual_info: If true, use adjusted mutual information.
@@ -1003,7 +1003,7 @@ def compute_and_apply_vocabulary(
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` or `SparseTensor` where each string value is mapped to an
+    A `Tensor` or `CompositeTensor` where each string value is mapped to an
     integer. Each unique string value that appears in the vocabulary
     is mapped to a different integer and integers are consecutive starting from
     zero. String value not in the vocabulary is assigned default_value.
@@ -1040,7 +1040,7 @@ def compute_and_apply_vocabulary(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def apply_vocabulary(
-    x: common_types.ConsistentTensorType,
+    x: common_types.ConsistentInputTensorType,
     deferred_vocab_filename_tensor: common_types.TemporaryAnalyzerOutputType,
     default_value: Any = -1,
     num_oov_buckets: int = 0,
@@ -1048,8 +1048,7 @@ def apply_vocabulary(
                                  Tuple[tf.Tensor, tf.Tensor]]] = None,
     file_format: common_types.VocabularyFileFormatType = analyzers
     .DEFAULT_VOCABULARY_FILE_FORMAT,
-    name: Optional[str] = None
-) -> common_types.ConsistentTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
   r"""Maps `x` to a vocabulary specified by the deferred tensor.
 
   This function also writes domain statistics about the vocabulary min and max
@@ -1057,7 +1056,7 @@ def apply_vocabulary(
   num_oov_buckets and default_value.
 
   Args:
-    x: A categorical `Tensor` or `SparseTensor` of type tf.string or
+    x: A categorical `Tensor` or `CompositeTensor` of type tf.string or
       tf.int[8|16|32|64] to which the vocabulary transformation should be
       applied. The column names are those intended for the transformed tensors.
     deferred_vocab_filename_tensor: The deferred vocab filename tensor as
@@ -1077,7 +1076,7 @@ def apply_vocabulary(
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` or `SparseTensor` where each string value is mapped to an
+    A `Tensor` or `CompositeTensor` where each string value is mapped to an
     integer. Each unique string value that appears in the vocabulary
     is mapped to a different integer and integers are consecutive
     starting from zero, and string value not in the vocabulary is
@@ -1126,8 +1125,11 @@ def apply_vocabulary(
               initializer, default_value=default_value)
         return table
 
+      compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
+      x_values = _get_values_if_composite(x)
       result, table_size = tf_utils.construct_and_lookup_table(
-          _construct_table, deferred_vocab_filename_tensor, x)
+          _construct_table, deferred_vocab_filename_tensor, x_values)
+      result = compose_result_fn(result)
 
     # Specify schema overrides which will override the values in the schema
     # with the min and max values, which are deferred as they are only known
@@ -1141,8 +1143,7 @@ def apply_vocabulary(
       min_value = tf.minimum(min_value, default_value)
       max_value = tf.maximum(max_value, default_value)
     schema_inference.set_tensor_schema_override(
-        result.values if isinstance(result, tf.SparseTensor) else result,
-        min_value, max_value)
+        _get_values_if_composite(result), min_value, max_value)
     return result
 
 
@@ -1629,14 +1630,14 @@ def word_count(tokens: Union[tf.SparseTensor, tf.RaggedTensor],
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def hash_strings(
-    strings: common_types.ConsistentTensorType,
+    strings: common_types.ConsistentInputTensorType,
     hash_buckets: int,
     key: Optional[Iterable[int]] = None,
-    name: Optional[str] = None) -> common_types.ConsistentTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
   """Hash strings into buckets.
 
   Args:
-    strings: a `Tensor` or `SparseTensor` of dtype `tf.string`.
+    strings: a `Tensor` or `CompositeTensor` of dtype `tf.string`.
     hash_buckets: the number of hash buckets.
     key: optional. An array of two Python `uint64`. If passed, output will be
       a deterministic function of `strings` and `key`. Note that hashing will be
@@ -1644,57 +1645,57 @@ def hash_strings(
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` or `SparseTensor` of dtype `tf.int64` with the same shape as the
-    input `strings`.
+    A `Tensor` or `CompositeTensor` of dtype `tf.int64` with the same shape as
+    the input `strings`.
 
   Raises:
-    TypeError: if `strings` is not a `Tensor` or `SparseTensor` of dtype
+    TypeError: if `strings` is not a `Tensor` or `CompositeTensor` of dtype
     `tf.string`.
   """
-  if (not isinstance(strings, (tf.Tensor,
-                               tf.SparseTensor))) or strings.dtype != tf.string:
+  if (not isinstance(strings, (tf.Tensor, tf.SparseTensor, tf.RaggedTensor)) or
+      strings.dtype != tf.string):
     raise TypeError(
-        'Input to hash_strings must be a Tensor or SparseTensor of dtype '
-        'string; got {}'.
-        format(strings.dtype))
-  if isinstance(strings, tf.SparseTensor):
-    return tf.SparseTensor(indices=strings.indices,
-                           values=hash_strings(
-                               strings.values, hash_buckets, key),
-                           dense_shape=strings.dense_shape)
-  if name is None:
-    name = 'hash_strings'
-  if key is None:
-    return tf.strings.to_hash_bucket_fast(strings, hash_buckets, name=name)
-  return tf.strings.to_hash_bucket_strong(strings, hash_buckets, key, name=name)
+        'Input to hash_strings must be a Tensor or CompositeTensor of dtype '
+        'string; got {}'.format(strings.dtype))
+  if isinstance(strings, tf.Tensor):
+    if name is None:
+      name = 'hash_strings'
+    if key is None:
+      return tf.strings.to_hash_bucket_fast(strings, hash_buckets, name=name)
+    return tf.strings.to_hash_bucket_strong(
+        strings, hash_buckets, key, name=name)
+  else:
+    compose_result_fn = _make_composite_tensor_wrapper_if_composite(strings)
+    values = _get_values_if_composite(strings)
+    return compose_result_fn(hash_strings(values, hash_buckets, key))
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def bucketize(x: common_types.TensorType,
-              num_buckets: int,
-              epsilon: Optional[float] = None,
-              weights: Optional[tf.Tensor] = None,
-              elementwise: bool = False,
-              name: Optional[str] = None) -> common_types.TensorType:
+def bucketize(
+    x: common_types.ConsistentInputTensorType,
+    num_buckets: int,
+    epsilon: Optional[float] = None,
+    weights: Optional[tf.Tensor] = None,
+    elementwise: bool = False,
+    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Args:
-    x: A numeric input `Tensor` or `SparseTensor` whose values should be mapped
-      to buckets.  For a `SparseTensor` only non-missing values will be included
-      in the quantiles computation, and the result of `bucketize` will be a
-      `SparseTensor` with non-missing values mapped to buckets.
-      If elementwise=True then `x` must be dense.
+    x: A numeric input `Tensor` or `CompositeTensor` whose values should be
+      mapped to buckets.  For a `CompositeTensor` only non-missing values will
+      be included in the quantiles computation, and the result of `bucketize`
+      will be a `CompositeTensor` with non-missing values mapped to buckets. If
+      elementwise=True then `x` must be dense.
     num_buckets: Values in the input `x` are divided into approximately
       equal-sized buckets, where the number of buckets is `num_buckets`.
     epsilon: (Optional) Error tolerance, typically a small fraction close to
       zero. If a value is not specified by the caller, a suitable value is
-      computed based on experimental results.  For `num_buckets` less
-      than 100, the value of 0.01 is chosen to handle a dataset of up to
-      ~1 trillion input data values.  If `num_buckets` is larger,
-      then epsilon is set to (1/`num_buckets`) to enforce a stricter
-      error tolerance, because more buckets will result in smaller range for
-      each bucket, and so we want the boundaries to be less fuzzy.
-      See analyzers.quantiles() for details.
+      computed based on experimental results.  For `num_buckets` less than 100,
+      the value of 0.01 is chosen to handle a dataset of up to ~1 trillion input
+      data values.  If `num_buckets` is larger, then epsilon is set to
+      (1/`num_buckets`) to enforce a stricter error tolerance, because more
+      buckets will result in smaller range for each bucket, and so we want the
+      boundaries to be less fuzzy. See analyzers.quantiles() for details.
     weights: (Optional) Weights tensor for the quantiles. Tensor must have the
       same shape as x.
     elementwise: (Optional) If true, bucketize each element of the tensor
@@ -1714,7 +1715,7 @@ def bucketize(x: common_types.TensorType,
   Raises:
     TypeError: If num_buckets is not an int.
     ValueError: If value of num_buckets is not > 1.
-    ValueError: If elementwise=True and x is a `SparseTensor`.
+    ValueError: If elementwise=True and x is a `CompositeTensor`.
   """
   with tf.compat.v1.name_scope(name, 'bucketize'):
     if not isinstance(num_buckets, int):
@@ -1723,7 +1724,7 @@ def bucketize(x: common_types.TensorType,
     if num_buckets < 1:
       raise ValueError('Invalid num_buckets %d' % num_buckets)
 
-    if isinstance(x, tf.SparseTensor) and elementwise:
+    if isinstance(x, (tf.SparseTensor, tf.RaggedTensor)) and elementwise:
       raise ValueError(
           'bucketize requires `x` to be dense if `elementwise=True`')
 
@@ -1731,7 +1732,7 @@ def bucketize(x: common_types.TensorType,
       # See explanation in args documentation for epsilon.
       epsilon = min(1.0 / num_buckets, 0.01)
 
-    x_values = x.values if isinstance(x, tf.SparseTensor) else x
+    x_values = _get_values_if_composite(x)
     bucket_boundaries = analyzers.quantiles(
         x_values,
         num_buckets,
@@ -1756,31 +1757,31 @@ def bucketize(x: common_types.TensorType,
 # TODO(b/179891014): Implement key_vocabulary_filename for bucketize_per_key.
 @common.log_api_use(common.MAPPER_COLLECTION)
 def bucketize_per_key(
-    x: common_types.ConsistentTensorType,
-    key: common_types.TensorType,
+    x: common_types.ConsistentInputTensorType,
+    key: common_types.ConsistentInputTensorType,
     num_buckets: int,
     epsilon: Optional[float] = None,
-    name: Optional[str] = None) -> common_types.ConsistentTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Args:
-    x: A numeric input `Tensor` or `SparseTensor` with rank 1, whose values
-      should be mapped to buckets.  `SparseTensor`s will have their non-missing
-      values mapped and missing values left as missing.
-    key: A Tensor or `SparseTensor` with the same shape as `x` and dtype
-      tf.string.  If `x` is a `SparseTensor`, `key` must exactly match `x` in
-      everything except values, i.e. indices and dense_shape must be identical.
+    x: A numeric input `Tensor` or `CompositeTensor` with rank 1, whose values
+      should be mapped to buckets.  `CompositeTensor`s will have their
+      non-missing values mapped and missing values left as missing.
+    key: A Tensor or `CompositeTensor` with the same shape as `x` and dtype
+      tf.string.  If `x` is a `CompositeTensor`, `key` must exactly match `x` in
+      everything except values, i.e. indices and dense_shape or nested row
+      splits must be identical.
     num_buckets: Values in the input `x` are divided into approximately
       equal-sized buckets, where the number of buckets is num_buckets.
-    epsilon: (Optional) see `bucketize`
+    epsilon: (Optional) see `bucketize`.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` of the same shape as `x`, with each element in the
-    returned tensor representing the bucketized value. Bucketized value is
-    in the range [0, actual_num_buckets). If the computed
-    key vocabulary doesn't have an entry for `key` then the resulting bucket is
-    -1.
+    A `Tensor` or `CompositeTensor` of the same shape as `x`, with each element
+    in the returned tensor representing the bucketized value. Bucketized value
+    is in the range [0, actual_num_buckets). If the computed key vocabulary
+    doesn't have an entry for `key` then the resulting bucket is -1.
 
   Raises:
     ValueError: If value of num_buckets is not > 1.
@@ -1800,19 +1801,36 @@ def bucketize_per_key(
     (key_vocab, bucket_boundaries, scale_factor_per_key, shift_per_key,
      actual_num_buckets) = (
          analyzers._quantiles_per_key(  # pylint: disable=protected-access
-             x.values if isinstance(x, tf.SparseTensor) else x,
-             key.values if isinstance(key, tf.SparseTensor) else key,
+             _get_values_if_composite(x), _get_values_if_composite(key),
              num_buckets, epsilon))
     return _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries,
                                     scale_factor_per_key, shift_per_key,
                                     actual_num_buckets)
 
 
-def _make_sparse_tensor_wrapper_if_sparse(x):
-  if not isinstance(x, tf.SparseTensor):
+def _make_composite_tensor_wrapper_if_composite(
+    x: common_types.ConsistentTensorType
+) -> Callable[[tf.Tensor], common_types.ConsistentTensorType]:
+  """Produces a function to wrap values in the composite structure of x."""
+  if isinstance(x, tf.SparseTensor):
+    return lambda values: tf.SparseTensor(x.indices, values, x.dense_shape)
+  elif isinstance(x, tf.RaggedTensor):
+
+    def from_nested_row_splits(values):
+      return tf.RaggedTensor.from_nested_row_splits(values, x.nested_row_splits)
+
+    return from_nested_row_splits
+  else:
     return lambda values: values
-  return (lambda values: tf.SparseTensor(  # pylint: disable=g-long-lambda
-      indices=x.indices, values=values, dense_shape=x.dense_shape))
+
+
+def _get_values_if_composite(x: common_types.TensorType) -> tf.Tensor:
+  if isinstance(x, tf.SparseTensor):
+    return x.values
+  elif isinstance(x, tf.RaggedTensor):
+    return x.flat_values
+  else:
+    return x
 
 
 def _fill_shape(value, shape, dtype):
@@ -1820,21 +1838,21 @@ def _fill_shape(value, shape, dtype):
 
 
 def _apply_buckets_with_keys(
-    x: common_types.ConsistentTensorType,
-    key: common_types.ConsistentTensorType,
+    x: common_types.ConsistentInputTensorType,
+    key: common_types.ConsistentInputTensorType,
     key_vocab: tf.Tensor,
     bucket_boundaries: tf.Tensor,
     scale_factor_per_key: tf.Tensor,
     shift_per_key: tf.Tensor,
     num_buckets: int,
-    name: Optional[int] = None) -> common_types.ConsistentTensorType:
-  """Bucketize a Tensor or SparseTensor where boundaries depend on the index.
+    name: Optional[int] = None) -> common_types.ConsistentInputTensorType:
+  """Bucketize a Tensor or CompositeTensor where boundaries depend on the index.
 
   Args:
-    x: A 1-d Tensor or SparseTensor.
-    key: A 1-d Tensor or SparseTensor with the same size as x.
-    key_vocab: A vocab containing all keys.  Must be exhaustive, an
-        out-of-vocab entry in `key` will cause a crash.
+    x: A 1-d Tensor or CompositeTensor.
+    key: A 1-d Tensor or CompositeTensor with the same size as x.
+    key_vocab: A vocab containing all keys.  Must be exhaustive, an out-of-vocab
+      entry in `key` will cause a crash.
     bucket_boundaries: A rank-1 Tensor.
     scale_factor_per_key: A rank-1 Tensor of shape (key_size,).
     shift_per_key: A rank-1 Tensor of shape (key_size,).
@@ -1846,10 +1864,10 @@ def _apply_buckets_with_keys(
     `key` is not present in `key_vocab` then the resulting bucket will be -1.
   """
   with tf.compat.v1.name_scope(name, 'apply_buckets_with_keys'):
-    x_values = x.values if isinstance(x, tf.SparseTensor) else x
-    key_values = key.values if isinstance(key, tf.SparseTensor) else key
+    x_values = tf.cast(_get_values_if_composite(x), tf.float32)
+    compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
+    key_values = _get_values_if_composite(key)
 
-    x_values = tf.cast(x_values, tf.float32)
     # Convert `key_values` to indices in key_vocab.
     key_indices = tf_utils.lookup_key(key_values, key_vocab)
 
@@ -1886,19 +1904,14 @@ def _apply_buckets_with_keys(
     schema_inference.set_tensor_schema_override(
         bucketized_values, min_value, max_bucket)
 
-    if isinstance(x, tf.SparseTensor):
-      result = tf.SparseTensor(x.indices, bucketized_values, x.dense_shape)
-    else:
-      result = bucketized_values
-
-    return result
+    return compose_result_fn(bucketized_values)
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def apply_buckets_with_interpolation(
-    x: common_types.TensorType,
+    x: common_types.ConsistentInputTensorType,
     bucket_boundaries: common_types.BucketBoundariesType,
-    name: Optional[str] = None) -> common_types.ConsistentTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
   """Interpolates within the provided buckets and then normalizes to 0 to 1.
 
   A method for normalizing continuous numeric data to the range [0, 1].
@@ -1922,12 +1935,13 @@ def apply_buckets_with_interpolation(
   exploding gradients in neural networks.
 
   Args:
-    x: A numeric input `Tensor`/`SparseTensor` (tf.float[32|64], tf.int[32|64])
+    x: A numeric input `Tensor`/`CompositeTensor` (tf.float[32|64],
+      tf.int[32|64]).
     bucket_boundaries: Sorted bucket boundaries as a rank-2 `Tensor` or list.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` or `SparseTensor` of the same shape as `x`, normalized to the
+    A `Tensor` or `CompositeTensor` of the same shape as `x`, normalized to the
       range [0, 1]. If the input x is tf.float64, the returned values will be
       tf.float64. Otherwise, returned values are tf.float32.
 
@@ -1935,10 +1949,8 @@ def apply_buckets_with_interpolation(
   with tf.compat.v1.name_scope(name, 'buckets_with_interpolation'):
     bucket_boundaries = tf.convert_to_tensor(bucket_boundaries)
     tf.compat.v1.assert_rank(bucket_boundaries, 2)
-    x_values = x
-    compose_result_fn = _make_sparse_tensor_wrapper_if_sparse(x)
-    if isinstance(x, tf.SparseTensor):
-      x_values = x.values
+    x_values = _get_values_if_composite(x)
+    compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
     if not (x_values.dtype.is_floating or x_values.dtype.is_integer):
       raise ValueError(
           'Input tensor to be normalized must be numeric, got {}.'.format(
@@ -2014,9 +2026,9 @@ def apply_buckets_with_interpolation(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def apply_buckets(
-    x: common_types.TensorType,
+    x: common_types.ConsistentInputTensorType,
     bucket_boundaries: common_types.BucketBoundariesType,
-    name: Optional[str] = None) -> common_types.ConsistentTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Each element `e` in `x` is mapped to a positive index `i` for which
@@ -2035,17 +2047,17 @@ def apply_buckets(
          [0, 2, 3]])>
 
   Args:
-    x: A numeric input `Tensor` or `SparseTensor` whose values should be mapped
-        to buckets.  For `SparseTensor`s, the non-missing values will be mapped
-        to buckets and missing value left missing.
+    x: A numeric input `Tensor` or `CompositeTensor` whose values should be
+        mapped to buckets.  For `CompositeTensor`s, the non-missing values will
+        be mapped to buckets and missing value left missing.
     bucket_boundaries: A rank 2 `Tensor` or list representing the bucket
         boundaries sorted in ascending order.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` or `SparseTensor` of the same shape as `x`, with each element in
-    the returned tensor representing the bucketized value. Bucketized value is
-    in the range [0, len(bucket_boundaries)].
+    A `Tensor` or `CompositeTensor` of the same shape as `x`, with each element
+    in the returned tensor representing the bucketized value. Bucketized value
+    is in the range [0, len(bucket_boundaries)].
   """
   with tf.compat.v1.name_scope(name, 'apply_buckets'):
     bucket_boundaries = tf.convert_to_tensor(bucket_boundaries)
@@ -2060,15 +2072,11 @@ def apply_buckets(
     schema_inference.set_tensor_schema_override(
         bucketized_values, min_value, max_value)
     _annotate_buckets(bucketized_values, bucket_boundaries)
-
-    if isinstance(x, tf.SparseTensor):
-      result = tf.SparseTensor(x.indices, bucketized_values, x.dense_shape)
-    else:
-      result = bucketized_values
-    return result
+    compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
+    return compose_result_fn(bucketized_values)
 
 
-def _assign_buckets_all_shapes(x: common_types.TensorType,
+def _assign_buckets_all_shapes(x: common_types.InputTensorType,
                                bucket_boundaries: tf.Tensor) -> tf.Tensor:
   """Assigns every value in x to a bucket index defined by bucket_boundaries.
 
@@ -2076,7 +2084,7 @@ def _assign_buckets_all_shapes(x: common_types.TensorType,
   so that the actual _assign_buckets function can operate as expected.
 
   Args:
-    x: a `Tensor` or `SparseTensor` with no more than 2 dimensions.
+    x: a `Tensor` or `CompositeTensor` with no more than 2 dimensions.
     bucket_boundaries:  The bucket boundaries represented as a rank 2 `Tensor`.
 
   Returns:
@@ -2086,7 +2094,7 @@ def _assign_buckets_all_shapes(x: common_types.TensorType,
   """
   with tf.compat.v1.name_scope(None, 'assign_buckets_all_shapes'):
     bucket_boundaries = tf.cast(bucket_boundaries, tf.float32)
-    x = tf.cast(x.values if isinstance(x, tf.SparseTensor) else x, tf.float32)
+    x = tf.cast(_get_values_if_composite(x), tf.float32)
 
     # We expect boundaries in final dimension but have to satisfy other shapes.
     if bucket_boundaries.shape[0] != 1:
@@ -2239,12 +2247,12 @@ def estimated_probability_density(x: tf.Tensor,
     probability mass estimate if `categorical` is True).
 
   Raises:
-    NotImplementedError: If `x` is SparseTensor.
+    NotImplementedError: If `x` is CompositeTensor.
   """
   with tf.compat.v1.name_scope(name, 'estimated_probability_density'):
-    if isinstance(x, tf.SparseTensor):
+    if isinstance(x, (tf.SparseTensor, tf.RaggedTensor)):
       raise NotImplementedError(
-          'estimated probability density does not support Sparse Tensors')
+          'estimated probability density does not support Composite Tensors')
     if x.get_shape().ndims > 1 and x.shape[-1] > 1:
       raise NotImplementedError(
           'estimated probability density does not support multiple dimensions')

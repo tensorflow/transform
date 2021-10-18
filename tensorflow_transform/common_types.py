@@ -50,7 +50,10 @@ TensorType = Union[tf.Tensor, tf.SparseTensor]
 SparseTensorValueType = Union[tf.SparseTensor, tf.compat.v1.SparseTensorValue]
 RaggedTensorValueType = Union[tf.RaggedTensor,
                               tf.compat.v1.ragged.RaggedTensorValue]
-TensorValueType = Union[tf.Tensor, np.ndarray, SparseTensorValueType]
+TensorValueType = Union[tf.Tensor, np.ndarray, SparseTensorValueType,
+                        RaggedTensorValueType]
+ConsistentInputTensorType = TypeVar('ConsistentInputTensorType', tf.Tensor,
+                                    tf.SparseTensor, tf.RaggedTensor)
 ConsistentTensorType = TypeVar('ConsistentTensorType', tf.Tensor,
                                tf.SparseTensor)
 TemporaryAnalyzerOutputType = Union[tf.Tensor, Asset]

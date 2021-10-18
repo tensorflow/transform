@@ -177,7 +177,10 @@ class TransformTestCase(test_case.TransformTestCase):
 
       # Get batch size from any input tensor.
       an_input = next(iter(inputs.values()))
-      batch_size = tf.shape(input=an_input)[0]
+      if isinstance(an_input, tf.RaggedTensor):
+        batch_size = an_input.bounding_shape(axis=0)
+      else:
+        batch_size = tf.shape(input=an_input)[0]
 
       # Add a batch dimension and broadcast the analyzer outputs.
       result = {}

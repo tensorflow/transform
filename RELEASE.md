@@ -4,6 +4,9 @@
 
 ## Major Features and Improvements
 
+*   Added `tf.RaggedTensor` support to `tft.bucketize`,
+    `tft.compute_and_apply_vocabulary` and related analyzers and mappers.
+
 ## Bug Fixes and Other Changes
 
 *   Fix re-loading a transform graph containing pyfuncs exported as a TF1

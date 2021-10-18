@@ -21,12 +21,116 @@ import apache_beam as beam
 
 import tensorflow as tf
 import tensorflow_transform as tft
+from tensorflow_transform import common_types
 from tensorflow_transform.beam import analyzer_impls
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 
 from tensorflow_metadata.proto.v0 import schema_pb2
+
+_COMPOSITE_COMPUTE_AND_APPLY_VOCABULARY_TEST_CASES = [
+    dict(
+        testcase_name='sparse',
+        input_data=[
+            {
+                'val': ['hello'],
+                'idx0': [0],
+                'idx1': [0]
+            },
+            {
+                'val': ['world'],
+                'idx0': [1],
+                'idx1': [1]
+            },
+            {
+                'val': ['hello', 'goodbye'],
+                'idx0': [0, 1],
+                'idx1': [1, 2]
+            },
+            {
+                'val': ['hello', 'goodbye', ' '],
+                'idx0': [0, 1, 1],
+                'idx1': [0, 1, 2]
+            },
+        ],
+        input_metadata=tft_unit.metadata_from_feature_spec({
+            'x': tf.io.SparseFeature(['idx0', 'idx1'], 'val', tf.string, [2, 3])
+        }),
+        expected_data=[{
+            'index$sparse_indices_0': [0],
+            'index$sparse_indices_1': [0],
+            'index$sparse_values': [0],
+        }, {
+            'index$sparse_indices_0': [1],
+            'index$sparse_indices_1': [1],
+            'index$sparse_values': [2],
+        }, {
+            'index$sparse_indices_0': [0, 1],
+            'index$sparse_indices_1': [1, 2],
+            'index$sparse_values': [0, 1],
+        }, {
+            'index$sparse_indices_0': [0, 1, 1],
+            'index$sparse_indices_1': [0, 1, 2],
+            'index$sparse_values': [0, 1, 3],
+        }],
+        expected_vocab_file_contents={
+            'my_vocab': [b'hello', b'goodbye', b'world', b' ']
+        }),
+]
+
+if common_types.is_ragged_feature_available():
+  _COMPOSITE_COMPUTE_AND_APPLY_VOCABULARY_TEST_CASES.append(
+      dict(
+          testcase_name='ragged',
+          input_data=[
+              {
+                  'val': ['hello', ' '],
+                  'row_lengths': [1, 0, 1]
+              },
+              {
+                  'val': ['world'],
+                  'row_lengths': [0, 1]
+              },
+              {
+                  'val': ['hello', 'goodbye'],
+                  'row_lengths': [2, 0, 0]
+              },
+              {
+                  'val': ['hello', 'goodbye', ' '],
+                  'row_lengths': [0, 2, 1]
+              },
+          ],
+          input_metadata=tft_unit.metadata_from_feature_spec({
+              'x':
+                  tf.io.RaggedFeature(
+                      tf.string,
+                      value_key='val',
+                      partitions=[
+                          tf.io.RaggedFeature.RowLengths('row_lengths')  # pytype: disable=attribute-error
+                      ])
+          }),
+          expected_data=[
+              {
+                  'index$ragged_values': [0, 2],
+                  'index$row_lengths_1': [1, 0, 1]
+              },
+              {
+                  'index$ragged_values': [3],
+                  'index$row_lengths_1': [0, 1]
+              },
+              {
+                  'index$ragged_values': [0, 1],
+                  'index$row_lengths_1': [2, 0, 0]
+              },
+              {
+                  'index$ragged_values': [0, 1, 2],
+                  'index$row_lengths_1': [0, 2, 1]
+              },
+          ],
+          expected_vocab_file_contents={
+              'my_vocab': [b'hello', b'goodbye', b' ', b'world']
+          }))
 
 
 class VocabularyIntegrationTest(tft_unit.TransformTestCase):
@@ -969,54 +1073,11 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         expected_metadata,
         expected_vocab_file_contents=expected_vocab_file_contents)
 
-  def testSparseComputeAndApplyVocabulary(self):
-    feature_spec = {
-        'x': tf.io.SparseFeature(['idx0', 'idx1'], 'val', tf.string, [2, 3])
-    }
-    input_metadata = tft_unit.metadata_from_feature_spec(feature_spec)
-
-    input_data = [
-        {
-            'val': ['hello'],
-            'idx0': [0],
-            'idx1': [0]
-        },
-        {
-            'val': ['world'],
-            'idx0': [1],
-            'idx1': [1]
-        },
-        {
-            'val': ['hello', 'goodbye'],
-            'idx0': [0, 1],
-            'idx1': [1, 2]
-        },
-        {
-            'val': ['hello', 'goodbye', ' '],
-            'idx0': [0, 1, 1],
-            'idx1': [0, 1, 2]
-        },
-    ]
-    expected_data = [{
-        'index$sparse_indices_0': [0],
-        'index$sparse_indices_1': [0],
-        'index$sparse_values': [0],
-    }, {
-        'index$sparse_indices_0': [1],
-        'index$sparse_indices_1': [1],
-        'index$sparse_values': [2],
-    }, {
-        'index$sparse_indices_0': [0, 1],
-        'index$sparse_indices_1': [1, 2],
-        'index$sparse_values': [0, 1],
-    }, {
-        'index$sparse_indices_0': [0, 1, 1],
-        'index$sparse_indices_1': [0, 1, 2],
-        'index$sparse_values': [0, 1, 3],
-    }]
-    expected_vocab_file_contents = {
-        'my_vocab': [b'hello', b'goodbye', b'world', b' ']
-    }
+  @tft_unit.named_parameters(*_COMPOSITE_COMPUTE_AND_APPLY_VOCABULARY_TEST_CASES
+                            )
+  def testCompositeComputeAndApplyVocabulary(self, input_data, input_metadata,
+                                             expected_data,
+                                             expected_vocab_file_contents):
 
     def preprocessing_fn(inputs):
       index = tft.compute_and_apply_vocabulary(

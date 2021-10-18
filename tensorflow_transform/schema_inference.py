@@ -377,10 +377,12 @@ def _get_tensor_ranges_v2(metadata):
 
 
 def get_tensor_schema_override(
-    tensor: common_types.TensorType) -> Tuple[tf.Tensor, tf.Tensor]:
-  """Lookup schema overrides for a `Tensor`  or `SparseTensor`."""
+    tensor: common_types.InputTensorType) -> Tuple[tf.Tensor, tf.Tensor]:
+  """Lookup schema overrides for a `Tensor`  or `CompositeTensor`."""
   if isinstance(tensor, tf.SparseTensor):
     tensor = tensor.values
+  elif isinstance(tensor, tf.RaggedTensor):
+    tensor = tensor.flat_values
   overrides = _get_tensor_ranges(tensor.graph)
   min_max = overrides.get(tf_utils.hashable_tensor_or_op(tensor), None)
   if min_max is None:
@@ -607,9 +609,9 @@ def _get_schema_overrides(graph,
 
 
 def get_traced_metadata_fn(
-    preprocessing_fn: Callable[[Mapping[str, common_types.InputTensorType]],
-                               Mapping[str, common_types.InputTensorType]],
-    structured_inputs: Mapping[str, common_types.InputTensorType],
+    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
+                               Mapping[str, common_types.TensorType]],
+    structured_inputs: Mapping[str, common_types.TensorType],
     tf_graph_context: graph_context.TFGraphContext,
     evaluate_schema_overrides: bool) -> function.Function:
   """Get a tf.function that returns a dictionary of annotations.

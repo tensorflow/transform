@@ -606,6 +606,15 @@ class MappersTest(test_case.TransformTestCase):
         actual_sparse_tensor=hashed_strings,
         close_values=False)
 
+  def testHashStringsNoKeyRaggedInput(self):
+    strings = tf.RaggedTensor.from_row_splits(
+        values=['Dog', 'Cat', ''], row_splits=[0, 1, 1, 1, 1, 3])
+    hash_buckets = 17
+    expected_hashed_strings = tf.RaggedTensor.from_row_splits(
+        values=[12, 4, 11], row_splits=[0, 1, 1, 1, 1, 3])
+    hashed_strings = mappers.hash_strings(strings, hash_buckets)
+    self.assertAllEqual(expected_hashed_strings, hashed_strings)
+
   def testHashStringsWithKeyDenseInput(self):
     with tf.compat.v1.Graph().as_default():
       strings = tf.constant(['Cake', 'Pie', 'Sundae'])
@@ -634,6 +643,15 @@ class MappersTest(test_case.TransformTestCase):
         actual_sparse_tensor=hashed_strings,
         close_values=False)
 
+  def testHashStringsWithKeyRaggedInput(self):
+    strings = tf.RaggedTensor.from_row_splits(
+        values=['$$$', '%^#', '&$!#@', '$$$'], row_splits=[0, 1, 1, 2, 2, 4])
+    hash_buckets = 173
+    expected_hashed_strings = tf.RaggedTensor.from_row_splits(
+        values=[16, 156, 9, 16], row_splits=[0, 1, 1, 2, 2, 4])
+    hashed_strings = mappers.hash_strings(strings, hash_buckets, key=[321, 555])
+    self.assertAllEqual(expected_hashed_strings, hashed_strings)
+
   def testApplyBucketsSmall(self):
     inputs = tf.constant(4)
     quantiles = tf.constant([5])
@@ -654,6 +672,19 @@ class MappersTest(test_case.TransformTestCase):
         inputs.dense_shape,
         bucketized,
         close_values=False)
+
+  def testApplybucketsToRaggedTensor(self):
+    inputs = tf.RaggedTensor.from_row_splits(
+        values=tf.RaggedTensor.from_row_splits(
+            values=[10, 20, -1], row_splits=[0, 1, 1, 2, 2, 3]),
+        row_splits=[0, 1, 1, 2, 3, 5])
+    quantiles = [-10, 0, 13]
+    expected_bucketized = tf.RaggedTensor.from_row_splits(
+        values=tf.RaggedTensor.from_row_splits(
+            values=[2, 3, 1], row_splits=[0, 1, 1, 2, 2, 3]),
+        row_splits=[0, 1, 1, 2, 3, 5])
+    bucketized = mappers.apply_buckets(inputs, [quantiles])
+    self.assertAllEqual(expected_bucketized, bucketized)
 
   def testApplyBucketsWithNans(self):
     inputs = tf.constant([4.0, float('nan'), float('-inf'), 7.5, 10.0])
@@ -833,6 +864,15 @@ class MappersTest(test_case.TransformTestCase):
         self.assertAllEqual(actual_results.indices, expected_results.indices)
         self.assertAllEqual(actual_results.dense_shape,
                             expected_results.dense_shape)
+
+  def testApplyBucketsWithInterpolationRaggedTensor(self):
+    inputs = tf.RaggedTensor.from_row_splits(
+        values=[15, 10, 20, 17, -1111, 21], row_splits=[0, 1, 1, 2, 4, 5, 6])
+    boundaries = [[10, 20]]
+    expected_bucketized = tf.RaggedTensor.from_row_splits(
+        values=[.5, 0, 1, .7, 0, 1], row_splits=[0, 1, 1, 2, 4, 5, 6])
+    bucketized = mappers.apply_buckets_with_interpolation(inputs, boundaries)
+    self.assertAllEqual(expected_bucketized, bucketized)
 
   def testBucketsWithInterpolationUnknownShapeBoundary(self):
     with tf.compat.v1.Graph().as_default():

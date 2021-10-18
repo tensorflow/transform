@@ -77,6 +77,7 @@ from tensorflow_transform.saved import saved_transform_io_v2
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
+from tfx_bsl.tfxio import tensor_representation_util
 from tfx_bsl.tfxio import tensor_to_arrow
 from tfx_bsl.tfxio import tf_example_record
 from tfx_bsl.tfxio.tensor_adapter import TensorAdapter
@@ -903,10 +904,21 @@ class _InstanceDictInputToTFXIOInput(beam.PTransform):
 
   def __init__(self, schema, desired_batch_size):
     self._schema = schema
+    # Infer all features in the schema as TensorRepresentations. This is needed
+    # because TFXIO will ignore Features if TensorRepresentations are present in
+    # the schema.
+    # TODO(b/202791319) Investigate whether this should be done at TFXIO level.
+    tensor_representations = (
+        tensor_representation_util.InferTensorRepresentationsFromMixedSchema(
+            schema))
+    extended_schema = schema_pb2.Schema()
+    extended_schema.CopyFrom(schema)
+    tensor_representation_util.SetTensorRepresentationsInSchema(
+        extended_schema, tensor_representations)
     self._tfxio = tf_example_record.TFExampleBeamRecord(
         physical_format='inmem',
         telemetry_descriptors=['StandaloneTFTransform'],
-        schema=schema)
+        schema=extended_schema)
     self._desired_batch_size = desired_batch_size
 
   def tensor_adapter_config(self):

@@ -1632,7 +1632,7 @@ def _register_vocab(sanitized_filename: str,
 # https://github.com/tensorflow/community/blob/master/rfcs/20190116-embedding-partitioned-variable.md#goals
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def vocabulary(
-    x: common_types.TensorType,
+    x: common_types.InputTensorType,
     top_k: Optional[int] = None,
     frequency_threshold: Optional[int] = None,
     vocab_filename: Optional[str] = None,
@@ -1651,7 +1651,7 @@ def vocabulary(
   r"""Computes the unique values of a `Tensor` over the whole dataset.
 
   Computes The unique values taken by `x`, which can be a `Tensor` or
-  `SparseTensor` of any size.  The unique values will be aggregated over all
+  `CompositeTensor` of any size.  The unique values will be aggregated over all
   dimensions of `x` and all instances.
 
   In case one of the tokens contains the '\n' or '\r' characters or is empty it
@@ -1697,7 +1697,7 @@ def vocabulary(
   within each vocabulary entry (b/117796748).
 
   Args:
-    x: A categorical/discrete input `Tensor` or `SparseTensor` with dtype
+    x: A categorical/discrete input `Tensor` or `CompositeTensor` with dtype
       tf.string or tf.int[8|16|32|64]. The inputs should generally be unique per
       row (i.e. a bag of words/ngrams representation).
     top_k: Limit the generated vocabulary to the first `top_k` elements. If set
@@ -1729,11 +1729,10 @@ def vocabulary(
       dense tensor of the identical shape as x (i.e. element-wise labels).
       Labels should be a discrete integerized tensor (If the label is numeric,
       it should first be bucketized; If the label is a string, an integer
-      vocabulary should first be applied). Note: `SparseTensor` labels are not
-      yet supported (b/134931826). WARNING: When labels are provided, the
-        frequency_threshold argument functions as a mutual information
-        threshold,
-      which is a float. TODO(b/116308354): Fix confusing naming.
+      vocabulary should first be applied). Note: `CompositeTensor` labels are
+      not yet supported (b/134931826). WARNING: When labels are provided, the
+      frequency_threshold argument functions as a mutual information
+      threshold, which is a float. TODO(b/116308354): Fix confusing naming.
     use_adjusted_mutual_info: If true, and labels are provided, calculate
       vocabulary using adjusted rather than raw mutual information.
     min_diff_from_avg: MI (or AMI) of a feature x label will be adjusted to zero
@@ -2174,7 +2173,13 @@ def quantiles(x: tf.Tensor,
     return quantile_boundaries
 
 
-def _quantiles_per_key(x, key, num_buckets, epsilon, name=None):
+def _quantiles_per_key(
+    x: tf.Tensor,
+    key: tf.Tensor,
+    num_buckets: int,
+    epsilon: float,
+    name: Optional[str] = None
+) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor, int]:
   """Like quantiles but per-key.
 
   For private use in tf.Transform implementation only.
