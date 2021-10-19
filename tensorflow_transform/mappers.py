@@ -70,11 +70,11 @@ from tfx_bsl.types import tfx_namedtuple
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_to_gaussian(
-    x: common_types.ConsistentTensorType,
+    x: common_types.ConsistentInputTensorType,
     elementwise: bool = False,
     name: Optional[str] = None,
     output_dtype: Optional[tf.DType] = None
-) -> common_types.ConsistentTensorType:
+) -> common_types.ConsistentInputTensorType:
   """Returns an (approximately) normal column with mean to 0 and variance 1.
 
   We transform the column to values that are approximately distributed
@@ -105,17 +105,17 @@ def scale_to_gaussian(
   input vaules unchanged.
 
   Args:
-    x: A numeric `Tensor` or `SparseTensor`.
+    x: A numeric `Tensor` or `CompositeTensor`.
     elementwise: If true, scales each element of the tensor independently;
         otherwise uses the parameters of the whole tensor.
     name: (Optional) A name for this operation.
     output_dtype: (Optional) If not None, casts the output tensor to this type.
 
   Returns:
-    A `Tensor` or `SparseTensor` containing the input column transformed to be
-    approximately standard distributed (i.e. a Gaussian with mean 0 and variance
-    1). If `x` is floating point, the mean will have the same type as `x`. If
-    `x` is integral, the output is cast to tf.float32.
+    A `Tensor` or `CompositeTensor` containing the input column transformed to
+    be approximately standard distributed (i.e. a Gaussian with mean 0 and
+    variance 1). If `x` is floating point, the mean will have the same type as
+    `x`. If `x` is integral, the output is cast to tf.float32.
 
     Note that TFLearn generally permits only tf.int64 and tf.float32, so casting
     this scaler's output may be necessary.
@@ -128,10 +128,10 @@ def scale_to_gaussian(
 
 
 def _scale_to_gaussian_internal(
-    x: common_types.ConsistentTensorType,
+    x: common_types.ConsistentInputTensorType,
     elementwise: bool = False,
     output_dtype: Optional[tf.DType] = None
-) -> common_types.ConsistentTensorType:
+) -> common_types.ConsistentInputTensorType:
   """Implementation for scale_to_gaussian."""
   # x_mean will be float16, float32, or float64, depending on type of x.
   x_loc, x_scale, hl, hr = analyzers._tukey_parameters(  # pylint: disable=protected-access
@@ -151,6 +151,11 @@ def _scale_to_gaussian_internal(
       hl = tf.gather_nd(hl, x.indices[:, 1:])
       hr = tf.gather_nd(hr, x.indices[:, 1:])
       x_var = tf.gather_nd(x_var, x.indices[:, 1:])
+  elif isinstance(x, tf.RaggedTensor):
+    if elementwise:
+      raise NotImplementedError(
+          'Elementwise scale_to_gaussian does not support RaggedTensors.')
+    x_values = x.flat_values
 
   numerator = tf.cast(x_values, x_loc.dtype) - x_loc
   is_long_tailed = tf.math.logical_or(hl > 0.0, hr > 0.0)

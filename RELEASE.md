@@ -5,7 +5,8 @@
 ## Major Features and Improvements
 
 *   Added `tf.RaggedTensor` support to `tft.bucketize`,
-    `tft.compute_and_apply_vocabulary` and related analyzers and mappers.
+    `tft.compute_and_apply_vocabulary`, `tft.scale_to_gaussian` and related
+    analyzers and mappers with `reduce_instance_dims=True`.
 
 ## Bug Fixes and Other Changes
 

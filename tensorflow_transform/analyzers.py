@@ -856,7 +856,7 @@ def _mean_and_var(x, reduce_instance_dims=True, output_dtype=None):
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def tukey_location(x: common_types.TensorType,
+def tukey_location(x: common_types.InputTensorType,
                    reduce_instance_dims: Optional[bool] = True,
                    output_dtype: Optional[tf.DType] = None,
                    name: Optional[str] = None) -> tf.Tensor:
@@ -872,7 +872,7 @@ def tukey_location(x: common_types.TensorType,
   Mathematics, vol. 2012, 2012. doi:10.5402/2012/980153
 
   Args:
-    x: A `Tensor` or `SparseTensor`. Its type must be floating point
+    x: A `Tensor` or `CompositeTensor`. Its type must be floating point
         (float{16|32|64}), or integral ([u]int{8|16|32|64}).
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
@@ -893,7 +893,7 @@ def tukey_location(x: common_types.TensorType,
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def tukey_scale(x: common_types.TensorType,
+def tukey_scale(x: common_types.InputTensorType,
                 reduce_instance_dims: Optional[bool] = True,
                 output_dtype: Optional[tf.DType] = None,
                 name: Optional[str] = None) -> tf.Tensor:
@@ -910,7 +910,7 @@ def tukey_scale(x: common_types.TensorType,
 
 
   Args:
-    x: A `Tensor` or `SparseTensor`. Its type must be floating point
+    x: A `Tensor` or `CompositeTensor`. Its type must be floating point
         (float{16|32|64}), or integral ([u]int{8|16|32|64}).
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
@@ -931,7 +931,7 @@ def tukey_scale(x: common_types.TensorType,
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def tukey_h_params(x: common_types.TensorType,
+def tukey_h_params(x: common_types.InputTensorType,
                    reduce_instance_dims: bool = True,
                    output_dtype: Optional[tf.DType] = None,
                    name: Optional[str] = None) -> Tuple[tf.Tensor, tf.Tensor]:
@@ -947,7 +947,7 @@ def tukey_h_params(x: common_types.TensorType,
   Mathematics, vol. 2012, 2012. doi:10.5402/2012/980153
 
   Args:
-    x: A `Tensor` or `SparseTensor`. Its type must be floating point
+    x: A `Tensor` or `CompositeTensor`. Its type must be floating point
         (float{16|32|64}), or integral ([u]int{8|16|32|64}).
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
@@ -968,7 +968,7 @@ def tukey_h_params(x: common_types.TensorType,
 
 
 def _tukey_parameters(
-    x: common_types.TensorType,
+    x: common_types.InputTensorType,
     reduce_instance_dims: bool = True,
     output_dtype: Optional[tf.DType] = None
 ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:

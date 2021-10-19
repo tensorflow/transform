@@ -193,6 +193,67 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
         desired_batch_size=20,
         beam_pipeline=beam.Pipeline())
 
+  @tft_unit.parameters(
+      (tf.int16,),
+      (tf.int32,),
+      (tf.int64,),
+      (tf.float32,),
+      (tf.float64,),
+  )
+  def testGaussianizeRagged(self, input_dtype):
+    tft_unit.skip_if_not_tf2('RaggedFeature is not available in TF 1.x.')
+
+    def preprocessing_fn(inputs):
+      x_gaussianized = tft.scale_to_gaussian(tf.cast(inputs['x'], input_dtype))
+      self.assertEqual(x_gaussianized.dtype,
+                       impl_test._mean_output_dtype(input_dtype))
+      return {'x_gaussianized': tf.cast(x_gaussianized, tf.float32)}
+
+    input_data_values = [
+        516, -871, 737, 415, 584, 583, 152, 479, 576, 409, 591, 844, -16, 508,
+        669, 617, 502, 532, 517, 479
+    ]
+    input_data = []
+    for idx, v in enumerate(input_data_values):
+      input_data.append({
+          'val': [v, -input_data_values[-1 - idx]],
+          'row_lengths_1': [2, 1, 0],
+          'row_lengths_2': [1, 0, 1],
+      })
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x':
+            tf.io.RaggedFeature(
+                tft_unit.canonical_numeric_dtype(input_dtype),
+                value_key='val',
+                partitions=[
+                    tf.io.RaggedFeature.RowLengths('row_lengths_1'),  # pytype: disable=attribute-error
+                    tf.io.RaggedFeature.RowLengths('row_lengths_2')  # pytype: disable=attribute-error
+                ]),
+    })
+    expected_data_values = [
+        0.91555131, -1.54543642, 1.30767697, 0.73634456, 1.03620536, 1.03443104,
+        0.26969729, 0.84990131, 1.02201077, 0.72569862, 1.04862563, 1.49752966,
+        -0.02838919, 0.90135672, 1.18702292, 1.09475806, 0.89071077, 0.9439405,
+        0.91732564, 0.84990131
+    ]
+    expected_data = []
+    for idx, v in enumerate(expected_data_values):
+      expected_data.append({
+          'x_gaussianized$ragged_values': ([v,
+                                            -expected_data_values[-1 - idx]]),
+          'x_gaussianized$row_lengths_1': [2, 1, 0],
+          'x_gaussianized$row_lengths_2': [1, 0, 1]
+      })
+
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        desired_batch_size=20,
+        # Runs the test deterministically on the whole batch.
+        beam_pipeline=beam.Pipeline())
+
   @tft_unit.named_parameters(
       dict(
           testcase_name='tukey_int64in',
@@ -486,6 +547,75 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
                 [[0.11148566, 0.6629082], [0., 0.]] if elementwise else 0.0,
                 tft_unit.canonical_numeric_dtype(
                     output_dtypes['tukey_hr']).as_numpy_dtype),
+    }
+
+    self.assertAnalyzerOutputs(
+        input_data,
+        input_metadata,
+        analyzer_fn,
+        expected_outputs,
+        desired_batch_size=20,
+        # Runs the test deterministically on the whole batch.
+        beam_pipeline=beam.Pipeline())
+
+  @tft_unit.parameters(
+      (tf.int16,),
+      (tf.int32,),
+      (tf.int64,),
+      (tf.float32,),
+      (tf.float64,),
+  )
+  def testTukeyHHAnalyzersWithRaggedInputs(self, input_dtype):
+    tft_unit.skip_if_not_tf2('RaggedFeature is not available in TF 1.x.')
+
+    output_dtype = impl_test._mean_output_dtype(input_dtype)
+    canonical_output_dtype = tft_unit.canonical_numeric_dtype(output_dtype)
+
+    def analyzer_fn(inputs):
+      a = tf.cast(inputs['a'], input_dtype)
+
+      def assert_and_cast_dtype(tensor):
+        self.assertEqual(tensor.dtype, output_dtype)
+        return tf.cast(tensor, canonical_output_dtype)
+
+      return {
+          'tukey_location': assert_and_cast_dtype(tft.tukey_location(a)),
+          'tukey_scale': assert_and_cast_dtype(tft.tukey_scale(a)),
+          'tukey_hl': assert_and_cast_dtype(tft.tukey_h_params(a)[0]),
+          'tukey_hr': assert_and_cast_dtype(tft.tukey_h_params(a)[1]),
+      }
+
+    input_data_values = [
+        516, -871, 737, 415, 584, 583, 152, 479, 576, 409, 591, 844, -16, 508,
+        669, 617, 502, 532, 517, 479
+    ]
+    input_data = []
+    for idx, v in enumerate(input_data_values):
+      input_data.append({
+          'val': [v, -input_data_values[-1 - idx]],
+          'row_lengths_1': [2, 0, 1],
+          'row_lengths_2': [0, 1, 1]
+      })
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'a':
+            tf.io.RaggedFeature(
+                tft_unit.canonical_numeric_dtype(input_dtype),
+                value_key='val',
+                partitions=[
+                    tf.io.RaggedFeature.RowLengths('row_lengths_1'),  # pytype: disable=attribute-error
+                    tf.io.RaggedFeature.RowLengths('row_lengths_2')  # pytype: disable=attribute-error
+                ]),
+    })
+
+    expected_outputs = {
+        'tukey_location':
+            np.array(0.0, canonical_output_dtype.as_numpy_dtype),
+        'tukey_scale':
+            np.array(572.2776, canonical_output_dtype.as_numpy_dtype),
+        'tukey_hl':
+            np.array(0.0, canonical_output_dtype.as_numpy_dtype),
+        'tukey_hr':
+            np.array(0.0, canonical_output_dtype.as_numpy_dtype),
     }
 
     self.assertAnalyzerOutputs(
