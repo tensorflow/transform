@@ -639,8 +639,8 @@ class InitializableGraphAnalyzer:
       input_signature: A dict whose keys are strings and values are `Tensor`s,
         `SparseTensor`s, or `RaggedTensor`s.
       replaced_tensors_ready: a dict from `Tensor`, `SparseTensor`s, or
-      `RaggedTensor`s to bool indicating whether the tensor is ready in this
-      phase.
+        `RaggedTensor`s to bool indicating whether the tensor is ready in this
+        phase.
 
     Returns:
       a dictionary from source tensors to _SourceInfos.

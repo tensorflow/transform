@@ -32,6 +32,7 @@ from tensorflow.python.util import object_identity
 # pylint: enable=g-direct-tensorflow-import
 
 _AssetFileType = Union[tf.Tensor, str]
+_TensorType = Union[tf.Tensor, tf.SparseTensor]
 
 _FLOATING_NAN = float('nan')
 # Global sentinels used to keep track of the total counts of y
@@ -1531,9 +1532,8 @@ def _get_asset_analyzer_output_and_control_dependency(
   return asset_filepath, control_dependency
 
 
-def _lookup_table(
-    table: lookup_ops.LookupInterface, x: common_types.TensorType,
-    control_dependency: Optional[tf.Tensor]) -> common_types.TensorType:
+def _lookup_table(table: lookup_ops.LookupInterface, x: _TensorType,
+                  control_dependency: Optional[tf.Tensor]) -> _TensorType:
   """Look up x in table with an optional depndency on control_dependency."""
   with contextlib.ExitStack() as stack:
     # tf.control_dependencies([tensor]) adds a dependency to tensor.op. Wrap the
@@ -1549,8 +1549,8 @@ def _lookup_table(
 def construct_and_lookup_table(
     construct_table_callable: Callable[[_AssetFileType],
                                        lookup_ops.LookupInterface],
-    asset_filepath: _AssetFileType, x: common_types.TensorType
-) -> Tuple[common_types.TensorType, common_types.TensorType]:
+    asset_filepath: _AssetFileType,
+    x: _TensorType) -> Tuple[_TensorType, _TensorType]:
   """Construct a table and look x up in it.
 
   Args:

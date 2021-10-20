@@ -97,6 +97,10 @@ _SCALE_TO_Z_SCORE_NAN_TEST_CASES = [
 ]
 
 
+def _sigmoid(x):
+  return 1 / (1 + np.exp(-x))
+
+
 def sum_output_dtype(input_dtype):
   """Returns the output dtype for tft.sum."""
   return input_dtype if input_dtype.is_floating else tf.int64
@@ -105,6 +109,17 @@ def sum_output_dtype(input_dtype):
 def _mean_output_dtype(input_dtype):
   """Returns the output dtype for tft.mean (and similar functions)."""
   return tf.float64 if input_dtype == tf.float64 else tf.float32
+
+
+def _make_feature_spec_wrapper(make_feature_spec, *args):
+  """Skips cases with RaggedFeature in TF 1.x."""
+  try:
+    return make_feature_spec(*args)
+  except AttributeError as e:
+    if 'no attribute \'RaggedFeature\'' in repr(e):
+      raise unittest.SkipTest('RaggedFeature is not available in TF 1.x.')
+    else:
+      raise e
 
 
 class BeamImplTest(tft_unit.TransformTestCase):
@@ -1173,6 +1188,149 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
 
+  @tft_unit.named_parameters(*tft_unit.cross_named_parameters(
+      [
+          dict(
+              testcase_name='dense_key',
+              input_data=[{
+                  'x_val': [-4, 4],
+                  'x_row_lengths': [0, 2],
+                  'key': 'a',
+              }, {
+                  'x_val': [0, 1],
+                  'x_row_lengths': [1, 1],
+                  'key': 'a',
+              }, {
+                  'x_val': [-4, 1, 1],
+                  'x_row_lengths': [3],
+                  'key': 'b',
+              }],
+              make_key_spec=lambda: tf.io.FixedLenFeature([], tf.string),
+              expected_data=[{
+                  'scaled_by_min_max$ragged_values': [-1., 1.],
+                  'scaled_by_min_max$row_lengths_1': [0, 2],
+                  'scaled_to_0_1$ragged_values': [0., 1.],
+                  'scaled_to_0_1$row_lengths_1': [0, 2],
+                  'scaled_to_z_score$ragged_values': [-1.4852968, 1.310556],
+                  'scaled_to_z_score$row_lengths_1': [0, 2],
+              }, {
+                  'scaled_by_min_max$ragged_values': [0., 0.25],
+                  'scaled_by_min_max$row_lengths_1': [1, 1],
+                  'scaled_to_0_1$ragged_values': [0.5, 0.625],
+                  'scaled_to_0_1$row_lengths_1': [1, 1],
+                  'scaled_to_z_score$ragged_values': [-0.0873704, 0.26211122],
+                  'scaled_to_z_score$row_lengths_1': [1, 1],
+              }, {
+                  'scaled_by_min_max$ragged_values': [-1., 1., 1.],
+                  'scaled_by_min_max$row_lengths_1': [3],
+                  'scaled_to_0_1$ragged_values': [0., 1., 1.],
+                  'scaled_to_0_1$row_lengths_1': [3],
+                  'scaled_to_z_score$ragged_values':
+                      [-1.4142135, 0.7071068, 0.7071068],
+                  'scaled_to_z_score$row_lengths_1': [3]
+              }],
+          ),
+          dict(
+              testcase_name='ragged_key',
+              input_data=[{
+                  'x_val': [-4, 4],
+                  'x_row_lengths': [0, 2],
+                  'key_val': ['a', 'a'],
+                  'key_row_lengths': [0, 2],
+              }, {
+                  'x_val': [0, 1],
+                  'x_row_lengths': [1, 1],
+                  'key_val': ['a', 'b'],
+                  'key_row_lengths': [1, 1],
+              }, {
+                  'x_val': [-4, 1, 1],
+                  'x_row_lengths': [3],
+                  'key_val': ['b', 'a', 'b'],
+                  'key_row_lengths': [3],
+              }],
+              make_key_spec=lambda: tf.io.RaggedFeature(  # pylint: disable=g-long-lambda
+                  tf.string,
+                  value_key='key_val',
+                  partitions=[
+                      tf.io.RaggedFeature.RowLengths('key_row_lengths')  # pytype: disable=attribute-error
+                  ]),
+              expected_data=[{
+                  'scaled_by_min_max$ragged_values': [-1., 1.],
+                  'scaled_by_min_max$row_lengths_1': [0, 2],
+                  'scaled_to_0_1$ragged_values': [0., 1.],
+                  'scaled_to_0_1$row_lengths_1': [0, 2],
+                  'scaled_to_z_score$ragged_values': [-1.4852968, 1.310556],
+                  'scaled_to_z_score$row_lengths_1': [0, 2],
+              }, {
+                  'scaled_by_min_max$ragged_values': [0., 1.],
+                  'scaled_by_min_max$row_lengths_1': [1, 1],
+                  'scaled_to_0_1$ragged_values': [0.5, 1.],
+                  'scaled_to_0_1$row_lengths_1': [1, 1],
+                  'scaled_to_z_score$ragged_values': [-0.0873704, 0.7071068],
+                  'scaled_to_z_score$row_lengths_1': [1, 1],
+              }, {
+                  'scaled_by_min_max$ragged_values': [-1., 0.25, 1.],
+                  'scaled_by_min_max$row_lengths_1': [3],
+                  'scaled_to_0_1$ragged_values': [0., 0.625, 1.],
+                  'scaled_to_0_1$row_lengths_1': [3],
+                  'scaled_to_z_score$ragged_values':
+                      [-1.4142135, 0.26211122, 0.7071068],
+                  'scaled_to_z_score$row_lengths_1': [3]
+              }]),
+      ],
+      [
+          dict(testcase_name='int16', input_dtype=tf.int16),
+          dict(testcase_name='int32', input_dtype=tf.int32),
+          dict(testcase_name='int64', input_dtype=tf.int64),
+          dict(testcase_name='float32', input_dtype=tf.float32),
+          dict(testcase_name='float64', input_dtype=tf.float64),
+      ]))
+  def testScalePerKeyRagged(self, input_data, make_key_spec, expected_data,
+                            input_dtype):
+    make_x_spec = lambda: tf.io.RaggedFeature(  # pylint: disable=g-long-lambda
+        tft_unit.canonical_numeric_dtype(input_dtype),
+        value_key='x_val',
+        partitions=[
+            tf.io.RaggedFeature.RowLengths('x_row_lengths')  # pytype: disable=attribute-error
+        ])
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'x': _make_feature_spec_wrapper(make_x_spec),
+        'key': _make_feature_spec_wrapper(make_key_spec)
+    })
+
+    def preprocessing_fn(inputs):
+      scaled_to_z_score = tft.scale_to_z_score_per_key(
+          tf.cast(inputs['x'], input_dtype), inputs['key'])
+      self.assertEqual(scaled_to_z_score.dtype, _mean_output_dtype(input_dtype))
+      return {
+          'scaled_by_min_max':
+              tft.scale_by_min_max_per_key(
+                  tf.cast(inputs['x'], input_dtype),
+                  inputs['key'],
+                  output_min=-1,
+                  output_max=1),
+          'scaled_to_0_1':
+              tft.scale_to_0_1_per_key(
+                  tf.cast(inputs['x'], input_dtype), inputs['key']),
+          'scaled_to_z_score':
+              tf.cast(scaled_to_z_score, tf.float32),
+      }
+
+    expected_specs = {}
+    for output_name in ('scaled_by_min_max', 'scaled_to_0_1',
+                        'scaled_to_z_score'):
+      expected_specs[output_name] = tf.io.RaggedFeature(
+          tf.float32,
+          value_key='{}$ragged_values'.format(output_name),
+          partitions=[
+              tf.io.RaggedFeature.RowLengths(  # pytype: disable=attribute-error
+                  '{}$row_lengths_1'.format(output_name))
+          ])
+    expected_metadata = tft_unit.metadata_from_feature_spec(expected_specs)
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
   def testScaleMinMaxConstant(self):
 
     def preprocessing_fn(inputs):
@@ -1804,9 +1962,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'key': tf.io.FixedLenFeature([], tf.string)
     })
 
-    def _sigmoid(x):
-      return 1 / (1 + np.exp(-x))
-
     expected_data = [{
         'x_scaled': 0.75,
         'x_z_score': 0.6324555,
@@ -1917,7 +2072,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           input_data=[{
               'x': [x]
           } for x in range(10, 100)],
-          feature_spec={'x': tf.io.FixedLenFeature([1], tf.int64)},
+          make_feature_spec=lambda: tf.io.FixedLenFeature([1], tf.int64),
           boundaries=10 * np.arange(11, dtype=np.float32),
           categorical=False,
           expected_outputs={
@@ -1931,7 +2086,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           input_data=[{
               'x': [str(x % 10) + '_']
           } for x in range(1, 101)],
-          feature_spec={'x': tf.io.FixedLenFeature([1], tf.string)},
+          make_feature_spec=lambda: tf.io.FixedLenFeature([1], tf.string),
           boundaries=None,
           categorical=True,
           expected_outputs={
@@ -1951,7 +2106,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           input_data=[{
               'x': [(x % 10)]
           } for x in range(1, 101)],
-          feature_spec={'x': tf.io.FixedLenFeature([1], tf.int64)},
+          make_feature_spec=lambda: tf.io.FixedLenFeature([1], tf.int64),
           boundaries=None,
           categorical=True,
           expected_outputs={
@@ -1965,20 +2120,39 @@ class BeamImplTest(tft_unit.TransformTestCase):
               'idx0': [(x % 2)],
               'idx1': [((x + 1) % 2)]
           } for x in range(1, 101)],
-          feature_spec={
-              'x':
-                  tf.io.SparseFeature(['idx0', 'idx1'], 'val', tf.int64, [2, 2])
-          },
+          make_feature_spec=lambda: tf.io.SparseFeature(  # pylint: disable=g-long-lambda
+              ['idx0', 'idx1'], 'val', tf.int64, [2, 2]),
           boundaries=None,
           categorical=True,
           expected_outputs={
               'hist': 10 * np.ones(10, np.int64),
               'boundaries': np.arange(10)
           }),
+      dict(
+          testcase_name='_ragged',
+          input_data=[{  # pylint: disable=g-complex-comprehension
+              'val': [x % 10, 9 - (x % 10)],
+              'row_lengths': [0, 1, 1],
+          } for x in range(1, 101)],
+          make_feature_spec=lambda: tf.io.RaggedFeature(  # pylint: disable=g-long-lambda
+              tf.int64,
+              value_key='val',
+              partitions=[
+                  tf.io.RaggedFeature.RowLengths('row_lengths')  # pytype: disable=attribute-error
+              ])
+          ,
+          boundaries=None,
+          categorical=True,
+          expected_outputs={
+              'hist': 20 * np.ones(10, np.int64),
+              'boundaries': np.arange(10)
+          }),
   )
-  def testHistograms(self, input_data, feature_spec, boundaries, categorical,
-                     expected_outputs):
+  def testHistograms(self, input_data, make_feature_spec, boundaries,
+                     categorical, expected_outputs):
     self._SkipIfOutputRecordBatches()
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'x': _make_feature_spec_wrapper(make_feature_spec)})
 
     def analyzer_fn(inputs):
       counts, bucket_boundaries = analyzers.histogram(
@@ -1987,7 +2161,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         bucket_boundaries = tf.math.round(bucket_boundaries)
       return {'hist': counts, 'boundaries': bucket_boundaries}
 
-    input_metadata = tft_unit.metadata_from_feature_spec(feature_spec)
     self.assertAnalyzerOutputs(input_data,
                                input_metadata,
                                analyzer_fn,
@@ -2227,98 +2400,310 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzerOutputs(
         input_data, input_metadata, analyzer_fn, expected_outputs)
 
-  @tft_unit.parameters(*itertools.product([
-      tf.int16,
-      tf.int32,
-      tf.int64,
-      tf.float32,
-      tf.float64,
-      tf.uint8,
-      tf.uint16,
-  ], (True, False)))
-  def testNumericAnalyzersWithSparseInputs(self, input_dtype,
-                                           reduce_instance_dims):
+  @tft_unit.named_parameters(*tft_unit.cross_named_parameters(
+      [
+          dict(
+              testcase_name='sparse',
+              input_data=[
+                  {
+                      'idx0': [0, 1],
+                      'idx1': [0, 1],
+                      'val': [0, 1],
+                  },
+                  {
+                      'idx0': [1, 2],
+                      'idx1': [1, 3],
+                      'val': [2, 3],
+                  },
+              ],
+              make_feature_spec=lambda dtype: tf.io.SparseFeature(  # pylint: disable=g-long-lambda
+                  ['idx0', 'idx1'], 'val', dtype, (3, 4)),
+              expected_outputs={
+                  'min': 0.,
+                  'max': 3.,
+                  'sum': 6.,
+                  'size': 4,
+                  'mean': 1.5,
+                  'var': 1.25,
+              },
+              reduce_instance_dims=True,
+          ),
+          dict(
+              testcase_name='sparse_elementwise',
+              input_data=[
+                  {
+                      'idx0': [0, 1],
+                      'idx1': [0, 1],
+                      'val': [0, 1],
+                  },
+                  {
+                      'idx0': [1, 2],
+                      'idx1': [1, 3],
+                      'val': [2, 3],
+                  },
+              ],
+              make_feature_spec=lambda dtype: tf.io.SparseFeature(  # pylint: disable=g-long-lambda
+                  ['idx0', 'idx1'], 'val', dtype, (3, 4)),
+              expected_outputs={
+                  # We use np.nan in place of missing values here but replace
+                  # them accordingly to the dtype in the test.
+                  'min': [[0., np.nan, np.nan, np.nan],
+                          [np.nan, 1., np.nan, np.nan],
+                          [np.nan, np.nan, np.nan, 3.]],
+                  'max': [[0., np.nan, np.nan, np.nan],
+                          [np.nan, 2., np.nan, np.nan],
+                          [np.nan, np.nan, np.nan, 3.]],
+                  'sum': [[0., 0., 0., 0.], [0., 3., 0., 0.], [0., 0., 0., 3.]],
+                  'size': [[1, 0, 0, 0], [0, 2, 0, 0], [0, 0, 0, 1]],
+                  'mean': [[0., np.nan, np.nan, np.nan],
+                           [np.nan, 1.5, np.nan, np.nan],
+                           [np.nan, np.nan, np.nan, 3.]],
+                  'var': [[0., np.nan, np.nan, np.nan],
+                          [np.nan, 0.25, np.nan, np.nan],
+                          [np.nan, np.nan, np.nan, 0.]],
+              },
+              reduce_instance_dims=False,
+          ),
+          dict(
+              testcase_name='ragged',
+              input_data=[
+                  {
+                      'val': [0., 2., 3.],
+                      'row_lengths': [0, 3],
+                  },
+                  {
+                      'val': [3., 3., 1.],
+                      'row_lengths': [3],
+                  },
+              ],
+              make_feature_spec=lambda dtype: tf.io.RaggedFeature(  # pylint: disable=g-long-lambda
+                  dtype,
+                  value_key='val',
+                  partitions=[tf.io.RaggedFeature.RowLengths('row_lengths')]),  # pytype: disable=attribute-error
+              expected_outputs={
+                  'min': 0.,
+                  'max': 3.,
+                  'sum': 12.,
+                  'size': 6,
+                  'mean': 2.,
+                  'var': 1.333333,
+              },
+              reduce_instance_dims=True,
+          )
+      ],
+      [
+          dict(testcase_name='int16', input_dtype=tf.int16),
+          dict(testcase_name='int32', input_dtype=tf.int32),
+          dict(testcase_name='int64', input_dtype=tf.int64),
+          dict(testcase_name='float32', input_dtype=tf.float32),
+          dict(testcase_name='tf.float64', input_dtype=tf.float64),
+          dict(testcase_name='tf.uint8', input_dtype=tf.uint8),
+          dict(testcase_name='tf.uint16', input_dtype=tf.uint16),
+      ]))
+  def testNumericAnalyzersWithCompositeInputs(self, input_data,
+                                              make_feature_spec,
+                                              expected_outputs,
+                                              reduce_instance_dims,
+                                              input_dtype):
     self._SkipIfOutputRecordBatches()
+    output_dtype = tft_unit.canonical_numeric_dtype(input_dtype)
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'a': _make_feature_spec_wrapper(make_feature_spec, output_dtype)})
 
     def analyzer_fn(inputs):
       return {
-          'min':
-              tft.min(inputs['a'], reduce_instance_dims=reduce_instance_dims),
-          'max':
-              tft.max(inputs['a'], reduce_instance_dims=reduce_instance_dims),
-          'sum':
-              tft.sum(inputs['a'], reduce_instance_dims=reduce_instance_dims),
-          'size':
-              tft.size(inputs['a'], reduce_instance_dims=reduce_instance_dims),
-          'mean':
-              tft.mean(inputs['a'], reduce_instance_dims=reduce_instance_dims),
-          'var':
-              tft.var(inputs['a'], reduce_instance_dims=reduce_instance_dims),
+          'min': tft.min(inputs['a'], reduce_instance_dims),
+          'max': tft.max(inputs['a'], reduce_instance_dims),
+          'sum': tft.sum(inputs['a'], reduce_instance_dims),
+          'size': tft.size(inputs['a'], reduce_instance_dims),
+          'mean': tft.mean(inputs['a'], reduce_instance_dims),
+          'var': tft.var(inputs['a'], reduce_instance_dims),
       }
 
     input_val_dtype = input_dtype.as_numpy_dtype
-    output_dtype = tft_unit.canonical_numeric_dtype(input_dtype).as_numpy_dtype
-    input_data = [
-        {'idx0': [0, 1], 'idx1': [0, 1], 'val': np.array(
-            [0, 1], dtype=input_val_dtype)},
-        {'idx0': [1, 2], 'idx1': [1, 3], 'val': np.array(
-            [2, 3], dtype=input_val_dtype)},
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a':
-            tf.io.SparseFeature(['idx0', 'idx1'], 'val',
-                                tft_unit.canonical_numeric_dtype(input_dtype),
-                                (3, 4))
-    })
-    if reduce_instance_dims:
-      expected_outputs = {
-          'min': np.array(0., output_dtype),
-          'max': np.array(3., output_dtype),
-          'sum': np.array(6., output_dtype),
-          'size': np.array(4, np.int64),
-          'mean': np.array(1.5, np.float32),
-          'var': np.array(1.25, np.float32),
-      }
-    else:
-      missing = float('nan')
+    # Cast input values to appropriate type.
+    for instance in input_data:
+      instance['val'] = np.array(instance['val'], input_val_dtype)
+    if not reduce_instance_dims:
       if input_dtype.is_floating:
         missing_value_max = float('nan')
         missing_value_min = float('nan')
       else:
-        missing_value_max = np.iinfo(output_dtype).min
-        missing_value_min = np.iinfo(output_dtype).max
-      expected_outputs = {
-          'min':
-              np.array([
-                  [0., missing_value_min, missing_value_min, missing_value_min],
-                  [missing_value_min, 1., missing_value_min, missing_value_min],
-                  [missing_value_min, missing_value_min, missing_value_min, 3.]
-              ], output_dtype),
-          'max':
-              np.array([
-                  [0., missing_value_max, missing_value_max, missing_value_max],
-                  [missing_value_max, 2., missing_value_max, missing_value_max],
-                  [missing_value_max, missing_value_max, missing_value_max, 3.]
-              ], output_dtype),
-          'sum':
-              np.array([[0., 0., 0., 0.], [0., 3., 0., 0.], [0., 0., 0., 3.]],
-                       output_dtype),
-          'size':
-              np.array([[1, 0, 0, 0], [0, 2, 0, 0], [0, 0, 0, 1]], np.int64),
-          'mean':
-              np.array([[0., missing, missing, missing],
-                        [missing, 1.5, missing, missing],
-                        [missing, missing, missing, 3.]], np.float32),
-          'var':
-              np.array([[0., missing, missing, missing],
-                        [missing, 0.25, missing, missing],
-                        [missing, missing, missing, 0.]], np.float32),
-      }
+        missing_value_max = np.iinfo(output_dtype.as_numpy_dtype).min
+        missing_value_min = np.iinfo(output_dtype.as_numpy_dtype).max
+      # Replace NaNs with proper missing values.
+      for row in expected_outputs['min']:
+        for idx in range(len(row)):
+          if np.isnan(row[idx]):
+            row[idx] = missing_value_min
+      for row in expected_outputs['max']:
+        for idx in range(len(row)):
+          if np.isnan(row[idx]):
+            row[idx] = missing_value_max
+    for op in ('min', 'max', 'sum'):
+      expected_outputs[op] = np.array(expected_outputs[op],
+                                      output_dtype.as_numpy_dtype)
+    expected_outputs['size'] = np.array(expected_outputs['size'], np.int64)
+    expected_outputs['mean'] = np.array(expected_outputs['mean'], np.float32)
+    expected_outputs['var'] = np.array(expected_outputs['var'], np.float32)
     self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
                                expected_outputs)
 
-  @tft_unit.parameters((True,), (False,))
-  def testNumericMappersWithSparseInputs(self, elementwise):
+  @tft_unit.named_parameters(
+      dict(
+          testcase_name='sparse',
+          input_data=[
+              {
+                  'idx0': [0, 1],
+                  'idx1': [0, 1],
+                  'val': np.array([0, 1], dtype=np.int64)
+              },
+              {
+                  'idx0': [1, 2],
+                  'idx1': [1, 3],
+                  'val': np.array([2, 3], dtype=np.int64)
+              },
+          ],
+          make_feature_spec=lambda: tf.io.SparseFeature(  # pylint: disable=g-long-lambda
+              ['idx0', 'idx1'], 'val', tf.int64, (3, 4)),
+          elementwise=False,
+          expected_outputs=[{
+              'scale_to_0_1$sparse_indices_0':
+                  np.array([0, 1]),
+              'scale_to_0_1$sparse_indices_1':
+                  np.array([0, 1]),
+              'scale_to_z_score$sparse_indices_0':
+                  np.array([0, 1]),
+              'scale_to_z_score$sparse_indices_1':
+                  np.array([0, 1]),
+              'scale_by_min_max$sparse_indices_0':
+                  np.array([0, 1]),
+              'scale_by_min_max$sparse_indices_1':
+                  np.array([0, 1]),
+              'scale_to_0_1$sparse_values':
+                  np.array([0., 1. / 3.], dtype=np.float32),
+              'scale_to_z_score$sparse_values':
+                  np.array([-1.5 / np.sqrt(1.25), -0.5 / np.sqrt(1.25)],
+                           dtype=np.float32),
+              'scale_by_min_max$sparse_values':
+                  np.array([0., 1. / 3.], dtype=np.float32),
+          }, {
+              'scale_to_0_1$sparse_indices_0':
+                  np.array([1, 2]),
+              'scale_to_0_1$sparse_indices_1':
+                  np.array([1, 3]),
+              'scale_to_z_score$sparse_indices_0':
+                  np.array([1, 2]),
+              'scale_to_z_score$sparse_indices_1':
+                  np.array([1, 3]),
+              'scale_by_min_max$sparse_indices_0':
+                  np.array([1, 2]),
+              'scale_by_min_max$sparse_indices_1':
+                  np.array([1, 3]),
+              'scale_to_0_1$sparse_values':
+                  np.array([2. / 3., 1.], dtype=np.float32),
+              'scale_to_z_score$sparse_values':
+                  np.array([.5 / np.sqrt(1.25), 1.5 / np.sqrt(1.25)],
+                           dtype=np.float32),
+              'scale_by_min_max$sparse_values':
+                  np.array([2. / 3., 1.], dtype=np.float32)
+          }]),
+      dict(
+          testcase_name='sparse_elementwise',
+          input_data=[
+              {
+                  'idx0': [0, 1],
+                  'idx1': [0, 1],
+                  'val': np.array([0, 1], dtype=np.int64)
+              },
+              {
+                  'idx0': [1, 2],
+                  'idx1': [1, 3],
+                  'val': np.array([2, 3], dtype=np.int64)
+              },
+          ],
+          make_feature_spec=lambda: tf.io.SparseFeature(  # pylint: disable=g-long-lambda
+              ['idx0', 'idx1'], 'val', tf.int64, (3, 4)),
+          elementwise=True,
+          expected_outputs=[{
+              'scale_to_0_1$sparse_indices_0':
+                  np.array([0, 1]),
+              'scale_to_0_1$sparse_indices_1':
+                  np.array([0, 1]),
+              'scale_to_z_score$sparse_indices_0':
+                  np.array([0, 1]),
+              'scale_to_z_score$sparse_indices_1':
+                  np.array([0, 1]),
+              'scale_by_min_max$sparse_indices_0':
+                  np.array([0, 1]),
+              'scale_by_min_max$sparse_indices_1':
+                  np.array([0, 1]),
+              'scale_to_0_1$sparse_values':
+                  np.array([0.5, 0.], dtype=np.float32),
+              'scale_to_z_score$sparse_values':
+                  np.array([0, -1], dtype=np.float32),
+              'scale_by_min_max$sparse_values':
+                  np.array([0.5, 0.], dtype=np.float32),
+          }, {
+              'scale_to_0_1$sparse_indices_0':
+                  np.array([1, 2]),
+              'scale_to_0_1$sparse_indices_1':
+                  np.array([1, 3]),
+              'scale_to_z_score$sparse_indices_0':
+                  np.array([1, 2]),
+              'scale_to_z_score$sparse_indices_1':
+                  np.array([1, 3]),
+              'scale_by_min_max$sparse_indices_0':
+                  np.array([1, 2]),
+              'scale_by_min_max$sparse_indices_1':
+                  np.array([1, 3]),
+              'scale_to_0_1$sparse_values':
+                  np.array([1., _sigmoid(3)], dtype=np.float32),
+              'scale_to_z_score$sparse_values':
+                  np.array([1, 0], dtype=np.float32),
+              'scale_by_min_max$sparse_values':
+                  np.array([1., _sigmoid(3)], dtype=np.float32),
+          }]),
+      dict(
+          testcase_name='ragged',
+          input_data=[
+              {
+                  'val': [0., 2., 3.],
+                  'row_lengths': [0, 3],
+              },
+              {
+                  'val': [3., 3., 1.],
+                  'row_lengths': [3],
+              },
+          ],
+          make_feature_spec=lambda: tf.io.RaggedFeature(  # pylint: disable=g-long-lambda
+              tf.float32,
+              value_key='val',
+              partitions=[tf.io.RaggedFeature.RowLengths('row_lengths')]),  # pytype: disable=attribute-error
+          elementwise=False,
+          expected_outputs=[{
+              'scale_by_min_max$ragged_values': [0., 0.6666667, 1.],
+              'scale_to_z_score$row_lengths_1': [0, 3],
+              'scale_to_0_1$row_lengths_1': [0, 3],
+              'scale_to_0_1$ragged_values': [0., 0.6666667, 1.],
+              'scale_to_z_score$ragged_values': [-1.7320509, 0., 0.86602545],
+              'scale_by_min_max$row_lengths_1': [0, 3],
+          }, {
+              'scale_to_0_1$row_lengths_1': [3],
+              'scale_by_min_max$row_lengths_1': [3],
+              'scale_to_z_score$ragged_values': [
+                  0.86602545, 0.86602545, -0.86602545
+              ],
+              'scale_to_z_score$row_lengths_1': [3],
+              'scale_to_0_1$ragged_values': [1., 1., 0.33333334],
+              'scale_by_min_max$ragged_values': [1., 1., 0.33333334],
+          }],
+      ))
+  def testNumericMappersWithCompositeInputs(self, input_data, make_feature_spec,
+                                            elementwise, expected_outputs):
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'a': _make_feature_spec_wrapper(make_feature_spec)})
+
     def preprocessing_fn(inputs):
       return {
           'scale_to_0_1':
@@ -2329,70 +2714,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
               tft.scale_by_min_max(inputs['a'], elementwise=elementwise),
       }
 
-    input_data = [
-        {'idx0': [0, 1], 'idx1': [0, 1], 'val': np.array(
-            [0, 1], dtype=np.int64)},
-        {'idx0': [1, 2], 'idx1': [1, 3], 'val': np.array(
-            [2, 3], dtype=np.int64)},
-    ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a':
-            tf.io.SparseFeature(['idx0', 'idx1'], 'val',
-                                tft_unit.canonical_numeric_dtype(tf.int64),
-                                (3, 4))
-    })
-    def _sigmoid(x):
-      return 1 / (1 + np.exp(-x))
-    expected_indices_0 = {
-        'scale_to_0_1$sparse_indices_0': np.array([0, 1]),
-        'scale_to_0_1$sparse_indices_1': np.array([0, 1]),
-        'scale_to_z_score$sparse_indices_0': np.array([0, 1]),
-        'scale_to_z_score$sparse_indices_1': np.array([0, 1]),
-        'scale_by_min_max$sparse_indices_0': np.array([0, 1]),
-        'scale_by_min_max$sparse_indices_1': np.array([0, 1]),
-    }
-    expected_indices_1 = {
-        'scale_to_0_1$sparse_indices_0': np.array([1, 2]),
-        'scale_to_0_1$sparse_indices_1': np.array([1, 3]),
-        'scale_to_z_score$sparse_indices_0': np.array([1, 2]),
-        'scale_to_z_score$sparse_indices_1': np.array([1, 3]),
-        'scale_by_min_max$sparse_indices_0': np.array([1, 2]),
-        'scale_by_min_max$sparse_indices_1': np.array([1, 3]),
-    }
-    if elementwise:
-      expected_values_0 = {
-          'scale_to_0_1$sparse_values': np.array([0.5, 0.], dtype=np.float32),
-          'scale_to_z_score$sparse_values': np.array([0, -1], dtype=np.float32),
-          'scale_by_min_max$sparse_values': np.array([0.5, 0.],
-                                                     dtype=np.float32),
-      }
-      expected_values_1 = {
-          'scale_to_0_1$sparse_values': np.array([1., _sigmoid(3)],
-                                                 dtype=np.float32),
-          'scale_to_z_score$sparse_values': np.array([1, 0], dtype=np.float32),
-          'scale_by_min_max$sparse_values': np.array([1., _sigmoid(3)],
-                                                     dtype=np.float32),
-      }
-    else:
-      sqrt_var = np.sqrt(1.25)
-      expected_values_0 = {
-          'scale_to_0_1$sparse_values': np.array([0., 1. / 3.],
-                                                 dtype=np.float32),
-          'scale_to_z_score$sparse_values': np.array(
-              [-1.5 / sqrt_var, -0.5 / sqrt_var], dtype=np.float32),
-          'scale_by_min_max$sparse_values': np.array([0., 1. / 3.],
-                                                     dtype=np.float32),
-      }
-      expected_values_1 = {
-          'scale_to_0_1$sparse_values': np.array([2. / 3., 1.],
-                                                 dtype=np.float32),
-          'scale_to_z_score$sparse_values': np.array(
-              [.5 / sqrt_var, 1.5 / sqrt_var], dtype=np.float32),
-          'scale_by_min_max$sparse_values': np.array([2. / 3., 1.],
-                                                     dtype=np.float32),
-      }
-    expected_outputs = [{**expected_indices_0, **expected_values_0},
-                        {**expected_indices_1, **expected_values_1}]
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_outputs)
 

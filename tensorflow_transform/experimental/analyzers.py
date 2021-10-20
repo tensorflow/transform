@@ -34,14 +34,14 @@ from tensorflow_transform import nodes
 
 
 def _apply_analyzer(analyzer_def_cls: Type[analyzer_nodes.AnalyzerDef],
-                    *tensor_inputs: common_types.TensorType,
+                    *tensor_inputs: common_types.InputTensorType,
                     **analyzer_def_kwargs: Any) -> Tuple[tf.Tensor, ...]:
   """Applies the analyzer over the whole dataset.
 
   Args:
     analyzer_def_cls: A class inheriting from analyzer_nodes.AnalyzerDef that
       should be applied.
-    *tensor_inputs: A list of input `Tensor`s or `SparseTensor`s.
+    *tensor_inputs: A list of input `Tensor`s or `CompositeTensor`s.
     **analyzer_def_kwargs: KW arguments to use when constructing
       analyzer_def_cls.
 

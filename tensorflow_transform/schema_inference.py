@@ -609,9 +609,9 @@ def _get_schema_overrides(graph,
 
 
 def get_traced_metadata_fn(
-    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
-                               Mapping[str, common_types.TensorType]],
-    structured_inputs: Mapping[str, common_types.TensorType],
+    preprocessing_fn: Callable[[Mapping[str, common_types.InputTensorType]],
+                               Mapping[str, common_types.InputTensorType]],
+    structured_inputs: Mapping[str, common_types.InputTensorType],
     tf_graph_context: graph_context.TFGraphContext,
     evaluate_schema_overrides: bool) -> function.Function:
   """Get a tf.function that returns a dictionary of annotations.

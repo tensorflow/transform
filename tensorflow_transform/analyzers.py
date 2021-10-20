@@ -112,7 +112,7 @@ _FLOAT_OUTPUT_DTYPE_MAP = {
 
 def _apply_cacheable_combiner(
     combiner: analyzer_nodes.Combiner,
-    *tensor_inputs: common_types.TensorType) -> Tuple[tf.Tensor, ...]:
+    *tensor_inputs: common_types.InputTensorType) -> Tuple[tf.Tensor, ...]:
   """Applies the combiner over the whole dataset possibly utilizing cache."""
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       tensor_inputs)
@@ -137,7 +137,7 @@ def _apply_cacheable_combiner(
 
 def _apply_cacheable_combiner_per_key(
     combiner: analyzer_nodes.Combiner,
-    *tensor_inputs: common_types.TensorType) -> Tuple[tf.Tensor, ...]:
+    *tensor_inputs: common_types.InputTensorType) -> Tuple[tf.Tensor, ...]:
   """Similar to _apply_cacheable_combiner but this is computed per key."""
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       tensor_inputs)
@@ -162,7 +162,7 @@ def _apply_cacheable_combiner_per_key(
 
 def _apply_cacheable_combiner_per_key_large(
     combiner: analyzer_nodes.Combiner, key_vocabulary_filename: str,
-    *tensor_inputs: common_types.TensorType
+    *tensor_inputs: common_types.InputTensorType
 ) -> Union[tf.Tensor, common_types.Asset]:
   """Similar to above but saves the combined result to a file."""
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
@@ -382,16 +382,16 @@ def _numeric_combine(inputs: List[tf.Tensor],
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def min(  # pylint: disable=redefined-builtin
-    x: common_types.TensorType,
+    x: common_types.InputTensorType,
     reduce_instance_dims: bool = True,
     name: Optional[str] = None) -> tf.Tensor:
   """Computes the minimum of the values of a `Tensor` over the whole dataset.
 
-  In the case of a `SparseTensor` missing values will be used in return value:
-  for float, NaN is used and for other dtypes the max is used.
+  In the case of a `CompositeTensor` missing values will be used in return
+  value: for float, NaN is used and for other dtypes the max is used.
 
   Args:
-    x: A `Tensor` or `SparseTensor`.
+    x: A `Tensor` or `CompositeTensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
       to arrive at a single scalar output. If False, only collapses the batch
       dimension and outputs a `Tensor` of the same shape as the input.
@@ -409,16 +409,16 @@ def min(  # pylint: disable=redefined-builtin
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def max(  # pylint: disable=redefined-builtin
-    x: common_types.TensorType,
+    x: common_types.InputTensorType,
     reduce_instance_dims: bool = True,
     name: Optional[str] = None) -> tf.Tensor:
   """Computes the maximum of the values of a `Tensor` over the whole dataset.
 
-  In the case of a `SparseTensor` missing values will be used in return value:
-  for float, NaN is used and for other dtypes the min is used.
+  In the case of a `CompositeTensor` missing values will be used in return
+  value: for float, NaN is used and for other dtypes the min is used.
 
   Args:
-    x: A `Tensor` or `SparseTensor`.
+    x: A `Tensor` or `CompositeTensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
       to arrive at a single scalar output. If False, only collapses the batch
       dimension and outputs a vector of the same shape as the input.
@@ -433,19 +433,20 @@ def max(  # pylint: disable=redefined-builtin
     return _min_and_max(x, reduce_instance_dims, name)[1]
 
 
-def _min_and_max(x: common_types.TensorType,
+def _min_and_max(x: common_types.InputTensorType,
                  reduce_instance_dims: bool = True,
                  name: Optional[str] = None) -> Tuple[tf.Tensor, tf.Tensor]:
-  """Computes the min and max of the values of a `Tensor` or `SparseTensor`.
+  """Computes the min and max of the values of a `Tensor` or `CompositeTensor`.
 
-  In the case of a `SparseTensor` missing values will be used in return value:
+  In the case of a `CompositeTensor` missing values will be used in return
+  value:
   for float, NaN is used and for other dtypes the min is used.
 
   Args:
-    x: A `Tensor` or `SparseTensor`.
+    x: A `Tensor` or `CompositeTensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
-        to arrive at a single scalar output. If False, only collapses the batch
-        dimension and outputs a vector of the same shape as the input.
+      to arrive at a single scalar output. If False, only collapses the batch
+      dimension and outputs a vector of the same shape as the input.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -461,6 +462,9 @@ def _min_and_max(x: common_types.TensorType,
       combine_fn = np.nanmax
       default_accumulator_value = (np.nan if x.dtype.is_floating else
                                    -output_dtype.max)
+    elif not reduce_instance_dims and isinstance(x, tf.RaggedTensor):
+      raise NotImplementedError(
+          'Elemenwise min_and_max does not support RaggedTensors.')
     else:
       combine_fn = np.max
       default_accumulator_value = (-np.inf if x.dtype.is_floating else
@@ -478,16 +482,16 @@ def _min_and_max(x: common_types.TensorType,
 
 
 def _min_and_max_per_key(
-    x: common_types.TensorType,
-    key: common_types.TensorType,
+    x: common_types.InputTensorType,
+    key: common_types.InputTensorType,
     reduce_instance_dims: bool = True,
     key_vocabulary_filename: Optional[str] = None,
     name: Optional[str] = None
 ) -> Union[Tuple[tf.Tensor, tf.Tensor, tf.Tensor], tf.Tensor]:
-  """Computes the min and max of the values of a `Tensor` or `SparseTensor`.
+  """Computes the min and max of the values of a `Tensor` or `CompositeTensor`.
 
-  In the case of a `SparseTensor` missing values will be used in return value:
-  for float, NaN is used and for other dtypes the min is used.
+  In the case of a `CompositeTensor` missing values will be used in return
+  value: for float, NaN is used and for other dtypes the min is used.
 
   This function operates under the assumption that the size of the key set
   is small enough to fit in memory. Anything above a certain size larger is not
@@ -495,14 +499,14 @@ def _min_and_max_per_key(
   available in a future version.
 
   Args:
-    x: A `Tensor` or `SparseTensor`.
-    key: A Tensor or `SparseTensor` of dtype tf.string.  If `x` is
-      a `SparseTensor`, `key` must exactly match `x` in everything except
+    x: A `Tensor` or `CompositeTensor`.
+    key: A Tensor or `CompositeTensor` of dtype tf.string.  If `x` is a
+      `CompositeTensor`, `key` must exactly match `x` in everything except
       values.
     reduce_instance_dims: By default collapses the batch and instance dimensions
-        to arrive at a single scalar output. If False, only collapses the batch
-        dimension and outputs a vector of the same shape as the input.
-        The False case is not currently supported for _min_and_max_per_key.
+      to arrive at a single scalar output. If False, only collapses the batch
+      dimension and outputs a vector of the same shape as the input. The False
+      case is not currently supported for _min_and_max_per_key.
     key_vocabulary_filename: (Optional) The file name for the key-output mapping
       file. If None and key are provided, this combiner assumes the keys fit in
       memory and will not store the result in a file. If empty string, a file
@@ -528,8 +532,9 @@ def _min_and_max_per_key(
 
   with tf.compat.v1.name_scope(name, 'min_and_max_per_key'):
     output_dtype = x.dtype
-    if (not reduce_instance_dims and isinstance(x, tf.SparseTensor) and
-        x.dtype.is_floating):
+    if (not reduce_instance_dims and
+        isinstance(x,
+                   (tf.SparseTensor, tf.RaggedTensor)) and x.dtype.is_floating):
       combine_fn = np.nanmax
       default_accumulator_value = (np.nan if x.dtype.is_floating else
                                    -output_dtype.max)
@@ -572,13 +577,13 @@ def _sum_combine_fn_and_dtype(
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def sum(  # pylint: disable=redefined-builtin
-    x: common_types.TensorType,
+    x: common_types.InputTensorType,
     reduce_instance_dims: bool = True,
     name: Optional[str] = None) -> tf.Tensor:
   """Computes the sum of the values of a `Tensor` over the whole dataset.
 
   Args:
-    x: A `Tensor` or `SparseTensor`. Its type must be floating point
+    x: A `Tensor` or `CompositeTensor`. Its type must be floating point
         (float{16|32|64}),integral (int{8|16|32|64}), or
         unsigned integral (uint{8|16})
     reduce_instance_dims: By default collapses the batch and instance dimensions
@@ -600,6 +605,8 @@ def sum(  # pylint: disable=redefined-builtin
     if reduce_instance_dims:
       if isinstance(x, tf.SparseTensor):
         x = x.values
+      elif isinstance(x, tf.RaggedTensor):
+        x = x.flat_values
       x = tf.reduce_sum(input_tensor=x)
     elif isinstance(x, tf.SparseTensor):
       if x.dtype == tf.uint8 or x.dtype == tf.uint16:
@@ -607,6 +614,9 @@ def sum(  # pylint: disable=redefined-builtin
       elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
         TypeError('Data type %r is not supported' % x.dtype)
       x = tf.sparse.reduce_sum(x, axis=0)
+    elif isinstance(x, tf.RaggedTensor):
+      raise NotImplementedError(
+          'Elementwise sum does not support RaggedTensors.')
     else:
       x = tf.reduce_sum(input_tensor=x, axis=0)
     output_dtype, sum_fn = _sum_combine_fn_and_dtype(x.dtype)
@@ -619,7 +629,7 @@ def sum(  # pylint: disable=redefined-builtin
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def histogram(x: common_types.TensorType,
+def histogram(x: common_types.InputTensorType,
               boundaries: Optional[Union[tf.Tensor, int]] = None,
               categorical: Optional[bool] = False,
               name: Optional[str] = None) -> Tuple[tf.Tensor, tf.Tensor]:
@@ -638,7 +648,7 @@ def histogram(x: common_types.TensorType,
                            zip(classes, probabilities)))
 
   Args:
-    x: A `Tensor` or `SparseTensor`.
+    x: A `Tensor` or `CompositeTensor`.
     boundaries: (Optional) A `Tensor` or `int` used to build the histogram;
       ignored if `categorical` is True. If possible, provide boundaries as
       multiple sorted values.  Default to 10 intervals over the 0-1 range, or
@@ -654,7 +664,12 @@ def histogram(x: common_types.TensorType,
 
   with tf.compat.v1.name_scope(name, 'histogram'):
     # We need to flatten because BoostedTreesBucketize expects a rank-1 input
-    x = x.values if isinstance(x, tf.SparseTensor) else tf.reshape(x, [-1])
+    if isinstance(x, tf.SparseTensor):
+      x = x.values
+    elif isinstance(x, tf.RaggedTensor):
+      x = x.flat_values
+    else:
+      x = tf.reshape(x, [-1])
     if categorical:
       x_dtype = x.dtype
       x = x if x_dtype == tf.string else tf.strings.as_string(x)
@@ -687,13 +702,13 @@ def histogram(x: common_types.TensorType,
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def size(x: common_types.TensorType,
+def size(x: common_types.InputTensorType,
          reduce_instance_dims: bool = True,
          name: Optional[str] = None) -> tf.Tensor:
   """Computes the total size of instances in a `Tensor` over the whole dataset.
 
   Args:
-    x: A `Tensor` or `SparseTensor`.
+    x: A `Tensor` or `CompositeTensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
       to arrive at a single scalar output. If False, only collapses the batch
       dimension and outputs a vector of the same shape as the input.
@@ -715,13 +730,13 @@ def size(x: common_types.TensorType,
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def count_per_key(key: common_types.TensorType,
+def count_per_key(key: common_types.InputTensorType,
                   key_vocabulary_filename: Optional[str] = None,
                   name: Optional[str] = None):
   """Computes the count of each element of a `Tensor`.
 
   Args:
-    key: A Tensor or `SparseTensor` of dtype tf.string or tf.int.
+    key: A Tensor or `CompositeTensor` of dtype tf.string or tf.int.
     key_vocabulary_filename: (Optional) The file name for the key-output mapping
       file. If None and key are provided, this combiner assumes the keys fit in
       memory and will not store the result in a file. If empty string, a file
@@ -764,14 +779,14 @@ def count_per_key(key: common_types.TensorType,
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def mean(x: common_types.TensorType,
+def mean(x: common_types.InputTensorType,
          reduce_instance_dims: bool = True,
          name: Optional[str] = None,
          output_dtype: Optional[tf.DType] = None) -> tf.Tensor:
   """Computes the mean of the values of a `Tensor` over the whole dataset.
 
   Args:
-    x: A `Tensor` or `SparseTensor`. Its type must be floating point
+    x: A `Tensor` or `CompositeTensor`. Its type must be floating point
         (float{16|32|64}), or integral ([u]int{8|16|32|64}).
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
@@ -792,7 +807,7 @@ def mean(x: common_types.TensorType,
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def var(x: common_types.TensorType,
+def var(x: common_types.InputTensorType,
         reduce_instance_dims: bool = True,
         name: Optional[str] = None,
         output_dtype: Optional[tf.DType] = None) -> tf.Tensor:
@@ -802,7 +817,7 @@ def var(x: common_types.TensorType,
   (x - mean(x))**2 / length(x).
 
   Args:
-    x: `Tensor` or `SparseTensor`. Its type must be floating point
+    x: `Tensor` or `CompositeTensor`. Its type must be floating point
         (float{16|32|64}), or integral ([u]int{8|16|32|64}).
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
@@ -822,12 +837,17 @@ def var(x: common_types.TensorType,
     return _mean_and_var(x, reduce_instance_dims, output_dtype)[1]
 
 
-def _mean_and_var(x, reduce_instance_dims=True, output_dtype=None):
+def _mean_and_var(x: common_types.InputTensorType,
+                  reduce_instance_dims: bool = True,
+                  output_dtype: Optional[tf.DType] = None):
   """More efficient combined `mean` and `var`.  See `var`."""
   if output_dtype is None:
     output_dtype = _FLOAT_OUTPUT_DTYPE_MAP.get(x.dtype)
     if output_dtype is None:
       raise TypeError('Tensor type %r is not supported' % x.dtype)
+  if not reduce_instance_dims and isinstance(x, tf.RaggedTensor):
+    raise NotImplementedError(
+        'Elementwise mean_and_var does not support RaggedTensors.')
 
   with tf.compat.v1.name_scope('mean_and_var'):
 
@@ -1007,8 +1027,8 @@ def _tukey_parameters(
 
 
 def _mean_and_var_per_key(
-    x: common_types.TensorType,
-    key: common_types.TensorType,
+    x: common_types.InputTensorType,
+    key: common_types.InputTensorType,
     reduce_instance_dims: bool = True,
     output_dtype: Optional[tf.DType] = None,
     key_vocabulary_filename: Optional[str] = None
@@ -1017,9 +1037,9 @@ def _mean_and_var_per_key(
   """`mean_and_var` by group, specified by key.
 
   Args:
-    x: A `Tensor` or `SparseTensor`.
-    key: A Tensor or `SparseTensor` of dtype tf.string.  If `x` is
-      a `SparseTensor`, `key` must exactly match `x` in everything except
+    x: A `Tensor` or `CompositeTensor`.
+    key: A Tensor or `CompositeTensor` of dtype tf.string.  If `x` is
+      a `CompositeTensor`, `key` must exactly match `x` in everything except
       values.
     reduce_instance_dims: (Optional) By default collapses the batch and instance
         dimensions to arrive at a single scalar output. The False case is not

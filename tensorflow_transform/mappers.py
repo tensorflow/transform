@@ -244,15 +244,15 @@ def sparse_tensor_left_align(sparse_tensor: tf.SparseTensor) -> tf.SparseTensor:
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_by_min_max(
-    x: common_types.ConsistentTensorType,
+    x: common_types.ConsistentInputTensorType,
     output_min: float = 0.0,
     output_max: float = 1.0,
     elementwise: bool = False,
-    name: Optional[str] = None) -> common_types.ConsistentTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
   """Scale a numerical column into the range [output_min, output_max].
 
   Args:
-    x: A numeric `Tensor` or `SparseTensor`.
+    x: A numeric `Tensor` or `CompositeTensor`.
     output_min: The minimum of the range of output values.
     output_max: The maximum of the range of output values.
     elementwise: If true, scale each element of the tensor independently.
@@ -278,23 +278,23 @@ def scale_by_min_max(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_by_min_max_per_key(
-    x: common_types.ConsistentTensorType,
-    key: common_types.TensorType,
+    x: common_types.ConsistentInputTensorType,
+    key: common_types.InputTensorType,
     output_min: float = 0.0,
     output_max: float = 1.0,
     elementwise: bool = False,
     key_vocabulary_filename: Optional[str] = None,
-    name: Optional[str] = None) -> common_types.ConsistentTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
   # pyformat: disable
   """Scale a numerical column into a predefined range on a per-key basis.
 
   Args:
-    x: A numeric `Tensor` or `SparseTensor`.
-    key: A `Tensor` or `SparseTensor` of dtype tf.string.
+    x: A numeric `Tensor` or `CompositeTensor`.
+    key: A `Tensor` or `CompositeTensor` of dtype tf.string.
         Must meet one of the following conditions:
         0. key is None
         1. Both x and key are dense,
-        2. Both x and key are sparse and `key` must exactly match `x` in
+        2. Both x and key are composite and `key` must exactly match `x` in
            everything except values,
         3. The axis=1 index of each x matches its index of dense key.
     output_min: The minimum of the range of output values.
@@ -328,7 +328,7 @@ def scale_by_min_max_per_key(
   [{'scaled': 0.0}, {'scaled': 0.5}, {'scaled': 1.0}]
 
   Returns:
-    A `Tensor`  or `SparseTensor` containing the input column scaled to
+    A `Tensor`  or `CompositeTensor` containing the input column scaled to
     [output_min, output_max] on a per-key basis if a key is provided. If the
     analysis dataset is empty, a certain key contains a single distinct value or
     the computed key vocabulary doesn't have an entry for `key`, then `x` is
@@ -353,13 +353,13 @@ def scale_by_min_max_per_key(
 
 
 def _scale_by_min_max_internal(
-    x: common_types.ConsistentTensorType,
-    key: Optional[common_types.TensorType],
+    x: common_types.ConsistentInputTensorType,
+    key: Optional[common_types.InputTensorType],
     output_min: float,
     output_max: float,
     elementwise: bool,
     key_vocabulary_filename: Optional[str] = None
-) -> common_types.ConsistentTensorType:
+) -> common_types.ConsistentInputTensorType:
   """Implementation for scale_by_min_max."""
   if output_min >= output_max:
     raise ValueError('output_min must be less than output_max')
@@ -398,6 +398,11 @@ def _scale_by_min_max_internal(
       max_x_value = tf.gather_nd(
           tf.broadcast_to(max_x_value, x.dense_shape), x.indices)
     x_values = x.values
+  elif isinstance(x, tf.RaggedTensor):
+    if elementwise:
+      raise NotImplementedError(
+          'Elementwise min_and_max does not support RaggedTensors.')
+    x_values = x.flat_values
 
   # If min>=max, then the corresponding input to the min_and_max analyzer either
   # was empty and the analyzer returned default values, or contained only one
@@ -419,20 +424,20 @@ def _scale_by_min_max_internal(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_to_0_1(
-    x: common_types.ConsistentTensorType,
+    x: common_types.ConsistentInputTensorType,
     elementwise: bool = False,
-    name: Optional[str] = None) -> common_types.ConsistentTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
   """Returns a column which is the input column scaled to have range [0,1].
 
   Args:
-    x: A numeric `Tensor` or `SparseTensor`.
+    x: A numeric `Tensor` or `CompositeTensor`.
     elementwise: If true, scale each element of the tensor independently.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` or `SparseTensor` containing the input column scaled to [0, 1].
-    If the analysis dataset is empty or contains a single distinct value, then
-    `x` is scaled using a sigmoid function.
+    A `Tensor` or `CompositeTensor` containing the input column scaled to
+    [0, 1]. If the analysis dataset is empty or contains a single distinct
+    value, then `x` is scaled using a sigmoid function.
   """
   with tf.compat.v1.name_scope(name, 'scale_to_0_1'):
     return _scale_by_min_max_internal(
@@ -446,17 +451,17 @@ def scale_to_0_1(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_to_0_1_per_key(
-    x: common_types.ConsistentTensorType,
-    key: common_types.TensorType,
+    x: common_types.ConsistentInputTensorType,
+    key: common_types.InputTensorType,
     elementwise: bool = False,
     key_vocabulary_filename: Optional[str] = None,
-    name: Optional[str] = None) -> common_types.ConsistentTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
   # pyformat: disable
   """Returns a column which is the input column scaled to have range [0,1].
 
   Args:
-    x: A numeric `Tensor` or `SparseTensor`.
-    key: A `Tensor` or `SparseTensor` of type string.
+    x: A numeric `Tensor` or `CompositeTensor`.
+    key: A `Tensor` or `CompositeTensor` of type string.
     elementwise: If true, scale each element of the tensor independently.
     key_vocabulary_filename: (Optional) The file name for the per-key file. If
       None, this combiner will assume the keys fit in memory and will not store
@@ -486,7 +491,7 @@ def scale_to_0_1_per_key(
   [{'scaled': 0.0}, {'scaled': 0.5}, {'scaled': 1.0}]
 
   Returns:
-    A `Tensor` or `SparseTensor` containing the input column scaled to [0, 1],
+    A `Tensor` or `CompositeTensor` containing the input column scaled to [0, 1],
     per key. If the analysis dataset is empty, contains a single distinct value
     or the computed key vocabulary doesn't have an entry for `key`, then `x` is
     scaled using a sigmoid function.
@@ -506,11 +511,11 @@ def scale_to_0_1_per_key(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_to_z_score(
-    x: common_types.ConsistentTensorType,
+    x: common_types.ConsistentInputTensorType,
     elementwise: bool = False,
     name: Optional[str] = None,
     output_dtype: Optional[tf.DType] = None
-) -> common_types.ConsistentTensorType:
+) -> common_types.ConsistentInputTensorType:
   """Returns a standardized column with mean 0 and variance 1.
 
   Scaling to z-score subtracts out the mean and divides by standard deviation.
@@ -518,14 +523,14 @@ def scale_to_z_score(
   (0 delta degrees of freedom), as computed by analyzers.var.
 
   Args:
-    x: A numeric `Tensor` or `SparseTensor`.
+    x: A numeric `Tensor` or `CompositeTensor`.
     elementwise: If true, scales each element of the tensor independently;
         otherwise uses the mean and variance of the whole tensor.
     name: (Optional) A name for this operation.
     output_dtype: (Optional) If not None, casts the output tensor to this type.
 
   Returns:
-    A `Tensor` or `SparseTensor` containing the input column scaled to mean 0
+    A `Tensor` or `CompositeTensor` containing the input column scaled to mean 0
     and variance 1 (standard deviation 1), given by: (x - mean(x)) / std_dev(x).
     If `x` is floating point, the mean will have the same type as `x`. If `x` is
     integral, the output is cast to tf.float32. If the analysis dataset is empty
@@ -546,13 +551,13 @@ def scale_to_z_score(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_to_z_score_per_key(
-    x: common_types.ConsistentTensorType,
-    key: common_types.TensorType,
+    x: common_types.ConsistentInputTensorType,
+    key: common_types.InputTensorType,
     elementwise: bool = False,
     key_vocabulary_filename: Optional[str] = None,
     name: Optional[str] = None,
     output_dtype: Optional[tf.DType] = None
-) -> common_types.ConsistentTensorType:
+) -> common_types.ConsistentInputTensorType:
   """Returns a standardized column with mean 0 and variance 1, grouped per key.
 
   Scaling to z-score subtracts out the mean and divides by standard deviation.
@@ -560,8 +565,8 @@ def scale_to_z_score_per_key(
   (0 delta degrees of freedom), as computed by analyzers.var.
 
   Args:
-    x: A numeric `Tensor` or `SparseTensor`.
-    key: A Tensor or `SparseTensor` of dtype tf.string.
+    x: A numeric `Tensor` or `CompositeTensor`.
+    key: A Tensor or `CompositeTensor` of dtype tf.string.
         Must meet one of the following conditions:
         0. key is None
         1. Both x and key are dense,
@@ -580,7 +585,7 @@ def scale_to_z_score_per_key(
     output_dtype: (Optional) If not None, casts the output tensor to this type.
 
   Returns:
-    A `Tensor` or `SparseTensor` containing the input column scaled to mean 0
+    A `Tensor` or `CompositeTensor` containing the input column scaled to mean 0
     and variance 1 (standard deviation 1), grouped per key if a key is provided.
 
     That is, for all keys k: (x - mean(x)) / std_dev(x) for all x with key k.
@@ -604,10 +609,10 @@ def scale_to_z_score_per_key(
 
 
 def _scale_to_z_score_internal(
-    x: common_types.ConsistentTensorType,
-    key: Optional[common_types.TensorType], elementwise: bool,
+    x: common_types.ConsistentInputTensorType,
+    key: Optional[common_types.InputTensorType], elementwise: bool,
     key_vocabulary_filename: Optional[str],
-    output_dtype: Optional[tf.DType]) -> common_types.ConsistentTensorType:
+    output_dtype: Optional[tf.DType]) -> common_types.ConsistentInputTensorType:
   """Implementation for scale_to_z_score."""
   # x_mean will be float16, float32, or float64, depending on type of x
   if key is None:
@@ -642,6 +647,11 @@ def _scale_to_z_score_internal(
     if elementwise:
       x_mean = tf.gather_nd(tf.broadcast_to(x_mean, x.dense_shape), x.indices)
       x_var = tf.gather_nd(tf.broadcast_to(x_var, x.dense_shape), x.indices)
+  elif isinstance(x, tf.RaggedTensor):
+    if elementwise:
+      raise NotImplementedError(
+          'Elementwise scale_to_z_score does not support RaggedTensors')
+    x_values = x.flat_values
 
   numerator = tf.cast(x_values, x_mean.dtype) - x_mean
   denominator = tf.sqrt(x_var)
@@ -1049,7 +1059,7 @@ def apply_vocabulary(
     deferred_vocab_filename_tensor: common_types.TemporaryAnalyzerOutputType,
     default_value: Any = -1,
     num_oov_buckets: int = 0,
-    lookup_fn: Optional[Callable[[common_types.TensorType, tf.Tensor],
+    lookup_fn: Optional[Callable[[common_types.InputTensorType, tf.Tensor],
                                  Tuple[tf.Tensor, tf.Tensor]]] = None,
     file_format: common_types.VocabularyFileFormatType = analyzers
     .DEFAULT_VOCABULARY_FILE_FORMAT,
@@ -1154,7 +1164,7 @@ def apply_vocabulary(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def get_num_buckets_for_transformed_feature(
-    transformed_feature: common_types.TensorType) -> tf.Tensor:
+    transformed_feature: common_types.InputTensorType) -> tf.Tensor:
   # pyformat: disable
   """Provides the number of buckets for a transformed feature if annotated.
 
@@ -1814,8 +1824,8 @@ def bucketize_per_key(
 
 
 def _make_composite_tensor_wrapper_if_composite(
-    x: common_types.ConsistentTensorType
-) -> Callable[[tf.Tensor], common_types.ConsistentTensorType]:
+    x: common_types.ConsistentInputTensorType
+) -> Callable[[tf.Tensor], common_types.ConsistentInputTensorType]:
   """Produces a function to wrap values in the composite structure of x."""
   if isinstance(x, tf.SparseTensor):
     return lambda values: tf.SparseTensor(x.indices, values, x.dense_shape)
@@ -1829,7 +1839,7 @@ def _make_composite_tensor_wrapper_if_composite(
     return lambda values: values
 
 
-def _get_values_if_composite(x: common_types.TensorType) -> tf.Tensor:
+def _get_values_if_composite(x: common_types.InputTensorType) -> tf.Tensor:
   if isinstance(x, tf.SparseTensor):
     return x.values
   elif isinstance(x, tf.RaggedTensor):

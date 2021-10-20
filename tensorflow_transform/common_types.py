@@ -46,7 +46,6 @@ else:
 DomainType = Union[schema_pb2.IntDomain, schema_pb2.FloatDomain,
                    schema_pb2.StringDomain]
 InputTensorType = Union[tf.Tensor, tf.SparseTensor, tf.RaggedTensor]
-TensorType = Union[tf.Tensor, tf.SparseTensor]
 SparseTensorValueType = Union[tf.SparseTensor, tf.compat.v1.SparseTensorValue]
 RaggedTensorValueType = Union[tf.RaggedTensor,
                               tf.compat.v1.ragged.RaggedTensorValue]
