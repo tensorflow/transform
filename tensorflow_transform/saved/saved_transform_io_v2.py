@@ -48,8 +48,8 @@ class _Loader(load.Loader):
 
 def _restore_from_v1_saved_model(
     restored_function: function.ConcreteFunction, saved_model_dir: str
-) -> Tuple[function.ConcreteFunction, Mapping[str, Any],
-           Mapping[str, common_types.InputTensorType]]:
+) -> Tuple[function.ConcreteFunction, Mapping[str, Any], Mapping[
+    str, common_types.TensorType]]:
   """Restores an exported TF1 compat SavedModel."""
   saved_model = saved_model_loader.parse_saved_model(saved_model_dir)
   meta_graph_def = saved_model_loader.choose_meta_graph_def_and_raise(
@@ -106,7 +106,7 @@ def _get_component_tensors(
 
 
 def _get_output_to_inputs_map(
-    output_signature: Mapping[str, common_types.InputTensorType]
+    output_signature: Mapping[str, common_types.TensorType]
 ) -> Dict[str, Iterable[tf.Tensor]]:
   """Gets all graph inputs that the tensors in output_signature depend on."""
   result = {}
@@ -205,8 +205,7 @@ class SavedModelLoader:
     return set(self._structured_inputs.keys()).difference(input_tensor_keys)
 
   def _get_fetches(
-      self,
-      feeds: Iterable[tf.Tensor]) -> Dict[str, common_types.InputTensorType]:
+      self, feeds: Iterable[tf.Tensor]) -> Dict[str, common_types.TensorType]:
     """Returns set of tensors that can be fetched when `feeds` is supplied."""
     result = {}
     for name, output in self._structured_outputs.items():
@@ -222,7 +221,7 @@ class SavedModelLoader:
 
   def _get_missing_inputs(
       self, unfed_input_keys: Iterable[str],
-      batch_size: int) -> Dict[str, common_types.InputTensorType]:
+      batch_size: int) -> Dict[str, common_types.TensorType]:
     """Supplies inputs for `unfed_input_keys`."""
     result = {}
     if unfed_input_keys:
@@ -232,8 +231,8 @@ class SavedModelLoader:
     return result
 
   def _apply_v1_transform_model_in_v2(
-      self, logical_input_map: Mapping[str, common_types.InputTensorType]
-  ) -> Dict[str, common_types.InputTensorType]:
+      self, logical_input_map: Mapping[str, common_types.TensorType]
+  ) -> Dict[str, common_types.TensorType]:
     """Applies a V1 transform graph to dictionary of Tensors or SparseTensors.
 
     This method applies the transformation graph as a pruned function to the
@@ -286,8 +285,8 @@ class SavedModelLoader:
     return result
 
   def _apply_v2_transform_model_finalized(
-      self, logical_input_map: Mapping[str, common_types.InputTensorType]
-  ) -> Dict[str, common_types.InputTensorType]:
+      self, logical_input_map: Mapping[str, common_types.TensorType]
+  ) -> Dict[str, common_types.TensorType]:
     """Applies a V2 transform graph to dictionary of Tensors or SparseTensors.
 
     This method applies the transformation graph to the `logical_input_map` to
@@ -313,8 +312,8 @@ class SavedModelLoader:
     return self._wrapped_function_finalized(modified_inputs)
 
   def _apply_v2_transform_model(
-      self, logical_input_map: Mapping[str, common_types.InputTensorType]
-  ) -> Dict[str, common_types.InputTensorType]:
+      self, logical_input_map: Mapping[str, common_types.TensorType]
+  ) -> Dict[str, common_types.TensorType]:
     """Applies a V2 transform graph to dictionary of Tensors or SparseTensors.
 
     This method applies the transformation graph to the `logical_input_map` to
@@ -362,8 +361,8 @@ class SavedModelLoader:
     return {key: transformed_features[key] for key in fetches_keys}
 
   def apply_transform_model(
-      self, logical_input_map: Mapping[str, common_types.InputTensorType]
-  ) -> Dict[str, common_types.InputTensorType]:
+      self, logical_input_map: Mapping[str, common_types.TensorType]
+  ) -> Dict[str, common_types.TensorType]:
     """Applies a transform graph to dictionary of Tensors or SparseTensors.
 
     Args:

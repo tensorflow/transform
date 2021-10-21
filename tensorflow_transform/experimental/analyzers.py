@@ -34,7 +34,7 @@ from tensorflow_transform import nodes
 
 
 def _apply_analyzer(analyzer_def_cls: Type[analyzer_nodes.AnalyzerDef],
-                    *tensor_inputs: common_types.InputTensorType,
+                    *tensor_inputs: common_types.TensorType,
                     **analyzer_def_kwargs: Any) -> Tuple[tf.Tensor, ...]:
   """Applies the analyzer over the whole dataset.
 

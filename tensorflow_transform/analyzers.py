@@ -112,7 +112,7 @@ _FLOAT_OUTPUT_DTYPE_MAP = {
 
 def _apply_cacheable_combiner(
     combiner: analyzer_nodes.Combiner,
-    *tensor_inputs: common_types.InputTensorType) -> Tuple[tf.Tensor, ...]:
+    *tensor_inputs: common_types.TensorType) -> Tuple[tf.Tensor, ...]:
   """Applies the combiner over the whole dataset possibly utilizing cache."""
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       tensor_inputs)
@@ -137,7 +137,7 @@ def _apply_cacheable_combiner(
 
 def _apply_cacheable_combiner_per_key(
     combiner: analyzer_nodes.Combiner,
-    *tensor_inputs: common_types.InputTensorType) -> Tuple[tf.Tensor, ...]:
+    *tensor_inputs: common_types.TensorType) -> Tuple[tf.Tensor, ...]:
   """Similar to _apply_cacheable_combiner but this is computed per key."""
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       tensor_inputs)
@@ -162,7 +162,7 @@ def _apply_cacheable_combiner_per_key(
 
 def _apply_cacheable_combiner_per_key_large(
     combiner: analyzer_nodes.Combiner, key_vocabulary_filename: str,
-    *tensor_inputs: common_types.InputTensorType
+    *tensor_inputs: common_types.TensorType
 ) -> Union[tf.Tensor, common_types.Asset]:
   """Similar to above but saves the combined result to a file."""
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
@@ -382,7 +382,7 @@ def _numeric_combine(inputs: List[tf.Tensor],
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def min(  # pylint: disable=redefined-builtin
-    x: common_types.InputTensorType,
+    x: common_types.TensorType,
     reduce_instance_dims: bool = True,
     name: Optional[str] = None) -> tf.Tensor:
   """Computes the minimum of the values of a `Tensor` over the whole dataset.
@@ -409,7 +409,7 @@ def min(  # pylint: disable=redefined-builtin
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def max(  # pylint: disable=redefined-builtin
-    x: common_types.InputTensorType,
+    x: common_types.TensorType,
     reduce_instance_dims: bool = True,
     name: Optional[str] = None) -> tf.Tensor:
   """Computes the maximum of the values of a `Tensor` over the whole dataset.
@@ -433,7 +433,7 @@ def max(  # pylint: disable=redefined-builtin
     return _min_and_max(x, reduce_instance_dims, name)[1]
 
 
-def _min_and_max(x: common_types.InputTensorType,
+def _min_and_max(x: common_types.TensorType,
                  reduce_instance_dims: bool = True,
                  name: Optional[str] = None) -> Tuple[tf.Tensor, tf.Tensor]:
   """Computes the min and max of the values of a `Tensor` or `CompositeTensor`.
@@ -482,8 +482,8 @@ def _min_and_max(x: common_types.InputTensorType,
 
 
 def _min_and_max_per_key(
-    x: common_types.InputTensorType,
-    key: common_types.InputTensorType,
+    x: common_types.TensorType,
+    key: common_types.TensorType,
     reduce_instance_dims: bool = True,
     key_vocabulary_filename: Optional[str] = None,
     name: Optional[str] = None
@@ -577,7 +577,7 @@ def _sum_combine_fn_and_dtype(
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def sum(  # pylint: disable=redefined-builtin
-    x: common_types.InputTensorType,
+    x: common_types.TensorType,
     reduce_instance_dims: bool = True,
     name: Optional[str] = None) -> tf.Tensor:
   """Computes the sum of the values of a `Tensor` over the whole dataset.
@@ -629,7 +629,7 @@ def sum(  # pylint: disable=redefined-builtin
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def histogram(x: common_types.InputTensorType,
+def histogram(x: common_types.TensorType,
               boundaries: Optional[Union[tf.Tensor, int]] = None,
               categorical: Optional[bool] = False,
               name: Optional[str] = None) -> Tuple[tf.Tensor, tf.Tensor]:
@@ -702,7 +702,7 @@ def histogram(x: common_types.InputTensorType,
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def size(x: common_types.InputTensorType,
+def size(x: common_types.TensorType,
          reduce_instance_dims: bool = True,
          name: Optional[str] = None) -> tf.Tensor:
   """Computes the total size of instances in a `Tensor` over the whole dataset.
@@ -730,7 +730,7 @@ def size(x: common_types.InputTensorType,
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def count_per_key(key: common_types.InputTensorType,
+def count_per_key(key: common_types.TensorType,
                   key_vocabulary_filename: Optional[str] = None,
                   name: Optional[str] = None):
   """Computes the count of each element of a `Tensor`.
@@ -779,7 +779,7 @@ def count_per_key(key: common_types.InputTensorType,
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def mean(x: common_types.InputTensorType,
+def mean(x: common_types.TensorType,
          reduce_instance_dims: bool = True,
          name: Optional[str] = None,
          output_dtype: Optional[tf.DType] = None) -> tf.Tensor:
@@ -807,7 +807,7 @@ def mean(x: common_types.InputTensorType,
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def var(x: common_types.InputTensorType,
+def var(x: common_types.TensorType,
         reduce_instance_dims: bool = True,
         name: Optional[str] = None,
         output_dtype: Optional[tf.DType] = None) -> tf.Tensor:
@@ -837,7 +837,7 @@ def var(x: common_types.InputTensorType,
     return _mean_and_var(x, reduce_instance_dims, output_dtype)[1]
 
 
-def _mean_and_var(x: common_types.InputTensorType,
+def _mean_and_var(x: common_types.TensorType,
                   reduce_instance_dims: bool = True,
                   output_dtype: Optional[tf.DType] = None):
   """More efficient combined `mean` and `var`.  See `var`."""
@@ -876,7 +876,7 @@ def _mean_and_var(x: common_types.InputTensorType,
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def tukey_location(x: common_types.InputTensorType,
+def tukey_location(x: common_types.TensorType,
                    reduce_instance_dims: Optional[bool] = True,
                    output_dtype: Optional[tf.DType] = None,
                    name: Optional[str] = None) -> tf.Tensor:
@@ -913,7 +913,7 @@ def tukey_location(x: common_types.InputTensorType,
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def tukey_scale(x: common_types.InputTensorType,
+def tukey_scale(x: common_types.TensorType,
                 reduce_instance_dims: Optional[bool] = True,
                 output_dtype: Optional[tf.DType] = None,
                 name: Optional[str] = None) -> tf.Tensor:
@@ -951,7 +951,7 @@ def tukey_scale(x: common_types.InputTensorType,
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
-def tukey_h_params(x: common_types.InputTensorType,
+def tukey_h_params(x: common_types.TensorType,
                    reduce_instance_dims: bool = True,
                    output_dtype: Optional[tf.DType] = None,
                    name: Optional[str] = None) -> Tuple[tf.Tensor, tf.Tensor]:
@@ -988,7 +988,7 @@ def tukey_h_params(x: common_types.InputTensorType,
 
 
 def _tukey_parameters(
-    x: common_types.InputTensorType,
+    x: common_types.TensorType,
     reduce_instance_dims: bool = True,
     output_dtype: Optional[tf.DType] = None
 ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
@@ -1027,8 +1027,8 @@ def _tukey_parameters(
 
 
 def _mean_and_var_per_key(
-    x: common_types.InputTensorType,
-    key: common_types.InputTensorType,
+    x: common_types.TensorType,
+    key: common_types.TensorType,
     reduce_instance_dims: bool = True,
     output_dtype: Optional[tf.DType] = None,
     key_vocabulary_filename: Optional[str] = None
@@ -1652,7 +1652,7 @@ def _register_vocab(sanitized_filename: str,
 # https://github.com/tensorflow/community/blob/master/rfcs/20190116-embedding-partitioned-variable.md#goals
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def vocabulary(
-    x: common_types.InputTensorType,
+    x: common_types.TensorType,
     top_k: Optional[int] = None,
     frequency_threshold: Optional[int] = None,
     vocab_filename: Optional[str] = None,

@@ -595,8 +595,8 @@ def _check_valid_sparse_tensor(indices: Union[_CompositeComponentType,
 # `preprocessing_fn` using tf.function as is and another that will return
 # specific outputs requested for.
 def get_traced_transform_fn(
-    preprocessing_fn: Callable[[Mapping[str, common_types.InputTensorType]],
-                               Mapping[str, common_types.InputTensorType]],
+    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
+                               Mapping[str, common_types.TensorType]],
     input_signature: Mapping[str, tf.TypeSpec],
     tf_graph_context: graph_context.TFGraphContext,
     output_keys_to_name_map: Optional[Dict[str,
@@ -720,8 +720,8 @@ def trace_preprocessing_function(preprocessing_fn,
 
 def _trace_and_write_transform_fn(
     saved_model_dir: str,
-    preprocessing_fn: Callable[[Mapping[str, common_types.InputTensorType]],
-                               Mapping[str, common_types.InputTensorType]],
+    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
+                               Mapping[str, common_types.TensorType]],
     input_signature: Mapping[str, tf.TypeSpec], base_temp_dir: Optional[str],
     tensor_replacement_map: Optional[Dict[str, tf.Tensor]],
     output_keys_to_name_map: Optional[Dict[str,
@@ -743,9 +743,9 @@ def _trace_and_write_transform_fn(
 
 def _trace_and_get_metadata(
     concrete_transform_fn: function.ConcreteFunction,
-    structured_inputs: Mapping[str, common_types.InputTensorType],
-    preprocessing_fn: Callable[[Mapping[str, common_types.InputTensorType]],
-                               Mapping[str, common_types.InputTensorType]],
+    structured_inputs: Mapping[str, common_types.TensorType],
+    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
+                               Mapping[str, common_types.TensorType]],
     base_temp_dir: Optional[str],
     tensor_replacement_map: Optional[Dict[str, tf.Tensor]]
 ) -> dataset_metadata.DatasetMetadata:
@@ -768,7 +768,7 @@ def _trace_and_get_metadata(
 
 def _validate_analyzers_fingerprint(
     baseline_analyzers_fingerprint: Mapping[str, Set[bytes]], graph: tf.Graph,
-    structured_inputs: Mapping[str, common_types.InputTensorType]):
+    structured_inputs: Mapping[str, common_types.TensorType]):
   """Validates analyzers fingerprint in `graph` is same as baseline."""
   analyzers_fingerprint = graph_tools.get_analyzers_fingerprint(
       graph, structured_inputs)
@@ -787,8 +787,8 @@ def _validate_analyzers_fingerprint(
 
 def trace_and_write_v2_saved_model(
     saved_model_dir: str,
-    preprocessing_fn: Callable[[Mapping[str, common_types.InputTensorType]],
-                               Mapping[str, common_types.InputTensorType]],
+    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
+                               Mapping[str, common_types.TensorType]],
     input_signature: Mapping[str, tf.TypeSpec], base_temp_dir: Optional[str],
     baseline_analyzers_fingerprint: Mapping[str, Set[bytes]],
     tensor_replacement_map: Optional[Dict[str, tf.Tensor]],

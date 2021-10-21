@@ -45,16 +45,14 @@ else:
 
 DomainType = Union[schema_pb2.IntDomain, schema_pb2.FloatDomain,
                    schema_pb2.StringDomain]
-InputTensorType = Union[tf.Tensor, tf.SparseTensor, tf.RaggedTensor]
+TensorType = Union[tf.Tensor, tf.SparseTensor, tf.RaggedTensor]
+ConsistentTensorType = TypeVar('ConsistentTensorType', tf.Tensor,
+                               tf.SparseTensor, tf.RaggedTensor)
 SparseTensorValueType = Union[tf.SparseTensor, tf.compat.v1.SparseTensorValue]
 RaggedTensorValueType = Union[tf.RaggedTensor,
                               tf.compat.v1.ragged.RaggedTensorValue]
 TensorValueType = Union[tf.Tensor, np.ndarray, SparseTensorValueType,
                         RaggedTensorValueType]
-ConsistentInputTensorType = TypeVar('ConsistentInputTensorType', tf.Tensor,
-                                    tf.SparseTensor, tf.RaggedTensor)
-ConsistentTensorType = TypeVar('ConsistentTensorType', tf.Tensor,
-                               tf.SparseTensor)
 TemporaryAnalyzerOutputType = Union[tf.Tensor, Asset]
 VocabularyFileFormatType = Literal['text', 'tfrecord_gzip']
 

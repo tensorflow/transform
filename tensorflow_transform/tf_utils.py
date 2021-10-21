@@ -32,7 +32,6 @@ from tensorflow.python.util import object_identity
 # pylint: enable=g-direct-tensorflow-import
 
 _AssetFileType = Union[tf.Tensor, str]
-_TensorType = Union[tf.Tensor, tf.SparseTensor]
 
 _FLOATING_NAN = float('nan')
 # Global sentinels used to keep track of the total counts of y
@@ -92,7 +91,7 @@ def _get_ragged_batch_value_rowids(tensor: tf.RaggedTensor) -> tf.Tensor:
 
 
 def reduce_batch_weighted_counts(
-    x: common_types.InputTensorType,
+    x: common_types.TensorType,
     weights: Optional[tf.Tensor] = None) -> ReducedBatchWeightedCounts:
   """Performs batch-wise reduction to produce (possibly weighted) counts.
 
@@ -126,7 +125,7 @@ def reduce_batch_weighted_counts(
 
 
 def reduce_batch_weighted_cooccurrences(
-    x_input: common_types.InputTensorType,
+    x_input: common_types.TensorType,
     y_input: tf.Tensor,
     weights_input: Optional[tf.Tensor] = None,
     extend_with_sentinel_counts: bool = True) -> ReducedBatchWeightedCounts:
@@ -365,7 +364,7 @@ def _sparse_reduce_batch_keep_shape(
   return result
 
 
-def reduce_batch_count(x: common_types.InputTensorType,
+def reduce_batch_count(x: common_types.TensorType,
                        reduce_instance_dims: bool) -> tf.Tensor:
   """Counts elements in the given tensor.
 
@@ -417,7 +416,7 @@ def reduce_batch_count(x: common_types.InputTensorType,
   return tf.fill(x_shape[1:], x_shape[0])
 
 
-def _to_string(x: common_types.InputTensorType) -> common_types.InputTensorType:
+def _to_string(x: common_types.TensorType) -> common_types.TensorType:
   """Converts values in the given `Tensor` or `CompositeTensor` to strings."""
   if x.dtype is tf.string:
     return x
@@ -434,7 +433,7 @@ def _to_string(x: common_types.InputTensorType) -> common_types.InputTensorType:
 
 
 def reduce_batch_count_per_key(
-    key: common_types.InputTensorType) -> Tuple[tf.Tensor, tf.Tensor]:
+    key: common_types.TensorType) -> Tuple[tf.Tensor, tf.Tensor]:
   """Computes per-key counts in the given tensor.
 
   Args:
@@ -691,7 +690,7 @@ def apply_per_key_vocabulary(per_key_filename: tf.Tensor,
   return numbers if not target_ndims else _align_dims(numbers, target_ndims + 1)
 
 
-def _is_finite(x: common_types.InputTensorType) -> common_types.InputTensorType:
+def _is_finite(x: common_types.TensorType) -> common_types.TensorType:
   """Extension of `tf.math.is_finite` that works with all dtypes."""
   if x.dtype.is_floating:
     return tf.math.is_finite(x)
@@ -758,7 +757,7 @@ def _reduce_batch_count_mean_and_var_dense(
 
 
 def reduce_batch_count_mean_and_var(
-    x: common_types.InputTensorType,
+    x: common_types.TensorType,
     reduce_instance_dims: bool) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
   """Computes element count, mean and var for the given tensor.
 
@@ -937,7 +936,7 @@ def _iteration_l_moments_dense(
 
 
 def reduce_batch_count_l_moments(
-    x: common_types.InputTensorType, reduce_instance_dims: bool
+    x: common_types.TensorType, reduce_instance_dims: bool
 ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor,
            tf.Tensor, tf.Tensor]:
   """Computes element first 4 L-moments and the corresponding counts.
@@ -1022,8 +1021,8 @@ def reduce_batch_count_l_moments(
 
 
 def _validate_and_get_dense_value_key_inputs(
-    x: common_types.InputTensorType,
-    key: common_types.InputTensorType) -> Tuple[tf.Tensor, tf.Tensor]:
+    x: common_types.TensorType,
+    key: common_types.TensorType) -> Tuple[tf.Tensor, tf.Tensor]:
   """Validate x and key and returns dense representations if feasible.
 
   Check if sparse x and sparse key have identical indices, map key if dense.
@@ -1155,9 +1154,9 @@ def _align_dims(tensor: tf.Tensor, target_ndims: int) -> tf.Tensor:
 
 
 def map_per_key_reductions(
-    tensors_to_map: Tuple[tf.Tensor, ...], key: common_types.InputTensorType,
+    tensors_to_map: Tuple[tf.Tensor, ...], key: common_types.TensorType,
     key_vocab: tf.Tensor,
-    original_input: common_types.InputTensorType) -> Tuple[tf.Tensor, ...]:
+    original_input: common_types.TensorType) -> Tuple[tf.Tensor, ...]:
   """Rearrange the reduced per-key result to correspond to the original keys.
 
   Args:
@@ -1198,7 +1197,7 @@ def map_per_key_reductions(
 
 
 def reduce_batch_count_mean_and_var_per_key(
-    x: common_types.InputTensorType, key: common_types.InputTensorType,
+    x: common_types.TensorType, key: common_types.TensorType,
     reduce_instance_dims: bool
 ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
   """Computes per-key element count, mean and var for the given tensor.
@@ -1408,7 +1407,7 @@ def _sparse_minus_reduce_min_and_reduce_max(
 
 
 def reduce_batch_minus_min_and_max(
-    x: common_types.InputTensorType,
+    x: common_types.TensorType,
     reduce_instance_dims: bool) -> Tuple[tf.Tensor, tf.Tensor]:
   """Computes the -min and max of a tensor x.
 
@@ -1459,8 +1458,8 @@ def reduce_batch_minus_min_and_max(
 
 
 def reduce_batch_minus_min_and_max_per_key(
-    x: common_types.InputTensorType, key: common_types.InputTensorType
-) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+    x: common_types.TensorType,
+    key: common_types.TensorType) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
   """Computes the -min and max of a tensor x.
 
   Args:
@@ -1532,8 +1531,8 @@ def _get_asset_analyzer_output_and_control_dependency(
   return asset_filepath, control_dependency
 
 
-def _lookup_table(table: lookup_ops.LookupInterface, x: _TensorType,
-                  control_dependency: Optional[tf.Tensor]) -> _TensorType:
+def _lookup_table(table: lookup_ops.LookupInterface, x: tf.Tensor,
+                  control_dependency: Optional[tf.Tensor]) -> tf.Tensor:
   """Look up x in table with an optional depndency on control_dependency."""
   with contextlib.ExitStack() as stack:
     # tf.control_dependencies([tensor]) adds a dependency to tensor.op. Wrap the
@@ -1546,11 +1545,10 @@ def _lookup_table(table: lookup_ops.LookupInterface, x: _TensorType,
   return result
 
 
-def construct_and_lookup_table(
-    construct_table_callable: Callable[[_AssetFileType],
-                                       lookup_ops.LookupInterface],
-    asset_filepath: _AssetFileType,
-    x: _TensorType) -> Tuple[_TensorType, _TensorType]:
+def construct_and_lookup_table(construct_table_callable: Callable[
+    [_AssetFileType], lookup_ops.LookupInterface],
+                               asset_filepath: _AssetFileType,
+                               x: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
   """Construct a table and look x up in it.
 
   Args:
@@ -1558,8 +1556,8 @@ def construct_and_lookup_table(
       constructs a lookup table.
     asset_filepath: Path to an asset used to construct the table. Can be a
       python string, a `tf.Tensor`, a `tf.Placeholder`.
-    x: A categorical `Tensor` or `SparseTensor` of type tf.string or
-      tf.int[8|16|32|64] to which the table lookup should be applied.
+    x: A categorical `Tensor` of type tf.string or tf.int[8|16|32|64] to which
+      the table lookup should be applied.
 
   Returns:
     A tuple of the result from looking x up in a table and the table's size.

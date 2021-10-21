@@ -244,9 +244,9 @@ class TFTransformOutput:
 
   def transform_raw_features(
       self,
-      raw_features: Mapping[str, common_types.InputTensorType],
+      raw_features: Mapping[str, common_types.TensorType],
       drop_unused_features: bool = True  # LEGACY_VALUE=False
-  ) -> Dict[str, common_types.InputTensorType]:
+  ) -> Dict[str, common_types.TensorType]:
     """Takes a dict of tensors representing raw features and transforms them.
 
     Takes a dictionary of `Tensor`s or `SparseTensor`s that represent the raw
@@ -291,8 +291,8 @@ class TFTransformOutput:
     return _TransformedFeaturesDict(transformed_features)
 
   def _transform_raw_features_compat_v1(
-      self, raw_features: Mapping[str, common_types.InputTensorType],
-      drop_unused_features: bool) -> Dict[str, common_types.InputTensorType]:
+      self, raw_features: Mapping[str, common_types.TensorType],
+      drop_unused_features: bool) -> Dict[str, common_types.TensorType]:
     """Takes a dict of tensors representing raw features and transforms them."""
     unbounded_raw_features, transformed_features = (
         saved_transform_io.partially_apply_saved_transform_internal(
@@ -499,8 +499,8 @@ class TransformFeaturesLayer(tf.keras.Model):
     pass
 
   def call(
-      self, inputs: Mapping[str, common_types.InputTensorType]
-  ) -> Dict[str, common_types.InputTensorType]:
+      self, inputs: Mapping[str, common_types.TensorType]
+  ) -> Dict[str, common_types.TensorType]:
 
     if self._exported_as_v1 and not ops.executing_eagerly_outside_functions():
       tf.compat.v1.logging.warning('Falling back to transform_raw_features...')

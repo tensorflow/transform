@@ -70,11 +70,11 @@ from tfx_bsl.types import tfx_namedtuple
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_to_gaussian(
-    x: common_types.ConsistentInputTensorType,
+    x: common_types.ConsistentTensorType,
     elementwise: bool = False,
     name: Optional[str] = None,
     output_dtype: Optional[tf.DType] = None
-) -> common_types.ConsistentInputTensorType:
+) -> common_types.ConsistentTensorType:
   """Returns an (approximately) normal column with mean to 0 and variance 1.
 
   We transform the column to values that are approximately distributed
@@ -128,10 +128,10 @@ def scale_to_gaussian(
 
 
 def _scale_to_gaussian_internal(
-    x: common_types.ConsistentInputTensorType,
+    x: common_types.ConsistentTensorType,
     elementwise: bool = False,
     output_dtype: Optional[tf.DType] = None
-) -> common_types.ConsistentInputTensorType:
+) -> common_types.ConsistentTensorType:
   """Implementation for scale_to_gaussian."""
   # x_mean will be float16, float32, or float64, depending on type of x.
   x_loc, x_scale, hl, hr = analyzers._tukey_parameters(  # pylint: disable=protected-access
@@ -244,11 +244,11 @@ def sparse_tensor_left_align(sparse_tensor: tf.SparseTensor) -> tf.SparseTensor:
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_by_min_max(
-    x: common_types.ConsistentInputTensorType,
+    x: common_types.ConsistentTensorType,
     output_min: float = 0.0,
     output_max: float = 1.0,
     elementwise: bool = False,
-    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   """Scale a numerical column into the range [output_min, output_max].
 
   Args:
@@ -278,13 +278,13 @@ def scale_by_min_max(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_by_min_max_per_key(
-    x: common_types.ConsistentInputTensorType,
-    key: common_types.InputTensorType,
+    x: common_types.ConsistentTensorType,
+    key: common_types.TensorType,
     output_min: float = 0.0,
     output_max: float = 1.0,
     elementwise: bool = False,
     key_vocabulary_filename: Optional[str] = None,
-    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   # pyformat: disable
   """Scale a numerical column into a predefined range on a per-key basis.
 
@@ -353,13 +353,13 @@ def scale_by_min_max_per_key(
 
 
 def _scale_by_min_max_internal(
-    x: common_types.ConsistentInputTensorType,
-    key: Optional[common_types.InputTensorType],
+    x: common_types.ConsistentTensorType,
+    key: Optional[common_types.TensorType],
     output_min: float,
     output_max: float,
     elementwise: bool,
     key_vocabulary_filename: Optional[str] = None
-) -> common_types.ConsistentInputTensorType:
+) -> common_types.ConsistentTensorType:
   """Implementation for scale_by_min_max."""
   if output_min >= output_max:
     raise ValueError('output_min must be less than output_max')
@@ -424,9 +424,9 @@ def _scale_by_min_max_internal(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_to_0_1(
-    x: common_types.ConsistentInputTensorType,
+    x: common_types.ConsistentTensorType,
     elementwise: bool = False,
-    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   """Returns a column which is the input column scaled to have range [0,1].
 
   Args:
@@ -451,11 +451,11 @@ def scale_to_0_1(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_to_0_1_per_key(
-    x: common_types.ConsistentInputTensorType,
-    key: common_types.InputTensorType,
+    x: common_types.ConsistentTensorType,
+    key: common_types.TensorType,
     elementwise: bool = False,
     key_vocabulary_filename: Optional[str] = None,
-    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   # pyformat: disable
   """Returns a column which is the input column scaled to have range [0,1].
 
@@ -511,11 +511,11 @@ def scale_to_0_1_per_key(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_to_z_score(
-    x: common_types.ConsistentInputTensorType,
+    x: common_types.ConsistentTensorType,
     elementwise: bool = False,
     name: Optional[str] = None,
     output_dtype: Optional[tf.DType] = None
-) -> common_types.ConsistentInputTensorType:
+) -> common_types.ConsistentTensorType:
   """Returns a standardized column with mean 0 and variance 1.
 
   Scaling to z-score subtracts out the mean and divides by standard deviation.
@@ -551,13 +551,13 @@ def scale_to_z_score(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def scale_to_z_score_per_key(
-    x: common_types.ConsistentInputTensorType,
-    key: common_types.InputTensorType,
+    x: common_types.ConsistentTensorType,
+    key: common_types.TensorType,
     elementwise: bool = False,
     key_vocabulary_filename: Optional[str] = None,
     name: Optional[str] = None,
     output_dtype: Optional[tf.DType] = None
-) -> common_types.ConsistentInputTensorType:
+) -> common_types.ConsistentTensorType:
   """Returns a standardized column with mean 0 and variance 1, grouped per key.
 
   Scaling to z-score subtracts out the mean and divides by standard deviation.
@@ -609,10 +609,10 @@ def scale_to_z_score_per_key(
 
 
 def _scale_to_z_score_internal(
-    x: common_types.ConsistentInputTensorType,
-    key: Optional[common_types.InputTensorType], elementwise: bool,
+    x: common_types.ConsistentTensorType,
+    key: Optional[common_types.TensorType], elementwise: bool,
     key_vocabulary_filename: Optional[str],
-    output_dtype: Optional[tf.DType]) -> common_types.ConsistentInputTensorType:
+    output_dtype: Optional[tf.DType]) -> common_types.ConsistentTensorType:
   """Implementation for scale_to_z_score."""
   # x_mean will be float16, float32, or float64, depending on type of x
   if key is None:
@@ -929,7 +929,7 @@ def _count_docs_with_term(term_frequency: tf.SparseTensor) -> tf.Tensor:
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def compute_and_apply_vocabulary(
-    x: common_types.ConsistentInputTensorType,
+    x: common_types.ConsistentTensorType,
     default_value: Any = -1,
     top_k: Optional[int] = None,
     frequency_threshold: Optional[int] = None,
@@ -945,8 +945,7 @@ def compute_and_apply_vocabulary(
     fingerprint_shuffle: bool = False,
     file_format: common_types.VocabularyFileFormatType = analyzers
     .DEFAULT_VOCABULARY_FILE_FORMAT,
-    name: Optional[str] = None
-) -> common_types.ConsistentInputTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   r"""Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
   In case one of the tokens contains the '\n' or '\r' characters or is empty it
@@ -1055,15 +1054,15 @@ def compute_and_apply_vocabulary(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def apply_vocabulary(
-    x: common_types.ConsistentInputTensorType,
+    x: common_types.ConsistentTensorType,
     deferred_vocab_filename_tensor: common_types.TemporaryAnalyzerOutputType,
     default_value: Any = -1,
     num_oov_buckets: int = 0,
-    lookup_fn: Optional[Callable[[common_types.InputTensorType, tf.Tensor],
+    lookup_fn: Optional[Callable[[common_types.TensorType, tf.Tensor],
                                  Tuple[tf.Tensor, tf.Tensor]]] = None,
     file_format: common_types.VocabularyFileFormatType = analyzers
     .DEFAULT_VOCABULARY_FILE_FORMAT,
-    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   r"""Maps `x` to a vocabulary specified by the deferred tensor.
 
   This function also writes domain statistics about the vocabulary min and max
@@ -1164,7 +1163,7 @@ def apply_vocabulary(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def get_num_buckets_for_transformed_feature(
-    transformed_feature: common_types.InputTensorType) -> tf.Tensor:
+    transformed_feature: common_types.TensorType) -> tf.Tensor:
   # pyformat: disable
   """Provides the number of buckets for a transformed feature if annotated.
 
@@ -1645,10 +1644,10 @@ def word_count(tokens: Union[tf.SparseTensor, tf.RaggedTensor],
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def hash_strings(
-    strings: common_types.ConsistentInputTensorType,
+    strings: common_types.ConsistentTensorType,
     hash_buckets: int,
     key: Optional[Iterable[int]] = None,
-    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   """Hash strings into buckets.
 
   Args:
@@ -1686,13 +1685,12 @@ def hash_strings(
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
-def bucketize(
-    x: common_types.ConsistentInputTensorType,
-    num_buckets: int,
-    epsilon: Optional[float] = None,
-    weights: Optional[tf.Tensor] = None,
-    elementwise: bool = False,
-    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
+def bucketize(x: common_types.ConsistentTensorType,
+              num_buckets: int,
+              epsilon: Optional[float] = None,
+              weights: Optional[tf.Tensor] = None,
+              elementwise: bool = False,
+              name: Optional[str] = None) -> common_types.ConsistentTensorType:
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Args:
@@ -1772,11 +1770,11 @@ def bucketize(
 # TODO(b/179891014): Implement key_vocabulary_filename for bucketize_per_key.
 @common.log_api_use(common.MAPPER_COLLECTION)
 def bucketize_per_key(
-    x: common_types.ConsistentInputTensorType,
-    key: common_types.ConsistentInputTensorType,
+    x: common_types.ConsistentTensorType,
+    key: common_types.ConsistentTensorType,
     num_buckets: int,
     epsilon: Optional[float] = None,
-    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Args:
@@ -1824,8 +1822,8 @@ def bucketize_per_key(
 
 
 def _make_composite_tensor_wrapper_if_composite(
-    x: common_types.ConsistentInputTensorType
-) -> Callable[[tf.Tensor], common_types.ConsistentInputTensorType]:
+    x: common_types.ConsistentTensorType
+) -> Callable[[tf.Tensor], common_types.ConsistentTensorType]:
   """Produces a function to wrap values in the composite structure of x."""
   if isinstance(x, tf.SparseTensor):
     return lambda values: tf.SparseTensor(x.indices, values, x.dense_shape)
@@ -1839,7 +1837,7 @@ def _make_composite_tensor_wrapper_if_composite(
     return lambda values: values
 
 
-def _get_values_if_composite(x: common_types.InputTensorType) -> tf.Tensor:
+def _get_values_if_composite(x: common_types.TensorType) -> tf.Tensor:
   if isinstance(x, tf.SparseTensor):
     return x.values
   elif isinstance(x, tf.RaggedTensor):
@@ -1853,14 +1851,14 @@ def _fill_shape(value, shape, dtype):
 
 
 def _apply_buckets_with_keys(
-    x: common_types.ConsistentInputTensorType,
-    key: common_types.ConsistentInputTensorType,
+    x: common_types.ConsistentTensorType,
+    key: common_types.ConsistentTensorType,
     key_vocab: tf.Tensor,
     bucket_boundaries: tf.Tensor,
     scale_factor_per_key: tf.Tensor,
     shift_per_key: tf.Tensor,
     num_buckets: int,
-    name: Optional[int] = None) -> common_types.ConsistentInputTensorType:
+    name: Optional[int] = None) -> common_types.ConsistentTensorType:
   """Bucketize a Tensor or CompositeTensor where boundaries depend on the index.
 
   Args:
@@ -1924,9 +1922,9 @@ def _apply_buckets_with_keys(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def apply_buckets_with_interpolation(
-    x: common_types.ConsistentInputTensorType,
+    x: common_types.ConsistentTensorType,
     bucket_boundaries: common_types.BucketBoundariesType,
-    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   """Interpolates within the provided buckets and then normalizes to 0 to 1.
 
   A method for normalizing continuous numeric data to the range [0, 1].
@@ -2041,9 +2039,9 @@ def apply_buckets_with_interpolation(
 
 @common.log_api_use(common.MAPPER_COLLECTION)
 def apply_buckets(
-    x: common_types.ConsistentInputTensorType,
+    x: common_types.ConsistentTensorType,
     bucket_boundaries: common_types.BucketBoundariesType,
-    name: Optional[str] = None) -> common_types.ConsistentInputTensorType:
+    name: Optional[str] = None) -> common_types.ConsistentTensorType:
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Each element `e` in `x` is mapped to a positive index `i` for which
@@ -2091,7 +2089,7 @@ def apply_buckets(
     return compose_result_fn(bucketized_values)
 
 
-def _assign_buckets_all_shapes(x: common_types.InputTensorType,
+def _assign_buckets_all_shapes(x: common_types.TensorType,
                                bucket_boundaries: tf.Tensor) -> tf.Tensor:
   """Assigns every value in x to a bucket index defined by bucket_boundaries.
 

@@ -903,8 +903,7 @@ class SourcedTensorsVisitor(nodes.Visitor):
 
 
 def get_analyzers_fingerprint(
-    graph: tf.Graph,
-    structured_inputs: Mapping[str, common_types.InputTensorType]
+    graph: tf.Graph, structured_inputs: Mapping[str, common_types.TensorType]
 ) -> Mapping[str, Set[bytes]]:
   """Computes fingerprints for all analyzers in `graph`.
 

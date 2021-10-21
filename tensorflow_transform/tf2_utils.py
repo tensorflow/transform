@@ -66,10 +66,10 @@ def supply_missing_tensor(batch_size: int, tensor_shape: tf.TensorShape,
 
 
 def supply_missing_inputs(
-    structured_inputs: Mapping[str, common_types.InputTensorType],
+    structured_inputs: Mapping[str, common_types.TensorType],
     batch_size: int,
     missing_keys: Optional[Collection[str]] = None
-) -> Mapping[str, common_types.InputTensorType]:
+) -> Mapping[str, common_types.TensorType]:
   """Supply inputs for unfed features.
 
   Supports only tf.Tensor, tf.SparseTensor and tf.RaggedTensor.
@@ -151,7 +151,7 @@ def supply_missing_inputs(
 
 
 def get_structured_inputs_from_func_graph(
-    func_graph: FuncGraph) -> Mapping[str, common_types.InputTensorType]:
+    func_graph: FuncGraph) -> Mapping[str, common_types.TensorType]:
   """Get structured inputs to a FuncGraph.
 
   Args:
