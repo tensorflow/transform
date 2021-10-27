@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import contextlib
 import itertools
 import math
 import os
@@ -3896,23 +3895,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'f2': tf.io.FixedLenFeature([], tf.float32),
         'f3': tf.io.FixedLenFeature([], tf.float32)
     })
-    expected_outputs = [{
-        'f1': -1,
-        'f2': -1,
-        'f3': -1
-    }, {
-        'f1': 1,
-        'f2': 1,
-        'f3': 1
-    }]
 
-    with contextlib.ExitStack() as stack:
-      if not tft_unit.is_tf_api_version_1():
-        stack.enter_context(
-            self.assertRaisesRegex(
-                RuntimeError, 'analyzers.*appears to be non-deterministic'))
-      self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                            preprocessing_fn, expected_outputs)
+    # TODO(b/199274426): Check exception is raised instead.
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn)
 
 
 if __name__ == '__main__':

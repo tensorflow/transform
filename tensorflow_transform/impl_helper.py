@@ -17,6 +17,7 @@ import os
 import re
 from typing import Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 
+from absl import logging
 import numpy as np
 import pyarrow as pa
 
@@ -774,10 +775,12 @@ def _validate_analyzers_fingerprint(
       graph, structured_inputs)
   for analyzer in analyzers_fingerprint:
     if analyzer not in baseline_analyzers_fingerprint:
-      raise ValueError(f'Unknown analyzer node ({analyzer}) encountered.')
+      raise ValueError(f'Analyzer node ({analyzer}) not found in '
+                       f'{baseline_analyzers_fingerprint.keys()}.')
     if (baseline_analyzers_fingerprint[analyzer].difference(
         analyzers_fingerprint[analyzer])):
-      raise RuntimeError(
+      # TODO(b/199274426): Raise an exception instead.
+      logging.warning(
           'The order of analyzers in your `preprocessing_fn` appears to be '
           'non-deterministic. This can be fixed either by changing your '
           '`preprocessing_fn` such that tf.Transform analyzers are encountered '
@@ -817,10 +820,6 @@ def trace_and_write_v2_saved_model(
       1. The traced preprocessing_fn.
       2. A metadata_fn that returns a dictionary containing the deferred
       annotations added to the graph when invoked with any valid input.
-
-  Raises:
-    RuntimeError: if analyzers in `preprocessing_fn` are encountered in a
-    non-deterministic order.
   """
   concrete_transform_fn = _trace_and_write_transform_fn(
       saved_model_dir, preprocessing_fn, input_signature, base_temp_dir,
