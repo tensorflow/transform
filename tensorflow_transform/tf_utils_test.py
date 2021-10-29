@@ -232,38 +232,64 @@ class TFUtilsTest(test_case.TransformTestCase):
     self.assertAllEqual(summed_weights_per_x,
                         expected_summed_weights_per_x)
 
-  @test_case.named_parameters(test_case.cross_with_function_handlers([
-      dict(
-          testcase_name='rank1',
-          x=['a', 'b', 'a'],
-          expected_unique_x=[b'a', b'b', b'a']),
-      dict(
-          testcase_name='rank2',
-          x=[['a', 'b', 'a'], ['b', 'a', 'b']],
-          expected_unique_x=[b'a', b'b', b'a', b'b', b'a', b'b']),
-      dict(
-          testcase_name='rank3',
-          x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
-             [['a', 'b', 'a'], ['b', 'a', 'b']]],
-          expected_unique_x=[b'a', b'b', b'a', b'b', b'a', b'b', b'a', b'b',
-                             b'a', b'b', b'a', b'b']),
-  ]))
-  def test_reduce_batch_weighted_counts_weights_none(
-      self, x, expected_unique_x, function_handler):
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers([
+          dict(
+              testcase_name='rank1',
+              x=['a', 'b', 'a'],
+              force=False,
+              expected_result=([b'a', b'b', b'a'], None)),
+          dict(
+              testcase_name='rank2',
+              x=[['a', 'b', 'a'], ['b', 'a', 'b']],
+              force=False,
+              expected_result=([b'a', b'b', b'a', b'b', b'a', b'b'], None)),
+          dict(
+              testcase_name='rank3',
+              x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
+                 [['a', 'b', 'a'], ['b', 'a', 'b']]],
+              force=False,
+              expected_result=([
+                  b'a', b'b', b'a', b'b', b'a', b'b', b'a', b'b', b'a', b'b',
+                  b'a', b'b'
+              ], None)),
+          dict(
+              testcase_name='rank1_reduce',
+              x=['a', 'b', 'a'],
+              force=True,
+              expected_result=([b'a', b'b'], [2, 1])),
+          dict(
+              testcase_name='rank3_reduce',
+              x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
+                 [['a', 'b', 'a'], ['b', 'a', 'b']]],
+              force=True,
+              expected_result=([b'a', b'b'], [6, 6])),
+      ]))
+  def test_reduce_batch_weighted_counts_weights_none(self, x, force,
+                                                     expected_result,
+                                                     function_handler):
     input_signature = [tf.TensorSpec(None, tf.string)]
     @function_handler(input_signature=input_signature)
     def _reduce_batch_weighted_counts(x):
       (unique_x, summed_weights_per_x, summed_positive_per_x_and_y,
-       counts_per_x) = tf_utils.reduce_batch_weighted_counts(x)
+       counts_per_x) = tf_utils.reduce_batch_weighted_counts(
+           x, force=force)
       self.assertIsNone(summed_weights_per_x)
       self.assertIsNone(summed_positive_per_x_and_y)
-      self.assertIsNone(counts_per_x)
-      return unique_x
+      if force:
+        return unique_x, counts_per_x
+      else:
+        self.assertIsNone(counts_per_x)
+        return unique_x
 
-    unique_x = _reduce_batch_weighted_counts(x)
-
-    self.assertAllEqual(unique_x,
-                        expected_unique_x)
+    expected_unique_x, expected_counts_per_x = expected_result
+    if force:
+      unique_x, counts_per_x = _reduce_batch_weighted_counts(x)
+      self.assertAllEqual(unique_x, expected_unique_x)
+      self.assertAllEqual(counts_per_x, expected_counts_per_x)
+    else:
+      unique_x = _reduce_batch_weighted_counts(x)
+      self.assertAllEqual(unique_x, expected_unique_x)
 
   @test_case.named_parameters([
       dict(testcase_name='constant', get_value_fn=lambda: tf.constant([1.618])),

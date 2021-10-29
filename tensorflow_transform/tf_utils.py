@@ -92,12 +92,15 @@ def _get_ragged_batch_value_rowids(tensor: tf.RaggedTensor) -> tf.Tensor:
 
 def reduce_batch_weighted_counts(
     x: common_types.TensorType,
-    weights: Optional[tf.Tensor] = None) -> ReducedBatchWeightedCounts:
+    weights: Optional[tf.Tensor] = None,
+    force: bool = False) -> ReducedBatchWeightedCounts:
   """Performs batch-wise reduction to produce (possibly weighted) counts.
 
   Args:
     x: Input `Tensor` or `CompositeTensor`.
     weights: (Optional) Input weights.
+    force: If True, reduces input tensor without weights to unique elements and
+      counts.
 
   Returns:
     a named tuple of...
@@ -109,15 +112,19 @@ def reduce_batch_weighted_counts(
     x = x.values
   elif isinstance(x, tf.RaggedTensor):
     x = x.flat_values
+  flat_x = tf.reshape(x, [-1])
   if weights is None:
-    # TODO(b/112916494): Always do batch wise reduction once possible.
-
-    return ReducedBatchWeightedCounts(tf.reshape(x, [-1]), None, None, None)
+    if force:
+      unique, _, counts = tf.unique_with_counts(flat_x)
+      return ReducedBatchWeightedCounts(unique, None, None, counts)
+    else:
+      # TODO(b/112916494): Always do batch wise reduction once possible.
+      return ReducedBatchWeightedCounts(flat_x, None, None, None)
   # TODO(b/134075780): Revisit expected weights shape when input is composite.
   x, weights = assert_same_shape(x, weights)
   weights = tf.reshape(weights, [-1])
-  x = tf.reshape(x, [-1])
-  unique_x_values, unique_idx, _ = tf.unique_with_counts(x, out_idx=tf.int64)
+  unique_x_values, unique_idx, _ = tf.unique_with_counts(
+      flat_x, out_idx=tf.int64)
   summed_weights_per_x = tf.math.unsorted_segment_sum(
       weights, unique_idx, tf.size(input=unique_x_values))
   return ReducedBatchWeightedCounts(unique_x_values, summed_weights_per_x, None,
