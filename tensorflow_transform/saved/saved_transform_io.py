@@ -351,10 +351,15 @@ def _partially_apply_saved_transform_impl(saved_model_dir,
     elif encoding == 'composite_tensor':
       components = [lookup_remapped_tensor(info.name)
                     for info in tensor_info.composite_tensor.components]
-      struct_coder = nested_structure_coder.StructureCoder()
       spec_proto = struct_pb2.StructuredValue(
           type_spec_value=tensor_info.composite_tensor.type_spec)
-      spec = struct_coder.decode_proto(spec_proto)
+      # StrcutureCoder.decode_proto was migrated after TF 2.7 to
+      # nested_structure_coder.decode_proto.
+      try:
+        spec = nested_structure_coder.decode_proto(spec_proto)
+      except AttributeError:
+        struct_coder = nested_structure_coder.StructureCoder()
+        spec = struct_coder.decode_proto(spec_proto)
       return spec._from_components(components)  # pylint: disable=protected-access
     elif encoding == 'name':
       return lookup_remapped_tensor(tensor_info.name)
