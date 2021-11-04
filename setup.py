@@ -43,7 +43,7 @@ def _make_required_install_packages():
   # protobuf) with TF and pyarrow version with tfx-bsl.
   return [
       'absl-py>=0.9,<0.13',
-      'apache-beam[gcp]>=2.31,<3',
+      'apache-beam[gcp]>=2.33,<3',
       'numpy>=1.16,<1.20',
       'protobuf>=3.13,<4',
       'pyarrow>=1,<6',
@@ -51,12 +51,12 @@ def _make_required_install_packages():
       'tensorflow' + select_constraint(
           '>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,<2.7'),
       'tensorflow-metadata' + select_constraint(
-          default='>=1.2.0,<1.3.0',
-          nightly='>=1.3.0.dev',
+          default='>=1.4.0,<1.5.0',
+          nightly='>=1.5.0.dev',
           git_master='@git+https://github.com/tensorflow/metadata@master'),
       'tfx-bsl' + select_constraint(
-          default='>=1.3.0,<1.4.0',
-          nightly='>=1.4.0.dev',
+          default='>=1.4.0,<1.5.0',
+          nightly='>=1.5.0.dev',
           git_master='@git+https://github.com/tensorflow/tfx-bsl@master'),
   ]
 
