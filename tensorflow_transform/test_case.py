@@ -306,7 +306,8 @@ class TransformTestCase(parameterized.TestCase, tf.test.TestCase):
         isinstance(a_value, np.ndarray) and a_value.dtype == np.object):
       self.assertAllEqual(a_value, b_value)
     else:
-      self.assertAllClose(a_value, b_value)
+      # TODO(varshaan): Change atol only for tests for which 1e-6 is too strict.
+      self.assertAllClose(a_value, b_value, atol=1e-5)
 
   def AssertVocabularyContents(self, vocab_file_path, file_contents):
     if vocab_file_path.endswith('.tfrecord.gz'):
