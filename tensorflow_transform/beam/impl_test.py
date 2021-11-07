@@ -17,6 +17,7 @@
 import itertools
 import math
 import os
+from typing import Tuple
 
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
@@ -3239,26 +3240,18 @@ class BeamImplTest(tft_unit.TransformTestCase):
       super().__init__()
       self.base_temp_dir_in_expand = None
 
-    @staticmethod
-    def _flatten_fn(batch_values):
-      for value in zip(*batch_values):
-        yield value
-
-    @staticmethod
-    def _sum_fn(values):
-      return np.sum(list(values), axis=0)
-
+    # TODO(zoyahav): Add an test where the returned np.arrays are multi-dimensional.
     @staticmethod
     def _extract_outputs(sums):
       return [beam.pvalue.TaggedOutput('0', sums[0]),
               beam.pvalue.TaggedOutput('1', sums[1])]
 
-    def expand(self, pcoll):
+    def expand(self, pcoll: beam.PCollection[Tuple[np.ndarray, ...]]):
       self.base_temp_dir_in_expand = self.base_temp_dir
       output_tuple = (
           pcoll
-          | beam.FlatMap(self._flatten_fn)
-          | beam.CombineGlobally(self._sum_fn)
+          | beam.FlatMap(lambda arrays: list(zip(*arrays)))
+          | beam.CombineGlobally(lambda values: np.sum(list(values), axis=0))
           | beam.FlatMap(self._extract_outputs).with_outputs('0', '1'))
       return (output_tuple['0'], output_tuple['1'])
 

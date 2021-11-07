@@ -77,14 +77,14 @@ def ptransform_analyzer(
   Example:
 
   >>> class MeanPerKey(beam.PTransform):
-  ...   def expand(self, pcoll):
+  ...   def expand(self, pcoll: beam.PCollection[Tuple[np.ndarray, ...]]):
   ...     # Returning a single PCollection since this analyzer has 1 output.
   ...     return (pcoll
-  ...             | 'TuplesOfArraysToTuples' >> beam.FlatMap(lambda kv: list(zip(*kv)))
+  ...             | 'ZipAndFlatten' >> beam.FlatMap(lambda arrays: list(zip(*arrays)))
   ...             | 'MeanPerKey' >> beam.CombinePerKey(beam.combiners.MeanCombineFn())
   ...             | 'ToList' >> beam.combiners.ToList()
-  ...             | 'ExtractMeans' >>
-  ...             beam.Map(lambda outputs: [v for _, v in sorted(outputs)]))
+  ...             | 'SortedMeansByKey' >>
+  ...             beam.Map(lambda kv_list: [v for _, v in sorted(kv_list)]))
   >>> def preprocessing_fn(inputs):
   ...   outputs = tft.experimental.ptransform_analyzer(
   ...       inputs=[inputs['s'], inputs['x']],
@@ -110,7 +110,7 @@ def ptransform_analyzer(
   Args:
     inputs: An ordered collection of input `Tensor`s.
     ptransform: A Beam PTransform that accepts a Beam PCollection where each
-      element is a list of `ndarray`s.  Each element in the list contains a
+      element is a tuple of `ndarray`s.  Each element in the tuple contains a
       batch of values for the corresponding input tensor of the analyzer.  It
       returns a tuple of `PCollection`, each containing a single element which
       is an `ndarray`. It may inherit from
