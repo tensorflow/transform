@@ -3248,12 +3248,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     def expand(self, pcoll: beam.PCollection[Tuple[np.ndarray, ...]]):
       self.base_temp_dir_in_expand = self.base_temp_dir
-      output_tuple = (
+      outputs = (
           pcoll
           | beam.FlatMap(lambda arrays: list(zip(*arrays)))
           | beam.CombineGlobally(lambda values: np.sum(list(values), axis=0))
           | beam.FlatMap(self._extract_outputs).with_outputs('0', '1'))
-      return (output_tuple['0'], output_tuple['1'])
+      return tuple(outputs)
 
   def testPTransformAnalyzer(self):
     self._SkipIfOutputRecordBatches()

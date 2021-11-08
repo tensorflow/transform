@@ -112,8 +112,8 @@ def ptransform_analyzer(
     ptransform: A Beam PTransform that accepts a Beam PCollection where each
       element is a tuple of `ndarray`s.  Each element in the tuple contains a
       batch of values for the corresponding input tensor of the analyzer.  It
-      returns a tuple of `PCollection`, each containing a single element which
-      is an `ndarray`. It may inherit from
+      returns a `PCollection`, or a tuple of `PCollections`, each containing a
+      single element which is an `ndarray` or a list. It may inherit from
       `tft_beam.experimental.PTransformAnalyzer` if access to a temp base
       directory is needed.
     output_dtypes: An ordered collection of TensorFlow dtypes of the output of
