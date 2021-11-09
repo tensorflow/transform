@@ -6,6 +6,9 @@
 
 ## Bug Fixes and Other Changes
 
+*   Raise a RuntimeError if order of analyzers in traced Tensorflow Graph is
+    non-deterministic in TF2.
+
 ## Breaking Changes
 
 ## Deprecations

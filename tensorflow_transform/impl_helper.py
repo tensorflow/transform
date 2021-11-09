@@ -15,7 +15,7 @@
 
 import os
 import re
-from typing import Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
+from typing import Callable, Dict, List, Mapping, Optional, Tuple, Union
 
 from absl import logging
 import numpy as np
@@ -768,24 +768,34 @@ def _trace_and_get_metadata(
 
 
 def _validate_analyzers_fingerprint(
-    baseline_analyzers_fingerprint: Mapping[str, Set[bytes]], graph: tf.Graph,
-    structured_inputs: Mapping[str, common_types.TensorType]):
+    baseline_analyzers_fingerprint: Mapping[str,
+                                            graph_tools.AnalyzersFingerprint],
+    graph: tf.Graph, structured_inputs: Mapping[str, common_types.TensorType]):
   """Validates analyzers fingerprint in `graph` is same as baseline."""
   analyzers_fingerprint = graph_tools.get_analyzers_fingerprint(
       graph, structured_inputs)
+  error_msg = (
+      'The order of analyzers in your `preprocessing_fn` appears to be '
+      'non-deterministic. This can be fixed either by changing your '
+      '`preprocessing_fn` such that tf.Transform analyzers are encountered '
+      'in a deterministic order or by passing a unique name to each '
+      'analyzer API call.')
   for analyzer in analyzers_fingerprint:
     if analyzer not in baseline_analyzers_fingerprint:
-      raise ValueError(f'Analyzer node ({analyzer}) not found in '
-                       f'{baseline_analyzers_fingerprint.keys()}.')
-    if (baseline_analyzers_fingerprint[analyzer].difference(
-        analyzers_fingerprint[analyzer])):
-      # TODO(b/199274426): Raise an exception instead.
+      prefix_msg = (f'Analyzer node ({analyzer}) not found in '
+                    f'{baseline_analyzers_fingerprint.keys()}. ')
+      raise RuntimeError(prefix_msg + error_msg)
+    if (baseline_analyzers_fingerprint[analyzer].source_keys !=
+        analyzers_fingerprint[analyzer].source_keys):
+      raise RuntimeError(error_msg)
+
+    if (baseline_analyzers_fingerprint[analyzer].unique_path_hash !=
+        analyzers_fingerprint[analyzer].unique_path_hash):
       logging.warning(
-          'The order of analyzers in your `preprocessing_fn` appears to be '
-          'non-deterministic. This can be fixed either by changing your '
-          '`preprocessing_fn` such that tf.Transform analyzers are encountered '
-          'in a deterministic order or by passing a unique name to each '
-          'analyzer API call.')
+          'Analyzer (%s) node\'s cache key varies on repeated tracing.'
+          ' This warning is safe to ignore if you either specify `name` for all'
+          ' analyzers or if the order in which they are invoked is'
+          ' deterministic. If not, please file a bug with details.', analyzer)
 
 
 def trace_and_write_v2_saved_model(
@@ -793,7 +803,8 @@ def trace_and_write_v2_saved_model(
     preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
                                Mapping[str, common_types.TensorType]],
     input_signature: Mapping[str, tf.TypeSpec], base_temp_dir: Optional[str],
-    baseline_analyzers_fingerprint: Mapping[str, Set[bytes]],
+    baseline_analyzers_fingerprint: Mapping[str,
+                                            graph_tools.AnalyzersFingerprint],
     tensor_replacement_map: Optional[Dict[str, tf.Tensor]],
     output_keys_to_name_map: Optional[Dict[str, str]]):
   """Writes out a SavedModelV2 with preprocessing_fn traced using tf.function.
@@ -820,6 +831,10 @@ def trace_and_write_v2_saved_model(
       1. The traced preprocessing_fn.
       2. A metadata_fn that returns a dictionary containing the deferred
       annotations added to the graph when invoked with any valid input.
+
+  Raises:
+    RuntimeError: if analyzers in `preprocessing_fn` are encountered in a
+    non-deterministic order.
   """
   concrete_transform_fn = _trace_and_write_transform_fn(
       saved_model_dir, preprocessing_fn, input_signature, base_temp_dir,

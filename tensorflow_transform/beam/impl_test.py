@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
 import itertools
 import math
 import os
@@ -3863,7 +3864,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn)
 
-  def test_non_deterministic_preprocessing_fn(self):
+  def test_non_deterministic_preprocessing_fn_without_name(self):
 
     idx = 0
 
@@ -3888,10 +3889,61 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'f2': tf.io.FixedLenFeature([], tf.float32),
         'f3': tf.io.FixedLenFeature([], tf.float32)
     })
+    expected_outputs = [{
+        'f1': -1,
+        'f2': -1,
+        'f3': -1
+    }, {
+        'f1': 1,
+        'f2': 1,
+        'f3': 1
+    }]
 
-    # TODO(b/199274426): Check exception is raised instead.
+    with contextlib.ExitStack() as stack:
+      if not tft_unit.is_tf_api_version_1():
+        stack.enter_context(
+            self.assertRaisesRegex(
+                RuntimeError, 'analyzers.*appears to be non-deterministic'))
+      self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                            preprocessing_fn, expected_outputs)
+
+  def test_non_deterministic_preprocessing_fn_with_name(self):
+
+    idx = 0
+
+    def get_features():
+      nonlocal idx
+      features = ['f1', 'f2', 'f3']
+      result = features[idx:] + features[:idx]
+      idx = 0 if idx == 2 else idx + 1
+      return result
+
+    def preprocessing_fn(inputs):
+      features = get_features()
+
+      outputs = {}
+      for f in features:
+        outputs[f] = inputs[f] - tft.mean(inputs[f], name=f)
+      return outputs
+
+    input_data = [{'f1': 0, 'f2': 10, 'f3': 20}, {'f1': 2, 'f2': 12, 'f3': 22}]
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'f1': tf.io.FixedLenFeature([], tf.float32),
+        'f2': tf.io.FixedLenFeature([], tf.float32),
+        'f3': tf.io.FixedLenFeature([], tf.float32)
+    })
+    expected_outputs = [{
+        'f1': -1,
+        'f2': -1,
+        'f3': -1
+    }, {
+        'f1': 1,
+        'f2': 1,
+        'f3': 1
+    }]
+
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
-                                          preprocessing_fn)
+                                          preprocessing_fn, expected_outputs)
 
 
 if __name__ == '__main__':

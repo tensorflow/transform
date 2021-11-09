@@ -27,7 +27,7 @@ import collections
 import copy
 import hashlib
 import itertools
-from typing import Mapping, List, Optional, Set, Union
+from typing import Iterable, List, Mapping, Optional, Set, Union
 import uuid
 from absl import logging
 
@@ -902,9 +902,32 @@ class SourcedTensorsVisitor(nodes.Visitor):
     assert isinstance(value, nodes.ValueNode)
 
 
+def _retrieve_source_keys(
+    sourced_tensors: Iterable[tf.Tensor],
+    structured_inputs: Mapping[str, common_types.TensorType]) -> Set[str]:
+  """Retrieve input keys that sourced_tensors depend on."""
+  result = set()
+  sinks = [t.op for t in sourced_tensors]
+  sources = retrieve_sources(sinks, ignore_control_dependencies=True)
+  hashable_sources = [tf_utils.hashable_tensor_or_op(s) for s in sources]
+  for key, value in structured_inputs.items():
+    components = ([
+        tf_utils.hashable_tensor_or_op(v)
+        for v in _decompose_tensor_or_op(value)
+    ])
+    if any([s in components for s in hashable_sources]):
+      result.add(key)
+  return result
+
+
+AnalyzersFingerprint = tfx_namedtuple.TypedNamedTuple(
+    'AnalyzersFingerprint', [('source_keys', Set[str]),
+                             ('unique_path_hash', Set[bytes])])
+
+
 def get_analyzers_fingerprint(
     graph: tf.Graph, structured_inputs: Mapping[str, common_types.TensorType]
-) -> Mapping[str, Set[bytes]]:
+) -> Mapping[str, AnalyzersFingerprint]:
   """Computes fingerprints for all analyzers in `graph`.
 
   Args:
@@ -928,11 +951,14 @@ def get_analyzers_fingerprint(
     # Retrieve tensors that are inputs to the analyzer's value node.
     visitor = SourcedTensorsVisitor()
     nodes.Traverser(visitor).visit_value_node(tensor_sink.future)
-    paths = []
+    source_keys = _retrieve_source_keys(visitor.sourced_tensors,
+                                        structured_inputs)
+    paths = set()
     for tensor in visitor.sourced_tensors:
       # Obtain fingerprint for each tensor that is an input to the value node.
       path = graph_analyzer.get_unique_path(tensor)
       if path is not None:
-        paths.append(path)
-    result[str(tensor_sink.tensor.name)] = set(paths)
+        paths.add(path)
+    result[str(tensor_sink.tensor.name)] = AnalyzersFingerprint(
+        source_keys, paths)
   return result
