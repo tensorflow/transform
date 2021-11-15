@@ -3237,13 +3237,15 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   class _SumCombiner(tft_beam.experimental.PTransformAnalyzer):
 
-    def __init__(self):
+    def __init__(self, is_list_output):
       super().__init__()
       self.base_temp_dir_in_expand = None
+      self._is_list_output = is_list_output
 
     # TODO(zoyahav): Add an test where the returned np.arrays are multi-dimensional.
-    @staticmethod
-    def _extract_outputs(sums):
+    def _extract_outputs(self, sums):
+      if self._is_list_output:
+        sums = sums.tolist()
       return [beam.pvalue.TaggedOutput('0', sums[0]),
               beam.pvalue.TaggedOutput('1', sums[1])]
 
@@ -3256,10 +3258,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
           | beam.FlatMap(self._extract_outputs).with_outputs('0', '1'))
       return tuple(outputs)
 
-  def testPTransformAnalyzer(self):
+  @tft_unit.named_parameters(
+      dict(testcase_name='ArrayOutput', is_list_output=False),
+      dict(testcase_name='ListOutput', is_list_output=True),
+  )
+  def testPTransformAnalyzer(self, is_list_output):
     self._SkipIfOutputRecordBatches()
 
-    sum_combiner = self._SumCombiner()
+    sum_combiner = self._SumCombiner(is_list_output)
 
     def analyzer_fn(inputs):
       outputs = tft.experimental.ptransform_analyzer([inputs['x'], inputs['y']],

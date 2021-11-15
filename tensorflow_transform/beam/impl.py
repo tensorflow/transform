@@ -507,7 +507,8 @@ def _convert_to_record_batch(
 
 
 _TensorBinding = tfx_namedtuple.namedtuple(
-    '_TensorBinding', ['value', 'tensor_name', 'is_asset_filepath'])
+    '_TensorBinding',
+    ['value', 'tensor_name', 'dtype_enum', 'is_asset_filepath'])
 
 
 @beam_common.register_ptransform(beam_nodes.CreateTensorBinding)
@@ -519,13 +520,15 @@ class _CreateTensorBindingsImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     del extra_args
-    self._tensor = operation.tensor
+    self._dtype_enum = operation.dtype_enum
+    self._tensor_name = operation.tensor_name
     self._is_asset_file = operation.is_asset_filepath
 
   def expand(self, inputs):
     pcoll, = inputs
-    return pcoll | 'ToTensorBinding' >> beam.Map(_TensorBinding, self._tensor,
-                                                 self._is_asset_file)
+    return pcoll | 'ToTensorBinding' >> beam.Map(
+        _TensorBinding, self._tensor_name, self._dtype_enum,
+        self._is_asset_file)
 
 
 def _get_tensor_replacement_map(graph, *tensor_bindings):
@@ -534,7 +537,8 @@ def _get_tensor_replacement_map(graph, *tensor_bindings):
 
   for tensor_binding in tensor_bindings:
     assert isinstance(tensor_binding, _TensorBinding), tensor_binding
-    replacement_tensor = tf.constant(tensor_binding.value)
+    replacement_tensor = tf.constant(
+        tensor_binding.value, tf.dtypes.as_dtype(tensor_binding.dtype_enum))
     if graph is not None and tensor_binding.is_asset_filepath:
       graph.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
                               replacement_tensor)

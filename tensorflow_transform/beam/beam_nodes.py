@@ -49,8 +49,9 @@ from tfx_bsl.types import tfx_namedtuple
 
 
 class CreateTensorBinding(
-    tfx_namedtuple.namedtuple('CreateTensorBinding',
-                              ['tensor', 'is_asset_filepath', 'label']),
+    tfx_namedtuple.namedtuple(
+        'CreateTensorBinding',
+        ['tensor_name', 'dtype_enum', 'is_asset_filepath', 'label']),
     nodes.OperationDef):
   """An operation that represents creating a tensor binding from a value.
 
@@ -60,8 +61,9 @@ class CreateTensorBinding(
   to create a tensor binding.
 
   Attributes:
-    tensor: The name of the tensor that the given value should replace as a
+    tensor_name: The name of the tensor that the given value should replace as a
         constant tensor.
+    dtype_enum: The Dtype of the tensor as a TF `types_pb2.DataType`.
     is_asset_filepath: If true, then the replaced value will be added to the
         ASSET_FILEPATHS collection if exporting a TF1 Graph.
     label: A unique label for this operation.

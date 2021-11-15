@@ -603,7 +603,8 @@ def build(graph,
           nodes.apply_operation(
               beam_nodes.CreateTensorBinding,
               translated_value_node,
-              tensor=str(tensor.name),
+              tensor_name=str(tensor.name),
+              dtype_enum=tensor.dtype.as_datatype_enum,
               is_asset_filepath=is_asset_filepath,
               label=analyzer_nodes.sanitize_label(
                   'CreateTensorBinding[{}]'.format(name))))

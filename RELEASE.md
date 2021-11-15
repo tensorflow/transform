@@ -8,6 +8,9 @@
 
 *   Raise a RuntimeError if order of analyzers in traced Tensorflow Graph is
     non-deterministic in TF2.
+*   Fix issue where a `tft.experimental.ptransform_analyzer`'s output dtype
+    could be propagated incorrectly if it was a primitive as opposed to
+    `np.ndarray`.
 
 ## Breaking Changes
 
