@@ -181,7 +181,7 @@ class NodesTest(test_case.TransformTestCase):
     a = nodes.apply_operation(_Constant, value='a', label='Constant[a]')
 
     mock_visitor = mock.MagicMock()
-    mock_visitor.visit.side_effect = ['not a tuple']
+    mock_visitor.visit.side_effect = [42]
 
     with self.assertRaisesRegexp(
         ValueError, r'expected visitor to return a tuple, got'):

@@ -276,13 +276,19 @@ class Traverser:
     # Expect a tuple of outputs.  Since ValueNode and OperationDef are both
     # subclasses of tuple, we also explicitly disallow them, since returning
     # a single ValueNode or OperationDef is almost certainly an error.
-    if (not isinstance(output_values, tuple) or
-        isinstance(output_values, (ValueNode, OperationDef))):
+    try:
+      _ = iter(output_values)
+      output_iterable = not isinstance(output_values, str)
+    except TypeError:
+      output_iterable = False
+    if (not output_iterable or isinstance(output_values,
+                                          (ValueNode, OperationDef))):
       raise ValueError(
           'When running operation {} expected visitor to return a tuple, got '
           '{} of type {}'.format(operation.operation_def.label, output_values,
                                  type(output_values)))
-    if len(output_values) != len(outputs):
+    # DoOutputsTuple doesn't work with len().
+    if hasattr(output_values, '__len__') and len(output_values) != len(outputs):
       raise ValueError(
           'Operation {} has {} outputs but visitor returned {} values: '
           '{}'.format(operation.operation_def, len(outputs),

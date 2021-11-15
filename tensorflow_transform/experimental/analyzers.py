@@ -77,22 +77,26 @@ def ptransform_analyzer(
   Example:
 
   >>> class MeanPerKey(beam.PTransform):
-  ...   def expand(self, pcoll: beam.PCollection[Tuple[np.ndarray, ...]]):
-  ...     # Returning a single PCollection since this analyzer has 1 output.
+  ...   def expand(self, pcoll: beam.PCollection[Tuple[np.ndarray, np.ndarray]]):
+  ...     def extract_output(key_value_pairs):
+  ...       keys, values = zip(*key_value_pairs)
+  ...       return [beam.TaggedOutput('keys', keys),
+  ...               beam.TaggedOutput('values', values)]
   ...     return (pcoll
-  ...             | 'ZipAndFlatten' >> beam.FlatMap(lambda arrays: list(zip(*arrays)))
+  ...             | 'ZipAndFlatten' >> beam.FlatMap(lambda batches: list(zip(*batches)))
   ...             | 'MeanPerKey' >> beam.CombinePerKey(beam.combiners.MeanCombineFn())
   ...             | 'ToList' >> beam.combiners.ToList()
-  ...             | 'SortedMeansByKey' >>
-  ...             beam.Map(lambda kv_list: [v for _, v in sorted(kv_list)]))
+  ...             | 'Extract' >> beam.FlatMap(extract_output).with_outputs(
+  ...                 'keys', 'values'))
   >>> def preprocessing_fn(inputs):
   ...   outputs = tft.experimental.ptransform_analyzer(
   ...       inputs=[inputs['s'], inputs['x']],
   ...       ptransform=MeanPerKey(),
-  ...       output_dtypes=[tf.float32],
-  ...       output_shapes=[[2]])
-  ...   (mean_per_key,) = outputs
-  ...   return { 'x/mean_a': inputs['x'] / mean_per_key[0] }
+  ...       output_dtypes=[tf.string, tf.float32],
+  ...       output_shapes=[[2], [2]])
+  ...   (keys, means) = outputs
+  ...   mean_a = tf.reshape(tf.gather(means, tf.where(keys == 'a')), [])
+  ...   return { 'x/mean_a': inputs['x'] / mean_a }
   >>> raw_data = [dict(x=1, s='a'), dict(x=8, s='b'), dict(x=3, s='a')]
   >>> feature_spec = dict(
   ...     x=tf.io.FixedLenFeature([], tf.float32),
@@ -111,11 +115,14 @@ def ptransform_analyzer(
     inputs: An ordered collection of input `Tensor`s.
     ptransform: A Beam PTransform that accepts a Beam PCollection where each
       element is a tuple of `ndarray`s.  Each element in the tuple contains a
-      batch of values for the corresponding input tensor of the analyzer.  It
-      returns a `PCollection`, or a tuple of `PCollections`, each containing a
-      single element which is an `ndarray` or a list. It may inherit from
-      `tft_beam.experimental.PTransformAnalyzer` if access to a temp base
-      directory is needed.
+      batch of values for the corresponding input tensor of the analyzer and
+      maintain their shapes and dtypes.
+      It returns a `PCollection`, or a tuple of `PCollections`, each containing
+      a single element which is an `ndarray` or a list of primitive types. The
+      contents of these output `PCollection`s must be consistent with the given
+      values of `output_dtypes` and `output_shapes`.
+      It may inherit from `tft_beam.experimental.PTransformAnalyzer` if access
+      to a temp base directory is needed.
     output_dtypes: An ordered collection of TensorFlow dtypes of the output of
       the analyzer.
     output_shapes: An ordered collection of shapes of the output of the

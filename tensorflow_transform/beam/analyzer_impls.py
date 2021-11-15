@@ -834,7 +834,6 @@ class _WeightedMeanCombineFn(beam.CombineFn):
     return self._combiner.extract_output(accumulator)
 
 
-@beam.typehints.with_input_types(Tuple[np.ndarray, ...])
 class _CombinerWrapper(beam.CombineFn):
   """Class to wrap a analyzer_nodes.Combiner as a beam.CombineFn."""
 

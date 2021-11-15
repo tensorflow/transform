@@ -87,6 +87,7 @@ from tfx_bsl.tfxio.tensor_adapter import TensorAdapterConfig
 # resolved.
 from tfx_bsl.types import tfx_namedtuple
 
+from tensorflow.python.framework import ops  # pylint: disable=g-direct-tensorflow-import
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 # TODO(b/123325923): Fix the key type here to agree with the actual keys.
@@ -535,10 +536,17 @@ def _get_tensor_replacement_map(graph, *tensor_bindings):
   """Get Tensor replacement map."""
   tensor_replacement_map = {}
 
+  is_graph_mode = not ops.executing_eagerly_outside_functions()
   for tensor_binding in tensor_bindings:
     assert isinstance(tensor_binding, _TensorBinding), tensor_binding
+    value = tensor_binding.value
+    # TODO(b/160294509): tf.constant doesn't accept List[np.ndarray] in TF 1.15
+    # graph mode. Remove this condition.
+    if (is_graph_mode and isinstance(value, list) and
+        any(isinstance(x, np.ndarray) for x in value)):
+      value = np.asarray(tensor_binding.value)
     replacement_tensor = tf.constant(
-        tensor_binding.value, tf.dtypes.as_dtype(tensor_binding.dtype_enum))
+        value, tf.dtypes.as_dtype(tensor_binding.dtype_enum))
     if graph is not None and tensor_binding.is_asset_filepath:
       graph.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
                               replacement_tensor)
@@ -792,7 +800,6 @@ class _ApplySavedModelImpl(beam.PTransform):
 @beam.typehints.with_input_types(Dict[str,
                                       Union[np.ndarray,
                                             tf.compat.v1.SparseTensorValue]])
-@beam.typehints.with_output_types(Tuple[np.ndarray, ...])
 class _ExtractFromDictImpl(beam.PTransform):
   """Implements ExtractFromDict by extracting the configured keys."""
 
@@ -807,7 +814,12 @@ class _ExtractFromDictImpl(beam.PTransform):
       return (tuple(input_dict[k] for k in keys)
               if isinstance(keys, tuple) else input_dict[keys])
 
-    return pcoll | 'ExtractKeys' >> beam.Map(extract_keys, keys=self._keys)
+    if isinstance(self._keys, tuple):
+      output_type = Tuple[(np.ndarray,) * len(self._keys)]
+    else:
+      output_type = np.ndarray
+    return pcoll | 'ExtractKeys' >> beam.Map(
+        extract_keys, keys=self._keys).with_output_types(output_type)
 
 
 @beam_common.register_ptransform(beam_nodes.Flatten)
