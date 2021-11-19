@@ -28,7 +28,6 @@ import struct
 from typing import Optional, Type
 import uuid
 
-from future.utils import with_metaclass
 import numpy as np
 import tensorflow as tf
 from tensorflow_transform import common_types
@@ -373,7 +372,7 @@ class Combiner:
     return JsonNumpyCacheCoder()
 
 
-class CacheCoder(with_metaclass(abc.ABCMeta, object)):
+class CacheCoder(metaclass=abc.ABCMeta):
   """A coder iterface for encoding and decoding cache items."""
 
   def __repr__(self):
@@ -410,7 +409,7 @@ class JsonNumpyCacheCoder(CacheCoder):
     return np.array(json.loads(tf.compat.as_text(encoded_accumulator)))
 
 
-class AnalyzerDef(with_metaclass(abc.ABCMeta, nodes.OperationDef)):
+class AnalyzerDef(nodes.OperationDef, metaclass=abc.ABCMeta):
   """A subclass of OperationDef whose outputs can be constant tensors.
 
   An AnalyzerDef is an OperationDef that also provides enough information to

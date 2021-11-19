@@ -28,7 +28,6 @@ import abc
 import collections
 from typing import Collection, Optional, Tuple
 
-from future.utils import with_metaclass
 import pydot
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
 # `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
@@ -62,7 +61,7 @@ class ValueNode(
     raise ValueError('ValueNode is not iterable')
 
 
-class OperationDef(with_metaclass(abc.ABCMeta, object)):
+class OperationDef(metaclass=abc.ABCMeta):
   """The definition of an operation.
 
   This class contains all the information needed to run an operation, except
@@ -186,7 +185,7 @@ def apply_multi_output_operation(operation_def_cls, *args, **kwargs):
         operation_def_cls, str(e)))
 
 
-class Visitor(with_metaclass(abc.ABCMeta, object)):
+class Visitor(metaclass=abc.ABCMeta):
   """Class to visit nodes in the graph."""
 
   @abc.abstractmethod

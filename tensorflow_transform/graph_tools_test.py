@@ -16,7 +16,6 @@
 import abc
 import os
 import tempfile
-from future.utils import with_metaclass
 
 import tensorflow as tf
 from tensorflow_transform import graph_tools
@@ -289,7 +288,7 @@ def _create_graph_with_tf_function_while():
   return {'x': x, 'y': larger_than_100(x)}
 
 
-class _Matcher(with_metaclass(abc.ABCMeta, object)):
+class _Matcher(metaclass=abc.ABCMeta):
 
   def _future_proof(self, value):
     if isinstance(value, (str, bytes)):
