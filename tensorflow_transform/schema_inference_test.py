@@ -294,6 +294,15 @@ class SchemaInferenceTest(test_case.TransformTestCase):
                   values=tf.RaggedTensor.from_row_splits(
                       values=tf.ones([5], tf.float32), row_splits=[0, 2, 3, 5]),
                   row_splits=[0, 0, 0, 2, 2, 4]),
+          'baz':
+              tf.RaggedTensor.from_row_splits(
+                  values=tf.ones([5, 3], tf.float32), row_splits=[0, 2, 3, 5]),
+          'qux':
+              tf.RaggedTensor.from_row_splits(
+                  values=tf.RaggedTensor.from_row_splits(
+                      values=tf.ones([5, 7], tf.float32),
+                      row_splits=[0, 2, 3, 5]),
+                  row_splits=[0, 0, 0, 2, 2, 4]),
       }
 
     schema = self._get_schema(
@@ -309,7 +318,19 @@ class SchemaInferenceTest(test_case.TransformTestCase):
           type: INT
         }
         feature {
+          name: "baz$ragged_values"
+          type: FLOAT
+        }
+        feature {
           name: "foo$ragged_values"
+          type: INT
+        }
+        feature {
+          name: "qux$ragged_values"
+          type: FLOAT
+        }
+        feature {
+          name: "qux$row_lengths_1"
           type: INT
         }
         tensor_representation_group {
@@ -332,6 +353,25 @@ class SchemaInferenceTest(test_case.TransformTestCase):
                 }
               }
             }
+            tensor_representation {
+              key: "baz"
+              value {
+                ragged_tensor {
+                  feature_path { step: "baz$ragged_values" }
+                  partition { uniform_row_length: 3}
+                }
+              }
+            }
+            tensor_representation {
+              key: "qux"
+              value {
+                ragged_tensor {
+                  feature_path { step: "qux$ragged_values" }
+                  partition { row_length: "qux$row_lengths_1"}
+                  partition { uniform_row_length: 7}
+                }
+              }
+            }
           }
         }
         """
@@ -345,8 +385,22 @@ class SchemaInferenceTest(test_case.TransformTestCase):
           }
         }
         feature {
+          name: "baz"
+          type: FLOAT
+          annotation {
+            tag: "ragged_tensor"
+          }
+        }
+        feature {
           name: "foo"
           type: INT
+          annotation {
+            tag: "ragged_tensor"
+          }
+        }
+        feature {
+          name: "qux"
+          type: FLOAT
           annotation {
             tag: "ragged_tensor"
           }

@@ -550,6 +550,52 @@ RAGGED_VALUE_FEATURES_AND_TENSOR_REPRESENTATIONS = [
             'x': _FEATURE_BY_NAME['x'],
         },
     },
+    {
+        'testcase_name':
+            'uniform',
+        'name':
+            'ragged_uniform',
+        'tensor_representation':
+            text_format.Parse(
+                """
+          ragged_tensor {
+            feature_path { step: "ragged$value" }
+            partition { uniform_row_length: 3 }
+          }
+        """, schema_pb2.TensorRepresentation()),
+        'feature_by_name':
+            _FEATURE_BY_NAME.copy(),
+        'expected_value_feature':
+            _FEATURE_BY_NAME['ragged$value'],
+        'truncated_feature_by_name': {
+            'x': _FEATURE_BY_NAME['x'],
+            'ragged$row_lengths_1': _FEATURE_BY_NAME['ragged$row_lengths_1'],
+            'ragged$row_lengths_2': _FEATURE_BY_NAME['ragged$row_lengths_2'],
+        },
+    },
+    {
+        'testcase_name':
+            'uniform_3d',
+        'name':
+            'ragged_uniform_3d',
+        'tensor_representation':
+            text_format.Parse(
+                """
+          ragged_tensor {
+            feature_path { step: "ragged$value" }
+            partition { row_length: "ragged$row_lengths_1" }
+            partition { uniform_row_length: 3 }
+          }
+        """, schema_pb2.TensorRepresentation()),
+        'feature_by_name':
+            _FEATURE_BY_NAME.copy(),
+        'expected_value_feature':
+            _FEATURE_BY_NAME['ragged$value'],
+        'truncated_feature_by_name': {
+            'x': _FEATURE_BY_NAME['x'],
+            'ragged$row_lengths_2': _FEATURE_BY_NAME['ragged$row_lengths_2'],
+        },
+    },
 ]
 
 if common_types.is_ragged_feature_available():
@@ -648,6 +694,47 @@ if common_types.is_ragged_feature_available():
                       tf.float32,
                       value_key='value',
                       partitions=[
+                          tf.io.RaggedFeature.UniformRowLength(length=4),  # pytype: disable=attribute-error
+                      ],
+                      row_splits_dtype=tf.int64),
+          },
+      },
+      {
+          'testcase_name':
+              'ragged_uniform_row_length_3d',
+          'ascii_proto':
+              """
+              feature {
+                name: "value"
+                type: FLOAT
+              }
+              feature {
+                name: "row_length_1"
+                type: INT
+              }
+              tensor_representation_group {
+                key: ""
+                value {
+                  tensor_representation {
+                    key: "x"
+                    value {
+                      ragged_tensor {
+                        feature_path { step: "value" }
+                        partition { row_length: "row_length_1"}
+                        partition { uniform_row_length: 4}
+                      }
+                    }
+                  }
+                }
+              }
+            """,
+          'feature_spec': {
+              'x':
+                  tf.io.RaggedFeature(
+                      tf.float32,
+                      value_key='value',
+                      partitions=[
+                          tf.io.RaggedFeature.RowLengths(key='row_length_1'),  # pytype: disable=attribute-error
                           tf.io.RaggedFeature.UniformRowLength(length=4),  # pytype: disable=attribute-error
                       ],
                       row_splits_dtype=tf.int64),

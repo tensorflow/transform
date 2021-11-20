@@ -48,12 +48,11 @@ def _ragged_feature_spec_from_batched_tensor(name, tensor):
         'Feature %s is a RaggedTensor, its support is currently '
         'experimental', name)
 
-    values = tensor.values
     partitions = []
     row_lengths_partition_idx = 1
     # Ignore batch dimension.
-    for dim in values.shape[1:]:
-      if isinstance(dim, int):
+    for dim in tensor.values.shape[1:]:
+      if dim or dim == 0:
         partitions.append(
             tf.io.RaggedFeature.UniformRowLength(  # pytype: disable=attribute-error
                 length=dim))
