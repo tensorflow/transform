@@ -11,6 +11,9 @@
 *   Fix issue where a `tft.experimental.ptransform_analyzer`'s output dtype
     could be propagated incorrectly if it was a primitive as opposed to
     `np.ndarray`.
+*   Depends on `apache-beam[gcp]>=2.34,<3`.
+*   Depends on
+    `tensorflow>=1.15.2,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,!=2.6.*,<2.8`.
 
 ## Breaking Changes
 
