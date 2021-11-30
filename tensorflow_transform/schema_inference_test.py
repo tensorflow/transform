@@ -13,6 +13,7 @@
 # limitations under the License.
 """Tests for tensorflow_transform.internal.schema_inference."""
 
+import functools
 import os
 
 import tensorflow as tf
@@ -44,6 +45,14 @@ def _make_tensors_with_override(inputs):
   x = tf.identity(inputs['x'])
   schema_inference.set_tensor_schema_override(x, tf.constant(5), tf.constant(6))
   return {'x': x}
+
+
+def _make_tensors_with_depth(inputs, depth=None):
+  if depth is None:
+    depth = tf.raw_ops.Placeholder(dtype=tf.int32, shape=[])
+  else:
+    depth = tf.constant(depth, dtype=tf.int32)
+  return {'x': tf.one_hot(inputs['x'], depth=depth, dtype=inputs['x'].dtype)}
 
 
 class SchemaInferenceTest(test_case.TransformTestCase):
@@ -125,6 +134,15 @@ class SchemaInferenceTest(test_case.TransformTestCase):
           domains={
               'x': schema_pb2.IntDomain(min=5, max=6, is_categorical=True)
           },
+          create_session=True),
+      dict(
+          testcase_name='unknown_output_non_batch_dim',
+          make_tensors_fn=_make_tensors_with_depth,
+          feature_spec={'x': tf.io.FixedLenFeature([None], tf.int64)}),
+      dict(
+          testcase_name='known_output_non_batch_dim',
+          make_tensors_fn=functools.partial(_make_tensors_with_depth, depth=10),
+          feature_spec={'x': tf.io.FixedLenFeature([10], tf.int64)},
           create_session=True)
   ], [
       dict(testcase_name='compat_v1', use_compat_v1=True),

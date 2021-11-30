@@ -20,7 +20,7 @@ the schema of a tensor from its parents in the graph.
 """
 
 import collections
-from typing import Callable, Mapping, Tuple
+from typing import Callable, List, Mapping, Optional, Tuple, Union
 
 from absl import logging
 import tensorflow as tf
@@ -41,7 +41,9 @@ from tensorflow.python.framework import ops
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 
-def _ragged_feature_spec_from_batched_tensor(name, tensor):
+def _ragged_feature_spec_from_batched_tensor(
+    name: str, tensor: tf.RaggedTensor
+) -> Union[tf.io.VarLenFeature, common_types.RaggedFeature]:
   """Infer `tf.io.RaggedFeature` from a batched `tf.RaggedTensor`."""
   if common_types.is_ragged_feature_available():
     logging.warn(
@@ -77,12 +79,16 @@ def _ragged_feature_spec_from_batched_tensor(name, tensor):
     return tf.io.VarLenFeature(tensor.dtype)
 
 
-def _feature_spec_from_batched_tensors(tensors):
+def _feature_spec_from_batched_tensors(
+    tensors: Mapping[str, common_types.TensorType],
+    is_evaluation_complete: bool) -> Mapping[str, common_types.FeatureSpecType]:
   """Infer a feature spec from a dict of tensors.
 
   Args:
     tensors: A dict whose keys are strings and values are `Tensor`,
       `SparseTensor`, or `RaggedTensor`s.
+    is_evaluation_complete: A boolean indicating whether all analyzers have been
+      evaluated or not.
 
   Returns:
     A feature spec inferred from the types and shapes of the tensors.
@@ -118,7 +124,8 @@ def _feature_spec_from_batched_tensors(tensors):
         raise ValueError(
             'Feature {} ({}) had invalid shape {} for FixedLenFeature: must '
             'have rank at least 1'.format(name, tensor, shape))
-      if any(dim is None for dim in shape.as_list()[1:]):
+      if is_evaluation_complete and any(
+          dim is None for dim in shape.as_list()[1:]):
         raise ValueError(
             'Feature {} ({}) had invalid shape {} for FixedLenFeature: apart '
             'from the batch dimension, all dimensions must have known size'
@@ -136,7 +143,10 @@ def _feature_spec_from_batched_tensors(tensors):
   return feature_spec
 
 
-def infer_feature_schema(features, graph, session=None):
+def infer_feature_schema(
+    features: Mapping[str, common_types.TensorType],
+    graph: tf.compat.v1.Graph,
+    session: Optional[tf.compat.v1.Session] = None) -> schema_pb2.Schema:
   """Given a dict of tensors, creates a `Schema`.
 
   Infers a schema, in the format of a tf.Transform `Schema`, for the given
@@ -157,7 +167,8 @@ def infer_feature_schema(features, graph, session=None):
       a 0'th dimension which is interpreted as the batch dimension.
     graph: A `tf.Graph` used to determine schema overrides.
     session: (optional) A `tf.Session` used to compute schema overrides.  If
-      None, schema overrides will not be computed.
+      None, schema overrides will not be computed. It is assumed that if all
+      analyzers have been evaluated, `session` is passed to this API.
 
   Returns:
     A `Schema` proto.
@@ -187,12 +198,21 @@ def infer_feature_schema(features, graph, session=None):
     # tensor_annotations is a defaultdict(list) so always returns a list.
     feature_annotations[name] = tensor_annotations.get(hashable_values, [])
 
-  return _infer_feature_schema_common(features, modified_tensor_ranges,
-                                      feature_annotations, global_annotations)
+  return _infer_feature_schema_common(
+      features,
+      modified_tensor_ranges,
+      feature_annotations,
+      global_annotations,
+      # A session is passed to compute schema overrides which exist only if all
+      # analyzers have been evaluated. Hence, if `session` was provided to this
+      # API assume TFT's evaluation is complete.
+      is_evaluation_complete=session is not None)
 
 
-def infer_feature_schema_v2(features, concrete_metadata_fn,
-                            evaluate_schema_overrides):
+def infer_feature_schema_v2(
+    features: Mapping[str, common_types.TensorType],
+    concrete_metadata_fn: function.ConcreteFunction,
+    evaluate_schema_overrides: bool) -> schema_pb2.Schema:
   """Given a dict of tensors, creates a `Schema`.
 
   Infers a schema, in the format of a tf.Transform `Schema`, for the given
@@ -208,9 +228,9 @@ def infer_feature_schema_v2(features, concrete_metadata_fn,
   If annotations have been specified, they are added to the output schema.
 
   Args:
-    features: A dict mapping column names to `Tensor` or `SparseTensor`s. The
-      `Tensor` or `SparseTensor`s should have a 0'th dimension which is
-      interpreted as the batch dimension.
+    features: A dict mapping column names to `Tensor`, `SparseTensor` or
+      `RaggedTensor`. The `Tensor`, `SparseTensor` or `RaggedTensor` should have
+      a 0'th dimension which is interpreted as the batch dimension.
     concrete_metadata_fn: A `tf.ConcreteFunction` that returns a dictionary
       containing the deferred annotations added to the graph when invoked with
       any valid input.
@@ -233,24 +253,34 @@ def infer_feature_schema_v2(features, concrete_metadata_fn,
     tensor_ranges = _get_tensor_ranges_v2(metadata)
     tensor_annotations, global_annotations = _get_schema_annotations_v2(
         metadata)
-  return _infer_feature_schema_common(features, tensor_ranges,
-                                      tensor_annotations, global_annotations)
+  return _infer_feature_schema_common(
+      features,
+      tensor_ranges,
+      tensor_annotations,
+      global_annotations,
+      is_evaluation_complete=evaluate_schema_overrides)
 
 
-def _infer_feature_schema_common(features, tensor_ranges, feature_annotations,
-                                 global_annotations):
+def _infer_feature_schema_common(
+    features: Mapping[str, common_types.TensorType],
+    tensor_ranges: Mapping[str, Tuple[int, int]],
+    feature_annotations: Mapping[str, List[any_pb2.Any]],
+    global_annotations: List[any_pb2.Any],
+    is_evaluation_complete: bool) -> schema_pb2.Schema:
   """Given a dict of tensors, creates a `Schema`.
 
   Args:
-    features: A dict mapping column names to `Tensor` or `SparseTensor`s. The
-      `Tensor` or `SparseTensor`s should have a 0'th dimension which is
-      interpreted as the batch dimension.
+    features: A dict mapping column names to `Tensor`, `SparseTensor` or
+      `RaggedTensor`. The `Tensor`, `SparseTensor` or `RaggedTensor` should have
+      a 0'th dimension which is interpreted as the batch dimension.
     tensor_ranges: A dict mapping a tensor to a tuple containing its min and max
       value.
     feature_annotations: dictionary from feature name to list of any_pb2.Any
       protos to be added as an annotation for that feature in the schema.
     global_annotations: list of any_pb2.Any protos to be added at the global
       schema level.
+    is_evaluation_complete: A boolean indicating whether all analyzers have been
+      evaluated or not.
 
   Returns:
     A `Schema` proto.
@@ -268,7 +298,8 @@ def _infer_feature_schema_common(features, tensor_ranges, feature_annotations,
       min_value, max_value = tensor_ranges[name]
       domains[name] = schema_pb2.IntDomain(
           min=min_value, max=max_value, is_categorical=True)
-  feature_spec = _feature_spec_from_batched_tensors(features)
+  feature_spec = _feature_spec_from_batched_tensors(features,
+                                                    is_evaluation_complete)
 
   schema_proto = schema_utils.schema_from_feature_spec(feature_spec, domains)
 

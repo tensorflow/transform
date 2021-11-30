@@ -20,6 +20,7 @@ import apache_beam as beam
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform.beam import impl as beam_impl
+from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform import test_case
 from tensorflow_transform.beam import test_helpers
@@ -319,16 +320,35 @@ class TransformTestCase(test_case.TransformTestCase):
 
         transformed_data_path = os.path.join(temp_dir, 'transformed_data')
         if expected_data is not None:
-          if output_record_batches:
-            transformed_data_coder = example_coder.RecordBatchToExamplesEncoder(
-                transformed_metadata.schema)
-            # Extract transformed RecordBatches and convert them to tf.Examples.
-            encode_ptransform = beam.FlatMapTuple(
-                lambda batch, _: transformed_data_coder.encode(batch))
+          if isinstance(transformed_metadata,
+                        beam_metadata_io.BeamDatasetMetadata):
+            deferred_schema = (
+                transformed_metadata.deferred_metadata
+                | 'GetDeferredSchema' >> beam.Map(lambda m: m.schema))
           else:
-            transformed_data_coder = tft.coders.ExampleProtoCoder(
-                transformed_metadata.schema)
-            encode_ptransform = beam.Map(transformed_data_coder.encode)
+            deferred_schema = (
+                self.pipeline | 'CreateDeferredSchema' >> beam.Create(
+                    [transformed_metadata.schema]))
+
+          if output_record_batches:
+            # Since we are using a deferred schema, obtain a pcollection
+            # containing the data coder that will be created from it.
+            transformed_data_coder_pcol = (
+                deferred_schema | 'RecordBatchToExamplesEncoder' >> beam.Map(
+                    example_coder.RecordBatchToExamplesEncoder))
+            # Extract transformed RecordBatches and convert them to tf.Examples.
+            encode_ptransform = 'EncodeRecordBatches' >> beam.FlatMapTuple(
+                lambda batch, _, data_coder: data_coder.encode(batch),
+                data_coder=beam.pvalue.AsSingleton(transformed_data_coder_pcol))
+          else:
+            # Since we are using a deferred schema, obtain a pcollection
+            # containing the data coder that will be created from it.
+            transformed_data_coder_pcol = (
+                deferred_schema
+                | 'ExampleProtoCoder' >> beam.Map(tft.coders.ExampleProtoCoder))
+            encode_ptransform = 'EncodeExamples' >> beam.Map(
+                lambda data, data_coder: data_coder.encode(data),
+                data_coder=beam.pvalue.AsSingleton(transformed_data_coder_pcol))
 
           _ = (
               transformed_data
@@ -337,20 +357,20 @@ class TransformTestCase(test_case.TransformTestCase):
                   transformed_data_path, shard_name_template=''))
 
     # TODO(ebreck) Log transformed_data somewhere.
+    tf_transform_output = tft.TFTransformOutput(temp_dir)
     if expected_data is not None:
       examples = tf.compat.v1.python_io.tf_record_iterator(
           path=transformed_data_path)
       shapes = {
           f.name:
           [s.size for s in f.shape.dim] if f.HasField('shape') else [-1]
-          for f in transformed_metadata.schema.feature
+          for f in tf_transform_output.transformed_metadata.schema.feature
       }
       transformed_data = [
           _format_example_as_numpy_dict(e, shapes) for e in examples
       ]
       self.assertDataCloseOrEqual(expected_data, transformed_data)
 
-    tf_transform_output = tft.TFTransformOutput(temp_dir)
     if expected_metadata:
       # Make a copy with no annotations.
       transformed_schema = schema_pb2.Schema()

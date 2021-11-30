@@ -1421,6 +1421,15 @@ class TransformDataset(beam.PTransform):
         output_metadata = _remove_columns_from_metadata(
             output_metadata, self._exclude_outputs)
 
+    if isinstance(output_metadata, beam_metadata_io.BeamDatasetMetadata):
+      deferred_schema = (
+          output_metadata.deferred_metadata
+          | 'GetDeferredSchema' >> beam.Map(lambda m: m.schema))
+    else:
+      deferred_schema = (
+          self.pipeline
+          | 'CreateDeferredSchema' >> beam.Create([output_metadata.schema]))
+
     tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_BEAM_RUNNER_TYPE.get(
         type(self.pipeline.runner))
     output_batches = (
@@ -1436,20 +1445,23 @@ class TransformDataset(beam.PTransform):
                 convert_passthrough_data=not self._output_record_batches),
             saved_model_dir=beam.pvalue.AsSingleton(transform_fn)))
     if self._output_record_batches:
-      converter = impl_helper.make_tensor_to_arrow_converter(
-          output_metadata.schema)
+      # Since we are using a deferred schema, obtain a pcollection containing
+      # the converter that will be created from it.
+      converter_pcol = (
+          deferred_schema | 'MakeTensorToArrowConverter' >> beam.Map(
+              impl_helper.make_tensor_to_arrow_converter))
       output_data = (
           output_batches | 'ConvertToRecordBatch' >> beam.Map(
               _convert_to_record_batch,
-              schema=output_metadata.schema,
-              converter=converter,
+              schema=beam.pvalue.AsSingleton(deferred_schema),
+              converter=beam.pvalue.AsSingleton(converter_pcol),
               passthrough_keys=Context.get_passthrough_keys(),
               input_metadata=input_metadata))
     else:
       output_data = (
           output_batches | 'ConvertAndUnbatchToInstanceDicts' >> beam.FlatMap(
               _convert_and_unbatch_to_instance_dicts,
-              schema=output_metadata.schema,
+              schema=beam.pvalue.AsSingleton(deferred_schema),
               passthrough_keys=Context.get_passthrough_keys()))
 
     _clear_shared_state_after_barrier(self.pipeline, output_data)
