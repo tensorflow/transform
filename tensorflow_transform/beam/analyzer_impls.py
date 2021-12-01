@@ -441,8 +441,7 @@ class _VocabularyOrderAndWriteImpl(beam.PTransform):
 
     def fingerprint_sort_fn(kv):
       # hashlib.sha1 expects bytes
-      v = tf.compat.as_bytes(tf.compat.as_str_any(kv[1]))
-      return hashlib.sha1(v).digest()
+      return hashlib.sha1(kv[1]).digest()
 
     # TODO(b/62379925) For now force a single file. We can write a sharded
     # file instead.
