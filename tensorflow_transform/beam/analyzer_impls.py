@@ -29,6 +29,7 @@ from apache_beam.typehints import Iterable
 from apache_beam.typehints import KV
 from apache_beam.typehints import List
 from apache_beam.typehints import Tuple
+from apache_beam.typehints import TypeVariable
 from apache_beam.typehints import Union
 
 import numpy as np
@@ -1368,6 +1369,23 @@ class _AddKeyImpl(beam.PTransform):
   def expand(self, inputs):
     pcoll, = inputs
     return pcoll | 'AddKey' >> beam.Map(lambda value: (self._key, value))
+
+
+_FlattenListsItemType = TypeVariable('_FlattenListsItemType')
+
+
+@common.register_ptransform(analyzer_nodes.FlattenLists)
+@beam.typehints.with_input_types(List[_FlattenListsItemType])
+@beam.typehints.with_output_types(_FlattenListsItemType)
+class _FlattenListsImpl(beam.PTransform):
+  """PTransform to flatten a PCollection of lists."""
+
+  def __init__(self, operation, extra_args):
+    del operation, extra_args  # unused
+
+  def expand(self, inputs):
+    pcoll, = inputs
+    return pcoll | 'FlattenLists' >> beam.FlatMap(lambda x: x)
 
 
 @common.register_ptransform(analyzer_nodes.ExtractCombineMergeOutputs)

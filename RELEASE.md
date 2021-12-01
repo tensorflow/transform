@@ -4,6 +4,10 @@
 
 ## Major Features and Improvements
 
+*   Introduced `tft.experimental.approximate_vocabulary` analyzer that is an
+    approximate version of `tft.vocabulary` which is more efficient with smaller
+    number of unique elements or `top_k` threshold.
+
 ## Bug Fixes and Other Changes
 
 *   Raise a RuntimeError if order of analyzers in traced Tensorflow Graph is

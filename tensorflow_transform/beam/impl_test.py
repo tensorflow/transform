@@ -112,17 +112,6 @@ def _mean_output_dtype(input_dtype):
   return tf.float64 if input_dtype == tf.float64 else tf.float32
 
 
-def _make_feature_spec_wrapper(make_feature_spec, *args):
-  """Skips cases with RaggedFeature in TF 1.x."""
-  try:
-    return make_feature_spec(*args)
-  except AttributeError as e:
-    if 'no attribute \'RaggedFeature\'' in repr(e):
-      raise unittest.SkipTest('RaggedFeature is not available in TF 1.x.')
-    else:
-      raise e
-
-
 class BeamImplTest(tft_unit.TransformTestCase):
 
   def setUp(self):
@@ -1295,8 +1284,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
             tf.io.RaggedFeature.RowLengths('x_row_lengths')  # pytype: disable=attribute-error
         ])
     input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': _make_feature_spec_wrapper(make_x_spec),
-        'key': _make_feature_spec_wrapper(make_key_spec)
+        'x': tft_unit.make_feature_spec_wrapper(make_x_spec),
+        'key': tft_unit.make_feature_spec_wrapper(make_key_spec)
     })
 
     def preprocessing_fn(inputs):
@@ -2153,7 +2142,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
                      categorical, expected_outputs):
     self._SkipIfOutputRecordBatches()
     input_metadata = tft_unit.metadata_from_feature_spec(
-        {'x': _make_feature_spec_wrapper(make_feature_spec)})
+        {'x': tft_unit.make_feature_spec_wrapper(make_feature_spec)})
 
     def analyzer_fn(inputs):
       counts, bucket_boundaries = analyzers.histogram(
@@ -2508,8 +2497,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                               input_dtype):
     self._SkipIfOutputRecordBatches()
     output_dtype = tft_unit.canonical_numeric_dtype(input_dtype)
-    input_metadata = tft_unit.metadata_from_feature_spec(
-        {'a': _make_feature_spec_wrapper(make_feature_spec, output_dtype)})
+    input_metadata = tft_unit.metadata_from_feature_spec({
+        'a': tft_unit.make_feature_spec_wrapper(make_feature_spec, output_dtype)
+    })
 
     def analyzer_fn(inputs):
       return {
@@ -2797,7 +2787,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testNumericMappersWithCompositeInputs(self, input_data, make_feature_spec,
                                             elementwise, expected_outputs):
     input_metadata = tft_unit.metadata_from_feature_spec(
-        {'a': _make_feature_spec_wrapper(make_feature_spec)})
+        {'a': tft_unit.make_feature_spec_wrapper(make_feature_spec)})
 
     def preprocessing_fn(inputs):
       return {

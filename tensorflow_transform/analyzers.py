@@ -29,6 +29,7 @@ import os
 import pickle
 import re
 from typing import Any, Callable, Collection, List, Optional, Tuple, Union
+from absl import logging
 
 
 import numpy as np
@@ -80,6 +81,11 @@ ALLOWED_VOCABULARY_FILE_FORMATS = ('text', 'tfrecord_gzip')
 VOCAB_FILENAME_PREFIX = 'vocab_'
 VOCAB_FREQUENCY_FILENAME_PREFIX = 'vocab_frequency_'
 
+# Experimentally estimated value of top_k after which the exact `tft.vocabulary`
+# implementation becomes more efficient than
+# `tft.experimental.approximate_vocabulary`.
+LARGE_VOCAB_TOP_K = 200_000
+
 # For some input types, widen the output type of sum analyzer to avoid overflow.
 _SUM_OUTPUT_DTYPE_MAP = {
     tf.float16: tf.float32,
@@ -110,10 +116,20 @@ _FLOAT_OUTPUT_DTYPE_MAP = {
 }
 
 
-def _apply_cacheable_combiner(
+def apply_cacheable_combine_operation(
     combiner: analyzer_nodes.Combiner,
-    *tensor_inputs: common_types.TensorType) -> Tuple[tf.Tensor, ...]:
-  """Applies the combiner over the whole dataset possibly utilizing cache."""
+    *tensor_inputs: common_types.TensorType) -> Tuple[nodes.ValueNode, ...]:
+  """Applies combine operation nodes over the whole dataset.
+
+  Applied nodes are subject to analyzer cache optimization.
+
+  Args:
+    combiner: Combiner to be applied.
+    *tensor_inputs: Tensors representing inputs to the combiner.
+
+  Returns:
+    A tuple of ValueNodes representing outputs of the combiner.
+  """
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       tensor_inputs)
 
@@ -127,12 +143,29 @@ def _apply_cacheable_combiner(
       *accumulate_outputs_value_nodes,
       combiner=combiner)
 
-  outputs_value_nodes = nodes.apply_multi_output_operation(
+  return nodes.apply_multi_output_operation(
       analyzer_nodes.ExtractCombineMergeOutputs,
       *merge_outputs_value_nodes,
       output_tensor_info_list=combiner.output_tensor_infos())
 
-  return tuple(map(analyzer_nodes.wrap_as_tensor, outputs_value_nodes))
+
+def _apply_cacheable_combiner(
+    combiner: analyzer_nodes.Combiner,
+    *tensor_inputs: common_types.TensorType) -> Tuple[tf.Tensor, ...]:
+  """Applies the combiner over the whole dataset possibly utilizing cache.
+
+  Similar to above but returns a tuple of output tensors.
+
+  Args:
+    combiner: Combiner to be applied.
+    *tensor_inputs: Tensors representing inputs to the combiner.
+
+  Returns:
+    A tuple of tensors representing outputs of the combiner.
+  """
+  outputs_value_nodes = apply_cacheable_combine_operation(
+      combiner, *tensor_inputs)
+  return tuple(map(analyzer_nodes.wrap_as_tensor, outputs_value_nodes))  # pytype: disable=bad-return-type
 
 
 def _apply_cacheable_combiner_per_key(
@@ -1626,10 +1659,10 @@ class _VocabOrderingType:
   MUTUAL_INFORMATION = 5
 
 
-def _register_vocab(sanitized_filename: str,
-                    vocabulary_key: Optional[str] = None,
-                    file_format: common_types
-                    .VocabularyFileFormatType = DEFAULT_VOCABULARY_FILE_FORMAT):
+def register_vocab(sanitized_filename: str,
+                   vocabulary_key: Optional[str] = None,
+                   file_format: common_types
+                   .VocabularyFileFormatType = DEFAULT_VOCABULARY_FILE_FORMAT):
   """Register the specificed vocab within the asset map.
 
   Args:
@@ -1674,9 +1707,8 @@ def vocabulary(
   `CompositeTensor` of any size.  The unique values will be aggregated over all
   dimensions of `x` and all instances.
 
-  In case one of the tokens contains the '\n' or '\r' characters or is empty it
-  will be discarded since we are currently writing the vocabularies as text
-  files. This behavior will likely be fixed/improved in the future.
+  In case `file_format` is 'text' and one of the tokens contains the '\n' or
+  '\r' characters or is empty it will be discarded.
 
   If an integer `Tensor` is provided, its semantic type should be categorical
   not a continuous/numeric, since computing a vocabulary over a continuous
@@ -1816,6 +1848,14 @@ def vocabulary(
   if labels is not None and not labels.dtype.is_integer:
     raise ValueError('expected integer labels but got %r' % labels.dtype)
 
+  if (frequency_threshold is None and labels is None and key_fn is None and
+      not fingerprint_shuffle and top_k is not None and
+      top_k <= LARGE_VOCAB_TOP_K):
+    logging.info('If the number of unique tokens is smaller than the provided '
+                 'top_k or approximation error is acceptable, consider using '
+                 'tft.experimental.approximate_vocabulary for a potentially '
+                 'more efficient implementation.')
+
   with tf.compat.v1.name_scope(name, 'vocabulary'):
     vocabulary_key = vocab_filename
     vocab_filename = _get_vocab_filename(vocab_filename, store_frequency)
@@ -1937,7 +1977,7 @@ def _vocabulary_analyzer_nodes(
     raise ValueError(
         'Vocabulary file_format "tfrecord_gzip" requires TF version >= 2.4')
 
-  _register_vocab(vocab_filename, vocabulary_key, file_format)
+  register_vocab(vocab_filename, vocabulary_key, file_format)
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       analyzer_inputs)
 

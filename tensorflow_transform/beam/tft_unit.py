@@ -28,6 +28,7 @@ from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
 from tfx_bsl.coders import example_coder
 from tensorflow.python.util.protobuf import compare  # pylint: disable=g-direct-tensorflow-import
+import unittest
 
 
 from tensorflow_metadata.proto.v0 import schema_pb2
@@ -69,6 +70,17 @@ def canonical_numeric_dtype(dtype):
     return tf.int64
   else:
     raise ValueError('Bad dtype {}'.format(dtype))
+
+
+def make_feature_spec_wrapper(make_feature_spec, *args):
+  """Skips test cases with RaggedFeature in TF 1.x."""
+  try:
+    return make_feature_spec(*args)
+  except AttributeError as e:
+    if 'no attribute \'RaggedFeature\'' in repr(e):
+      raise unittest.SkipTest('RaggedFeature is not available in TF 1.x.')
+    else:
+      raise e
 
 
 def _format_example_as_numpy_dict(example, feature_shape_dict):

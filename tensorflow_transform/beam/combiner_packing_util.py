@@ -330,10 +330,12 @@ class _PackMergeCombineVisitor(_ValidationVisitor):
     return packed_combine
 
 
-_TensorBindingInfo = tfx_namedtuple.namedtuple('_TensorBindingInfo', [
-    'extract_from_dict_op_def', 'extract_outputs_op_def',
-    'tensor_binding_op_def', 'output_index'
-])
+_TensorBindingInfo = tfx_namedtuple.namedtuple(
+    '_TensorBindingInfo',
+    ['intermediate_post_processing_op_defs', 'output_index'])
+
+# Maximum search depth for packed post-processing nodes.
+_MAX_PACKED_POST_PROCESSING_DEPTH = 5
 
 
 class _RemoveRedundantPackedMergeCombineVisitor(_ValidationVisitor):
@@ -347,6 +349,7 @@ class _RemoveRedundantPackedMergeCombineVisitor(_ValidationVisitor):
   def __init__(self, final_packed_merge_combine_label):
     super().__init__()
     self._final_packed_merge_combine_label = final_packed_merge_combine_label
+    self._packed_post_processing_nodes_cache = {}
 
   def visit(self, operation_def, input_values):
     self.validate_operation_def(operation_def)
@@ -387,35 +390,60 @@ class _RemoveRedundantPackedMergeCombineVisitor(_ValidationVisitor):
     return nodes.OperationNode(
         operation_def, tuple(reconstructed_input_values)).outputs
 
+  def _is_packed_post_processing_node(self,
+                                      value_node: nodes.ValueNode) -> bool:
+    # ValueNode is considered a packed post-processing node iff
+    # PackedCombineMerge node is its ancestor.
+    if value_node in self._packed_post_processing_nodes_cache:
+      return self._packed_post_processing_nodes_cache[value_node]
+
+    input_nodes = set()
+    search_depth = 0
+    result = False
+    while (value_node.parent_operation.inputs and
+           search_depth < _MAX_PACKED_POST_PROCESSING_DEPTH):
+      # Post-processing nodes form a tree. Looking only at the first input.
+      input_nodes.add(value_node)
+      value_node = value_node.parent_operation.inputs[0]
+      if isinstance(value_node.parent_operation.operation_def,
+                    analyzer_nodes.PackedCombineMerge):
+        result = True
+        break
+      search_depth += 1
+    self._packed_post_processing_nodes_cache.update(
+        {node: result for node in input_nodes})
+    return result
+
   def _get_redundant_and_non_redundant_input_values(
       self, input_values):
     redundant_values, non_redundant_values = [], []
     for value in input_values:
       assert isinstance(value.parent_operation.operation_def,
                         beam_nodes.CreateTensorBinding)
-      extract_outputs = value.parent_operation.inputs[0]
-
-      # If its not from a packed combine node, this is a non-redundant value.
-      if not isinstance(extract_outputs.parent_operation.operation_def,
-                        analyzer_nodes.ExtractPackedCombineMergeOutputs):
-        non_redundant_values.append(value)
-      else:
+      # If it's from a packed combine node, this is a redundant value.
+      if self._is_packed_post_processing_node(value):
         redundant_values.append(value)
+      else:
+        non_redundant_values.append(value)
     return redundant_values, non_redundant_values
 
   def _get_final_packed_combine_and_tensor_bindings(self, input_values):
     final_packed_merge_combine = None
     final_packed_merge_combine_tensor_bindings = []
     for value in input_values:
-      extract_outputs = value.parent_operation.inputs[0]
-      # We have an input node generated from a packed combine merge.
-      extract_from_dict = extract_outputs.parent_operation.inputs[0]
-      packed_combine = extract_from_dict.parent_operation.inputs[0]
+      # PackedCombineMerge is the first not post-processing node on backwards
+      # traversal. Post-processing nodes form a tree, it is enough to iterate
+      # through first inputs.
+      packed_combine = value.parent_operation.inputs[0]
+      while self._is_packed_post_processing_node(packed_combine):
+        packed_combine = packed_combine.parent_operation.inputs[0]
       # If the input is generated from the final packed merge node, add it to
       # the filtered inputs and keep track of the node for reconstruction of
       # the other inputs.
-      if (packed_combine.parent_operation.operation_def.label ==
-          self._final_packed_merge_combine_label):
+      packed_combine_op_def = packed_combine.parent_operation.operation_def
+      if (isinstance(packed_combine_op_def, analyzer_nodes.PackedCombineMerge)
+          and (packed_combine_op_def.label
+               == self._final_packed_merge_combine_label)):
         final_packed_merge_combine = packed_combine
         final_packed_merge_combine_tensor_bindings.append(value)
     return (final_packed_merge_combine,
@@ -424,23 +452,27 @@ class _RemoveRedundantPackedMergeCombineVisitor(_ValidationVisitor):
   def _get_to_be_created_tensor_bindings_info(self, input_values):
     result = []
     for value in input_values:
-      extract_outputs = value.parent_operation.inputs[0]
-      # We have an input node generated from a packed combine merge.
-      extract_from_dict = extract_outputs.parent_operation.inputs[0]
-      packed_combine = extract_from_dict.parent_operation.inputs[0]
+      intermidiate_post_processing_op_defs = []
+      intermidiate_value = value
+      output_index = None
+      while self._is_packed_post_processing_node(intermidiate_value):
+        intermidiate_op_def = intermidiate_value.parent_operation.operation_def
+        intermidiate_post_processing_op_defs.append(intermidiate_op_def)
+        if isinstance(intermidiate_op_def,
+                      analyzer_nodes.ExtractPackedCombineMergeOutputs):
+          assert output_index is None
+          output_index = intermidiate_value.value_index
+        intermidiate_value = intermidiate_value.parent_operation.inputs[0]
+
       # If the input is not generated from the final packed merge node, keep
       # track of the node for reconstruction of the other inputs.
-      if (packed_combine.parent_operation.operation_def.label !=
+      if (intermidiate_value.parent_operation.operation_def.label !=
           self._final_packed_merge_combine_label):
-        # Store the info needed to reconstruct the input node.
-        result.append(_TensorBindingInfo(
-            extract_from_dict_op_def=
-            extract_from_dict.parent_operation.operation_def,
-            extract_outputs_op_def=
-            extract_outputs.parent_operation.operation_def,
-            tensor_binding_op_def=value.parent_operation.operation_def,
-            # Keep track of CreateTensorBinding node's input value index.
-            output_index=extract_outputs.value_index))
+        # Store the info needed to reconstruct the input node, including
+        # CreateTensorBinding node's input value index.
+        result.append(
+            _TensorBindingInfo(intermidiate_post_processing_op_defs,
+                               output_index))
     return result
 
   def _create_tensor_bindings(self, to_be_created_tensor_bindings,
@@ -458,16 +490,19 @@ class _RemoveRedundantPackedMergeCombineVisitor(_ValidationVisitor):
       assert final_packed_merge_combine is not None
       # Reconstruct the remaining inputs from the final packed merge node.
       for tensor_binding_info in to_be_created_tensor_bindings:
-        extract_from_dict = _maybe_create_node(
-            tensor_binding_info.extract_from_dict_op_def,
-            (final_packed_merge_combine,))
-        extract_outputs = _maybe_create_node(
-            tensor_binding_info.extract_outputs_op_def,
-            extract_from_dict)
-        (tensor_binding,) = _maybe_create_node(
-            tensor_binding_info.tensor_binding_op_def,
-            (extract_outputs[tensor_binding_info.output_index],))
-        result.append(tensor_binding)
+        intermediate_nodes = (final_packed_merge_combine,)
+        for op_def in reversed(
+            tensor_binding_info.intermediate_post_processing_op_defs):
+          intermediate_nodes = _maybe_create_node(op_def, intermediate_nodes)
+          if isinstance(op_def,
+                        analyzer_nodes.ExtractPackedCombineMergeOutputs):
+            intermediate_nodes = (
+                intermediate_nodes[tensor_binding_info.output_index],)
+        # The last node must be a single CreateTensorBinding.
+        assert len(intermediate_nodes) == 1, intermediate_nodes
+        assert isinstance(intermediate_nodes[0].parent_operation.operation_def,
+                          beam_nodes.CreateTensorBinding), intermediate_nodes[0]
+        result.append(intermediate_nodes[0])
     return result
 
 

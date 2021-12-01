@@ -1011,6 +1011,22 @@ class AddKey(
     return True
 
 
+class FlattenLists(
+    tfx_namedtuple.namedtuple('FlattenLists', ['label']), nodes.OperationDef):
+  """An operation that represents flattening a PCollection of lists.
+
+  Attributes:
+    label: A unique label for this operation.
+  """
+
+  def __new__(cls):
+    return super(FlattenLists, cls).__new__(cls, label=_make_label(cls))
+
+  @property
+  def is_partitionable(self):
+    return True
+
+
 class ExtractCombineMergeOutputs(
     tfx_namedtuple.namedtuple('ExtractOutputs',
                               ['output_tensor_info_list', 'label']),

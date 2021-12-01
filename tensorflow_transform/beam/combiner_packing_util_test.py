@@ -32,6 +32,7 @@ def _preprocessing_fn_with_packable_analyzer_single_phase(inputs):
   y_centered = y - y_mean
   z = inputs['z']
   z_vocab = tft.vocabulary(z, name='z')
+  _ = tft.experimental.approximate_vocabulary(z, top_k=10, name='z_approx')
   initializer = tf.lookup.TextFileInitializer(
       z_vocab,
       key_dtype=tf.string,
@@ -56,7 +57,7 @@ _PACKABLE_ANALYZER_SINGLE_PHASE_CASE = dict(
     expected_dot_graph_str_before_packing=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/mean_and_var/Cast_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/div_no_nan', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/div_no_nan_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/Cast_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/div_no_nan', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/div_no_nan_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('z/Reshape', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
+"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/mean_and_var/Cast_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/div_no_nan', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/div_no_nan_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/Cast_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/div_no_nan', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/div_no_nan_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('z/Reshape', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\"), ('z_approx/UniqueWithCounts', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\"), ('z_approx/UniqueWithCounts:2', \"Tensor\<shape: [None], \<dtype: 'int32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
 "ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='FlattenedDataset')|label: ExtractInputForSavedModel[FlattenedDataset]}"];
 "ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
@@ -101,6 +102,20 @@ node [shape=Mrecord];
 "VocabularyPrune[z]" -> "VocabularyOrderAndWrite[z]";
 "CreateTensorBinding[z#Placeholder]" [label="{CreateTensorBinding|tensor_name: z/Placeholder:0|dtype_enum: 7|is_asset_filepath: True|label: CreateTensorBinding[z#Placeholder]}"];
 "VocabularyOrderAndWrite[z]" -> "CreateTensorBinding[z#Placeholder]";
+"TensorSource[z_approx]" [label="{ExtractFromDict|keys: ('z_approx/UniqueWithCounts', 'z_approx/UniqueWithCounts:2')|label: TensorSource[z_approx]|partitionable: True}"];
+"ApplySavedModel[Phase0]" -> "TensorSource[z_approx]";
+"CacheableCombineAccumulate[z_approx]" [label="{CacheableCombineAccumulate|combiner: \<VocabularyCombiner\>|label: CacheableCombineAccumulate[z_approx]|partitionable: True}"];
+"TensorSource[z_approx]" -> "CacheableCombineAccumulate[z_approx]";
+"CacheableCombineMerge[z_approx]" [label="{CacheableCombineMerge|combiner: \<VocabularyCombiner\>|label: CacheableCombineMerge[z_approx]}"];
+"CacheableCombineAccumulate[z_approx]" -> "CacheableCombineMerge[z_approx]";
+"ExtractCombineMergeOutputs[z_approx]" [label="{ExtractCombineMergeOutputs|output_tensor_info_list: [TensorInfo(dtype=tf.string, shape=[None, 2], temporary_asset_value=None)]|label: ExtractCombineMergeOutputs[z_approx]}"];
+"CacheableCombineMerge[z_approx]" -> "ExtractCombineMergeOutputs[z_approx]";
+"FlattenLists[z_approx]" [label="{FlattenLists|label: FlattenLists[z_approx]|partitionable: True}"];
+"ExtractCombineMergeOutputs[z_approx]" -> "FlattenLists[z_approx]";
+"VocabularyOrderAndWrite[z_approx]" [label="{VocabularyOrderAndWrite|vocab_filename: approx_vocab_frequency_z_approx|store_frequency: False|input_dtype: string|label: VocabularyOrderAndWrite[z_approx]|fingerprint_shuffle: False|file_format: text|input_is_sorted: True}"];
+"FlattenLists[z_approx]" -> "VocabularyOrderAndWrite[z_approx]";
+"CreateTensorBinding[z_approx#Placeholder]" [label="{CreateTensorBinding|tensor_name: z_approx/Placeholder:0|dtype_enum: 7|is_asset_filepath: True|label: CreateTensorBinding[z_approx#Placeholder]}"];
+"VocabularyOrderAndWrite[z_approx]" -> "CreateTensorBinding[z_approx#Placeholder]";
 CreateSavedModel [label="{CreateSavedModel|table_initializers: 1|output_signature: OrderedDict([('x_centered', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\"), ('y_centered', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\"), ('z_integerized', \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\")])|label: CreateSavedModel}"];
 "CreateTensorBinding[x#mean_and_var#Placeholder]" -> CreateSavedModel;
 "CreateTensorBinding[x#mean_and_var#Placeholder_1]" -> CreateSavedModel;
@@ -108,17 +123,18 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 1|output_signatur
 "CreateTensorBinding[y#mean_and_var#Placeholder_1]" -> CreateSavedModel;
 "CreateTensorBinding[z#vocab_z_unpruned_vocab_size]" -> CreateSavedModel;
 "CreateTensorBinding[z#Placeholder]" -> CreateSavedModel;
+"CreateTensorBinding[z_approx#Placeholder]" -> CreateSavedModel;
 }
 """,
     expected_dot_graph_str_after_packing=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/mean_and_var/Cast_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/div_no_nan', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/div_no_nan_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/Cast_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/div_no_nan', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/div_no_nan_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('z/Reshape', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
+"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/mean_and_var/Cast_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/div_no_nan', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/div_no_nan_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/Cast_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/div_no_nan', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/div_no_nan_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('y/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('z/Reshape', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\"), ('z_approx/UniqueWithCounts', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\"), ('z_approx/UniqueWithCounts:2', \"Tensor\<shape: [None], \<dtype: 'int32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
 "ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='FlattenedDataset')|label: ExtractInputForSavedModel[FlattenedDataset]}"];
 "ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
 "ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase0]";
-"PackedCombineAccumulate[ApplySavedModel[Phase0]]" [label="{PackedCombineAccumulate|combiners: [_CombinerOpWrapper(combiner=\<WeightedMeanAndVarCombiner\>, keys=('x/mean_and_var/Cast_1', 'x/mean_and_var/div_no_nan', 'x/mean_and_var/div_no_nan_1', 'x/mean_and_var/zeros'), label='CacheableCombineAccumulate[x#mean_and_var]'), _CombinerOpWrapper(combiner=\<WeightedMeanAndVarCombiner\>, keys=('y/mean_and_var/Cast_1', 'y/mean_and_var/div_no_nan', 'y/mean_and_var/div_no_nan_1', 'y/mean_and_var/zeros'), label='CacheableCombineAccumulate[y#mean_and_var]')]|label: PackedCombineAccumulate[ApplySavedModel[Phase0]]|partitionable: True}"];
+"PackedCombineAccumulate[ApplySavedModel[Phase0]]" [label="{PackedCombineAccumulate|combiners: [_CombinerOpWrapper(combiner=\<WeightedMeanAndVarCombiner\>, keys=('x/mean_and_var/Cast_1', 'x/mean_and_var/div_no_nan', 'x/mean_and_var/div_no_nan_1', 'x/mean_and_var/zeros'), label='CacheableCombineAccumulate[x#mean_and_var]'), _CombinerOpWrapper(combiner=\<WeightedMeanAndVarCombiner\>, keys=('y/mean_and_var/Cast_1', 'y/mean_and_var/div_no_nan', 'y/mean_and_var/div_no_nan_1', 'y/mean_and_var/zeros'), label='CacheableCombineAccumulate[y#mean_and_var]'), _CombinerOpWrapper(combiner=\<VocabularyCombiner\>, keys=('z_approx/UniqueWithCounts', 'z_approx/UniqueWithCounts:2'), label='CacheableCombineAccumulate[z_approx]')]|label: PackedCombineAccumulate[ApplySavedModel[Phase0]]|partitionable: True}"];
 "ApplySavedModel[Phase0]" -> "PackedCombineAccumulate[ApplySavedModel[Phase0]]";
 "CacheableCombineAccumulate[x#mean_and_var]" [label="{ExtractFromDict|keys: CacheableCombineAccumulate[x#mean_and_var]|label: CacheableCombineAccumulate[x#mean_and_var]|partitionable: True}"];
 "PackedCombineAccumulate[ApplySavedModel[Phase0]]" -> "CacheableCombineAccumulate[x#mean_and_var]";
@@ -128,19 +144,26 @@ node [shape=Mrecord];
 "PackedCombineAccumulate[ApplySavedModel[Phase0]]" -> "CacheableCombineAccumulate[y#mean_and_var]";
 "AddKey[CacheableCombineMerge[y#mean_and_var]]" [label="{AddKey|key: CacheableCombineMerge[y#mean_and_var]|label: AddKey[CacheableCombineMerge[y#mean_and_var]]|partitionable: True}"];
 "CacheableCombineAccumulate[y#mean_and_var]" -> "AddKey[CacheableCombineMerge[y#mean_and_var]]";
-"FlattenInputForPackedCombineMerge[2]" [label="{Flatten|label: FlattenInputForPackedCombineMerge[2]|partitionable: True}"];
-"AddKey[CacheableCombineMerge[x#mean_and_var]]" -> "FlattenInputForPackedCombineMerge[2]";
-"AddKey[CacheableCombineMerge[y#mean_and_var]]" -> "FlattenInputForPackedCombineMerge[2]";
-"PackedCombineMerge[2]" [label="{PackedCombineMerge|combiners: [_CombinerOpWrapper(combiner=\<WeightedMeanAndVarCombiner\>, keys=('CacheableCombineMerge[x#mean_and_var]',), label='CacheableCombineMerge[x#mean_and_var]'), _CombinerOpWrapper(combiner=\<WeightedMeanAndVarCombiner\>, keys=('CacheableCombineMerge[y#mean_and_var]',), label='CacheableCombineMerge[y#mean_and_var]')]|label: PackedCombineMerge[2]}"];
-"FlattenInputForPackedCombineMerge[2]" -> "PackedCombineMerge[2]";
-"ExtractFromDict[CacheableCombineMerge[y#mean_and_var]]" [label="{ExtractFromDict|keys: CacheableCombineMerge[y#mean_and_var]|label: ExtractFromDict[CacheableCombineMerge[y#mean_and_var]]|partitionable: True}"];
-"PackedCombineMerge[2]" -> "ExtractFromDict[CacheableCombineMerge[y#mean_and_var]]";
-"ExtractPackedCombineMergeOutputs[CacheableCombineMerge[y#mean_and_var]]" [label="{ExtractPackedCombineMergeOutputs|output_tensor_info_list: [TensorInfo(dtype=tf.float32, shape=(), temporary_asset_value=None), TensorInfo(dtype=tf.float32, shape=(), temporary_asset_value=None)]|label: ExtractPackedCombineMergeOutputs[CacheableCombineMerge[y#mean_and_var]]|{<0>0|<1>1}}"];
-"ExtractFromDict[CacheableCombineMerge[y#mean_and_var]]" -> "ExtractPackedCombineMergeOutputs[CacheableCombineMerge[y#mean_and_var]]";
-"CreateTensorBinding[y#mean_and_var#Placeholder]" [label="{CreateTensorBinding|tensor_name: y/mean_and_var/Placeholder:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[y#mean_and_var#Placeholder]}"];
-"ExtractPackedCombineMergeOutputs[CacheableCombineMerge[y#mean_and_var]]":0 -> "CreateTensorBinding[y#mean_and_var#Placeholder]";
-"CreateTensorBinding[y#mean_and_var#Placeholder_1]" [label="{CreateTensorBinding|tensor_name: y/mean_and_var/Placeholder_1:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[y#mean_and_var#Placeholder_1]}"];
-"ExtractPackedCombineMergeOutputs[CacheableCombineMerge[y#mean_and_var]]":1 -> "CreateTensorBinding[y#mean_and_var#Placeholder_1]";
+"CacheableCombineAccumulate[z_approx]" [label="{ExtractFromDict|keys: CacheableCombineAccumulate[z_approx]|label: CacheableCombineAccumulate[z_approx]|partitionable: True}"];
+"PackedCombineAccumulate[ApplySavedModel[Phase0]]" -> "CacheableCombineAccumulate[z_approx]";
+"AddKey[CacheableCombineMerge[z_approx]]" [label="{AddKey|key: CacheableCombineMerge[z_approx]|label: AddKey[CacheableCombineMerge[z_approx]]|partitionable: True}"];
+"CacheableCombineAccumulate[z_approx]" -> "AddKey[CacheableCombineMerge[z_approx]]";
+"FlattenInputForPackedCombineMerge[3]" [label="{Flatten|label: FlattenInputForPackedCombineMerge[3]|partitionable: True}"];
+"AddKey[CacheableCombineMerge[x#mean_and_var]]" -> "FlattenInputForPackedCombineMerge[3]";
+"AddKey[CacheableCombineMerge[y#mean_and_var]]" -> "FlattenInputForPackedCombineMerge[3]";
+"AddKey[CacheableCombineMerge[z_approx]]" -> "FlattenInputForPackedCombineMerge[3]";
+"PackedCombineMerge[3]" [label="{PackedCombineMerge|combiners: [_CombinerOpWrapper(combiner=\<WeightedMeanAndVarCombiner\>, keys=('CacheableCombineMerge[x#mean_and_var]',), label='CacheableCombineMerge[x#mean_and_var]'), _CombinerOpWrapper(combiner=\<WeightedMeanAndVarCombiner\>, keys=('CacheableCombineMerge[y#mean_and_var]',), label='CacheableCombineMerge[y#mean_and_var]'), _CombinerOpWrapper(combiner=\<VocabularyCombiner\>, keys=('CacheableCombineMerge[z_approx]',), label='CacheableCombineMerge[z_approx]')]|label: PackedCombineMerge[3]}"];
+"FlattenInputForPackedCombineMerge[3]" -> "PackedCombineMerge[3]";
+"ExtractFromDict[CacheableCombineMerge[z_approx]]" [label="{ExtractFromDict|keys: CacheableCombineMerge[z_approx]|label: ExtractFromDict[CacheableCombineMerge[z_approx]]|partitionable: True}"];
+"PackedCombineMerge[3]" -> "ExtractFromDict[CacheableCombineMerge[z_approx]]";
+"ExtractPackedCombineMergeOutputs[CacheableCombineMerge[z_approx]]" [label="{ExtractPackedCombineMergeOutputs|output_tensor_info_list: [TensorInfo(dtype=tf.string, shape=[None, 2], temporary_asset_value=None)]|label: ExtractPackedCombineMergeOutputs[CacheableCombineMerge[z_approx]]}"];
+"ExtractFromDict[CacheableCombineMerge[z_approx]]" -> "ExtractPackedCombineMergeOutputs[CacheableCombineMerge[z_approx]]";
+"FlattenLists[z_approx]" [label="{FlattenLists|label: FlattenLists[z_approx]|partitionable: True}"];
+"ExtractPackedCombineMergeOutputs[CacheableCombineMerge[z_approx]]" -> "FlattenLists[z_approx]";
+"VocabularyOrderAndWrite[z_approx]" [label="{VocabularyOrderAndWrite|vocab_filename: approx_vocab_frequency_z_approx|store_frequency: False|input_dtype: string|label: VocabularyOrderAndWrite[z_approx]|fingerprint_shuffle: False|file_format: text|input_is_sorted: True}"];
+"FlattenLists[z_approx]" -> "VocabularyOrderAndWrite[z_approx]";
+"CreateTensorBinding[z_approx#Placeholder]" [label="{CreateTensorBinding|tensor_name: z_approx/Placeholder:0|dtype_enum: 7|is_asset_filepath: True|label: CreateTensorBinding[z_approx#Placeholder]}"];
+"VocabularyOrderAndWrite[z_approx]" -> "CreateTensorBinding[z_approx#Placeholder]";
 "TensorSource[z]" [label="{ExtractFromDict|keys: ('z/Reshape',)|label: TensorSource[z]|partitionable: True}"];
 "ApplySavedModel[Phase0]" -> "TensorSource[z]";
 "VocabularyAccumulate[z]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|input_dtype: string|label: VocabularyAccumulate[z]|partitionable: True}"];
@@ -158,20 +181,29 @@ node [shape=Mrecord];
 "CreateTensorBinding[z#Placeholder]" [label="{CreateTensorBinding|tensor_name: z/Placeholder:0|dtype_enum: 7|is_asset_filepath: True|label: CreateTensorBinding[z#Placeholder]}"];
 "VocabularyOrderAndWrite[z]" -> "CreateTensorBinding[z#Placeholder]";
 "ExtractFromDict[CacheableCombineMerge[x#mean_and_var]]" [label="{ExtractFromDict|keys: CacheableCombineMerge[x#mean_and_var]|label: ExtractFromDict[CacheableCombineMerge[x#mean_and_var]]|partitionable: True}"];
-"PackedCombineMerge[2]" -> "ExtractFromDict[CacheableCombineMerge[x#mean_and_var]]";
+"PackedCombineMerge[3]" -> "ExtractFromDict[CacheableCombineMerge[x#mean_and_var]]";
 "ExtractPackedCombineMergeOutputs[CacheableCombineMerge[x#mean_and_var]]" [label="{ExtractPackedCombineMergeOutputs|output_tensor_info_list: [TensorInfo(dtype=tf.float32, shape=(), temporary_asset_value=None), TensorInfo(dtype=tf.float32, shape=(), temporary_asset_value=None)]|label: ExtractPackedCombineMergeOutputs[CacheableCombineMerge[x#mean_and_var]]|{<0>0|<1>1}}"];
 "ExtractFromDict[CacheableCombineMerge[x#mean_and_var]]" -> "ExtractPackedCombineMergeOutputs[CacheableCombineMerge[x#mean_and_var]]";
 "CreateTensorBinding[x#mean_and_var#Placeholder]" [label="{CreateTensorBinding|tensor_name: x/mean_and_var/Placeholder:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[x#mean_and_var#Placeholder]}"];
 "ExtractPackedCombineMergeOutputs[CacheableCombineMerge[x#mean_and_var]]":0 -> "CreateTensorBinding[x#mean_and_var#Placeholder]";
 "CreateTensorBinding[x#mean_and_var#Placeholder_1]" [label="{CreateTensorBinding|tensor_name: x/mean_and_var/Placeholder_1:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[x#mean_and_var#Placeholder_1]}"];
 "ExtractPackedCombineMergeOutputs[CacheableCombineMerge[x#mean_and_var]]":1 -> "CreateTensorBinding[x#mean_and_var#Placeholder_1]";
+"ExtractFromDict[CacheableCombineMerge[y#mean_and_var]]" [label="{ExtractFromDict|keys: CacheableCombineMerge[y#mean_and_var]|label: ExtractFromDict[CacheableCombineMerge[y#mean_and_var]]|partitionable: True}"];
+"PackedCombineMerge[3]" -> "ExtractFromDict[CacheableCombineMerge[y#mean_and_var]]";
+"ExtractPackedCombineMergeOutputs[CacheableCombineMerge[y#mean_and_var]]" [label="{ExtractPackedCombineMergeOutputs|output_tensor_info_list: [TensorInfo(dtype=tf.float32, shape=(), temporary_asset_value=None), TensorInfo(dtype=tf.float32, shape=(), temporary_asset_value=None)]|label: ExtractPackedCombineMergeOutputs[CacheableCombineMerge[y#mean_and_var]]|{<0>0|<1>1}}"];
+"ExtractFromDict[CacheableCombineMerge[y#mean_and_var]]" -> "ExtractPackedCombineMergeOutputs[CacheableCombineMerge[y#mean_and_var]]";
+"CreateTensorBinding[y#mean_and_var#Placeholder]" [label="{CreateTensorBinding|tensor_name: y/mean_and_var/Placeholder:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[y#mean_and_var#Placeholder]}"];
+"ExtractPackedCombineMergeOutputs[CacheableCombineMerge[y#mean_and_var]]":0 -> "CreateTensorBinding[y#mean_and_var#Placeholder]";
+"CreateTensorBinding[y#mean_and_var#Placeholder_1]" [label="{CreateTensorBinding|tensor_name: y/mean_and_var/Placeholder_1:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[y#mean_and_var#Placeholder_1]}"];
+"ExtractPackedCombineMergeOutputs[CacheableCombineMerge[y#mean_and_var]]":1 -> "CreateTensorBinding[y#mean_and_var#Placeholder_1]";
 CreateSavedModel [label="{CreateSavedModel|table_initializers: 1|output_signature: OrderedDict([('x_centered', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\"), ('y_centered', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\"), ('z_integerized', \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\")])|label: CreateSavedModel}"];
-"CreateTensorBinding[y#mean_and_var#Placeholder]" -> CreateSavedModel;
-"CreateTensorBinding[y#mean_and_var#Placeholder_1]" -> CreateSavedModel;
+"CreateTensorBinding[z_approx#Placeholder]" -> CreateSavedModel;
 "CreateTensorBinding[z#vocab_z_unpruned_vocab_size]" -> CreateSavedModel;
 "CreateTensorBinding[z#Placeholder]" -> CreateSavedModel;
 "CreateTensorBinding[x#mean_and_var#Placeholder]" -> CreateSavedModel;
 "CreateTensorBinding[x#mean_and_var#Placeholder_1]" -> CreateSavedModel;
+"CreateTensorBinding[y#mean_and_var#Placeholder]" -> CreateSavedModel;
+"CreateTensorBinding[y#mean_and_var#Placeholder_1]" -> CreateSavedModel;
 }
 """)
 

@@ -488,8 +488,226 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         input_metadata,
         preprocessing_fn,
         input_data,  # expected output data is same as input data
-        input_metadata,  # expected output metadata is ame as input metadata
+        input_metadata,  # expected output metadata is same as input metadata
         expected_vocab_file_contents={'my_vocab': expected_vocab_file_contents})
+
+  @tft_unit.named_parameters(*tft_unit.cross_named_parameters(
+      [
+          dict(
+              testcase_name='_string',
+              input_data=[{
+                  'x': b'hello'
+              }, {
+                  'x': b'hello'
+              }, {
+                  'x': b'hello'
+              }, {
+                  'x': b'goodbye'
+              }, {
+                  'x': b'aaaaa'
+              }, {
+                  'x': b'aaaaa'
+              }, {
+                  'x': b'goodbye'
+              }, {
+                  'x': b'goodbye'
+              }, {
+                  'x': b'aaaaa'
+              }, {
+                  'x': b'aaaaa'
+              }, {
+                  'x': b'goodbye'
+              }, {
+                  'x': b'goodbye'
+              }],
+              make_feature_spec=lambda:  # pylint: disable=g-long-lambda
+              {'x': tf.io.FixedLenFeature([], tf.string)},
+              top_k=2,
+              expected_vocab_file_contents=[(b'goodbye', 5), (b'aaaaa', 4)]),
+          dict(
+              testcase_name='_int',
+              input_data=[{
+                  'x': 1
+              }, {
+                  'x': 2
+              }, {
+                  'x': 2
+              }, {
+                  'x': 3
+              }, {
+                  'x': 1
+              }],
+              make_feature_spec=lambda:  # pylint: disable=g-long-lambda
+              {'x': tf.io.FixedLenFeature([], tf.int64)},
+              top_k=2,
+              expected_vocab_file_contents=[(b'1', 2), (b'2', 2)]),
+          dict(
+              testcase_name='_weights',
+              input_data=[
+                  {
+                      'x': b'hello',
+                      'weights': 1.4
+                  },
+                  {
+                      'x': b'hello',
+                      'weights': 0.5
+                  },
+                  {
+                      'x': b'hello',
+                      'weights': 1.12
+                  },
+                  {
+                      'x': b'goodbye',
+                      'weights': 0.123
+                  },
+                  {
+                      'x': b'aaaaa',
+                      'weights': 0.3
+                  },
+                  {
+                      'x': b'aaaaa',
+                      'weights': 1.123
+                  },
+                  {
+                      'x': b'goodbye',
+                      'weights': 0.1
+                  },
+                  {
+                      'x': b'goodbye',
+                      'weights': 0.00001
+                  },
+              ],
+              make_feature_spec=lambda: {  # pylint: disable=g-long-lambda
+                  'x': tf.io.FixedLenFeature([], tf.string),
+                  'weights': tf.io.FixedLenFeature([], tf.float32)
+              },
+              top_k=2,
+              expected_vocab_file_contents=[(b'hello', 3.02),
+                                            (b'aaaaa', 1.423)]),
+          dict(
+              testcase_name='_large_top_k',
+              input_data=[{
+                  'x': b'hello'
+              }, {
+                  'x': b'hello'
+              }, {
+                  'x': b'hello'
+              }, {
+                  'x': b' '
+              }, {
+                  'x': b'aaaaa'
+              }, {
+                  'x': b'aaaaa'
+              }, {
+                  'x': b'goodbye'
+              }, {
+                  'x': b'goodbye'
+              }, {
+                  'x': b' '
+              }, {
+                  'x': b''
+              }, {
+                  'x': b'goodbye'
+              }, {
+                  'x': b'goodbye'
+              }],
+              make_feature_spec=lambda:  # pylint: disable=g-long-lambda
+              {'x': tf.io.FixedLenFeature([], tf.string)},
+              top_k=100,
+              expected_vocab_file_contents=[(b'goodbye', 4), (b'hello', 3),
+                                            (b' ', 2), (b'aaaaa', 2),
+                                            (b'', 1)]),
+          dict(
+              testcase_name='_ragged',
+              input_data=[
+                  {
+                      'x$ragged_values': ['hello', ' '],
+                      'x$row_lengths_1': [1, 0, 1]
+                  },
+                  {
+                      'x$ragged_values': ['hello'],
+                      'x$row_lengths_1': [0, 1]
+                  },
+                  {
+                      'x$ragged_values': ['hello', 'goodbye'],
+                      'x$row_lengths_1': [2, 0, 0]
+                  },
+                  {
+                      'x$ragged_values': ['hello', 'hello', ' ', ' '],
+                      'x$row_lengths_1': [0, 2, 2]
+                  },
+              ],
+              make_feature_spec=lambda: {  # pylint: disable=g-long-lambda
+                  'x':
+                      tf.io.RaggedFeature(
+                          tf.string,
+                          value_key='x$ragged_values',
+                          partitions=[
+                              tf.io.RaggedFeature.RowLengths('x$row_lengths_1')  # pytype: disable=attribute-error
+                          ])
+              },
+              top_k=2,
+              expected_vocab_file_contents=[(b'hello', 5), (b' ', 3)]),
+          dict(
+              testcase_name='_sparse',
+              input_data=[{
+                  'x$sparse_indices_0': [0, 1],
+                  'x$sparse_indices_1': [2, 3],
+                  'x$sparse_values': [-4, 4],
+              }, {
+                  'x$sparse_indices_0': [0, 1],
+                  'x$sparse_indices_1': [4, 1],
+                  'x$sparse_values': [2, 2],
+              }, {
+                  'x$sparse_indices_0': [0, 1],
+                  'x$sparse_indices_1': [0, 3],
+                  'x$sparse_values': [2, 4],
+              }],
+              make_feature_spec=lambda: {  # pylint: disable=g-long-lambda
+                  'x':
+                      tf.io.SparseFeature([
+                          'x$sparse_indices_0', 'x$sparse_indices_1'
+                      ], 'x$sparse_values', tf.int64, [5, 5])
+              },
+              top_k=2,
+              expected_vocab_file_contents=[(b'2', 3), (b'4', 2)]),
+      ],
+      [
+          dict(testcase_name='no_frequency', store_frequency=False),
+          dict(testcase_name='with_frequency', store_frequency=True)
+      ]))
+  def testApproximateVocabulary(self, input_data, make_feature_spec, top_k,
+                                expected_vocab_file_contents, store_frequency):
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        tft_unit.make_feature_spec_wrapper(make_feature_spec))
+
+    def preprocessing_fn(inputs):
+      x = inputs['x']
+      weights = inputs.get('weights')
+      # Note even though the return value is not used, calling
+      # tft.approximate_vocabulary will generate the vocabulary as a side
+      # effect, and since we have named this vocabulary it can be looked up
+      # using public APIs.
+      tft.experimental.approximate_vocabulary(
+          x,
+          top_k,
+          store_frequency=store_frequency,
+          weights=weights,
+          vocab_filename='my_approximate_vocab',
+          file_format=self._VocabFormat())
+      return inputs
+
+    if not store_frequency:
+      expected_vocab_file_contents = [
+          token for token, _ in expected_vocab_file_contents
+      ]
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_vocab_file_contents={
+            'my_approximate_vocab': expected_vocab_file_contents
+        })
 
   def testJointVocabularyForMultipleFeatures(self):
     input_data = [{
