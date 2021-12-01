@@ -134,6 +134,12 @@ features {
             value { int64_list { value: [ 0, 3 ] } } }
   feature { key: "2d_ragged_row_lengths2"
             value { int64_list { value: [ 1, 0, 2 ] } } }
+  feature { key: "ragged_uniform_val"
+            value { int64_list { value: [ 1, -1, 2, 1, -1, 2] } } }
+  feature { key: "2d_ragged_uniform_val"
+            value { int64_list { value: [ 1, -1, 2, 1, -1, 2] } } }
+  feature { key: "2d_ragged_uniform_row_lengths1"
+            value { int64_list { value: [ 1, 0, 2 ] } } }
 }
   """,
             instance={
@@ -155,7 +161,10 @@ features {
                 'ragged_row_lengths1': [1, 2],
                 '2d_ragged_val': [b'aa a', b'abc', b'hi'],
                 '2d_ragged_row_lengths1': [0, 3],
-                '2d_ragged_row_lengths2': [1, 0, 2]
+                '2d_ragged_row_lengths2': [1, 0, 2],
+                'ragged_uniform_val': [1, -1, 2, 1, -1, 2],
+                '2d_ragged_uniform_val': [1, -1, 2, 1, -1, 2],
+                '2d_ragged_uniform_row_lengths1': [1, 0, 2],
             }),
     'multiple_columns_ndarray':
         dict(
@@ -193,6 +202,12 @@ features {
             value { int64_list { value: [ 1, 2 ] } } }
   feature { key: "2d_ragged_row_lengths2"
             value { int64_list { value: [ 0, 0, 3 ] } } }
+  feature { key: "ragged_uniform_val"
+            value { int64_list { value: [ 12, -11, 2, 1, -1, 12] } } }
+  feature { key: "2d_ragged_uniform_val"
+            value { int64_list { value: [ 1, -1, 23, 1, -1, 32] } } }
+  feature { key: "2d_ragged_uniform_row_lengths1"
+            value { int64_list { value: [ 1, 0, 2 ] } } }
 }
   """,
             instance={
@@ -214,7 +229,10 @@ features {
                 'ragged_row_lengths1': np.array([0, 2, 1]),
                 '2d_ragged_val': np.array([b'oh', b'hello ', b'']),
                 '2d_ragged_row_lengths1': np.array([1, 2]),
-                '2d_ragged_row_lengths2': np.array([0, 0, 3])
+                '2d_ragged_row_lengths2': np.array([0, 0, 3]),
+                'ragged_uniform_val': np.array([12, -11, 2, 1, -1, 12]),
+                '2d_ragged_uniform_val': np.array([1, -1, 23, 1, -1, 32]),
+                '2d_ragged_uniform_row_lengths1': np.array([1, 0, 2]),
             }),
     'multiple_columns_with_missing':
         dict(
@@ -263,11 +281,25 @@ if common_types.is_ragged_feature_available():
                   tf.io.RaggedFeature.RowLengths('2d_ragged_row_lengths1'),
                   tf.io.RaggedFeature.RowLengths('2d_ragged_row_lengths2')
               ]),
+      'ragged_uniform_feature':
+          tf.io.RaggedFeature(
+              tf.int64,
+              value_key='ragged_uniform_val',
+              partitions=[tf.io.RaggedFeature.UniformRowLength(2)]),
+      '2d_ragged_uniform_feature':
+          tf.io.RaggedFeature(
+              tf.int64,
+              value_key='2d_ragged_uniform_val',
+              partitions=[
+                  tf.io.RaggedFeature.RowLengths(
+                      '2d_ragged_uniform_row_lengths1'),
+                  tf.io.RaggedFeature.UniformRowLength(2)
+              ]),
   })
 
   _ENCODE_ERROR_CASES.append(
       dict(
-          testcase_name='unsupported_ragged_partition',
+          testcase_name='unsupported_ragged_partition_sequence',
           feature_spec={
               '2d_ragged_feature':
                   tf.io.RaggedFeature(
@@ -280,8 +312,7 @@ if common_types.is_ragged_feature_available():
                       ]),
           },
           instance={'2d_ragged_val': [b'not', b'necessary']},
-          error_msg='Only `RowLengths` partitions of ragged features are '
-          'supported',
+          error_msg='Encountered ragged dimension after uniform',
       ))
 
 

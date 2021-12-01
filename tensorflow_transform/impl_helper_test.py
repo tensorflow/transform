@@ -331,6 +331,21 @@ if common_types.is_ragged_feature_available():
                   tf.io.RaggedFeature.RowLengths('j_row_lengths1'),  # pytype: disable=attribute-error
                   tf.io.RaggedFeature.RowLengths('j_row_lengths2'),  # pytype: disable=attribute-error
               ]),
+      'k':
+          tf.io.RaggedFeature(
+              tf.int64,
+              value_key='k_val',
+              partitions=[
+                  tf.io.RaggedFeature.UniformRowLength(3),  # pytype: disable=attribute-error
+              ]),
+      'l':
+          tf.io.RaggedFeature(
+              tf.int64,
+              value_key='l_val',
+              partitions=[
+                  tf.io.RaggedFeature.RowLengths('l_row_lengths1'),  # pytype: disable=attribute-error
+                  tf.io.RaggedFeature.UniformRowLength(2),  # pytype: disable=attribute-error
+              ]),
   })
 
   _FEED_DICT.update({
@@ -352,6 +367,16 @@ if common_types.is_ragged_feature_available():
                       row_splits=np.array([0, 2, 3, 4, 5])),
                   row_splits=np.array([0, 2, 3, 4])),
               row_splits=np.array([0, 2, 3])),
+      'k':
+          tf.compat.v1.ragged.RaggedTensorValue(
+              values=np.reshape(np.arange(12, dtype=np.int64), (4, 3)),
+              row_splits=np.array([0, 3, 4])),
+      'l':
+          tf.compat.v1.ragged.RaggedTensorValue(
+              values=tf.compat.v1.ragged.RaggedTensorValue(
+                  values=np.reshape(np.arange(8, dtype=np.int64), (4, 2)),
+                  row_splits=np.array([0, 2, 3, 4])),
+              row_splits=np.array([0, 2, 3])),
   })
 
   _MULTIPLE_FEATURES_CASE_RECORD_BATCH.update({
@@ -364,6 +389,12 @@ if common_types.is_ragged_feature_available():
           pa.array([[[[1., 2.], [3.]], [[4.]]], [[[5.]]]],
                    type=pa.large_list(
                        pa.large_list(pa.large_list(pa.float32())))),
+      'k':
+          pa.array([[0, 1, 2, 3, 4, 5, 6, 7, 8], [9, 10, 11]],
+                   type=pa.large_list(pa.int64())),
+      'l':
+          pa.array([[[0, 1, 2, 3], [4, 5]], [[6, 7]]],
+                   type=pa.large_list(pa.large_list(pa.int64()))),
   })
 
   # multiple_features
@@ -374,6 +405,9 @@ if common_types.is_ragged_feature_available():
       'j_val': [1., 2., 3., 4.],
       'j_row_lengths1': [2, 1],
       'j_row_lengths2': [2, 1, 1],
+      'k_val': [0, 1, 2, 3, 4, 5, 6, 7, 8],
+      'l_val': [0, 1, 2, 3, 4, 5],
+      'l_row_lengths1': [4, 2],
   })
   _ROUNDTRIP_CASES[0]['instances'][1].update({
       'h_val': [4., 5.],
@@ -382,6 +416,9 @@ if common_types.is_ragged_feature_available():
       'j_val': [5.],
       'j_row_lengths1': [1],
       'j_row_lengths2': [1],
+      'k_val': [9, 10, 11],
+      'l_val': [6, 7],
+      'l_row_lengths1': [2],
   })
 
   # multiple_features_ndarrays
@@ -392,6 +429,9 @@ if common_types.is_ragged_feature_available():
       'j_val': np.array([1., 2., 3., 4], np.float32),
       'j_row_lengths1': np.array([2, 1]),
       'j_row_lengths2': np.array([2, 1, 1]),
+      'k_val': np.array([0, 1, 2, 3, 4, 5, 6, 7, 8]),
+      'l_val': np.array([0, 1, 2, 3, 4, 5]),
+      'l_row_lengths1': np.array([4, 2]),
   })
   _ROUNDTRIP_CASES[1]['instances'][1].update({
       'h_val': np.array([4., 5.], np.float32),
@@ -400,6 +440,9 @@ if common_types.is_ragged_feature_available():
       'j_val': np.array([5.], np.float32),
       'j_row_lengths1': np.array([1]),
       'j_row_lengths2': np.array([1]),
+      'k_val': np.array([9, 10, 11]),
+      'l_val': np.array([6, 7]),
+      'l_row_lengths1': np.array([2]),
   })
 
 # Non-canonical inputs that will not be the output of to_instance_dicts but
@@ -553,14 +596,23 @@ _CONVERT_TO_ARROW_ERROR_CASES = [
 ]
 
 
+def _ragged_tensor_from_value(value):
+  if isinstance(value, tf.compat.v1.ragged.RaggedTensorValue):
+    return tf.RaggedTensor.from_row_splits(
+        values=_ragged_tensor_from_value(value.values),
+        row_splits=value.row_splits)
+  else:
+    # Recursion base case, value here is a numpy array.
+    return tf.constant(value)
+
+
 def _eager_tensor_from_values(values):
   result = {}
   for key, value in values.items():
     if isinstance(value, tf.compat.v1.SparseTensorValue):
       result[key] = tf.sparse.SparseTensor.from_value(value)
     elif isinstance(value, tf.compat.v1.ragged.RaggedTensorValue):
-      result[key] = tf.RaggedTensor.from_row_splits(value.values,
-                                                    value.row_splits)
+      result[key] = _ragged_tensor_from_value(value)
     else:
       result[key] = tf.constant(value)
   return result

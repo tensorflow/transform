@@ -2699,7 +2699,101 @@ class BeamImplTest(tft_unit.TransformTestCase):
               'scale_to_0_1$ragged_values': [1., 1., 0.33333334],
               'scale_by_min_max$ragged_values': [1., 1., 0.33333334],
           }],
-      ))
+      ),
+      dict(
+          testcase_name='ragged_uniform',
+          input_data=[
+              {
+                  'val': [0., 2., 3., 11., 2., 7.],
+              },
+              {
+                  'val': [3., 1., 2.],
+              },
+          ],
+          make_feature_spec=lambda: tf.io.RaggedFeature(  # pylint: disable=g-long-lambda
+              tf.float32,
+              value_key='val',
+              partitions=[
+                  tf.io.RaggedFeature.UniformRowLength(3),  # pytype: disable=attribute-error
+              ]),
+          elementwise=False,
+          expected_outputs=[{
+              'scale_by_min_max$ragged_values': [
+                  0., 0.18181819, 0.27272728, 1., 0.18181819, 0.6363636
+              ],
+              'scale_to_z_score$ragged_values': [
+                  -1.0645443, -0.4464218, -0.13736054, 2.3351295, -0.4464218,
+                  1.0988845
+              ],
+              'scale_to_0_1$ragged_values': [
+                  0., 0.18181819, 0.27272728, 1., 0.18181819, 0.6363636
+              ],
+          }, {
+              'scale_to_0_1$ragged_values': [
+                  0.27272728, 0.09090909, 0.18181819
+              ],
+              'scale_by_min_max$ragged_values': [
+                  0.27272728, 0.09090909, 0.18181819
+              ],
+              'scale_to_z_score$ragged_values': [
+                  -0.13736054, -0.7554831, -0.4464218
+              ],
+          }],
+      ),
+      dict(
+          testcase_name='2d_ragged_uniform',
+          input_data=[
+              {
+                  'val': [0., 2., 3., 1., 2., 7.],
+                  'row_lengths': [0, 2, 0, 1],
+              },
+              {
+                  'val': [3., 3., 1., 2.],
+                  'row_lengths': [2],
+              },
+          ],
+          make_feature_spec=lambda: tf.io.RaggedFeature(  # pylint: disable=g-long-lambda
+              tf.float32,
+              value_key='val',
+              partitions=[
+                  tf.io.RaggedFeature.RowLengths('row_lengths'),  # pytype: disable=attribute-error
+                  tf.io.RaggedFeature.UniformRowLength(2),  # pytype: disable=attribute-error
+              ],
+              # Note that row splits are always encoded as int64 since we only
+              # support this integral type in outputs. We modify the default
+              # `row_splits_dtype` (tf.int32) here to make sure it still works.
+              row_splits_dtype=tf.int64),
+          elementwise=False,
+          expected_outputs=[{
+              'scale_by_min_max$ragged_values': [
+                  0., 0.285714, 0.428571, 0.142857, 0.285714, 1.
+              ],
+              'scale_by_min_max$row_lengths_1': [0, 4, 0, 2],
+              'scale_to_z_score$row_lengths_1': [0, 4, 0, 2],
+              'scale_to_z_score$ragged_values': [
+                  -1.3333334, -0.22222228, 0.33333328, -0.77777785, -0.22222228,
+                  2.5555556
+              ],
+              'scale_to_0_1$row_lengths_1': [0, 4, 0, 2],
+              'scale_to_0_1$ragged_values': [
+                  0., 0.2857143, 0.42857143, 0.14285715, 0.2857143, 1.
+              ],
+          }, {
+              'scale_to_0_1$ragged_values': [
+                  0.42857143, 0.42857143, 0.14285715, 0.2857143
+              ],
+              'scale_to_0_1$row_lengths_1': [4],
+              'scale_by_min_max$ragged_values': [
+                  0.42857143, 0.42857143, 0.14285715, 0.2857143
+              ],
+              'scale_by_min_max$row_lengths_1': [4],
+              'scale_to_z_score$ragged_values': [
+                  0.33333328, 0.33333328, -0.77777785, -0.22222228
+              ],
+              'scale_to_z_score$row_lengths_1': [4],
+          }],
+      ),
+  )
   def testNumericMappersWithCompositeInputs(self, input_data, make_feature_spec,
                                             elementwise, expected_outputs):
     input_metadata = tft_unit.metadata_from_feature_spec(
@@ -3677,9 +3771,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
   def testRaggedWithTFXIO(self):
     x_data = [[[1], [], [2, 3]], [[]]]
+    y_data = [[[1, 2]], [[3, 4], [], [5, 6]]]
     input_record_batch = pa.RecordBatch.from_arrays([
         pa.array(x_data, type=pa.large_list(pa.large_list(pa.int64()))),
-    ], ['x'])
+        pa.array(y_data, type=pa.large_list(pa.large_list(pa.float32())))
+    ], ['x', 'y'])
     tensor_adapter_config = tensor_adapter.TensorAdapterConfig(
         input_record_batch.schema, {
             'x':
@@ -3689,21 +3785,39 @@ class BeamImplTest(tft_unit.TransformTestCase):
                             step: "x"
                           }
                           row_partition_dtype: INT64
+                        }""", schema_pb2.TensorRepresentation()),
+            'y':
+                text_format.Parse(
+                    """ragged_tensor {
+                          feature_path {
+                            step: "y"
+                          }
+                          row_partition_dtype: INT64
+                          partition {
+                            uniform_row_length: 2
+                          }
                         }""", schema_pb2.TensorRepresentation())
         })
 
     def preprocessing_fn(inputs):
-      return {'x_ones': tf.ragged.map_flat_values(tf.ones_like, inputs['x'])}
+      return {
+          'x_ones': tf.ones_like(inputs['x']),
+          'y_ones': tf.ones_like(inputs['y'])
+      }
 
     if common_types.is_ragged_feature_available():
       expected_data = [
           {
               'x_ones$ragged_values': [1, 1, 1],
-              'x_ones$row_lengths_1': [1, 0, 2]
+              'x_ones$row_lengths_1': [1, 0, 2],
+              'y_ones$ragged_values': [1, 1],
+              'y_ones$row_lengths_1': [2],
           },
           {
               'x_ones$ragged_values': [],
-              'x_ones$row_lengths_1': [0]
+              'x_ones$row_lengths_1': [0],
+              'y_ones$ragged_values': [1, 1, 1, 1],
+              'y_ones$row_lengths_1': [2, 0, 2],
           },
       ]
       expected_metadata = tft_unit.metadata_from_feature_spec({
@@ -3713,6 +3827,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
                   value_key='x_ones$ragged_values',
                   partitions=[
                       tf.io.RaggedFeature.RowLengths('x_ones$row_lengths_1')  # pytype: disable=attribute-error
+                  ]),
+          'y_ones':
+              tf.io.RaggedFeature(
+                  tf.float32,
+                  value_key='y_ones$ragged_values',
+                  partitions=[
+                      tf.io.RaggedFeature.RowLengths('y_ones$row_lengths_1'),  # pytype: disable=attribute-error
+                      tf.io.RaggedFeature.UniformRowLength(2),  # pytype: disable=attribute-error
                   ]),
       })
       self.assertAnalyzeAndTransformResults([input_record_batch],
@@ -3739,6 +3861,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
                 feature {
                   name: "x_ones"
                   type: INT
+                  annotation {
+                    tag: "ragged_tensor"
+                  }
+                }
+                feature {
+                  name: "y_ones"
+                  type: FLOAT
                   annotation {
                     tag: "ragged_tensor"
                   }

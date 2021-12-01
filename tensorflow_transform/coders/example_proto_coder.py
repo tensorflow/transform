@@ -245,13 +245,24 @@ class ExampleProtoCoder:
         self._feature_handlers.append(
             _VarLenFeatureHandler(feature_spec.value_key, feature_spec.dtype))
       elif common_types.is_ragged_feature(feature_spec):
+        uniform_partition = False
         for partition in feature_spec.partitions:
           if isinstance(partition, tf.io.RaggedFeature.RowLengths):
+            if uniform_partition:
+              raise ValueError(
+                  'Encountered ragged dimension after uniform for feature '
+                  '"{}": only inner dimensions can be uniform. Feature spec '
+                  'is {}'.format(name, feature_spec))
             self._feature_handlers.append(
                 _VarLenFeatureHandler(partition.key, tf.int64))
+          elif isinstance(partition, tf.io.RaggedFeature.UniformRowLength):
+            # We don't encode uniform partitions since they can be recovered
+            # from the shape information.
+            uniform_partition = True
           else:
-            raise ValueError('Only `RowLengths` partitions of ragged features '
-                             'are supported, got {}'.format(type(partition)))
+            raise ValueError(
+                'Only `RowLengths` and `UniformRowLength` partitions of ragged '
+                'features are supported, got {}'.format(type(partition)))
         self._feature_handlers.append(
             _VarLenFeatureHandler(feature_spec.value_key, feature_spec.dtype))
       else:

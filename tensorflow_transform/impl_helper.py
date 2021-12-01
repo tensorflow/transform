@@ -326,6 +326,49 @@ def _get_ragged_instance_component(
   return component_batch[instance_begin:instance_end]
 
 
+def _get_num_inner_uniform_elements(spec: common_types.RaggedFeature,
+                                    name: str) -> int:
+  """Extracts the number of elements in inner dimensions of a ragged feature.
+
+  Also validates partitions in the feature spec.
+
+  Args:
+    spec: A ragged feature spec.
+    name: Name of the feature that the spec belongs to.
+
+  Returns:
+    A number of elements in the inner uniform dimensions per one innermost
+    ragged element. It is calculated as a product of inner uniform dimension
+    sizes.
+
+  Raises:
+    NotImplementedError: if the spec contains partitions other than `RowLengths`
+      and `UniformRowLengths` or there is a `RowLengths` partition that follows
+      a `UniformRowLengths` partition.
+  """
+  result = 1
+  uniform_partition = False
+  for partition in spec.partitions:
+    if isinstance(partition, tf.io.RaggedFeature.RowLengths):  # pytype: disable=attribute-error
+      if uniform_partition:
+        # Upstream and downstream logic only supports inner uniform dimensions.
+        # This function will have to be extended to support other cases if
+        # needed as well, so we fail with an explicit error for now.
+        raise NotImplementedError(
+            'Only inner partitions are allowed to be uniform, unsupported '
+            'partition sequence for feature "{}" with spec {}'.format(
+                name, spec))
+    elif isinstance(partition, tf.io.RaggedFeature.UniformRowLength):  # pytype: disable=attribute-error
+      uniform_partition = True
+      result *= partition.length
+    else:
+      raise ValueError(
+          'Only `RowLengths` and `UniformRowLengths` partitions of ragged '
+          'features are supported, got {} for ragged feature "{}" with spec {}'
+          .format(partition, name, spec))
+  return result
+
+
 def _handle_ragged_batch(tensor_or_value: common_types.RaggedTensorValueType,
                          spec: common_types.FeatureSpecType,
                          name: str) -> Dict[str, _CompositeComponentType]:
@@ -333,10 +376,10 @@ def _handle_ragged_batch(tensor_or_value: common_types.RaggedTensorValueType,
   if isinstance(tensor_or_value, tf.RaggedTensor):
     nested_row_splits = tuple(
         x.numpy() for x in tensor_or_value.nested_row_splits)
-    flat_values = tensor_or_value.flat_values.numpy()
+    flat_values = np.ravel(tensor_or_value.flat_values.numpy())
   elif isinstance(tensor_or_value, tf.compat.v1.ragged.RaggedTensorValue):
     nested_row_splits = tensor_or_value.nested_row_splits
-    flat_values = tensor_or_value.flat_values
+    flat_values = np.ravel(tensor_or_value.flat_values)
   else:
     raise ValueError('Expected RaggedTensor or RaggedTensorValue , but '
                      'got {}'.format(tensor_or_value))
@@ -345,25 +388,19 @@ def _handle_ragged_batch(tensor_or_value: common_types.RaggedTensorValueType,
   # The outermost row split represents batch dimension.
   batch_splits = nested_row_splits[0]
   batch_size = len(batch_splits) - 1
-  if len(nested_row_splits) != len(spec.partitions) + 1:
-    raise NotImplementedError(
-        'Ragged tensors with non-ragged dimensions are not supported, ragged '
-        'rank of feature "{}" is {}, partitions '
-        'are {}'.format(name,
-                        len(nested_row_splits) - 1, spec.partitions))
+  inner_uniform_elements = _get_num_inner_uniform_elements(spec, name)
 
-  # Iterate over all but batch dimension splits.
+  # Iterate over all but batch dimension splits. Note that
+  # `nested_row_splits[1:]` may be shorter than the list of partitions in the
+  # presense of inner uniform partitions. Partition types and sequence is
+  # validated in `_get_num_inner_uniform_elements`.
   for row_splits, partition in zip(nested_row_splits[1:], spec.partitions):
-    if isinstance(partition, tf.io.RaggedFeature.RowLengths):  # pytype: disable=attribute-error
-      row_lengths = row_splits[1:] - row_splits[:-1]
-      result[partition.key] = [
-          _get_ragged_instance_component(row_lengths, batch_splits, idx)
-          for idx in range(batch_size)
-      ]
-    else:
-      raise NotImplementedError(
-          'Only `RowLengths` partitions of ragged features are supported, got '
-          '{} for ragged feature "{}"'.format(type(partition), name))
+    assert isinstance(partition, tf.io.RaggedFeature.RowLengths), partition  # pytype: disable=attribute-error
+    row_lengths = (row_splits[1:] - row_splits[:-1]) * inner_uniform_elements
+    result[partition.key] = [
+        _get_ragged_instance_component(row_lengths, batch_splits, idx)
+        for idx in range(batch_size)
+    ]
 
     # Translate batch split indices for the current dimension to the
     # next dimension.
@@ -371,7 +408,8 @@ def _handle_ragged_batch(tensor_or_value: common_types.RaggedTensorValueType,
 
   # Split flat values according to the innermost dimension batch splits.
   result[spec.value_key] = [
-      _get_ragged_instance_component(flat_values, batch_splits, idx)
+      _get_ragged_instance_component(flat_values,
+                                     batch_splits * inner_uniform_elements, idx)
       for idx in range(batch_size)
   ]
   return result
@@ -460,7 +498,7 @@ def _tf_dtype_to_arrow_type(dtype: tf.DType) -> pa.DataType:
 def get_type_specs_from_feature_specs(
     feature_specs: Dict[str, common_types.FeatureSpecType]
 ) -> Dict[str, tf.TypeSpec]:
-  """Returns `tf.TensorSpec`/`tf.SparseTensorSpec`s for the given feature spec.
+  """Returns `tf.TypeSpec`s for the given feature specs.
 
   Returns a dictionary of type_spec with the same type and shape as defined by
   `feature_specs`.
@@ -469,7 +507,8 @@ def get_type_specs_from_feature_specs(
     feature_specs: A TensorFlow feature spec.
 
   Returns:
-    A dictionary from strings to `tf.TensorSpec` or `tf.SparseTensorSpec`s.
+    A dictionary from strings to `tf.TensorSpec`, `tf.SparseTensorSpec` or
+    `tf.RaggedTensorSpec`s.
 
   Raises:
     ValueError: If the feature spec contains feature types not supported.
@@ -491,14 +530,17 @@ def get_type_specs_from_feature_specs(
     elif common_types.is_ragged_feature(feature_spec):
       # Number of dimensions is number of partitions + 1 + 1 batch dimension.
       shape = [None, None]
+      ragged_rank = 1
       for partition in feature_spec.partitions:
         if isinstance(partition, tf.io.RaggedFeature.UniformRowLength):  # pytype: disable=attribute-error
           shape.append(partition.length)
         else:
           shape.append(None)
+          ragged_rank += 1
       result[name] = tf.RaggedTensorSpec(
           shape=shape,
           dtype=feature_spec.dtype,
+          ragged_rank=ragged_rank,
           row_splits_dtype=feature_spec.row_splits_dtype)
     else:
       raise ValueError('Invalid feature spec {}.'.format(feature_spec))
