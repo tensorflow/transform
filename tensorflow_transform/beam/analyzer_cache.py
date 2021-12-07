@@ -53,6 +53,7 @@ def _make_valid_cache_component(name):
 
 class DatasetKey(tfx_namedtuple.namedtuple('DatasetKey', ['key'])):
   """A key for a dataset used for analysis."""
+  __slots__ = ()
   _FLATTENED_DATASET_KEY = object()
 
   def __new__(cls, dataset_key):

@@ -38,6 +38,7 @@ class _PyFuncDef(tfx_namedtuple.namedtuple('_PyFuncDef', ['token', 'func'])):
   `from_proto` and `to_proto` that enable storing tuple objects in the graph's
   collections as proto objects.
   """
+  __slots__ = ()
 
   @staticmethod
   def from_proto(attr_value, import_scope=None):

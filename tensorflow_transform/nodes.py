@@ -44,6 +44,7 @@ class ValueNode(
     parent_operation: The `OperationNode` that produces this value.
     value_index: The index of this value in the outputs of `parent_operation`.
   """
+  __slots__ = ()
 
   def __init__(self, parent_operation, value_index: int):
     if not isinstance(parent_operation, OperationNode):

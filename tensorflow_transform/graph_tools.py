@@ -208,16 +208,11 @@ def _reraise_unexpected_error(func):
   return wrapper
 
 
-class _AnalysisResult(
-    tfx_namedtuple.namedtuple('_AnalysisResult',
-                              ['is_ready_to_run', 'path', 'dependent_sources'])
-):
-  pass
+_AnalysisResult = tfx_namedtuple.namedtuple(
+    '_AnalysisResult', ['is_ready_to_run', 'path', 'dependent_sources'])
 
-
-class _SourceInfo(
-    tfx_namedtuple.namedtuple('_SourceInfo', ['is_ready_to_run', 'name'])):
-  pass
+_SourceInfo = tfx_namedtuple.namedtuple('_SourceInfo',
+                                        ['is_ready_to_run', 'name'])
 
 
 class _GraphAnalyzer:

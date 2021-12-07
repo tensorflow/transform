@@ -68,7 +68,7 @@ class CreateTensorBinding(
         ASSET_FILEPATHS collection if exporting a TF1 Graph.
     label: A unique label for this operation.
   """
-  pass
+  __slots__ = ()
 
 
 class CreateSavedModel(
@@ -97,6 +97,7 @@ class CreateSavedModel(
         `SparseTensor`s.
     label: A unique label for this operation.
   """
+  __slots__ = ()
 
   def _get_tensor_type_name(self, tensor):
     if isinstance(tensor, tf.Tensor):
@@ -134,7 +135,7 @@ class ExtractInputForSavedModel(
     dataset_key: (Optional) dataset key str.
     label: A unique label for this operation.
   """
-  pass
+  __slots__ = ()
 
 
 class ApplySavedModel(
@@ -154,6 +155,7 @@ class ApplySavedModel(
     phase: An integer which is the phase that this operation is run as part of.
     label: A unique label for this operation.
   """
+  __slots__ = ()
 
   @property
   def is_partitionable(self):
@@ -175,6 +177,7 @@ class ExtractFromDict(
         input PCollection. keys should either be a tuple or a string.
     label: A unique label for this operation.
   """
+  __slots__ = ()
 
   @property
   def is_partitionable(self):
@@ -183,6 +186,7 @@ class ExtractFromDict(
 
 class Flatten(
     tfx_namedtuple.namedtuple('Flatten', ['label']), nodes.OperationDef):
+  __slots__ = ()
 
   @property
   def is_partitionable(self):

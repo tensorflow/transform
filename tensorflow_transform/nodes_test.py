@@ -26,10 +26,11 @@ mock = tf.compat.v1.test.mock
 
 class _Concat(
     tfx_namedtuple.namedtuple('_Concat', ['label']), nodes.OperationDef):
-  pass
+  __slots__ = ()
 
 
 class _Swap(tfx_namedtuple.namedtuple('_Swap', ['label']), nodes.OperationDef):
+  __slots__ = ()
 
   @property
   def num_outputs(self):
@@ -39,12 +40,12 @@ class _Swap(tfx_namedtuple.namedtuple('_Swap', ['label']), nodes.OperationDef):
 class _Constant(
     tfx_namedtuple.namedtuple('_Constant', ['value', 'label']),
     nodes.OperationDef):
-  pass
+  __slots__ = ()
 
 
 class _Identity(
     tfx_namedtuple.namedtuple('_Identity', ['label']), nodes.OperationDef):
-  pass
+  __slots__ = ()
 
 
 class NodesTest(test_case.TransformTestCase):

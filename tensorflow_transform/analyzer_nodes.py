@@ -454,6 +454,7 @@ class PackedCombineAccumulate(
     combiners:  A list of `analysis_graph_builder._CombinerOpWrapper` objects.
     label: A unique label for this operation.
   """
+  __slots__ = ()
 
   def __new__(cls, combiners, label):
     return super(PackedCombineAccumulate, cls).__new__(
@@ -479,6 +480,7 @@ class PackedCombineMerge(
     combiners:  A list of `analysis_graph_builder._CombinerOpWrapper` objects.
     label: A unique label for this operation.
   """
+  __slots__ = ()
 
   def __new__(cls, combiners, label):
     return super(PackedCombineMerge, cls).__new__(
@@ -502,6 +504,7 @@ class CacheableCombineAccumulate(
     combiner: The Combiner to be applies to the inputs.
     label: A unique label for this operation.
   """
+  __slots__ = ()
 
   def __new__(cls, combiner):
     return super(CacheableCombineAccumulate, cls).__new__(
@@ -533,6 +536,7 @@ class CacheableCombineMerge(
     combiner: The Combiner to be applied to the inputs.
     label: A unique label for this operation.
   """
+  __slots__ = ()
 
   def __new__(cls, combiner):
     return super(CacheableCombineMerge, cls).__new__(
@@ -584,6 +588,7 @@ class CacheableCombinePerKeyAccumulate(
     combiner: The Combiner to be applied to the inputs.
     label: A unique label for this operation.
   """
+  __slots__ = ()
 
   def __new__(cls, combiner):
     return super(CacheableCombinePerKeyAccumulate, cls).__new__(
@@ -618,6 +623,7 @@ class CacheableCombinePerKeyMerge(
     combiner: The Combiner to use for merging and extracting outputs.
     label: A unique label for this operation.
   """
+  __slots__ = ()
 
   def __new__(cls, combiner):
     return super(CacheableCombinePerKeyMerge, cls).__new__(
@@ -639,6 +645,7 @@ class CacheableCombinePerKeyFormatKeys(
     combiner: The Combiner to use for extracting outputs.
     label: A unique label for this operation.
   """
+  __slots__ = ()
 
   def __new__(cls, combiner):
     return super(CacheableCombinePerKeyFormatKeys, cls).__new__(
@@ -662,6 +669,7 @@ class CacheableCombinePerKeyFormatLarge(
   is implemented by `tensorflow_transform.beam.analyzer_impls.
   _CombinePerKeyFormatLargeImpl`.
   """
+  __slots__ = ()
 
   def __new__(cls):
     return super(CacheableCombinePerKeyFormatLarge, cls).__new__(
@@ -693,6 +701,7 @@ class ScaleAndFlattenPerKeyBucketBouandaries(
   So the transformation of each input x before computing its bucket should be:
   F(x, key) = x * scale_factor_per_key[key] + shift_per_key[key]
   """
+  __slots__ = ()
 
   def __new__(cls, output_tensor_dtype):
     return super(ScaleAndFlattenPerKeyBucketBouandaries, cls).__new__(
@@ -714,6 +723,7 @@ class VocabularyAccumulate(
   This operation is implemented by
   `tensorflow_transform.beam.analyzer_impls._VocabularyAccumulateImpl`.
   """
+  __slots__ = ()
 
   def __new__(cls, vocab_ordering_type, input_dtype=tf.string.name):
     return super(VocabularyAccumulate, cls).__new__(
@@ -807,6 +817,7 @@ class VocabularyCount(
 
   The output of this operation is a singleton Integer.
   """
+  __slots__ = ()
 
   def __new__(cls):
     return super(VocabularyCount, cls).__new__(cls, label=_make_label(cls))
@@ -829,6 +840,7 @@ class VocabularyMerge(
 
   See `tft.vocabulary` for a description of the parameters.
   """
+  __slots__ = ()
 
   def __new__(cls, vocab_ordering_type, use_adjusted_mutual_info,
               min_diff_from_avg):
@@ -858,6 +870,7 @@ class VocabularyPrune(
 
   See `tft.vocabulary` for a description of the parameters.
   """
+  __slots__ = ()
 
   def __new__(cls,
               top_k,
@@ -899,6 +912,7 @@ class VocabularyOrderAndWrite(
 
   See `tft.vocabulary` for a description of the parameters.
   """
+  __slots__ = ()
 
   def __new__(cls,
               vocab_filename,
@@ -944,6 +958,7 @@ class PTransform(
         this `PTransform`.
     label: A unique label for this operation.
   """
+  __slots__ = ()
 
   def __new__(cls, ptransform, output_tensor_info_list):
     return super(PTransform, cls).__new__(
@@ -966,6 +981,7 @@ class EncodeCache(
     coder: An instance of CacheCoder used to encode cache.
     label: A unique label for this operation.
   """
+  __slots__ = ()
 
   @property
   def is_partitionable(self):
@@ -982,6 +998,7 @@ class DecodeCache(
     coder: An instance of CacheCoder used to decode cache.
     label: A unique label for this operation.
   """
+  __slots__ = ()
 
   def get_field_str(self, field_name):
     if field_name == 'cache_key':
@@ -1005,6 +1022,7 @@ class AddKey(
     key: The key which should be added to each element of the input PCollection.
     label: A unique label for this operation.
   """
+  __slots__ = ()
 
   @property
   def is_partitionable(self):
@@ -1042,6 +1060,7 @@ class ExtractCombineMergeOutputs(
       this operation.
     label: A unique label for this operation.
   """
+  __slots__ = ()
 
   def __new__(cls, output_tensor_info_list):
     return super(ExtractCombineMergeOutputs, cls).__new__(
@@ -1069,6 +1088,7 @@ class ExtractPackedCombineMergeOutputs(
       this operation.
     label: A unique label for this operation.
   """
+  __slots__ = ()
 
   @property
   def output_tensor_infos(self):
