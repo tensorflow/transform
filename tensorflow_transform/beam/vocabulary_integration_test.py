@@ -1789,5 +1789,58 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
 
+  def testVocabularyOneHotEncoding(self):
+
+    input_data = [
+        dict(x=b'bar'),
+        dict(x=b'foo'),
+        dict(x=b'bar'),
+        dict(x=b'bar'),
+        dict(x=b'foo'),
+    ]
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'x': tf.io.FixedLenFeature([], tf.string)})
+    expected_data = [
+        dict(x=b'bar', x_encoded=[1], x_encoded_centered=[0.4]),
+        dict(x=b'bar', x_encoded=[1], x_encoded_centered=[0.4]),
+        dict(x=b'bar', x_encoded=[1], x_encoded_centered=[0.4]),
+        dict(x=b'foo', x_encoded=[0], x_encoded_centered=[-0.6]),
+        dict(x=b'foo', x_encoded=[0], x_encoded_centered=[-0.6]),
+    ]
+    expected_metadata = tft_unit.metadata_from_feature_spec({
+        'x': tf.io.FixedLenFeature([], tf.string),
+        'x_encoded': tf.io.FixedLenFeature([1], tf.int64),
+        'x_encoded_centered': tf.io.FixedLenFeature([1], tf.float32),
+    })
+    expected_vocab_file_contents = [(b'bar')]
+
+    def preprocessing_fn(inputs):
+      x_int = tft.compute_and_apply_vocabulary(
+          inputs['x'],
+          vocab_filename='my_vocab',
+          file_format=self._VocabFormat(),
+          frequency_threshold=3)
+
+      depth = tft.experimental.get_vocabulary_size_by_name('my_vocab')
+      x_encoded = tf.one_hot(
+          x_int, depth=tf.cast(depth, tf.int32), dtype=tf.int64)
+      # Add a second phase that depends on vocabulary size.
+      x_encoded_centered = (
+          tf.cast(x_encoded, dtype=tf.float32) - tft.mean(x_encoded))
+      return {
+          'x': inputs['x'],
+          'x_encoded': x_encoded,
+          'x_encoded_centered': x_encoded_centered
+      }
+
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_metadata,
+        expected_vocab_file_contents={'my_vocab': expected_vocab_file_contents})
+
+
 if __name__ == '__main__':
   tft_unit.main()

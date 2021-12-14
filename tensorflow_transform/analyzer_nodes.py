@@ -816,11 +816,14 @@ class VocabularyCount(
   by `tensorflow_transform.beam.analyzer_impls._VocabularyCountImpl`.
 
   The output of this operation is a singleton Integer.
+
+  Fields:
+    label: A unique label for this operation.
   """
   __slots__ = ()
 
-  def __new__(cls):
-    return super(VocabularyCount, cls).__new__(cls, label=_make_label(cls))
+  def __new__(cls, label):
+    return super().__new__(cls, label=_make_label(cls, label))
 
   @property
   def num_outputs(self):

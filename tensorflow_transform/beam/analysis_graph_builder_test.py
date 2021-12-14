@@ -155,18 +155,23 @@ node [shape=Mrecord];
 "TensorSource[x]" -> "VocabularyAccumulate[x]";
 "VocabularyMerge[x]" [label="{VocabularyMerge|vocab_ordering_type: 1|use_adjusted_mutual_info: False|min_diff_from_avg: None|label: VocabularyMerge[x]}"];
 "VocabularyAccumulate[x]" -> "VocabularyMerge[x]";
-"VocabularyCount[x]" [label="{VocabularyCount|label: VocabularyCount[x]}"];
-"VocabularyMerge[x]" -> "VocabularyCount[x]";
+"VocabularyCountUnfiltered[x]" [label="{VocabularyCount|label: VocabularyCountUnfiltered[x]}"];
+"VocabularyMerge[x]" -> "VocabularyCountUnfiltered[x]";
 "CreateTensorBinding[x#vocab_x_unpruned_vocab_size]" [label="{CreateTensorBinding|tensor_name: x/vocab_x_unpruned_vocab_size:0|dtype_enum: 9|is_asset_filepath: False|label: CreateTensorBinding[x#vocab_x_unpruned_vocab_size]}"];
-"VocabularyCount[x]" -> "CreateTensorBinding[x#vocab_x_unpruned_vocab_size]";
+"VocabularyCountUnfiltered[x]" -> "CreateTensorBinding[x#vocab_x_unpruned_vocab_size]";
 "VocabularyPrune[x]" [label="{VocabularyPrune|top_k: None|frequency_threshold: 0|informativeness_threshold: -inf|coverage_top_k: None|coverage_frequency_threshold: 0|coverage_informativeness_threshold: -inf|key_fn: None|filter_newline_characters: True|input_dtype: string|label: VocabularyPrune[x]}"];
 "VocabularyMerge[x]" -> "VocabularyPrune[x]";
+"VocabularyCountFiltered[x]" [label="{VocabularyCount|label: VocabularyCountFiltered[x]}"];
+"VocabularyPrune[x]" -> "VocabularyCountFiltered[x]";
+"CreateTensorBinding[x#vocab_x_pruned_vocab_size]" [label="{CreateTensorBinding|tensor_name: x/vocab_x_pruned_vocab_size:0|dtype_enum: 9|is_asset_filepath: False|label: CreateTensorBinding[x#vocab_x_pruned_vocab_size]}"];
+"VocabularyCountFiltered[x]" -> "CreateTensorBinding[x#vocab_x_pruned_vocab_size]";
 "VocabularyOrderAndWrite[x]" [label="{VocabularyOrderAndWrite|vocab_filename: vocab_x|store_frequency: False|input_dtype: string|label: VocabularyOrderAndWrite[x]|fingerprint_shuffle: False|file_format: text|input_is_sorted: False}"];
 "VocabularyPrune[x]" -> "VocabularyOrderAndWrite[x]";
 "CreateTensorBinding[x#Placeholder]" [label="{CreateTensorBinding|tensor_name: x/Placeholder:0|dtype_enum: 7|is_asset_filepath: True|label: CreateTensorBinding[x#Placeholder]}"];
 "VocabularyOrderAndWrite[x]" -> "CreateTensorBinding[x#Placeholder]";
 CreateSavedModel [label="{CreateSavedModel|table_initializers: 1|output_signature: OrderedDict([('x_integerized', \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\")])|label: CreateSavedModel}"];
 "CreateTensorBinding[x#vocab_x_unpruned_vocab_size]" -> CreateSavedModel;
+"CreateTensorBinding[x#vocab_x_pruned_vocab_size]" -> CreateSavedModel;
 "CreateTensorBinding[x#Placeholder]" -> CreateSavedModel;
 }
 """,
@@ -184,19 +189,24 @@ node [shape=Mrecord];
 "TensorSource[x]" -> "VocabularyAccumulate[x]";
 "VocabularyMerge[x]" [label="{VocabularyMerge|vocab_ordering_type: 1|use_adjusted_mutual_info: False|min_diff_from_avg: None|label: VocabularyMerge[x]}"];
 "VocabularyAccumulate[x]" -> "VocabularyMerge[x]";
-"VocabularyCount[x]" [label="{VocabularyCount|label: VocabularyCount[x]}"];
-"VocabularyMerge[x]" -> "VocabularyCount[x]";
+"VocabularyCountUnfiltered[x]" [label="{VocabularyCount|label: VocabularyCountUnfiltered[x]}"];
+"VocabularyMerge[x]" -> "VocabularyCountUnfiltered[x]";
 "CreateTensorBinding[x#temporary_analyzer_output#vocab_x_unpruned_vocab_size]" [label="{CreateTensorBinding|tensor_name: x/temporary_analyzer_output/vocab_x_unpruned_vocab_size:0|dtype_enum: 9|is_asset_filepath: False|label: CreateTensorBinding[x#temporary_analyzer_output#vocab_x_unpruned_vocab_size]}"];
-"VocabularyCount[x]" -> "CreateTensorBinding[x#temporary_analyzer_output#vocab_x_unpruned_vocab_size]";
+"VocabularyCountUnfiltered[x]" -> "CreateTensorBinding[x#temporary_analyzer_output#vocab_x_unpruned_vocab_size]";
 "VocabularyPrune[x]" [label="{VocabularyPrune|top_k: None|frequency_threshold: 0|informativeness_threshold: -inf|coverage_top_k: None|coverage_frequency_threshold: 0|coverage_informativeness_threshold: -inf|key_fn: None|filter_newline_characters: True|input_dtype: string|label: VocabularyPrune[x]}"];
 "VocabularyMerge[x]" -> "VocabularyPrune[x]";
+"VocabularyCountFiltered[x]" [label="{VocabularyCount|label: VocabularyCountFiltered[x]}"];
+"VocabularyPrune[x]" -> "VocabularyCountFiltered[x]";
+"CreateTensorBinding[x#temporary_analyzer_output_1#vocab_x_pruned_vocab_size]" [label="{CreateTensorBinding|tensor_name: x/temporary_analyzer_output_1/vocab_x_pruned_vocab_size:0|dtype_enum: 9|is_asset_filepath: False|label: CreateTensorBinding[x#temporary_analyzer_output_1#vocab_x_pruned_vocab_size]}"];
+"VocabularyCountFiltered[x]" -> "CreateTensorBinding[x#temporary_analyzer_output_1#vocab_x_pruned_vocab_size]";
 "VocabularyOrderAndWrite[x]" [label="{VocabularyOrderAndWrite|vocab_filename: vocab_x|store_frequency: False|input_dtype: string|label: VocabularyOrderAndWrite[x]|fingerprint_shuffle: False|file_format: text|input_is_sorted: False}"];
 "VocabularyPrune[x]" -> "VocabularyOrderAndWrite[x]";
-"CreateTensorBinding[x#temporary_analyzer_output_1#Const]" [label="{CreateTensorBinding|tensor_name: x/temporary_analyzer_output_1/Const:0|dtype_enum: 7|is_asset_filepath: True|label: CreateTensorBinding[x#temporary_analyzer_output_1#Const]}"];
-"VocabularyOrderAndWrite[x]" -> "CreateTensorBinding[x#temporary_analyzer_output_1#Const]";
+"CreateTensorBinding[x#temporary_analyzer_output_2#Const]" [label="{CreateTensorBinding|tensor_name: x/temporary_analyzer_output_2/Const:0|dtype_enum: 7|is_asset_filepath: True|label: CreateTensorBinding[x#temporary_analyzer_output_2#Const]}"];
+"VocabularyOrderAndWrite[x]" -> "CreateTensorBinding[x#temporary_analyzer_output_2#Const]";
 CreateSavedModel [label="{CreateSavedModel|table_initializers: 1|output_signature: OrderedDict([('x_integerized', \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\")])|label: CreateSavedModel}"];
 "CreateTensorBinding[x#temporary_analyzer_output#vocab_x_unpruned_vocab_size]" -> CreateSavedModel;
-"CreateTensorBinding[x#temporary_analyzer_output_1#Const]" -> CreateSavedModel;
+"CreateTensorBinding[x#temporary_analyzer_output_1#vocab_x_pruned_vocab_size]" -> CreateSavedModel;
+"CreateTensorBinding[x#temporary_analyzer_output_2#Const]" -> CreateSavedModel;
 }
 """)
 

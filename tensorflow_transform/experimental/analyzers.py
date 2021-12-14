@@ -332,7 +332,9 @@ def _approximate_vocabulary_analyzer_nodes(
     raise ValueError(
         'Vocabulary file_format "tfrecord_gzip" requires TF version >= 2.4')
 
-  analyzers.register_vocab(vocab_filename, vocabulary_key, file_format)
+  # TODO(b/208879020): Add vocabulary size annotation for this analyzer.
+  analyzers.register_vocab(
+      vocab_filename, vocabulary_key=vocabulary_key, file_format=file_format)
   combiner = VocabularyCombiner(top_k)
 
   outputs_value_nodes = analyzers.apply_cacheable_combine_operation(

@@ -135,14 +135,22 @@ def transform_data(train_data_file, test_data_file, working_dir):
       outputs[key] = tft.scale_to_0_1(dense)
 
     # For all categorical columns except the label column, we generate a
-    # vocabulary but do not modify the feature.  This vocabulary is instead
-    # used in the trainer, by means of a feature column, to convert the feature
-    # from a string to an integer id.
+    # vocabulary, and convert the string feature to a one-hot encoding.
     for key in CATEGORICAL_FEATURE_KEYS:
-      outputs[key] = tft.compute_and_apply_vocabulary(
+      integerized = tft.compute_and_apply_vocabulary(
           tf.strings.strip(inputs[key]),
           num_oov_buckets=NUM_OOV_BUCKETS,
           vocab_filename=key)
+      depth = (
+          tft.experimental.get_vocabulary_size_by_name(key) + NUM_OOV_BUCKETS)
+      one_hot_encoded = tf.one_hot(
+          integerized,
+          depth=tf.cast(depth, tf.int32),
+          on_value=1.0,
+          off_value=0.0)
+      # This output is now one-hot encoded. If saving transformed data to disk,
+      # this can incur significant memory cost.
+      outputs[key] = tf.reshape(one_hot_encoded, [-1, depth])
 
     # For the label column we provide the mapping from string to index.
     table_keys = ['>50K', '<=50K']

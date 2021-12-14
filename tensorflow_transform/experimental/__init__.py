@@ -14,3 +14,4 @@
 """Module level imports for tensorflow_transform.experimental."""
 
 from tensorflow_transform.experimental.analyzers import *
+from tensorflow_transform.experimental.annotators import *

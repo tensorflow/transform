@@ -1660,21 +1660,25 @@ class _VocabOrderingType:
 
 
 def register_vocab(sanitized_filename: str,
+                   vocabulary_size: Optional[tf.Tensor] = None,
                    vocabulary_key: Optional[str] = None,
                    file_format: common_types
                    .VocabularyFileFormatType = DEFAULT_VOCABULARY_FILE_FORMAT):
-  """Register the specificed vocab within the asset map.
+  """Registers the specificed vocabulary within the asset map.
 
   Args:
-    sanitized_filename: The santized filename of the vocab.
-    vocabulary_key: The key of the vocab to use.
-    file_format: The format of the vocab file (text or tfrecord_gzip).
+    sanitized_filename: The santized filename of the vocabulary.
+    vocabulary_size: The size of the vocabulary.
+    vocabulary_key: The key of the vocabulary to use.
+    file_format: The format of the vocabulary file (text or tfrecord_gzip).
   """
   if vocabulary_key is None:
     vocabulary_key = sanitized_filename
   filename = ('{}.tfrecord.gz'.format(sanitized_filename)
               if file_format == 'tfrecord_gzip' else sanitized_filename)
   annotators.annotate_asset(vocabulary_key, filename)
+  if vocabulary_size is not None:
+    annotators.annotate_vocab_size(vocabulary_key, vocabulary_size)
 
 
 # TODO(KesterTong): Once multiple outputs are supported, return indices too.
@@ -1977,7 +1981,6 @@ def _vocabulary_analyzer_nodes(
     raise ValueError(
         'Vocabulary file_format "tfrecord_gzip" requires TF version >= 2.4')
 
-  register_vocab(vocab_filename, vocabulary_key, file_format)
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       analyzer_inputs)
 
@@ -2022,17 +2025,32 @@ def _vocabulary_analyzer_nodes(
       # LINT.ThenChange(beam/analyzer_impls.py:top_k_impl)
   )
 
-  total_vocab_size_node = nodes.apply_operation(analyzer_nodes.VocabularyCount,
-                                                merge_output_value_node)
+  scope = tf.compat.v1.get_default_graph().get_name_scope()
+  unfiltered_vocab_size_node = nodes.apply_operation(
+      analyzer_nodes.VocabularyCount,
+      merge_output_value_node,
+      label=f'VocabularyCountUnfiltered[{scope}]')
+  filtered_vocab_size_node = nodes.apply_operation(
+      analyzer_nodes.VocabularyCount,
+      filtered_value_node,
+      label=f'VocabularyCountFiltered[{scope}]')
   _maybe_annotate_vocab_metadata(
       vocab_filename,
       analyzer_nodes.bind_future_as_tensor(
-          total_vocab_size_node,
+          unfiltered_vocab_size_node,
           analyzer_nodes.TensorInfo(tf.int64, [], None),
-          name='{}_unpruned_vocab_size'.format(vocab_filename)))
+          name=f'{vocab_filename}_unpruned_vocab_size'))
 
-  vocab_filename_tensor = analyzer_nodes.wrap_as_tensor(vocab_filename_node)
-  return vocab_filename_tensor
+  vocabulary_size = analyzer_nodes.bind_future_as_tensor(
+      filtered_vocab_size_node,
+      analyzer_nodes.TensorInfo(tf.int64, [], None),
+      name=f'{vocab_filename}_pruned_vocab_size')
+  register_vocab(
+      vocab_filename,
+      vocabulary_size=vocabulary_size,
+      vocabulary_key=vocabulary_key,
+      file_format=file_format)
+  return analyzer_nodes.wrap_as_tensor(vocab_filename_node)
 
 
 def calculate_recommended_min_diff_from_avg(dataset_size: int) -> int:

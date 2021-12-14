@@ -4,6 +4,10 @@
 
 ## Major Features and Improvements
 
+*   Introduced `tft.experimental.get_vocabulary_size_by_name` that can retrieve
+    the size of a vocabulary computed using `tft.vocabulary` within the
+    `preprocessing_fn`.
+
 ## Bug Fixes and Other Changes
 
 ## Breaking Changes

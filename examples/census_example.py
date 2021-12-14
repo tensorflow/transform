@@ -103,24 +103,12 @@ def get_feature_columns(tf_transform_output):
   Returns:
     A list of FeatureColumns.
   """
+  feature_spec = tf_transform_output.transformed_feature_spec()
   # Wrap scalars as real valued columns.
-  real_valued_columns = [
-      tf.feature_column.numeric_column(key, shape=())
-      for key in common.NUMERIC_FEATURE_KEYS
+  return [
+      tf.feature_column.numeric_column(key, shape=feature_spec[key].shape)
+      for key in (common.NUMERIC_FEATURE_KEYS + common.CATEGORICAL_FEATURE_KEYS)
   ]
-
-  # Wrap categorical columns.
-  one_hot_columns = [
-      tf.feature_column.indicator_column(  # pylint: disable=g-complex-comprehension
-          tf.feature_column.categorical_column_with_identity(
-              key=key,
-              num_buckets=(common.NUM_OOV_BUCKETS +
-                           tf_transform_output.vocabulary_size_by_name(
-                               vocab_filename=key))))
-      for key in common.CATEGORICAL_FEATURE_KEYS
-  ]
-
-  return real_valued_columns + one_hot_columns
 
 
 def train_and_evaluate(working_dir,

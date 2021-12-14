@@ -20,7 +20,7 @@ import pprint
 import tempfile
 
 from absl import logging
-import tensorflow.compat.v2 as tf
+import tensorflow as tf
 import tensorflow_transform as tft
 import census_example_common as common
 
@@ -88,6 +88,8 @@ def input_fn_raw(tf_transform_output, raw_examples_pattern, batch_size):
       if key not in common.RAW_DATA_FEATURE_SPEC:
         continue
       if isinstance(common.RAW_DATA_FEATURE_SPEC[key], tf.io.VarLenFeature):
+        # TODO(b/169666856): Remove conversion to sparse once ragged tensors are
+        # natively supported.
         raw_features[key] = tf.RaggedTensor.from_tensor(
             tf.expand_dims(val, -1)).to_sparse()
         continue
@@ -191,24 +193,14 @@ def train_and_evaluate(raw_train_eval_data_path_pattern,
       inputs[key] = tf.keras.layers.Input(
           shape=[None], name=key, dtype=spec.dtype, sparse=True)
     elif isinstance(spec, tf.io.FixedLenFeature):
+      # TODO(b/208879020): Move into schema such that spec.shape is [1] and not
+      # [] for scalars.
       inputs[key] = tf.keras.layers.Input(
-          shape=spec.shape, name=key, dtype=spec.dtype)
+          shape=spec.shape or [1], name=key, dtype=spec.dtype)
     else:
       raise ValueError('Spec type is not supported: ', key, spec)
 
-  encoded_inputs = {}
-  for key in inputs:
-    feature = tf.expand_dims(inputs[key], -1)
-    if key in common.CATEGORICAL_FEATURE_KEYS:
-      num_buckets = tf_transform_output.num_buckets_for_transformed_feature(key)
-      encoding_layer = (
-          tf.keras.layers.experimental.preprocessing.CategoryEncoding(
-              max_tokens=num_buckets, output_mode='binary', sparse=False))
-      encoded_inputs[key] = encoding_layer(feature)
-    else:
-      encoded_inputs[key] = feature
-
-  stacked_inputs = tf.concat(tf.nest.flatten(encoded_inputs), axis=1)
+  stacked_inputs = tf.concat(tf.nest.flatten(inputs), axis=1)
   output = tf.keras.layers.Dense(100, activation='relu')(stacked_inputs)
   output = tf.keras.layers.Dense(70, activation='relu')(output)
   output = tf.keras.layers.Dense(50, activation='relu')(output)

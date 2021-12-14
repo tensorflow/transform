@@ -36,6 +36,7 @@ _ASSET_KEY_COLLECTION = 'tft_asset_key_collection'
 _ASSET_FILENAME_COLLECTION = 'tft_asset_filename_collection'
 # Thread-Hostile
 _OBJECT_TRACKER = None
+VOCABULARY_SIZE_BY_NAME_COLLECTION = 'tft_vocabulary_size_by_name_collection'
 
 
 class ObjectTracker:
@@ -231,3 +232,9 @@ def annotate_asset(asset_key: str, asset_filename: str):
   """
   tf.compat.v1.add_to_collection(_ASSET_KEY_COLLECTION, asset_key)
   tf.compat.v1.add_to_collection(_ASSET_FILENAME_COLLECTION, asset_filename)
+
+
+def annotate_vocab_size(vocab_filename: str, vocab_size: tf.Tensor):
+  """Adds annotation to retrieve the vocabulary size for `vocab_filename`."""
+  tf.compat.v1.add_to_collection(VOCABULARY_SIZE_BY_NAME_COLLECTION,
+                                 (vocab_filename, vocab_size))
