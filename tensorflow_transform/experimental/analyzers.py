@@ -335,10 +335,9 @@ def _approximate_vocabulary_analyzer_nodes(
   # TODO(b/208879020): Add vocabulary size annotation for this analyzer.
   analyzers.register_vocab(
       vocab_filename, vocabulary_key=vocabulary_key, file_format=file_format)
-  combiner = VocabularyCombiner(top_k)
 
   outputs_value_nodes = analyzers.apply_cacheable_combine_operation(
-      combiner, *analyzer_inputs)
+      _VocabularyCombiner(top_k), *analyzer_inputs)
 
   flattened_outputs_value_node = nodes.apply_operation(
       analyzer_nodes.FlattenLists, *outputs_value_nodes)
@@ -367,7 +366,7 @@ class _MisraGriesSketchCoder(analyzer_nodes.CacheCoder):
     return sketches.MisraGriesSketch.Deserialize(encoded_accumulator)
 
 
-class VocabularyCombiner(analyzer_nodes.Combiner):
+class _VocabularyCombiner(analyzer_nodes.Combiner):
   """Approximately computes unique values on the PCollection."""
 
   def __init__(self, top_k: int):
