@@ -42,6 +42,9 @@ from tensorflow_transform import tf_utils
 from tensorflow_transform.beam import common
 from tensorflow_transform.beam import experimental
 
+# TODO(b/199789764): Enable beam type checks (and remove this) after the
+# violations are fixed.
+_ENABLE_BEAM_TYPE_CHECKS = False
 
 _VocabOrderingType = analyzers._VocabOrderingType  # pylint: disable=protected-access
 _VocabTokenType = Union[bytes, int]
@@ -284,6 +287,10 @@ class _VocabularyAccumulateImpl(beam.PTransform):
       flatten_map_fn = _flatten_value_to_list
       combine_transform = beam.combiners.Count.PerElement()
 
+    if not _ENABLE_BEAM_TYPE_CHECKS:
+      combine_transform = combine_transform.with_input_types(Any)
+      combine_transform = combine_transform.with_output_types(Any)
+
     result = (
         pcoll
         | 'FlattenTokensAndMaybeWeightsLabels' >> beam.FlatMap(flatten_map_fn)
@@ -344,6 +351,9 @@ class _VocabularyMergeImpl(beam.PTransform):
       combine_transform = beam.CombinePerKey(sum)
 
     pcoll, = inputs
+    if not _ENABLE_BEAM_TYPE_CHECKS:
+      combine_transform = combine_transform.with_input_types(Any)
+      combine_transform = combine_transform.with_output_types(Any)
 
     return (pcoll
             | 'MergeCountPerToken' >> combine_transform
