@@ -7,6 +7,8 @@
 *   Introduced `tft.experimental.get_vocabulary_size_by_name` that can retrieve
     the size of a vocabulary computed using `tft.vocabulary` within the
     `preprocessing_fn`.
+*   `tft.experimental.ptransform_analyzer` now supports analyzer cache using the
+    newly added `tft.experimental.CacheablePTransformAnalyzer` container.
 
 ## Bug Fixes and Other Changes
 

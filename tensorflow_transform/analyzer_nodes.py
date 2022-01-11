@@ -25,7 +25,7 @@ import abc
 import json
 import os
 import struct
-from typing import Optional, Type
+from typing import Any, Optional, Sequence, Type
 import uuid
 
 import numpy as np
@@ -947,27 +947,36 @@ class VocabularyOrderAndWrite(
 
 
 class PTransform(
-    tfx_namedtuple.namedtuple(
-        'PTransform', ['ptransform', 'output_tensor_info_list', 'label']),
-    AnalyzerDef):
+    tfx_namedtuple.namedtuple('PTransform', [
+        'ptransform', 'output_tensor_info_list', 'is_partitionable',
+        'cache_coder', 'label'
+    ]), AnalyzerDef):
   """(Experimental) OperationDef for PTransform anaylzer.
 
   This analyzer is implemented by
-  `tensorflow_transform.beam.analyzer_impls._ptransform_impl`.
+  `tensorflow_transform.beam.analyzer_impls._PTransformImpl`.
 
   Fields:
     ptransform: The `beam.PTransform` to be applied to the inputs.
     output_tensor_info_list: A list of `TensorInfo`s that defines the outputs of
         this `PTransform`.
+    is_partitionable: Whether or not this PTransform is partitionable.
+    cache_coder: (optional) A `CacheCoder` instance.
     label: A unique label for this operation.
   """
   __slots__ = ()
 
-  def __new__(cls, ptransform, output_tensor_info_list):
+  def __new__(cls,
+              ptransform: Any,
+              output_tensor_info_list: Sequence[TensorInfo],
+              is_partitionable: bool,
+              cache_coder: Optional[CacheCoder] = None):
     return super(PTransform, cls).__new__(
         cls,
         ptransform=ptransform,
         output_tensor_info_list=output_tensor_info_list,
+        is_partitionable=is_partitionable,
+        cache_coder=cache_coder,
         label=_make_label(cls))
 
   @property

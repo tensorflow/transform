@@ -177,10 +177,14 @@ class _OptimizeVisitor(nodes.Visitor):
   def _validate_operation_def(self, operation_def):
     if operation_def.cache_coder is not None:
       if not operation_def.is_partitionable:
-        raise ValueError('Non partitionable OperationDefs cannot be cacheable')
+        raise ValueError(
+            'Non partitionable OperationDefs cannot be cacheable: {}'.format(
+                operation_def.label))
     if operation_def.is_partitionable or operation_def.cache_coder is not None:
       if operation_def.num_outputs != 1:
-        raise ValueError('Cacheable OperationDefs must have exactly 1 output')
+        raise ValueError(
+            'Cacheable OperationDefs must have exactly 1 output: {}'.format(
+                operation_def.label))
 
   def _make_next_hashed_path(self, parent_hashed_paths, operation_def):
     # Making a copy of parent_hashed_paths.

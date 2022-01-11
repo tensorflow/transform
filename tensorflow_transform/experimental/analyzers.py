@@ -24,7 +24,7 @@ the graph as a `Analyzer` which is not a TensorFlow op, but a placeholder for
 the computation that takes place outside of TensorFlow.
 """
 
-from typing import Any, Collection, List, Optional, Tuple, Type, Iterable
+from typing import Any, Collection, List, Optional, Tuple, Union, Iterable
 
 import numpy as np
 import pyarrow as pa
@@ -37,18 +37,78 @@ from tensorflow_transform import nodes
 from tensorflow_transform import tf_utils
 from tfx_bsl import sketches
 
+# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
+# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
+# resolved.
+from tfx_bsl.types import tfx_namedtuple
+
+try:
+  import apache_beam as beam  # pylint: disable=g-import-not-at-top. # pytype: disable=import-error
+  _BeamPTransform = beam.PTransform
+except ModuleNotFoundError:
+  _BeamPTransform = Any
+
 _APPROXIMATE_VOCAB_FILENAME_PREFIX = 'approx_vocab_'
 _APPROXIMATE_VOCAB_FREQUENCY_FILENAME_PREFIX = 'approx_vocab_frequency_'
 
+__all__ = [
+    'PTransformAnalyzerCacheCoder',
+    'SimpleJsonPTransformAnalyzerCacheCoder',
+    'CacheablePTransformAnalyzer',
+    'ptransform_analyzer',
+    'approximate_vocabulary',
+]
 
-def _apply_analyzer(analyzer_def_cls: Type[analyzer_nodes.AnalyzerDef],
+PTransformAnalyzerCacheCoder = analyzer_nodes.CacheCoder
+SimpleJsonPTransformAnalyzerCacheCoder = analyzer_nodes.JsonNumpyCacheCoder
+
+
+# TODO(zoyahav): Add an example for using this API.
+class CacheablePTransformAnalyzer(
+    tfx_namedtuple.TypedNamedTuple(
+        'PTransformCachedAnalyzer',
+        [('make_accumulators_ptransform', _BeamPTransform),
+         ('merge_accumulators_ptransform', _BeamPTransform),
+         ('extract_output_ptransform', _BeamPTransform),
+         ('cache_coder', PTransformAnalyzerCacheCoder)])):
+  """A PTransformAnalyzer which enables analyzer cache.
+
+  WARNING: This should only be used if the analyzer can correctly be separated
+  into make_accumulators, merge_accumulators and extract_output stages.
+  1. make_accumulators_ptransform: this is a `beam.PTransform` which maps data
+     to a more compact mergeable representation (accumulator). Mergeable here
+     means that it is possible to combine multiple representations produced from
+     a partition of the dataset into a representation of the entire dataset.
+  1. merge_accumulators_ptransform: this is a `beam.PTransform` which operates
+     on a collection of accumulators, i.e. the results of both the
+     make_accumulators_ptransform and merge_accumulators_ptransform stages,
+     and produces a single reduced accumulator. This operation must be
+     associative and commutative in order to have reliably reproducible results.
+  1. extract_output: this is a `beam.PTransform` which operates on the result of
+     the merge_accumulators_ptransform stage, and produces the outputs of the
+     analyzer. These outputs must be consistent with the `output_dtypes` and
+     `output_shapes` provided to `ptransform_analyzer`.
+
+  This container also holds a `cache_coder` (`PTransformAnalyzerCacheCoder`)
+  which can encode outputs and decode the inputs of the
+  `merge_accumulators_ptransform` stage.
+  In many cases, `SimpleJsonPTransformAnalyzerCacheCoder` would be sufficient.
+
+  To ensure the correctness of this analyzer, the following must hold:
+  merge(make({D1, ..., Dn})) == merge({make(D1), ..., make(Dn)})
+  """
+  __slots__ = ()
+
+
+def _apply_analyzer(ptransform: Union[_BeamPTransform,
+                                      CacheablePTransformAnalyzer],
                     *tensor_inputs: common_types.TensorType,
                     **analyzer_def_kwargs: Any) -> Tuple[tf.Tensor, ...]:
   """Applies the analyzer over the whole dataset.
 
   Args:
-    analyzer_def_cls: A class inheriting from analyzer_nodes.AnalyzerDef that
-      should be applied.
+    ptransform: A class inheriting from analyzer_nodes.AnalyzerDef or
+      CacheablePTransformAnalyzer that should be applied.
     *tensor_inputs: A list of input `Tensor`s or `CompositeTensor`s.
     **analyzer_def_kwargs: KW arguments to use when constructing
       analyzer_def_cls.
@@ -58,17 +118,50 @@ def _apply_analyzer(analyzer_def_cls: Type[analyzer_nodes.AnalyzerDef],
   """
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       tensor_inputs)
-  output_value_nodes = nodes.apply_multi_output_operation(
-      analyzer_def_cls,
-      input_values_node,
-      **analyzer_def_kwargs)
+  if isinstance(ptransform, CacheablePTransformAnalyzer):
+    with tf.compat.v1.name_scope('make_accumulators'):
+      make_accumulators_value_node = nodes.apply_multi_output_operation(
+          analyzer_nodes.PTransform,
+          input_values_node,
+          ptransform=ptransform.make_accumulators_ptransform,
+          is_partitionable=True,
+          **analyzer_def_kwargs)
+    with tf.compat.v1.name_scope('local_merge_accumulators'):
+      cached_value_nodes = nodes.apply_multi_output_operation(
+          analyzer_nodes.PTransform,
+          *make_accumulators_value_node,
+          ptransform=ptransform.merge_accumulators_ptransform,
+          is_partitionable=True,
+          cache_coder=ptransform.cache_coder,
+          **analyzer_def_kwargs)
+    with tf.compat.v1.name_scope('global_merge_accumulators'):
+      merge_output_value_nodes = nodes.apply_multi_output_operation(
+          analyzer_nodes.PTransform,
+          *cached_value_nodes,
+          ptransform=ptransform.merge_accumulators_ptransform,
+          is_partitionable=False,
+          **analyzer_def_kwargs)
+    with tf.compat.v1.name_scope('extract_output'):
+      output_value_nodes = nodes.apply_multi_output_operation(
+          analyzer_nodes.PTransform,
+          *merge_output_value_nodes,
+          ptransform=ptransform.extract_output_ptransform,
+          is_partitionable=False,
+          **analyzer_def_kwargs)
+  else:
+    output_value_nodes = nodes.apply_multi_output_operation(
+        analyzer_nodes.PTransform,
+        input_values_node,
+        ptransform=ptransform,
+        is_partitionable=False,
+        **analyzer_def_kwargs)
   return tuple(map(analyzer_nodes.wrap_as_tensor, output_value_nodes))
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def ptransform_analyzer(
     inputs: Collection[tf.Tensor],
-    ptransform: Any,
+    ptransform: Union[_BeamPTransform, CacheablePTransformAnalyzer],
     output_dtypes: Collection[tf.dtypes.DType],
     output_shapes: Collection[List[int]],
     output_asset_default_values: Optional[Collection[Optional[bytes]]] = None,
@@ -85,17 +178,18 @@ def ptransform_analyzer(
   Example:
 
   >>> class MeanPerKey(beam.PTransform):
-  ...   def expand(self, pcoll: beam.PCollection[Tuple[np.ndarray, np.ndarray]]):
+  ...   def expand(self, pcoll: beam.PCollection[Tuple[np.ndarray, np.ndarray]]) -> Tuple[beam.PCollection[np.ndarray], beam.PCollection[np.ndarray]]:
   ...     def extract_output(key_value_pairs):
   ...       keys, values = zip(*key_value_pairs)
   ...       return [beam.TaggedOutput('keys', keys),
   ...               beam.TaggedOutput('values', values)]
-  ...     return (pcoll
-  ...             | 'ZipAndFlatten' >> beam.FlatMap(lambda batches: list(zip(*batches)))
-  ...             | 'MeanPerKey' >> beam.CombinePerKey(beam.combiners.MeanCombineFn())
-  ...             | 'ToList' >> beam.combiners.ToList()
-  ...             | 'Extract' >> beam.FlatMap(extract_output).with_outputs(
-  ...                 'keys', 'values'))
+  ...     return tuple(
+  ...         pcoll
+  ...         | 'ZipAndFlatten' >> beam.FlatMap(lambda batches: list(zip(*batches)))
+  ...         | 'MeanPerKey' >> beam.CombinePerKey(beam.combiners.MeanCombineFn())
+  ...         | 'ToList' >> beam.combiners.ToList()
+  ...         | 'Extract' >> beam.FlatMap(extract_output).with_outputs(
+  ...             'keys', 'values'))
   >>> def preprocessing_fn(inputs):
   ...   outputs = tft.experimental.ptransform_analyzer(
   ...       inputs=[inputs['s'], inputs['x']],
@@ -131,6 +225,9 @@ def ptransform_analyzer(
       values of `output_dtypes` and `output_shapes`.
       It may inherit from `tft_beam.experimental.PTransformAnalyzer` if access
       to a temp base directory is needed.
+      Alternatively, it could be an instance of
+      `tft.experimental.CacheablePTransformAnalyzer` in order to enable cache
+      for this analyzer, when analyzer cache is enabled for this pipeline.
     output_dtypes: An ordered collection of TensorFlow dtypes of the output of
       the analyzer.
     output_shapes: An ordered collection of shapes of the output of the
@@ -169,10 +266,7 @@ def ptransform_analyzer(
             output_dtypes, output_shapes, output_asset_default_values)
     ]
     return _apply_analyzer(
-        analyzer_nodes.PTransform,
-        *inputs,
-        ptransform=ptransform,
-        output_tensor_info_list=output_tensor_infos)
+        ptransform, *inputs, output_tensor_info_list=output_tensor_infos)
 
 
 def _get_approx_vocab_filename(vocab_filename: Optional[str],

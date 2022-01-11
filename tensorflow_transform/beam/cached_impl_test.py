@@ -1096,6 +1096,96 @@ class CachedImplTest(tft_unit.TransformTestCase):
             'vocab with cache != vocab without cache for: {}'.format(
                 vocab_filename))
 
+  @tft_unit.named_parameters(_TF_VERSION_NAMED_PARAMETERS)
+  @mock_out_cache_hash
+  def test_cached_ptransform_analyzer(self, use_tf_compat_v1):
+
+    class _AnalyzerMakeAccumulators(beam.PTransform):
+
+      def expand(self, pcoll):
+        input_sum = pcoll | beam.FlatMap(
+            sum) | 'ReduceSum' >> beam.CombineGlobally(sum)
+        size = pcoll | beam.Map(
+            np.size) | 'ReduceCount' >> beam.CombineGlobally(sum)
+
+        return (pcoll.pipeline
+                | beam.Create([None])
+                | beam.Map(
+                    lambda _, a, b: (a, b),  # pyformat: disable
+                    beam.pvalue.AsSingleton(input_sum),
+                    beam.pvalue.AsSingleton(size)))
+
+    class _AnalyzerMergeAccumulators(beam.PTransform):
+
+      def expand(self, pcoll):
+
+        def merge(x):
+          zipped = list(zip(*x))
+          assert len(zipped) == 2, zipped
+          return sum(zipped[0]), sum(zipped[1])
+
+        return pcoll | beam.CombineGlobally(merge)
+
+    class _AnalyzerExtractOutput(beam.PTransform):
+
+      def expand(self, pcoll):
+
+        return pcoll | beam.Map(lambda p: p[0] / p[1])
+
+    analyzer = tft.experimental.CacheablePTransformAnalyzer(
+        make_accumulators_ptransform=_AnalyzerMakeAccumulators(),
+        merge_accumulators_ptransform=_AnalyzerMergeAccumulators(),
+        extract_output_ptransform=_AnalyzerExtractOutput(),
+        cache_coder=tft.experimental.SimpleJsonPTransformAnalyzerCacheCoder())
+
+    def preprocessing_fn(inputs):
+      y = tft.experimental.ptransform_analyzer([inputs['x']], analyzer,
+                                               [tf.int64], [[]])
+      return {'y': tf.zeros_like(inputs['x']) + y}
+
+    feature_spec = {'x': tf.io.FixedLenFeature([], tf.int64)}
+    span_0_key = analyzer_cache.DatasetKey('span-0')
+    input_data_dict = {span_0_key: [{'x': x} for x in range(7)]}
+    expected_cache_dict = {
+        span_0_key: {
+            _make_cache_key(b'PTransform[ptransform#local_merge_accumulators]'):
+                [b'[21, 7]'],
+        },
+    }
+    expected_transformed_data = [{'y': 3} for _ in range(7)]
+    transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_0')
+    first_run_result = self._run_pipeline(
+        feature_spec,
+        input_data_dict,
+        preprocessing_fn,
+        datasets_to_transform=[span_0_key],
+        expected_transform_data=expected_transformed_data,
+        expected_cache=expected_cache_dict,
+        transform_fn_output_dir=transform_fn_dir,
+        use_tf_compat_v1=use_tf_compat_v1)
+    p = first_run_result.pipeline
+    # Incremented for both analysis and transform (7 * 2).
+    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 14)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 1)
+
+    transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_1')
+    first_run_result = self._run_pipeline(
+        feature_spec,
+        input_data_dict,
+        preprocessing_fn,
+        should_read_cache=True,
+        datasets_to_transform=[span_0_key],
+        expected_transform_data=expected_transformed_data,
+        expected_cache={},
+        transform_fn_output_dir=transform_fn_dir,
+        use_tf_compat_v1=use_tf_compat_v1)
+    p = first_run_result.pipeline
+    # This time analysis is skipped due to cache, only transform dataset counts.
+    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 7)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 1)
+    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 0)
+
   @tft_unit.named_parameters(*_OPTIMIZE_TRAVERSAL_TEST_CASES)
   @mock_out_cache_hash
   def test_optimize_traversal(
