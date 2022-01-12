@@ -1099,6 +1099,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
   @tft_unit.named_parameters(_TF_VERSION_NAMED_PARAMETERS)
   @mock_out_cache_hash
   def test_cached_ptransform_analyzer(self, use_tf_compat_v1):
+    if not use_tf_compat_v1:
+      tft_unit.skip_if_not_tf2('Tensorflow 2.x required.')
 
     class _AnalyzerMakeAccumulators(beam.PTransform):
 
