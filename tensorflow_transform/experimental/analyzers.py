@@ -41,15 +41,7 @@ from tfx_bsl import sketches
 # `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
 # resolved.
 from tfx_bsl.types import tfx_namedtuple
-
-try:
-  import apache_beam as beam  # pylint: disable=g-import-not-at-top. # pytype: disable=import-error
-  _BeamPTransform = beam.PTransform
-except ModuleNotFoundError:
-  _BeamPTransform = Any
-
-_APPROXIMATE_VOCAB_FILENAME_PREFIX = 'approx_vocab_'
-_APPROXIMATE_VOCAB_FREQUENCY_FILENAME_PREFIX = 'approx_vocab_frequency_'
+from typing_extensions import Protocol
 
 __all__ = [
     'PTransformAnalyzerCacheCoder',
@@ -61,6 +53,20 @@ __all__ = [
 
 PTransformAnalyzerCacheCoder = analyzer_nodes.CacheCoder
 SimpleJsonPTransformAnalyzerCacheCoder = analyzer_nodes.JsonNumpyCacheCoder
+
+_APPROXIMATE_VOCAB_FILENAME_PREFIX = 'approx_vocab_'
+_APPROXIMATE_VOCAB_FREQUENCY_FILENAME_PREFIX = 'approx_vocab_frequency_'
+
+
+class _BeamPTransform(Protocol):
+  """Pytype for `beam.PTransform` without depending on beam in this module.
+  """
+
+  def expand(self, pcol: Any) -> Any:
+    ...
+
+  def default_label(self) -> str:
+    ...
 
 
 # TODO(zoyahav): Add an example for using this API.
