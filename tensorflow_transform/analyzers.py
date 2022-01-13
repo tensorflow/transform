@@ -2030,24 +2030,25 @@ def _vocabulary_analyzer_nodes(
       analyzer_nodes.VocabularyCount,
       merge_output_value_node,
       label=f'VocabularyCountUnfiltered[{scope}]')
+  unfiltered_vocab_size = analyzer_nodes.bind_future_as_tensor(
+      unfiltered_vocab_size_node,
+      analyzer_nodes.TensorInfo(tf.int64, [], None),
+      name=f'{vocab_filename}_unpruned_vocab_size')
   filtered_vocab_size_node = nodes.apply_operation(
       analyzer_nodes.VocabularyCount,
       filtered_value_node,
       label=f'VocabularyCountFiltered[{scope}]')
-  _maybe_annotate_vocab_metadata(
-      vocab_filename,
-      analyzer_nodes.bind_future_as_tensor(
-          unfiltered_vocab_size_node,
-          analyzer_nodes.TensorInfo(tf.int64, [], None),
-          name=f'{vocab_filename}_unpruned_vocab_size'))
-
-  vocabulary_size = analyzer_nodes.bind_future_as_tensor(
+  filtered_vocab_size = analyzer_nodes.bind_future_as_tensor(
       filtered_vocab_size_node,
       analyzer_nodes.TensorInfo(tf.int64, [], None),
       name=f'{vocab_filename}_pruned_vocab_size')
+
+  _maybe_annotate_vocab_metadata(vocab_filename, unfiltered_vocab_size,
+                                 filtered_vocab_size)
+
   register_vocab(
       vocab_filename,
-      vocabulary_size=vocabulary_size,
+      vocabulary_size=filtered_vocab_size,
       vocabulary_key=vocabulary_key,
       file_format=file_format)
   return analyzer_nodes.wrap_as_tensor(vocab_filename_node)
@@ -2607,15 +2608,19 @@ def pca(x: tf.Tensor,
     return result
 
 
-def _maybe_annotate_vocab_metadata(vocab_filename, unfiltered_vocabulary_size):
+def _maybe_annotate_vocab_metadata(vocab_filename: str,
+                                   unfiltered_vocabulary_size: tf.Tensor,
+                                   filtered_vocabulary_size: tf.Tensor):
   """Annotates a bucketized tensor with the boundaries that were applied.
 
   Creates a deferred annotation for the specified tensor.
 
   Args:
     vocab_filename: The name of the vocabulary.
-    unfiltered_vocabulary_size: A tf.int32 tensor containing the unfiltered
+    unfiltered_vocabulary_size: A tf.int64 tensor containing the unfiltered
       vocab size.
+    filtered_vocabulary_size: A tf.int64 tensor containing the filtered vocab
+      size.
   """
   if not common.IS_ANNOTATIONS_PB_AVAILABLE:
     return
@@ -2623,6 +2628,7 @@ def _maybe_annotate_vocab_metadata(vocab_filename, unfiltered_vocabulary_size):
   from tensorflow_transform import annotations_pb2  # pylint: disable=g-import-not-at-top
   message_type = annotations_pb2.VocabularyMetadata.DESCRIPTOR.full_name
   unfiltered_vocabulary_size = tf.expand_dims(unfiltered_vocabulary_size, 0)
+  filtered_vocabulary_size = tf.expand_dims(filtered_vocabulary_size, 0)
   file_name = tf.convert_to_tensor([vocab_filename])
   descriptor_source = descriptor_pb2.FileDescriptorSet()
   annotations_pb2.VocabularyMetadata.DESCRIPTOR.file.CopyToProto(
@@ -2631,6 +2637,7 @@ def _maybe_annotate_vocab_metadata(vocab_filename, unfiltered_vocabulary_size):
   message_proto = tf_utils._encode_proto(  # pylint: disable=protected-access
       {
           'unfiltered_vocabulary_size': unfiltered_vocabulary_size,
+          'filtered_vocabulary_size': filtered_vocabulary_size,
           'file_name': file_name,
       }, message_type, descriptor_source=descriptor_source_str)
   assert message_proto.shape == [1]

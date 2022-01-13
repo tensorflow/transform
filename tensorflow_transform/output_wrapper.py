@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Mapping, Optional
 
 import numpy as np
 import tensorflow as tf
+from tensorflow_transform import common
 from tensorflow_transform import common_types
 from tensorflow_transform import graph_tools
 from tensorflow_transform.analyzers import sanitized_vocab_filename
@@ -174,8 +175,32 @@ class TFTransformOutput:
       raise ValueError('Found too many vocabulary files: {}'.format(files))
     return files[0]
 
+  def _vocabulary_size_from_annotations(self,
+                                        vocab_filename: str) -> Optional[int]:
+    """If vocabulary size is present in annotations return it, else None."""
+    if not common.IS_ANNOTATIONS_PB_AVAILABLE:
+      return None
+
+    from tensorflow_transform import annotations_pb2  # pylint: disable=g-import-not-at-top
+    schema = self.transformed_metadata.schema
+    for annotation in schema.annotation.extra_metadata:
+      message = annotations_pb2.VocabularyMetadata()
+      annotation.Unpack(message)
+      # Check message.filtered_vocabulary_size is not 0 for backwards
+      # compatibility.
+      if (message.file_name == vocab_filename and
+          message.filtered_vocabulary_size != 0):
+        return message.filtered_vocabulary_size
+
+    return None
+
   def vocabulary_size_by_name(self, vocab_filename: str) -> int:
     """Like vocabulary_file_by_name, but returns the size of vocabulary."""
+    vocab_size_from_annotations = self._vocabulary_size_from_annotations(
+        vocab_filename)
+    if vocab_size_from_annotations is not None:
+      return vocab_size_from_annotations
+
     vocab_path = self.vocabulary_file_by_name(vocab_filename)
     if not vocab_path:
       raise ValueError(

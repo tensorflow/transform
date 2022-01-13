@@ -14,4 +14,6 @@ message VocabularyMetadata {
   // The original size of the vocabulary, prior to any filtering (e.g.
   // filtering to top_k).
   optional int64 unfiltered_vocabulary_size = 2;
+  // The filtered size of the vocabulary. (e.g. after filtering to top_k).
+  optional int64 filtered_vocabulary_size = 3;
 }

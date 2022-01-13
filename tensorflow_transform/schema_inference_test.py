@@ -198,9 +198,11 @@ class SchemaInferenceTest(test_case.TransformTestCase):
 
     def preprocessing_fn(_):
       analyzers._maybe_annotate_vocab_metadata('file1',
-                                               tf.constant(100, dtype=tf.int64))
+                                               tf.constant(100, dtype=tf.int64),
+                                               tf.constant(75, dtype=tf.int64))
       analyzers._maybe_annotate_vocab_metadata('file2',
-                                               tf.constant(200, dtype=tf.int64))
+                                               tf.constant(200, dtype=tf.int64),
+                                               tf.constant(175, dtype=tf.int64))
       return {
           'foo': tf.convert_to_tensor([0, 1, 2, 3], dtype=tf.int64),
       }
@@ -208,12 +210,15 @@ class SchemaInferenceTest(test_case.TransformTestCase):
     schema = self._get_schema(
         preprocessing_fn, use_compat_v1, create_session=True)
     self.assertLen(schema.annotation.extra_metadata, 2)
-    sizes = {}
+    unfiltered_sizes = {}
+    filtered_sizes = {}
     for annotation in schema.annotation.extra_metadata:
       message = annotations_pb2.VocabularyMetadata()
       annotation.Unpack(message)
-      sizes[message.file_name] = message.unfiltered_vocabulary_size
-    self.assertDictEqual(sizes, {'file1': 100, 'file2': 200})
+      unfiltered_sizes[message.file_name] = message.unfiltered_vocabulary_size
+      filtered_sizes[message.file_name] = message.filtered_vocabulary_size
+    self.assertDictEqual(unfiltered_sizes, {'file1': 100, 'file2': 200})
+    self.assertDictEqual(filtered_sizes, {'file1': 75, 'file2': 175})
 
   @unittest.skipIf(not common.IS_ANNOTATIONS_PB_AVAILABLE,
                      'Schema annotations are not available')
