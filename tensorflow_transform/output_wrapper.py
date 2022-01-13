@@ -88,8 +88,7 @@ class TFTransformOutput:
     """A DatasetMetadata."""
     if self._transformed_metadata is None:
       self._transformed_metadata = metadata_io.read_metadata(
-          os.path.join(self._transform_output_dir,
-                       self.TRANSFORMED_METADATA_DIR))
+          self._transformed_metadata_dir)
     return self._transformed_metadata
 
   @property
@@ -107,6 +106,11 @@ class TFTransformOutput:
       self._exported_as_v1_value = saved_transform_io.exported_as_v1(
           self.transform_savedmodel_dir)
     return self._exported_as_v1_value
+
+  @property
+  def _transformed_metadata_dir(self) -> str:
+    return os.path.join(self._transform_output_dir,
+                        self.TRANSFORMED_METADATA_DIR)
 
   def transformed_feature_spec(self) -> Dict[str, common_types.FeatureSpecType]:
     """Returns a feature_spec for the transformed features.
@@ -150,8 +154,7 @@ class TFTransformOutput:
     Args:
       vocab_filename: The vocabulary name to lookup.
     """
-    mapping_path = os.path.join(self._transform_output_dir,
-                                self.TRANSFORMED_METADATA_DIR, self.ASSET_MAP)
+    mapping_path = os.path.join(self._transformed_metadata_dir, self.ASSET_MAP)
 
     mapping = {}
     if tf.io.gfile.exists(mapping_path):
@@ -181,8 +184,12 @@ class TFTransformOutput:
     if not common.IS_ANNOTATIONS_PB_AVAILABLE:
       return None
 
+    try:
+      schema = self.transformed_metadata.schema
+    except IOError:
+      return None
+
     from tensorflow_transform import annotations_pb2  # pylint: disable=g-import-not-at-top
-    schema = self.transformed_metadata.schema
     for annotation in schema.annotation.extra_metadata:
       message = annotations_pb2.VocabularyMetadata()
       annotation.Unpack(message)
