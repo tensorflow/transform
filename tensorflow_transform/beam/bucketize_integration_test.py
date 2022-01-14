@@ -95,24 +95,21 @@ def _construct_test_bucketization_parameters():
   return ([x + (dtype,) for x in args_without_dtype for dtype in dtypes] +
           args_with_dtype)
 
+# Per-key buckets for:
+# input_data = [1, 2, ..., 100],
+# key = ['a' if val <50 else 'b'],
+_SIMPLE_PER_KEY_BUCKETS = {'a': [17, 33], 'b': [66, 83]}
 
-def _compute_simple_per_key_bucket(val, key):
-  # Computes per-key bucket for input_data = [1, 2, ..., 100],
-  # key = ['a' if val <50 else 'b'].
-  if key == 'a':
-    if val < 17:
-      return 0
-    elif val < 33:
-      return 1
-    else:
-      return 2
+# Same as above, but with weights = [0 if val in range(25, 75) else 1]
+_WEIGHTED_PER_KEY_0_RANGE = range(25, 75)
+_WEIGHTED_PER_KEY_BUCKETS = {'a': [9, 17], 'b': [83, 91]}
+
+
+def _compute_simple_per_key_bucket(val, key, weighted=False):
+  if weighted:
+    return np.digitize(val, _WEIGHTED_PER_KEY_BUCKETS[key])
   else:
-    if val < 66:
-      return 0
-    elif val < 83:
-      return 1
-    else:
-      return 2
+    return np.digitize(val, _SIMPLE_PER_KEY_BUCKETS[key])
 
 
 _BUCKETIZE_COMPOSITE_INPUT_TEST_CASES = [
@@ -190,6 +187,30 @@ _BUCKETIZE_PER_KEY_TEST_CASES = [
                 'x_bucketized':
                     schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
             })),
+    dict(
+        testcase_name='dense_weighted',
+        input_data=[{
+            'x': x,
+            'key': 'a' if x < 50 else 'b',
+            'weights': 0 if x in _WEIGHTED_PER_KEY_0_RANGE else 1,
+        } for x in range(1, 100)],
+        input_metadata=tft_unit.metadata_from_feature_spec({
+            'x': tf.io.FixedLenFeature([], tf.float32),
+            'key': tf.io.FixedLenFeature([], tf.string),
+            'weights': tf.io.FixedLenFeature([], tf.float32),
+        }),
+        expected_data=[{
+            'x_bucketized':
+                _compute_simple_per_key_bucket(
+                    x, 'a' if x < 50 else 'b', weighted=True)
+        } for x in range(1, 100)],
+        expected_metadata=tft_unit.metadata_from_feature_spec(
+            {
+                'x_bucketized': tf.io.FixedLenFeature([], tf.int64),
+            }, {
+                'x_bucketized':
+                    schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
+            })),
 ]
 
 if common_types.is_ragged_feature_available():
@@ -213,7 +234,7 @@ if common_types.is_ragged_feature_available():
               'x_bucketized$ragged_values': [(x - 1) // 3, (9 - x) // 3],
               'x_bucketized$row_lengths_1': [0, x % 3, 2 - x % 3],
           } for x in range(1, 10)]))
-  _BUCKETIZE_PER_KEY_TEST_CASES.append(
+  _BUCKETIZE_PER_KEY_TEST_CASES.extend([
       dict(
           testcase_name='ragged',
           input_data=[{
@@ -258,7 +279,70 @@ if common_types.is_ragged_feature_available():
               {
                   'x_bucketized':
                       schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
-              })))
+              })),
+      dict(
+          testcase_name='ragged_weighted',
+          input_data=[{
+              'val': [x, x],
+              'row_lengths': [2 - (x % 3), x % 3],
+              'key_val': ['a', 'a'] if x < 50 else ['b', 'b'],
+              'key_row_lengths': [
+                  2 - (x % 3),
+                  x % 3,
+              ],
+              'weights_val':
+                  ([0, 0] if x in _WEIGHTED_PER_KEY_0_RANGE else [1, 1]),
+              'weights_row_lengths': [
+                  2 - (x % 3),
+                  x % 3,
+              ],
+          } for x in range(1, 100)],
+          input_metadata=tft_unit.metadata_from_feature_spec({
+              'x':
+                  tf.io.RaggedFeature(
+                      tf.int64,
+                      value_key='val',
+                      partitions=[
+                          tf.io.RaggedFeature.RowLengths('row_lengths')  # pytype: disable=attribute-error
+                      ]),
+              'key':
+                  tf.io.RaggedFeature(
+                      tf.string,
+                      value_key='key_val',
+                      partitions=[
+                          tf.io.RaggedFeature.RowLengths('key_row_lengths')  # pytype: disable=attribute-error
+                      ]),
+              'weights':
+                  tf.io.RaggedFeature(
+                      tf.int64,
+                      value_key='weights_val',
+                      partitions=[
+                          tf.io.RaggedFeature.RowLengths('weights_row_lengths')  # pytype: disable=attribute-error
+                      ]),
+          }),
+          expected_data=[{
+              'x_bucketized$ragged_values': [
+                  _compute_simple_per_key_bucket(
+                      x, 'a' if x < 50 else 'b', weighted=True),
+              ] * 2,
+              'x_bucketized$row_lengths_1': [2 - (x % 3), x % 3],
+          } for x in range(1, 100)],
+          expected_metadata=tft_unit.metadata_from_feature_spec(
+              {
+                  'x_bucketized':
+                      tf.io.RaggedFeature(
+                          tf.int64,
+                          value_key='x_bucketized$ragged_values',
+                          partitions=[
+                              tf.io.RaggedFeature.RowLengths(  # pytype: disable=attribute-error
+                                  'x_bucketized$row_lengths_1')
+                          ]),
+              },
+              {
+                  'x_bucketized':
+                      schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
+              })),
+  ])
 
 
 class BucketizeIntegrationTest(tft_unit.TransformTestCase):
@@ -633,8 +717,13 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
                           expected_metadata):
 
     def preprocessing_fn(inputs):
+      weights = inputs.get('weights', None)
       x_bucketized = tft.bucketize_per_key(
-          inputs['x'], inputs['key'], num_buckets=3, epsilon=0.00001)
+          inputs['x'],
+          inputs['key'],
+          num_buckets=3,
+          epsilon=0.00001,
+          weights=weights)
       return {'x_bucketized': x_bucketized}
 
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,

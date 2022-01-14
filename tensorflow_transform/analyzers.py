@@ -2257,6 +2257,7 @@ def _quantiles_per_key(
     key: tf.Tensor,
     num_buckets: int,
     epsilon: float,
+    weights: Optional[tf.Tensor] = None,
     name: Optional[str] = None
 ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor, int]:
   """Like quantiles but per-key.
@@ -2270,6 +2271,7 @@ def _quantiles_per_key(
       value of `key`.
     num_buckets: See `quantiles`.
     epsilon: See `quantiles`.
+    weights: See `quantiles`.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -2302,9 +2304,11 @@ def _quantiles_per_key(
         num_buckets,
         epsilon,
         bucket_dtype.as_numpy_dtype,
+        has_weights=weights is not None,
         output_shape=(num_buckets - 1,))
 
-    input_values_node = analyzer_nodes.get_input_tensors_value_nodes((key, x))
+    input_values_node = analyzer_nodes.get_input_tensors_value_nodes((
+        key, x) if weights is None else (key, x, weights))
 
     accumulate_outputs_value_nodes = nodes.apply_multi_output_operation(
         analyzer_nodes.CacheableCombinePerKeyAccumulate,

@@ -1774,6 +1774,7 @@ def bucketize_per_key(
     key: common_types.ConsistentTensorType,
     num_buckets: int,
     epsilon: Optional[float] = None,
+    weights: Optional[common_types.ConsistentTensorType] = None,
     name: Optional[str] = None) -> common_types.ConsistentTensorType:
   """Returns a bucketized column, with a bucket index assigned to each input.
 
@@ -1788,6 +1789,10 @@ def bucketize_per_key(
     num_buckets: Values in the input `x` are divided into approximately
       equal-sized buckets, where the number of buckets is num_buckets.
     epsilon: (Optional) see `bucketize`.
+    weights: (Optional) A Tensor or `CompositeTensor` with the same shape as `x`
+      and dtype tf.float32. Used as weights for quantiles calculation. If `x` is
+      a `CompositeTensor`, `weights` must exactly match `x` in everything except
+      values.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1814,8 +1819,11 @@ def bucketize_per_key(
     (key_vocab, bucket_boundaries, scale_factor_per_key, shift_per_key,
      actual_num_buckets) = (
          analyzers._quantiles_per_key(  # pylint: disable=protected-access
-             _get_values_if_composite(x), _get_values_if_composite(key),
-             num_buckets, epsilon))
+             _get_values_if_composite(x),
+             _get_values_if_composite(key),
+             num_buckets,
+             epsilon,
+             weights=_get_values_if_composite(weights)))
     return _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries,
                                     scale_factor_per_key, shift_per_key,
                                     actual_num_buckets)

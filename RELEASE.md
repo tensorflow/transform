@@ -9,6 +9,7 @@
     `preprocessing_fn`.
 *   `tft.experimental.ptransform_analyzer` now supports analyzer cache using the
     newly added `tft.experimental.CacheablePTransformAnalyzer` container.
+*   `tft.bucketize_per_key` now supports weights.
 
 ## Bug Fixes and Other Changes
 
