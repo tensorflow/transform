@@ -415,7 +415,7 @@ def _ragged_tensor_representation_as_feature_spec(
   spec = tensor_representation_util.CreateTfExampleParserConfig(
       tensor_representation, value_feature.type)
   domain = _get_domain(value_feature, string_domains)
-  return spec, domain
+  return spec, domain  # pytype: disable=bad-return-type
 
 
 def _sparse_feature_as_feature_spec(feature, feature_by_name, string_domains):
