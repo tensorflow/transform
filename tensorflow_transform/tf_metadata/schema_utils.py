@@ -13,6 +13,7 @@
 # limitations under the License.
 """Utilities for using the tf.Metadata Schema within TensorFlow."""
 
+import typing
 from typing import Dict, List, Mapping, Optional, Tuple
 
 import tensorflow as tf
@@ -415,7 +416,7 @@ def _ragged_tensor_representation_as_feature_spec(
   spec = tensor_representation_util.CreateTfExampleParserConfig(
       tensor_representation, value_feature.type)
   domain = _get_domain(value_feature, string_domains)
-  return spec, domain  # pytype: disable=bad-return-type
+  return typing.cast(common_types.RaggedFeature, spec), domain
 
 
 def _sparse_feature_as_feature_spec(feature, feature_by_name, string_domains):
