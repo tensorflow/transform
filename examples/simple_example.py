@@ -22,41 +22,51 @@ import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import schema_utils
 
+_RAW_DATA_METADATA = dataset_metadata.DatasetMetadata(
+    schema_utils.schema_from_feature_spec({
+        's': tf.io.FixedLenFeature([], tf.string),
+        'y': tf.io.FixedLenFeature([], tf.float32),
+        'x': tf.io.FixedLenFeature([], tf.float32),
+    }))
+
+_RAW_DATA = [{
+    'x': 1,
+    'y': 1,
+    's': 'hello'
+}, {
+    'x': 2,
+    'y': 2,
+    's': 'world'
+}, {
+    'x': 3,
+    'y': 3,
+    's': 'hello'
+}]
+
+
+def _preprocessing_fn(inputs):
+  """Preprocess input columns into transformed columns."""
+  x = inputs['x']
+  y = inputs['y']
+  s = inputs['s']
+  x_centered = x - tft.mean(x)
+  y_normalized = tft.scale_to_0_1(y)
+  s_integerized = tft.compute_and_apply_vocabulary(s)
+  x_centered_times_y_normalized = (x_centered * y_normalized)
+  return {
+      'x_centered': x_centered,
+      'y_normalized': y_normalized,
+      'x_centered_times_y_normalized': x_centered_times_y_normalized,
+      's_integerized': s_integerized
+  }
+
 
 def main():
-  def preprocessing_fn(inputs):
-    """Preprocess input columns into transformed columns."""
-    x = inputs['x']
-    y = inputs['y']
-    s = inputs['s']
-    x_centered = x - tft.mean(x)
-    y_normalized = tft.scale_to_0_1(y)
-    s_integerized = tft.compute_and_apply_vocabulary(s)
-    x_centered_times_y_normalized = (x_centered * y_normalized)
-    return {
-        'x_centered': x_centered,
-        'y_normalized': y_normalized,
-        'x_centered_times_y_normalized': x_centered_times_y_normalized,
-        's_integerized': s_integerized
-    }
-
-  raw_data = [
-      {'x': 1, 'y': 1, 's': 'hello'},
-      {'x': 2, 'y': 2, 's': 'world'},
-      {'x': 3, 'y': 3, 's': 'hello'}
-  ]
-
-  raw_data_metadata = dataset_metadata.DatasetMetadata(
-      schema_utils.schema_from_feature_spec({
-          's': tf.io.FixedLenFeature([], tf.string),
-          'y': tf.io.FixedLenFeature([], tf.float32),
-          'x': tf.io.FixedLenFeature([], tf.float32),
-      }))
 
   with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
     transformed_dataset, transform_fn = (  # pylint: disable=unused-variable
-        (raw_data, raw_data_metadata) | tft_beam.AnalyzeAndTransformDataset(
-            preprocessing_fn))
+        (_RAW_DATA, _RAW_DATA_METADATA)
+        | tft_beam.AnalyzeAndTransformDataset(_preprocessing_fn))
 
   transformed_data, transformed_metadata = transformed_dataset  # pylint: disable=unused-variable
 

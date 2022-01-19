@@ -14,10 +14,42 @@
 """Tests for simple_example."""
 
 import tensorflow as tf
+from tensorflow_transform.beam import tft_unit
 import simple_example
 
 
-class SimpleExampleTest(tf.test.TestCase):
+_EXPECTED_TRANSFORMED_OUTPUT = [
+    {
+        'x_centered': 1.0,
+        'y_normalized': 1.0,
+        'x_centered_times_y_normalized': 1.0,
+        's_integerized': 0,
+    },
+    {
+        'x_centered': 0.0,
+        'y_normalized': 0.5,
+        'x_centered_times_y_normalized': 0.0,
+        's_integerized': 1,
+    },
+    {
+        'x_centered': -1.0,
+        'y_normalized': 0.0,
+        'x_centered_times_y_normalized': -0.0,
+        's_integerized': 0,
+    },
+]
+
+
+class SimpleExampleTest(tft_unit.TransformTestCase):
+
+  def test_preprocessing_fn(self):
+    self.assertAnalyzeAndTransformResults(simple_example._RAW_DATA,
+                                          simple_example._RAW_DATA_METADATA,
+                                          simple_example._preprocessing_fn,
+                                          _EXPECTED_TRANSFORMED_OUTPUT)
+
+
+class SimpleMainTest(tf.test.TestCase):
 
   def testMainDoesNotCrash(self):
     simple_example.main()
