@@ -1099,14 +1099,16 @@ def apply_vocabulary(
   if (file_format == 'tfrecord_gzip' and
       not tf_utils.is_vocabulary_tfrecord_supported()):
     raise ValueError(
-        'Vocabulary file_format "tfrecord_gzip" requires TF version >= 2.4')
+        'Vocabulary file_format "tfrecord_gzip" not yet supported for '
+        f'{tf.version.VERSION}.')
   with tf.compat.v1.name_scope(name, 'apply_vocab'):
     if x.dtype != tf.string and not x.dtype.is_integer:
       raise ValueError('expected tf.string or tf.int[8|16|32|64] but got %r' %
                        x.dtype)
 
     if lookup_fn:
-      result, table_size = lookup_fn(x, deferred_vocab_filename_tensor)
+      result, table_size = tf_utils.lookup_table(
+          lookup_fn, deferred_vocab_filename_tensor, x)
     else:
       if (deferred_vocab_filename_tensor is None or
           (isinstance(deferred_vocab_filename_tensor,

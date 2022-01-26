@@ -17,6 +17,7 @@ import os
 
 import numpy as np
 import tensorflow as tf
+from tensorflow_transform import annotators
 from tensorflow_transform import tf_utils
 from tensorflow_transform import test_case
 
@@ -2107,8 +2108,11 @@ class VocabTFUtilsTest(test_case.TransformTestCase):
       table = tf.lookup.StaticHashTable(initializer, -1)
       return table.lookup(x)
 
-    self.assertEqual(lookup('5'), 5)
-    self.assertEqual(lookup('1000'), -1)
+    # make_tfrecord_vocabulary_lookup_initializer calls annotators.track_object
+    # which expects to be invoked inside an object_tracker_scope.
+    with annotators.object_tracker_scope(annotators.ObjectTracker()):
+      self.assertEqual(lookup('5'), 5)
+      self.assertEqual(lookup('1000'), -1)
 
   @test_case.named_parameters(
       test_case.cross_with_function_handlers(_CONSTRUCT_TABLE_PARAMETERS))

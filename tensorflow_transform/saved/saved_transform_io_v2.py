@@ -512,7 +512,6 @@ def trace_and_update_module(
     created_variables.append(var)
     return var
 
-  # TODO(b/164921571): Handle generic Trackable objects.
   # Trace `tf_function` to gather any resources in it using the
   # resource_tracker. These are then assigned to `module.resources` and tracked
   # before exporting to SavedModel.

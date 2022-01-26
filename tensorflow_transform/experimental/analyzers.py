@@ -164,6 +164,7 @@ def _apply_analyzer(ptransform: Union[_BeamPTransform,
   return tuple(map(analyzer_nodes.wrap_as_tensor, output_value_nodes))
 
 
+# TODO(b/164921571): Support output assets in tfrecord format.
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def ptransform_analyzer(
     inputs: Collection[tf.Tensor],
@@ -263,6 +264,10 @@ def ptransform_analyzer(
           'output_dtypes ({}) and output_asset_default_values ({}) had '
           'different lengths'.format(output_dtypes,
                                      output_asset_default_values))
+    output_asset_default_values = [
+        analyzer_nodes.TemporaryAssetInfo(value, 'text')
+        for value in output_asset_default_values
+    ]
   else:
     output_asset_default_values = [None] * len(output_dtypes)
   with tf.compat.v1.name_scope(name, 'ptransform'):

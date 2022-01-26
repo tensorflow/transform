@@ -65,31 +65,38 @@ def _make_label(cls: Type[nodes.OperationDef],
   return sanitize_label(label)
 
 
+TemporaryAssetInfo = tfx_namedtuple.namedtuple('TemporaryAssetInfo',
+                                               ['value', 'file_format'])
+
+
 class TensorInfo(
     tfx_namedtuple.namedtuple('TensorInfo',
-                              ['dtype', 'shape', 'temporary_asset_value'])):
+                              ['dtype', 'shape', 'temporary_asset_info'])):
   """A container for attributes of output tensors from analyzers.
 
   Fields:
     dtype: The TensorFlow dtype.
     shape: The shape of the tensor.
-    temporary_asset_value: A temporary value to write to an asset file while
-      tracing the TF graph.
+    temporary_asset_info: A named tuple containing information about the
+      temporary asset file to write out while tracing the TF graph.
   """
 
-  def __new__(cls, dtype, shape, temporary_asset_value):
+  def __new__(
+      cls: Type['TensorInfo'], dtype: tf.dtypes.DType,
+      shape: Sequence[Optional[int]],
+      temporary_asset_info: Optional[TemporaryAssetInfo]) -> 'TensorInfo':
     if not isinstance(dtype, tf.DType):
       raise TypeError('dtype must be a TensorFlow dtype, got {}'.format(dtype))
-    if temporary_asset_value is not None and not isinstance(
-        temporary_asset_value, bytes):
+    if temporary_asset_info is not None and not isinstance(
+        temporary_asset_info, TemporaryAssetInfo):
       raise TypeError(
-          'temporary_asset_value should be bytes or None, got {}'.format(
-              temporary_asset_value))
+          'temporary_asset_info should be an instance of TemporaryAssetInfo or '
+          f'None, got {temporary_asset_info}')
     return super(TensorInfo, cls).__new__(
         cls,
         dtype=dtype,
         shape=shape,
-        temporary_asset_value=temporary_asset_value)
+        temporary_asset_info=temporary_asset_info)
 
 
 class TensorSource(
@@ -134,7 +141,7 @@ def _bind_future_as_tensor_v1(future: nodes.ValueNode,
                               name: Optional[str] = None) -> tf.Tensor:
   """Bind a future value as a tensor to a TF1 graph."""
   result = tf.compat.v1.placeholder(tensor_info.dtype, tensor_info.shape, name)
-  is_asset_filepath = tensor_info.temporary_asset_value is not None
+  is_asset_filepath = tensor_info.temporary_asset_info is not None
   tf.compat.v1.add_to_collection(TENSOR_REPLACEMENTS,
                                  TensorSink(result, future, is_asset_filepath))
   return result
@@ -142,6 +149,28 @@ def _bind_future_as_tensor_v1(future: nodes.ValueNode,
 
 _TemporaryAnalyzerOutputWrapper = tfx_namedtuple.namedtuple(
     '_TemporaryAnalyzerOutputWrapper', ['eager_asset_path', 'graph_tensor'])
+
+
+def _write_to_temporary_asset_file(
+    temp_dir: str, temporary_asset_info: TemporaryAssetInfo) -> str:
+  """Returns path to temporary asset file created during tracing."""
+  # TODO(b/170111921): This temporary file should have a unique name to
+  # avoid namespace collisions between temporary files that contain data
+  # of different dtypes.
+  base_filename = uuid.uuid4().hex
+  if temporary_asset_info.file_format == 'text':
+    result = os.path.join(temp_dir, base_filename)
+    with tf.io.gfile.GFile(result, 'w') as f:
+      f.write(temporary_asset_info.value)
+  elif temporary_asset_info.file_format == 'tfrecord_gzip':
+    result = os.path.join(temp_dir, '{}.tfrecord.gz'.format(base_filename))
+    with tf.io.TFRecordWriter(result, 'GZIP') as f:
+      f.write(temporary_asset_info.value)
+  else:
+    raise ValueError(
+        'File format should be one of \'text\' or \'tfrecord_gzip\'. Received '
+        f'{temporary_asset_info.file_format}')
+  return result
 
 
 def _get_temporary_analyzer_output(
@@ -164,23 +193,19 @@ def _get_temporary_analyzer_output(
   """
   asset = None
   with tf.name_scope('temporary_analyzer_output'):
-    is_asset_filepath = tensor_info.temporary_asset_value is not None
+    temporary_asset_info = tensor_info.temporary_asset_info
+    is_asset_filepath = temporary_asset_info is not None
     if is_asset_filepath:
       # Placeholders cannot be used for assets, if this graph will be serialized
       # to a SavedModel, as they will be initialized with the init op. If a
       # `temp_dir` is provided, it is assumed that this graph will be
-      # serialized and a temporary asset file is written out . Else, a
+      # serialized and a temporary asset file is written out. Else, a
       # placeholder is returned.
-      # TODO(b/164921571) Support temporary files in tfrecord format.
       # TODO(b/149997088): Reduce number of temporary files written out.
       if temp_dir:
         with tf.init_scope():
-          # TODO(b/170111921): This temporary file should have a unique name to
-          # avoid namespace collisions between temporary files that contain data
-          # of different dtypes.
-          temporary_asset_filepath = os.path.join(temp_dir, uuid.uuid4().hex)
-          with tf.io.gfile.GFile(temporary_asset_filepath, 'w') as f:
-            f.write(tensor_info.temporary_asset_value)
+          temporary_asset_filepath = _write_to_temporary_asset_file(
+              temp_dir, temporary_asset_info)
           asset = tf.constant(temporary_asset_filepath)
         graph_tensor = tf.constant(
             temporary_asset_filepath,
@@ -237,7 +262,7 @@ def _bind_future_as_tensor_v2(
   temp_dir = TFGraphContext.get_or_create_temp_dir()
   temporary_analyzer_info = _get_temporary_analyzer_output(
       temp_dir, tensor_info, name)
-  is_asset_filepath = tensor_info.temporary_asset_value is not None
+  is_asset_filepath = tensor_info.temporary_asset_info is not None
 
   # TODO(b/149997088): Switch to using a counter instead of tensor names.
   # Check if an evaluated value exists for this analyzer node.
@@ -655,7 +680,7 @@ class CacheableCombinePerKeyFormatKeys(
   def output_tensor_infos(self):
     # Returns a key vocab and one output per combiner output.
     return [TensorInfo(tf.string, (None,), None)] + [
-        TensorInfo(info.dtype, (None,) + info.shape, info.temporary_asset_value)
+        TensorInfo(info.dtype, (None,) + info.shape, info.temporary_asset_info)
         for info in self.combiner.output_tensor_infos()
     ]
 
@@ -943,7 +968,10 @@ class VocabularyOrderAndWrite(
     if self.store_frequency:
       temporary_asset_value = b'1 %s' % temporary_asset_value
 
-    return [TensorInfo(tf.string, [], temporary_asset_value)]
+    return [
+        TensorInfo(tf.string, [],
+                   TemporaryAssetInfo(temporary_asset_value, self.file_format))
+    ]
 
 
 class PTransform(

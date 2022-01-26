@@ -17,6 +17,7 @@ import contextlib
 from typing import Callable, Optional, Tuple, Union
 
 import tensorflow as tf
+from tensorflow_transform import annotators
 from tensorflow_transform import common_types
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
 # `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
@@ -503,6 +504,8 @@ def reorder_histogram(bucket_vocab: tf.Tensor, counts: tf.Tensor,
 # TODO(b/62379925): Remove this once all supported TF versions have
 # tf.data.experimental.DatasetInitializer.
 def is_vocabulary_tfrecord_supported() -> bool:
+  if isinstance(ops.get_default_graph(), func_graph.FuncGraph):
+    return False
   return ((hasattr(tf.data.experimental, 'DatasetInitializer') or
            hasattr(tf.lookup.experimental, 'DatasetInitializer')) and
           tf.version.VERSION >= '2.4')
@@ -610,11 +613,26 @@ def make_tfrecord_vocabulary_lookup_initializer(filename_tensor,
                                                 return_indicator_as_value=False,
                                                 has_indicator=False):
   """Makes a lookup table initializer from a compressed tfrecord file."""
-  dataset = _make_tfrecord_vocabulary_dataset(filename_tensor, key_dtype,
-                                              value_dtype,
-                                              return_indicator_as_value,
-                                              has_indicator)
-  return _DatasetInitializerCompat(dataset)
+  graph = ops.get_default_graph()
+  with contextlib.ExitStack() as stack:
+    # TODO(b/165884902): Use tf.inside_function after dropping TF 2.3 support.
+    # If filename_tensor is a graph tensor (for e.g.,temporary analyzer output),
+    # the following operation cannot be lifted to init scope. Hence, check it is
+    # an eager tensor or a string constant.
+    if isinstance(graph, func_graph.FuncGraph) and isinstance(
+        filename_tensor, (ops.EagerTensor, str)):
+      # Lift the dataset creation out of graph construction to avoid
+      # repeated initialization in TF2.
+      stack.enter_context(tf.init_scope())
+
+    dataset = _make_tfrecord_vocabulary_dataset(filename_tensor, key_dtype,
+                                                value_dtype,
+                                                return_indicator_as_value,
+                                                has_indicator)
+    # TODO(b/165884902): Use tf.inside_function after dropping TF 2.3 support.
+    if isinstance(graph, func_graph.FuncGraph):
+      annotators.track_object(dataset, name=None)
+    return _DatasetInitializerCompat(dataset)
 
 
 def _split_vocabulary_entries(batched_vocab_lines):
@@ -1587,3 +1605,40 @@ def construct_and_lookup_table(construct_table_callable: Callable[
     table = construct_table_callable(asset_filepath)
     table_size = table.size()
   return _lookup_table(table, x, control_dependency), table_size
+
+
+def lookup_table(lookup_fn: Callable[[common_types.TensorType, tf.Tensor],
+                                     Tuple[tf.Tensor, tf.Tensor]],
+                 asset_filepath: _AssetFileType, x: common_types.TensorType):
+  """Takes a `lookup_fn` and invokes it on `x` and `asset_filepath`.
+
+  If an eager tensor is being tracked by `asset_filepath`, `lookup_fn` is
+  invoked on it instead.
+
+  Args:
+    lookup_fn: A Callable that should take a tensor and a deferred vocab
+      filename as an input and return a lookup `op` along with the table size.
+    asset_filepath: Path to an asset used to construct the table. Can be a
+      python string, a `tf.Tensor`, a `tf.Placeholder`.
+    x: A categorical `Tensor` or `SparseTensor` of type tf.string or
+      tf.int[8|16|32|64] to which the table lookup should be applied.
+
+  Returns:
+    A tuple of the result from looking x up and the table size.
+  """
+  # If table is lifted into an initialization scope, add a control dependency
+  # on the graph tensor used to track this analyzer in
+  # `analyzer_nodes.TENSOR_REPLACEMENTS`.
+  asset_filepath, control_dependency = (
+      _get_asset_analyzer_output_and_control_dependency(asset_filepath))
+  lookup_result, table_size = lookup_fn(x, asset_filepath)
+  with contextlib.ExitStack() as stack:
+    # tf.control_dependencies([tensor]) adds a dependency to tensor.op. Wrap the
+    # `lookup_result` in an identity op to ensure that walking the graph from
+    # it encounters the `control_dependency` tensor. The table size should not
+    # have the `control_dependency` tensor as its parent, hence it is returned
+    # as is.
+    if control_dependency is not None:
+      stack.enter_context(
+          tf.control_dependencies([tf.identity(control_dependency)]))
+    return tf.identity(lookup_result), table_size

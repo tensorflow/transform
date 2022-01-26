@@ -110,7 +110,7 @@ def _get_object(name: str) -> Optional[base.Trackable]:
 
 
 # Thread-Hostile
-def _track_object(trackable: base.Trackable, name: Optional[str]):
+def track_object(trackable: base.Trackable, name: Optional[str]):
   """Add `trackable` to the object trackers active in this scope."""
   global _OBJECT_TRACKER
   # The transform tf.function should always be traced
@@ -179,7 +179,7 @@ def make_and_track_object(trackable_factory_callable: Callable[[],
         raise ValueError(
             'Please pass a unique `name` to this API to ensure Keras objects '
             'are tracked correctly.')
-      _track_object(result, name)
+      track_object(result, name)
   return result
 
 

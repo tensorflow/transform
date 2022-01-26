@@ -1979,7 +1979,8 @@ def _vocabulary_analyzer_nodes(
   if (file_format == 'tfrecord_gzip' and
       not tf_utils.is_vocabulary_tfrecord_supported()):
     raise ValueError(
-        'Vocabulary file_format "tfrecord_gzip" requires TF version >= 2.4')
+        'Vocabulary file_format "tfrecord_gzip" not yet supported for '
+        f'{tf.version.VERSION}.')
 
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       analyzer_inputs)
