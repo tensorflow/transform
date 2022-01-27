@@ -349,7 +349,10 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
   def setUp(self):
     super().setUp()
     # Verify that the implementation we requested via the Flag is honoured.
-    assert api_implementation.Type() == flags.FLAGS.proto_implementation_type
+    assert api_implementation.Type() == flags.FLAGS.proto_implementation_type, (
+        'Expected proto implementation type '
+        f'"{flags.FLAGS.proto_implementation_type}", got: '
+        f'"{api_implementation.Type()}"')
 
   def assertSerializedProtosEqual(self, a, b):
     np.testing.assert_equal(_binary_to_example(a), _binary_to_example(b))
