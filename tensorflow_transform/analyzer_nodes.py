@@ -888,8 +888,7 @@ class VocabularyPrune(
     tfx_namedtuple.namedtuple('VocabularyPrune', [
         'top_k', 'frequency_threshold', 'informativeness_threshold',
         'coverage_top_k', 'coverage_frequency_threshold',
-        'coverage_informativeness_threshold', 'key_fn',
-        'filter_newline_characters', 'input_dtype', 'label'
+        'coverage_informativeness_threshold', 'key_fn', 'input_dtype', 'label'
     ]), nodes.OperationDef):
   """An operation that filters and orders a computed vocabulary.
 
@@ -908,8 +907,7 @@ class VocabularyPrune(
               coverage_top_k=None,
               coverage_frequency_threshold=0,
               coverage_informativeness_threshold=float('-inf'),
-              key_fn=None,
-              filter_newline_characters=True):
+              key_fn=None):
     return super(VocabularyPrune, cls).__new__(
         cls,
         top_k=top_k,
@@ -919,7 +917,6 @@ class VocabularyPrune(
         coverage_frequency_threshold=coverage_frequency_threshold,
         coverage_informativeness_threshold=coverage_informativeness_threshold,
         key_fn=key_fn,
-        filter_newline_characters=filter_newline_characters,
         input_dtype=input_dtype,
         label=_make_label(cls))
 

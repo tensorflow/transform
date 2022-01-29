@@ -6,6 +6,9 @@
 
 ## Bug Fixes and Other Changes
 
+*   Fixes an issue when `tft.experimental.approximate_vocabulary` with `text`
+    output format would not filter out tokens with newline characters.
+
 ## Breaking Changes
 
 ## Deprecations

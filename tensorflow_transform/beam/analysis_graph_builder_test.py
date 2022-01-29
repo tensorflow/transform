@@ -144,12 +144,12 @@ _WITH_TABLE_CASE = dict(
     expected_dot_graph_str=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/Reshape', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
+"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/boolean_mask/GatherV2', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
 "ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='FlattenedDataset')|label: ExtractInputForSavedModel[FlattenedDataset]}"];
 "ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
 "ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase0]";
-"TensorSource[x]" [label="{ExtractFromDict|keys: ('x/Reshape',)|label: TensorSource[x]|partitionable: True}"];
+"TensorSource[x]" [label="{ExtractFromDict|keys: ('x/boolean_mask/GatherV2',)|label: TensorSource[x]|partitionable: True}"];
 "ApplySavedModel[Phase0]" -> "TensorSource[x]";
 "VocabularyAccumulate[x]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|input_dtype: string|label: VocabularyAccumulate[x]|partitionable: True}"];
 "TensorSource[x]" -> "VocabularyAccumulate[x]";
@@ -159,7 +159,7 @@ node [shape=Mrecord];
 "VocabularyMerge[x]" -> "VocabularyCountUnfiltered[x]";
 "CreateTensorBinding[x#vocab_x_unpruned_vocab_size]" [label="{CreateTensorBinding|tensor_name: x/vocab_x_unpruned_vocab_size:0|dtype_enum: 9|is_asset_filepath: False|label: CreateTensorBinding[x#vocab_x_unpruned_vocab_size]}"];
 "VocabularyCountUnfiltered[x]" -> "CreateTensorBinding[x#vocab_x_unpruned_vocab_size]";
-"VocabularyPrune[x]" [label="{VocabularyPrune|top_k: None|frequency_threshold: 0|informativeness_threshold: -inf|coverage_top_k: None|coverage_frequency_threshold: 0|coverage_informativeness_threshold: -inf|key_fn: None|filter_newline_characters: True|input_dtype: string|label: VocabularyPrune[x]}"];
+"VocabularyPrune[x]" [label="{VocabularyPrune|top_k: None|frequency_threshold: 0|informativeness_threshold: -inf|coverage_top_k: None|coverage_frequency_threshold: 0|coverage_informativeness_threshold: -inf|key_fn: None|input_dtype: string|label: VocabularyPrune[x]}"];
 "VocabularyMerge[x]" -> "VocabularyPrune[x]";
 "VocabularyCountFiltered[x]" [label="{VocabularyCount|label: VocabularyCountFiltered[x]}"];
 "VocabularyPrune[x]" -> "VocabularyCountFiltered[x]";
@@ -178,12 +178,12 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 1|output_signatur
     expected_dot_graph_str_tf2=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/Reshape', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
+"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/boolean_mask/GatherV2', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
 "ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='FlattenedDataset')|label: ExtractInputForSavedModel[FlattenedDataset]}"];
 "ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
 "ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase0]";
-"TensorSource[x]" [label="{ExtractFromDict|keys: ('x/Reshape',)|label: TensorSource[x]|partitionable: True}"];
+"TensorSource[x]" [label="{ExtractFromDict|keys: ('x/boolean_mask/GatherV2',)|label: TensorSource[x]|partitionable: True}"];
 "ApplySavedModel[Phase0]" -> "TensorSource[x]";
 "VocabularyAccumulate[x]" [label="{VocabularyAccumulate|vocab_ordering_type: 1|input_dtype: string|label: VocabularyAccumulate[x]|partitionable: True}"];
 "TensorSource[x]" -> "VocabularyAccumulate[x]";
@@ -193,7 +193,7 @@ node [shape=Mrecord];
 "VocabularyMerge[x]" -> "VocabularyCountUnfiltered[x]";
 "CreateTensorBinding[x#temporary_analyzer_output#vocab_x_unpruned_vocab_size]" [label="{CreateTensorBinding|tensor_name: x/temporary_analyzer_output/vocab_x_unpruned_vocab_size:0|dtype_enum: 9|is_asset_filepath: False|label: CreateTensorBinding[x#temporary_analyzer_output#vocab_x_unpruned_vocab_size]}"];
 "VocabularyCountUnfiltered[x]" -> "CreateTensorBinding[x#temporary_analyzer_output#vocab_x_unpruned_vocab_size]";
-"VocabularyPrune[x]" [label="{VocabularyPrune|top_k: None|frequency_threshold: 0|informativeness_threshold: -inf|coverage_top_k: None|coverage_frequency_threshold: 0|coverage_informativeness_threshold: -inf|key_fn: None|filter_newline_characters: True|input_dtype: string|label: VocabularyPrune[x]}"];
+"VocabularyPrune[x]" [label="{VocabularyPrune|top_k: None|frequency_threshold: 0|informativeness_threshold: -inf|coverage_top_k: None|coverage_frequency_threshold: 0|coverage_informativeness_threshold: -inf|key_fn: None|input_dtype: string|label: VocabularyPrune[x]}"];
 "VocabularyMerge[x]" -> "VocabularyPrune[x]";
 "VocabularyCountFiltered[x]" [label="{VocabularyCount|label: VocabularyCountFiltered[x]}"];
 "VocabularyPrune[x]" -> "VocabularyCountFiltered[x]";

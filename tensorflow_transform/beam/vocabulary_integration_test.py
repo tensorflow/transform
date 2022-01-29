@@ -523,7 +523,8 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
               make_feature_spec=lambda:  # pylint: disable=g-long-lambda
               {'x': tf.io.FixedLenFeature([], tf.string)},
               top_k=2,
-              expected_vocab_file_contents=[(b'goodbye', 5), (b'aaaaa', 4)]),
+              make_expected_vocab_fn=(
+                  lambda _: [(b'goodbye', 5), (b'aaaaa', 4)])),
           dict(
               testcase_name='_int',
               input_data=[{
@@ -540,7 +541,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
               make_feature_spec=lambda:  # pylint: disable=g-long-lambda
               {'x': tf.io.FixedLenFeature([], tf.int64)},
               top_k=2,
-              expected_vocab_file_contents=[(b'1', 2), (b'2', 2)]),
+              make_expected_vocab_fn=lambda _: [(b'1', 2), (b'2', 2)]),
           dict(
               testcase_name='_weights',
               input_data=[
@@ -582,8 +583,8 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
                   'weights': tf.io.FixedLenFeature([], tf.float32)
               },
               top_k=2,
-              expected_vocab_file_contents=[(b'hello', 3.02),
-                                            (b'aaaaa', 1.423)]),
+              make_expected_vocab_fn=(
+                  lambda _: [(b'hello', 3.02), (b'aaaaa', 1.423)])),
           dict(
               testcase_name='_large_top_k',
               input_data=[{
@@ -614,9 +615,13 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
               make_feature_spec=lambda:  # pylint: disable=g-long-lambda
               {'x': tf.io.FixedLenFeature([], tf.string)},
               top_k=100,
-              expected_vocab_file_contents=[(b'goodbye', 4), (b'hello', 3),
-                                            (b' ', 2), (b'aaaaa', 2),
-                                            (b'', 1)]),
+              make_expected_vocab_fn=lambda file_format:  # pylint: disable=g-long-lambda
+              ([(b'goodbye', 4), (b'hello', 3), (b' ', 2),  # pylint: disable=g-long-ternary
+                (b'aaaaa', 2)] if file_format == 'text' else [(b'goodbye', 4),
+                                                              (b'hello', 3),
+                                                              (b' ', 2),
+                                                              (b'aaaaa', 2),
+                                                              (b'', 1)])),
           dict(
               testcase_name='_ragged',
               input_data=[
@@ -647,7 +652,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
                           ])
               },
               top_k=2,
-              expected_vocab_file_contents=[(b'hello', 5), (b' ', 3)]),
+              make_expected_vocab_fn=lambda _: [(b'hello', 5), (b' ', 3)]),
           dict(
               testcase_name='_sparse',
               input_data=[{
@@ -670,14 +675,37 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
                       ], 'x$sparse_values', tf.int64, [5, 5])
               },
               top_k=2,
-              expected_vocab_file_contents=[(b'2', 3), (b'4', 2)]),
+              make_expected_vocab_fn=lambda _: [(b'2', 3), (b'4', 2)]),
+          dict(
+              testcase_name='_newline_chars',
+              input_data=[{'x': b'aaaaa\n'},
+                          {'x': b'\n\n'},
+                          {'x': b''},
+                          {'x': b' '},
+                          {'x': b' '},
+                          {'x': b'aaaaa\n'},
+                          {'x': b'aaaaa\n'},
+                          {'x': b'aaaaa'},
+                          {'x': b'goo\rdbye'},
+                          {'x': b' '},
+                          {'x': b' '},
+                          {'x': b'aaaaa\n'}],
+              make_feature_spec=(
+                  lambda: {'x': tf.io.FixedLenFeature([], tf.string)}),
+              top_k=6,
+              make_expected_vocab_fn=(
+                  lambda file_format: [(b' ', 4), (b'aaaaa', 1)]  # pylint: disable=g-long-lambda,g-long-ternary
+                  if file_format == 'text' else [(b' ', 4), (b'aaaaa\n', 4),
+                                                 (b'', 1), (b'\n\n', 1),
+                                                 (b'aaaaa', 1),
+                                                 (b'goo\rdbye', 1)])),
       ],
       [
           dict(testcase_name='no_frequency', store_frequency=False),
           dict(testcase_name='with_frequency', store_frequency=True)
       ]))
   def testApproximateVocabulary(self, input_data, make_feature_spec, top_k,
-                                expected_vocab_file_contents, store_frequency):
+                                make_expected_vocab_fn, store_frequency):
     input_metadata = tft_unit.metadata_from_feature_spec(
         tft_unit.make_feature_spec_wrapper(make_feature_spec))
 
@@ -697,6 +725,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           file_format=self._VocabFormat())
       return inputs
 
+    expected_vocab_file_contents = make_expected_vocab_fn(self._VocabFormat())
     if not store_frequency:
       expected_vocab_file_contents = [
           token for token, _ in expected_vocab_file_contents

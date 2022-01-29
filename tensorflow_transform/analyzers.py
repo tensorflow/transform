@@ -86,6 +86,10 @@ VOCAB_FREQUENCY_FILENAME_PREFIX = 'vocab_frequency_'
 # `tft.experimental.approximate_vocabulary`.
 LARGE_VOCAB_TOP_K = 200_000
 
+# Matches empty strings and strings with \n or \r. This has to follow the re2
+# syntax (https://github.com/google/re2/wiki/Syntax).
+_EMPTY_STRING_OR_NEWLINE_CHARS_REGEX = r'(?s)^$|(.*[\n\r].*)'
+
 # For some input types, widen the output type of sum analyzer to avoid overflow.
 _SUM_OUTPUT_DTYPE_MAP = {
     tf.float16: tf.float32,
@@ -1884,6 +1888,7 @@ def vocabulary(
     analyzer_inputs = _get_vocabulary_analyzer_inputs(
         vocab_ordering_type=vocab_ordering_type,
         x=x,
+        file_format=file_format,
         labels=labels,
         weights=weights)
     return _vocabulary_analyzer_nodes(
@@ -1906,24 +1911,30 @@ def vocabulary(
         vocabulary_key=vocabulary_key)
 
 
-def _get_vocabulary_analyzer_inputs(vocab_ordering_type,
-                                    x,
-                                    labels=None,
-                                    weights=None):
+def _get_vocabulary_analyzer_inputs(
+    vocab_ordering_type: int,
+    x: common_types.TensorType,
+    file_format: common_types.VocabularyFileFormatType,
+    labels: Optional[tf.Tensor] = None,
+    weights: Optional[tf.Tensor] = None):
   """Helper for constructing analyzer inputs from tensors.
 
   Args:
     vocab_ordering_type: VocabOrderingType specifying how to select vocabulary.
     x: Tensor to compute vocabulary over.
+    file_format: The format of the resulting vocabulary file. Accepted formats
+      are 'tfrecord_gzip', 'text'. 'tfrecord_gzip' requires tensorflow>=2.4.
     labels: Optional tensor of integerized labels.
     weights: Optional tensor of weights.
+
   Returns:
     A list of batch-reduced tensors to feed to vocabulary analysis.
   """
+  filter_regex = get_vocab_newline_characters_regex(x.dtype, file_format)
   if vocab_ordering_type == _VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION:
     labels = tf.reshape(labels, [-1])
     reduced_batch = tf_utils.reduce_batch_weighted_cooccurrences(
-        x, labels, weights)
+        x, labels, weights, filter_regex=filter_regex)
     return [
         reduced_batch.unique_x, reduced_batch.summed_weights_per_x,
         reduced_batch.summed_positive_per_x_and_y, reduced_batch.counts_per_x
@@ -1931,28 +1942,33 @@ def _get_vocabulary_analyzer_inputs(vocab_ordering_type,
   elif vocab_ordering_type == _VocabOrderingType.MUTUAL_INFORMATION:
     labels = tf.reshape(labels, [-1])
     reduced_batch = tf_utils.reduce_batch_weighted_cooccurrences(
-        x, labels, weights)
+        x, labels, weights, filter_regex=filter_regex)
     return [
         reduced_batch.unique_x, reduced_batch.summed_positive_per_x_and_y,
         reduced_batch.counts_per_x
     ]
   elif vocab_ordering_type == _VocabOrderingType.WEIGHTED_FREQUENCY:
-    reduced_batch = tf_utils.reduce_batch_weighted_counts(x, weights)
+    reduced_batch = tf_utils.reduce_batch_weighted_counts(
+        x, weights, filter_regex=filter_regex)
     assert reduced_batch.summed_positive_per_x_and_y is None
     assert reduced_batch.counts_per_x is None
     return [reduced_batch.unique_x, reduced_batch.summed_weights_per_x]
   else:
-    reduced_batch = tf_utils.reduce_batch_weighted_counts(x)
+    reduced_batch = tf_utils.reduce_batch_weighted_counts(
+        x, filter_regex=filter_regex)
     assert reduced_batch.summed_weights_per_x is None
     assert reduced_batch.summed_positive_per_x_and_y is None
     assert reduced_batch.counts_per_x is None
     return [reduced_batch.unique_x]
 
 
-def _get_vocabulary_filter_newline_characters(
+def get_vocab_newline_characters_regex(
     input_dtype: tf.dtypes.DType,
-    file_format: common_types.VocabularyFileFormatType) -> bool:
-  return input_dtype == tf.string and file_format == 'text'
+    file_format: common_types.VocabularyFileFormatType) -> Optional[str]:
+  if input_dtype == tf.string and file_format == 'text':
+    return _EMPTY_STRING_OR_NEWLINE_CHARS_REGEX
+  else:
+    return None
 
 
 def _vocabulary_analyzer_nodes(
@@ -2008,8 +2024,6 @@ def _vocabulary_analyzer_nodes(
       top_k=top_k,
       frequency_threshold=frequency_threshold,
       informativeness_threshold=informativeness_threshold,
-      filter_newline_characters=_get_vocabulary_filter_newline_characters(
-          input_dtype, file_format),
       input_dtype=input_dtype)
 
   vocab_filename_node = nodes.apply_operation(

@@ -415,7 +415,7 @@ def approximate_vocabulary(
     vocabulary_key = vocab_filename
     vocab_filename = _get_approx_vocab_filename(vocab_filename, store_frequency)
     analyzer_inputs = _get_approximate_vocabulary_analyzer_inputs(
-        x=x, weights=weights)
+        x=x, file_format=file_format, weights=weights)
     return _approximate_vocabulary_analyzer_nodes(
         analyzer_inputs=analyzer_inputs,
         input_dtype=x.dtype.name,
@@ -515,19 +515,24 @@ class _VocabularyCombiner(analyzer_nodes.Combiner):
 
 def _get_approximate_vocabulary_analyzer_inputs(
     x: common_types.TensorType,
-    weights: Optional[common_types.TensorType] = None
+    file_format: common_types.VocabularyFileFormatType,
+    weights: Optional[common_types.TensorType] = None,
 ) -> Tuple[common_types.TensorType, common_types.TensorType]:
   """Helper for constructing approximate vocabulary inputs from tensors.
 
   Args:
     x: `Tensor` or `CompositeTensor` to compute vocabulary over.
+    file_format: The format of the resulting vocabulary file.
+      'tfrecord_gzip' requires tensorflow>=2.4.
     weights: Optional `Tensor` of weights.
 
   Returns:
     A list of batch-reduced `Tensor`s to feed to vocabulary analysis.
   """
+  filter_regex = analyzers.get_vocab_newline_characters_regex(
+      x.dtype, file_format)
   reduced_batch = tf_utils.reduce_batch_weighted_counts(
-      x, weights=weights, force=True)
+      x, weights=weights, force=True, filter_regex=filter_regex)
   assert reduced_batch.summed_positive_per_x_and_y is None
   if weights is None:
     assert reduced_batch.summed_weights_per_x is None

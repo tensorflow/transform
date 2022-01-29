@@ -91,10 +91,25 @@ def _get_ragged_batch_value_rowids(tensor: tf.RaggedTensor) -> tf.Tensor:
   return result
 
 
+def _make_regex_filter_fn(
+    x: tf.Tensor,
+    filter_regex: Optional[str]) -> Callable[[tf.Tensor], tf.Tensor]:
+  """Returns a filter function that applies `x`'s mask."""
+  if filter_regex is None:
+    return lambda values: values
+  else:
+    if x.dtype != tf.string:
+      raise ValueError('Regex filtering is only possible with string input, '
+                       f'got {x.dtype}')
+    filter_mask = tf.logical_not(tf.strings.regex_full_match(x, filter_regex))
+    return lambda values: tf.boolean_mask(values, filter_mask)
+
+
 def reduce_batch_weighted_counts(
     x: common_types.TensorType,
     weights: Optional[tf.Tensor] = None,
-    force: bool = False) -> ReducedBatchWeightedCounts:
+    force: bool = False,
+    filter_regex: Optional[str] = None) -> ReducedBatchWeightedCounts:
   """Performs batch-wise reduction to produce (possibly weighted) counts.
 
   Args:
@@ -102,6 +117,8 @@ def reduce_batch_weighted_counts(
     weights: (Optional) Input weights.
     force: If True, reduces input tensor without weights to unique elements and
       counts.
+    filter_regex: (Optional) Regex that matches tokens that have to be filtered
+      out. May only be specified if `x` has string dtype.
 
   Returns:
     a named tuple of...
@@ -114,6 +131,8 @@ def reduce_batch_weighted_counts(
   elif isinstance(x, tf.RaggedTensor):
     x = x.flat_values
   flat_x = tf.reshape(x, [-1])
+  filter_fn = _make_regex_filter_fn(flat_x, filter_regex)
+  flat_x = filter_fn(flat_x)
   if weights is None:
     if force:
       unique, _, counts = tf.unique_with_counts(flat_x)
@@ -123,7 +142,7 @@ def reduce_batch_weighted_counts(
       return ReducedBatchWeightedCounts(flat_x, None, None, None)
   # TODO(b/134075780): Revisit expected weights shape when input is composite.
   x, weights = assert_same_shape(x, weights)
-  weights = tf.reshape(weights, [-1])
+  weights = filter_fn(tf.reshape(weights, [-1]))
   unique_x_values, unique_idx, _ = tf.unique_with_counts(
       flat_x, out_idx=tf.int64)
   summed_weights_per_x = tf.math.unsorted_segment_sum(
@@ -136,7 +155,8 @@ def reduce_batch_weighted_cooccurrences(
     x_input: common_types.TensorType,
     y_input: tf.Tensor,
     weights_input: Optional[tf.Tensor] = None,
-    extend_with_sentinel_counts: bool = True) -> ReducedBatchWeightedCounts:
+    extend_with_sentinel_counts: bool = True,
+    filter_regex: Optional[str] = None) -> ReducedBatchWeightedCounts:
   """Performs batch-wise reduction to produce weighted co-occurrences.
 
   Computes the weighted co-occurrence of each feature value in x, for each value
@@ -152,6 +172,8 @@ def reduce_batch_weighted_cooccurrences(
     extend_with_sentinel_counts: If True, the reduced batch will be extended
       a sentinel value that accumlate the total distribution of y values. Should
       be True except when called recursively with the sentinel value as input.
+    filter_regex: (Optional) Regex that matches tokens that have to be filtered
+      out. Can only be specified if `x_input` has string dtype.
 
   Returns:
     a namedtuple of...
@@ -192,8 +214,10 @@ def reduce_batch_weighted_cooccurrences(
   y = _broadcast_to_x_shape(x, y)
   x, y = assert_same_shape(x, y)
   x = tf.reshape(x, [-1])
-  y = tf.reshape(y, [-1])
-  weights = tf.reshape(weights, [-1])
+  filter_fn = _make_regex_filter_fn(x, filter_regex)
+  x = filter_fn(x)
+  y = filter_fn(tf.reshape(y, [-1]))
+  weights = filter_fn(tf.reshape(weights, [-1]))
 
   unique_x_values, unique_idx, unique_count = tf.unique_with_counts(
       x, out_idx=tf.int64)
@@ -616,9 +640,9 @@ def make_tfrecord_vocabulary_lookup_initializer(filename_tensor,
   graph = ops.get_default_graph()
   with contextlib.ExitStack() as stack:
     # TODO(b/165884902): Use tf.inside_function after dropping TF 2.3 support.
-    # If filename_tensor is a graph tensor (for e.g.,temporary analyzer output),
-    # the following operation cannot be lifted to init scope. Hence, check it is
-    # an eager tensor or a string constant.
+    # If filename_tensor is a graph tensor (e.g. temporary analyzer output), the
+    # following operation cannot be lifted to init scope. Hence, check it is an
+    # eager tensor or a string constant.
     if isinstance(graph, func_graph.FuncGraph) and isinstance(
         filename_tensor, (ops.EagerTensor, str)):
       # Lift the dataset creation out of graph construction to avoid

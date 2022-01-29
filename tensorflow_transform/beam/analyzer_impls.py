@@ -375,7 +375,6 @@ class _VocabularyPruneImpl(beam.PTransform):
     self._coverage_informativeness_threshold = (
         operation.coverage_informativeness_threshold)
     self._key_fn = operation.key_fn
-    self._filter_newline_characters = operation.filter_newline_characters
     self._input_dtype = operation.input_dtype
 
   def expand(self, inputs):
@@ -395,16 +394,6 @@ class _VocabularyPruneImpl(beam.PTransform):
           'coverage_frequency_threshold for VocabularyImpl should be >= 0 or '
           'None, got {}.'.format(self._coverage_frequency_threshold))
     pcoll, = inputs
-
-    if self._filter_newline_characters:
-      # Filter empty strings or strings containing the \n or \r tokens since
-      # index_table_from_file doesn't allow empty rows.
-      def is_valid_string(kv):
-        _, string = kv  # Ignore counts.
-        return bool(string) and all(
-            char not in string for char in (b'\n', b'\r'))
-
-      pcoll |= 'KeepOnlyValidStrings' >> beam.Filter(is_valid_string)
 
     result = (
         pcoll

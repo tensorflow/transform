@@ -17,6 +17,7 @@ import os
 
 import numpy as np
 import tensorflow as tf
+from tensorflow_transform import analyzers
 from tensorflow_transform import annotators
 from tensorflow_transform import tf_utils
 from tensorflow_transform import test_case
@@ -174,14 +175,16 @@ class TFUtilsTest(test_case.TransformTestCase):
               x=['a', 'b', 'a'],
               x_spec=tf.TensorSpec(None, tf.string),
               weights=[1, 1, 2],
+              filter_regex=None,
               expected_unique_x=[b'a', b'b'],
               expected_summed_weights_per_x=[3, 1]),
           dict(
               testcase_name='rank2',
-              x=[['a', 'b', 'a'], ['b', 'a', 'b']],
+              x=[['a', 'b\n', 'a'], ['b\n', 'a', 'b\n']],
               x_spec=tf.TensorSpec(None, tf.string),
               weights=[[1, 2, 1], [1, 2, 2]],
-              expected_unique_x=[b'a', b'b'],
+              filter_regex=None,
+              expected_unique_x=[b'a', b'b\n'],
               expected_summed_weights_per_x=[4, 5]),
           dict(
               testcase_name='rank3',
@@ -189,6 +192,7 @@ class TFUtilsTest(test_case.TransformTestCase):
                  [['a', 'b', 'a'], ['b', 'a', 'b']]],
               x_spec=tf.TensorSpec(None, tf.string),
               weights=[[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]],
+              filter_regex=None,
               expected_unique_x=[b'a', b'b'],
               expected_summed_weights_per_x=[9, 7]),
           dict(
@@ -199,6 +203,7 @@ class TFUtilsTest(test_case.TransformTestCase):
                   dense_shape=[4, 2]),
               x_spec=tf.SparseTensorSpec([4, 2], tf.string),
               weights=[2, 3, 4],
+              filter_regex=None,
               expected_unique_x=[b'a', b'b'],
               expected_summed_weights_per_x=[5, 4]),
           dict(
@@ -210,10 +215,19 @@ class TFUtilsTest(test_case.TransformTestCase):
                   row_splits=np.array([0, 2])),
               x_spec=tf.RaggedTensorSpec([None, None, None], tf.string),
               weights=[2, 3, 4, 6],
+              filter_regex=None,
               expected_unique_x=[b'a', b'b'],
               expected_summed_weights_per_x=[8, 7]),
+          dict(
+              testcase_name='regex_filtering',
+              x=[['a\n', '', '\n\r'], ['\r', 'a', 'b']],
+              x_spec=tf.TensorSpec(None, tf.string),
+              weights=[[1, 2, 1], [1, 2, 2]],
+              filter_regex=analyzers._EMPTY_STRING_OR_NEWLINE_CHARS_REGEX,
+              expected_unique_x=[b'a', b'b'],
+              expected_summed_weights_per_x=[2, 2]),
       ]))
-  def test_reduce_batch_weighted_counts(self, x, x_spec, weights,
+  def test_reduce_batch_weighted_counts(self, x, x_spec, weights, filter_regex,
                                         expected_unique_x,
                                         expected_summed_weights_per_x,
                                         function_handler):
@@ -221,7 +235,8 @@ class TFUtilsTest(test_case.TransformTestCase):
     @function_handler(input_signature=input_signature)
     def _reduce_batch_weighted_counts(x, weights):
       (unique_x, summed_weights_per_x, summed_positive_per_x_and_y,
-       counts_per_x) = tf_utils.reduce_batch_weighted_counts(x, weights)
+       counts_per_x) = tf_utils.reduce_batch_weighted_counts(
+           x, weights, filter_regex=filter_regex)
       self.assertIsNone(summed_positive_per_x_and_y)
       self.assertIsNone(counts_per_x)
       return unique_x, summed_weights_per_x
@@ -238,59 +253,95 @@ class TFUtilsTest(test_case.TransformTestCase):
           dict(
               testcase_name='rank1',
               x=['a', 'b', 'a'],
-              force=False,
-              expected_result=([b'a', b'b', b'a'], None)),
+              filter_regex=None,
+              expected_result=[b'a', b'b', b'a'],
+          ),
           dict(
               testcase_name='rank2',
-              x=[['a', 'b', 'a'], ['b', 'a', 'b']],
-              force=False,
-              expected_result=([b'a', b'b', b'a', b'b', b'a', b'b'], None)),
+              x=[['a', 'b\r', 'a'], ['b\r', 'a', 'b\r']],
+              filter_regex=None,
+              expected_result=[b'a', b'b\r', b'a', b'b\r', b'a', b'b\r'],
+          ),
           dict(
               testcase_name='rank3',
               x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
                  [['a', 'b', 'a'], ['b', 'a', 'b']]],
-              force=False,
-              expected_result=([
+              filter_regex=None,
+              expected_result=[
                   b'a', b'b', b'a', b'b', b'a', b'b', b'a', b'b', b'a', b'b',
                   b'a', b'b'
-              ], None)),
+              ],
+          ),
           dict(
-              testcase_name='rank1_reduce',
-              x=['a', 'b', 'a'],
-              force=True,
-              expected_result=([b'a', b'b'], [2, 1])),
-          dict(
-              testcase_name='rank3_reduce',
-              x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
-                 [['a', 'b', 'a'], ['b', 'a', 'b']]],
-              force=True,
-              expected_result=([b'a', b'b'], [6, 6])),
+              testcase_name='regex_filtering_empty_result',
+              x=['a\n\r', 'b\n', 'a\r', '', 'a\rsd', ' \r', '\nas'],
+              filter_regex=analyzers._EMPTY_STRING_OR_NEWLINE_CHARS_REGEX,
+              expected_result=[],
+          ),
       ]))
-  def test_reduce_batch_weighted_counts_weights_none(self, x, force,
+  def test_reduce_batch_weighted_counts_weights_none(self, x, filter_regex,
                                                      expected_result,
                                                      function_handler):
     input_signature = [tf.TensorSpec(None, tf.string)]
+
     @function_handler(input_signature=input_signature)
     def _reduce_batch_weighted_counts(x):
       (unique_x, summed_weights_per_x, summed_positive_per_x_and_y,
        counts_per_x) = tf_utils.reduce_batch_weighted_counts(
-           x, force=force)
+           x, force=False, filter_regex=filter_regex)
       self.assertIsNone(summed_weights_per_x)
       self.assertIsNone(summed_positive_per_x_and_y)
-      if force:
-        return unique_x, counts_per_x
-      else:
-        self.assertIsNone(counts_per_x)
-        return unique_x
+      self.assertIsNone(counts_per_x)
+      return unique_x
+
+    unique_x = _reduce_batch_weighted_counts(x)
+    self.assertAllEqual(unique_x, expected_result)
+
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers([
+          dict(
+              testcase_name='rank1',
+              x=['a', 'b', 'a'],
+              filter_regex=None,
+              expected_result=([b'a', b'b'], [2, 1]),
+          ),
+          dict(
+              testcase_name='rank3',
+              x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
+                 [['a', 'b', 'a'], ['b', 'a', 'b']]],
+              filter_regex=None,
+              expected_result=([b'a', b'b'], [6, 6]),
+          ),
+          dict(
+              testcase_name='regex_filtering',
+              x=['a\n\r', 'b\n', 'a\r', '', 'asd', ' ', '\nas'],
+              filter_regex=analyzers._EMPTY_STRING_OR_NEWLINE_CHARS_REGEX,
+              expected_result=([b'asd', b' '], [1, 1]),
+          ),
+          dict(
+              testcase_name='regex_filtering_empty_result',
+              x=['a\n\r', 'b\n', 'a\r', '', 'a\rsd', ' \r', '\nas'],
+              filter_regex=analyzers._EMPTY_STRING_OR_NEWLINE_CHARS_REGEX,
+              expected_result=([], []),
+          ),
+      ]))
+  def test_reduce_batch_weighted_counts_weights_none_force(
+      self, x, filter_regex, expected_result, function_handler):
+    input_signature = [tf.TensorSpec(None, tf.string)]
+
+    @function_handler(input_signature=input_signature)
+    def _reduce_batch_weighted_counts(x):
+      (unique_x, summed_weights_per_x, summed_positive_per_x_and_y,
+       counts_per_x) = tf_utils.reduce_batch_weighted_counts(
+           x, force=True, filter_regex=filter_regex)
+      self.assertIsNone(summed_weights_per_x)
+      self.assertIsNone(summed_positive_per_x_and_y)
+      return unique_x, counts_per_x
 
     expected_unique_x, expected_counts_per_x = expected_result
-    if force:
-      unique_x, counts_per_x = _reduce_batch_weighted_counts(x)
-      self.assertAllEqual(unique_x, expected_unique_x)
-      self.assertAllEqual(counts_per_x, expected_counts_per_x)
-    else:
-      unique_x = _reduce_batch_weighted_counts(x)
-      self.assertAllEqual(unique_x, expected_unique_x)
+    unique_x, counts_per_x = _reduce_batch_weighted_counts(x)
+    self.assertAllEqual(unique_x, expected_unique_x)
+    self.assertAllEqual(counts_per_x, expected_counts_per_x)
 
   @test_case.named_parameters([
       dict(testcase_name='constant', get_value_fn=lambda: tf.constant([1.618])),
@@ -336,60 +387,90 @@ class TFUtilsTest(test_case.TransformTestCase):
       self.assertAllEqual(input_value, input_deref)
       self.assertAllEqual(input_value, input_dict[input_ref])
 
-  @test_case.named_parameters(test_case.cross_with_function_handlers([
-      dict(
-          testcase_name='rank1_with_weights_and_binary_y',
-          x=['a', 'b', 'a'],
-          weights=[1, 1, 2],
-          y=[0, 1, 1],
-          expected_result=tf_utils.ReducedBatchWeightedCounts(
-              [b'a', b'b', b'global_y_count_sentinel'], [3, 1, 4],
-              [[1, 2], [0, 1], [1, 3]], [2, 1, 3])),
-      dict(
-          testcase_name='rank1_with_weights_and_multi_class_y',
-          x=['a', 'b', 'a', 'a'],
-          weights=[1, 1, 2, 2],
-          y=[0, 2, 1, 1],
-          expected_result=tf_utils.ReducedBatchWeightedCounts(
-              [b'a', b'b', b'global_y_count_sentinel'], [5, 1, 6],
-              [[1, 4, 0], [0, 0, 1], [1, 4, 1]], [3, 1, 4])),
-      dict(
-          testcase_name='rank1_with_weights_and_missing_y_values',
-          x=['a', 'b', 'a', 'a'],
-          weights=[1, 1, 2, 2],
-          y=[3, 5, 6, 6],
-          expected_result=tf_utils.ReducedBatchWeightedCounts(
-              [b'a', b'b', b'global_y_count_sentinel'], [5, 1, 6],
-              [[0, 0, 0, 1, 0, 0, 4], [0, 0, 0, 0, 0, 1, 0],
-               [0, 0, 0, 1, 0, 1, 4]],
-              [3, 1, 4])),
-      dict(
-          testcase_name='rank2_with_weights_and_binary_y',
-          x=[['a', 'b', 'a'], ['b', 'a', 'b']],
-          weights=[[1, 2, 1], [1, 2, 2]],
-          y=[[1, 0, 1], [1, 0, 0]],
-          expected_result=tf_utils.ReducedBatchWeightedCounts(
-              [b'a', b'b', b'global_y_count_sentinel'], [4, 5, 9],
-              [[2, 2], [4, 1], [6, 3]], [3, 3, 6])),
-      dict(
-          testcase_name='rank3_with_weights_and_binary_y',
-          x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
-             [['a', 'b', 'a'], ['b', 'a', 'b']]],
-          weights=[[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]],
-          y=[[[1, 1, 0], [1, 0, 1]], [[1, 0, 1], [1, 0, 1]]],
-          expected_result=tf_utils.ReducedBatchWeightedCounts(
-              [b'a', b'b', b'global_y_count_sentinel'], [9, 7, 16],
-              [[6, 3], [2, 5], [8, 8]], [6, 6, 12])),
-  ]))
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers([
+          dict(
+              testcase_name='rank1_with_weights_and_binary_y',
+              x=['a', 'b', 'a'],
+              weights=[1, 1, 2],
+              y=[0, 1, 1],
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'a', b'b', b'global_y_count_sentinel'], [3, 1, 4],
+                  [[1, 2], [0, 1], [1, 3]], [2, 1, 3]),
+              filter_regex=None,
+          ),
+          dict(
+              testcase_name='rank1_with_weights_and_multi_class_y',
+              x=['a', 'b\n', 'a', 'a'],
+              weights=[1, 1, 2, 2],
+              y=[0, 2, 1, 1],
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'a', b'b\n', b'global_y_count_sentinel'], [5, 1, 6],
+                  [[1, 4, 0], [0, 0, 1], [1, 4, 1]], [3, 1, 4]),
+              filter_regex=None,
+          ),
+          dict(
+              testcase_name='rank1_with_weights_and_missing_y_values',
+              x=['a', 'b', 'a', 'a'],
+              weights=[1, 1, 2, 2],
+              y=[3, 5, 6, 6],
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'a', b'b', b'global_y_count_sentinel'], [5, 1, 6],
+                  [[0, 0, 0, 1, 0, 0, 4], [0, 0, 0, 0, 0, 1, 0],
+                   [0, 0, 0, 1, 0, 1, 4]], [3, 1, 4]),
+              filter_regex=None,
+          ),
+          dict(
+              testcase_name='rank2_with_weights_and_binary_y',
+              x=[['a', 'b', 'a'], ['b', 'a', 'b']],
+              weights=[[1, 2, 1], [1, 2, 2]],
+              y=[[1, 0, 1], [1, 0, 0]],
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'a', b'b', b'global_y_count_sentinel'], [4, 5, 9],
+                  [[2, 2], [4, 1], [6, 3]], [3, 3, 6]),
+              filter_regex=None,
+          ),
+          dict(
+              testcase_name='rank3_with_weights_and_binary_y',
+              x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
+                 [['a', 'b', 'a'], ['b', 'a', 'b']]],
+              weights=[[[1, 1, 2], [1, 2, 1]], [[1, 2, 1], [1, 2, 1]]],
+              y=[[[1, 1, 0], [1, 0, 1]], [[1, 0, 1], [1, 0, 1]]],
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'a', b'b', b'global_y_count_sentinel'], [9, 7, 16],
+                  [[6, 3], [2, 5], [8, 8]], [6, 6, 12]),
+              filter_regex=None,
+          ),
+          dict(
+              testcase_name='rank1_with_weights_multi_class_y_and_filtering',
+              x=['\na\r', '', '\na\r', 'a', ''],
+              weights=[1, 1, 2, 2, 3],
+              y=[0, 2, 1, 1, 2],
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'a', b'global_y_count_sentinel'], [2, 9],
+                  [[0, 2, 0], [1, 4, 4]], [1, 5]),
+              filter_regex=analyzers._EMPTY_STRING_OR_NEWLINE_CHARS_REGEX,
+          ),
+          dict(
+              testcase_name='rank1_with_weights_filtering_empty_result',
+              x=['\na\r', '', '\na\r', '\ra', ''],
+              weights=[1, 1, 2, 2, 3],
+              y=[0, 2, 1, 1, 2],
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'global_y_count_sentinel'], [9], [[1, 4, 4]], [5]),
+              filter_regex=analyzers._EMPTY_STRING_OR_NEWLINE_CHARS_REGEX,
+          ),
+      ]))
   def test_reduce_batch_coocurrences(self, x, weights, y, expected_result,
-                                     function_handler):
+                                     filter_regex, function_handler):
     input_signature = [tf.TensorSpec(None, tf.string),
                        tf.TensorSpec(None, tf.int64),
                        tf.TensorSpec(None, tf.int64)]
 
     @function_handler(input_signature=input_signature)
     def _reduce_batch_weighted_cooccurrences(x, y, weights):
-      return tf_utils.reduce_batch_weighted_cooccurrences(x, y, weights)
+      return tf_utils.reduce_batch_weighted_cooccurrences(
+          x, y, weights, filter_regex=filter_regex)
 
     result = _reduce_batch_weighted_cooccurrences(x, y, weights)
 
@@ -414,20 +495,22 @@ class TFUtilsTest(test_case.TransformTestCase):
               input_signature=[
                   tf.TensorSpec(None, tf.string),
                   tf.TensorSpec(None, tf.int64)
-              ]),
+              ],
+              filter_regex=None),
           dict(
               testcase_name='rank1_with_multi_class_y',
-              x=['yes', 'no', 'yes', 'maybe', 'yes'],
+              x=['yes', 'no', 'yes', 'may\rbe', 'yes'],
               y=[1, 1, 0, 2, 3],
               expected_result=tf_utils.ReducedBatchWeightedCounts(
-                  [b'yes', b'no', b'maybe', b'global_y_count_sentinel'],
+                  [b'yes', b'no', b'may\rbe', b'global_y_count_sentinel'],
                   [3, 1, 1, 5],
                   [[1, 1, 0, 1], [0, 1, 0, 0], [0, 0, 1, 0], [1, 2, 1, 1]],
                   [3, 1, 1, 5]),
               input_signature=[
                   tf.TensorSpec(None, tf.string),
                   tf.TensorSpec(None, tf.int64)
-              ]),
+              ],
+              filter_regex=None),
           dict(
               testcase_name='rank2_with_binary_y',
               x=[['a', 'b', 'a'], ['b', 'a', 'b']],
@@ -438,7 +521,8 @@ class TFUtilsTest(test_case.TransformTestCase):
               input_signature=[
                   tf.TensorSpec(None, tf.string),
                   tf.TensorSpec(None, tf.int64)
-              ]),
+              ],
+              filter_regex=None),
           dict(
               testcase_name='rank2_with_missing_y_values',
               x=[['a', 'b', 'a'], ['b', 'a', 'b']],
@@ -451,7 +535,8 @@ class TFUtilsTest(test_case.TransformTestCase):
               input_signature=[
                   tf.TensorSpec(None, tf.string),
                   tf.TensorSpec(None, tf.int64)
-              ]),
+              ],
+              filter_regex=None),
           dict(
               testcase_name='rank2_with_multi_class_y',
               x=[['a', 'b', 'a'], ['b', 'a', 'b']],
@@ -462,7 +547,8 @@ class TFUtilsTest(test_case.TransformTestCase):
               input_signature=[
                   tf.TensorSpec(None, tf.string),
                   tf.TensorSpec(None, tf.int64)
-              ]),
+              ],
+              filter_regex=None),
           dict(
               testcase_name='rank3_with_binary_y',
               x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
@@ -474,7 +560,8 @@ class TFUtilsTest(test_case.TransformTestCase):
               input_signature=[
                   tf.TensorSpec(None, tf.string),
                   tf.TensorSpec(None, tf.int64)
-              ]),
+              ],
+              filter_regex=None),
           dict(
               testcase_name='sparse',
               x=tf.compat.v1.SparseTensorValue(
@@ -488,7 +575,8 @@ class TFUtilsTest(test_case.TransformTestCase):
               input_signature=[
                   tf.SparseTensorSpec([None, 2], tf.string),
                   tf.TensorSpec([None], tf.int64)
-              ]),
+              ],
+              filter_regex=None),
           dict(
               testcase_name='empty_sparse',
               x=tf.compat.v1.SparseTensorValue(
@@ -499,7 +587,8 @@ class TFUtilsTest(test_case.TransformTestCase):
               input_signature=[
                   tf.SparseTensorSpec([None, 2], tf.string),
                   tf.TensorSpec([None], tf.int64)
-              ]),
+              ],
+              filter_regex=None),
           dict(
               testcase_name='ragged',
               x=tf.compat.v1.ragged.RaggedTensorValue(
@@ -516,13 +605,28 @@ class TFUtilsTest(test_case.TransformTestCase):
               input_signature=[
                   tf.RaggedTensorSpec([None, None, None, None], tf.string),
                   tf.TensorSpec([None], tf.int64)
-              ]),
+              ],
+              filter_regex=None),
+          dict(
+              testcase_name='rank1_with_filtering',
+              x=['yes\n', 'no', 'yes\n', '', 'yes\n'],
+              y=[1, 1, 0, 2, 3],
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'no', b'global_y_count_sentinel'], [1, 5],
+                  [[0, 1, 0, 0], [1, 2, 1, 1]], [1, 5]),
+              input_signature=[
+                  tf.TensorSpec(None, tf.string),
+                  tf.TensorSpec(None, tf.int64)
+              ],
+              filter_regex=analyzers._EMPTY_STRING_OR_NEWLINE_CHARS_REGEX),
       ]))
-  def test_reduce_batch_coocurrences_no_weights(
-      self, x, y, expected_result, input_signature, function_handler):
+  def test_reduce_batch_coocurrences_no_weights(self, x, y, expected_result,
+                                                input_signature, filter_regex,
+                                                function_handler):
     @function_handler(input_signature=input_signature)
     def _reduce_batch_weighted_cooccurrences_no_weights(x, y):
-      return tf_utils.reduce_batch_weighted_cooccurrences(x, y)
+      return tf_utils.reduce_batch_weighted_cooccurrences(
+          x, y, filter_regex=filter_regex)
 
     result = _reduce_batch_weighted_cooccurrences_no_weights(x, y)
 
