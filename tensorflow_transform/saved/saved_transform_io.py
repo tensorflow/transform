@@ -166,9 +166,13 @@ def _maybe_register_addon_ops():
       tf.compat.v1.logging.info('{} is not available.'.format(name))
       pass
 
-  _try_import('tensorflow_text')
-  _try_import('tensorflow_decision_forests')
+  # LINT.IfChange
   _try_import('struct2tensor')
+  _try_import('tensorflow_decision_forests')
+  # Needed to load SavedModel on s3://
+  _try_import('tensorflow_io')
+  _try_import('tensorflow_text')
+  # LINT.ThenChange(tensorflow_model_analysis/utils/model_util.py)
 
 
 def _partially_apply_saved_transform_impl(saved_model_dir,
