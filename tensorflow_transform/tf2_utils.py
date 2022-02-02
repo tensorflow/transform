@@ -14,7 +14,8 @@
 """TF2 utils."""
 
 import copy
-from typing import Collection, Mapping, Optional
+import itertools
+from typing import Collection, Iterable, Mapping, Optional, Tuple
 
 import tensorflow as tf
 from tensorflow_transform import common_types
@@ -34,6 +35,31 @@ def use_tf_compat_v1(force_tf_compat_v1: bool) -> bool:
   # `executing_eagerly_outside_functions` as well.
   return (force_tf_compat_v1 or int(major) < 2 or not tf2.enabled() or
           not ops.executing_eagerly_outside_functions())
+
+
+def strip_and_get_tensors_and_control_dependencies(
+    flat_tensor_list: Iterable[tf.Tensor]
+) -> Tuple[Iterable[tf.Tensor], Iterable[tf.Operation]]:
+  """Strips automatic control dependencies from `flat_tensor_list`.
+
+  Args:
+    flat_tensor_list: A flattened list of output tensors from a tf.function.
+
+  Returns:
+    A tuple of:
+      Tensors from `flat_tensor_list` with control dependencies removed.
+      The set of control dependency ops that `flat_tensor_list` depended on.
+  """
+  # If an automatic control dependency node was added, all tensors in
+  # `flat_tensor_list` will be the result of Identity ops with the original
+  # tensor as an input and the automatic control dependencies as control inputs.
+  if all(tensor.op.type == 'Identity' and len(tensor.op.inputs) == 1
+         for tensor in flat_tensor_list):
+    control_dependency_ops = [t.op.control_inputs for t in flat_tensor_list]
+    return ([t.op.inputs[0] for t in flat_tensor_list],
+            set(itertools.chain(*control_dependency_ops)))
+  else:
+    return flat_tensor_list, set()
 
 
 def supply_missing_tensor(batch_size: int, tensor_shape: tf.TensorShape,

@@ -13,6 +13,7 @@
 # limitations under the License.
 """Tests for tensorflow_transform.tf2_utils."""
 
+import itertools
 import tensorflow as tf
 from tensorflow_transform import tf2_utils
 from tensorflow_transform import test_case
@@ -43,6 +44,38 @@ _TEST_TENSORS_TYPES = [
 
 
 class TF2UtilsTest(test_case.TransformTestCase):
+
+  def test_strip_and_get_tensors_and_control_dependencies(self):
+
+    @tf.function(input_signature=[tf.TensorSpec([], dtype=tf.int64)])
+    def func(x):
+      with tf.init_scope():
+        initializer_1 = tf.lookup.KeyValueTensorInitializer(
+            [0, 1, 2], ['a', 'b', 'c'],
+            key_dtype=tf.int64,
+            value_dtype=tf.string)
+        table_1 = tf.lookup.StaticHashTable(initializer_1, default_value='NAN')
+        size = table_1.size()
+        initializer_2 = tf.lookup.KeyValueTensorInitializer(
+            ['a', 'b', 'c'], [-1, 0, 1],
+            key_dtype=tf.string,
+            value_dtype=tf.int64)
+        table_2 = tf.lookup.StaticHashTable(initializer_2, default_value=-777)
+      y = table_1.lookup(x)
+      _ = table_2.lookup(y)
+      z = x + size
+      return {'x': x, 'z': z}
+
+    concrete_function = func.get_concrete_function()
+    flat_outputs = tf.nest.flatten(
+        concrete_function.structured_outputs, expand_composites=True)
+    expected_flat_outputs = [t.op.inputs[0] for t in flat_outputs]
+    expected_control_dependencies = itertools.chain(
+        *[t.op.control_inputs for t in flat_outputs])
+    new_flat_outputs, control_dependencies = (
+        tf2_utils.strip_and_get_tensors_and_control_dependencies(flat_outputs))
+    self.assertEqual(new_flat_outputs, expected_flat_outputs)
+    self.assertEqual(control_dependencies, set(expected_control_dependencies))
 
   @test_case.parameters(*test_case.cross_parameters(
       [(x,) for x in _TEST_BATCH_SIZES],

@@ -8,6 +8,10 @@
 
 *   Fixes an issue when `tft.experimental.approximate_vocabulary` with `text`
     output format would not filter out tokens with newline characters.
+*   Update `tft.get_analyze_input_columns` to ensure its output includes
+    `preprocessing_fn` inputs which are not used in any TFT analyzers, but end
+    up in a control dependency (automatic control dependencies are not present
+    in TF1, hence this change will only affect the native TF2 implementation).
 
 ## Breaking Changes
 

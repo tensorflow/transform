@@ -537,6 +537,8 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
     optimized_function = saved_transform_io_v2.optimize_concrete_function(
         concrete_function,
         strip_control_dependencies=strip_control_dependencies)
+    output = optimized_function(tf.constant(0, tf.int64))
+    self.assertEqual(output, 2)
 
     if strip_control_dependencies:
       self.assertLess(
@@ -546,41 +548,6 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
       self.assertEqual(
           len(optimized_function.graph.as_graph_def().node),
           len(concrete_function.graph.as_graph_def().node))
-
-  def test_strip_control_dependencies(self):
-
-    @tf.function(input_signature=[tf.TensorSpec([], dtype=tf.int64)])
-    def func(x):
-      with tf.init_scope():
-        initializer_1 = tf.lookup.KeyValueTensorInitializer(
-            [0, 1, 2], ['a', 'b', 'c'],
-            key_dtype=tf.int64,
-            value_dtype=tf.string)
-        table_1 = tf.lookup.StaticHashTable(initializer_1, default_value='NAN')
-        size = table_1.size()
-        initializer_2 = tf.lookup.KeyValueTensorInitializer(
-            ['a', 'b', 'c'], [-1, 0, 1],
-            key_dtype=tf.string,
-            value_dtype=tf.int64)
-        table_2 = tf.lookup.StaticHashTable(initializer_2, default_value=-777)
-      y = table_1.lookup(x)
-      _ = table_2.lookup(y)
-      z = x + size
-      return {'x': x, 'z': z}
-
-    concrete_function = func.get_concrete_function()
-    optimized_function = saved_transform_io_v2.optimize_concrete_function(
-        concrete_function, strip_control_dependencies=True)
-    expected_output = {'x': 0, 'z': 3}
-    output = optimized_function(tf.constant(0, tf.int64))
-    self.assertEqual(output, expected_output)
-
-    flat_outputs = tf.nest.flatten(
-        concrete_function.structured_outputs, expand_composites=True)
-    expected_flat_outputs = [t.op.inputs[0] for t in flat_outputs]
-    new_flat_outputs = (
-        saved_transform_io_v2._strip_control_dependencies(flat_outputs))
-    self.assertEqual(new_flat_outputs, expected_flat_outputs)
 
   def test_restore_from_v1_saved_model_with_pyfuncs(self):
     input_specs = {

@@ -439,22 +439,6 @@ class SavedModelLoader:
     self._is_finalized = True
 
 
-def _strip_control_dependencies(
-    flat_tensor_list: Iterable[tf.Tensor]) -> Iterable[tf.Tensor]:
-  """Strips control dependencies common to all tensors in `flat_tensor_list`."""
-
-  # If an automatic control dependency node was added, all output tensors will
-  # be the result of Identity ops with the original output tensor value as an
-  # input and the automatic control dependencies as control inputs.
-  if not all([t.op.type == 'Identity' for t in flat_tensor_list]):
-    return flat_tensor_list
-
-  if not all([len(t.op.inputs) == 1 for t in flat_tensor_list]):
-    return flat_tensor_list
-
-  return [t.op.inputs[0] for t in flat_tensor_list]
-
-
 # TODO(b/177606209): Remove once TF supports saving optimized functions.
 # TODO(b/169666856): WrappedFunction.prune does not support composite tensors.
 # Hence, add additional handling when supporting composite tensors in TFT.
@@ -467,7 +451,7 @@ def optimize_concrete_function(
       variable_holder=wrap_function.VariableHolder(share_variables=True))
   fetches = concrete_function.structured_outputs
   if strip_control_dependencies:
-    flat_outputs = _strip_control_dependencies(
+    flat_outputs, _ = tf2_utils.strip_and_get_tensors_and_control_dependencies(
         tf.nest.flatten(fetches, expand_composites=True))
     fetches = tf.nest.pack_sequence_as(
         concrete_function.structured_outputs,
