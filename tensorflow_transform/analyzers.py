@@ -304,6 +304,9 @@ class NumPyCombiner(analyzer_nodes.Combiner):
       ]
 
   def merge_accumulators(self, accumulators):
+    # TODO(b/422923883): Operate in place on accumulators[0] or batch values
+    # internally for vectorization benefits after AccumulateFn is in use.
+
     # If the first subaccumulator is default, then the accumulator is default
     # and can be discarded.
     non_default_accumulators = [
@@ -1231,7 +1234,8 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
     Returns:
       The sole merged `_WeightedMeanAndVarAccumulator`.
     """
-    result = self.create_accumulator()
+    accumulators = iter(accumulators)
+    result = next(accumulators, self.create_accumulator())
     for accumulator in accumulators:
       result = self._combine_mean_and_var_accumulators(result, accumulator)
     return result
@@ -1446,7 +1450,8 @@ class _LMomentsCombiner(analyzer_nodes.Combiner):
     Returns:
       The sole merged `_LMomentsAccumulator`.
     """
-    result = self.create_accumulator()
+    accumulators = iter(accumulators)
+    result = next(accumulators, self.create_accumulator())
     for accumulator in accumulators:
       result = self._combine_accumulators(result, accumulator)
     return result
@@ -2155,7 +2160,8 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
     return accumulator
 
   def merge_accumulators(self, accumulators):
-    result = self.create_accumulator()
+    accumulators = iter(accumulators)
+    result = next(accumulators, self.create_accumulator())
     for accumulator in accumulators:
       result.Merge(accumulator)
     return result
@@ -2410,6 +2416,7 @@ class CovarianceCombiner(analyzer_nodes.Combiner):
 
   def merge_accumulators(self, accumulators):
     """Sums values in each accumulator entry."""
+    # TODO(b/215378946): Consider updating accumulators[0] in place.
     products, vectors, counts = zip(*accumulators)
     return [
         np.sum(products, axis=0),
