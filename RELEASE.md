@@ -4,6 +4,9 @@
 
 ## Major Features and Improvements
 
+*   Introduced `tft.experimental.compute_and_apply_approximate_vocabulary` which
+    computes and applies an approximate vocabulary.
+
 ## Bug Fixes and Other Changes
 
 *   Fixes an issue when `tft.experimental.approximate_vocabulary` with `text`

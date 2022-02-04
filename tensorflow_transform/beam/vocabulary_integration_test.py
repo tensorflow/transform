@@ -738,6 +738,28 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
             'my_approximate_vocab': expected_vocab_file_contents
         })
 
+  def testComputeAndApplyApproximateVocabulary(self):
+    input_data = [{'x': 'a'}] * 2 + [{'x': 'b'}] * 3
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'x': tf.io.FixedLenFeature([], tf.string)})
+
+    def preprocessing_fn(inputs):
+      index = tft.experimental.compute_and_apply_approximate_vocabulary(
+          inputs['x'],
+          top_k=2,
+          file_format=self._VocabFormat(),
+          num_oov_buckets=1)
+      return {'index': index}
+
+    expected_data = [{'index': 1}] * 2 + [{'index': 0}] * 3 + [{'index': 2}]
+
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        test_data=input_data + [{'x': 'c'}])  # pyformat: disable
+
   def testJointVocabularyForMultipleFeatures(self):
     input_data = [{
         'a': 'hello',

@@ -15,3 +15,4 @@
 
 from tensorflow_transform.experimental.analyzers import *
 from tensorflow_transform.experimental.annotators import *
+from tensorflow_transform.experimental.mappers import *
