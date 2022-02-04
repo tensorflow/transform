@@ -226,6 +226,15 @@ class TFUtilsTest(test_case.TransformTestCase):
               filter_regex=analyzers._EMPTY_STRING_OR_NEWLINE_CHARS_REGEX,
               expected_unique_x=[b'a', b'b'],
               expected_summed_weights_per_x=[2, 2]),
+          dict(
+              testcase_name='regex_filtering_invalid_utf8',
+              x=[[b'\xe1\n', b'\xa9', b'\n\xb8\r'],
+                 [b'\xe8\r', b'\xc6', b'\n\xb3']],
+              x_spec=tf.TensorSpec(None, tf.string),
+              weights=[[1, 3, 1], [1, 4, 2]],
+              filter_regex=analyzers._EMPTY_STRING_OR_NEWLINE_CHARS_REGEX,
+              expected_unique_x=[b'\xa9', b'\xc6'],
+              expected_summed_weights_per_x=[3, 4]),
       ]))
   def test_reduce_batch_weighted_counts(self, x, x_spec, weights, filter_regex,
                                         expected_unique_x,

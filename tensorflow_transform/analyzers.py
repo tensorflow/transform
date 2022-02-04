@@ -86,9 +86,10 @@ VOCAB_FREQUENCY_FILENAME_PREFIX = 'vocab_frequency_'
 # `tft.experimental.approximate_vocabulary`.
 LARGE_VOCAB_TOP_K = 200_000
 
-# Matches empty strings and strings with \n or \r. This has to follow the re2
-# syntax (https://github.com/google/re2/wiki/Syntax).
-_EMPTY_STRING_OR_NEWLINE_CHARS_REGEX = r'(?s)^$|(.*[\n\r].*)'
+# Matches empty strings and strings with \n or \r (including strings with \n or
+# \r that contain invalid UTF-8 characters). This has to follow the re2 syntax:
+# https://github.com/google/re2/wiki/Syntax.
+_EMPTY_STRING_OR_NEWLINE_CHARS_REGEX = r'^$|\C*[\n\r]\C*'
 
 # For some input types, widen the output type of sum analyzer to avoid overflow.
 _SUM_OUTPUT_DTYPE_MAP = {
