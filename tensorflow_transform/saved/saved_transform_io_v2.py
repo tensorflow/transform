@@ -30,20 +30,9 @@ from tensorflow.python.eager import function
 from tensorflow.python.eager import wrap_function
 from tensorflow.python.framework import composite_tensor
 from tensorflow.python.ops import lookup_ops
-from tensorflow.python.saved_model import load
 from tensorflow.python.training.tracking import tracking
 from tensorflow.python.util import object_identity
 # pylint: enable=g-direct-tensorflow-import
-
-
-class _Loader(load.Loader):
-
-  def _recreate_asset(self, *args, **kwargs):
-    result = super()._recreate_asset(*args, **kwargs)
-    if not tf.executing_eagerly():
-      tf.compat.v1.add_to_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS,
-                                     result[0].asset_path)
-    return result
 
 
 def _restore_from_v1_saved_model(
@@ -134,12 +123,7 @@ class SavedModelLoader:
     """
     # TODO(b/160294509): Stop using tf.compat.v2 when TF1.15 support is
     # dropped.
-    if tf.version.VERSION < '2.5':
-      imported = load.load_internal(saved_model_dir, loader_cls=_Loader)
-      if isinstance(imported, dict):
-        imported = imported['root']
-    else:
-      imported = tf.compat.v2.saved_model.load(saved_model_dir)
+    imported = tf.compat.v2.saved_model.load(saved_model_dir)
     load_v2_in_compat = constants.TRANSFORM_SIGNATURE in imported.signatures
     if load_v2_in_compat:
       restored_function = imported.signatures[constants.TRANSFORM_SIGNATURE]
