@@ -911,13 +911,15 @@ class ImplHelperTest(test_case.TransformTestCase):
                       row_splits=np.array([0, 0, 1, 3])),  # row_lengths2
                   row_splits=np.array([0, 1, 1, 3])),  # row_lengths1
               row_splits=np.array([0, 2, 3])),  # batch dimension
+          # pytype: disable=attribute-error
           spec=tf.io.RaggedFeature(  # pylint: disable=g-long-ternary
               tf.float32,
               value_key='ragged_3d_val',
               partitions=[
                   tf.io.RaggedFeature.RowLengths('ragged_3d_row_lengths1'),
                   tf.io.RaggedFeature.RowLengths('ragged_3d_row_lengths2'),
-              ]) if common_types.is_ragged_feature_available() else None,  # pytype: disable=attribute-error
+              ]) if common_types.is_ragged_feature_available() else None,
+          # pytype: enable=attribute-error
           expected_components={
               'ragged_3d_val': [
                   np.array([], dtype=np.float32),
@@ -940,6 +942,7 @@ class ImplHelperTest(test_case.TransformTestCase):
                       row_splits=np.array([0, 2, 2, 4])),  # row_lengths2
                   row_splits=np.array([0, 1, 1, 3])),  # row_lengths1
               row_splits=np.array([0, 2, 2, 3])),  # batch dimension
+          # pytype: disable=attribute-error
           spec=tf.io.RaggedFeature(  # pylint: disable=g-long-ternary
               tf.float32,
               value_key='ragged_4d_val',
@@ -947,7 +950,8 @@ class ImplHelperTest(test_case.TransformTestCase):
                   tf.io.RaggedFeature.RowLengths('ragged_4d_row_lengths1'),
                   tf.io.RaggedFeature.RowLengths('ragged_4d_row_lengths2'),
                   tf.io.RaggedFeature.RowLengths('ragged_4d_row_lengths3'),
-              ]) if common_types.is_ragged_feature_available() else None,  # pytype: disable=attribute-error
+              ]) if common_types.is_ragged_feature_available() else None,
+          # pytype: enable=attribute-error
           expected_components={
               'ragged_4d_val': [
                   np.array([b'a']),
