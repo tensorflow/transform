@@ -373,6 +373,37 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
     self.assertAllEqual(splits, result.row_splits)
     self.assertEqual([5.0, 10.0, 20.0], result.values.numpy().tolist())
 
+  @test_case.named_parameters(*_TRANFORM_FN_EXPORT_TF_VERSION_TEST_CASES)
+  def test_ragged_with_unfed(self, exported_in_tf1):
+    input_specs = {
+        'x': tf.RaggedTensorSpec([
+            None,
+            None,
+        ], dtype=tf.float32),
+        'y': tf.RaggedTensorSpec([
+            None,
+        ], dtype=tf.float32)
+    }
+
+    def preprocessing_fn(inputs):
+      output = (inputs['x'] - 2.0) / 5.0
+      return {'x_scaled': output, 'x_in': inputs['x'], 'y': inputs['y'] + 1}
+
+    export_path = _create_test_saved_model(
+        exported_in_tf1,
+        input_specs,
+        preprocessing_fn,
+        base_dir=self.get_temp_dir())
+    saved_model_loader = saved_transform_io_v2.SavedModelLoader(export_path)
+
+    # Missing 'y'.
+    input_features = {'x': tf.ragged.constant([[1237.0]], ragged_rank=1)}
+    transformed_features = (
+        saved_model_loader.apply_transform_model(input_features))
+    self.assertCountEqual(['x_in', 'x_scaled'], list(transformed_features))
+    self.assertAllEqual(transformed_features['x_scaled'].numpy(), [[247.0]])
+    self.assertAllEqual(transformed_features['x_in'].numpy(), [[1237.0]])
+
   @test_case.named_parameters(*_RE_EXPORT_TF2_TO_TF1_TEST_CASES)
   def test_re_export_tf2_saved_model_to_tf1(self,
                                             preprocessing_fn_getter,

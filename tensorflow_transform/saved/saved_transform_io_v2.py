@@ -217,7 +217,7 @@ class SavedModelLoader:
   def _apply_v1_transform_model_in_v2(
       self, logical_input_map: Mapping[str, common_types.TensorType]
   ) -> Dict[str, common_types.TensorType]:
-    """Applies a V1 transform graph to dictionary of Tensors or SparseTensors.
+    """Applies a V1 transform graph to dictionary of (Composite)Tensors.
 
     This method applies the transformation graph as a pruned function to the
     `logical_input_map`.
@@ -271,7 +271,7 @@ class SavedModelLoader:
   def _apply_v2_transform_model_finalized(
       self, logical_input_map: Mapping[str, common_types.TensorType]
   ) -> Dict[str, common_types.TensorType]:
-    """Applies a V2 transform graph to dictionary of Tensors or SparseTensors.
+    """Applies a V2 transform graph to dictionary of (Composite)Tensors.
 
     This method applies the transformation graph to the `logical_input_map` to
     return only outputs that can be computed from the keys provided in
@@ -298,7 +298,7 @@ class SavedModelLoader:
   def _apply_v2_transform_model(
       self, logical_input_map: Mapping[str, common_types.TensorType]
   ) -> Dict[str, common_types.TensorType]:
-    """Applies a V2 transform graph to dictionary of Tensors or SparseTensors.
+    """Applies a V2 transform graph to dictionary of (Composite)Tensors.
 
     This method applies the transformation graph to the `logical_input_map` to
     return only outputs that can be computed from the keys provided in
@@ -322,7 +322,9 @@ class SavedModelLoader:
       batch_size = 1
       if logical_input_map:
         an_input = next(iter(logical_input_map.values()))
-        if tf.shape(an_input)[0] is not None:
+        if isinstance(an_input, tf.RaggedTensor):
+          batch_size = an_input.bounding_shape(axis=0)
+        elif tf.shape(an_input)[0] is not None:
           batch_size = tf.shape(an_input)[0]
 
       missing_inputs = self._get_missing_inputs(unfed_input_keys, batch_size)
@@ -347,7 +349,7 @@ class SavedModelLoader:
   def apply_transform_model(
       self, logical_input_map: Mapping[str, common_types.TensorType]
   ) -> Dict[str, common_types.TensorType]:
-    """Applies a transform graph to dictionary of Tensors or SparseTensors.
+    """Applies a transform graph to dictionary of (Composite)Tensors.
 
     Args:
       logical_input_map: a dict of logical name to Tensor.  The logical names
