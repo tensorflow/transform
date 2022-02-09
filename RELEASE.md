@@ -15,6 +15,8 @@
     `preprocessing_fn` inputs which are not used in any TFT analyzers, but end
     up in a control dependency (automatic control dependencies are not present
     in TF1, hence this change will only affect the native TF2 implementation).
+*   Depends on
+    `tensorflow>=1.15.5,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,!=2.6.*,!=2.7.*,<3`.
 
 ## Breaking Changes
 
