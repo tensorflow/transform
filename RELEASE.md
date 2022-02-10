@@ -15,6 +15,11 @@
     `preprocessing_fn` inputs which are not used in any TFT analyzers, but end
     up in a control dependency (automatic control dependencies are not present
     in TF1, hence this change will only affect the native TF2 implementation).
+*   Assign different resource hint tags to both orginal and cloned PTransforms
+    in deep copy optimization. The reason of adding these tags is to prevent
+    root Reads that are generated from deep copy being merged due to common
+    subexpression elimination.
+*   Depends on `apache-beam[gcp]>=2.36,<3`.
 *   Depends on
     `tensorflow>=1.15.5,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,!=2.6.*,!=2.7.*,<3`.
 

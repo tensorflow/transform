@@ -17,12 +17,18 @@ import collections
 
 import apache_beam as beam
 from apache_beam import pvalue
+from apache_beam.transforms import resources
 from tensorflow_transform.beam import deep_copy
+from tensorflow_transform.beam import test_helpers
 import unittest
 
 
 # pylint: disable=g-long-lambda
 class DeepCopyTest(unittest.TestCase):
+
+  @staticmethod
+  def _MakeBeamPipeline():
+    return beam.Pipeline(**test_helpers.make_test_beam_pipeline_kwargs())
 
   # _CountingIdentityFn and _InitializeCounts are declared as class-level
   # methods to avoid Beam serialization issues, which would occur if an
@@ -51,7 +57,7 @@ class DeepCopyTest(unittest.TestCase):
     DeepCopyTest._InitializeCounts()
 
   def testBasicDeepCopy(self):
-    with beam.Pipeline() as p:
+    with DeepCopyTest._MakeBeamPipeline() as p:
       grouped = (p
                  | beam.Create([(1, 'a'), (2, 'b'), (3, 'c')])
                  | beam.Map(
@@ -72,9 +78,9 @@ class DeepCopyTest(unittest.TestCase):
       # pylint: enable=expression-not-assigned
 
       # Check labels.
-      self.assertEqual(copied.producer.full_label, 'Add2.Copy')
+      self.assertEqual(copied.producer.full_label, 'Add2.Copy[0]')
       self.assertEqual(copied.producer.inputs[0].producer.full_label,
-                       'Add1.Copy')
+                       'Add1.Copy[0]')
 
       # Check that deep copy was performed.
       self.assertIsNot(copied.producer.inputs[0], modified.producer.inputs[0])
@@ -90,7 +96,7 @@ class DeepCopyTest(unittest.TestCase):
     self.assertEqual(DeepCopyTest._counts['Add3'], 3)
 
   def testMultipleCopies(self):
-    with beam.Pipeline() as p:
+    with DeepCopyTest._MakeBeamPipeline() as p:
       grouped = (p
                  | beam.Create([(1, 'a'), (2, 'b'), (3, 'c')])
                  | beam.Map(lambda x: DeepCopyTest._CountingIdentityFn(
@@ -105,23 +111,18 @@ class DeepCopyTest(unittest.TestCase):
 
       num_copies = 6
 
-      first_copy = deep_copy.deep_copy(modified)
-      self.assertEqual(first_copy.producer.full_label, 'Add2.Copy')
-      self.assertEqual(first_copy.producer.inputs[0].producer.full_label,
-                       'Add1.Copy')
-
-      for i in range(num_copies - 1):
+      for i in range(num_copies):
         copied = deep_copy.deep_copy(modified)
-        self.assertEqual(copied.producer.full_label, 'Add2.Copy%d' % i)
+        self.assertEqual(copied.producer.full_label, 'Add2.Copy[%d]' % i)
         self.assertEqual(copied.producer.inputs[0].producer.full_label,
-                         'Add1.Copy%d' % i)
+                         'Add1.Copy[%d]' % i)
 
     self.assertEqual(DeepCopyTest._counts['PreGroup'], 3)
     self.assertEqual(DeepCopyTest._counts['Add1'], 3 * (num_copies + 1))
     self.assertEqual(DeepCopyTest._counts['Add2'], 3 * (num_copies + 1))
 
   def testFlatten(self):
-    with beam.Pipeline() as p:
+    with DeepCopyTest._MakeBeamPipeline() as p:
       create_1 = p | 'Create1' >> beam.Create([(1, 'a'), (2, 'b')])
       create_2 = p | 'Create2' >> beam.Create([(3, 'c')])
       created = (create_1, create_2) | 'Flatten1' >> beam.Flatten()
@@ -175,7 +176,7 @@ class DeepCopyTest(unittest.TestCase):
     self.assertEqual(DeepCopyTest._counts['Add3'], 12)
 
   def testEachPTransformCopiedOnce(self):
-    with beam.Pipeline() as p:
+    with DeepCopyTest._MakeBeamPipeline() as p:
       created = p | 'Create1' >> beam.Create([(1, 'a'), (2, 'b')])
       modified1 = (created
                    | 'Transform1' >> beam.Map(
@@ -204,7 +205,7 @@ class DeepCopyTest(unittest.TestCase):
     self.assertEqual(DeepCopyTest._counts['Transform2'], 4)
 
   def testCombineGlobally(self):
-    with beam.Pipeline() as p:
+    with DeepCopyTest._MakeBeamPipeline() as p:
       combined = (p
                   | beam.Create([1, 2, 3])
                   | beam.Map(
@@ -225,7 +226,7 @@ class DeepCopyTest(unittest.TestCase):
       self.assertEqual(combined.producer.inputs[0].producer.full_label,
                        'CombineGlobally(MeanCombineFn)/UnKey')
       self.assertEqual(copied.producer.inputs[0].producer.full_label,
-                       'CombineGlobally(MeanCombineFn)/UnKey.Copy')
+                       'CombineGlobally(MeanCombineFn)/UnKey.Copy[0]')
 
       # Check that deep copy stops at materialization boundary.
       self.assertIs(combined.producer.inputs[0].producer.inputs[0],
@@ -246,7 +247,7 @@ class DeepCopyTest(unittest.TestCase):
     self.assertEqual(DeepCopyTest._counts['PostCombine'], 2)
 
   def testSideInputNotCopied(self):
-    with beam.Pipeline() as p:
+    with DeepCopyTest._MakeBeamPipeline() as p:
       side = (p
               | 'CreateSide' >> beam.Create(['s1', 's2', 's3'])
               | beam.Map(
@@ -273,6 +274,53 @@ class DeepCopyTest(unittest.TestCase):
     # Check counts of processed items.
     self.assertEqual(DeepCopyTest._counts['SideInput'], 3)
     self.assertEqual(DeepCopyTest._counts['Main'], 6)
+
+  def testDeepCopyTags(self):
+    if not resources.ResourceHint.is_registered('tags'):
+      self.skipTest('Resource hint tags are not available.')
+
+    with DeepCopyTest._MakeBeamPipeline() as p:
+      grouped = (
+          p | beam.Create([(1, 'a'), (2, 'b'), (3, 'c')])
+          | beam.Map(lambda x: DeepCopyTest._CountingIdentityFn('PreGroup', x)))
+
+      modified = (
+          grouped
+          |
+          'Add1' >> beam.Map(DeepCopyTest._MakeAdd1CountingIdentityFn('Add1'))
+          |
+          'Add2' >> beam.Map(DeepCopyTest._MakeAdd1CountingIdentityFn('Add2')))
+
+      num_copies = 6
+
+      for i in range(num_copies):
+        copied = deep_copy.deep_copy(modified)
+        # Check labels.
+        self.assertEqual(copied.producer.full_label, 'Add2.Copy[%d]' % i)
+        self.assertEqual(copied.producer.inputs[0].producer.full_label,
+                         'Add1.Copy[%d]' % i)
+
+        # Check resource hints.
+        self.assertEqual(modified.producer.resource_hints,
+                         {'beam:resources:tags:v1': b'DeepCopy.Original'})
+        self.assertEqual(modified.producer.inputs[0].producer.resource_hints,
+                         {'beam:resources:tags:v1': b'DeepCopy.Original'})
+        self.assertEqual(copied.producer.resource_hints,
+                         {'beam:resources:tags:v1': b'DeepCopy.Copy[%d]' % i})
+        self.assertEqual(copied.producer.inputs[0].producer.resource_hints,
+                         {'beam:resources:tags:v1': b'DeepCopy.Copy[%d]' % i})
+
+      # pylint: disable=expression-not-assigned
+      modified | 'Add3' >> beam.Map(
+          DeepCopyTest._MakeAdd1CountingIdentityFn('Add3'))
+      # pylint: enable=expression-not-assigned
+
+    # Check counts of processed items. Without the materialization boundary,
+    # e.g. GroupByKey, PreGroup is also copied.
+    self.assertEqual(DeepCopyTest._counts['PreGroup'], 3 * (num_copies + 1))
+    self.assertEqual(DeepCopyTest._counts['Add1'], 3 * (num_copies + 1))
+    self.assertEqual(DeepCopyTest._counts['Add2'], 3 * (num_copies + 1))
+    self.assertEqual(DeepCopyTest._counts['Add3'], 3)
 
 if __name__ == '__main__':
   unittest.main()

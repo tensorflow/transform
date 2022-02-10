@@ -30,6 +30,7 @@ import apache_beam as beam
 from apache_beam import pipeline as beam_pipeline
 from apache_beam import pvalue
 from apache_beam.pvalue import PCollection
+from apache_beam.transforms import resources
 
 
 _MATERIALIZATION_BARRIER_TRANSFORMS = set([
@@ -165,12 +166,27 @@ def _clone_items(pipeline, to_clone):
       # are not reachable by tracing outputs in the pipeline graph.
       assert not item.parts, (
           'Reached invalid composite AppliedPTransform: %r.' % item)
-      # Assign new label.
-      new_label_prefix = item.full_label + '.Copy'
-      new_label = new_label_prefix
+
+      # TODO(b/217271822): Implement resource hint 'tags' for Beam/Dataflow, as
+      # when CSE makes it to Dataflow, 'tags' cannot be recognized. Once this
+      # is fixed, we can change the tag prefix to 'beam'.
+      tags_resource_available = resources.ResourceHint.is_registered('tags')
+
+      if tags_resource_available:
+        # Assign tag to the orginal PTransforms. The reason of adding this tag
+        # is to prevent root Reads that are generated from deep copy being
+        # merged due to common subexpression elimination (CSE).
+        item.resource_hints['beam:resources:tags:v1'] = b'DeepCopy.Original'
+
+      # Assign new label and resource tag.
       next_suffix = 0
+      suffix = f'Copy[{next_suffix}]'
+      new_label = item.full_label + f'.{suffix}'
+      tag = f'DeepCopy.{suffix}'
       while new_label in pipeline.applied_labels:
-        new_label = new_label_prefix + str(next_suffix)
+        suffix = f'Copy[{next_suffix}]'
+        new_label = item.full_label + f'.{suffix}'
+        tag = f'DeepCopy.{suffix}'
         next_suffix += 1
       pipeline.applied_labels.add(new_label)
 
@@ -190,6 +206,14 @@ def _clone_items(pipeline, to_clone):
       # copy branch above.
       copied = beam_pipeline.AppliedPTransform(item.parent, item.transform,
                                                new_label, new_inputs)
+
+      # Add a unique resource tag to the copied PTransforms. The PTransforms
+      # that are generated from each deep copy have the same unique tag. This is
+      # to make sure that the PTransforms that are cloned from each deep copy
+      # can be fused together, but not across copies nor the original.
+      if tags_resource_available:
+        copied.resource_hints['beam:resources:tags:v1'] = tag.encode()
+
       ptransform_replacements[item] = copied
 
       # Update composite transform parent to include this copy.
