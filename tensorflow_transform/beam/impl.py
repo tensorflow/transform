@@ -77,6 +77,7 @@ from tensorflow_transform.saved import saved_transform_io_v2
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
+from tfx_bsl.telemetry import collection as telemetry
 from tfx_bsl.tfxio import tensor_representation_util
 from tfx_bsl.tfxio import tensor_to_arrow
 from tfx_bsl.tfxio import tf_example_record
@@ -1061,6 +1062,21 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     _ = (pipeline | 'InstrumentAPI' >> _InstrumentAPI(
         graph, Context._get_force_tf_compat_v1(), self._use_tf_compat_v1))  # pylint: disable=protected-access
 
+    if flattened_pcoll is not None:
+      _ = (
+          flattened_pcoll
+          | 'InstrumentInputBytes[AnalysisFlattenedPColl]' >>
+          telemetry.TrackRecordBatchBytes(beam_common.METRICS_NAMESPACE,
+                                          'analysis_input_bytes'))
+    else:
+      for key in input_values_pcoll_dict.keys():
+        if input_values_pcoll_dict[key] is not None:
+          _ = (
+              input_values_pcoll_dict[key]
+              | f'InstrumentInputBytes[AnalysisPCollDict][{key}]' >>
+              telemetry.TrackRecordBatchBytes(
+                  beam_common.METRICS_NAMESPACE, 'analysis_input_bytes'))
+
     asset_map = annotators.get_asset_annotations(graph)
     # TF.HUB can error when unapproved collections are present. So we explicitly
     # clear out the collections in the graph.
@@ -1429,6 +1445,11 @@ class TransformDataset(beam.PTransform):
       deferred_schema = (
           self.pipeline
           | 'CreateDeferredSchema' >> beam.Create([output_metadata.schema]))
+
+    _ = (
+        input_values
+        | 'InstrumentInputBytes[Transform]' >> telemetry.TrackRecordBatchBytes(
+            beam_common.METRICS_NAMESPACE, 'transform_input_bytes'))
 
     tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_BEAM_RUNNER_TYPE.get(
         type(self.pipeline.runner))

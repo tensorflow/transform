@@ -3542,6 +3542,49 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # We check that that call is not logged.
     self.assertMetricsCounterEqual(metrics, 'tft_mapper_apply_vocabulary', 0)
 
+  def testNumBytesCounter(self):
+    self._SkipIfOutputRecordBatches()
+
+    test_data = [
+        pa.RecordBatch.from_arrays([
+            pa.array([[4]], type=pa.large_list(pa.float32())),
+            pa.array([[5]], type=pa.large_list(pa.float32())),
+            pa.array([['hello']], type=pa.large_list(pa.large_binary()))
+        ], ['x', 'y', 'a']),
+        pa.RecordBatch.from_arrays([
+            pa.array([[1]], type=pa.large_list(pa.float32())),
+            pa.array([[3]], type=pa.large_list(pa.float32())),
+            pa.array([['world']], type=pa.large_list(pa.large_binary()))
+        ], ['x', 'y', 'a'])
+    ]
+    tensor_representations = {
+        name: text_format.Parse(
+            f'dense_tensor {{ column_name: \"{name}\" shape {{}} }}',
+            schema_pb2.TensorRepresentation()) for name in ('x', 'y', 'a')
+    }
+    expected_input_size = sum(rb.nbytes for rb in test_data)
+
+    def preprocessing_fn(inputs):
+      _ = tft.vocabulary(inputs['a'])
+      return {
+          'a_int': tft.compute_and_apply_vocabulary(inputs['a']),
+          'x_scaled': tft.scale_to_0_1(inputs['x']),
+          'y_scaled': tft.scale_to_0_1(inputs['y'])
+      }
+
+    with self._makeTestPipeline() as pipeline:
+      input_data = pipeline | 'CreateTrainingData' >> beam.Create(test_data)
+      tensor_adapter_config = tensor_adapter.TensorAdapterConfig(
+          test_data[0].schema, tensor_representations)
+
+      with tft_beam.Context(temp_dir=self.get_temp_dir()):
+        _ = ((input_data, tensor_adapter_config)
+             | 'AnalyzeDataset' >> tft_beam.AnalyzeDataset(preprocessing_fn))
+
+    metrics = pipeline.metrics
+    self.assertMetricsCounterEqual(metrics, 'analysis_input_bytes',
+                                   expected_input_size)
+
   def testHandleBatchError(self):
     self._SkipIfOutputRecordBatches()
 
