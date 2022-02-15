@@ -1236,7 +1236,7 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
       The sole merged `_WeightedMeanAndVarAccumulator`.
     """
     accumulators = iter(accumulators)
-    result = next(accumulators, self.create_accumulator())
+    result = next(accumulators)
     for accumulator in accumulators:
       result = self._combine_mean_and_var_accumulators(result, accumulator)
     return result
@@ -1452,7 +1452,7 @@ class _LMomentsCombiner(analyzer_nodes.Combiner):
       The sole merged `_LMomentsAccumulator`.
     """
     accumulators = iter(accumulators)
-    result = next(accumulators, self.create_accumulator())
+    result = next(accumulators)
     for accumulator in accumulators:
       result = self._combine_accumulators(result, accumulator)
     return result
@@ -2162,7 +2162,7 @@ class QuantilesCombiner(analyzer_nodes.Combiner):
 
   def merge_accumulators(self, accumulators):
     accumulators = iter(accumulators)
-    result = next(accumulators, self.create_accumulator())
+    result = next(accumulators)
     for accumulator in accumulators:
       result.Merge(accumulator)
     return result
