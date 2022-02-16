@@ -25,9 +25,6 @@ from tensorflow_transform.tf_metadata import schema_utils
 # This function needs to be called at pipeline execution time as it depends on
 # the protocol buffer library installed in the workers (which might be different
 # from the one installed in the pipeline constructor).
-#
-# TODO(b/35573758): Simplify this once the 'python' implementation of the
-# protocol buffer API can handle the numpy type conversions properly.
 def _make_cast_fn(np_dtype):
   """Return a function to extract the typed value from the feature.
 
@@ -41,26 +38,7 @@ def _make_cast_fn(np_dtype):
     A function to extract the value field from a string depending on dtype.
   """
 
-  # There seems to be a great degree of variability for handling automatic
-  # conversions across types and across API implementation of the Python
-  # protocol buffer library.
-  #
-  # For the 'python' implementation we need to always "cast" from np types to
-  # the appropriate Python type.
-  #
-  # For the 'cpp' implementation we need to only "cast" from np types to the
-  # appropriate Python type for "Float" types, but only for protobuf < 3.2.0
-
   def identity(x):
-    return x
-
-  def numeric_cast(x):
-    if isinstance(x, (np.generic, np.ndarray)):
-      # This works for both np.generic and np.array (of any shape).
-      return x.tolist()
-
-    # This works for python scalars (or lists thereof), which require no
-    # casting.
     return x
 
   # This is in agreement with Tensorflow conversions for Unicode values for both
@@ -78,24 +56,8 @@ def _make_cast_fn(np_dtype):
       return vectorize(x).tolist()
     return utf8(x)
 
-  if issubclass(np_dtype, np.floating):
-    try:
-      float_list = tf.train.FloatList()
-      float_list.value.append(np.float32(0.1))  # Any dummy value will do.
-      float_list.value.append(np.array(0.1))  # Any dummy value will do.
-      float_list.value.extend(np.array([0.1, 0.2]))  # Any dummy values will do.
-      return identity
-    except TypeError:
-      return numeric_cast
-  elif issubclass(np_dtype, np.integer):
-    try:
-      int64_list = tf.train.Int64List()
-      int64_list.value.append(np.int64(1))  # Any dummy value will do.
-      int64_list.value.append(np.array(1))  # Any dummy value will do.
-      int64_list.value.extend(np.array([1, 2]))  # Any dummy values will do.
-      return identity
-    except TypeError:
-      return numeric_cast
+  if issubclass(np_dtype, np.floating) or issubclass(np_dtype, np.integer):
+    return identity
 
   return string_cast
 
@@ -151,7 +113,9 @@ class _FixedLenFeatureHandler:
     """Encodes a feature into its Example proto representation."""
     del self._value[:]
     if self._rank == 0:
-      self._value.append(self._cast_fn(values))
+      scalar_value = values if not isinstance(values,
+                                              np.ndarray) else values.item()
+      self._value.append(self._cast_fn(scalar_value))
     else:
       flattened_values = (
           values if self._rank == 1 else np.asarray(
