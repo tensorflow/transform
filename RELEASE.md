@@ -9,8 +9,11 @@
 
 ## Bug Fixes and Other Changes
 
-*   Fixes an issue when `tft.experimental.approximate_vocabulary` with `text`
+*   Fix an issue when `tft.experimental.approximate_vocabulary` with `text`
     output format would not filter out tokens with newline characters.
+*   Add a dummy value to the result of `tft.experimental.approximate_vocabulary`
+    as is done for the exact variant, in order for downstream code to easily
+    handle it.
 *   Update `tft.get_analyze_input_columns` to ensure its output includes
     `preprocessing_fn` inputs which are not used in any TFT analyzers, but end
     up in a control dependency (automatic control dependencies are not present

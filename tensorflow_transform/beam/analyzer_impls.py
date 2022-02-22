@@ -87,13 +87,7 @@ def maybe_add_empty_vocabulary_dummy(
 ) -> List[KV[_VocabIndicatorType, _VocabTokenType]]:
   """Returns a list with a dummy token if counts list is empty."""
   if not counts:
-    # TODO(b/62272023) remove this workaround if/when fixed on tensorflow.
-    # If the vocabulary is empty add a dummy value with count one so
-    # the tensorflow index operations don't fail to initialize with empty
-    # tensors downstream.
-    dummy_value = (b'49d0cd50-04bb-48c0-bc6f-5b575dce351a'
-                   if tf.dtypes.as_dtype(dtype) == tf.string else b'-1')
-    return [(1, dummy_value)]
+    return [analyzers.get_empy_vocabulary_dummy_value(dtype)]
   else:
     return counts
 

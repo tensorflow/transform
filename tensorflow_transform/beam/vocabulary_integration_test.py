@@ -713,9 +713,9 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
       x = inputs['x']
       weights = inputs.get('weights')
       # Note even though the return value is not used, calling
-      # tft.approximate_vocabulary will generate the vocabulary as a side
-      # effect, and since we have named this vocabulary it can be looked up
-      # using public APIs.
+      # tft.experimental.approximate_vocabulary will generate the vocabulary as
+      # a side effect, and since we have named this vocabulary it can be looked
+      # up using public APIs.
       tft.experimental.approximate_vocabulary(
           x,
           top_k,
@@ -759,6 +759,24 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         preprocessing_fn,
         expected_data,
         test_data=input_data + [{'x': 'c'}])  # pyformat: disable
+
+  def testEmptyComputeAndApplyApproximateVocabulary(self):
+    input_data = [{'x': ''}] * 3
+    input_metadata = tft_unit.metadata_from_feature_spec(
+        {'x': tf.io.FixedLenFeature([], tf.string)})
+
+    def preprocessing_fn(inputs):
+      index = tft.experimental.compute_and_apply_approximate_vocabulary(
+          inputs['x'],
+          top_k=2,
+          file_format=self._VocabFormat(),
+          num_oov_buckets=1)
+      return {'index': index}
+
+    # We only filter empty tokens for `text` format.
+    expected_data = [{'index': 1 if self._VocabFormat() == 'text' else 0}] * 3
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data)
 
   def testJointVocabularyForMultipleFeatures(self):
     input_data = [{

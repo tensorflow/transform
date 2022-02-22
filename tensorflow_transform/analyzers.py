@@ -1691,6 +1691,18 @@ def register_vocab(sanitized_filename: str,
     annotators.annotate_vocab_size(vocabulary_key, vocabulary_size)
 
 
+def get_empy_vocabulary_dummy_value(
+    dtype: Union[tf.dtypes.DType, str]) -> Tuple[int, bytes]:
+  """Returns a vocabulary entry to use in case of an empty vocabulary."""
+  # TODO(b/62272023) remove this workaround if/when fixed on tensorflow.
+  # If the vocabulary is empty add a dummy value with count one so
+  # the tensorflow index operations don't fail to initialize with empty
+  # tensors downstream.
+  dummy_value = (b'49d0cd50-04bb-48c0-bc6f-5b575dce351a'
+                 if tf.dtypes.as_dtype(dtype) == tf.string else b'-1')
+  return (1, dummy_value)
+
+
 # TODO(KesterTong): Once multiple outputs are supported, return indices too.
 # TODO(b/117796748): Add coverage key feature input as alternative to `key_fn`.
 # TODO(tensorflow/community) the experimental fingerprint_shuffle argument is a

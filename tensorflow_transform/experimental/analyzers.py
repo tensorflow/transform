@@ -442,7 +442,7 @@ def _approximate_vocabulary_analyzer_nodes(
       vocab_filename, vocabulary_key=vocabulary_key, file_format=file_format)
 
   outputs_value_nodes = analyzers.apply_cacheable_combine_operation(
-      _VocabularyCombiner(top_k), *analyzer_inputs)
+      _VocabularyCombiner(top_k, input_dtype), *analyzer_inputs)
 
   flattened_outputs_value_node = nodes.apply_operation(
       analyzer_nodes.FlattenLists, *outputs_value_nodes)
@@ -474,8 +474,9 @@ class _MisraGriesSketchCoder(analyzer_nodes.CacheCoder):
 class _VocabularyCombiner(analyzer_nodes.Combiner):
   """Approximately computes unique values on the PCollection."""
 
-  def __init__(self, top_k: int):
+  def __init__(self, top_k: int, input_dtype: tf.dtypes.DType):
     self._top_k = top_k
+    self._input_dtype = input_dtype
 
   def create_accumulator(self) -> sketches.MisraGriesSketch:
     return sketches.MisraGriesSketch(self._top_k)
@@ -503,7 +504,13 @@ class _VocabularyCombiner(analyzer_nodes.Combiner):
                      accumulator: sketches.MisraGriesSketch) -> np.ndarray:
     estimate = accumulator.Estimate()
     estimate.validate()
-    return np.dstack(reversed(estimate.flatten()))
+    result = np.dstack(reversed(estimate.flatten()))
+    if not result.size:
+      return np.array(
+          [[analyzers.get_empy_vocabulary_dummy_value(self._input_dtype)]],
+          dtype=object)
+    else:
+      return result
 
   def output_tensor_infos(self) -> List[analyzer_nodes.TensorInfo]:
     return [analyzer_nodes.TensorInfo(tf.string, [None, 2], None)]
