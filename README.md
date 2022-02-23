@@ -99,6 +99,7 @@ tensorflow-transform                                                            
 [GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) | 2.35.0           | 5.0.0   | nightly (1.x/2.x) | 1.6.0               | 1.6.0   |
 [1.6.0](https://github.com/tensorflow/transform/blob/v1.6.0/RELEASE.md)         | 2.35.0           | 5.0.0   | 1.15.5 / 2.7      | 1.6.0               | 1.6.0   |
 [1.5.0](https://github.com/tensorflow/transform/blob/v1.5.0/RELEASE.md)         | 2.34.0           | 5.0.0   | 1.15.2 / 2.7      | 1.5.0               | 1.5.0   |
+[1.4.1](https://github.com/tensorflow/transform/blob/v1.4.1/RELEASE.md)         | 2.33.0           | 4.0.1   | 1.15.2 / 2.6      | 1.4.0               | 1.4.0   |
 [1.4.0](https://github.com/tensorflow/transform/blob/v1.4.0/RELEASE.md)         | 2.33.0           | 4.0.1   | 1.15.2 / 2.6      | 1.4.0               | 1.4.0   |
 [1.3.0](https://github.com/tensorflow/transform/blob/v1.3.0/RELEASE.md)         | 2.31.0           | 2.0.0   | 1.15.2 / 2.6      | 1.2.0               | 1.3.0   |
 [1.2.0](https://github.com/tensorflow/transform/blob/v1.2.0/RELEASE.md)         | 2.31.0           | 2.0.0   | 1.15.2 / 2.5      | 1.2.0               | 1.2.0   |
