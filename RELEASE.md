@@ -6,7 +6,7 @@
 
 ## Bug Fixes and Other Changes
 
-*   Depends on `future==0.18.2`.
+*   Depends on `future` package.
 
 ## Breaking Changes
 
