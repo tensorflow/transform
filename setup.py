@@ -44,6 +44,7 @@ def _make_required_install_packages():
   return [
       'absl-py>=0.9,<0.13',
       'apache-beam[gcp]>=2.33,<3',
+      'future',
       'numpy>=1.16,<1.20',
       'protobuf>=3.13,<4',
       'pyarrow>=1,<6',
