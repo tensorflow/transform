@@ -28,3 +28,11 @@ from tensorflow_transform.beam.impl import TransformDataset
 from tensorflow_transform.beam.tft_beam_io import *
 
 # pylint: enable=wildcard-import
+
+# TF 2.6 split support for filesystems such as Amazon S3 out to the
+# `tensorflow_io` package. Hence, this import is needed wherever we touch the
+# filesystem.
+try:
+  import tensorflow_io as _  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
+except ModuleNotFoundError:
+  pass

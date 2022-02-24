@@ -27,3 +27,11 @@ from tensorflow_transform.py_func.api import apply_pyfunc
 
 # Import version string.
 from tensorflow_transform.version import __version__
+
+# TF 2.6 split support for filesystems such as Amazon S3 out to the
+# `tensorflow_io` package. Hence, this import is needed wherever we touch the
+# filesystem.
+try:
+  import tensorflow_io as _  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
+except ModuleNotFoundError:
+  pass

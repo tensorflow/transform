@@ -169,8 +169,6 @@ def _maybe_register_addon_ops():
   # LINT.IfChange
   _try_import('struct2tensor')
   _try_import('tensorflow_decision_forests')
-  # Needed to load SavedModel on s3://
-  _try_import('tensorflow_io')
   _try_import('tensorflow_text')
   # LINT.ThenChange(tensorflow_model_analysis/utils/model_util.py)
 
