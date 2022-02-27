@@ -22,6 +22,8 @@
     in deep copy optimization. The reason of adding these tags is to prevent
     root Reads that are generated from deep copy being merged due to common
     subexpression elimination.
+*   Fixed an issue when large int64 values would be incorrectly bucketized in
+    `tft.apply_buckets`.
 *   Depends on `apache-beam[gcp]>=2.36,<3`.
 *   Depends on
     `tensorflow>=1.15.5,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,!=2.6.*,!=2.7.*,<3`.

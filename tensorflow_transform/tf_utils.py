@@ -14,6 +14,7 @@
 """TF utils for computing information over given data."""
 
 import contextlib
+import enum
 from typing import Callable, Optional, Tuple, Union
 
 import tensorflow as tf
@@ -51,6 +52,16 @@ ReducedBatchWeightedCounts = tfx_namedtuple.namedtuple('ReducedBatchCounts', [
 
 _CompositeTensorRef = tfx_namedtuple.namedtuple('_CompositeTensorRef',
                                                 ['type_spec', 'list_of_refs'])
+
+
+def get_values(x: common_types.TensorType) -> tf.Tensor:
+  """Extracts values if the given tensor is composite."""
+  if isinstance(x, tf.SparseTensor):
+    return x.values
+  elif isinstance(x, tf.RaggedTensor):
+    return x.flat_values
+  else:
+    return x
 
 
 def copy_tensors(tensors):
@@ -535,33 +546,53 @@ def is_vocabulary_tfrecord_supported() -> bool:
           tf.version.VERSION >= '2.4')
 
 
-def apply_bucketize_op(x: tf.Tensor,
-                       boundaries: tf.Tensor,
-                       remove_leftmost_boundary: bool = False) -> tf.Tensor:
-  """Applies the bucketize op to every value in x.
+# Used to decide which bucket boundary index to assign to a value.
+class Side(enum.Enum):
+  RIGHT = 'right'
+  LEFT = 'left'
 
-  x and boundaries are expected to be in final form (before turning to lists).
+
+def assign_buckets(x: tf.Tensor,
+                   bucket_boundaries: tf.Tensor,
+                   side: Side = Side.LEFT) -> tf.Tensor:
+  """Assigns every value in x to a bucket index defined by bucket_boundaries.
+
+  Note that `x` and `bucket_boundaries` will be cast to a common type that can
+  hold the largest of values.
 
   Args:
-    x: a `Tensor` of dtype float32 with no more than one dimension.
-    boundaries:  The bucket boundaries represented as a rank 2 `Tensor` of
-      tf.int32|64. Should be sorted.
-    remove_leftmost_boundary (Optional): Remove lowest boundary if True.
-      BoostedTreesBucketize op assigns according to upper bound, and therefore
-      the leftmost boundary is assumed to be the upper bound of the first
-      bucket. If a lower bound is present, the indexes will be off by 1.
+    x: a `Tensor` of values to be bucketized.
+    bucket_boundaries:  The bucket boundaries `Tensor`. Note that the boundaries
+      are going to be flattened.
+    side: Controlls index of a bucket that is being assigned: LEFT means that
+      a value is going to be assigned index of the rightmost boundary such that
+      boundary <= value; RIGHT means that a value is assigned index of the
+      leftmost boundary such that value < boundary.
 
   Returns:
     A `Tensor` of dtype int64 with the same shape as `x`, and each element in
     the returned tensor representing the bucketized value. Bucketized value is
     in the range [0, len(bucket_boundaries)].
   """
-  if remove_leftmost_boundary:
-    boundaries = boundaries[:, 1:]
-  bucket_indices = tf.cast(tf.raw_ops.BoostedTreesBucketize(
-      float_values=[x],
-      bucket_boundaries=tf.unstack(boundaries))[0], dtype=tf.int64)
-  return bucket_indices
+  with tf.compat.v1.name_scope(None, 'assign_buckets'):
+    flat_x = tf.reshape(x, [-1])
+    flat_boundaries = tf.reshape(bucket_boundaries, [-1])
+
+    # Cast values or boundaries to the "largest" dtype to avoid truncating
+    # larger values and avoid casting if dtypes are the same.
+    if flat_x.dtype.max > flat_boundaries.dtype.max:
+      flat_boundaries = tf.cast(flat_boundaries, flat_x.dtype)
+    else:
+      flat_x = tf.cast(flat_x, flat_boundaries.dtype)
+
+    if side == Side.LEFT:
+      # Ignore the last boundary to replicate behavior of the previously used
+      # `BoostedTreesBucketize` for backwards compatibility.
+      flat_boundaries = flat_boundaries[:-1]
+
+    buckets = tf.searchsorted(
+        flat_boundaries, flat_x, side=side.value, out_type=tf.int64)
+    return tf.reshape(buckets, tf.shape(x))
 
 
 # TODO(b/62379925): Remove this once all supported TF versions have

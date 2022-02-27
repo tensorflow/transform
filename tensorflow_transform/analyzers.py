@@ -644,11 +644,7 @@ def sum(  # pylint: disable=redefined-builtin
   """
   with tf.compat.v1.name_scope(name, 'sum'):
     if reduce_instance_dims:
-      if isinstance(x, tf.SparseTensor):
-        x = x.values
-      elif isinstance(x, tf.RaggedTensor):
-        x = x.flat_values
-      x = tf.reduce_sum(input_tensor=x)
+      x = tf.reduce_sum(input_tensor=tf_utils.get_values(x))
     elif isinstance(x, tf.SparseTensor):
       if x.dtype == tf.uint8 or x.dtype == tf.uint16:
         x = tf.cast(x, tf.int64)
@@ -667,6 +663,11 @@ def sum(  # pylint: disable=redefined-builtin
         default_accumulator_value=0,
         reduce_instance_dims=reduce_instance_dims,
         output_dtypes=[output_dtype])[0]
+
+
+def remove_leftmost_boundary(boundaries: tf.Tensor) -> tf.Tensor:
+  """Removes the leftmost boundary from [1, None]-shaped `Tensor` of buckets."""
+  return boundaries[:, 1:]
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
@@ -704,13 +705,7 @@ def histogram(x: common_types.TensorType,
   """
 
   with tf.compat.v1.name_scope(name, 'histogram'):
-    # We need to flatten because BoostedTreesBucketize expects a rank-1 input
-    if isinstance(x, tf.SparseTensor):
-      x = x.values
-    elif isinstance(x, tf.RaggedTensor):
-      x = x.flat_values
-    else:
-      x = tf.reshape(x, [-1])
+    x = tf.reshape(tf_utils.get_values(x), [-1])
     if categorical:
       x_dtype = x.dtype
       x = x if x_dtype == tf.string else tf.strings.as_string(x)
@@ -732,10 +727,8 @@ def histogram(x: common_types.TensorType,
     # and due to the fact that the rightmost boundary is essentially ignored.
     boundaries = tf.expand_dims(tf.cast(boundaries, tf.float32), 0) - 0.0001
 
-    bucket_indices = tf_utils.apply_bucketize_op(tf.cast(x, tf.float32),
-                                                 boundaries,
-                                                 remove_leftmost_boundary=True)
-
+    bucket_indices = tf_utils.assign_buckets(
+        tf.cast(x, tf.float32), remove_leftmost_boundary(boundaries))
     bucket_vocab, counts = count_per_key(tf.strings.as_string(bucket_indices))
     counts = tf_utils.reorder_histogram(bucket_vocab, counts,
                                         tf.size(boundaries) - 1)

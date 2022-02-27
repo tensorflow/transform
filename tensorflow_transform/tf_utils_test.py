@@ -1761,30 +1761,49 @@ class TFUtilsTest(test_case.TransformTestCase):
     counts = _reorder_histogram(bucket_vocab, counts, boundary_size)
     self.assertAllEqual(counts, expected_counts)
 
-  @test_case.named_parameters(test_case.cross_with_function_handlers([
-      # TODO(b/138799370): Remove or alter this test.
-      dict(
-          testcase_name='broken_bucket',
-          x=[0.0, 2.0, 3.5, 4.0],
-          boundaries=[[1.0, 2.0, 3.0, 3.9]],
-          remove_left=False,
-          expected_buckets=[0, 1, 3, 3]),  # old behavior: [0, 1, 3, 4]
-      dict(
-          testcase_name='remove_boundary',
-          x=[0.0, 4.0, 3.5, 2.0, 1.7],
-          boundaries=[[-1.0, 1.0, 2.0, 3.0, 5.0]],
-          remove_left=True,
-          expected_buckets=[0, 3, 3, 1, 1]),
-  ]))
-  def test_apply_bucketize_op(self, x, boundaries,
-                              remove_left, expected_buckets, function_handler):
-    input_signature = [tf.TensorSpec([None], tf.float32),
-                       tf.TensorSpec([1, None], tf.float32)]
-    @function_handler(input_signature=input_signature)
-    def _apply_bucketize_op(x, boundaries):
-      return tf_utils.apply_bucketize_op(x, boundaries, remove_left)
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers([
+          dict(
+              testcase_name='simple',
+              x=[0.0, 2.0, 3.5, 4.0],
+              x_spec=tf.TensorSpec([None], tf.float32),
+              boundaries=[[1.0, 2.0, 3.0, 3.9]],
+              boundaries_spec=tf.TensorSpec([1, None], tf.float32),
+              side=tf_utils.Side.LEFT,
+              expected_buckets=[0, 1, 3, 3]),
+          dict(
+              testcase_name='simple_right',
+              x=[0.0, 2.0, 3.5, 4.0],
+              x_spec=tf.TensorSpec([None], tf.float32),
+              boundaries=[1.0, 2.0, 3.0, 3.9],
+              boundaries_spec=tf.TensorSpec([None], tf.float32),
+              side=tf_utils.Side.RIGHT,
+              expected_buckets=[0, 2, 3, 4]),
+          dict(
+              testcase_name='2dim',
+              x=[[0.0, 4.0, 3.5, 2.0, 1.7]],
+              x_spec=tf.TensorSpec([1, None], tf.float32),
+              boundaries=[[1.0, 2.0, 3.0, 5.0]],
+              boundaries_spec=tf.TensorSpec([1, None], tf.float32),
+              side=tf_utils.Side.LEFT,
+              expected_buckets=[[0, 3, 3, 1, 1]]),
+          dict(
+              testcase_name='large_buckets',
+              x=[[50_000_000]],
+              x_spec=tf.TensorSpec([1, None], tf.int64),
+              boundaries=[0, 50_000_001, 100_000_001],
+              boundaries_spec=tf.TensorSpec([None], tf.int64),
+              side=tf_utils.Side.RIGHT,
+              expected_buckets=[[1]]),
+      ]))
+  def test_assign_buckets(self, x, x_spec, boundaries, boundaries_spec, side,
+                          expected_buckets, function_handler):
 
-    buckets = _apply_bucketize_op(x, boundaries)
+    @function_handler(input_signature=[x_spec, boundaries_spec])
+    def _assign_buckets(x, boundaries):
+      return tf_utils.assign_buckets(x, boundaries, side)
+
+    buckets = _assign_buckets(x, boundaries)
     self.assertAllEqual(buckets, expected_buckets)
 
   def test_sparse_indices(self):

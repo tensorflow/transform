@@ -652,12 +652,34 @@ class MappersTest(test_case.TransformTestCase):
     hashed_strings = mappers.hash_strings(strings, hash_buckets, key=[321, 555])
     self.assertAllEqual(expected_hashed_strings, hashed_strings)
 
-  def testApplyBucketsSmall(self):
-    inputs = tf.constant(4)
-    quantiles = tf.constant([5])
-    expected_outputs = tf.constant(0, dtype=tf.int64)
-    bucketized = mappers.apply_buckets(inputs, [quantiles])
-    self.assertAllEqual(bucketized, expected_outputs)
+  @test_case.named_parameters(
+      dict(
+          testcase_name='few_buckets',
+          x=4,
+          bucket_boundaries=[[5]],
+          expected_buckets=0),
+      dict(
+          testcase_name='large_buckets',
+          x=50_000_000,
+          bucket_boundaries=[[0, 50_000_001, 100_000_001]],
+          expected_buckets=1),
+      dict(
+          testcase_name='with_nans',
+          x=[4.0, float('nan'), float('-inf'), 7.5, 10.0],
+          bucket_boundaries=[[2, 5, 8]],
+          expected_buckets=[1, 3, 0, 2, 3]),
+      dict(
+          testcase_name='with_inf_boundary',
+          x=[4.0, float('-inf'), .8, 7.5, 10.0],
+          bucket_boundaries=[[float('-inf'), 2, 5, 8]],
+          expected_buckets=[2, 1, 1, 3, 4]),
+  )
+  def testApplyBuckets(self, x, bucket_boundaries, expected_buckets):
+    x = tf.constant(x)
+    bucket_boundaries = tf.constant(bucket_boundaries)
+    expected_buckets = tf.constant(expected_buckets, dtype=tf.int64)
+    buckets = mappers.apply_buckets(x, bucket_boundaries)
+    self.assertAllEqual(buckets, expected_buckets)
 
   def testApplybucketsToSparseTensor(self):
     inputs = tf.SparseTensor(
@@ -685,22 +707,6 @@ class MappersTest(test_case.TransformTestCase):
         row_splits=[0, 1, 1, 2, 3, 5])
     bucketized = mappers.apply_buckets(inputs, [quantiles])
     self.assertAllEqual(expected_bucketized, bucketized)
-
-  def testApplyBucketsWithNans(self):
-    inputs = tf.constant([4.0, float('nan'), float('-inf'), 7.5, 10.0])
-    quantiles = tf.constant([2, 5, 8])
-    # TODO(b/148278398): NaN is mapped to the highest bucket. Determine
-    # if this is the right behavior.
-    expected_outputs = tf.constant([1, 3, 0, 2, 3], dtype=tf.int64)
-    bucketized = mappers.apply_buckets(inputs, [quantiles])
-    self.assertAllEqual(bucketized, expected_outputs)
-
-  def testApplyBucketsWithInfBoundary(self):
-    inputs = tf.constant([4.0, float('-inf'), .8, 7.5, 10.0])
-    quantiles = tf.constant([float('-inf'), 2, 5, 8])
-    expected_outputs = tf.constant([2, 1, 1, 3, 4], dtype=tf.int64)
-    bucketized = mappers.apply_buckets(inputs, [quantiles])
-    self.assertAllEqual(bucketized, expected_outputs)
 
   def testApplyBucketsWithKeys(self):
     with tf.compat.v1.Graph().as_default():

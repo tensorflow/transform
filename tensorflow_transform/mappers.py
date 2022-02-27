@@ -138,13 +138,12 @@ def _scale_to_gaussian_internal(
       x, reduce_instance_dims=not elementwise, output_dtype=output_dtype)
 
   compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
-  x_values = x
+  x_values = tf_utils.get_values(x)
 
   x_var = analyzers.var(x, reduce_instance_dims=not elementwise,
                         output_dtype=output_dtype)
 
   if isinstance(x, tf.SparseTensor):
-    x_values = x.values
     if elementwise:
       x_loc = tf.gather_nd(x_loc, x.indices[:, 1:])
       x_scale = tf.gather_nd(x_scale, x.indices[:, 1:])
@@ -155,7 +154,6 @@ def _scale_to_gaussian_internal(
     if elementwise:
       raise NotImplementedError(
           'Elementwise scale_to_gaussian does not support RaggedTensors.')
-    x_values = x.flat_values
 
   numerator = tf.cast(x_values, x_loc.dtype) - x_loc
   is_long_tailed = tf.math.logical_or(hl > 0.0, hr > 0.0)
@@ -390,19 +388,17 @@ def _scale_by_min_max_internal(
           -minus_min_max_for_key[:, 0], minus_min_max_for_key[:, 1])
 
   compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
-  x_values = x
+  x_values = tf_utils.get_values(x)
   if isinstance(x, tf.SparseTensor):
     if elementwise:
       min_x_value = tf.gather_nd(
           tf.broadcast_to(min_x_value, x.dense_shape), x.indices)
       max_x_value = tf.gather_nd(
           tf.broadcast_to(max_x_value, x.dense_shape), x.indices)
-    x_values = x.values
   elif isinstance(x, tf.RaggedTensor):
     if elementwise:
       raise NotImplementedError(
           'Elementwise min_and_max does not support RaggedTensors.')
-    x_values = x.flat_values
 
   # If min>=max, then the corresponding input to the min_and_max analyzer either
   # was empty and the analyzer returned default values, or contained only one
@@ -640,10 +636,9 @@ def _scale_to_z_score_internal(
       x_mean, x_var = (mean_var_for_key[:, 0], mean_var_for_key[:, 1])
 
   compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
-  x_values = x
+  x_values = tf_utils.get_values(x)
 
   if isinstance(x, tf.SparseTensor):
-    x_values = x.values
     if elementwise:
       x_mean = tf.gather_nd(tf.broadcast_to(x_mean, x.dense_shape), x.indices)
       x_var = tf.gather_nd(tf.broadcast_to(x_var, x.dense_shape), x.indices)
@@ -651,7 +646,6 @@ def _scale_to_z_score_internal(
     if elementwise:
       raise NotImplementedError(
           'Elementwise scale_to_z_score does not support RaggedTensors')
-    x_values = x.flat_values
 
   numerator = tf.cast(x_values, x_mean.dtype) - x_mean
   denominator = tf.sqrt(x_var)
@@ -1142,7 +1136,7 @@ def apply_vocabulary(
         return table
 
       compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
-      x_values = _get_values_if_composite(x)
+      x_values = tf_utils.get_values(x)
       result, table_size = tf_utils.construct_and_lookup_table(
           _construct_table, deferred_vocab_filename_tensor, x_values)
       result = compose_result_fn(result)
@@ -1159,7 +1153,7 @@ def apply_vocabulary(
       min_value = tf.minimum(min_value, default_value)
       max_value = tf.maximum(max_value, default_value)
     schema_inference.set_tensor_schema_override(
-        _get_values_if_composite(result), min_value, max_value)
+        tf_utils.get_values(result), min_value, max_value)
     return result
 
 
@@ -1682,7 +1676,7 @@ def hash_strings(
         strings, hash_buckets, key, name=name)
   else:
     compose_result_fn = _make_composite_tensor_wrapper_if_composite(strings)
-    values = _get_values_if_composite(strings)
+    values = tf_utils.get_values(strings)
     return compose_result_fn(hash_strings(values, hash_buckets, key))
 
 
@@ -1747,7 +1741,7 @@ def bucketize(x: common_types.ConsistentTensorType,
       # See explanation in args documentation for epsilon.
       epsilon = min(1.0 / num_buckets, 0.01)
 
-    x_values = _get_values_if_composite(x)
+    x_values = tf_utils.get_values(x)
     bucket_boundaries = analyzers.quantiles(
         x_values,
         num_buckets,
@@ -1821,11 +1815,11 @@ def bucketize_per_key(
     (key_vocab, bucket_boundaries, scale_factor_per_key, shift_per_key,
      actual_num_buckets) = (
          analyzers._quantiles_per_key(  # pylint: disable=protected-access
-             _get_values_if_composite(x),
-             _get_values_if_composite(key),
+             tf_utils.get_values(x),
+             tf_utils.get_values(key),
              num_buckets,
              epsilon,
-             weights=_get_values_if_composite(weights)))
+             weights=tf_utils.get_values(weights)))
     return _apply_buckets_with_keys(x, key, key_vocab, bucket_boundaries,
                                     scale_factor_per_key, shift_per_key,
                                     actual_num_buckets)
@@ -1845,15 +1839,6 @@ def _make_composite_tensor_wrapper_if_composite(
     return from_nested_row_splits
   else:
     return lambda values: values
-
-
-def _get_values_if_composite(x: common_types.TensorType) -> tf.Tensor:
-  if isinstance(x, tf.SparseTensor):
-    return x.values
-  elif isinstance(x, tf.RaggedTensor):
-    return x.flat_values
-  else:
-    return x
 
 
 def _fill_shape(value, shape, dtype):
@@ -1887,9 +1872,9 @@ def _apply_buckets_with_keys(
     `key` is not present in `key_vocab` then the resulting bucket will be -1.
   """
   with tf.compat.v1.name_scope(name, 'apply_buckets_with_keys'):
-    x_values = tf.cast(_get_values_if_composite(x), tf.float32)
+    x_values = tf.cast(tf_utils.get_values(x), tf.float32)
     compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
-    key_values = _get_values_if_composite(key)
+    key_values = tf_utils.get_values(key)
 
     # Convert `key_values` to indices in key_vocab.
     key_indices = tf_utils.lookup_key(key_values, key_vocab)
@@ -1906,8 +1891,8 @@ def _apply_buckets_with_keys(
 
     transformed_x = x_values * scale_factors + shifts
 
-    offset_buckets = _assign_buckets_all_shapes(
-        transformed_x, tf.expand_dims(bucket_boundaries, 0))
+    offset_buckets = tf_utils.assign_buckets(
+        transformed_x, bucket_boundaries, side=tf_utils.Side.RIGHT)
 
     max_bucket = num_buckets - 1
 
@@ -1972,7 +1957,7 @@ def apply_buckets_with_interpolation(
   with tf.compat.v1.name_scope(name, 'buckets_with_interpolation'):
     bucket_boundaries = tf.convert_to_tensor(bucket_boundaries)
     tf.compat.v1.assert_rank(bucket_boundaries, 2)
-    x_values = _get_values_if_composite(x)
+    x_values = tf_utils.get_values(x)
     compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
     if not (x_values.dtype.is_floating or x_values.dtype.is_integer):
       raise ValueError(
@@ -1992,7 +1977,8 @@ def apply_buckets_with_interpolation(
         tf.constant(0, tf.int64),
         name='assert_1_or_more_finite_boundaries')
     with tf.control_dependencies([assert_some_finite_boundaries]):
-      bucket_indices = _assign_buckets_all_shapes(x_values, bucket_boundaries)
+      bucket_indices = tf_utils.assign_buckets(
+          x_values, bucket_boundaries, side=tf_utils.Side.RIGHT)
       # Get max, min, and width of the corresponding bucket for each element.
       bucket_max = tf.cast(
           tf.gather(
@@ -2086,7 +2072,8 @@ def apply_buckets(
     bucket_boundaries = tf.convert_to_tensor(bucket_boundaries)
     tf.compat.v1.assert_rank(bucket_boundaries, 2)
 
-    bucketized_values = _assign_buckets_all_shapes(x, bucket_boundaries)
+    bucketized_values = tf_utils.assign_buckets(
+        tf_utils.get_values(x), bucket_boundaries, side=tf_utils.Side.RIGHT)
 
     # Attach the relevant metadata to result, so that the corresponding
     # output feature will have this metadata set.
@@ -2097,94 +2084,6 @@ def apply_buckets(
     _annotate_buckets(bucketized_values, bucket_boundaries)
     compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
     return compose_result_fn(bucketized_values)
-
-
-def _assign_buckets_all_shapes(x: common_types.TensorType,
-                               bucket_boundaries: tf.Tensor) -> tf.Tensor:
-  """Assigns every value in x to a bucket index defined by bucket_boundaries.
-
-  Depending on the shape of the x input, we split into individual vectors
-  so that the actual _assign_buckets function can operate as expected.
-
-  Args:
-    x: a `Tensor` or `CompositeTensor` with no more than 2 dimensions.
-    bucket_boundaries:  The bucket boundaries represented as a rank 2 `Tensor`.
-
-  Returns:
-    A `Tensor` of the same shape as `x`, with each element in the
-    returned tensor representing the bucketized value. Bucketized value is
-    in the range [0, len(bucket_boundaries)].
-  """
-  with tf.compat.v1.name_scope(None, 'assign_buckets_all_shapes'):
-    bucket_boundaries = tf.cast(bucket_boundaries, tf.float32)
-    x = tf.cast(_get_values_if_composite(x), tf.float32)
-
-    # We expect boundaries in final dimension but have to satisfy other shapes.
-    if bucket_boundaries.shape[0] != 1:
-      bucket_boundaries = tf.transpose(bucket_boundaries)
-
-    if x.get_shape().ndims == 1:
-      buckets = _assign_buckets(x, bucket_boundaries)
-    elif x.get_shape().ndims is None or x.get_shape().ndims == 0:
-      buckets = tf.squeeze(_assign_buckets(
-          tf.expand_dims(x, axis=0), bucket_boundaries))
-    elif x.get_shape().ndims == 2:
-      # For x with 2 dimensions, assign buckets to each column separately.
-      buckets = [_assign_buckets(x_column, bucket_boundaries)
-                 for x_column in tf.unstack(x, axis=1)]
-      # Ex: x = [[1,2], [3,4]], boundaries = [[2.5]]
-      #     results in [[0,1], [0,1]] transposed to [[0,0], [1,1]].
-      buckets = tf.transpose(buckets)
-    else:
-      raise ValueError('Assign buckets requires at most 2 dimensions')
-    return buckets
-
-
-# TODO(b/148278398): Determine how NaN values should be assigned to buckets.
-# Currently it maps to the highest bucket.
-def _assign_buckets(x_values: tf.Tensor,
-                    bucket_boundaries: tf.Tensor) -> tf.Tensor:
-  """Assigns every value in x to a bucket index defined by bucket_boundaries.
-
-  Args:
-    x_values: a `Tensor` of dtype float32 with no more than one dimension.
-    bucket_boundaries:  The bucket boundaries represented as a rank 2 `Tensor`.
-      Should be sorted.
-
-  Returns:
-    A `Tensor` of the same shape as `x_values`, with each element in the
-    returned tensor representing the bucketized value. Bucketized value is
-    in the range [0, len(bucket_boundaries)].
-  """
-  with tf.compat.v1.name_scope(None, 'assign_buckets'):
-    max_value = tf.cast(tf.shape(input=bucket_boundaries)[1], dtype=tf.int64)
-
-    # We need to reverse the negated boundaries and x_values and add a final
-    # max boundary to work with the new bucketize op.
-    bucket_boundaries = tf.reverse(-bucket_boundaries, [-1])
-    bucket_boundaries = tf.concat([
-        bucket_boundaries, [[tf.reduce_max(-x_values)]]], axis=-1)
-
-    if x_values.get_shape().ndims > 1:
-      x_values = tf.squeeze(x_values)
-
-    # BoostedTreesBucketize assigns to lower bound instead of upper bound, so
-    # we need to reverse both boundaries and x_values and make them negative
-    # to make cases exactly at the boundary consistent.
-    buckets = tf_utils.apply_bucketize_op(-x_values, bucket_boundaries)
-    # After reversing the inputs, the assigned buckets are exactly reversed
-    # and need to be re-reversed to their original index.
-    buckets = tf.subtract(max_value, buckets)
-
-    if buckets.shape.ndims <= 1:
-      # As a result of the above squeeze, there might be too few bucket dims
-      # and we want the output shape to match the input.
-      if not buckets.shape.ndims:
-        buckets = tf.expand_dims(buckets, -1)
-      elif x_values.shape.ndims is not None and x_values.shape.ndims > 1:
-        buckets = tf.expand_dims(buckets, -1)
-
-    return buckets
 
 
 def _annotate_buckets(x: tf.Tensor, bucket_boundaries: tf.Tensor) -> None:
@@ -2299,9 +2198,9 @@ def estimated_probability_density(x: tf.Tensor,
           tf.cast(tf.size(probabilities), tf.float32))
       bucket_densities = probabilities / bin_width
 
-      bucket_indices = tf_utils.apply_bucketize_op(
-          tf.cast(x, tf.float32), boundaries, True)
-
+      bucket_indices = tf_utils.assign_buckets(
+          tf.cast(x, tf.float32),
+          analyzers.remove_leftmost_boundary(boundaries))
     bucket_indices = tf_utils._align_dims(bucket_indices, xdims)  # pylint: disable=protected-access
 
     # In the categorical case, when keys are missing, the indices may be -1,
