@@ -4,6 +4,16 @@
 
 ## Major Features and Improvements
 
+## Bug Fixes and Other Changes
+
+## Breaking Changes
+
+## Deprecations
+
+# Version 1.7.0
+
+## Major Features and Improvements
+
 *   Introduced `tft.experimental.compute_and_apply_approximate_vocabulary` which
     computes and applies an approximate vocabulary.
 
@@ -27,10 +37,16 @@
 *   Depends on `apache-beam[gcp]>=2.36,<3`.
 *   Depends on
     `tensorflow>=1.15.5,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,!=2.6.*,!=2.7.*,<3`.
+*   Depends on `tensorflow-metadata>=1.7.0,<1.8.0`.
+*   Depends on `tfx-bsl>=1.7.0,<1.8.0`.
 
 ## Breaking Changes
 
+*   N/A
+
 ## Deprecations
+
+*   N/A
 
 # Version 1.6.0
 
