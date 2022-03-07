@@ -515,6 +515,7 @@ _TensorBinding = tfx_namedtuple.namedtuple(
 
 @beam_common.register_ptransform(beam_nodes.CreateTensorBinding)
 @beam.typehints.with_input_types(Union[np.generic, np.ndarray,
+                                       beam_common.PRIMITIVE_TYPE,
                                        Iterable[beam_common.PRIMITIVE_TYPE]])
 @beam.typehints.with_output_types(_TensorBinding)
 class _CreateTensorBindingsImpl(beam.PTransform):
@@ -816,9 +817,9 @@ class _ExtractFromDictImpl(beam.PTransform):
               if isinstance(keys, tuple) else input_dict[keys])
 
     if isinstance(self._keys, tuple):
-      output_type = Tuple[(np.ndarray,) * len(self._keys)]
+      output_type = Tuple[(Any,) * len(self._keys)]
     else:
-      output_type = np.ndarray
+      output_type = Any
     return pcoll | 'ExtractKeys' >> beam.Map(
         extract_keys, keys=self._keys).with_output_types(output_type)
 
