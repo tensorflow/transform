@@ -34,7 +34,6 @@ from tensorflow_transform.beam import analysis_graph_builder
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import schema_utils
 # TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
 # `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
 # resolved.
@@ -532,8 +531,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
     Returns:
       A _RunPipelineResult.
     """
-    input_metadata = dataset_metadata.DatasetMetadata(
-        schema_utils.schema_from_feature_spec(feature_spec))
+    input_metadata = dataset_metadata.DatasetMetadata.from_feature_spec(
+        feature_spec)
     with self._TestPipeline() as p:
       with tft_beam.Context(force_tf_compat_v1=use_tf_compat_v1):
 
@@ -1064,8 +1063,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
       with tft_beam.Context():
         flat_data = p | 'CreateInputData' >> beam.Create(input_data * 2)
 
-        input_metadata = dataset_metadata.DatasetMetadata(
-            schema_utils.schema_from_feature_spec(feature_spec))
+        input_metadata = dataset_metadata.DatasetMetadata.from_feature_spec(
+            feature_spec)
         transform_fn_no_cache = ((flat_data, input_metadata)
                                  | tft_beam.AnalyzeDataset(preprocessing_fn))
 
@@ -1223,10 +1222,9 @@ class CachedImplTest(tft_unit.TransformTestCase):
     def preprocessing_fn(inputs):
       return {k: tf.identity(v) for k, v in inputs.items()}
 
-    input_metadata = dataset_metadata.DatasetMetadata(
-        schema_utils.schema_from_feature_spec({
-            'x': tf.io.FixedLenFeature([], tf.float32),
-        }))
+    input_metadata = dataset_metadata.DatasetMetadata.from_feature_spec({
+        'x': tf.io.FixedLenFeature([], tf.float32),
+    })
     input_data_dict = {
         span_0_key: None,
         span_1_key: None,

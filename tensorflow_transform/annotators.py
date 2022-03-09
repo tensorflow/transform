@@ -150,8 +150,7 @@ def make_and_track_object(trackable_factory_callable: Callable[[],
   ...   return {'x_0': dataset_list[0] + inputs['x']}
   >>> raw_data = [dict(x=1), dict(x=2), dict(x=3)]
   >>> feature_spec = dict(x=tf.io.FixedLenFeature([], tf.int64))
-  >>> raw_data_metadata = tft.tf_metadata.dataset_metadata.DatasetMetadata(
-  ...     tft.tf_metadata.schema_utils.schema_from_feature_spec(feature_spec))
+  >>> raw_data_metadata = tft.DatasetMetadata.from_feature_spec(feature_spec)
   >>> with tft_beam.Context(temp_dir=tempfile.mkdtemp(),
   ...                       force_tf_compat_v1=False):
   ...   transformed_dataset, transform_fn = (

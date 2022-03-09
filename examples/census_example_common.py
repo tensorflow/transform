@@ -23,7 +23,6 @@ import tensorflow.compat.v2 as tf
 import tensorflow_transform as tft
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import schema_utils
 from tfx_bsl.coders.example_coder import RecordBatchToExamples
 from tfx_bsl.public import tfxio
 
@@ -65,8 +64,8 @@ RAW_DATA_FEATURE_SPEC = dict([(name, tf.io.FixedLenFeature([], tf.string))
                              [(LABEL_KEY,
                                tf.io.FixedLenFeature([], tf.string))])
 
-_SCHEMA = dataset_metadata.DatasetMetadata(
-    schema_utils.schema_from_feature_spec(RAW_DATA_FEATURE_SPEC)).schema
+_SCHEMA = dataset_metadata.DatasetMetadata.from_feature_spec(
+    RAW_DATA_FEATURE_SPEC).schema
 
 # Constants used for training.  Note that the number of instances will be
 # computed by tf.Transform in future versions, in which case it can be read from

@@ -315,8 +315,7 @@ def scale_by_min_max_per_key(
   >>> feature_spec = dict(
   ...     x=tf.io.FixedLenFeature([], tf.float32),
   ...     s=tf.io.FixedLenFeature([], tf.string))
-  >>> raw_data_metadata = tft.tf_metadata.dataset_metadata.DatasetMetadata(
-  ...     tft.tf_metadata.schema_utils.schema_from_feature_spec(feature_spec))
+  >>> raw_data_metadata = tft.DatasetMetadata.from_feature_spec(feature_spec)
   >>> with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
   ...   transformed_dataset, transform_fn = (
   ...       (raw_data, raw_data_metadata)
@@ -476,8 +475,7 @@ def scale_to_0_1_per_key(
   >>> feature_spec = dict(
   ...     x=tf.io.FixedLenFeature([], tf.float32),
   ...     s=tf.io.FixedLenFeature([], tf.string))
-  >>> raw_data_metadata = tft.tf_metadata.dataset_metadata.DatasetMetadata(
-  ...     tft.tf_metadata.schema_utils.schema_from_feature_spec(feature_spec))
+  >>> raw_data_metadata = tft.DatasetMetadata.from_feature_spec(feature_spec)
   >>> with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
   ...   transformed_dataset, transform_fn = (
   ...       (raw_data, raw_data_metadata)
@@ -693,8 +691,7 @@ def tfidf(
   >>> raw_data = [dict(x=["I", "like", "pie", "pie", "pie"]),
   ...             dict(x=["yum", "yum", "pie"])]
   >>> feature_spec = dict(x=tf.io.VarLenFeature(tf.string))
-  >>> raw_data_metadata = tft.tf_metadata.dataset_metadata.DatasetMetadata(
-  ...     tft.tf_metadata.schema_utils.schema_from_feature_spec(feature_spec))
+  >>> raw_data_metadata = tft.DatasetMetadata.from_feature_spec(feature_spec)
   >>> with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
   ...   transformed_dataset, transform_fn = (
   ...       (raw_data, raw_data_metadata)
@@ -1185,8 +1182,7 @@ def get_num_buckets_for_transformed_feature(
   ...   }
   >>> raw_data = [dict(x=3),dict(x=23)]
   >>> feature_spec = dict(x=tf.io.FixedLenFeature([], tf.int64))
-  >>> raw_data_metadata = tft.tf_metadata.dataset_metadata.DatasetMetadata(
-  ...     tft.tf_metadata.schema_utils.schema_from_feature_spec(feature_spec))
+  >>> raw_data_metadata = tft.DatasetMetadata.from_feature_spec(feature_spec)
   >>> with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
   ...   transformed_dataset, transform_fn = (
   ...       (raw_data, raw_data_metadata)

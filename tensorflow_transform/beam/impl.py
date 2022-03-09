@@ -1180,8 +1180,7 @@ class AnalyzeDatasetWithCache(_AnalyzeDatasetCommon):
   ...   x = inputs['x']
   ...   return {'x_mean': tft.mean(x, name='x') + tf.zeros_like(x)}
   >>> feature_spec = {'x': tf.io.FixedLenFeature([], tf.float32)}
-  >>> input_metadata = dataset_metadata.DatasetMetadata(
-  ...   schema_utils.schema_from_feature_spec(feature_spec))
+  >>> input_metadata = tft.DatasetMetadata.from_feature_spec(feature_spec)
   >>> input_data_dict_0 = {span_0_key: [{'x': x} for x in range(6)]}
   >>> input_data_dict_1 = {span_0_key: [{'x': x} for x in range(6, 11)]}
   >>> empty_input_cache = {}
@@ -1348,8 +1347,8 @@ def _remove_columns_from_metadata(metadata, excluded_columns):
                       if name not in excluded_columns}
   new_domains = {name: spec for name, spec in domains.items()
                  if name not in excluded_columns}
-  return dataset_metadata.DatasetMetadata(
-      schema_utils.schema_from_feature_spec(new_feature_spec, new_domains))
+  return dataset_metadata.DatasetMetadata.from_feature_spec(
+      new_feature_spec, new_domains)
 
 
 @beam.typehints.with_input_types(Union[_DatasetElementType, pa.RecordBatch],

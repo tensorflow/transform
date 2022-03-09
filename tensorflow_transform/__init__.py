@@ -23,6 +23,7 @@ from tensorflow_transform.mappers import *
 from tensorflow_transform.output_wrapper import TFTransformOutput
 from tensorflow_transform.output_wrapper import TransformFeaturesLayer
 from tensorflow_transform.py_func.api import apply_pyfunc
+from tensorflow_transform.tf_metadata.dataset_metadata import DatasetMetadata
 # pylint: enable=wildcard-import
 
 # Import version string.

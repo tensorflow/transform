@@ -25,7 +25,6 @@ from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform import test_case
 from tensorflow_transform.beam import test_helpers
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import schema_utils
 from tfx_bsl.coders import example_coder
 from tensorflow.python.util.protobuf import compare  # pylint: disable=g-direct-tensorflow-import
 import unittest
@@ -58,8 +57,8 @@ def metadata_from_feature_spec(feature_spec, domains=None):
   Returns:
     A `tft.tf_metadata.dataset_metadata.DatasetMetadata` object.
   """
-  return dataset_metadata.DatasetMetadata(
-      schema_utils.schema_from_feature_spec(feature_spec, domains))
+  return dataset_metadata.DatasetMetadata.from_feature_spec(
+      feature_spec, domains)
 
 
 def canonical_numeric_dtype(dtype):

@@ -19,15 +19,12 @@ import tempfile
 import tensorflow as tf
 import tensorflow_transform as tft
 import tensorflow_transform.beam as tft_beam
-from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import schema_utils
 
-_RAW_DATA_METADATA = dataset_metadata.DatasetMetadata(
-    schema_utils.schema_from_feature_spec({
-        's': tf.io.FixedLenFeature([], tf.string),
-        'y': tf.io.FixedLenFeature([], tf.float32),
-        'x': tf.io.FixedLenFeature([], tf.float32),
-    }))
+_RAW_DATA_METADATA = tft.DatasetMetadata.from_feature_spec({
+    's': tf.io.FixedLenFeature([], tf.string),
+    'y': tf.io.FixedLenFeature([], tf.float32),
+    'x': tf.io.FixedLenFeature([], tf.float32),
+})
 
 _RAW_DATA = [{
     'x': 1,

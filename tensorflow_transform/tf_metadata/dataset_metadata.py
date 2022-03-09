@@ -13,7 +13,13 @@
 # limitations under the License.
 """In-memory representation of all metadata associated with a dataset."""
 
+from typing import Mapping, Optional, Type, TypeVar
+
+from tensorflow_transform import common_types
+from tensorflow_transform.tf_metadata import schema_utils
 from tensorflow_metadata.proto.v0 import schema_pb2
+
+_DatasetMetadataType = TypeVar('_DatasetMetadataType', bound='DatasetMetadata')
 
 
 class DatasetMetadata:
@@ -25,6 +31,15 @@ class DatasetMetadata:
 
   def __init__(self, schema: schema_pb2.Schema):
     self._schema = schema
+
+  @classmethod
+  def from_feature_spec(
+      cls: Type[_DatasetMetadataType],
+      feature_spec: Mapping[str, common_types.FeatureSpecType],
+      domains: Optional[Mapping[str, common_types.DomainType]] = None
+  ) -> _DatasetMetadataType:
+    """Creates a DatasetMetadata from a TF feature spec dict."""
+    return cls(schema_utils.schema_from_feature_spec(feature_spec, domains))
 
   @property
   def schema(self) -> schema_pb2.Schema:

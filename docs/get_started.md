@@ -204,6 +204,8 @@ by the "metadata" accompanying the PCollection:
 (raw_data, raw_data_metadata) | tft.AnalyzeDataset(...)
 ```
 
+TODO(b/223384488): Switch to `tft.DatasetMetadata.from_feature_spec` once
+version 1.8 is released.
 - If `raw_data_metadata` is a `dataset_metadata.DatasetMetadata` (see below,
   "The 'instance dict' format" section),
   then `raw_data` is expected to be in the "instance dict" format.
