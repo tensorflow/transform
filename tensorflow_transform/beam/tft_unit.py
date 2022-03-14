@@ -46,19 +46,8 @@ main = test_case.main
 
 mock = tf.compat.v1.test.mock
 
-
-def metadata_from_feature_spec(feature_spec, domains=None):
-  """Construct a DatasetMetadata from a feature spec.
-
-  Args:
-    feature_spec: A feature spec
-    domains: A dict containing domains of features
-
-  Returns:
-    A `tft.tf_metadata.dataset_metadata.DatasetMetadata` object.
-  """
-  return dataset_metadata.DatasetMetadata.from_feature_spec(
-      feature_spec, domains)
+# TODO(zoyahav): Remove this once user usage is removed.
+metadata_from_feature_spec = tft.DatasetMetadata.from_feature_spec
 
 
 def canonical_numeric_dtype(dtype):
@@ -220,7 +209,7 @@ class TransformTestCase(test_case.TransformTestCase):
       # Ensure that the test dataset is specified and is not empty.
       assert test_data
       expected_data = [expected_outputs] * len(test_data)
-    expected_metadata = metadata_from_feature_spec({
+    expected_metadata = dataset_metadata.DatasetMetadata.from_feature_spec({
         key: tf.io.FixedLenFeature(value.shape, tf.as_dtype(value.dtype))
         for key, value in expected_outputs.items()
     })

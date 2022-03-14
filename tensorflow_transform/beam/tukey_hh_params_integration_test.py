@@ -116,16 +116,16 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
     input_data_dicts = [{'x': x} for x in input_data]
     expected_data_dicts = [
         {'x_gaussianized': x_gaussianized} for x_gaussianized in output_data]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x':
             tf.io.FixedLenFeature(
                 input_data.shape[1:],
                 tft_unit.canonical_numeric_dtype(tf.as_dtype(
                     input_data.dtype))),
     })
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'x_gaussianized': tf.io.FixedLenFeature(
-            output_data.shape[1:], tf.float32),
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
+        'x_gaussianized':
+            tf.io.FixedLenFeature(output_data.shape[1:], tf.float32),
     })
     self.assertAnalyzeAndTransformResults(
         input_data_dicts, input_metadata, preprocessing_fn, expected_data_dicts,
@@ -158,7 +158,7 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
           'idx1': [0, 1],
           'val': [v, -input_data_values[-1 - idx]]
       })
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x':
             tf.io.SparseFeature(['idx0', 'idx1'], 'val',
                                 tft_unit.canonical_numeric_dtype(input_dtype),
@@ -220,7 +220,7 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
           'row_lengths_1': [2, 1, 0],
           'row_lengths_2': [1, 0, 1],
       })
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x':
             tf.io.RaggedFeature(
                 tft_unit.canonical_numeric_dtype(input_dtype),
@@ -342,9 +342,10 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
     input_data = []
     for idx, v in enumerate(input_data_values):
       input_data.append({'a': [v, -input_data_values[-1 - idx]]})
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a': tf.io.FixedLenFeature(
-            [2], tft_unit.canonical_numeric_dtype(input_dtype))
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
+        'a':
+            tf.io.FixedLenFeature([2],
+                                  tft_unit.canonical_numeric_dtype(input_dtype))
     })
     expected_outputs = {
         'tukey_location':
@@ -397,9 +398,8 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
       input_data.append({'a': [
           [v, -input_data_values[-1 - idx]],
           [2 * v, -2 * input_data_values[-1 - idx]]]})
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a': tf.io.FixedLenFeature([2, 2], tf.float32)
-    })
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
+        {'a': tf.io.FixedLenFeature([2, 2], tf.float32)})
     expected_outputs = {
         'tukey_location':
             np.array(
@@ -519,7 +519,7 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
           'idx1': [0, 1],
           'val': [v, -input_data_values[-1 - idx]]
       })
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'a':
             tf.io.SparseFeature(['idx0', 'idx1'], 'val',
                                 tft_unit.canonical_numeric_dtype(input_dtype),
@@ -596,7 +596,7 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
           'row_lengths_1': [2, 0, 1],
           'row_lengths_2': [0, 1, 1]
       })
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'a':
             tf.io.RaggedFeature(
                 tft_unit.canonical_numeric_dtype(input_dtype),

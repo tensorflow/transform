@@ -184,14 +184,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [
         {'x': [1, 2, 3]},
     ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([3], tf.int64),
     })
     # [1, 2, 3] + [1, 2, 3] = [2, 4, 6]
     expected_data = [
         {'out': [2, 4, 6]}
     ]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {'out': tf.io.FixedLenFeature([3], tf.int64)})
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -237,13 +237,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [
         {'x': ['test_key']}
     ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([1], tf.string),
     })
     expected_data = [
         {'out': b'test_value'}
     ]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {'out': tf.io.FixedLenFeature([], tf.string)})
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -301,7 +301,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [
         {'x': [1, 2, 3], 'y': [2, 3, 4], 'z': [1, 1, 1]},
     ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([3], tf.int64),
         'y': tf.io.FixedLenFeature([3], tf.int64),
         'z': tf.io.FixedLenFeature([3], tf.int64),
@@ -310,7 +310,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_data = [
         {'sum': [1, 2, 3]}
     ]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {'sum': tf.io.FixedLenFeature([3], tf.int64)})
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -354,7 +354,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [
         {'x': [2, 2, 2], 'y': [-1, -3, 1]},
     ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([3], tf.int64),
         'y': tf.io.FixedLenFeature([3], tf.int64),
     })
@@ -362,7 +362,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_data = [
         {'out': [1, 5, 3]}
     ]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {'out': tf.io.FixedLenFeature([3], tf.int64)})
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -381,7 +381,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'x_scaled': scaled_to_0_1}
 
     input_data = [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.float32)})
     expected_data = [
         {'x_scaled': 0.75},
@@ -389,7 +389,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x_scaled': 1.0},
         {'x_scaled': 0.25}
     ]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x_scaled': tf.io.FixedLenFeature([], tf.float32)})
     with tft_beam.Context(use_deep_copy_optimization=with_deep_copy):
       # NOTE: In order to correctly test deep_copy here, we can't pass test_data
@@ -457,7 +457,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [
         {'sequence_example': text_sequence_example_to_binary(sequence_example)}
         for sequence_example in sequence_examples]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'sequence_example': tf.io.FixedLenFeature([], tf.string)})
     expected_data = [
         {'x': b'ab'},
@@ -467,7 +467,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'x': b'ef'},
         {'x': b'g'}
     ]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.string)})
 
     self.assertAnalyzeAndTransformResults(
@@ -484,7 +484,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # Run AnalyzeAndTransform on some input data and compare with expected
     # output.
     input_data = [{'x': 5, 'y': 1}, {'x': 1, 'y': 2}]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([], tf.float32),
         'y': tf.io.FixedLenFeature([], tf.float32)
     })
@@ -495,7 +495,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # Take the transform function and use TransformDataset to apply it to
     # some eval data, with missing 'y' column.
     eval_data = [{'x': 6}]
-    eval_metadata = tft_unit.metadata_from_feature_spec(
+    eval_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.float32)})
     transformed_eval_data, transformed_eval_metadata = (
         ((eval_data, eval_metadata), transform_fn)
@@ -515,7 +515,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       expected_transformed_eval_data = [{'x_scaled': 1.25}]
       self.assertDataCloseOrEqual(transformed_eval_data,
                                   expected_transformed_eval_data)
-    expected_transformed_eval_metadata = tft_unit.metadata_from_feature_spec(
+    expected_transformed_eval_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x_scaled': tf.io.FixedLenFeature([], tf.float32)})
     self.assertEqual(transformed_eval_metadata.dataset_metadata,
                      expected_transformed_eval_metadata)
@@ -536,7 +536,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': 5, 'b': 6},
         {'a': 2, 'b': 3}
     ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'a': tf.io.FixedLenFeature([], tf.float32),
         'b': tf.io.FixedLenFeature([], tf.float32)
     })
@@ -546,7 +546,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': 5},
         {'a': 2}
     ]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.FixedLenFeature([], tf.float32)})
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -598,7 +598,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': 5, 'b': 6, 'c': 7},
         {'a': 2, 'b': 3, 'c': 4}
     ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'a': tf.io.FixedLenFeature([], tf.float32),
         'b': tf.io.FixedLenFeature([], tf.float32),
         'c': tf.io.FixedLenFeature([], tf.float32)
@@ -610,7 +610,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'ab': 6, 'a+b': 5, 'a+c': 6, 'list': 15, 'sum_scaled': 0.25}
     ]
     # When calling tf.py_func, the output shape is set to unknown.
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'ab': tf.io.FixedLenFeature([], tf.float32),
         'a+b': tf.io.FixedLenFeature([], tf.float32),
         'a+c': tf.io.FixedLenFeature([], tf.float32),
@@ -650,7 +650,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'b': i,
         'c': '%.10i' % i,  # Front-padded to facilitate lexicographic sorting.
     } for i in range(num_instances)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'a': tf.io.FixedLenFeature([], tf.float32),
         'b': tf.io.FixedLenFeature([], tf.float32),
         'c': tf.io.FixedLenFeature([], tf.string)
@@ -660,14 +660,15 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'i': (len(input_data) - 1) - i,  # Due to reverse lexicographic sorting.
     } for i in range(len(input_data))]
     # pylint: enable=g-complex-comprehension
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'ab': tf.io.FixedLenFeature([], tf.float32),
-        'i': tf.io.FixedLenFeature([], tf.int64),
-    }, {
-        'i':
-            schema_pb2.IntDomain(
-                min=-1, max=num_instances - 1, is_categorical=True)
-    })
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
+        {
+            'ab': tf.io.FixedLenFeature([], tf.float32),
+            'i': tf.io.FixedLenFeature([], tf.int64),
+        }, {
+            'i':
+                schema_pb2.IntDomain(
+                    min=-1, max=num_instances - 1, is_categorical=True)
+        })
     self.assertAnalyzeAndTransformResults(
         input_data,
         input_metadata,
@@ -682,7 +683,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           [inputs['a'], inputs['b']], separator=' ')}
 
     input_data = [{'a': 'Hello', 'b': 'world'}, {'a': 'Hello', 'b': u'κόσμε'}]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'a': tf.io.FixedLenFeature([], tf.string),
         'b': tf.io.FixedLenFeature([], tf.string),
     })
@@ -690,7 +691,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a b': b'Hello world'},
         {'a b': u'Hello κόσμε'.encode('utf-8')}
     ]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a b': tf.io.FixedLenFeature([], tf.string)})
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
@@ -709,7 +710,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'a': np.array('Hello', dtype=object),
         'b': np.array(u'κόσμε', dtype=object)
     }]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'a': tf.io.FixedLenFeature([], tf.string),
         'b': tf.io.FixedLenFeature([], tf.string),
     })
@@ -718,7 +719,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     }, {
         'a b': np.array(u'Hello κόσμε'.encode('utf-8'), dtype=object)
     }]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a b': tf.io.FixedLenFeature([], tf.string)})
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
@@ -747,7 +748,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x': 2,
         'y': 3
     }]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([], tf.float32),
         'y': tf.io.FixedLenFeature([], tf.float32)
     })
@@ -779,7 +780,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'x_scaled': 0.2,
           'y_scaled': 0.4
       }]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'x_scaled': tf.io.FixedLenFeature([], tf.float32),
         'y_scaled': tf.io.FixedLenFeature([], tf.float32)
     })
@@ -822,7 +823,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'y': 0,
         'key': 'b'
     }]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([], tf.float32),
         'y': tf.io.FixedLenFeature([], tf.float32),
         'key': tf.io.FixedLenFeature([], tf.string)
@@ -846,7 +847,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x_scaled': 0.6,
         'y_scaled': 0.5
     }]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'x_scaled': tf.io.FixedLenFeature([], tf.float32),
         'y_scaled': tf.io.FixedLenFeature([], tf.float32)
     })
@@ -877,7 +878,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x': 2,
         'y': 6
     }]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([], tf.float32),
         'y': tf.io.FixedLenFeature([], tf.float32)
     })
@@ -909,7 +910,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'x_scaled': -0.75,
           'y_scaled': 0.25
       }]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'x_scaled': tf.io.FixedLenFeature([], tf.float32),
         'y_scaled': tf.io.FixedLenFeature([], tf.float32)
     })
@@ -964,7 +965,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'y': 2,
         'key': 'b'
     }]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([], tf.float32),
         'y': tf.io.FixedLenFeature([], tf.float32),
         'key': tf.io.FixedLenFeature([], tf.string)
@@ -989,7 +990,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x_scaled': 0.0,
         'y_scaled': 1.0
     }]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'x_scaled': tf.io.FixedLenFeature([], tf.float32),
         'y_scaled': tf.io.FixedLenFeature([], tf.float32)
     })
@@ -1039,7 +1040,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     indices_key = [{'idx_key_0': a, 'idx_key_1': b} for a, b in indices]
     input_data = [{**a, **b, **c}
                   for a, b, c in zip(input_data, indices_x, indices_key)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x':
             tf.io.SparseFeature(['idx_x_0', 'idx_x_1'], 'val', tf.float32,
                                 (2, 3)),
@@ -1117,11 +1118,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
               'key_idx': [0, 1],
               'key': ['b', 'a']
           }],
-          input_metadata=tft_unit.metadata_from_feature_spec({
+          input_metadata=tft.DatasetMetadata.from_feature_spec({
               'x':
                   tf.io.SparseFeature(
-                      'idx', 'val', tft_unit.canonical_numeric_dtype(
-                          tf.float32), 4),
+                      'idx', 'val',
+                      tft_unit.canonical_numeric_dtype(tf.float32), 4),
               'key':
                   tf.io.SparseFeature('key_idx', 'key', tf.string, 4)
           }),
@@ -1147,11 +1148,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
               'val': [-1, 4],
               'key': 'b'
           }],
-          input_metadata=tft_unit.metadata_from_feature_spec({
+          input_metadata=tft.DatasetMetadata.from_feature_spec({
               'x':
                   tf.io.SparseFeature(
-                      'idx', 'val', tft_unit.canonical_numeric_dtype(
-                          tf.float32), 4),
+                      'idx', 'val',
+                      tft_unit.canonical_numeric_dtype(tf.float32), 4),
               'key':
                   tf.io.FixedLenFeature([], tf.string)
           }),
@@ -1171,7 +1172,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       x_scaled.set_shape([None, 4])
       return {'x_scaled': x_scaled}
 
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x_scaled': tf.io.FixedLenFeature([4], tf.float32)})
 
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
@@ -1283,7 +1284,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         partitions=[
             tf.io.RaggedFeature.RowLengths('x_row_lengths')  # pytype: disable=attribute-error
         ])
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tft_unit.make_feature_spec_wrapper(make_x_spec),
         'key': tft_unit.make_feature_spec_wrapper(make_key_spec)
     })
@@ -1316,7 +1317,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
               tf.io.RaggedFeature.RowLengths(  # pytype: disable=attribute-error
                   '{}$row_lengths_1'.format(output_name))
           ])
-    expected_metadata = tft_unit.metadata_from_feature_spec(expected_specs)
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(expected_specs)
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
@@ -1327,7 +1328,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'x_scaled': tft.scale_by_min_max(inputs['x'], 0, 10)}
 
     input_data = [{'x': 4}, {'x': 4}, {'x': 4}, {'x': 4}]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.float32)})
     expected_data = [{
         'x_scaled': 9.8201379
@@ -1338,7 +1339,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     }, {
         'x_scaled': 9.8201379
     }]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x_scaled': tf.io.FixedLenFeature([], tf.float32)})
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
@@ -1367,7 +1368,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x': 4,
         'y': 2
     }]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([], tf.float32),
         'y': tf.io.FixedLenFeature([], tf.float32)
     })
@@ -1384,7 +1385,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x_scaled': 9.8201379,
         'y_scaled': 10
     }]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'x_scaled': tf.io.FixedLenFeature([], tf.float32),
         'y_scaled': tf.io.FixedLenFeature([], tf.float32)
     })
@@ -1398,10 +1399,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'x_scaled': tft.scale_by_min_max(inputs['x'], 2, 1)}
 
     input_data = [{'x': 1}]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.float32)})
     expected_data = [{'x_scaled': float('nan')}]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x_scaled': tf.io.FixedLenFeature([], tf.float32)})
     with self.assertRaisesRegexp(  # pylint: disable=g-error-prone-assert-raises
         ValueError, 'output_min must be less than output_max'):
@@ -1423,12 +1424,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
       }
 
     input_data = []
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([1], tf.float32)})
     test_data = [{'x': [100]}, {'x': [1]}, {'x': [12]}]
     expected_data = [{'x_scaled': [v], 'x_scaled_elementwise': [v] * multiple}
                      for v in [1., 0.7310585, 0.9999938]]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'x_scaled': tf.io.FixedLenFeature([1], tf.float32),
         'x_scaled_elementwise': tf.io.FixedLenFeature([multiple], tf.float32)
     })
@@ -1453,14 +1454,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     input_data_dicts = [{'x': x} for x in input_data]
     expected_data_dicts = [{'x_scaled': x_scaled} for x_scaled in output_data]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x':
             tf.io.FixedLenFeature(
                 input_data.shape[1:],
                 tft_unit.canonical_numeric_dtype(tf.as_dtype(
                     input_data.dtype))),
     })
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'x_scaled': tf.io.FixedLenFeature(output_data.shape[1:], tf.float32),
     })
     self.assertAnalyzeAndTransformResults(
@@ -1490,7 +1491,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'idx': [0, 1], 'val': [-4, 10]},
         {'idx': [0, 1], 'val': [2, 4]},
     ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x':
             tf.io.SparseFeature('idx', 'val',
                                 tft_unit.canonical_numeric_dtype(input_dtype),
@@ -1534,7 +1535,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
                        float('nan'),
                        float('nan')]
       })
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x_scaled': tf.io.FixedLenFeature([4], tf.float32)})
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
@@ -1597,12 +1598,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
         }
     ]
 
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.VarLenFeature(tft_unit.canonical_numeric_dtype(input_dtype)),
         'y': tf.io.VarLenFeature(tft_unit.canonical_numeric_dtype(input_dtype)),
         'key': tf.io.FixedLenFeature([], tf.string),
     })
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'x_scaled': tf.io.VarLenFeature(tf.float32),
         'y_scaled': tf.io.VarLenFeature(tf.float32),
     })
@@ -1730,7 +1731,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         },
     ]
 
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x':
             tf.io.FixedLenFeature([1],
                                   tft_unit.canonical_numeric_dtype(tf.float32)),
@@ -1743,7 +1744,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'key':
             tf.io.FixedLenFeature([], tf.string),
     })
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'x_scaled': tf.io.FixedLenFeature([1], tf.float32),
         'y_scaled': tf.io.FixedLenFeature([1], tf.float32),
         's_scaled': tf.io.FixedLenFeature([], tf.float32),
@@ -1779,7 +1780,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'idx': [0, 1], 'val': [2, 1], 'key_idx': [0, 1], 'key': ['a', 'b']},
         {'idx': [0, 1], 'val': [-1, 4], 'key_idx': [0, 1], 'key': ['b', 'a']},
     ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'key':
             tf.io.SparseFeature('key_idx', 'key', tf.string, 4),
         'x':
@@ -1823,7 +1824,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
                        float('nan'),
                        float('nan')]
       })
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x_scaled': tf.io.FixedLenFeature([4], tf.float32)})
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_data,
@@ -1843,12 +1844,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
       }
 
     input_data = []
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([1], tf.float32)})
     test_data = [{'x': [100]}, {'x': [1]}, {'x': [12]}]
     expected_data = [{'x_scaled': [v], 'x_scaled_elementwise': [v] * multiple}
                      for v in [100., 1., 12.]]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'x_scaled': tf.io.FixedLenFeature([1], tf.float32),
         'x_scaled_elementwise': tf.io.FixedLenFeature([multiple], tf.float32)
     })
@@ -1873,7 +1874,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # NOTE: We force 11 batches: data has 110 elements and we request a batch
     # size of 10.
     input_data = [{'x': [x if x < 101 else np.nan]} for x in range(1, 111)]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([1], tf.float32)})
     expected_outputs = {
         'mean': np.float32(50.5),
@@ -1902,7 +1903,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # size of 10.
     input_data = [{'x': [x], 'key': 'a' if x < 50 else 'b'}
                   for x in range(1, 101)] + [{'x': [np.nan], 'key': 'a'}] * 20
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([1], tf.float32),
         'key': tf.io.FixedLenFeature([], tf.string)
     })
@@ -1947,7 +1948,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         dict(x=5, key='b')
     ]
     test_data = input_data + [dict(x=5, key='oov')]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([], tf.float32),
         'key': tf.io.FixedLenFeature([], tf.string)
     })
@@ -1994,7 +1995,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           input_data=[{
               'key': 'a' if x < 25 else 'b'
           } for x in range(100)],
-          input_metadata=tft_unit.metadata_from_feature_spec(
+          input_metadata=tft.DatasetMetadata.from_feature_spec(
               {'key': tf.io.FixedLenFeature([], tf.string)}),
           expected_outputs={
               'elements': np.array([b'a', b'b'], np.object),
@@ -2005,7 +2006,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           input_data=[{
               'key': 0 if x < 25 else 1
           } for x in range(100)],
-          input_metadata=tft_unit.metadata_from_feature_spec(
+          input_metadata=tft.DatasetMetadata.from_feature_spec(
               {'key': tf.io.FixedLenFeature([], tf.int64)}),
           expected_outputs={
               'elements': np.array([0, 1], np.int64),
@@ -2016,7 +2017,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           input_data=[{
               'key': [0] if x < 25 else [1]
           } for x in range(100)],
-          input_metadata=tft_unit.metadata_from_feature_spec(
+          input_metadata=tft.DatasetMetadata.from_feature_spec(
               {'key': tf.io.VarLenFeature(tf.int64)}),
           expected_outputs={
               'elements': np.array([0, 1], np.int64),
@@ -2031,7 +2032,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
                   'idx1': [0, 1] if x < 25 else [0]
               } for x in range(100)
           ],
-          input_metadata=tft_unit.metadata_from_feature_spec({
+          input_metadata=tft.DatasetMetadata.from_feature_spec({
               'key':
                   tf.io.SparseFeature(['idx0', 'idx1'], 'key', tf.int64, [2, 2])
           }),
@@ -2141,7 +2142,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testHistograms(self, input_data, make_feature_spec, boundaries,
                      categorical, expected_outputs):
     self._SkipIfOutputRecordBatches()
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tft_unit.make_feature_spec_wrapper(make_feature_spec)})
 
     def analyzer_fn(inputs):
@@ -2164,9 +2165,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # NOTE: We force 10 batches: data has 100 elements and we request a batch
     # size of 10.
     input_data = [{'x': [x % 10]} for x in range(1, 101)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature([1], tf.int64)
-    })
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
+        {'x': tf.io.FixedLenFeature([1], tf.int64)})
     expected_outputs = [{
         'probs': np.array(np.ones(1) / 10.0, np.float32)
     } for _ in range(100)]
@@ -2184,9 +2184,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # NOTE: We force 10 batches: data has 100 elements and we request a batch
     # size of 10.
     input_data = [{'x': [str(x % 10) + '_']} for x in range(1, 101)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature([1], tf.string)
-    })
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
+        {'x': tf.io.FixedLenFeature([1], tf.string)})
     expected_outputs = [{
         'probs': np.array(np.ones(1) / 10.0, np.float32)
     } for _ in range(100)]
@@ -2205,9 +2204,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # NOTE: We force 10 batches: data has 100 elements and we request a batch
     # size of 10.
     input_data = [{'x': [x]} for x in range(100)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature([1], tf.int64)
-    })
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
+        {'x': tf.io.FixedLenFeature([1], tf.int64)})
     expected_outputs = [{
         'probs': np.array(np.ones(1) / (100.0), np.float32)
     } for _ in range(100)]
@@ -2245,9 +2243,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'probs': tft.estimated_probability_density(inputs['x'],
                                                          boundaries=boundaries)}
 
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'x': tf.io.FixedLenFeature([1], tf.int64)
-    })
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
+        {'x': tf.io.FixedLenFeature([1], tf.int64)})
 
     self.assertAnalyzeAndTransformResults(
         input_data,
@@ -2349,7 +2346,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       }
 
     input_data = [{'a': 4}, {'a': 1}]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'a':
             tf.io.FixedLenFeature([],
                                   tft_unit.canonical_numeric_dtype(input_dtype))
@@ -2497,7 +2494,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                               input_dtype):
     self._SkipIfOutputRecordBatches()
     output_dtype = tft_unit.canonical_numeric_dtype(input_dtype)
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'a': tft_unit.make_feature_spec_wrapper(make_feature_spec, output_dtype)
     })
 
@@ -2786,7 +2783,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
   )
   def testNumericMappersWithCompositeInputs(self, input_data, make_feature_spec,
                                             elementwise, expected_outputs):
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tft_unit.make_feature_spec_wrapper(make_feature_spec)})
 
     def preprocessing_fn(inputs):
@@ -2819,7 +2816,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': [8, 9, 3, 4]},
         {'a': [1, 2, 10, 11]}
     ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.FixedLenFeature([4], tf.int64)})
     expected_outputs = {
         'min': np.array([1, 2, 3, 4], np.int64),
@@ -2848,7 +2845,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [
         {'a': [[8, 9], [3, 4]]},
         {'a': [[1, 2], [10, 11]]}]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.FixedLenFeature([2, 2], tf.int64)})
     expected_outputs = {
         'min': np.array([[1, 2], [3, 4]], np.int64),
@@ -2875,7 +2872,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       }
 
     input_data = [{'a': [[8, 9]]}, {'a': [[1, 2]]}]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.FixedLenFeature([1, 2], tf.int64)})
     expected_outputs = {
         'min': np.array([[1, 2]], np.int64),
@@ -2905,7 +2902,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': [[4, 5], [6, 7]]},
         {'a': [[1, 2], [3, 4]]}
     ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.FixedLenFeature([2, 2], tf.int64)})
     expected_outputs = {
         'min': np.array(1, np.int64),
@@ -2953,10 +2950,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     input_data = []
     canonical_dtype = tft_unit.canonical_numeric_dtype(input_dtype)
-    input_metadata = tft_unit.metadata_from_feature_spec({
-        'a':
-            tf.io.FixedLenFeature(input_shape, canonical_dtype)
-    })
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
+        {'a': tf.io.FixedLenFeature(input_shape, canonical_dtype)})
     input_val_dtype = input_dtype.as_numpy_dtype
     output_shape = [] if reduce_instance_dims else input_shape
     output_dtype = canonical_dtype.as_numpy_dtype
@@ -2991,7 +2986,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'idx': [0, 1], 'val': [1, 1]},
         {'idx': [1, 3], 'val': [2147483647, 3]},
     ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'sparse': tf.io.SparseFeature('idx', 'val', tf.int64, 4)})
     expected_outputs = {
         'mean': np.array([1., 1073741824., float('nan'), 3.], np.float32)
@@ -3013,7 +3008,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [{'a': 'hello hello world'},
                   {'a': 'hello goodbye hello world'},
                   {'a': 'I like pie pie pie'}]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.FixedLenFeature([], tf.string)})
 
     # IDFs
@@ -3035,7 +3030,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'tf_idf': [(3/5)*log_4_over_2, (1/5)*log_4_over_2, (1/5)*log_4_over_2],
         'index': [1, 3, 5]
     }]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'tf_idf': tf.io.VarLenFeature(tf.float32),
         'index': tf.io.VarLenFeature(tf.int64)
     })
@@ -3053,10 +3048,10 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'index': out_index
       }
     input_data = [{'a': ''}]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.FixedLenFeature([], tf.string)})
     expected_transformed_data = [{'tf_idf': [], 'index': []}]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'tf_idf': tf.io.VarLenFeature(tf.float32),
         'index': tf.io.VarLenFeature(tf.int64)
     })
@@ -3079,7 +3074,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
                   {'a': ''},
                   {'a': 'hello goodbye hello world'},
                   {'a': 'I like pie pie pie'}]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.FixedLenFeature([], tf.string)})
 
     log_5_over_2 = 1.91629073187
@@ -3097,7 +3092,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'tf_idf': [(3/5)*log_5_over_2, (1/5)*log_5_over_2, (1/5)*log_5_over_2],
         'index': [1, 3, 5]
     }]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'tf_idf': tf.io.VarLenFeature(tf.float32),
         'index': tf.io.VarLenFeature(tf.int64)
     })
@@ -3113,7 +3108,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
                   {'a': [2, 6, 2, 0]},
                   {'a': [8, 10, 12, 12, 12]},
                  ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.VarLenFeature(tf.int64)})
     log_4_over_2 = 1.69314718056
     log_4_over_3 = 1.28768207245
@@ -3127,7 +3122,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'tf_idf': [(1/5)*log_4_over_2, (1/5)*log_4_over_2, (3/5)*log_4_over_2],
         'index': [8, 10, 12]
     }]
-    expected_schema = tft_unit.metadata_from_feature_spec({
+    expected_schema = tft.DatasetMetadata.from_feature_spec({
         'tf_idf': tf.io.VarLenFeature(tf.float32),
         'index': tf.io.VarLenFeature(tf.int64)
     })
@@ -3143,7 +3138,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
                   {'a': [2, 6, 2, 0]},
                   {'a': [8, 10, 12, 12, 12]},
                  ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.VarLenFeature(tf.int64)})
     log_3_over_2 = 1.4054651081
     log_3 = 2.0986122886
@@ -3157,7 +3152,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'tf_idf': [(1/5)*log_3, (1/5)*log_3, (3/5)*log_3],
         'index': [8, 10, 12]
     }]
-    expected_schema = tft_unit.metadata_from_feature_spec({
+    expected_schema = tft.DatasetMetadata.from_feature_spec({
         'tf_idf': tf.io.VarLenFeature(tf.float32),
         'index': tf.io.VarLenFeature(tf.int64)
     })
@@ -3179,7 +3174,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [{'a': 'hello hello world'},
                   {'a': 'hello goodbye hello world'},
                   {'a': 'I like pie pie pie'}]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.FixedLenFeature([], tf.string)})
 
     # IDFs
@@ -3199,7 +3194,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'tf_idf': [(3/5)*log_4_over_2, (2/5)*log_4_over_3],
         'index': [1, 3]
     }]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'tf_idf': tf.io.VarLenFeature(tf.float32),
         'index': tf.io.VarLenFeature(tf.int64)
     })
@@ -3218,7 +3213,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
                   {'a': [2, 6, 2, -1]},
                   {'a': [8, 10, 12, 12, 12]},
                  ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.VarLenFeature(tf.int64)})
 
     log_4_over_2 = 1.69314718056
@@ -3234,7 +3229,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'tf_idf': [(1/5)*log_4_over_2, (1/5)*log_4_over_3, (3/5)*log_4_over_2],
         'index': [8, 10, 12]
     }]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'tf_idf': tf.io.VarLenFeature(tf.float32),
         'index': tf.io.VarLenFeature(tf.int64)
     })
@@ -3249,7 +3244,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'y': tft.covariance(inputs['x'], dtype=tf.float32)}
 
     input_data = [{'x': x} for x in [[0, 0], [4, 0], [2, -2], [2, 2]]]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([2], tf.float32)})
     expected_outputs = {'y': np.array([[2, 0], [0, 2]], np.float32)}
     self.assertAnalyzerOutputs(
@@ -3262,7 +3257,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'y': tft.covariance(inputs['x'], dtype=tf.float32)}
 
     input_data = [{'x': x} for x in [[0], [2], [4], [6]]]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([1], tf.float32)})
     expected_outputs = {'y': np.array([[5]], np.float32)}
     self.assertAnalyzerOutputs(
@@ -3275,7 +3270,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'y': tft.covariance(inputs['x'], dtype=tf.float32)}
 
     input_data = []
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([1], tf.float32)})
     test_data = [{'x': [1]}, {'x': [2]}]
     expected_outputs = {'y': np.array([[0]], dtype=np.float32)}
@@ -3294,7 +3289,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     input_data = [{'x': x}
                   for x in  [[0, 0, 1], [4, 0, 1], [2, -1, 1], [2, 1, 1]]]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([3], tf.float32)})
     expected_outputs = {'y': np.array([[1, 0], [0, 1], [0, 0]], np.float32)}
     self.assertAnalyzerOutputs(
@@ -3309,7 +3304,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = []
     test_data = [{'x': x} for x in
                  [[0, 0, 1], [4, 0, 1], [2, -1, 1], [2, 1, 1]]]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([3], tf.float32)})
     expected_outputs = {'y': np.array([[1, 0], [0, 1], [0, 0]], np.float32)}
     self.assertAnalyzerOutputs(
@@ -3350,7 +3345,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'x_sum': outputs[0], 'y_sum': outputs[1]}
 
     input_data = [{'x': 1, 'y': i} for i in range(100)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([], tf.int64),
         'y': tf.io.FixedLenFeature([], tf.int64)
     })
@@ -3392,7 +3387,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'x_y_sums': outputs}
 
     input_data = [{'x': 1, 'y': i} for i in range(100)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([], tf.int64),
         'y': tf.io.FixedLenFeature([], tf.int64)
     })
@@ -3428,7 +3423,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'x': 4,
         'y': 'foo',
     }]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([], tf.float32),
         'y': tf.io.FixedLenFeature([], tf.string),
     })
@@ -3484,7 +3479,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       }
 
     input_data = [{'x': 1}, {'x': 2}, {'x': 3}, {'x': 4}]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([], tf.float32),
     })
     temp_dir = self.get_temp_dir()
@@ -3524,7 +3519,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'y': 3,
           'a': 'world'
       }])
-      metadata = tft_unit.metadata_from_feature_spec({
+      metadata = tft.DatasetMetadata.from_feature_spec({
           'x': tf.io.FixedLenFeature([], tf.float32),
           'y': tf.io.FixedLenFeature([], tf.float32),
           'a': tf.io.FixedLenFeature([], tf.string)
@@ -3596,7 +3591,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         (RuntimeError, ValueError, TypeError), 'has type list'):
       # TODO(b/149997088): Remove this explicit use of DirectRunner.
       with beam.Pipeline() as pipeline:
-        metadata = tft_unit.metadata_from_feature_spec({
+        metadata = tft.DatasetMetadata.from_feature_spec({
             'x': tf.io.FixedLenFeature([], tf.float32),
         })
 
@@ -3853,7 +3848,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
               'y_ones$row_lengths_1': [2, 0, 2],
           },
       ]
-      expected_metadata = tft_unit.metadata_from_feature_spec({
+      expected_metadata = tft.DatasetMetadata.from_feature_spec({
           'x_ones':
               tf.io.RaggedFeature(
                   tf.int64,
@@ -3950,7 +3945,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     with self._makeTestPipeline() as pipeline:
       input_data = pipeline | 'CreateTrainingData' >> beam.Create(
           [{'x': 4}, {'x': 1}, {'x': 5}, {'x': 2}])
-      metadata = tft_unit.metadata_from_feature_spec(
+      metadata = tft.DatasetMetadata.from_feature_spec(
           {'x': tf.io.FixedLenFeature([], tf.float32)})
       with tft_beam.Context(temp_dir=self.get_temp_dir()):
         transform_fn = (
@@ -3976,7 +3971,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return inputs
 
     input_data = [{'x': 1}, {'x': 2}, {'x': 3}, {'x': 4}, {'x': 5}]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.float32)})
     expected_outputs = [{
         'x': 1,
@@ -4002,7 +3997,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         ValueError, 'The input metadata is empty.'):
       self.assertAnalyzeAndTransformResults(
           input_data=[{'x': x} for x in range(5)],
-          input_metadata=tft_unit.metadata_from_feature_spec({}),
+          input_metadata=tft.DatasetMetadata.from_feature_spec({}),
           preprocessing_fn=lambda inputs: inputs)  # pyformat: disable
 
   def testLoadKerasModelInPreprocessingFn(self):
@@ -4047,7 +4042,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return {'prediction': model(inputs)}
 
     input_data = [{'f1': 1.0, 'f2': 0.0}, {'f1': 2.0, 'f2': 3.0}]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'f1': tf.io.FixedLenFeature([], tf.float32),
         'f2': tf.io.FixedLenFeature([], tf.float32)
     })
@@ -4074,7 +4069,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return outputs
 
     input_data = [{'f1': 0, 'f2': 10, 'f3': 20}, {'f1': 2, 'f2': 12, 'f3': 22}]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'f1': tf.io.FixedLenFeature([], tf.float32),
         'f2': tf.io.FixedLenFeature([], tf.float32),
         'f3': tf.io.FixedLenFeature([], tf.float32)
@@ -4117,7 +4112,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       return outputs
 
     input_data = [{'f1': 0, 'f2': 10, 'f3': 20}, {'f1': 2, 'f2': 12, 'f3': 22}]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'f1': tf.io.FixedLenFeature([], tf.float32),
         'f2': tf.io.FixedLenFeature([], tf.float32),
         'f3': tf.io.FixedLenFeature([], tf.float32)

@@ -120,7 +120,7 @@ _BUCKETIZE_COMPOSITE_INPUT_TEST_CASES = [
             'idx0': [x % 4],
             'idx1': [x % 5]
         } for x in range(1, 10)],
-        input_metadata=tft_unit.metadata_from_feature_spec({
+        input_metadata=tft.DatasetMetadata.from_feature_spec({
             'x':
                 tf.io.SparseFeature(['idx0', 'idx1'], 'val', tf.float32,
                                     [4, 5]),
@@ -139,7 +139,7 @@ _BUCKETIZE_PER_KEY_TEST_CASES = [
             'x': x,
             'key': 'a' if x < 50 else 'b'
         } for x in range(1, 100)],
-        input_metadata=tft_unit.metadata_from_feature_spec({
+        input_metadata=tft.DatasetMetadata.from_feature_spec({
             'x': tf.io.FixedLenFeature([], tf.float32),
             'key': tf.io.FixedLenFeature([], tf.string)
         }),
@@ -147,7 +147,7 @@ _BUCKETIZE_PER_KEY_TEST_CASES = [
             'x_bucketized':
                 _compute_simple_per_key_bucket(x, 'a' if x < 50 else 'b')
         } for x in range(1, 100)],
-        expected_metadata=tft_unit.metadata_from_feature_spec(
+        expected_metadata=tft.DatasetMetadata.from_feature_spec(
             {
                 'x_bucketized': tf.io.FixedLenFeature([], tf.int64),
             }, {
@@ -162,7 +162,7 @@ _BUCKETIZE_PER_KEY_TEST_CASES = [
             'idx1': [0],
             'key': ['a'] if x < 50 else ['b']
         } for x in range(1, 100)],
-        input_metadata=tft_unit.metadata_from_feature_spec({
+        input_metadata=tft.DatasetMetadata.from_feature_spec({
             'x': tf.io.SparseFeature(['idx0', 'idx1'], 'x', tf.float32, (2, 2)),
             'key': tf.io.VarLenFeature(tf.string)
         }),
@@ -173,7 +173,7 @@ _BUCKETIZE_PER_KEY_TEST_CASES = [
             'x_bucketized$sparse_indices_0': [0],
             'x_bucketized$sparse_indices_1': [0],
         } for x in range(1, 100)],
-        expected_metadata=tft_unit.metadata_from_feature_spec(
+        expected_metadata=tft.DatasetMetadata.from_feature_spec(
             {
                 'x_bucketized':
                     tf.io.SparseFeature([
@@ -194,7 +194,7 @@ _BUCKETIZE_PER_KEY_TEST_CASES = [
             'key': 'a' if x < 50 else 'b',
             'weights': 0 if x in _WEIGHTED_PER_KEY_0_RANGE else 1,
         } for x in range(1, 100)],
-        input_metadata=tft_unit.metadata_from_feature_spec({
+        input_metadata=tft.DatasetMetadata.from_feature_spec({
             'x': tf.io.FixedLenFeature([], tf.float32),
             'key': tf.io.FixedLenFeature([], tf.string),
             'weights': tf.io.FixedLenFeature([], tf.float32),
@@ -204,7 +204,7 @@ _BUCKETIZE_PER_KEY_TEST_CASES = [
                 _compute_simple_per_key_bucket(
                     x, 'a' if x < 50 else 'b', weighted=True)
         } for x in range(1, 100)],
-        expected_metadata=tft_unit.metadata_from_feature_spec(
+        expected_metadata=tft.DatasetMetadata.from_feature_spec(
             {
                 'x_bucketized': tf.io.FixedLenFeature([], tf.int64),
             }, {
@@ -221,7 +221,7 @@ if common_types.is_ragged_feature_available():
               'val': [x, 10 - x],
               'row_lengths': [0, x % 3, 2 - x % 3],
           } for x in range(1, 10)],
-          input_metadata=tft_unit.metadata_from_feature_spec({
+          input_metadata=tft.DatasetMetadata.from_feature_spec({
               'x':
                   tf.io.RaggedFeature(
                       tf.int64,
@@ -243,7 +243,7 @@ if common_types.is_ragged_feature_available():
               'key_val': ['a', 'a'] if x < 50 else ['b', 'b'],
               'key_row_lengths': [x % 3, 2 - (x % 3)],
           } for x in range(1, 100)],
-          input_metadata=tft_unit.metadata_from_feature_spec({
+          input_metadata=tft.DatasetMetadata.from_feature_spec({
               'x':
                   tf.io.RaggedFeature(
                       tf.int64,
@@ -265,7 +265,7 @@ if common_types.is_ragged_feature_available():
               ] * 2,
               'x_bucketized$row_lengths_1': [x % 3, 2 - (x % 3)],
           } for x in range(1, 100)],
-          expected_metadata=tft_unit.metadata_from_feature_spec(
+          expected_metadata=tft.DatasetMetadata.from_feature_spec(
               {
                   'x_bucketized':
                       tf.io.RaggedFeature(
@@ -297,7 +297,7 @@ if common_types.is_ragged_feature_available():
                   x % 3,
               ],
           } for x in range(1, 100)],
-          input_metadata=tft_unit.metadata_from_feature_spec({
+          input_metadata=tft.DatasetMetadata.from_feature_spec({
               'x':
                   tf.io.RaggedFeature(
                       tf.int64,
@@ -327,7 +327,7 @@ if common_types.is_ragged_feature_available():
               ] * 2,
               'x_bucketized$row_lengths_1': [2 - (x % 3), x % 3],
           } for x in range(1, 100)],
-          expected_metadata=tft_unit.metadata_from_feature_spec(
+          expected_metadata=tft.DatasetMetadata.from_feature_spec(
               {
                   'x_bucketized':
                       tf.io.RaggedFeature(
@@ -386,7 +386,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
 
     input_data = [{'x': [x]} for x in test_inputs]
 
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x':
             tf.io.FixedLenFeature([1],
                                   tft_unit.canonical_numeric_dtype(input_dtype))
@@ -409,7 +409,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
         bucket += 1
       expected_data[index] = {'q_b': [bucket]}
 
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {
             'q_b': tf.io.FixedLenFeature([1], tf.int64),
         }, {
@@ -479,7 +479,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
 
     input_data = [{'x': [x, 2 * x]} for x in test_inputs]
 
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x':
             tf.io.FixedLenFeature([2],
                                   tft_unit.canonical_numeric_dtype(input_dtype))
@@ -499,7 +499,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
         bucket += 1
       expected_data[index] = {'q_b': [bucket, bucket]}
 
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {
             'q_b': tf.io.FixedLenFeature([2], tf.int64),
         }, None)
@@ -569,7 +569,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
           'x': [100000],
           'weights': [np.nan]
       }]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x':
             tf.io.FixedLenFeature(
                 [1], tft_unit.canonical_numeric_dtype(input_dtype)),
@@ -613,7 +613,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
         'x': [[x, 2 * x], [2 * x, x]],
         'weights': [x / 100.]
     } for x in range(1, 3000)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x':
             tf.io.FixedLenFeature(
                 [2, 2], tft_unit.canonical_numeric_dtype(input_dtype)),
@@ -659,7 +659,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
     # NOTE: We force 3 batches: data has 3000 elements and we request a batch
     # size of 1000.
     input_data = [{'x': [x]} for x in range(1, 3000)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x':
             tf.io.FixedLenFeature([1],
                                   tft_unit.canonical_numeric_dtype(input_dtype))
@@ -693,7 +693,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
         'x': [x],
         'key': 'a' if x < 50 else 'b'
     } for x in range(1, 100)]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([1], tf.int64),
         'key': tf.io.FixedLenFeature([], tf.string)
     })
@@ -757,7 +757,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
         {'x': [12], 'key': ['e']},
         {'x': [13], 'key': ['e']}
     ]  # pyformat: disable
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.VarLenFeature(tf.float32),
         'key': tf.io.VarLenFeature(tf.string)
     })
@@ -781,7 +781,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
         {'x': [12], 'x_bucketized': [3]},
         {'x': [13], 'x_bucketized': [2]}
     ]  # pyformat: disable
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {
             'x': tf.io.VarLenFeature(tf.float32),
             'x_bucketized': tf.io.VarLenFeature(tf.int64),
@@ -815,7 +815,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
 
     input_data = [{'x': [x]} for x in test_inputs]
 
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'x':
             tf.io.FixedLenFeature([1],
                                   tft_unit.canonical_numeric_dtype(input_dtype))

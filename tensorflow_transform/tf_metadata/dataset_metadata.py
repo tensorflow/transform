@@ -23,7 +23,7 @@ _DatasetMetadataType = TypeVar('_DatasetMetadataType', bound='DatasetMetadata')
 
 
 class DatasetMetadata:
-  """A collection of metadata about a dataset.
+  """Metadata about a dataset used for the "instance dict" format.
 
   This is an in-memory representation that may be serialized and deserialized to
   and from a variety of disk representations.

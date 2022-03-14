@@ -54,7 +54,7 @@ _COMPOSITE_COMPUTE_AND_APPLY_VOCABULARY_TEST_CASES = [
                 'idx1': [0, 1, 2]
             },
         ],
-        input_metadata=tft_unit.metadata_from_feature_spec({
+        input_metadata=tft.DatasetMetadata.from_feature_spec({
             'x': tf.io.SparseFeature(['idx0', 'idx1'], 'val', tf.string, [2, 3])
         }),
         expected_data=[{
@@ -101,7 +101,7 @@ if common_types.is_ragged_feature_available():
                   'row_lengths': [0, 2, 1]
               },
           ],
-          input_metadata=tft_unit.metadata_from_feature_spec({
+          input_metadata=tft.DatasetMetadata.from_feature_spec({
               'x':
                   tf.io.RaggedFeature(
                       tf.string,
@@ -465,7 +465,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         input_data[idx]['weights'] = weight
       input_feature_spec['weights'] = weight_feature_spec
 
-    input_metadata = tft_unit.metadata_from_feature_spec(input_feature_spec)
+    input_metadata = tft.DatasetMetadata.from_feature_spec(input_feature_spec)
 
     def preprocessing_fn(inputs):
       x = inputs['x']
@@ -706,7 +706,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
       ]))
   def testApproximateVocabulary(self, input_data, make_feature_spec, top_k,
                                 make_expected_vocab_fn, store_frequency):
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         tft_unit.make_feature_spec_wrapper(make_feature_spec))
 
     def preprocessing_fn(inputs):
@@ -740,7 +740,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
 
   def testComputeAndApplyApproximateVocabulary(self):
     input_data = [{'x': 'a'}] * 2 + [{'x': 'b'}] * 3
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.string)})
 
     def preprocessing_fn(inputs):
@@ -762,7 +762,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
 
   def testEmptyComputeAndApplyApproximateVocabulary(self):
     input_data = [{'x': ''}] * 3
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.string)})
 
     def preprocessing_fn(inputs):
@@ -796,7 +796,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         'b': 'aaaaa',
         'c': 'bbbbb'
     }]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'a': tf.io.FixedLenFeature([], tf.string),
         'b': tf.io.FixedLenFeature([], tf.string),
         'c': tf.io.FixedLenFeature([], tf.string)
@@ -849,7 +849,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
             'index_b': 1  # aaaaa
         },
     ]
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {
             'index_a': tf.io.FixedLenFeature([], tf.int64),
             'index_b': tf.io.FixedLenFeature([], tf.int64),
@@ -1336,8 +1336,8 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         input_data[idx]['weights'] = weight
       input_feature_spec['weights'] = weight_feature_spec
 
-    input_metadata = tft_unit.metadata_from_feature_spec(input_feature_spec)
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(input_feature_spec)
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         expected_feature_spec, expected_domains)
 
     def preprocessing_fn(inputs):
@@ -1389,7 +1389,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         {'a': 'goodbye', 'b': 'hello', 'c': '\n'},
         {'a': '_', 'b': 'aaaaa', 'c': 'bbbbb'}
     ]
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'a': tf.io.FixedLenFeature([], tf.string),
         'b': tf.io.FixedLenFeature([], tf.string),
         'c': tf.io.FixedLenFeature([], tf.string)
@@ -1497,7 +1497,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         }
     ]
     size = len(expected_vocab) - 1
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {
             'index_a': tf.io.FixedLenFeature([], tf.int64),
             'index_b': tf.io.FixedLenFeature([], tf.int64),
@@ -1533,15 +1533,16 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
       }
 
     input_data = [{'a': 'hello hello world'}, {'a': 'hello goodbye world'}]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.FixedLenFeature([], tf.string)})
     expected_data = [{'index': [0, 0, 1]}, {'index': [0, 2, 1]}]
 
-    expected_metadata = tft_unit.metadata_from_feature_spec({
-        'index': tf.io.VarLenFeature(tf.int64),
-    }, {
-        'index': schema_pb2.IntDomain(min=-1, max=2, is_categorical=True),
-    })
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
+        {
+            'index': tf.io.VarLenFeature(tf.int64),
+        }, {
+            'index': schema_pb2.IntDomain(min=-1, max=2, is_categorical=True),
+        })
     expected_vocabulary = {'my_vocab': [b'hello', b'world', b'goodbye']}
     self.assertAnalyzeAndTransformResults(
         input_data,
@@ -1576,7 +1577,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
       # computing uniques.
       return {'a_int': a_int}
 
-    input_metadata = tft_unit.metadata_from_feature_spec({
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
         'a': tf.io.FixedLenFeature([], tf.string),
         'b': tf.io.FixedLenFeature([], tf.string)
     })
@@ -1660,7 +1661,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
       # computing uniques.
       return {'a_int': a_int}
 
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.FixedLenFeature([], tf.string)})
 
     tft_tmp_dir = os.path.join(self.get_temp_dir(), 'temp_dir')
@@ -1701,7 +1702,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
       tft.annotate_asset('key_1', annotation_file)
       return inputs
 
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.FixedLenFeature([], tf.string)})
 
     tft_tmp_dir = os.path.join(self.get_temp_dir(), 'temp_dir')
@@ -1754,7 +1755,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         dict(x=b'goodbye'),
         dict(x=b'aaaaa'),
     ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.string)})
     expected_vocab_file_contents = [(b'hello', 4), (b'goodbye', 3),
                                     (b'aaaaa', 2), (b'foo', 1), (b'bar', 1)]
@@ -1787,7 +1788,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         dict(x=b'bar'),
         dict(x=b'foo'),
     ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.string)})
     expected_data = [
         dict(x=b'bar', x_int=0, x_int_mean=0.4),
@@ -1798,7 +1799,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
     ]
     expected_vocab_file_contents = [(b'bar'), (b'foo')]
     size = len(expected_vocab_file_contents) - 1
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {
             'x': tf.io.FixedLenFeature([], tf.string),
             'x_int': tf.io.FixedLenFeature([], tf.int64),
@@ -1861,7 +1862,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         dict(x=b'bar'),
         dict(x=b'foo'),
     ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.string)})
     expected_data = [
         dict(x=b'bar', x_int=0, x_int_mean=0.4),
@@ -1870,7 +1871,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         dict(x=b'foo', x_int=1, x_int_mean=0.4),
         dict(x=b'foo', x_int=1, x_int_mean=0.4),
     ]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([], tf.string),
         'x_int': tf.io.FixedLenFeature([], tf.int64),
         'x_int_mean': tf.io.FixedLenFeature([], tf.float32)
@@ -1912,11 +1913,11 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
       return {'month_int': month_int}
 
     input_data = [{'date': '2021-May-31'}, {'date': '2021-Jun-01'}]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'date': tf.io.FixedLenFeature([], tf.string)})
     expected_data = [{'month_int': 0}, {'month_int': 1}]
     max_index = len(expected_data) - 1
-    expected_metadata = tft_unit.metadata_from_feature_spec(
+    expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {
             'month_int': tf.io.FixedLenFeature([], tf.int64),
         }, {
@@ -1938,7 +1939,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         dict(x=b'bar'),
         dict(x=b'foo'),
     ]
-    input_metadata = tft_unit.metadata_from_feature_spec(
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.string)})
     expected_data = [
         dict(x=b'bar', x_encoded=[1], x_encoded_centered=[0.4]),
@@ -1947,7 +1948,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         dict(x=b'foo', x_encoded=[0], x_encoded_centered=[-0.6]),
         dict(x=b'foo', x_encoded=[0], x_encoded_centered=[-0.6]),
     ]
-    expected_metadata = tft_unit.metadata_from_feature_spec({
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'x': tf.io.FixedLenFeature([], tf.string),
         'x_encoded': tf.io.FixedLenFeature([1], tf.int64),
         'x_encoded_centered': tf.io.FixedLenFeature([1], tf.float32),
