@@ -1070,13 +1070,13 @@ class _AnalyzeDatasetCommon(beam.PTransform):
           telemetry.TrackRecordBatchBytes(beam_common.METRICS_NAMESPACE,
                                           'analysis_input_bytes'))
     else:
-      for key in input_values_pcoll_dict.keys():
+      for idx, key in enumerate(sorted(input_values_pcoll_dict.keys())):
         if input_values_pcoll_dict[key] is not None:
           _ = (
               input_values_pcoll_dict[key]
-              | f'InstrumentInputBytes[AnalysisPCollDict][{key}]' >>
-              telemetry.TrackRecordBatchBytes(
-                  beam_common.METRICS_NAMESPACE, 'analysis_input_bytes'))
+              | f'InstrumentInputBytes[AnalysisPCollDict][AnalysisIndex{idx}]'
+              >> telemetry.TrackRecordBatchBytes(beam_common.METRICS_NAMESPACE,
+                                                 'analysis_input_bytes'))
 
     asset_map = annotators.get_asset_annotations(graph)
     # TF.HUB can error when unapproved collections are present. So we explicitly
