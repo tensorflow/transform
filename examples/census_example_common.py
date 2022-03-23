@@ -23,7 +23,7 @@ import tensorflow.compat.v2 as tf
 import tensorflow_transform as tft
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tfx_bsl.coders.example_coder import RecordBatchToExamples
+from tfx_bsl.public.tfxio import RecordBatchToExamplesEncoder
 from tfx_bsl.public import tfxio
 
 CATEGORICAL_FEATURE_KEYS = [
@@ -217,10 +217,11 @@ def transform_data(train_data_file, test_data_file, working_dir):
 
       # Extract transformed RecordBatches, encode and write them to the given
       # directory.
+      coder = RecordBatchToExamplesEncoder()
       _ = (
           transformed_data
           | 'EncodeTrainData' >>
-          beam.FlatMapTuple(lambda batch, _: RecordBatchToExamples(batch))
+          beam.FlatMapTuple(lambda batch, _: coder.encode(batch))
           | 'WriteTrainData' >> beam.io.WriteToTFRecord(
               os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE)))
 
@@ -252,7 +253,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
       _ = (
           transformed_test_data
           | 'EncodeTestData' >>
-          beam.FlatMapTuple(lambda batch, _: RecordBatchToExamples(batch))
+          beam.FlatMapTuple(lambda batch, _: coder.encode(batch))
           | 'WriteTestData' >> beam.io.WriteToTFRecord(
               os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE)))
 

@@ -24,7 +24,6 @@ import tensorflow as tf
 import tensorflow_transform as tft
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.tf_metadata import dataset_metadata
-from tfx_bsl.coders.example_coder import RecordBatchToExamples
 from tfx_bsl.public import tfxio
 
 
@@ -205,17 +204,18 @@ def transform_data(working_dir):
 
       # Extract transformed RecordBatches, encode and write them to the given
       # directory.
+      coder = tfxio.RecordBatchToExamplesEncoder()
       _ = (
           transformed_train_data
           | 'EncodeTrainData' >>
-          beam.FlatMapTuple(lambda batch, _: RecordBatchToExamples(batch))
+          beam.FlatMapTuple(lambda batch, _: coder.encode(batch))
           | 'WriteTrainData' >> beam.io.WriteToTFRecord(
               os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE)))
 
       _ = (
           transformed_test_data
           | 'EncodeTestData' >>
-          beam.FlatMapTuple(lambda batch, _: RecordBatchToExamples(batch))
+          beam.FlatMapTuple(lambda batch, _: coder.encode(batch))
           | 'WriteTestData' >> beam.io.WriteToTFRecord(
               os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE)))
 
