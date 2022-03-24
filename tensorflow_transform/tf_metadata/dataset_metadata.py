@@ -25,6 +25,12 @@ _DatasetMetadataType = TypeVar('_DatasetMetadataType', bound='DatasetMetadata')
 class DatasetMetadata:
   """Metadata about a dataset used for the "instance dict" format.
 
+  Caution: The "instance dict" format used with `DatasetMetadata` is much less
+  efficient than TFXIO. For any serious workloads you should use TFXIO with a
+  `tfxio.TensorAdapterConfig` instance as the metadata. Refer to
+  [Get started with TF-Transform](https://www.tensorflow.org/tfx/transform/get_started#data_formats_and_schema)
+  for more details.
+
   This is an in-memory representation that may be serialized and deserialized to
   and from a variety of disk representations.
   """
