@@ -21,6 +21,7 @@ import tempfile
 
 import apache_beam as beam
 import tensorflow as tf
+from tensorflow import estimator as tf_estimator
 import tensorflow_transform as tft
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.tf_metadata import dataset_metadata
@@ -283,7 +284,7 @@ def _make_serving_input_fn(tf_transform_output):
     # Here we generate an input_fn that expects a parsed Example proto to be fed
     # to the model at serving time.  See also
     # tf.estimator.export.build_raw_serving_input_receiver_fn.
-    raw_input_fn = tf.estimator.export.build_parsing_serving_input_receiver_fn(
+    raw_input_fn = tf_estimator.export.build_parsing_serving_input_receiver_fn(
         raw_feature_spec, default_batch_size=None)
     serving_input_receiver = raw_input_fn()
 
@@ -293,7 +294,7 @@ def _make_serving_input_fn(tf_transform_output):
     transformed_features = tf_transform_output.transform_raw_features(
         raw_features)
 
-    return tf.estimator.export.ServingInputReceiver(
+    return tf_estimator.export.ServingInputReceiver(
         transformed_features, serving_input_receiver.receiver_tensors)
 
   return serving_input_fn
@@ -336,9 +337,9 @@ def train_and_evaluate(working_dir,
   """
   tf_transform_output = tft.TFTransformOutput(working_dir)
 
-  run_config = tf.estimator.RunConfig()
+  run_config = tf_estimator.RunConfig()
 
-  estimator = tf.estimator.LinearClassifier(
+  estimator = tf_estimator.LinearClassifier(
       feature_columns=get_feature_columns(tf_transform_output),
       config=run_config,
       loss_reduction=tf.losses.Reduction.SUM)
