@@ -16,6 +16,7 @@
 import os
 
 import numpy as np
+from packaging import version
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import annotators
@@ -1583,9 +1584,10 @@ class TFUtilsTest(test_case.TransformTestCase):
               x=[[np.nan, np.nan, np.nan]],
               # Output of `tf.reduce_max` if all inputs are NaNs for older
               # versions of TF is -inf.
-              expected_x_minus_min=(-np.inf
-                                    if tf.__version__ < '2.4' else np.nan),
-              expected_x_max=-np.inf if tf.__version__ < '2.4' else np.nan,
+              expected_x_minus_min=(-np.inf if version.parse(tf.__version__) <
+                                    version.parse('2.4') else np.nan),
+              expected_x_max=(-np.inf if version.parse(tf.__version__) <
+                              version.parse('2.4') else np.nan),
               reduce_instance_dims=True,
               input_signature=[tf.TensorSpec([None, None], tf.float32)]),
           dict(

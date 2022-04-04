@@ -15,6 +15,7 @@
 
 import os
 import shutil
+from packaging import version
 
 import tensorflow.compat.v2 as tf
 import census_example_common
@@ -100,8 +101,8 @@ class CensusExampleV2Test(tft_test_case.TransformTestCase):
 
   def setUp(self):
     super().setUp()
-    if (not tf2.enabled() or
-        tft_test_case.is_external_environment() and tf.version.VERSION < '2.3'):
+    if (not tf2.enabled() or tft_test_case.is_external_environment() and
+        version.parse(tf.version.VERSION) < version.parse('2.3')):
       raise tft_test_case.SkipTest('This test requires TF version >= 2.3')
 
   def _get_data_dir(self):
@@ -113,7 +114,7 @@ class CensusExampleV2Test(tft_test_case.TransformTestCase):
         self._testMethodName)
 
   def _should_saved_model_load_work(self):
-    return tf.__version__ >= '2.2'
+    return version.parse(tf.__version__) >= version.parse('2.2')
 
   @tft_test_case.named_parameters([
       dict(

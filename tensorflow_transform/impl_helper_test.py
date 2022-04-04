@@ -17,6 +17,7 @@ import copy
 import os
 
 import numpy as np
+from packaging import version
 import pyarrow as pa
 import tensorflow as tf
 from tensorflow_transform import analyzers
@@ -659,7 +660,7 @@ class ImplHelperTest(test_case.TransformTestCase):
                      [None, None])
     self.assertEqual(type(features['sparse_1d']), tf.SparseTensor)
     self.assertEqual(type(features['sparse_2d']), tf.SparseTensor)
-    if tf.__version__ >= '2':
+    if version.parse(tf.__version__) >= version.parse('2'):
       self.assertEqual(features['sparse_1d'].get_shape().as_list(), [None, 7])
       self.assertEqual(features['sparse_2d'].get_shape().as_list(),
                        [None, 2, 17])
