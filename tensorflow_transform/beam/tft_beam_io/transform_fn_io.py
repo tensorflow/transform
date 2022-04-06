@@ -15,6 +15,7 @@
 
 import os
 
+from absl import logging
 import apache_beam as beam
 import tensorflow_transform as tft
 from tensorflow_transform import impl_helper
@@ -99,6 +100,13 @@ class WriteTransformFn(beam.PTransform):
     def publish_outputs(unused_element, metadata_source_path,
                         transform_fn_source_path):
       import tensorflow as tf  # pylint: disable=g-import-not-at-top
+      # TF 2.6 split support for filesystems such as Amazon S3 out to the
+      # `tensorflow_io` package. Hence, this import is needed wherever we touch
+      # the filesystem.
+      try:
+        import tensorflow_io as _  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
+      except ModuleNotFoundError:
+        logging.info('tensorflow_io is not available.')
       if not tf.io.gfile.exists(self._path):
         tf.io.gfile.makedirs(self._path)
 

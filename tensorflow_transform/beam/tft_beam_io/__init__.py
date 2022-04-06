@@ -16,10 +16,3 @@
 from tensorflow_transform.beam.tft_beam_io.beam_metadata_io import WriteMetadata
 from tensorflow_transform.beam.tft_beam_io.transform_fn_io import ReadTransformFn
 from tensorflow_transform.beam.tft_beam_io.transform_fn_io import WriteTransformFn
-# TF 2.6 split support for filesystems such as Amazon S3 out to the
-# `tensorflow_io` package. Hence, this import is needed wherever we touch the
-# filesystem.
-try:
-  import tensorflow_io as _  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
-except ModuleNotFoundError:
-  pass
