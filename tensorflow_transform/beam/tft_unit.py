@@ -116,8 +116,14 @@ class TransformTestCase(test_case.TransformTestCase):
         metrics_filter)['counters']
     committed = sum([r.committed for r in metric])
     attempted = sum([r.attempted for r in metric])
-    self.assertEqual(committed, attempted)
-    self.assertEqual(committed, expected_count)
+    self.assertEqual(
+        committed,
+        attempted,
+        msg=f'Attempted counter {name} from namespace {namespaces_list}')
+    self.assertEqual(
+        committed,
+        expected_count,
+        msg=f'Expected counter {name} from namespace {namespaces_list}')
 
   def assertAnalyzerOutputs(self,
                             input_data,

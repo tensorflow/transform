@@ -3526,7 +3526,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
       })
       with tft_beam.Context(temp_dir=self.get_temp_dir()):
         _ = ((input_data, metadata)
-             | 'AnalyzeDataset' >> tft_beam.AnalyzeDataset(preprocessing_fn))
+             | 'AnalyzeAndTransformDataset' >>
+             tft_beam.AnalyzeAndTransformDataset(preprocessing_fn))
 
     metrics = pipeline.metrics
     self.assertMetricsCounterEqual(metrics, 'tft_analyzer_vocabulary', 1)
@@ -3536,6 +3537,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
     # compute_and_apply_vocabulary implicitly calls apply_vocabulary.
     # We check that that call is not logged.
     self.assertMetricsCounterEqual(metrics, 'tft_mapper_apply_vocabulary', 0)
+
+    for namespace in ('tfx.Transform.analyze_input_tensors',
+                      'tfx.Transform.transform_input_tensors',
+                      'tfx.Transform.transform_output_tensors'):
+      self.assertMetricsCounterEqual(
+          metrics, 'dense_tensor', 3, namespaces_list=[namespace])
 
   def testNumBytesCounter(self):
     self._SkipIfOutputRecordBatches()

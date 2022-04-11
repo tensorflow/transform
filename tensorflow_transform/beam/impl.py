@@ -78,6 +78,7 @@ from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
 from tfx_bsl.telemetry import collection as telemetry
+from tfx_bsl.telemetry import util as telemetry_util
 from tfx_bsl.tfxio import tensor_representation_util
 from tfx_bsl.tfxio import tensor_to_arrow
 from tfx_bsl.tfxio import tf_example_record
@@ -1078,6 +1079,15 @@ class _AnalyzeDatasetCommon(beam.PTransform):
               >> telemetry.TrackRecordBatchBytes(beam_common.METRICS_NAMESPACE,
                                                  'analysis_input_bytes'))
 
+    # Gather telemetry on types of input features.
+    _ = (
+        self.pipeline | 'CreateAnalyzeInputTensorRepresentations' >>
+        beam.Create([input_tensor_adapter_config.tensor_representations])
+        |
+        'InstrumentAnalyzeInputTensors' >> telemetry.TrackTensorRepresentations(
+            telemetry_util.AppendToNamespace(beam_common.METRICS_NAMESPACE,
+                                             ['analyze_input_tensors'])))
+
     asset_map = annotators.get_asset_annotations(graph)
     # TF.HUB can error when unapproved collections are present. So we explicitly
     # clear out the collections in the graph.
@@ -1351,6 +1361,20 @@ def _remove_columns_from_metadata(metadata, excluded_columns):
       new_feature_spec, new_domains)
 
 
+class _MaybeInferTensorRepresentationsDoFn(beam.DoFn):
+  """Tries to infer TensorRepresentations from a Schema."""
+
+  def process(
+      self, schema: schema_pb2.Schema
+  ) -> Iterable[Dict[str, schema_pb2.TensorRepresentation]]:
+    try:
+      yield (tensor_representation_util
+             .InferTensorRepresentationsFromMixedSchema(schema))
+    except ValueError:
+      # Ignore any inference errors since the output is only used for metrics.
+      yield {}
+
+
 @beam.typehints.with_input_types(Union[_DatasetElementType, pa.RecordBatch],
                                  Union[dataset_metadata.DatasetMetadata,
                                        TensorAdapterConfig,
@@ -1446,10 +1470,19 @@ class TransformDataset(beam.PTransform):
           self.pipeline
           | 'CreateDeferredSchema' >> beam.Create([output_metadata.schema]))
 
+    # Increment input metrics.
     _ = (
         input_values
         | 'InstrumentInputBytes[Transform]' >> telemetry.TrackRecordBatchBytes(
             beam_common.METRICS_NAMESPACE, 'transform_input_bytes'))
+
+    _ = (
+        self.pipeline | 'CreateTransformInputTensorRepresentations' >>
+        beam.Create([input_tensor_adapter_config.tensor_representations])
+        | 'InstrumentTransformInputTensors' >>
+        telemetry.TrackTensorRepresentations(
+            telemetry_util.AppendToNamespace(beam_common.METRICS_NAMESPACE,
+                                             ['transform_input_tensors'])))
 
     tf_config = _DEFAULT_TENSORFLOW_CONFIG_BY_BEAM_RUNNER_TYPE.get(
         type(self.pipeline.runner))
@@ -1471,6 +1504,12 @@ class TransformDataset(beam.PTransform):
       converter_pcol = (
           deferred_schema | 'MakeTensorToArrowConverter' >> beam.Map(
               impl_helper.make_tensor_to_arrow_converter))
+
+      output_tensor_representations = (
+          converter_pcol
+          | 'MapToTensorRepresentations' >>
+          beam.Map(lambda converter: converter.tensor_representations()))
+
       output_data = (
           output_batches | 'ConvertToRecordBatch' >> beam.Map(
               _convert_to_record_batch,
@@ -1478,13 +1517,25 @@ class TransformDataset(beam.PTransform):
               converter=beam.pvalue.AsSingleton(converter_pcol),
               passthrough_keys=Context.get_passthrough_keys(),
               input_metadata=input_metadata))
+
     else:
+
+      output_tensor_representations = (
+          deferred_schema | 'MaybeInferTensorRepresentations' >> beam.ParDo(
+              _MaybeInferTensorRepresentationsDoFn()))
       output_data = (
           output_batches | 'ConvertAndUnbatchToInstanceDicts' >> beam.FlatMap(
               _convert_and_unbatch_to_instance_dicts,
               schema=beam.pvalue.AsSingleton(deferred_schema),
               passthrough_keys=Context.get_passthrough_keys()))
 
+    # Increment output data metrics.
+    _ = (
+        output_tensor_representations
+        | 'InstrumentTransformOutputTensors' >>
+        telemetry.TrackTensorRepresentations(
+            telemetry_util.AppendToNamespace(beam_common.METRICS_NAMESPACE,
+                                             ['transform_output_tensors'])))
     _clear_shared_state_after_barrier(self.pipeline, output_data)
 
     return (output_data, output_metadata)

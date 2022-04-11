@@ -29,6 +29,7 @@ _ANNOTATION_CLASSES = [
 _PROTO_CLASSES = [
     tf.compat.v1.ConfigProto,
     schema_pb2.Schema,
+    schema_pb2.TensorRepresentation,
     statistics_pb2.DatasetFeatureStatistics,
 ] + _ANNOTATION_CLASSES
 
