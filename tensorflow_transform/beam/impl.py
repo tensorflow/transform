@@ -1081,8 +1081,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
 
     # Gather telemetry on types of input features.
     _ = (
-        self.pipeline | 'CreateAnalyzeInputTensorRepresentations' >>
-        beam.Create([input_tensor_adapter_config.tensor_representations])
+        pipeline | 'CreateAnalyzeInputTensorRepresentations' >> beam.Create(
+            [input_tensor_adapter_config.tensor_representations])
         |
         'InstrumentAnalyzeInputTensors' >> telemetry.TrackTensorRepresentations(
             telemetry_util.AppendToNamespace(beam_common.METRICS_NAMESPACE,
