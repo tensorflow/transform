@@ -178,28 +178,21 @@ def _clone_items(pipeline, to_clone):
         # merged due to common subexpression elimination (CSE).
         item.resource_hints['beam:resources:tags:v1'] = b'DeepCopy.Original'
 
-      # Assign new label and resource tag.
-      next_suffix = 0
-      suffix = f'Copy[{next_suffix}]'
-      new_label = item.full_label + f'.{suffix}'
-      tag = f'DeepCopy.{suffix}'
+      # Assign new label.
+      count = 0
+      copy_suffix = f'Copy[{count}]'
+      new_label = f'{item.full_label}.{copy_suffix}'
       while new_label in pipeline.applied_labels:
-        suffix = f'Copy[{next_suffix}]'
-        new_label = item.full_label + f'.{suffix}'
-        tag = f'DeepCopy.{suffix}'
-        next_suffix += 1
+        count += 1
+        copy_suffix = f'Copy[{count}]'
+        new_label = f'{item.full_label}.{copy_suffix}'
       pipeline.applied_labels.add(new_label)
 
       # Update inputs.
-      if hasattr(item, 'main_inputs'):
-        new_inputs = {
-            tag: pcollection_replacements.get(old_input, old_input)
-            for tag, old_input in item.main_inputs.items()
-        }
-      else:
-        new_inputs = tuple(
-            pcollection_replacements.get(old_input, old_input)
-            for old_input in item.inputs)
+      new_inputs = {
+          tag: pcollection_replacements.get(old_input, old_input)
+          for tag, old_input in item.main_inputs.items()
+      }
 
       # Create the copy. Note that in the copy, copied.outputs will start out
       # empty. Any outputs that are used will be repopulated in the PCollection
@@ -207,12 +200,13 @@ def _clone_items(pipeline, to_clone):
       copied = beam_pipeline.AppliedPTransform(item.parent, item.transform,
                                                new_label, new_inputs)
 
-      # Add a unique resource tag to the copied PTransforms. The PTransforms
-      # that are generated from each deep copy have the same unique tag. This is
-      # to make sure that the PTransforms that are cloned from each deep copy
-      # can be fused together, but not across copies nor the original.
+      # Add a resource tag to the copied PTransforms. The PTransforms that are
+      # generated from each deep copy have the same unique tag. This is to make
+      # sure that the PTransforms that are cloned from each deep copy can be
+      # fused together, but not across copies nor with the original.
       if tags_resource_available:
-        copied.resource_hints['beam:resources:tags:v1'] = tag.encode()
+        copied.resource_hints['beam:resources:tags:v1'] = (
+            f'DeepCopy.{copy_suffix}'.encode())
 
       ptransform_replacements[item] = copied
 
