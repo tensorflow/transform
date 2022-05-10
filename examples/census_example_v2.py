@@ -93,7 +93,12 @@ def input_fn_raw(tf_transform_output, raw_examples_pattern, batch_size):
         raw_features[key] = tf.RaggedTensor.from_tensor(
             tf.expand_dims(val, -1)).to_sparse()
         continue
-      raw_features[key] = val
+      # We receive the raw data as scalars of length batch, but
+      # we need them to be tensors of shape (1,) with
+      # batch number of them.  This can be thought of as adding a batch
+      # dimension, but more simply, this is us saying we want to treat
+      # each observation as a tensor of shape (1, ), which is a vector.
+      raw_features[key] = tf.expand_dims(val, -1)
     transformed_features = tft_layer(raw_features)
     data_labels = transformed_features.pop(common.LABEL_KEY)
     return (transformed_features, data_labels)
@@ -128,7 +133,7 @@ def export_serving_model(tf_transform_output, model, output_dir):
     return {'classes': classes, 'scores': outputs}
 
   concrete_serving_fn = serve_tf_examples_fn.get_concrete_function(
-      tf.TensorSpec(shape=[None], dtype=tf.string, name='inputs'))
+      tf.TensorSpec(shape=(1,), dtype=tf.string, name='inputs'))
   signatures = {'serving_default': concrete_serving_fn}
 
   # This is required in order to make this model servable with model_server.
@@ -191,12 +196,12 @@ def train_and_evaluate(raw_train_eval_data_path_pattern,
   for key, spec in feature_spec.items():
     if isinstance(spec, tf.io.VarLenFeature):
       inputs[key] = tf.keras.layers.Input(
-          shape=[None], name=key, dtype=spec.dtype, sparse=True)
+          shape=(1,), name=key, dtype=spec.dtype, sparse=True)
     elif isinstance(spec, tf.io.FixedLenFeature):
       # TODO(b/208879020): Move into schema such that spec.shape is [1] and not
       # [] for scalars.
       inputs[key] = tf.keras.layers.Input(
-          shape=spec.shape or [1], name=key, dtype=spec.dtype)
+          shape=spec.shape, name=key, dtype=spec.dtype)
     else:
       raise ValueError('Spec type is not supported: ', key, spec)
 

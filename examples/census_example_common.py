@@ -56,14 +56,14 @@ ORDERED_CSV_COLUMNS = [
 ]
 
 
-RAW_DATA_FEATURE_SPEC = dict([(name, tf.io.FixedLenFeature([], tf.string))
+RAW_DATA_FEATURE_SPEC = dict([(name, tf.io.FixedLenFeature(shape=(1,), dtype=tf.string))
                               for name in CATEGORICAL_FEATURE_KEYS] +
-                             [(name, tf.io.FixedLenFeature([], tf.float32))
+                             [(name, tf.io.FixedLenFeature(shape=(1,), dtype=tf.float32))
                               for name in NUMERIC_FEATURE_KEYS] +
-                             [(name, tf.io.VarLenFeature(tf.float32))
+                             [(name, tf.io.FixedLenFeature(shape=(1,), dtype=tf.float32))
                               for name in OPTIONAL_NUMERIC_FEATURE_KEYS] +
                              [(LABEL_KEY,
-                               tf.io.FixedLenFeature([], tf.string))])
+                               tf.io.FixedLenFeature(shape=(1,), dtype=tf.string))])
 
 _SCHEMA = dataset_metadata.DatasetMetadata(
     schema_utils.schema_from_feature_spec(RAW_DATA_FEATURE_SPEC)).schema
@@ -125,14 +125,9 @@ def transform_data(train_data_file, test_data_file, working_dir):
       outputs[key] = tft.scale_to_0_1(inputs[key])
 
     for key in OPTIONAL_NUMERIC_FEATURE_KEYS:
-      # This is a SparseTensor because it is optional. Here we fill in a default
-      # value when it is missing.
-      sparse = tf.sparse.SparseTensor(inputs[key].indices, inputs[key].values,
-                                      [inputs[key].dense_shape[0], 1])
-      dense = tf.sparse.to_dense(sp_input=sparse, default_value=0.)
-      # Reshaping from a batch of vectors of size 1 to a batch to scalars.
-      dense = tf.squeeze(dense, axis=1)
-      outputs[key] = tft.scale_to_0_1(dense)
+      # This is being treated as a dense tensor that might be missing
+      # values. Might call for some sort of imputation.
+      outputs[key] = tf.identity(inputs[key])
 
     # For all categorical columns except the label column, we generate a
     # vocabulary, and convert the string feature to a one-hot encoding.
