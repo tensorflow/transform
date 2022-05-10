@@ -127,7 +127,7 @@ def transform_data(train_data_file, test_data_file, working_dir):
     for key in OPTIONAL_NUMERIC_FEATURE_KEYS:
       # This is being treated as a dense tensor that might be missing
       # values. Might call for some sort of imputation.
-      outputs[key] = tf.identity(inputs[key])
+      outputs[key] = tft.scale_to_0_1(inputs[key])
 
     # For all categorical columns except the label column, we generate a
     # vocabulary, and convert the string feature to a one-hot encoding.
