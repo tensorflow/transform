@@ -68,7 +68,7 @@ Google Cloud. To install the latest nightly package, please use the following
 command:
 
 ```bash
-pip install -i https://pypi-nightly.tensorflow.org/simple tensorflow-transform
+pip install --extra-index-url https://pypi-nightly.tensorflow.org/simple tensorflow-transform
 ```
 
 This will install the nightly packages for the major dependencies of TFT such

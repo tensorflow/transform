@@ -486,7 +486,7 @@
     following command:
 
     ```
-    pip install -i https://pypi-nightly.tensorflow.org/simple tensorflow-transform
+    pip install --extra-index-url https://pypi-nightly.tensorflow.org/simple tensorflow-transform
     ```
 
     Note: These nightly packages are unstable and breakages are likely to
