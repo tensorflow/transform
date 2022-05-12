@@ -3,8 +3,10 @@
 # Current Version (Still in Development)
 
 ## Major Features and Improvements
+
 *   Adds `tft.DatasetMetadata` and its factory method `from_feature_spec` as
     public APIs to be used when using the "instance dict" data format.
+*   Depends on `apache-beam[gcp]>=2.38,<3`.
 
 ## Bug Fixes and Other Changes
 
