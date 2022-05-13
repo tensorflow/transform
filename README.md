@@ -96,7 +96,8 @@ other *untested* combinations may also work.
 
 tensorflow-transform                                                            | apache-beam[gcp] | pyarrow | tensorflow        | tensorflow-metadata | tfx-bsl |
 ------------------------------------------------------------------------------- | -----------------| --------|-------------------|---------------------|---------|
-[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) | 2.36.0           | 5.0.0   | nightly (1.x/2.x) | 1.7.0               | 1.7.0   |
+[GitHub master](https://github.com/tensorflow/transform/blob/master/RELEASE.md) | 2.38.0           | 5.0.0   | nightly (1.x/2.x) | 1.8.0               | 1.8.0   |
+[1.8.0](https://github.com/tensorflow/transform/blob/v1.8.0/RELEASE.md)         | 2.38.0           | 5.0.0   | 1.15.5 / 2.8      | 1.8.0               | 1.8.0   |
 [1.7.0](https://github.com/tensorflow/transform/blob/v1.7.0/RELEASE.md)         | 2.36.0           | 5.0.0   | 1.15.5 / 2.8      | 1.7.0               | 1.7.0   |
 [1.6.1](https://github.com/tensorflow/transform/blob/v1.6.1/RELEASE.md)         | 2.35.0           | 5.0.0   | 1.15.5 / 2.8      | 1.6.0               | 1.6.0   |
 [1.6.0](https://github.com/tensorflow/transform/blob/v1.6.0/RELEASE.md)         | 2.35.0           | 5.0.0   | 1.15.5 / 2.7      | 1.6.0               | 1.6.0   |

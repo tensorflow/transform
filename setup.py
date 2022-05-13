@@ -53,12 +53,12 @@ def _make_required_install_packages():
           '>=1.15.5,!=2.0.*,!=2.1.*,!=2.2.*,!=2.3.*,!=2.4.*,!=2.5.*,!=2.6.*,!=2.7.*,<2.9'),
       # pylint: enable=line-too-long
       'tensorflow-metadata' + select_constraint(
-          default='>=1.7.0,<1.8.0',
-          nightly='>=1.8.0.dev',
+          default='>=1.8.0,<1.9.0',
+          nightly='>=1.9.0.dev',
           git_master='@git+https://github.com/tensorflow/metadata@master'),
       'tfx-bsl' + select_constraint(
-          default='>=1.7.0,<1.8.0',
-          nightly='>=1.8.0.dev',
+          default='>=1.8.0,<1.9.0',
+          nightly='>=1.9.0.dev',
           git_master='@git+https://github.com/tensorflow/tfx-bsl@master'),
   ]
 
