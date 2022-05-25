@@ -305,9 +305,6 @@ class NumPyCombiner(analyzer_nodes.Combiner):
       ]
 
   def merge_accumulators(self, accumulators):
-    # TODO(b/422923883): Operate in place on accumulators[0] or batch values
-    # internally for vectorization benefits after AccumulateFn is in use.
-
     # If the first subaccumulator is default, then the accumulator is default
     # and can be discarded.
     non_default_accumulators = [
@@ -2422,7 +2419,6 @@ class CovarianceCombiner(analyzer_nodes.Combiner):
 
   def merge_accumulators(self, accumulators):
     """Sums values in each accumulator entry."""
-    # TODO(b/215378946): Consider updating accumulators[0] in place.
     products, vectors, counts = zip(*accumulators)
     return [
         np.sum(products, axis=0),
