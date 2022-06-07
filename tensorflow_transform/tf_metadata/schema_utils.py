@@ -517,15 +517,15 @@ def _fixed_shape_as_tf_shape(fixed_shape):
   return [int(dim.size) for dim in fixed_shape.dim]
 
 
-_DEPRECATED_LIFECYCLE_STAGES = [
+_IGNORED_LIFECYCLE_STAGES = [
     schema_pb2.DEPRECATED, schema_pb2.DISABLED, schema_pb2.PLANNED,
-    schema_pb2.ALPHA, schema_pb2.DEBUG_ONLY
+    schema_pb2.ALPHA, schema_pb2.DEBUG_ONLY, schema_pb2.VALIDATION_DERIVED,
 ]
 
 
 def _include_in_parsing_spec(feature):
   return not (schema_utils_legacy.get_deprecated(feature) or
-              feature.lifecycle_stage in _DEPRECATED_LIFECYCLE_STAGES)
+              feature.lifecycle_stage in _IGNORED_LIFECYCLE_STAGES)
 
 
 def _legacy_schema_from_feature_spec(feature_spec, domains=None):
