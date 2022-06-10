@@ -1540,7 +1540,9 @@ def reduce_batch_minus_min_and_max(
 
 def reduce_batch_minus_min_and_max_per_key(
     x: common_types.TensorType,
-    key: common_types.TensorType) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+    key: common_types.TensorType,
+    reduce_instance_dims: bool = True
+) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
   """Computes the -min and max of a tensor x.
 
   Args:
@@ -1552,6 +1554,10 @@ def reduce_batch_minus_min_and_max_per_key(
         everything except values,
         3. The axis=1 index of each element of sparse x matches its index of
         dense key.
+    reduce_instance_dims: A bool indicating whether this should collapse the
+      batch and instance dimensions to arrive at a single scalar output, or only
+      collapse the batch dimension and outputs a vector of the same shape as the
+      input.
   Returns:
     A 3-tuple containing the `Tensor`s (key_vocab, min_per_key, max_per_key).
   """
@@ -1561,10 +1567,16 @@ def reduce_batch_minus_min_and_max_per_key(
   elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
     raise TypeError('Tensor type %r is not supported' % x.dtype)
 
+  if not reduce_instance_dims and isinstance(
+      x, (tf.SparseTensor, tf.RaggedTensor)):
+    raise NotImplementedError(
+        'Elementwise reduction of composite tensors is not supported'
+    )
+
   x, key = _validate_and_get_dense_value_key_inputs(x, key)
 
   def get_batch_max_per_key(tensor, key_uniques):  # pylint: disable=missing-docstring
-    if tensor.get_shape().ndims < 2:
+    if not reduce_instance_dims or tensor.get_shape().ndims < 2:
       row_maxes = tensor
     else:
       row_maxes = tf.reduce_max(

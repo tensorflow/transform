@@ -1627,6 +1627,7 @@ class TFUtilsTest(test_case.TransformTestCase):
                   values=[3, 2, -1, 3],
                   dense_shape=[4, 5]),
               key=['a', 'a', 'a', 'b'],
+              reduce_instance_dims=True,
               expected_key_vocab=[b'a', b'b'],
               expected_x_minus_min=[1, -3],
               expected_x_max=[3, 3],
@@ -1638,9 +1639,22 @@ class TFUtilsTest(test_case.TransformTestCase):
               testcase_name='float',
               x=[[1], [5], [2], [3]],
               key=['a', 'a', 'a', 'b'],
+              reduce_instance_dims=True,
               expected_key_vocab=[b'a', b'b'],
               expected_x_minus_min=[-1, -3],
               expected_x_max=[5, 3],
+              input_signature=[
+                  tf.TensorSpec([None, None], tf.float32),
+                  tf.TensorSpec([None], tf.string)
+              ]),
+          dict(
+              testcase_name='float_elementwise',
+              x=[[1], [5], [2], [3]],
+              key=['a', 'a', 'a', 'b'],
+              reduce_instance_dims=False,
+              expected_key_vocab=[b'a', b'b'],
+              expected_x_minus_min=[[-1], [-3]],
+              expected_x_max=[[5], [3]],
               input_signature=[
                   tf.TensorSpec([None, None], tf.float32),
                   tf.TensorSpec([None], tf.string)
@@ -1650,9 +1664,23 @@ class TFUtilsTest(test_case.TransformTestCase):
               x=[[[1, 5], [1, 1]], [[5, 1], [5, 5]], [[2, 2], [2, 5]],
                  [[3, -3], [3, 3]]],
               key=['a', 'a', 'a', 'b'],
+              reduce_instance_dims=True,
               expected_key_vocab=[b'a', b'b'],
               expected_x_minus_min=[-1, 3],
               expected_x_max=[5, 3],
+              input_signature=[
+                  tf.TensorSpec([None, None, None], tf.float32),
+                  tf.TensorSpec([None], tf.string)
+              ]),
+          dict(
+              testcase_name='float3dims_elementwise',
+              x=[[[1, 5], [1, 1]], [[5, 1], [5, 5]], [[2, 2], [2, 5]],
+                 [[3, -3], [3, 3]]],
+              key=['a', 'a', 'a', 'b'],
+              reduce_instance_dims=False,
+              expected_key_vocab=[b'a', b'b'],
+              expected_x_minus_min=[[[-1, -1], [-1, -1]], [[-3, 3], [-3, -3]]],
+              expected_x_max=[[[5, 5], [5, 5]], [[3, -3], [3, 3]]],
               input_signature=[
                   tf.TensorSpec([None, None, None], tf.float32),
                   tf.TensorSpec([None], tf.string)
@@ -1673,6 +1701,7 @@ class TFUtilsTest(test_case.TransformTestCase):
                           row_splits=np.array([0, 2, 3, 4, 5])),
                       row_splits=np.array([0, 2, 3, 4])),
                   row_splits=np.array([0, 2, 3])),
+              reduce_instance_dims=True,
               expected_key_vocab=[b'a', b'b'],
               expected_x_minus_min=[-2., -3.],
               expected_x_max=[4., 5.],
@@ -1682,12 +1711,13 @@ class TFUtilsTest(test_case.TransformTestCase):
               ]),
       ]))
   def test_reduce_batch_minus_min_and_max_per_key(
-      self, x, key, expected_key_vocab, expected_x_minus_min, expected_x_max,
-      input_signature, function_handler):
+      self, x, key, reduce_instance_dims, expected_key_vocab,
+      expected_x_minus_min, expected_x_max, input_signature, function_handler):
 
     @function_handler(input_signature=input_signature)
     def _reduce_batch_minus_min_and_max_per_key(x, key):
-      return tf_utils.reduce_batch_minus_min_and_max_per_key(x, key)
+      return tf_utils.reduce_batch_minus_min_and_max_per_key(
+          x, key, reduce_instance_dims=reduce_instance_dims)
 
     key_vocab, x_minus_min, x_max = _reduce_batch_minus_min_and_max_per_key(
         x, key)
