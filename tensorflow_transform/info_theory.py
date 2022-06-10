@@ -84,7 +84,7 @@ def calculate_partial_mutual_information(n_ij, x_i, y_j, n):
   Returns:
     Mutual information for the cell x=i, y=j.
   """
-  if n_ij == 0:
+  if n_ij == 0 or x_i == 0 or y_j == 0:
     return 0
   return n_ij * ((log2(n_ij) + log2(n)) -
                  (log2(x_i) + log2(y_j)))

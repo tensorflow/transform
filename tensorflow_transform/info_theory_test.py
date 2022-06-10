@@ -137,6 +137,27 @@ class InfoTheoryTest(test_case.TransformTestCase):
           col_count=8,
           total_count=16,
           expected_mi=0),
+      dict(
+          testcase_name='invalid_input_zero_cell_count',
+          cell_count=4,
+          row_count=0,
+          col_count=8,
+          total_count=8,
+          expected_mi=0),
+      dict(
+          testcase_name='invalid_input_zero_row_count',
+          cell_count=4,
+          row_count=0,
+          col_count=8,
+          total_count=8,
+          expected_mi=0),
+      dict(
+          testcase_name='invalid_input_zero_col_count',
+          cell_count=4,
+          row_count=8,
+          col_count=0,
+          total_count=8,
+          expected_mi=0),
   )
   def test_mutual_information(self, cell_count, row_count, col_count,
                               total_count, expected_mi):
