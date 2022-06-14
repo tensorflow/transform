@@ -121,6 +121,7 @@ class SavedModelLoader:
         defined in `../constants.py` ('transform' and 'transform_signature',
         respectively).
     """
+    saved_transform_io._maybe_register_addon_ops()  # pylint: disable=protected-access
     # TODO(b/160294509): Stop using tf.compat.v2 when TF1.15 support is
     # dropped.
     imported = tf.compat.v2.saved_model.load(saved_model_dir)
@@ -151,7 +152,6 @@ class SavedModelLoader:
     outputs_to_inputs_map = _get_output_to_inputs_map(structured_outputs)
     self._initialize(load_v2_in_compat, imported, wrapped, structured_inputs,
                      structured_outputs, outputs_to_inputs_map)
-    saved_transform_io._maybe_register_addon_ops()  # pylint: disable=protected-access
 
   def _initialize(self, load_v2_in_compat, imported, wrapped, structured_inputs,
                   structured_outputs, outputs_to_inputs_map):
