@@ -348,6 +348,12 @@ def _get_output_shape_from_input(x):
   return (None,)
 
 
+def _get_elementwise_per_key_output_shape(
+    x: tf.Tensor, key: Optional[tf.Tensor]) -> Optional[Tuple[int]]:
+  shape = x.get_shape() if key is None else x.get_shape()[1:]
+  return tuple(shape) if shape.is_fully_defined() else None
+
+
 # TODO(b/112414577): Go back to accepting only a single input.
 # Currently we accept multiple inputs so that we can implement min and max
 # with a single combiner. Once this is done, add a return pytype as well.
@@ -401,8 +407,7 @@ def _numeric_combine(inputs: List[tf.Tensor],
   else:
     # Reducing over batch dimensions.
     output_shapes = [
-        (tuple(x.get_shape()) if x.get_shape().is_fully_defined() else None)
-        for x in inputs
+        _get_elementwise_per_key_output_shape(x, key) for x in inputs
     ]
   combiner = NumPyCombiner(fn, default_accumulator_value,
                            [dtype.as_numpy_dtype for dtype in output_dtypes],
@@ -414,8 +419,8 @@ def _numeric_combine(inputs: List[tf.Tensor],
     return _apply_cacheable_combiner_per_key(combiner, key, *inputs)
 
   return _apply_cacheable_combiner_per_key_large(
-      combiner, _maybe_get_per_key_vocab_filename(key_vocabulary_filename),
-      key, *inputs)
+      combiner, _maybe_get_per_key_vocab_filename(key_vocabulary_filename), key,
+      *inputs)
 
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
@@ -565,8 +570,10 @@ def _min_and_max_per_key(
   if key is None:
     raise ValueError('A key is required for _min_and_max_per_key')
 
-  if not reduce_instance_dims:
-    raise NotImplementedError('Per-key elementwise reduction not supported')
+  if not reduce_instance_dims and isinstance(
+      x, (tf.SparseTensor, tf.RaggedTensor)):
+    raise NotImplementedError(
+        'Per-key elementwise reduction of Composite Tensors not supported ')
 
   with tf.compat.v1.name_scope(name, 'min_and_max_per_key'):
     output_dtype = x.dtype
@@ -582,7 +589,8 @@ def _min_and_max_per_key(
                                    -output_dtype.max)
 
     key_vocab, x_batch_minus_min, x_batch_max = (
-        tf_utils.reduce_batch_minus_min_and_max_per_key(x, key))
+        tf_utils.reduce_batch_minus_min_and_max_per_key(x, key,
+                                                        reduce_instance_dims))
 
     key_values = _numeric_combine(  # pylint: disable=unbalanced-tuple-unpacking
         inputs=[x_batch_minus_min, x_batch_max],

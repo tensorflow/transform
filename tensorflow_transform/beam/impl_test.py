@@ -1919,6 +1919,157 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_outputs,
         desired_batch_size=10)
 
+  @tft_unit.named_parameters(
+      dict(
+          testcase_name='_dense_2d',
+          input_data=[{
+              'x': [4, 8],
+              'key': 'a'
+          }, {
+              'x': [1, 5],
+              'key': 'a'
+          }, {
+              'x': [5, 9],
+              'key': 'a'
+          }, {
+              'x': [2, 6],
+              'key': 'a'
+          }, {
+              'x': [-2, 0],
+              'key': 'b'
+          }, {
+              'x': [0, 2],
+              'key': 'b'
+          }, {
+              'x': [2, 4],
+              'key': 'b'
+          }],
+          input_metadata=tft.DatasetMetadata.from_feature_spec({
+              'x': tf.io.FixedLenFeature([2], tf.float32),
+              'key': tf.io.FixedLenFeature([], tf.string),
+          }),
+          reduce_instance_dims=True,
+          expected_outputs={
+              'key_vocab': np.array([b'a', b'b'], np.object),
+              'min_x_value': np.array([1, -2], np.float32),
+              'max_x_value': np.array([9, 4], np.float32),
+          }),
+      dict(
+          testcase_name='_dense_2d_elementwise',
+          input_data=[{
+              'x': [4, 8],
+              'key': 'a'
+          }, {
+              'x': [1, 5],
+              'key': 'a'
+          }, {
+              'x': [5, 9],
+              'key': 'a'
+          }, {
+              'x': [2, 6],
+              'key': 'a'
+          }, {
+              'x': [-2, 0],
+              'key': 'b'
+          }, {
+              'x': [0, 2],
+              'key': 'b'
+          }, {
+              'x': [2, 4],
+              'key': 'b'
+          }],
+          input_metadata=tft.DatasetMetadata.from_feature_spec({
+              'x': tf.io.FixedLenFeature([2], tf.float32),
+              'key': tf.io.FixedLenFeature([], tf.string),
+          }),
+          reduce_instance_dims=False,
+          expected_outputs={
+              'key_vocab': np.array([b'a', b'b'], np.object),
+              'min_x_value': np.array([[1, 5], [-2, 0]], np.float32),
+              'max_x_value': np.array([[5, 9], [2, 4]], np.float32),
+          }),
+      dict(
+          testcase_name='_dense_3d',
+          input_data=[
+              {
+                  'x': [[1, 5], [1, 1]],
+                  'key': 'a'
+              },
+              {
+                  'x': [[5, 1], [5, 5]],
+                  'key': 'a'
+              },
+              {
+                  'x': [[2, 2], [2, 5]],
+                  'key': 'a'
+              },
+              {
+                  'x': [[3, -3], [3, 3]],
+                  'key': 'b'
+              },
+          ],
+          input_metadata=tft.DatasetMetadata.from_feature_spec({
+              'x': tf.io.FixedLenFeature([2, 2], tf.float32),
+              'key': tf.io.FixedLenFeature([], tf.string),
+          }),
+          reduce_instance_dims=True,
+          expected_outputs={
+              'key_vocab': np.array([b'a', b'b'], np.object),
+              'min_x_value': np.array([1, -3], np.float32),
+              'max_x_value': np.array([5, 3], np.float32),
+          }),
+      dict(
+          testcase_name='_dense_3d_elementwise',
+          input_data=[
+              {
+                  'x': [[1, 5], [1, 1]],
+                  'key': 'a'
+              },
+              {
+                  'x': [[5, 1], [5, 5]],
+                  'key': 'a'
+              },
+              {
+                  'x': [[2, 2], [2, 5]],
+                  'key': 'a'
+              },
+              {
+                  'x': [[3, -3], [3, 3]],
+                  'key': 'b'
+              },
+          ],
+          input_metadata=tft.DatasetMetadata.from_feature_spec({
+              'x': tf.io.FixedLenFeature([2, 2], tf.float32),
+              'key': tf.io.FixedLenFeature([], tf.string),
+          }),
+          reduce_instance_dims=False,
+          expected_outputs={
+              'key_vocab':
+                  np.array([b'a', b'b'], np.object),
+              'min_x_value':
+                  np.array([[[1, 1], [1, 1]], [[3, -3], [3, 3]]], np.float32),
+              'max_x_value':
+                  np.array([[[5, 5], [5, 5]], [[3, -3], [3, 3]]], np.float32),
+          }),
+  )
+  def testMinAndMaxPerKey(self, input_data, input_metadata,
+                          reduce_instance_dims, expected_outputs):
+    self._SkipIfOutputRecordBatches()
+
+    def analyzer_fn(inputs):
+      key_vocab, min_x_value, max_x_value = analyzers._min_and_max_per_key(
+          x=inputs['x'],
+          key=inputs['key'],
+          reduce_instance_dims=reduce_instance_dims)
+      return {
+          'key_vocab': key_vocab,
+          'min_x_value': min_x_value,
+          'max_x_value': max_x_value,
+      }
+
+    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
+                               expected_outputs)
+
   @tft_unit.parameters((True,), (False,))
   def testPerKeyWithOOVKeys(self, use_vocabulary):
     def preprocessing_fn(inputs):
