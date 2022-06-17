@@ -1234,18 +1234,20 @@ def _align_dims(tensor: tf.Tensor, target_ndims: int) -> tf.Tensor:
   return tensor
 
 
-def map_per_key_reductions(
-    tensors_to_map: Tuple[tf.Tensor, ...], key: common_types.TensorType,
-    key_vocab: tf.Tensor,
-    original_input: common_types.TensorType) -> Tuple[tf.Tensor, ...]:
+def map_per_key_reductions(tensors_to_map: Tuple[tf.Tensor, ...],
+                           key: common_types.TensorType, key_vocab: tf.Tensor,
+                           original_input: common_types.TensorType,
+                           reduce_instance_dims: bool) -> Tuple[tf.Tensor, ...]:
   """Rearrange the reduced per-key result to correspond to the original keys.
 
   Args:
     tensors_to_map: A tuple of 1-D `Tensor`s that are same shape as key_vocab,
-        to be mapped to respective key.
+      to be mapped to respective key.
     key: A `Tensor` or `CompositeTensor`.
     key_vocab: A 1-D `Tensor`.
     original_input: A `Tensor` or `CompositeTensor`.
+    reduce_instance_dims: A `bool`. True if tensors_to_map are reduced in
+      dimension, else False.
 
   Returns:
     A tuple same length as tensors_to_map, of `Tensor`s the same dimension as
@@ -1262,17 +1264,22 @@ def map_per_key_reductions(
                               (tf.SparseTensor, tf.RaggedTensor)) else
            original_input.get_shape().ndims)
 
-  # Append a 0 to allow mapping OOVs to it.
-  tensors_to_map = [tf.concat([t, [0]], axis=0) for t in tensors_to_map]
+  # Append 0s to allow mapping OOVs to it.
+  tensors_to_map = [
+      tf.concat([t, tf.expand_dims(tf.zeros_like(t[0]), 0)], axis=0)
+      for t in tensors_to_map
+  ]
 
   # Replace `-1`s due to OOV with size of key_vocab.
   adjusted_indices = tf.where(
       key_indices >= 0, key_indices,
       tf.cast(
           tf.fill(tf.shape(key_indices), tf.size(key_vocab)), dtype=tf.int64))
-
-  mapped_result = [_align_dims(tf.gather(t, adjusted_indices, axis=-1), ndims)
-                   for t in tensors_to_map]
+  axis = -1 if reduce_instance_dims else 0
+  mapped_result = [
+      _align_dims(tf.gather(t, adjusted_indices, axis=axis), ndims)
+      for t in tensors_to_map
+  ]
 
   return tuple(mapped_result)
 

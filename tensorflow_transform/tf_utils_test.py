@@ -1942,6 +1942,7 @@ class TFUtilsTest(test_case.TransformTestCase):
           key_vocab=['a', 'b'],
           reductions=([1, 2], [3, 4]),
           x=[5, 6, 7],
+          reduce_instance_dims=True,
           expected_results=([2, 1, 2], [4, 3, 4])),
       dict(
           testcase_name='sparse_tensor_dense_key',
@@ -1952,6 +1953,7 @@ class TFUtilsTest(test_case.TransformTestCase):
               indices=[[0, 0], [1, 2], [2, 2], [2, 3]],
               values=[3, 2, -1, 3],
               dense_shape=[3, 5]),
+          reduce_instance_dims=True,
           expected_results=([2, 1, 2, 2], [4, 3, 4, 4])),
       dict(
           testcase_name='sparse_tensor_sparse_key',
@@ -1965,6 +1967,7 @@ class TFUtilsTest(test_case.TransformTestCase):
               indices=[[0, 0], [1, 2], [2, 2], [2, 3]],
               values=[3, 2, -1, 3],
               dense_shape=[3, 5]),
+          reduce_instance_dims=True,
           expected_results=([2, 1, 2, 2], [4, 3, 4, 4])),
       dict(
           testcase_name='ragged_tensor_dense_key',
@@ -1976,6 +1979,7 @@ class TFUtilsTest(test_case.TransformTestCase):
                   values=np.array([1.2, 1., 1.2, 1.]),
                   row_splits=np.array([0, 2, 4])),
               row_splits=np.array([0, 1, 2, 2])),
+          reduce_instance_dims=True,
           expected_results=([1, 1, 2, 2], [3, 3, 4, 4])),
       dict(
           testcase_name='ragged_tensor_ragged_key',
@@ -1991,6 +1995,7 @@ class TFUtilsTest(test_case.TransformTestCase):
                   values=np.array([1.2, 1., 1.2, 1.]),
                   row_splits=np.array([0, 2, 4])),
               row_splits=np.array([0, 2])),
+          reduce_instance_dims=True,
           expected_results=([1, 2, 2, 1], [3, 4, 4, 3])),
       dict(
           testcase_name='missing_key',
@@ -1998,17 +2003,37 @@ class TFUtilsTest(test_case.TransformTestCase):
           key_vocab=['z', 'a', 'b'],
           reductions=([-77, 1, 2], [-99, 3, 4]),
           x=[5, 6, 7],
+          reduce_instance_dims=True,
           expected_results=([2, 1, 0], [4, 3, 0])),
+      dict(
+          testcase_name='_dense_tensor_2d_elementwise',
+          key=['a'],
+          key_vocab=['a', 'b'],
+          reductions=([[1, 5], [-2, 0]], [[5, 9], [2, 4]]),
+          x=[[4, 8]],
+          reduce_instance_dims=False,
+          expected_results=([[1, 5]], [[5, 9]])),
+      dict(
+          testcase_name='_dense_tensor_3d_elementwise',
+          key=['a'],
+          key_vocab=['a', 'b'],
+          reductions=([[[1, 1], [1, 1]], [[3, -3], [3, 3]]], [[[5, 5], [5, 5]],
+                                                              [[3, -3], [3,
+                                                                         3]]]),
+          x=[[[1, 5], [1, 1]]],
+          reduce_instance_dims=False,
+          expected_results=([[[1, 1], [1, 1]]], [[[5, 5], [5, 5]]])),
   )
-  def test_map_per_key_reductions(
-      self, key, key_vocab, reductions, x, expected_results):
+  def test_map_per_key_reductions(self, key, key_vocab, reductions, x,
+                                  reduce_instance_dims, expected_results):
     with tf.compat.v1.Graph().as_default():
       key = _value_to_tensor(key)
       key_vocab = tf.constant(key_vocab)
       reductions = tuple([tf.constant(t) for t in reductions])
       x = _value_to_tensor(x)
       expected_results = tuple(tf.constant(t) for t in expected_results)
-      results = tf_utils.map_per_key_reductions(reductions, key, key_vocab, x)
+      results = tf_utils.map_per_key_reductions(reductions, key, key_vocab, x,
+                                                reduce_instance_dims)
       with tf.compat.v1.Session() as sess:
         sess.run(tf.compat.v1.tables_initializer())
         output = sess.run(results)

@@ -379,7 +379,7 @@ def _scale_by_min_max_internal(
       # Missing keys will translate to 0 for both min and max which will be
       # ignored below in the tf.where.
       min_x_value, max_x_value = tf_utils.map_per_key_reductions(
-          (min_x_value, max_x_value), key, key_vocab, x)
+          (min_x_value, max_x_value), key, key_vocab, x, not elementwise)
     else:
       minus_min_max_for_key = tf_utils.apply_per_key_vocabulary(
           key_values, key, target_ndims=x.get_shape().ndims)
@@ -626,8 +626,8 @@ def _scale_to_z_score_internal(
       # Missing keys will translate to 0 for both mean and var which will be
       # ignored below in the tf.where.
       key_vocab, key_means, key_vars = mean_and_var_per_key_result
-      x_mean, x_var = tf_utils.map_per_key_reductions((key_means, key_vars),
-                                                      key, key_vocab, x)
+      x_mean, x_var = tf_utils.map_per_key_reductions(
+          (key_means, key_vars), key, key_vocab, x, not elementwise)
     else:
       mean_var_for_key = tf_utils.apply_per_key_vocabulary(
           mean_and_var_per_key_result, key, target_ndims=x.get_shape().ndims)
