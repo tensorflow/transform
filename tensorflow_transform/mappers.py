@@ -367,12 +367,13 @@ def _scale_by_min_max_internal(
         x,
         reduce_instance_dims=not elementwise)
   else:
-    if elementwise:
-      raise NotImplementedError('Per-key elementwise reduction not supported')
+    if elementwise and isinstance(x, (tf.SparseTensor, tf.RaggedTensor)):
+      raise NotImplementedError(
+          'Per-key elementwise reduction of Composite Tensors not supported')
     key_values = analyzers._min_and_max_per_key(  # pylint: disable=protected-access
         x,
         key,
-        reduce_instance_dims=True,
+        reduce_instance_dims=not elementwise,
         key_vocabulary_filename=key_vocabulary_filename)
     if key_vocabulary_filename is None:
       key_vocab, min_x_value, max_x_value = key_values
@@ -381,10 +382,13 @@ def _scale_by_min_max_internal(
       min_x_value, max_x_value = tf_utils.map_per_key_reductions(
           (min_x_value, max_x_value), key, key_vocab, x, not elementwise)
     else:
+      if elementwise:
+        raise NotImplementedError(
+            'Elementwise scaling does not support key_vocabulary_filename')
       minus_min_max_for_key = tf_utils.apply_per_key_vocabulary(
           key_values, key, target_ndims=x.get_shape().ndims)
-      min_x_value, max_x_value = (
-          -minus_min_max_for_key[:, 0], minus_min_max_for_key[:, 1])
+      min_x_value, max_x_value = (-minus_min_max_for_key[:, 0],
+                                  minus_min_max_for_key[:, 1])
 
   compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
   x_values = tf_utils.get_values(x)

@@ -788,13 +788,14 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
 
-  def testScaleUnitIntervalPerKey(self):
+  @tft_unit.parameters((True,), (False,))
+  def testScaleUnitIntervalPerKey(self, elementwise):
 
     def preprocessing_fn(inputs):
       outputs = {}
       stacked_input = tf.stack([inputs['x'], inputs['y']], axis=1)
       result = tft.scale_to_0_1_per_key(
-          stacked_input, inputs['key'], elementwise=False)
+          stacked_input, inputs['key'], elementwise)
       outputs['x_scaled'], outputs['y_scaled'] = tf.unstack(result, axis=1)
       return outputs
 
@@ -828,25 +829,46 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'y': tf.io.FixedLenFeature([], tf.float32),
         'key': tf.io.FixedLenFeature([], tf.string)
     })
-    expected_data = [{
-        'x_scaled': 0.6,
-        'y_scaled': 0.8
-    }, {
-        'x_scaled': 0.0,
-        'y_scaled': 0.2
-    }, {
-        'x_scaled': 0.8,
-        'y_scaled': 1.0
-    }, {
-        'x_scaled': 0.2,
-        'y_scaled': 0.4
-    }, {
-        'x_scaled': 1.0,
-        'y_scaled': 0.0
-    }, {
-        'x_scaled': 0.6,
-        'y_scaled': 0.5
-    }]
+    if elementwise:
+      expected_data = [{
+          'x_scaled': 0.75,
+          'y_scaled': 0.75
+      }, {
+          'x_scaled': 0.0,
+          'y_scaled': 0.0
+      }, {
+          'x_scaled': 1.0,
+          'y_scaled': 1.0
+      }, {
+          'x_scaled': 0.25,
+          'y_scaled': 0.25
+      }, {
+          'x_scaled': 1.0,
+          'y_scaled': 0.0
+      }, {
+          'x_scaled': 0.0,
+          'y_scaled': 1.0
+      }]
+    else:
+      expected_data = [{
+          'x_scaled': 0.6,
+          'y_scaled': 0.8
+      }, {
+          'x_scaled': 0.0,
+          'y_scaled': 0.2
+      }, {
+          'x_scaled': 0.8,
+          'y_scaled': 1.0
+      }, {
+          'x_scaled': 0.2,
+          'y_scaled': 0.4
+      }, {
+          'x_scaled': 1.0,
+          'y_scaled': 0.0
+      }, {
+          'x_scaled': 0.6,
+          'y_scaled': 0.5
+      }]
     expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'x_scaled': tf.io.FixedLenFeature([], tf.float32),
         'y_scaled': tf.io.FixedLenFeature([], tf.float32)
@@ -919,14 +941,24 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           expected_metadata)
 
   @tft_unit.named_parameters(
-      dict(testcase_name='_empty_filename',
-           key_vocabulary_filename=''),
-      dict(testcase_name='_nonempty_filename',
-           key_vocabulary_filename='per_key'),
-      dict(testcase_name='_none_filename',
-           key_vocabulary_filename=None)
-  )
-  def testScaleMinMaxPerKey(self, key_vocabulary_filename):
+      dict(
+          testcase_name='_empty_filename',
+          elementwise=False,
+          key_vocabulary_filename=''),
+      dict(
+          testcase_name='_nonempty_filename',
+          elementwise=False,
+          key_vocabulary_filename='per_key'),
+      dict(
+          testcase_name='_none_filename',
+          elementwise=False,
+          key_vocabulary_filename=None),
+      dict(
+          testcase_name='_elementwise_none_filename',
+          elementwise=True,
+          key_vocabulary_filename=None))
+  def testScaleMinMaxPerKey(self, elementwise, key_vocabulary_filename):
+
     def preprocessing_fn(inputs):
       outputs = {}
       stacked_input = tf.stack([inputs['x'], inputs['y']], axis=1)
@@ -935,7 +967,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           inputs['key'],
           output_min=-1,
           output_max=1,
-          elementwise=False,
+          elementwise=elementwise,
           key_vocabulary_filename=key_vocabulary_filename)
       outputs['x_scaled'], outputs['y_scaled'] = tf.unstack(result, axis=1)
       return outputs
@@ -970,37 +1002,61 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'y': tf.io.FixedLenFeature([], tf.float32),
         'key': tf.io.FixedLenFeature([], tf.string)
     })
-
-    expected_data = [{
-        'x_scaled': -0.25,
-        'y_scaled': 0.75
-    }, {
-        'x_scaled': -1.0,
-        'y_scaled': 0.0
-    }, {
-        'x_scaled': 0.0,
-        'y_scaled': 1.0
-    }, {
-        'x_scaled': -0.75,
-        'y_scaled': 0.25
-    }, {
-        'x_scaled': -1.0,
-        'y_scaled': 0.0
-    }, {
-        'x_scaled': 0.0,
-        'y_scaled': 1.0
-    }]
+    if elementwise:
+      expected_data = [{
+          'x_scaled': 0.5,
+          'y_scaled': 0.5
+      }, {
+          'x_scaled': -1.0,
+          'y_scaled': -1.0
+      }, {
+          'x_scaled': 1.0,
+          'y_scaled': 1.0
+      }, {
+          'x_scaled': -0.5,
+          'y_scaled': -0.5
+      }, {
+          'x_scaled': -1.0,
+          'y_scaled': -1.0
+      }, {
+          'x_scaled': 1.0,
+          'y_scaled': 1.0
+      }]
+    else:
+      expected_data = [{
+          'x_scaled': -0.25,
+          'y_scaled': 0.75
+      }, {
+          'x_scaled': -1.0,
+          'y_scaled': 0.0
+      }, {
+          'x_scaled': 0.0,
+          'y_scaled': 1.0
+      }, {
+          'x_scaled': -0.75,
+          'y_scaled': 0.25
+      }, {
+          'x_scaled': -1.0,
+          'y_scaled': 0.0
+      }, {
+          'x_scaled': 0.0,
+          'y_scaled': 1.0
+      }]
     expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'x_scaled': tf.io.FixedLenFeature([], tf.float32),
         'y_scaled': tf.io.FixedLenFeature([], tf.float32)
     })
     if key_vocabulary_filename:
-      per_key_vocab_contents = {key_vocabulary_filename:
-                                    [(b'a', [-1.0, 9.0]), (b'b', [2.0, 2.0])]}
+      per_key_vocab_contents = {
+          key_vocabulary_filename: [(b'a', [-1.0, 9.0]), (b'b', [2.0, 2.0])]
+      }
     else:
       per_key_vocab_contents = None
     self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn, expected_data,
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
         expected_metadata,
         expected_vocab_file_contents=per_key_vocab_contents)
 
