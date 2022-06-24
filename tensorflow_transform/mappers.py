@@ -619,11 +619,15 @@ def _scale_to_z_score_internal(
         reduce_instance_dims=not elementwise,
         output_dtype=output_dtype)
   else:
-    if elementwise:
-      raise NotImplementedError('Per-key elementwise reduction not supported')
+    if elementwise and isinstance(x, (tf.SparseTensor, tf.RaggedTensor)):
+      raise NotImplementedError(
+          'Per-key elementwise reduction of Composite Tensors not supported')
 
     mean_and_var_per_key_result = analyzers._mean_and_var_per_key(  # pylint: disable=protected-access
-        x, key, key_vocabulary_filename=key_vocabulary_filename,
+        x,
+        key,
+        reduce_instance_dims=not elementwise,
+        key_vocabulary_filename=key_vocabulary_filename,
         output_dtype=output_dtype)
 
     if key_vocabulary_filename is None:
@@ -633,6 +637,9 @@ def _scale_to_z_score_internal(
       x_mean, x_var = tf_utils.map_per_key_reductions(
           (key_means, key_vars), key, key_vocab, x, not elementwise)
     else:
+      if elementwise:
+        raise NotImplementedError(
+            'Elementwise scaling does not support key_vocabulary_filename')
       mean_var_for_key = tf_utils.apply_per_key_vocabulary(
           mean_and_var_per_key_result, key, target_ndims=x.get_shape().ndims)
       x_mean, x_var = (mean_var_for_key[:, 0], mean_var_for_key[:, 1])

@@ -1106,8 +1106,10 @@ def _mean_and_var_per_key(
   if key is None:
     raise ValueError('A non-None key is required for _mean_and_var_per_key')
 
-  if not reduce_instance_dims:
-    raise NotImplementedError('Per-key elementwise reduction not supported')
+  if not reduce_instance_dims and isinstance(
+      x, (tf.SparseTensor, tf.RaggedTensor)):
+    raise NotImplementedError(
+        'Per-key elementwise reduction of Composite Tensors not supported ')
 
   with tf.compat.v1.name_scope('mean_and_var_per_key'):
     x = tf.cast(x, output_dtype)
@@ -1115,7 +1117,7 @@ def _mean_and_var_per_key(
     key_vocab, key_counts, key_means, key_variances = (
         tf_utils.reduce_batch_count_mean_and_var_per_key(
             x, key, reduce_instance_dims=reduce_instance_dims))
-    output_shape = ()
+    output_shape = () if reduce_instance_dims else x.get_shape()[1:]
 
     combine_inputs = _WeightedMeanAndVarAccumulator(
         count=key_counts,

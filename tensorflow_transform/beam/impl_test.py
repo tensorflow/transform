@@ -1809,6 +1809,139 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_data,
                                           expected_metadata)
 
+  @tft_unit.named_parameters(
+      dict(
+          testcase_name='_float',
+          input_data=[
+              {
+                  'x': [-4, 0],
+                  'key': 'a',
+              },
+              {
+                  'x': [10, 0],
+                  'key': 'a',
+              },
+              {
+                  'x': [2, 0],
+                  'key': 'a',
+              },
+              {
+                  'x': [4, 0],
+                  'key': 'a',
+              },
+              {
+                  'x': [1, 0],
+                  'key': 'b',
+              },
+              {
+                  'x': [-1, 0],
+                  'key': 'b',
+              },
+              {
+                  'x': [np.nan, np.nan],
+                  'key': 'b',
+              },
+          ],
+          # Elementwise = True
+          # Mean      [a, b] = [[ 3.0, 0.0], [0.0, 0.0]]
+          # Variance  [a, b] = [[25.0, 0.0], [1.0, 0.0]]
+          # StdDev    [a, b] = [[ 5.0, 0.0], [1.0, 0.0]]
+          expected_data=[
+              {
+                  'x_scaled': [-1.4, 0.0],  # [(-4 - 3) / 5, (0 - 0) / 0]
+              },
+              {
+                  'x_scaled': [1.4, 0.0]  # [(10 - 3) / 5, (0 - 0) / 0]
+              },
+              {
+                  'x_scaled': [-0.2, 0.0]  # [(2 - 3) / 5, (0 - 0) / 0]
+              },
+              {
+                  'x_scaled': [0.2, 0.0],  # [(4 - 3) / 5, (0 - 0) / 0]
+              },
+              {
+                  'x_scaled': [1.0, 0.0]  # [(1 - 0) / 1, (0 - 0) / 0]
+              },
+              {
+                  'x_scaled': [-1.0, 0.0]  # [(-1 - 0) / 1, (0 - 0) / 0]
+              },
+              {
+                  'x_scaled': [np.nan, np.nan]
+              },
+          ],
+          input_metadata=tft.DatasetMetadata.from_feature_spec({
+              'x': tf.io.FixedLenFeature([2], tf.float32),
+              'key': tf.io.FixedLenFeature([], tf.string),
+          }),
+          expected_metadata=tft.DatasetMetadata.from_feature_spec({
+              'x_scaled': tf.io.FixedLenFeature([2], tf.float32),
+          })),
+      dict(
+          testcase_name='float_3dims',
+          input_data=[
+              {
+                  'x': [[-4, -8], [-12, -16]],
+                  'key': 'a',
+              },
+              {
+                  'x': [[10, 20], [30, 40]],
+                  'key': 'a',
+              },
+              {
+                  'x': [[2, 4], [6, 8]],
+                  'key': 'a',
+              },
+              {
+                  'x': [[4, 8], [12, 16]],
+                  'key': 'a',
+              },
+              {
+                  'x': [[1, 2], [3, 4]],
+                  'key': 'b',
+              },
+          ],
+          expected_data=[
+              {
+                  'x_scaled': [[-1.4, -1.4], [-1.4, -1.4]],
+              },
+              {
+                  'x_scaled': [[1.4, 1.4], [1.4, 1.4]],
+              },
+              {
+                  'x_scaled': [[-0.2, -0.2], [-0.2, -0.2]],
+              },
+              {
+                  'x_scaled': [[0.2, 0.2], [0.2, 0.2]],
+              },
+              {
+                  'x_scaled': [[0.0, 0.0], [0.0, 0.0]],
+              },
+          ],
+          input_metadata=tft.DatasetMetadata.from_feature_spec({
+              'x': tf.io.FixedLenFeature([2, 2], tf.float32),
+              'key': tf.io.FixedLenFeature([], tf.string),
+          }),
+          expected_metadata=tft.DatasetMetadata.from_feature_spec({
+              'x_scaled': tf.io.FixedLenFeature([2, 2], tf.float32),
+          })),
+  )
+  def testScaleToZScorePerKeyElementwise(self, input_data, expected_data,
+                                         input_metadata, expected_metadata):
+
+    def preprocessing_fn(inputs):
+      outputs = {}
+      outputs['x_scaled'] = tft.scale_to_z_score_per_key(
+          tf.cast(inputs['x'], tf.float32),
+          key=inputs['key'],
+          elementwise=True,
+          key_vocabulary_filename=None)
+      self.assertEqual(outputs['x_scaled'].dtype, tf.float32)
+      return outputs
+
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn, expected_data,
+                                          expected_metadata)
+
   @tft_unit.parameters(
       (tf.int16,),
       (tf.int32,),
@@ -1974,6 +2107,48 @@ class BeamImplTest(tft_unit.TransformTestCase):
         analyzer_fn,
         expected_outputs,
         desired_batch_size=10)
+
+  def testMeanAndVarPerKeyElementwise(self):
+
+    def analyzer_fn(inputs):
+      key_vocab, mean, var = analyzers._mean_and_var_per_key(
+          inputs['x'], inputs['key'], reduce_instance_dims=False)
+      return {
+          'key_vocab': key_vocab,
+          'mean': mean,
+          'var': tf.round(100 * var) / 100.0
+      }
+
+    input_data = input_data = [{
+        'x': [-4, -1],
+        'key': 'a',
+    }, {
+        'x': [10, 0],
+        'key': 'a',
+    }, {
+        'x': [2, 0],
+        'key': 'a',
+    }, {
+        'x': [4, -1],
+        'key': 'a',
+    }, {
+        'x': [10, 0],
+        'key': 'b',
+    }, {
+        'x': [0, 10],
+        'key': 'b',
+    }]
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
+        'x': tf.io.FixedLenFeature([2], tf.float32),
+        'key': tf.io.FixedLenFeature([], tf.string)
+    })
+    expected_outputs = {
+        'key_vocab': np.array([b'a', b'b'], np.object),
+        'mean': np.array([[3.0, -0.5], [5.0, 5.0]], np.float32),
+        'var': np.array([[25.0, 0.25], [25.0, 25.0]], np.float32)
+    }
+    self.assertAnalyzerOutputs(input_data, input_metadata, analyzer_fn,
+                               expected_outputs)
 
   @tft_unit.named_parameters(
       dict(
