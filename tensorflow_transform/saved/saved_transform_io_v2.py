@@ -30,9 +30,16 @@ from tensorflow.python.eager import function
 from tensorflow.python.eager import wrap_function
 from tensorflow.python.framework import composite_tensor
 from tensorflow.python.ops import lookup_ops
-from tensorflow.python.training.tracking import tracking
 from tensorflow.python.util import object_identity
-# pylint: enable=g-direct-tensorflow-import
+
+# pylint: disable=g-import-not-at-top
+try:
+  # Moved in TensorFlow 2.10.
+  from tensorflow.python.trackable import resource as tracking
+except ImportError:
+  from tensorflow.python.training.tracking import tracking
+
+# pylint: enable=g-direct-tensorflow-import, g-import-not-at-top
 
 
 def _restore_from_v1_saved_model(

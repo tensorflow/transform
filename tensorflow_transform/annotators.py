@@ -27,8 +27,13 @@ from tensorflow_transform.graph_context import TFGraphContext
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.framework import func_graph
 from tensorflow.python.framework import ops
-from tensorflow.python.training.tracking import base
-# pylint: enable=g-direct-tensorflow-import
+# pylint: disable=g-import-not-at-top
+try:
+  # Moved in TensorFlow 2.10.
+  from tensorflow.python.trackable import base
+except ImportError:
+  from tensorflow.python.training.tracking import base
+# pylint: enable=g-direct-tensorflow-import, g-import-not-at-top
 
 __all__ = ['annotate_asset', 'make_and_track_object']
 

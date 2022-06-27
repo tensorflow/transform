@@ -17,7 +17,13 @@ import tensorflow as tf
 from tensorflow_transform import annotators
 from tensorflow_transform import test_case
 
-from tensorflow.python.training.tracking import base  # pylint: disable=g-direct-tensorflow-import
+# pylint: disable=g-direct-tensorflow-import, g-import-not-at-top
+try:
+  # Moved in TensorFlow 2.10.
+  from tensorflow.python.trackable import base
+except ImportError:
+  from tensorflow.python.training.tracking import base
+# pylint: enable=g-direct-tensorflow-import, g-import-not-at-top
 
 
 class AnnotatorsTest(test_case.TransformTestCase):
