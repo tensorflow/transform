@@ -190,8 +190,11 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
       tagged_label = operation.label
     else:
       tagged_label = '{label}[{tag}]'.format(label=operation.label, tag=tag)
-    outputs = ((inputs or beam.pvalue.PBegin(self._extra_args.pipeline))
-               | tagged_label >> ptransform(operation, self._extra_args))
+    try:
+      outputs = ((inputs or beam.pvalue.PBegin(self._extra_args.pipeline))
+                 | tagged_label >> ptransform(operation, self._extra_args))
+    except Exception as e:
+      raise RuntimeError('Failed to apply: {}'.format(tagged_label)) from e
 
     if isinstance(outputs, beam.pvalue.PCollection):
       return (outputs,)
