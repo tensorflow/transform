@@ -53,7 +53,7 @@ def calculate_partial_expected_mutual_information(n, x_i, y_j):
     return 0
   coefficient = (-log2(x_i) - log2(y_j) + log2(n))
   hyp_geo_pmf = _hypergeometric_pmf(n, x_i, y_j)
-  sum_probability = np.sum([p_j for n_j,p_j in hyp_geo_pmf])
+  sum_probability = np.sum([p_j for n_j, p_j in hyp_geo_pmf])
   partial_result = np.sum([n_j * (coefficient + log2(n_j)) * p_j for n_j, p_j in hyp_geo_pmf if n_j != 0])
 
   # The values of p_j should sum to 1, but given approximate calculations for
