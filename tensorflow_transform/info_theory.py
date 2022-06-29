@@ -14,7 +14,7 @@
 """Utilities for information-theoretic preprocessing algorithms."""
 
 import math
-
+import numpy as np
 # math.log2 was added in Python 3.3
 log2 = getattr(math, 'log2', lambda x: math.log(x, 2))
 
