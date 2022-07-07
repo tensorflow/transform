@@ -6,6 +6,11 @@
 
 ## Bug Fixes and Other Changes
 
+*   Assign different close_to_resources resource hints to both original and
+    cloned PTransforms in deep copy optimization. The reason of adding these
+    resource hints is to prevent root Reads that are generated from deep copy
+    being merged due to common subexpression elimination.
+
 ## Breaking Changes
 
 ## Deprecations

@@ -78,9 +78,9 @@ class DeepCopyTest(unittest.TestCase):
       # pylint: enable=expression-not-assigned
 
       # Check labels.
-      self.assertEqual(copied.producer.full_label, 'Add2.Copy[0]')
+      self.assertEqual(copied.producer.full_label, 'Add2.Copy0')
       self.assertEqual(copied.producer.inputs[0].producer.full_label,
-                       'Add1.Copy[0]')
+                       'Add1.Copy0')
 
       # Check that deep copy was performed.
       self.assertIsNot(copied.producer.inputs[0], modified.producer.inputs[0])
@@ -113,9 +113,9 @@ class DeepCopyTest(unittest.TestCase):
 
       for i in range(num_copies):
         copied = deep_copy.deep_copy(modified)
-        self.assertEqual(copied.producer.full_label, 'Add2.Copy[%d]' % i)
+        self.assertEqual(copied.producer.full_label, 'Add2.Copy%d' % i)
         self.assertEqual(copied.producer.inputs[0].producer.full_label,
-                         'Add1.Copy[%d]' % i)
+                         'Add1.Copy%d' % i)
 
     self.assertEqual(DeepCopyTest._counts['PreGroup'], 3)
     self.assertEqual(DeepCopyTest._counts['Add1'], 3 * (num_copies + 1))
@@ -226,7 +226,7 @@ class DeepCopyTest(unittest.TestCase):
       self.assertEqual(combined.producer.inputs[0].producer.full_label,
                        'CombineGlobally(MeanCombineFn)/UnKey')
       self.assertEqual(copied.producer.inputs[0].producer.full_label,
-                       'CombineGlobally(MeanCombineFn)/UnKey.Copy[0]')
+                       'CombineGlobally(MeanCombineFn)/UnKey.Copy0')
 
       # Check that deep copy stops at materialization boundary.
       self.assertIs(combined.producer.inputs[0].producer.inputs[0],
@@ -296,19 +296,27 @@ class DeepCopyTest(unittest.TestCase):
       for i in range(num_copies):
         copied = deep_copy.deep_copy(modified)
         # Check labels.
-        self.assertEqual(copied.producer.full_label, 'Add2.Copy[%d]' % i)
+        self.assertEqual(copied.producer.full_label, 'Add2.Copy%d' % i)
         self.assertEqual(copied.producer.inputs[0].producer.full_label,
-                         'Add1.Copy[%d]' % i)
+                         'Add1.Copy%d' % i)
 
         # Check resource hints.
-        self.assertEqual(modified.producer.resource_hints,
-                         {'beam:resources:tags:v1': b'DeepCopy.Original'})
-        self.assertEqual(modified.producer.inputs[0].producer.resource_hints,
-                         {'beam:resources:tags:v1': b'DeepCopy.Original'})
-        self.assertEqual(copied.producer.resource_hints,
-                         {'beam:resources:tags:v1': b'DeepCopy.Copy[%d]' % i})
-        self.assertEqual(copied.producer.inputs[0].producer.resource_hints,
-                         {'beam:resources:tags:v1': b'DeepCopy.Copy[%d]' % i})
+        self.assertEqual(modified.producer.resource_hints, {
+            'beam:resources:close_to_resources:v1':
+                b'/fake/DeepCopy.Original[0]'
+        })
+        self.assertEqual(modified.producer.inputs[0].producer.resource_hints, {
+            'beam:resources:close_to_resources:v1':
+                b'/fake/DeepCopy.Original[0]'
+        })
+        self.assertEqual(copied.producer.resource_hints, {
+            'beam:resources:close_to_resources:v1':
+                b'/fake/DeepCopy.Copy%d[0]' % i
+        })
+        self.assertEqual(copied.producer.inputs[0].producer.resource_hints, {
+            'beam:resources:close_to_resources:v1':
+                b'/fake/DeepCopy.Copy%d[0]' % i
+        })
 
       # pylint: disable=expression-not-assigned
       modified | 'Add3' >> beam.Map(

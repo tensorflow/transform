@@ -167,24 +167,30 @@ def _clone_items(pipeline, to_clone):
       assert not item.parts, (
           'Reached invalid composite AppliedPTransform: %r.' % item)
 
-      # TODO(b/217271822): Implement resource hint 'tags' for Beam/Dataflow, as
-      # when CSE makes it to Dataflow, 'tags' cannot be recognized. Once this
-      # is fixed, we can change the tag prefix to 'beam'.
-      tags_resource_available = resources.ResourceHint.is_registered('tags')
+      # TODO(b/217271822): Implement resource hint 'close to resources' for
+      # Beam/Dataflow, as when CSE makes it to Dataflow, 'close to resources'
+      # cannot be recognized. Once this is fixed, we can change the tag prefix
+      # to 'beam'.
+      # TODO(b/238243699): Obviate the need for setting 'close to resources'
+      # hints.
+      close_to_resources_available = resources.ResourceHint.is_registered(
+          'close_to_resources')
 
-      if tags_resource_available:
-        # Assign tag to the orginal PTransforms. The reason of adding this tag
-        # is to prevent root Reads that are generated from deep copy being
-        # merged due to common subexpression elimination (CSE).
-        item.resource_hints['beam:resources:tags:v1'] = b'DeepCopy.Original'
+      if close_to_resources_available:
+        # Assign close_to_resources resource hint to the orginal PTransforms.
+        # The reason of adding this annotation is to prevent root Reads that are
+        # generated from deep copy being merged due to common subexpression
+        # elimination (CSE).
+        item.resource_hints['beam:resources:close_to_resources:v1'] = (
+            b'/fake/DeepCopy.Original[0]')
 
       # Assign new label.
       count = 0
-      copy_suffix = f'Copy[{count}]'
+      copy_suffix = f'Copy{count}'
       new_label = f'{item.full_label}.{copy_suffix}'
       while new_label in pipeline.applied_labels:
         count += 1
-        copy_suffix = f'Copy[{count}]'
+        copy_suffix = f'Copy{count}'
         new_label = f'{item.full_label}.{copy_suffix}'
       pipeline.applied_labels.add(new_label)
 
@@ -200,13 +206,14 @@ def _clone_items(pipeline, to_clone):
       copied = beam_pipeline.AppliedPTransform(item.parent, item.transform,
                                                new_label, new_inputs)
 
-      # Add a resource tag to the copied PTransforms. The PTransforms that are
-      # generated from each deep copy have the same unique tag. This is to make
-      # sure that the PTransforms that are cloned from each deep copy can be
-      # fused together, but not across copies nor with the original.
-      if tags_resource_available:
-        copied.resource_hints['beam:resources:tags:v1'] = (
-            f'DeepCopy.{copy_suffix}'.encode())
+      # Add a 'close to resource' resource hint to the copied PTransforms. The
+      # PTransforms that are generated from each deep copy have the same unique
+      # 'close to resource' resource hint. This is to make sure that the
+      # PTransforms that are cloned from each deep copy can be fused together,
+      # but not across copies nor with the original.
+      if close_to_resources_available:
+        copied.resource_hints['beam:resources:close_to_resources:v1'] = (
+            f'/fake/DeepCopy.{copy_suffix}[0]'.encode())
 
       ptransform_replacements[item] = copied
 
