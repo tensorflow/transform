@@ -172,6 +172,7 @@ class _OptimizeVisitor(nodes.Visitor):
     self._sorted_dataset_keys = sorted(dataset_keys)
     self._cache_dict = cache_dict
     self._tensor_keys_to_paths = tensor_keys_to_paths
+    self._dataset_has_cache_misses = collections.defaultdict(bool)
     self.cache_output_nodes = cache_output_nodes
 
   def _validate_operation_def(self, operation_def):
@@ -185,6 +186,26 @@ class _OptimizeVisitor(nodes.Visitor):
         raise ValueError(
             'Cacheable OperationDefs must have exactly 1 output: {}'.format(
                 operation_def.label))
+
+  def get_detached_sideeffect_leafs(self):
+    """Returns a list of sideeffect leaf nodes after the visit is done."""
+    result = []
+    for (dataset_idx, dataset_key) in enumerate(self._sorted_dataset_keys):
+      # Default to True here, if the dataset_key is not in the cache misses map
+      # then treat it like it does have cache misses because it has not been
+      # visited in the optimization traversal.
+      if self._dataset_has_cache_misses.get(dataset_key, True):
+        continue
+      # Default to None if the dataset_key isn't present in the cache dict, it
+      # means that there is not cache present for this dataset, so we should not
+      # instrument cache for it.
+      if (self._cache_dict or {}).get(dataset_key, None):
+        node = nodes.apply_operation(
+            analyzer_nodes.InstrumentDatasetCache,
+            dataset_key=dataset_key,
+            label=f'InstrumentDatasetCache[AnalysisIndex{dataset_idx}]')
+        result.append(node)
+    return result
 
   def _make_next_hashed_path(self, parent_hashed_paths, operation_def):
     # Making a copy of parent_hashed_paths.
@@ -316,6 +337,7 @@ class _OptimizeVisitor(nodes.Visitor):
       infix = 'AnalysisIndex{}'.format(dataset_idx)
       if (operation_def.cache_coder and self._cache_dict.get(
           dataset_key, {}).get(cache_entry_key) is not None):
+        self._dataset_has_cache_misses[dataset_key] |= False
         decode_cache = analyzer_nodes.DecodeCache(
             dataset_key,
             cache_entry_key,
@@ -329,6 +351,7 @@ class _OptimizeVisitor(nodes.Visitor):
                 label='{}[{}]'.format(operation_def.label, infix)),
             value_nodes).outputs
         if operation_def.cache_coder:
+          self._dataset_has_cache_misses[dataset_key] = True
           encode_cache = nodes.apply_operation(
               analyzer_nodes.EncodeCache,
               op_output,
@@ -392,7 +415,8 @@ def _perform_cache_optimization(saved_model_future, dataset_keys,
     assert not cache_output_nodes
     cache_output_nodes = None
 
-  return optimized, cache_output_nodes
+  return (optimized, cache_output_nodes,
+          optimize_visitor.get_detached_sideeffect_leafs())
 
 
 class _InspectVisitor(nodes.Visitor):
@@ -421,7 +445,7 @@ def _build_analysis_graph_for_inspection(preprocessing_fn, specs, dataset_keys,
           specs,
           use_tf_compat_v1=tf2_utils.use_tf_compat_v1(force_tf_compat_v1)))
 
-  transform_fn_future, cache_dict = build(
+  transform_fn_future, cache_dict, _ = build(
       graph,
       structured_inputs,
       structured_outputs,
@@ -637,8 +661,8 @@ def build(graph,
       graph_analyzer.get_unique_path(analyzers_input_signature[tensor_key])
       for tensor_key in analyzers_input_signature
   }
-  (optimized_saved_model_future,
-   output_cache_value_nodes) = _perform_cache_optimization(
+  (optimized_saved_model_future, output_cache_value_nodes,
+   detached_sideeffect_leafs) = _perform_cache_optimization(
        saved_model_future, dataset_keys, tensor_keys_to_paths, cache_dict)
 
   (optimized_saved_model_future, output_cache_value_nodes) = (
@@ -647,4 +671,5 @@ def build(graph,
 
   global _ANALYSIS_GRAPH
   _ANALYSIS_GRAPH = optimized_saved_model_future
-  return optimized_saved_model_future, output_cache_value_nodes
+  return (optimized_saved_model_future, output_cache_value_nodes,
+          detached_sideeffect_leafs)

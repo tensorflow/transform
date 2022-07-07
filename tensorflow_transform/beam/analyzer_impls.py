@@ -1330,6 +1330,20 @@ class _EncodeCacheImpl(beam.PTransform):
             | 'Count' >> common.IncrementCounter('cache_entries_encoded'))
 
 
+@common.register_ptransform(analyzer_nodes.InstrumentDatasetCache)
+@beam.typehints.with_input_types(beam.pvalue.PBegin)
+@beam.typehints.with_output_types(None)
+class _InstrumentDatasetCacheImpl(beam.PTransform):
+  """Instruments datasets not read due to cache hit."""
+
+  def __init__(self, operation, extra_args):
+    pass
+
+  def expand(self, pbegin):
+    # TODO(b/233624588): Implement.
+    pass
+
+
 @common.register_ptransform(analyzer_nodes.DecodeCache)
 @beam.typehints.with_input_types(beam.pvalue.PBegin)
 @beam.typehints.with_output_types(Any)

@@ -1025,6 +1025,22 @@ class EncodeCache(
     return True
 
 
+class InstrumentDatasetCache(
+    tfx_namedtuple.namedtuple('InstrumentDatasetCache',
+                              ['dataset_key', 'label']), nodes.OperationDef):
+  """OperationDef instrumenting cached datasets.
+
+  Fields:
+    dataset_key: A dataset key.
+    label: A unique label for this operation.
+  """
+  __slots__ = ()
+
+  @property
+  def is_partitionable(self):
+    return True
+
+
 class DecodeCache(
     tfx_namedtuple.namedtuple('DecodeCache',
                               ['dataset_key', 'cache_key', 'coder', 'label']),
@@ -1032,6 +1048,8 @@ class DecodeCache(
   """OperationDef for decoding a cache instance.
 
   Fields:
+    dataset_key: A dataset key.
+    cache_key: A cache entry key.
     coder: An instance of CacheCoder used to decode cache.
     label: A unique label for this operation.
   """

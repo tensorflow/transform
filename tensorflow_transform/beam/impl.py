@@ -37,6 +37,7 @@ AnalyzeDataset and TransformDataset to the same input dataset, possibly with
 optimizations.
 """
 
+import collections
 import copy
 import datetime
 import os
@@ -48,6 +49,7 @@ from apache_beam.typehints import Any
 from apache_beam.typehints import Dict
 from apache_beam.typehints import Iterable
 from apache_beam.typehints import List
+from apache_beam.typehints import Optional
 from apache_beam.typehints import Set
 from apache_beam.typehints import Tuple
 from apache_beam.typehints import Union
@@ -354,7 +356,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
           """An error occured while trying to apply the transformation: "{}".
           Batch instances: {},
           Fetching the values for the following Tensor keys: {}.""".format(
-              str(e), batch, self._graph_state.outputs_tensor_keys))
+              str(e), batch, self._graph_state.outputs_tensor_keys)) from e
 
     result.update(self._get_passthrough_data_from_recordbatch(batch))
 
@@ -952,6 +954,19 @@ class _InstanceDictInputToTFXIOInput(beam.PTransform):
             batch_size=self._desired_batch_size))
 
 
+def _make_output_cache(
+    cache_value_nodes: Dict[Tuple[analyzer_cache.DatasetKey, str],
+                            nodes.ValueNode], traverser: nodes.Traverser
+) -> Optional[Dict[analyzer_cache.DatasetKey, bytes]]:
+  """Triggers dataset cache encoding and composes analysis cache output."""
+  if cache_value_nodes is None:
+    return None
+  result = collections.defaultdict(dict)
+  for (dataset_key, cache_key), value_node in cache_value_nodes.items():
+    result[dataset_key][cache_key] = traverser.visit_value_node(value_node)
+  return dict(result)
+
+
 class _AnalyzeDatasetCommon(beam.PTransform):
   """Common implementation for AnalyzeDataset, with or without cache."""
 
@@ -1113,25 +1128,19 @@ class _AnalyzeDatasetCommon(beam.PTransform):
         preprocessing_fn=self._preprocessing_fn,
         analyzers_fingerprint=analyzers_fingerprint)
 
-    transform_fn_future, cache_value_nodes = analysis_graph_builder.build(
-        graph,
-        structured_inputs,
-        structured_outputs,
-        input_values_pcoll_dict.keys(),
-        cache_dict=dataset_cache_dict)
+    # TODO(b/233624588): visit detached_sideeffect_leafs.
+    (transform_fn_future, cache_value_nodes,
+     unused_detached_sideeffect_leafs) = analysis_graph_builder.build(
+         graph,
+         structured_inputs,
+         structured_outputs,
+         input_values_pcoll_dict.keys(),
+         cache_dict=dataset_cache_dict)
     traverser = nodes.Traverser(
         beam_common.ConstructBeamPipelineVisitor(extra_args))
     transform_fn_pcoll = traverser.visit_value_node(transform_fn_future)
 
-    if cache_value_nodes is not None:
-      output_cache_pcoll_dict = {}
-      for (dataset_key, cache_key), value_node in cache_value_nodes.items():
-        if dataset_key not in output_cache_pcoll_dict:
-          output_cache_pcoll_dict[dataset_key] = {}
-        output_cache_pcoll_dict[dataset_key][cache_key] = (
-            traverser.visit_value_node(value_node))
-    else:
-      output_cache_pcoll_dict = None
+    output_cache_pcoll_dict = _make_output_cache(cache_value_nodes, traverser)
 
     # Infer metadata.  We take the inferred metadata and apply overrides that
     # refer to values of tensors in the graph.  The override tensors must

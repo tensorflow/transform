@@ -417,8 +417,10 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
             use_tf_compat_v1=use_tf_compat_v1,
             base_temp_dir=os.path.join(self.get_temp_dir(),
                                        self._testMethodName)))
-    transform_fn_future, unused_cache = analysis_graph_builder.build(
-        graph, structured_inputs, structured_outputs)
+    (transform_fn_future, unused_cache,
+     unused_sideeffects) = analysis_graph_builder.build(graph,
+                                                        structured_inputs,
+                                                        structured_outputs)
 
     dot_string = nodes.get_dot_graph([transform_fn_future]).to_string()
     self.WriteRenderedDotFile(dot_string)

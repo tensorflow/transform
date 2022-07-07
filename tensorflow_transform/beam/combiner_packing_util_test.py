@@ -412,8 +412,9 @@ class CombinerPackingUtilTest(test_case.TransformTestCase):
         combiner_packing_util,
         'perform_combiner_packing_optimization',
         side_effect=_side_effect_fn):
-      transform_fn_future_before, unused_cache = analysis_graph_builder.build(
-          graph, structured_inputs, structured_outputs)
+      (transform_fn_future_before, unused_cache,
+       _) = analysis_graph_builder.build(graph, structured_inputs,
+                                         structured_outputs)
     transform_fn_future_after, unused_cache = (
         combiner_packing_util.perform_combiner_packing_optimization(
             transform_fn_future_before, unused_cache, num_phases))

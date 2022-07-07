@@ -252,6 +252,8 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signatur
 "CreateTensorBinding[x#mean_and_var#Placeholder_1]" -> CreateSavedModel;
 "CreateTensorBinding[x_square_deviations#mean_and_var#Placeholder]" -> CreateSavedModel;
 "CreateTensorBinding[x_square_deviations#mean_and_var#Placeholder_1]" -> CreateSavedModel;
+"InstrumentDatasetCache[AnalysisIndex0]" [label="{InstrumentDatasetCache|dataset_key: DatasetKey(key='span-0')|label: InstrumentDatasetCache[AnalysisIndex0]|partitionable: True}"];
+"InstrumentDatasetCache[AnalysisIndex1]" [label="{InstrumentDatasetCache|dataset_key: DatasetKey(key='span-1')|label: InstrumentDatasetCache[AnalysisIndex1]|partitionable: True}"];
 }
 """)
 
@@ -481,12 +483,14 @@ class CachedImplTest(tft_unit.TransformTestCase):
             specs,
             use_tf_compat_v1=use_tf_compat_v1,
             base_temp_dir=base_temp_dir))
-    transform_fn_future, cache_output_dict = analysis_graph_builder.build(
-        graph, structured_inputs, structured_outputs, dataset_keys,
-        pcoll_cache_dict)
-    dot_string = nodes.get_dot_graph(
-        [transform_fn_future] +
-        sorted(cache_output_dict.values(), key=str)).to_string()
+    (transform_fn_future, cache_output_dict,
+     sideeffects) = analysis_graph_builder.build(graph, structured_inputs,
+                                                 structured_outputs,
+                                                 dataset_keys, pcoll_cache_dict)
+    sort_value_node_values = lambda d: sorted(d.values(), key=str)
+    dot_string = nodes.get_dot_graph([transform_fn_future] +
+                                     sort_value_node_values(cache_output_dict) +
+                                     sideeffects).to_string()
     tf.io.gfile.makedirs(self.base_test_dir)
     output_file = os.path.join(
         self.base_test_dir,
