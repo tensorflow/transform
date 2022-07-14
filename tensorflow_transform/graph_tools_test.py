@@ -1238,8 +1238,7 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                         expected_calls_dict,
                         skip_test_check_fn=None):
 
-    # TODO(b/138934800): Remove this once TF 1.15 has the same results in all
-    # environments.
+    # TODO(b/160294509): Remove this condition when TFT no longer supports TF<2.
     if skip_test_check_fn:
       skip_test_check_fn('This test is not currently supported.')
 
