@@ -252,8 +252,6 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signatur
 "CreateTensorBinding[x#mean_and_var#Placeholder_1]" -> CreateSavedModel;
 "CreateTensorBinding[x_square_deviations#mean_and_var#Placeholder]" -> CreateSavedModel;
 "CreateTensorBinding[x_square_deviations#mean_and_var#Placeholder_1]" -> CreateSavedModel;
-"InstrumentDatasetCache[AnalysisIndex0]" [label="{InstrumentDatasetCache|dataset_key: DatasetKey(key='span-0')|label: InstrumentDatasetCache[AnalysisIndex0]|partitionable: True}"];
-"InstrumentDatasetCache[AnalysisIndex1]" [label="{InstrumentDatasetCache|dataset_key: DatasetKey(key='span-1')|label: InstrumentDatasetCache[AnalysisIndex1]|partitionable: True}"];
 }
 """)
 

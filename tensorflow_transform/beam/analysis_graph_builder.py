@@ -154,7 +154,7 @@ class _OptimizeVisitor(nodes.Visitor):
   """
 
   def __init__(self, dataset_keys, cache_dict, tensor_keys_to_paths,
-               cache_output_nodes):
+               cache_output_nodes, num_phases):
     """Init method for _OptimizeVisitor.
 
     Args:
@@ -168,12 +168,14 @@ class _OptimizeVisitor(nodes.Visitor):
         path hash.
       cache_output_nodes: A dictionary from (dataset_key, cache_key) to encoded
         cache ValueNode. This is the output cache for this graph.
+      num_phases: The number of phases of analysis.
     """
     self._sorted_dataset_keys = sorted(dataset_keys)
     self._cache_dict = cache_dict
     self._tensor_keys_to_paths = tensor_keys_to_paths
     self._dataset_has_cache_misses = collections.defaultdict(bool)
     self.cache_output_nodes = cache_output_nodes
+    self._num_phases = num_phases
 
   def _validate_operation_def(self, operation_def):
     if operation_def.cache_coder is not None:
@@ -189,6 +191,10 @@ class _OptimizeVisitor(nodes.Visitor):
 
   def get_detached_sideeffect_leafs(self):
     """Returns a list of sideeffect leaf nodes after the visit is done."""
+    # If this is a multi-phase analysis, then all datasets have to be read
+    # anyway, and so we'll not instrument full cache coverage for this case.
+    if self._num_phases > 1:
+      return []
     result = []
     for (dataset_idx, dataset_key) in enumerate(self._sorted_dataset_keys):
       # Default to True here, if the dataset_key is not in the cache misses map
@@ -402,11 +408,12 @@ class _OptimizeVisitor(nodes.Visitor):
 
 
 def _perform_cache_optimization(saved_model_future, dataset_keys,
-                                tensor_keys_to_paths, cache_dict):
+                                tensor_keys_to_paths, cache_dict, num_phases):
   """Performs cache optimization on the given graph."""
   cache_output_nodes = {}
   optimize_visitor = _OptimizeVisitor(dataset_keys or {}, cache_dict,
-                                      tensor_keys_to_paths, cache_output_nodes)
+                                      tensor_keys_to_paths, cache_output_nodes,
+                                      num_phases)
   optimize_traverser = nodes.Traverser(optimize_visitor)
   optimized = optimize_traverser.visit_value_node(
       saved_model_future).flattened_view
@@ -663,7 +670,8 @@ def build(graph,
   }
   (optimized_saved_model_future, output_cache_value_nodes,
    detached_sideeffect_leafs) = _perform_cache_optimization(
-       saved_model_future, dataset_keys, tensor_keys_to_paths, cache_dict)
+       saved_model_future, dataset_keys, tensor_keys_to_paths, cache_dict,
+       phase)
 
   (optimized_saved_model_future, output_cache_value_nodes) = (
       combiner_packing_util.perform_combiner_packing_optimization(
