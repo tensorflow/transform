@@ -325,7 +325,7 @@ def hashable_tensor_or_op(tensor_or_op):
   if isinstance(tensor_or_op, tf.Tensor):
     return tensor_or_op.experimental_ref()
   if isinstance(tensor_or_op, composite_tensor.CompositeTensor):
-    # TODO(b/156759471): Use tf.type_spec_from_value here.
+    # TODO(b/160294509): Use tf.type_spec_from_value - only available in TF 2.
     return _CompositeTensorRef(
         type_spec=tensor_or_op._type_spec,  # pylint: disable=protected-access
         list_of_refs=tuple(
