@@ -134,6 +134,16 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'duplicated testing: it does not exercise `TransformDataset` or '
           '`AnalyzeAndTransformDataset`.')
 
+  # Overrides that automatically pass the proper value for
+  # `output_record_batches`.
+  def assertAnalyzeAndTransformResults(self, *args, **kwargs):
+    kwargs['output_record_batches'] = self._OutputRecordBatches()
+    return super().assertAnalyzeAndTransformResults(*args, **kwargs)
+
+  def assertAnalyzerOutputs(self, *args, **kwargs):
+    kwargs['output_record_batches'] = self._OutputRecordBatches()
+    return super().assertAnalyzerOutputs(*args, **kwargs)
+
   def _MakeTransformOutputAssertFn(self, expected, sort=False):
 
     def _assert_fn(actual):

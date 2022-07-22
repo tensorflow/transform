@@ -15,8 +15,10 @@
 
 import os
 import tempfile
+from typing import Dict, List, Tuple
 
 import apache_beam as beam
+import pyarrow as pa
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform.beam import impl as beam_impl
@@ -26,10 +28,9 @@ from tensorflow_transform import test_case
 from tensorflow_transform.beam import test_helpers
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tfx_bsl.coders import example_coder
-from tensorflow.python.util.protobuf import compare  # pylint: disable=g-direct-tensorflow-import
+
 import unittest
-
-
+from tensorflow.python.util.protobuf import compare  # pylint: disable=g-direct-tensorflow-import
 from tensorflow_metadata.proto.v0 import schema_pb2
 
 parameters = test_case.parameters
@@ -80,6 +81,16 @@ def _format_example_as_numpy_dict(example, feature_shape_dict):
       value = value.squeeze(0)
     result[key] = value
   return result
+
+
+def _encode_transformed_data_batch(
+    data: Tuple[pa.RecordBatch, Dict[str, pa.Array]],
+    coder: example_coder.RecordBatchToExamplesEncoder) -> List[bytes]:
+  """Produces a list of serialized tf.Examples from transformed data."""
+  # Drop unary pass-through features that are not relevant for this testing
+  # framework.
+  record_batch, _ = data
+  return coder.encode(record_batch)
 
 
 class TransformTestCase(test_case.TransformTestCase):
@@ -342,10 +353,10 @@ class TransformTestCase(test_case.TransformTestCase):
             transformed_data_coder_pcol = (
                 deferred_schema | 'RecordBatchToExamplesEncoder' >> beam.Map(
                     example_coder.RecordBatchToExamplesEncoder))
-            # Extract transformed RecordBatches and convert them to tf.Examples.
-            encode_ptransform = 'EncodeRecordBatches' >> beam.FlatMapTuple(
-                lambda batch, _, data_coder: data_coder.encode(batch),
-                data_coder=beam.pvalue.AsSingleton(transformed_data_coder_pcol))
+
+            encode_ptransform = 'EncodeRecordBatches' >> beam.FlatMap(
+                _encode_transformed_data_batch,
+                coder=beam.pvalue.AsSingleton(transformed_data_coder_pcol))
           else:
             # Since we are using a deferred schema, obtain a pcollection
             # containing the data coder that will be created from it.
