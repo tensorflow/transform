@@ -1337,11 +1337,18 @@ class _InstrumentDatasetCacheImpl(beam.PTransform):
   """Instruments datasets not read due to cache hit."""
 
   def __init__(self, operation, extra_args):
-    pass
+    self._metadata_pcoll = (
+        extra_args.cache_pcoll_dict[operation.dataset_key].metadata)
+
+  def _make_and_increment_counter(self, metadata):
+    if metadata:
+      beam.metrics.Metrics.counter(common.METRICS_NAMESPACE,
+                                   'analysis_input_bytes_from_cache').inc(
+                                       metadata.dataset_size)
 
   def expand(self, pbegin):
-    # TODO(b/233624588): Implement.
-    pass
+    return (self._metadata_pcoll | 'InstrumentCachedInputBytes' >> beam.Map(
+        self._make_and_increment_counter))
 
 
 @common.register_ptransform(analyzer_nodes.DecodeCache)
@@ -1352,7 +1359,8 @@ class _DecodeCacheImpl(beam.PTransform):
 
   def __init__(self, operation, extra_args):
     self._cache_pcoll = (
-        extra_args.cache_pcoll_dict[operation.dataset_key][operation.cache_key])
+        extra_args.cache_pcoll_dict[operation.dataset_key].get(
+            operation.cache_key))
     self._coder = operation.coder
 
   def expand(self, pbegin):

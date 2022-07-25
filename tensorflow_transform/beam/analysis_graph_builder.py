@@ -205,7 +205,9 @@ class _OptimizeVisitor(nodes.Visitor):
       # Default to None if the dataset_key isn't present in the cache dict, it
       # means that there is not cache present for this dataset, so we should not
       # instrument cache for it.
-      if (self._cache_dict or {}).get(dataset_key, None):
+      cache_dict = self._cache_dict or {}
+      dataset_cache_entries = cache_dict.get(dataset_key, None)
+      if dataset_cache_entries is not None and dataset_cache_entries.metadata:
         node = nodes.apply_operation(
             analyzer_nodes.InstrumentDatasetCache,
             dataset_key=dataset_key,

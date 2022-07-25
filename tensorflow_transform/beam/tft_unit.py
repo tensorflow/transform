@@ -15,7 +15,7 @@
 
 import os
 import tempfile
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import apache_beam as beam
 import pyarrow as pa
@@ -32,6 +32,7 @@ from tfx_bsl.coders import example_coder
 import unittest
 from tensorflow.python.util.protobuf import compare  # pylint: disable=g-direct-tensorflow-import
 from tensorflow_metadata.proto.v0 import schema_pb2
+
 
 parameters = test_case.parameters
 cross_parameters = test_case.cross_parameters
@@ -118,8 +119,8 @@ class TransformTestCase(test_case.TransformTestCase):
   def _makeTestPipeline(self):
     return self._TestPipeline(**test_helpers.make_test_beam_pipeline_kwargs())
 
-  def assertMetricsCounterEqual(self, metrics, name, expected_count,
-                                namespaces_list=None):
+  def _getMetricsCounter(self, metrics: beam.metrics.Metrics, name: str,
+                         namespaces_list: Iterable[str]) -> int:
     metrics_filter = beam.metrics.MetricsFilter().with_name(name)
     if namespaces_list:
       metrics_filter = metrics_filter.with_namespaces(namespaces_list)
@@ -131,9 +132,30 @@ class TransformTestCase(test_case.TransformTestCase):
         committed,
         attempted,
         msg=f'Attempted counter {name} from namespace {namespaces_list}')
+    return committed
+
+  def assertMetricsCounterEqual(
+      self,
+      metrics: beam.metrics.Metrics,
+      name: str,
+      expected_count: int,
+      namespaces_list: Optional[Iterable[str]] = None):
+    counter_value = self._getMetricsCounter(metrics, name, namespaces_list)
     self.assertEqual(
-        committed,
+        counter_value,
         expected_count,
+        msg=f'Expected counter {name} from namespace {namespaces_list}')
+
+  def assertMetricsCounterGreater(
+      self,
+      metrics: beam.metrics.Metrics,
+      name: str,
+      than: int,
+      namespaces_list: Optional[Iterable[str]] = None):
+    counter_value = self._getMetricsCounter(metrics, name, namespaces_list)
+    self.assertGreater(
+        counter_value,
+        than,
         msg=f'Expected counter {name} from namespace {namespaces_list}')
 
   def assertAnalyzerOutputs(self,

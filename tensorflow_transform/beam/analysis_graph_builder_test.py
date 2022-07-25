@@ -480,9 +480,8 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
     # hit.
     mocked_cache_entry_key = b'M'
     input_cache = {
-        key: {
-            mocked_cache_entry_key: 'C'
-        } for key in cached_dataset_keys
+        key: analysis_graph_builder.analyzer_cache.DatasetCache(
+            {mocked_cache_entry_key: 'C'}, None) for key in cached_dataset_keys
     }
     feature_spec = {'x': tf.io.FixedLenFeature([], tf.float32)}
     specs = (

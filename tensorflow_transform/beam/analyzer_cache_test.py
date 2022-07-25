@@ -119,20 +119,26 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
         os.environ.get('TEST_UNDECLARED_OUTPUTS_DIR', self.get_temp_dir()),
         self._testMethodName)
 
+    dataset_key_0_metadata = analyzer_cache.DatasetCacheMetadata(42)
+    dataset_key_1_metadata = analyzer_cache.DatasetCacheMetadata(17)
     dataset_key_0 = analyzer_cache.DatasetKey('dataset_key_0')
     dataset_key_1 = analyzer_cache.DatasetKey('dataset_key_1')
     dataset_keys = (dataset_key_0, dataset_key_1)
 
     with beam.Pipeline() as p:
       cache_pcoll_dict = {
-          dataset_key_0: {
-              b'\x8a': p | 'CreateA' >> beam.Create([b'[1, 2, 3]']),
-              b'\x8b': p | 'CreateB' >> beam.Create([b'[5]']),
-              b'\x8b1': p | 'CreateB1' >> beam.Create([b'[6]']),
-          },
-          dataset_key_1: {
-              b'\x8c': p | 'CreateC' >> beam.Create([b'[9, 5, 2, 1]']),
-          },
+          dataset_key_0:
+              analyzer_cache.DatasetCache(
+                  {
+                      b'\x8a': p | 'CreateA' >> beam.Create([b'[1, 2, 3]']),
+                      b'\x8b': p | 'CreateB' >> beam.Create([b'[5]']),
+                      b'\x8b1': p | 'CreateB1' >> beam.Create([b'[6]']),
+                  }, p | 'CreateM0' >> beam.Create([dataset_key_0_metadata])),
+          dataset_key_1:
+              analyzer_cache.DatasetCache(
+                  {
+                      b'\x8c': p | 'CreateC' >> beam.Create([b'[9, 5, 2, 1]']),
+                  }, p | 'CreateM1' >> beam.Create([dataset_key_1_metadata])),
       }
 
       _ = cache_pcoll_dict | analyzer_cache.WriteAnalysisCacheToFS(
@@ -144,17 +150,25 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
           [b'\x8a', b'\x8b', b'\x8c'])
 
       beam_test_util.assert_that(
-          read_cache[dataset_key_0][b'\x8a'],
+          read_cache[dataset_key_0].cache_dict[b'\x8a'],
           beam_test_util.equal_to([b'[1, 2, 3]']),
           label='AssertA')
       beam_test_util.assert_that(
-          read_cache[dataset_key_0][b'\x8b'],
+          read_cache[dataset_key_0].cache_dict[b'\x8b'],
           beam_test_util.equal_to([b'[5]']),
           label='AssertB')
       beam_test_util.assert_that(
-          read_cache[dataset_key_1][b'\x8c'],
+          read_cache[dataset_key_0].metadata,
+          beam_test_util.equal_to([dataset_key_0_metadata]),
+          label='Assert0Size')
+      beam_test_util.assert_that(
+          read_cache[dataset_key_1].cache_dict[b'\x8c'],
           beam_test_util.equal_to([b'[9, 5, 2, 1]']),
           label='AssertC')
+      beam_test_util.assert_that(
+          read_cache[dataset_key_1].metadata,
+          beam_test_util.equal_to([dataset_key_1_metadata]),
+          label='Assert1Size')
 
   def test_cache_write_empty(self):
     base_test_dir = os.path.join(
@@ -185,14 +199,18 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
 
     with beam.Pipeline() as p:
       cache_pcoll_dict = {
-          dataset_key_0: {
-              'a': p | 'CreateA' >> beam.Create([b'a']),
-              'b': p | 'CreateB' >> beam.Create([b'b']),
-          },
-          dataset_key_1: {
-              'c': p | 'CreateC' >> beam.Create([b'c']),
-              'd': p | 'CreateD' >> beam.Create([b'd']),
-          },
+          dataset_key_0:
+              analyzer_cache.DatasetCache(
+                  {
+                      'a': p | 'CreateA' >> beam.Create([b'a']),
+                      'b': p | 'CreateB' >> beam.Create([b'b']),
+                  }, None),
+          dataset_key_1:
+              analyzer_cache.DatasetCache(
+                  {
+                      'c': p | 'CreateC' >> beam.Create([b'c']),
+                      'd': p | 'CreateD' >> beam.Create([b'd']),
+                  }, None),
       }
       _ = cache_pcoll_dict | analyzer_cache.WriteAnalysisCacheToFS(
           p, base_test_dir, dataset_keys)
@@ -201,14 +219,18 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
 
     with beam.Pipeline() as p:
       cache_pcoll_dict = {
-          dataset_key_0: {
-              'c': p | 'CreateC' >> beam.Create([b'c']),
-              'd': p | 'CreateD' >> beam.Create([b'd']),
-          },
-          dataset_key_1: {
-              'a': p | 'CreateA' >> beam.Create([b'a']),
-              'b': p | 'CreateB' >> beam.Create([b'b']),
-          },
+          dataset_key_0:
+              analyzer_cache.DatasetCache(
+                  {
+                      'c': p | 'CreateC' >> beam.Create([b'c']),
+                      'd': p | 'CreateD' >> beam.Create([b'd']),
+                  }, None),
+          dataset_key_1:
+              analyzer_cache.DatasetCache(
+                  {
+                      'a': p | 'CreateA' >> beam.Create([b'a']),
+                      'b': p | 'CreateB' >> beam.Create([b'b']),
+                  }, None),
       }
       _ = cache_pcoll_dict | analyzer_cache.WriteAnalysisCacheToFS(
           p, base_test_dir, dataset_keys)
@@ -243,9 +265,8 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
         return pcoll | beam.Map(write_to_file)
 
     test_cache_dict = {
-        analyzer_cache.DatasetKey('a'): {
-            'b': [bytes([17, 19, 27, 31])]
-        }
+        analyzer_cache.DatasetKey('a'):
+            analyzer_cache.DatasetCache({'b': [bytes([17, 19, 27, 31])]}, None)
     }
 
     class LocalSource(beam.PTransform):
@@ -254,7 +275,7 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
         del path
 
       def expand(self, pbegin):
-        return pbegin | beam.Create([test_cache_dict['a']['b']])
+        return pbegin | beam.Create([test_cache_dict['a'].cache_dict['b']])
 
     dataset_keys = list(test_cache_dict.keys())
     cache_dir = self.get_temp_dir()
@@ -265,12 +286,12 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
       read_cache = p | analyzer_cache.ReadAnalysisCacheFromFS(
           cache_dir, dataset_keys, source=LocalSource)
 
-      self.assertItemsEqual(read_cache.keys(), ['a'])
-      self.assertItemsEqual(read_cache['a'].keys(), ['b'])
+      self.assertCountEqual(read_cache.keys(), ['a'])
+      self.assertCountEqual(read_cache['a'].cache_dict.keys(), ['b'])
 
       beam_test_util.assert_that(
-          read_cache['a']['b'],
-          beam_test_util.equal_to([test_cache_dict['a']['b']]))
+          read_cache['a'].cache_dict['b'],
+          beam_test_util.equal_to([test_cache_dict['a'].cache_dict['b']]))
 
 
 if __name__ == '__main__':

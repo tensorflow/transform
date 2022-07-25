@@ -956,15 +956,21 @@ class _InstanceDictInputToTFXIOInput(beam.PTransform):
 
 def _make_output_cache(
     cache_value_nodes: Dict[Tuple[analyzer_cache.DatasetKey, str],
-                            nodes.ValueNode], traverser: nodes.Traverser
-) -> Optional[Dict[analyzer_cache.DatasetKey, bytes]]:
+                            nodes.ValueNode], traverser: nodes.Traverser,
+    dataset_metrics: Dict[analyzer_cache.DatasetKey,
+                          analyzer_cache.DatasetCacheMetadata]
+) -> Optional[Dict[analyzer_cache.DatasetKey, analyzer_cache.DatasetCache]]:
   """Triggers dataset cache encoding and composes analysis cache output."""
   if cache_value_nodes is None:
     return None
-  result = collections.defaultdict(dict)
+  cache_dict = collections.defaultdict(dict)
   for (dataset_key, cache_key), value_node in cache_value_nodes.items():
-    result[dataset_key][cache_key] = traverser.visit_value_node(value_node)
-  return dict(result)
+    cache_dict[dataset_key][cache_key] = traverser.visit_value_node(value_node)
+  return {
+      dataset_key: analyzer_cache.DatasetCache(cache,
+                                               dataset_metrics[dataset_key])
+      for dataset_key, cache in cache_dict.items()
+  }
 
 
 class _AnalyzeDatasetCommon(beam.PTransform):
@@ -1079,6 +1085,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     _ = (pipeline | 'InstrumentAPI' >> _InstrumentAPI(
         graph, Context._get_force_tf_compat_v1(), self._use_tf_compat_v1))  # pylint: disable=protected-access
 
+    dataset_metrics = {}
     if flattened_pcoll is not None:
       _ = (
           flattened_pcoll
@@ -1087,12 +1094,15 @@ class _AnalyzeDatasetCommon(beam.PTransform):
                                           'analysis_input_bytes'))
     else:
       for idx, key in enumerate(sorted(input_values_pcoll_dict.keys())):
+        infix = f'AnalysisIndex{idx}'
         if input_values_pcoll_dict[key] is not None:
-          _ = (
+          dataset_metrics[key] = (
               input_values_pcoll_dict[key]
-              | f'InstrumentInputBytes[AnalysisPCollDict][AnalysisIndex{idx}]'
-              >> telemetry.TrackRecordBatchBytes(beam_common.METRICS_NAMESPACE,
-                                                 'analysis_input_bytes'))
+              | f'InstrumentInputBytes[AnalysisPCollDict][{infix}]' >>
+              telemetry.TrackRecordBatchBytes(beam_common.METRICS_NAMESPACE,
+                                              'analysis_input_bytes')
+              | f'ConstructMetadata[{infix}]' >> beam.Map(
+                  analyzer_cache.DatasetCacheMetadata))
 
     # Gather telemetry on types of input features.
     _ = (
@@ -1128,9 +1138,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
         preprocessing_fn=self._preprocessing_fn,
         analyzers_fingerprint=analyzers_fingerprint)
 
-    # TODO(b/233624588): visit detached_sideeffect_leafs.
     (transform_fn_future, cache_value_nodes,
-     unused_detached_sideeffect_leafs) = analysis_graph_builder.build(
+     detached_sideeffect_leafs) = analysis_graph_builder.build(
          graph,
          structured_inputs,
          structured_outputs,
@@ -1140,7 +1149,12 @@ class _AnalyzeDatasetCommon(beam.PTransform):
         beam_common.ConstructBeamPipelineVisitor(extra_args))
     transform_fn_pcoll = traverser.visit_value_node(transform_fn_future)
 
-    output_cache_pcoll_dict = _make_output_cache(cache_value_nodes, traverser)
+    # Cause side-effect nodes to get executed.
+    for node in detached_sideeffect_leafs:
+      traverser.visit_value_node(node)
+
+    output_cache_pcoll_dict = _make_output_cache(cache_value_nodes, traverser,
+                                                 dataset_metrics)
 
     # Infer metadata.  We take the inferred metadata and apply overrides that
     # refer to values of tensors in the graph.  The override tensors must
