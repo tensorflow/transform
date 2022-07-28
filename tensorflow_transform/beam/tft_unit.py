@@ -284,11 +284,12 @@ class TransformTestCase(test_case.TransformTestCase):
     with expected_data and expected_metadata.
 
     Args:
-      input_data: Input data formatted in one of two ways:
+      input_data: Input data formatted in one of three ways:
         * A sequence of dicts whose values are one of:
           strings, lists of strings, numeric types or a pair of those.
           Must have at least one key so that we can infer the batch size, or
         * A sequence of pa.RecordBatch.
+        * A Beam source PTransform that produces either of the above.
       input_metadata: One of -
         * DatasetMetadata describing input_data if `input_data` are dicts.
         * TensorAdapterConfig otherwise.
@@ -337,8 +338,10 @@ class TransformTestCase(test_case.TransformTestCase):
           temp_dir=temp_dir,
           desired_batch_size=desired_batch_size,
           force_tf_compat_v1=force_tf_compat_v1):
-        input_data = pipeline | 'CreateInput' >> beam.Create(input_data,
-                                                             reshuffle=False)
+        source_ptransform = (
+            input_data if isinstance(input_data, beam.PTransform) else
+            beam.Create(input_data, reshuffle=False))
+        input_data = pipeline | 'CreateInput' >> source_ptransform
         if test_data is None:
           (transformed_data, transformed_metadata), transform_fn = (
               (input_data, input_metadata)
