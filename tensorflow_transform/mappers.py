@@ -925,8 +925,7 @@ def _count_docs_with_term(term_frequency: tf.SparseTensor) -> tf.Tensor:
       indices=term_frequency.indices,
       values=tf.ones_like(term_frequency.values),
       dense_shape=term_frequency.dense_shape)
-  out = tf.sparse.reduce_sum(count_of_doc_inter, axis=0)
-  return tf.expand_dims(out, 0)
+  return tf.sparse.reduce_sum(count_of_doc_inter, axis=0, keepdims=True)
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
