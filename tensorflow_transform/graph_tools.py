@@ -179,31 +179,27 @@ def _reraise_unexpected_error(func):
     try:
       return func(self, tensor_or_op)
     except _UnexpectedPlaceholderError as e:
-      if e.func_graph_name:
-        raise ValueError(
-            'The tensor_or_op {} depended on a placeholder ({}) that is part '
-            'of a tf.function graph ({}), this is not supported. This may be a '
-            'result of calling a tf.Transform analyzer in a tf.function'
-            ''.format(tensor_or_op, e.tensor, e.func_graph_name))
-      else:
-        raise ValueError(
-            'The tensor_or_op {} depended on a placeholder ({}) that was not '
-            'in the input_signature.  This may have be caused by manually '
-            'adding a placeholder to the graph'.format(tensor_or_op, e.tensor))
+      context = (f' tf.function name: `{e.func_graph_name}`'
+                 if e.func_graph_name else '')
+      raise ValueError(
+          'The tensor_or_op {} depended on a placeholder ({}) that was not '
+          'in the input_signature.  This may have be caused by manually '
+          'adding a placeholder to the graph.{}'.format(tensor_or_op, e.tensor,
+                                                        context)) from e
     except _UnexpectedTableError as e:
       if e.func_graph_name:
         raise ValueError(
             'The tensor_or_op {} depended on an initializable table ({}) that '
             'is part of a tf.function graph ({}), this is not supported. This'
             ' may be a result of initializing a table in a tf.function'
-            ''.format(tensor_or_op, e.op, e.func_graph_name))
+            ''.format(tensor_or_op, e.op, e.func_graph_name)) from e
       else:
         raise ValueError(
             'The tensor_or_op {} depended on an initializable table ({}) that '
             'was not tracked by the graph analysis.  This may be caused by '
             'adding an initializable table without adding its initializer to '
             'the collection tf.GraphKeys.TABLE_INITIALIZERS'.format(
-                tensor_or_op, e.op))
+                tensor_or_op, e.op)) from e
 
   return wrapper
 
@@ -687,7 +683,7 @@ class InitializableGraphAnalyzer:
       raise ValueError(
           'The table initializer {} depended on a placeholder ({}).  Note '
           'placeholders will not be fed during table initialization'.format(
-              table_init_op, e.tensor))
+              table_init_op, e.tensor)) from e
     except _UnexpectedTableError as e:
       if e.func_graph_name:
         raise e
@@ -695,7 +691,7 @@ class InitializableGraphAnalyzer:
           'The table initializer {} depended on an initializable table ({}). '
           'Note tables are initialized in one pass so a table initializer '
           'cannot depend on the output of an initializeable table'.format(
-              table_init_op, e.op))
+              table_init_op, e.op)) from e
     return _SourceInfo(ready, path)
 
   @property

@@ -636,9 +636,7 @@ class GraphToolsTest(test_case.TransformTestCase):
       (_create_graph_with_y_function_of_x, [], {}, 'y',
        'may have be caused by manually adding a placeholder to the graph'),
       (_create_graph_with_placeholder_in_tf_function, ['x'], {}, 'z',
-       r'that is part of a tf.function graph \(foo\), this is not supported. '  # pylint: disable=implicit-str-concat
-       'This may be a result of calling a tf.Transform analyzer in a '
-       'tf.function'),
+       'manually adding a placeholder to the graph. tf.function name: `foo`'),
       (_create_graph_with_y_function_of_x_and_untracked_table, ['x'], {
           'filename': True
       }, 'y', 'may be caused by adding an initializable table without'),
