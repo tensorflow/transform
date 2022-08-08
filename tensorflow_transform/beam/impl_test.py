@@ -4529,6 +4529,18 @@ class BeamImplTest(tft_unit.TransformTestCase):
     self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                           preprocessing_fn, expected_outputs)
 
+  def test_preprocessing_fn_returns_wrong_type(self):
+    with self.assertRaisesRegexp(  # pylint: disable=g-error-prone-assert-raises
+        ValueError, r'A `preprocessing_fn` must return a '
+        r'Dict\[str, Union\[tf.Tensor, tf.SparseTensor, tf.RaggedTensor\]\]. '
+        'Got: Tensor.*'):
+      self.assertAnalyzeAndTransformResults(
+          input_data=[{'f1': 0}],
+          input_metadata=tft.DatasetMetadata.from_feature_spec(
+              {'f1': tf.io.FixedLenFeature([], tf.float32)}),
+          preprocessing_fn=lambda inputs: inputs['f1'],
+          expected_data=None)
+
 
 if __name__ == '__main__':
   tft_unit.main()

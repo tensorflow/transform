@@ -1067,6 +1067,11 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     # output. This is because if we allowed the output of preprocessing_fn to
     # be empty, we wouldn't be able to determine how many instances to
     # "unbatch" the output into.
+    if not isinstance(structured_outputs, dict):
+      raise ValueError(
+          'A `preprocessing_fn` must return a '
+          'Dict[str, Union[tf.Tensor, tf.SparseTensor, tf.RaggedTensor]]. '
+          f'Got: {structured_outputs}')
     if not structured_outputs:
       raise ValueError('The preprocessing function returned an empty dict')
 
