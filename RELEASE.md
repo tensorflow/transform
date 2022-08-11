@@ -11,6 +11,7 @@
     resource hints is to prevent root Reads that are generated from deep copy
     being merged due to common subexpression elimination.
 *   Depends on `apache-beam[gcp]>=2.40,<3`.
+*   Depends on `pyarrow>=6,<7`.
 
 ## Breaking Changes
 

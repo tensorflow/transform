@@ -46,7 +46,7 @@ def _make_required_install_packages():
       'apache-beam[gcp]>=2.40,<3',
       'numpy>=1.16,<2',
       'protobuf>=3.13,<4',
-      'pyarrow>=1,<6',
+      'pyarrow>=6,<7',
       'pydot>=1.2,<2',
       # pylint: disable=line-too-long
       'tensorflow' + select_constraint(
