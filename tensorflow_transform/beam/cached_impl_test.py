@@ -34,9 +34,8 @@ from tensorflow_transform.beam import analysis_graph_builder
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.tf_metadata import dataset_metadata
-# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
-# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
-# resolved.
+# TODO(b/243513856): Switch to `collections.namedtuple` or `typing.NamedTuple`
+# once the Spark issue is resolved.
 from tfx_bsl.types import tfx_namedtuple
 
 mock = tf.compat.v1.test.mock

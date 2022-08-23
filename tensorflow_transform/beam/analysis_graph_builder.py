@@ -26,9 +26,8 @@ from tensorflow_transform import tf_utils
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import beam_nodes
 from tensorflow_transform.beam import combiner_packing_util
-# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
-# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
-# resolved.
+# TODO(b/243513856): Switch to `collections.namedtuple` or `typing.NamedTuple`
+# once the Spark issue is resolved.
 from tfx_bsl.types import tfx_namedtuple
 
 

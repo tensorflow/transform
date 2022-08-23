@@ -86,9 +86,8 @@ from tfx_bsl.tfxio import tensor_to_arrow
 from tfx_bsl.tfxio import tf_example_record
 from tfx_bsl.tfxio.tensor_adapter import TensorAdapter
 from tfx_bsl.tfxio.tensor_adapter import TensorAdapterConfig
-# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
-# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
-# resolved.
+# TODO(b/243513856): Switch to `collections.namedtuple` or `typing.NamedTuple`
+# once the Spark issue is resolved.
 from tfx_bsl.types import tfx_namedtuple
 
 from tensorflow.python.framework import ops  # pylint: disable=g-direct-tensorflow-import

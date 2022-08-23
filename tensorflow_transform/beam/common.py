@@ -22,9 +22,8 @@ import apache_beam as beam
 from apache_beam.typehints import Union
 from tensorflow_transform import nodes
 from tfx_bsl.telemetry import util
-# TODO(https://issues.apache.org/jira/browse/SPARK-22674): Switch to
-# `collections.namedtuple` or `typing.NamedTuple` once the Spark issue is
-# resolved.
+# TODO(b/243513856): Switch to `collections.namedtuple` or `typing.NamedTuple`
+# once the Spark issue is resolved.
 from tfx_bsl.types import tfx_namedtuple
 
 NUMERIC_TYPE = Union[float, int]
