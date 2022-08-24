@@ -1025,12 +1025,16 @@ class EncodeCache(
 
 
 class InstrumentDatasetCache(
-    tfx_namedtuple.namedtuple('InstrumentDatasetCache',
-                              ['dataset_key', 'label']), nodes.OperationDef):
+    tfx_namedtuple.namedtuple('InstrumentDatasetCache', [
+        'input_cache_dataset_keys', 'num_encode_cache', 'num_decode_cache',
+        'label'
+    ]), nodes.OperationDef):
   """OperationDef instrumenting cached datasets.
 
   Fields:
-    dataset_key: A dataset key.
+    input_cache_dataset_keys: A dataset keys for which there's input cache.
+    num_encode_cache: Number of cache entries encoded.
+    num_decode_cache: Number of cache entries decoded.
     label: A unique label for this operation.
   """
   __slots__ = ()

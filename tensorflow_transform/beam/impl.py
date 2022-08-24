@@ -1097,16 +1097,23 @@ class _AnalyzeDatasetCommon(beam.PTransform):
           telemetry.TrackRecordBatchBytes(beam_common.METRICS_NAMESPACE,
                                           'analysis_input_bytes'))
     else:
+      bytes_per_dataset = []
       for idx, key in enumerate(sorted(input_values_pcoll_dict.keys())):
         infix = f'AnalysisIndex{idx}'
         if input_values_pcoll_dict[key] is not None:
+          bytes_per_dataset.append(input_values_pcoll_dict[key]
+                                   | f'ExtractInputBytes[{infix}]' >>
+                                   telemetry.ExtractRecordBatchBytes())
           dataset_metrics[key] = (
-              input_values_pcoll_dict[key]
-              | f'InstrumentInputBytes[AnalysisPCollDict][{infix}]' >>
-              telemetry.TrackRecordBatchBytes(beam_common.METRICS_NAMESPACE,
-                                              'analysis_input_bytes')
+              bytes_per_dataset[-1]
               | f'ConstructMetadata[{infix}]' >> beam.Map(
                   analyzer_cache.DatasetCacheMetadata))
+      _ = (
+          bytes_per_dataset
+          | 'FlattenAnalysisBytes' >> beam.Flatten(pipeline=pipeline)
+          | 'InstrumentInputBytes[AnalysisPCollDict]' >>
+          telemetry.IncrementCounter(beam_common.METRICS_NAMESPACE,
+                                     'analysis_input_bytes'))
 
     # Gather telemetry on types of input features.
     _ = (

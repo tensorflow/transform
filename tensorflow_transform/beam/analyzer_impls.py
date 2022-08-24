@@ -1325,30 +1325,51 @@ class _EncodeCacheImpl(beam.PTransform):
   def expand(self, inputs):
     pcoll, = inputs
 
-    return (pcoll
-            | 'Encode' >> beam.Map(self._coder.encode_cache)
-            | 'Count' >> common.IncrementCounter('cache_entries_encoded'))
+    return pcoll | 'Encode' >> beam.Map(self._coder.encode_cache)
 
 
 @common.register_ptransform(analyzer_nodes.InstrumentDatasetCache)
 @beam.typehints.with_input_types(beam.pvalue.PBegin)
 @beam.typehints.with_output_types(None)
 class _InstrumentDatasetCacheImpl(beam.PTransform):
-  """Instruments datasets not read due to cache hit."""
+  """Instruments pipeline analysis cache usage."""
 
   def __init__(self, operation, extra_args):
-    self._metadata_pcoll = (
-        extra_args.cache_pcoll_dict[operation.dataset_key].metadata)
+    self.pipeline = extra_args.pipeline
+    self._metadata_pcolls = tuple(extra_args.cache_pcoll_dict[k].metadata
+                                  for k in operation.input_cache_dataset_keys)
+    self._num_encode_cache = operation.num_encode_cache
+    self._num_decode_cache = operation.num_decode_cache
 
-  def _make_and_increment_counter(self, metadata):
-    if metadata:
-      beam.metrics.Metrics.counter(common.METRICS_NAMESPACE,
-                                   'analysis_input_bytes_from_cache').inc(
-                                       metadata.dataset_size)
+  def _make_and_increment_counter(self, value, name):
+    beam.metrics.Metrics.counter(common.METRICS_NAMESPACE, name).inc(value)
 
   def expand(self, pbegin):
-    return (self._metadata_pcoll | 'InstrumentCachedInputBytes' >> beam.Map(
-        self._make_and_increment_counter))
+    if self._num_encode_cache > 0:
+      _ = (
+          pbegin
+          | 'CreateSoleCacheEncodeInstrument' >> beam.Create(
+              [self._num_encode_cache])
+          | 'InstrumentCacheEncode' >> beam.Map(
+              self._make_and_increment_counter, 'cache_entries_encoded'))
+    if self._num_decode_cache > 0:
+      _ = (
+          self.pipeline
+          | 'CreateSoleCacheDecodeInstrument' >> beam.Create(
+              [self._num_decode_cache])
+          | 'InstrumentCacheDecode' >> beam.Map(
+              self._make_and_increment_counter, 'cache_entries_decoded'))
+    if self._metadata_pcolls:
+      # Instruments datasets not read due to cache hit.
+      _ = (
+          self._metadata_pcolls | beam.Flatten(pipeline=self.pipeline)
+          | 'ExtractCachedInputBytes' >>
+          beam.Map(lambda m: m.dataset_size if m else 0)
+          | 'SumCachedInputBytes' >> beam.CombineGlobally(sum)
+          | 'InstrumentCachedInputBytes' >> beam.Map(
+              self._make_and_increment_counter,
+              'analysis_input_bytes_from_cache'))
+    return pbegin | 'CreateSoleEmptyOutput' >> beam.Create([])
 
 
 @common.register_ptransform(analyzer_nodes.DecodeCache)
@@ -1366,9 +1387,7 @@ class _DecodeCacheImpl(beam.PTransform):
   def expand(self, pbegin):
     del pbegin  # unused
 
-    return (self._cache_pcoll
-            | 'Decode' >> beam.Map(self._coder.decode_cache)
-            | 'Count' >> common.IncrementCounter('cache_entries_decoded'))
+    return self._cache_pcoll | 'Decode' >> beam.Map(self._coder.decode_cache)
 
 
 @common.register_ptransform(analyzer_nodes.AddKey)

@@ -173,6 +173,8 @@ class _OptimizeVisitor(nodes.Visitor):
     self._cache_dict = cache_dict
     self._tensor_keys_to_paths = tensor_keys_to_paths
     self._dataset_has_cache_misses = collections.defaultdict(bool)
+    self._num_encode_cache_nodes = 0
+    self._num_decode_cache_nodes = 0
     self.cache_output_nodes = cache_output_nodes
     self._num_phases = num_phases
 
@@ -180,13 +182,15 @@ class _OptimizeVisitor(nodes.Visitor):
     if operation_def.cache_coder is not None:
       if not operation_def.is_partitionable:
         raise ValueError(
-            'Non partitionable OperationDefs cannot be cacheable: {}'.format(
-                operation_def.label))
+            'Non partitionable OperationDefs cannot be cacheable: '
+            f'{operation_def.label}'
+        )
     if operation_def.is_partitionable or operation_def.cache_coder is not None:
       if operation_def.num_outputs != 1:
         raise ValueError(
-            'Cacheable OperationDefs must have exactly 1 output: {}'.format(
-                operation_def.label))
+            'Cacheable OperationDefs must have exactly 1 output: '
+            f'{operation_def.label}'
+        )
 
   def get_detached_sideeffect_leafs(self):
     """Returns a list of sideeffect leaf nodes after the visit is done."""
@@ -194,8 +198,8 @@ class _OptimizeVisitor(nodes.Visitor):
     # anyway, and so we'll not instrument full cache coverage for this case.
     if self._num_phases > 1:
       return []
-    result = []
-    for (dataset_idx, dataset_key) in enumerate(self._sorted_dataset_keys):
+    dataset_keys_with_decoded_cache = []
+    for dataset_key in self._sorted_dataset_keys:
       # Default to True here, if the dataset_key is not in the cache misses map
       # then treat it like it does have cache misses because it has not been
       # visited in the optimization traversal.
@@ -207,12 +211,18 @@ class _OptimizeVisitor(nodes.Visitor):
       cache_dict = self._cache_dict or {}
       dataset_cache_entries = cache_dict.get(dataset_key, None)
       if dataset_cache_entries is not None and dataset_cache_entries.metadata:
-        node = nodes.apply_operation(
-            analyzer_nodes.InstrumentDatasetCache,
-            dataset_key=dataset_key,
-            label=f'InstrumentDatasetCache[AnalysisIndex{dataset_idx}]')
-        result.append(node)
-    return result
+        dataset_keys_with_decoded_cache.append(dataset_key)
+    if (dataset_keys_with_decoded_cache or self._num_encode_cache_nodes or
+        self._num_decode_cache_nodes):
+      return [
+          nodes.apply_operation(
+              analyzer_nodes.InstrumentDatasetCache,
+              input_cache_dataset_keys=dataset_keys_with_decoded_cache,
+              num_encode_cache=self._num_encode_cache_nodes,
+              num_decode_cache=self._num_decode_cache_nodes,
+              label='InstrumentDatasetCache')
+      ]
+    return []
 
   def _make_next_hashed_path(self, parent_hashed_paths, operation_def):
     # Making a copy of parent_hashed_paths.
@@ -269,7 +279,7 @@ class _OptimizeVisitor(nodes.Visitor):
       next_inputs = nodes.apply_multi_output_operation(
           beam_nodes.Flatten,
           *disaggregated_input_values,
-          label='FlattenCache[{}]'.format(operation_def.label))
+          label=f'FlattenCache[{operation_def.label}]')
     else:
       # Parent operation output is not cacheable, therefore we can just use
       # a flattened view.
@@ -341,7 +351,7 @@ class _OptimizeVisitor(nodes.Visitor):
 
     for (dataset_idx, dataset_key) in enumerate(self._sorted_dataset_keys):
       # We use an index for the label in order to make beam labels more stable.
-      infix = 'AnalysisIndex{}'.format(dataset_idx)
+      infix = f'AnalysisIndex{dataset_idx}'
       if (operation_def.cache_coder and self._cache_dict.get(
           dataset_key, {}).get(cache_entry_key) is not None):
         self._dataset_has_cache_misses[dataset_key] |= False
@@ -349,13 +359,13 @@ class _OptimizeVisitor(nodes.Visitor):
             dataset_key,
             cache_entry_key,
             coder=operation_def.cache_coder,
-            label='DecodeCache[{}][{}]'.format(operation_def.label, infix))
+            label=f'DecodeCache[{operation_def.label}][{infix}]')
         (op_output,) = nodes.OperationNode(decode_cache, tuple()).outputs
+        self._num_decode_cache_nodes += 1
       else:
         value_nodes = tuple(v[dataset_key] for v in fine_grained_views)
         (op_output,) = nodes.OperationNode(
-            operation_def._replace(
-                label='{}[{}]'.format(operation_def.label, infix)),
+            operation_def._replace(label=f'{operation_def.label}[{infix}]'),
             value_nodes).outputs
         if operation_def.cache_coder:
           self._dataset_has_cache_misses[dataset_key] = True
@@ -363,8 +373,9 @@ class _OptimizeVisitor(nodes.Visitor):
               analyzer_nodes.EncodeCache,
               op_output,
               coder=operation_def.cache_coder,
-              label='EncodeCache[{}][{}]'.format(operation_def.label, infix))
+              label=f'EncodeCache[{operation_def.label}][{infix}]')
           self.cache_output_nodes[(dataset_key, cache_entry_key)] = encode_cache
+          self._num_encode_cache_nodes += 1
       result_fine_grained_view[dataset_key] = op_output
 
     return result_fine_grained_view
@@ -377,16 +388,15 @@ class _OptimizeVisitor(nodes.Visitor):
 
     fine_grained_view = collections.OrderedDict()
     for (dataset_idx, dataset_key) in enumerate(self._sorted_dataset_keys):
-      infix = 'AnalysisIndex{}'.format(dataset_idx)
+      infix = f'AnalysisIndex{dataset_idx}'
       input_node = nodes.apply_operation(
           beam_nodes.ExtractInputForSavedModel,
           dataset_key=dataset_key,
-          label='ExtractInputForSavedModel[{}]'.format(infix))
+          label=f'ExtractInputForSavedModel[{infix}]')
       # We use an index for the label in order to make beam labels more stable.
       (fine_grained_view[dataset_key],) = (
           nodes.OperationNode(
-              operation_def._replace(
-                  label='{}[{}]'.format(operation_def.label, infix)),
+              operation_def._replace(label=f'{operation_def.label}[{infix}]'),
               (saved_model_path_upstream_view.flattened_view,
                input_node)).outputs)
 
@@ -404,8 +414,8 @@ class _OptimizeVisitor(nodes.Visitor):
     assert isinstance(value, _OptimizationView), value
     if value.fine_grained_view:
       assert set(value.fine_grained_view.keys()) == set(
-          self._sorted_dataset_keys), ('{} != {}'.format(
-              value.fine_grained_view.keys(), self._sorted_dataset_keys))
+          self._sorted_dataset_keys
+      ), (f'{value.fine_grained_view.keys()} != {self._sorted_dataset_keys}')
 
 
 def _perform_cache_optimization(saved_model_future, dataset_keys,
@@ -593,7 +603,7 @@ def build(graph,
       label='ExtractInputForSavedModel[FlattenedDataset]')
 
   while not all(sink_tensors_ready.values()):
-    infix = 'Phase{}'.format(phase)
+    infix = f'Phase{phase}'
     # Determine which table init ops are ready to run in this phase
     # Determine which keys of pending_tensor_replacements are ready to run
     # in this phase, based in whether their dependencies are ready.
@@ -610,14 +620,14 @@ def build(graph,
         *tensor_bindings,
         table_initializers=tuple(graph_analyzer.ready_table_initializers),
         output_signature=intermediate_output_signature,
-        label='CreateSavedModelForAnalyzerInputs[{}]'.format(infix))
+        label=f'CreateSavedModelForAnalyzerInputs[{infix}]')
 
     extracted_values_dict = nodes.apply_operation(
         beam_nodes.ApplySavedModel,
         saved_model_future,
         extracted_input_node,
         phase=phase,
-        label='ApplySavedModel[{}]'.format(infix))
+        label=f'ApplySavedModel[{infix}]')
 
     translate_visitor.phase = phase
     translate_visitor.intermediate_output_signature = (
@@ -643,7 +653,7 @@ def build(graph,
               dtype_enum=tensor.dtype.as_datatype_enum,
               is_asset_filepath=is_asset_filepath,
               label=analyzer_nodes.sanitize_label(
-                  'CreateTensorBinding[{}]'.format(name))))
+                  f'CreateTensorBinding[{name}]')))
       sink_tensors_ready[hashable_tensor] = True
 
     analyzers_input_signature.update(intermediate_output_signature)

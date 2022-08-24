@@ -418,6 +418,7 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signatur
 "FakeChainableCacheable[x/cacheable2][AnalysisIndex0]" -> "EncodeCache[FakeChainableCacheable[x/cacheable2]][AnalysisIndex0]";
 "EncodeCache[FakeChainableCacheable[x/cacheable2]][AnalysisIndex1]" [label="{EncodeCache|coder: Not-a-coder-but-thats-ok!|label: EncodeCache[FakeChainableCacheable[x/cacheable2]][AnalysisIndex1]|partitionable: True}"];
 "FakeChainableCacheable[x/cacheable2][AnalysisIndex1]" -> "EncodeCache[FakeChainableCacheable[x/cacheable2]][AnalysisIndex1]";
+InstrumentDatasetCache [label="{InstrumentDatasetCache|input_cache_dataset_keys: []|num_encode_cache: 4|num_decode_cache: 0|label: InstrumentDatasetCache|partitionable: True}"];
 }
 """)
 
