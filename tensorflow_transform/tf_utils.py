@@ -470,7 +470,7 @@ def _to_string(x: common_types.TensorType) -> common_types.TensorType:
         dense_shape=x.dense_shape)
   elif isinstance(x, tf.RaggedTensor):
     return tf.RaggedTensor.from_row_splits(
-        values=_to_string(x.values), row_splits=x.row_splits)
+        values=_to_string(x.values), row_splits=x.row_splits, validate=False)
   else:
     return tf.strings.as_string(x)
 

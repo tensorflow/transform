@@ -1826,7 +1826,8 @@ def _make_composite_tensor_wrapper_if_composite(
   elif isinstance(x, tf.RaggedTensor):
 
     def from_nested_row_splits(values):
-      return tf.RaggedTensor.from_nested_row_splits(values, x.nested_row_splits)
+      return tf.RaggedTensor.from_nested_row_splits(
+          values, x.nested_row_splits, validate=False)
 
     return from_nested_row_splits
   else:
