@@ -18,7 +18,7 @@ import contextlib
 import itertools
 import math
 import os
-from typing import Tuple
+from typing import Optional, Tuple
 
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
@@ -3404,22 +3404,25 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': tf.io.FixedLenFeature([], tf.string)})
 
     # IDFs
-    # hello = log(4/3) = 0.28768
-    # world = log(4/3)
-    # goodbye = log(4/2) = 0.69314
-    # I = log(4/2)
-    # like = log(4/2)
-    # pie = log(4/2)
-    log_4_over_2 = 1.69314718056
-    log_4_over_3 = 1.28768207245
+    # hello = 1 + log(4/3) = 1.28768
+    # world = 1 + log(4/3)
+    # goodbye = 1 + log(4/2) = 1.69314
+    # I = 1 + log(4/2)
+    # like = 1 + log(4/2)
+    # pie = 1 + log(4/2)
+    log_4_over_2_plus_1 = 1.69314718056
+    log_4_over_3_plus_1 = 1.28768207245
     expected_transformed_data = [{
-        'tf_idf': [(2/3)*log_4_over_3, (1/3)*log_4_over_3],
+        'tf_idf': [(2 / 3) * log_4_over_3_plus_1,
+                   (1 / 3) * log_4_over_3_plus_1],
         'index': [0, 2]
     }, {
-        'tf_idf': [(2/4)*log_4_over_3, (1/4)*log_4_over_3, (1/4)*log_4_over_2],
+        'tf_idf': [(2 / 4) * log_4_over_3_plus_1, (1 / 4) * log_4_over_3_plus_1,
+                   (1 / 4) * log_4_over_2_plus_1],
         'index': [0, 2, 4]
     }, {
-        'tf_idf': [(3/5)*log_4_over_2, (1/5)*log_4_over_2, (1/5)*log_4_over_2],
+        'tf_idf': [(3 / 5) * log_4_over_2_plus_1, (1 / 5) * log_4_over_2_plus_1,
+                   (1 / 5) * log_4_over_2_plus_1],
         'index': [1, 3, 5]
     }]
     expected_metadata = tft.DatasetMetadata.from_feature_spec({
@@ -3469,19 +3472,22 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.FixedLenFeature([], tf.string)})
 
-    log_5_over_2 = 1.91629073187
-    log_5_over_3 = 1.51082562376
+    log_5_over_2_plus_1 = 1.91629073187
+    log_5_over_3_plus_1 = 1.51082562376
     expected_transformed_data = [{
-        'tf_idf': [(2/3)*log_5_over_3, (1/3)*log_5_over_3],
+        'tf_idf': [(2 / 3) * log_5_over_3_plus_1,
+                   (1 / 3) * log_5_over_3_plus_1],
         'index': [0, 2]
     }, {
         'tf_idf': [],
         'index': []
     }, {
-        'tf_idf': [(2/4)*log_5_over_3, (1/4)*log_5_over_3, (1/4)*log_5_over_2],
+        'tf_idf': [(2 / 4) * log_5_over_3_plus_1, (1 / 4) * log_5_over_3_plus_1,
+                   (1 / 4) * log_5_over_2_plus_1],
         'index': [0, 2, 4]
     }, {
-        'tf_idf': [(3/5)*log_5_over_2, (1/5)*log_5_over_2, (1/5)*log_5_over_2],
+        'tf_idf': [(3 / 5) * log_5_over_2_plus_1, (1 / 5) * log_5_over_2_plus_1,
+                   (1 / 5) * log_5_over_2_plus_1],
         'index': [1, 3, 5]
     }]
     expected_metadata = tft.DatasetMetadata.from_feature_spec({
@@ -3499,19 +3505,22 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_data = [{'a': [2, 2, 0]},
                   {'a': [2, 6, 2, 0]},
                   {'a': [8, 10, 12, 12, 12]},
-                 ]
+                  ]
     input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.VarLenFeature(tf.int64)})
-    log_4_over_2 = 1.69314718056
-    log_4_over_3 = 1.28768207245
+    log_4_over_2_plus_1 = 1.69314718056
+    log_4_over_3_plus_1 = 1.28768207245
     expected_data = [{
-        'tf_idf': [(1/3)*log_4_over_3, (2/3)*log_4_over_3],
+        'tf_idf': [(1 / 3) * log_4_over_3_plus_1,
+                   (2 / 3) * log_4_over_3_plus_1],
         'index': [0, 2]
     }, {
-        'tf_idf': [(1/4)*log_4_over_3, (2/4)*log_4_over_3, (1/4)*log_4_over_2],
+        'tf_idf': [(1 / 4) * log_4_over_3_plus_1, (2 / 4) * log_4_over_3_plus_1,
+                   (1 / 4) * log_4_over_2_plus_1],
         'index': [0, 2, 6]
     }, {
-        'tf_idf': [(1/5)*log_4_over_2, (1/5)*log_4_over_2, (3/5)*log_4_over_2],
+        'tf_idf': [(1 / 5) * log_4_over_2_plus_1, (1 / 5) * log_4_over_2_plus_1,
+                   (3 / 5) * log_4_over_2_plus_1],
         'index': [8, 10, 12]
     }]
     expected_schema = tft.DatasetMetadata.from_feature_spec({
@@ -3532,16 +3541,19 @@ class BeamImplTest(tft_unit.TransformTestCase):
                  ]
     input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.VarLenFeature(tf.int64)})
-    log_3_over_2 = 1.4054651081
-    log_3 = 2.0986122886
+    log_3_over_2_plus_1 = 1.4054651081
+    log_3_plus_1 = 2.0986122886
     expected_data = [{
-        'tf_idf': [(1/3)*log_3_over_2, (2/3)*log_3_over_2],
+        'tf_idf': [(1 / 3) * log_3_over_2_plus_1,
+                   (2 / 3) * log_3_over_2_plus_1],
         'index': [0, 2]
     }, {
-        'tf_idf': [(1/4)*log_3_over_2, (2/4)*log_3_over_2, (1/4)*log_3],
+        'tf_idf': [(1 / 4) * log_3_over_2_plus_1, (2 / 4) * log_3_over_2_plus_1,
+                   (1 / 4) * log_3_plus_1],
         'index': [0, 2, 6]
     }, {
-        'tf_idf': [(1/5)*log_3, (1/5)*log_3, (3/5)*log_3],
+        'tf_idf': [(1 / 5) * log_3_plus_1, (1 / 5) * log_3_plus_1,
+                   (3 / 5) * log_3_plus_1],
         'index': [8, 10, 12]
     }]
     expected_schema = tft.DatasetMetadata.from_feature_spec({
@@ -3570,20 +3582,23 @@ class BeamImplTest(tft_unit.TransformTestCase):
         {'a': tf.io.FixedLenFeature([], tf.string)})
 
     # IDFs
-    # hello = log(3/3) = 0
-    # pie = log(3/2) = 0.4054651081
-    # world = log(3/3) = 0
-    # OOV - goodbye, I, like = log(3/3)
-    log_4_over_2 = 1.69314718056
-    log_4_over_3 = 1.28768207245
+    # hello = 1 + log(3/3) = 1
+    # pie = 1+ log(3/2) = 1.4054651081
+    # world = 1 + log(3/3) = 1
+    # OOV - goodbye, I, like = 1 + log(3/3) = 1
+    log_4_over_2_plus_1 = 1.69314718056
+    log_4_over_3_plus_1 = 1.28768207245
     expected_transformed_data = [{
-        'tf_idf': [(2/3)*log_4_over_3, (1/3)*log_4_over_3],
+        'tf_idf': [(2 / 3) * log_4_over_3_plus_1,
+                   (1 / 3) * log_4_over_3_plus_1],
         'index': [0, 2]
     }, {
-        'tf_idf': [(2/4)*log_4_over_3, (1/4)*log_4_over_3, (1/4)*log_4_over_3],
+        'tf_idf': [(2 / 4) * log_4_over_3_plus_1, (1 / 4) * log_4_over_3_plus_1,
+                   (1 / 4) * log_4_over_3_plus_1],
         'index': [0, 2, 3]
     }, {
-        'tf_idf': [(3/5)*log_4_over_2, (2/5)*log_4_over_3],
+        'tf_idf': [(3 / 5) * log_4_over_2_plus_1,
+                   (2 / 5) * log_4_over_3_plus_1],
         'index': [1, 3]
     }]
     expected_metadata = tft.DatasetMetadata.from_feature_spec({
@@ -3608,25 +3623,341 @@ class BeamImplTest(tft_unit.TransformTestCase):
     input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'a': tf.io.VarLenFeature(tf.int64)})
 
-    log_4_over_2 = 1.69314718056
-    log_4_over_3 = 1.28768207245
+    log_4_over_2_plus_1 = 1.69314718056
+    log_4_over_3_plus_1 = 1.28768207245
     # NOTE: -4 mod 14 = 10
     expected_transformed_data = [{
-        'tf_idf': [(2/3)*log_4_over_3, (1/3)*log_4_over_3],
+        'tf_idf': [(2 / 3) * log_4_over_3_plus_1,
+                   (1 / 3) * log_4_over_3_plus_1],
         'index': [2, 10]
     }, {
-        'tf_idf': [(2/4)*log_4_over_3, (1/4)*log_4_over_2, (1/4)*log_4_over_2],
+        'tf_idf': [(2 / 4) * log_4_over_3_plus_1, (1 / 4) * log_4_over_2_plus_1,
+                   (1 / 4) * log_4_over_2_plus_1],
         'index': [2, 6, 13]
     }, {
-        'tf_idf': [(1/5)*log_4_over_2, (1/5)*log_4_over_3, (3/5)*log_4_over_2],
+        'tf_idf': [(1 / 5) * log_4_over_2_plus_1, (1 / 5) * log_4_over_3_plus_1,
+                   (3 / 5) * log_4_over_2_plus_1],
         'index': [8, 10, 12]
     }]
     expected_metadata = tft.DatasetMetadata.from_feature_spec({
         'tf_idf': tf.io.VarLenFeature(tf.float32),
         'index': tf.io.VarLenFeature(tf.int64)
     })
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn,
+                                          expected_transformed_data,
+                                          expected_metadata)
+
+  def _get_dfidf_experimental_preprocessing_fn(self,
+                                               is_str_input: bool = False,
+                                               smooth: bool = True,
+                                               add_baseline: bool = True,
+                                               vocab_size: Optional[int] = None,
+                                               top_k: Optional[int] = None):
+    """Returns proper preprocessing fn for df/idf under tft.experimental."""
+
+    def preprocessing_fn(inputs):
+      if is_str_input:
+        inputs_as_ints = tft.compute_and_apply_vocabulary(
+            tf.compat.v1.strings.split(inputs['a']), top_k=top_k)
+      else:
+        inputs_as_ints = inputs['a']
+
+      if vocab_size is None:
+        computed_vocab_size = tft.get_num_buckets_for_transformed_feature(
+            inputs_as_ints)
+      else:
+        computed_vocab_size = vocab_size
+
+      out_df_counts = tft.experimental.document_frequency(
+          inputs_as_ints, computed_vocab_size)
+      out_idf_weights = tft.experimental.idf(
+          inputs_as_ints,
+          computed_vocab_size,
+          smooth=smooth,
+          add_baseline=add_baseline)
+      return {'df': out_df_counts, 'idf': out_idf_weights}
+
+    return preprocessing_fn
+
+  @tft_unit.named_parameters(
+      dict(
+          testcase_name='StrInputSmoothBasaeline',
+          smooth=True,
+          add_baseline=True),
+      dict(
+          testcase_name='StrInputSmoothWOBasaeline',
+          smooth=True,
+          add_baseline=False),
+      dict(
+          testcase_name='StrInputNonSmoothBasaeline',
+          smooth=False,
+          add_baseline=True),
+      dict(
+          testcase_name='StrInputNonSmoothWOBasaeline',
+          smooth=False,
+          add_baseline=False),
+  )
+  def testStringToDFIDFExperimental(self, smooth, add_baseline):
+    input_data = [{
+        'a': 'hello hello world pie'
+    }, {
+        'a': 'hello goodbye world pie'
+    }, {
+        'a': 'I like pie pie'
+    }]
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
+        {'a': tf.io.FixedLenFeature([], tf.string)})
+
+    # corpus_size = 3
+    #          DF   smooth base IDF       non-smooth base IDF     with baseline
+    # hello     2    log(4/3)               log(3/2)                 * + 1
+    # world     2    log(4/3)               log(3/2)                 * + 1
+    # goodbye   1    log(4/2)               log3                     * + 1
+    # I         1    log(4/2)               log3                     * + 1
+    # like      1    log(4/2)               log3                     * + 1
+    # pie       3    log(4/4) = 0           log(3/3)=0               * + 1
+    log_4_over_2 = 0.69314718056
+    log_4_over_3 = 0.28768207245
+    log_3_over_2 = 0.4054651081
+    log_3 = 1.09861228867
+
+    if smooth:
+      base_idf1, base_idf2 = log_4_over_3, log_4_over_2
+    else:
+      base_idf1, base_idf2 = log_3_over_2, log_3
+
+    baseline = 1.0 if add_baseline else 0.0
+
+    expected_transformed_data = [{
+        'df': [2, 2, 2, 3],
+        'idf': [
+            baseline + base_idf1, baseline + base_idf1, baseline + base_idf1,
+            baseline
+        ]
+    }, {
+        'df': [2, 1, 2, 3],
+        'idf': [
+            baseline + base_idf1, baseline + base_idf2, baseline + base_idf1,
+            baseline
+        ]
+    }, {
+        'df': [1, 1, 3, 3],
+        'idf': [baseline + base_idf2, baseline + base_idf2, baseline, baseline]
+    }]
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
+        'df': tf.io.VarLenFeature(tf.int64),
+        'idf': tf.io.VarLenFeature(tf.float32)
+    })
     self.assertAnalyzeAndTransformResults(
-        input_data, input_metadata, preprocessing_fn,
+        input_data, input_metadata,
+        self._get_dfidf_experimental_preprocessing_fn(
+            is_str_input=True, smooth=smooth, add_baseline=add_baseline),
+        expected_transformed_data, expected_metadata)
+
+  def testDFIDFExperimentalNoData(self):
+
+    input_data = [{'a': ''}]
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
+        {'a': tf.io.FixedLenFeature([], tf.string)})
+    # Input data is completely empty so need to specify vocab_size explicitly
+    preprocessing_fn = self._get_dfidf_experimental_preprocessing_fn(
+        is_str_input=True, vocab_size=6)
+
+    expected_transformed_data = [{'df': [], 'idf': []}]
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
+        'df': tf.io.VarLenFeature(tf.int64),
+        'idf': tf.io.VarLenFeature(tf.float32)
+    })
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn,
+                                          expected_transformed_data,
+                                          expected_metadata)
+
+  def testStringToDFIDFExperimentalEmptyDoc(self):
+    input_data = [{
+        'a': 'hello hello world'
+    }, {
+        'a': ''
+    }, {
+        'a': 'hello goodbye world'
+    }, {
+        'a': 'I like pie'
+    }]
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
+        {'a': tf.io.FixedLenFeature([], tf.string)})
+
+    log_5_over_2_plus_1 = 1.91629073187
+    log_5_over_3_plus_1 = 1.51082562376
+    expected_transformed_data = [{
+        'df': [2, 2, 2],
+        'idf': [log_5_over_3_plus_1, log_5_over_3_plus_1, log_5_over_3_plus_1]
+    }, {
+        'df': [],
+        'idf': []
+    }, {
+        'df': [2, 1, 2],
+        'idf': [log_5_over_3_plus_1, log_5_over_2_plus_1, log_5_over_3_plus_1]
+    }, {
+        'df': [1, 1, 1],
+        'idf': [log_5_over_2_plus_1, log_5_over_2_plus_1, log_5_over_2_plus_1]
+    }]
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
+        'df': tf.io.VarLenFeature(tf.int64),
+        'idf': tf.io.VarLenFeature(tf.float32)
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata,
+        self._get_dfidf_experimental_preprocessing_fn(is_str_input=True),
+        expected_transformed_data, expected_metadata)
+
+  def testDFIDFExperimentalWithOOV(self):
+
+    input_data = [{
+        'a': 'hello world hi'
+    }, {
+        'a': 'hello goodbye world'
+    }, {
+        'a': 'I like pie pie'
+    }]
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
+        {'a': tf.io.FixedLenFeature([], tf.string)})
+
+    preprocessing_fn_w_oov = self._get_dfidf_experimental_preprocessing_fn(
+        is_str_input=True, vocab_size=4, top_k=3)
+    # smoothed base IDFs
+    # hello = log(4/3)
+    # pie = log(4/2)
+    # world = log(4/3)
+    # OOV - hi, goodbye, I, like = log(4/4) = 0 (OOV in all 3 out of 3 docs)
+    log_4_over_2_plus_1 = 1.69314718056
+    log_4_over_3_plus_1 = 1.28768207245
+    expected_transformed_data = [{
+        'df': [2, 2, 3],
+        'idf': [log_4_over_3_plus_1, log_4_over_3_plus_1, 1.0]
+    }, {
+        'df': [2, 3, 2],
+        'idf': [log_4_over_3_plus_1, 1.0, log_4_over_3_plus_1]
+    }, {
+        'df': [3, 3, 1, 1],
+        'idf': [1.0, 1.0, log_4_over_2_plus_1, log_4_over_2_plus_1]
+    }]
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
+        'df': tf.io.VarLenFeature(tf.int64),
+        'idf': tf.io.VarLenFeature(tf.float32)
+    })
+    self.assertAnalyzeAndTransformResults(input_data, input_metadata,
+                                          preprocessing_fn_w_oov,
+                                          expected_transformed_data,
+                                          expected_metadata)
+
+  @tft_unit.named_parameters(
+      dict(
+          testcase_name='IntInputSmoothBasaeline',
+          smooth=True,
+          add_baseline=True),
+      dict(
+          testcase_name='IntInputSmoothWOBasaeline',
+          smooth=True,
+          add_baseline=False),
+      dict(
+          testcase_name='IntInputNoneSmoothBasaeline',
+          smooth=False,
+          add_baseline=True),
+      dict(
+          testcase_name='IntInputNoneSmoothWOBasaeline',
+          smooth=False,
+          add_baseline=False))
+  def testIntToDFIDFExpeirmental(self, smooth, add_baseline):
+
+    input_data = [
+        {
+            'a': [2, 2, 0]
+        },
+        {
+            'a': [2, 6, 2, 0]
+        },
+        {
+            'a': [8, 10, 12, 12, 12]
+        },
+    ]
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
+        {'a': tf.io.VarLenFeature(tf.int64)})
+    log_4_over_2 = 0.69314718056
+    log_4_over_3 = 0.28768207245
+    log_3 = 1.09861228867
+    log_3_over_2 = 0.4054651081
+
+    if smooth:
+      idf1, idf2 = log_4_over_2, log_4_over_3
+    else:
+      idf1, idf2 = log_3, log_3_over_2
+
+    if add_baseline:
+      idf1 += 1.0
+      idf2 += 1.0
+
+    expected_data = [{
+        'df': [2, 2, 2],
+        'idf': [idf2, idf2, idf2],
+    }, {
+        'df': [2, 1, 2, 2],
+        'idf': [idf2, idf1, idf2, idf2],
+    }, {
+        'df': [1, 1, 1, 1, 1],
+        'idf': [idf1, idf1, idf1, idf1, idf1]
+    }]
+    expected_schema = tft.DatasetMetadata.from_feature_spec({
+        'df': tf.io.VarLenFeature(tf.int64),
+        'idf': tf.io.VarLenFeature(tf.float32)
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata,
+        self._get_dfidf_experimental_preprocessing_fn(
+            vocab_size=13, smooth=smooth, add_baseline=add_baseline),
+        expected_data, expected_schema)
+
+  def testDFIDFExperimentalWithNegatives(self):
+    input_data = [
+        {
+            'a': [2, 2, -4]
+        },
+        {
+            'a': [2, 6, 2, -1]
+        },
+        {
+            'a': [8, 10, 12, 12, 12]
+        },
+    ]
+    input_metadata = tft.DatasetMetadata.from_feature_spec(
+        {'a': tf.io.VarLenFeature(tf.int64)})
+
+    log_4_over_2_plus_1 = 1.69314718056
+    log_4_over_3_plus_1 = 1.28768207245
+    # NOTE: -4 mod 14 = 10, -1 mod 14 = 13
+    expected_transformed_data = [{
+        'df': [2, 2, 2],
+        'idf': [log_4_over_3_plus_1, log_4_over_3_plus_1, log_4_over_3_plus_1]
+    }, {
+        'df': [2, 1, 2, 1],
+        'idf': [
+            log_4_over_3_plus_1, log_4_over_2_plus_1, log_4_over_3_plus_1,
+            log_4_over_2_plus_1
+        ]
+    }, {
+        'df': [1, 2, 1, 1, 1],
+        'idf': [
+            log_4_over_2_plus_1, log_4_over_3_plus_1, log_4_over_2_plus_1,
+            log_4_over_2_plus_1, log_4_over_2_plus_1
+        ]
+    }]
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
+        'df': tf.io.VarLenFeature(tf.int64),
+        'idf': tf.io.VarLenFeature(tf.float32)
+    })
+    self.assertAnalyzeAndTransformResults(
+        input_data, input_metadata,
+        self._get_dfidf_experimental_preprocessing_fn(vocab_size=14),
         expected_transformed_data, expected_metadata)
 
   def testCovarianceTwoDimensions(self):

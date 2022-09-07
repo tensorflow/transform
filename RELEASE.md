@@ -4,6 +4,10 @@
 
 ## Major Features and Improvements
 
+*   Introduced `tft.experimental.document_frequency` and `tft.experimental.idf`
+    which map each term to its document frequency and inverse document frequency
+    in the same order as the terms in documents.
+
 ## Bug Fixes and Other Changes
 
 ## Breaking Changes

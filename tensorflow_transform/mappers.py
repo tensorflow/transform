@@ -754,15 +754,8 @@ def tfidf(
     raise ValueError('tft.tfidf requires a 2D SparseTensor input. '
                      'Input had {} dimensions.'.format(x.get_shape().ndims))
 
-  def _to_vocab_range(x):
-    """Enforces that the vocab_ids in x are positive."""
-    return tf.SparseTensor(
-        indices=x.indices,
-        values=tf.math.mod(x.values, vocab_size),
-        dense_shape=x.dense_shape)
-
   with tf.compat.v1.name_scope(name, 'tfidf'):
-    cleaned_input = _to_vocab_range(x)
+    cleaned_input = tf_utils.to_vocab_range(x, vocab_size)
 
     term_frequencies = _to_term_frequency(cleaned_input, vocab_size)
 
@@ -893,14 +886,8 @@ def _to_tfidf(term_frequency: tf.SparseTensor, reduced_term_freq: tf.Tensor,
     and shape=(batch, vocab_size)
   """
   # The idf tensor has shape (vocab_size,)
-  if smooth:
-    idf = tf.math.log((tf.cast(corpus_size, dtype=tf.float64) + 1.0) /
-                      (1.0 + tf.cast(reduced_term_freq, dtype=tf.float64))) + 1
-  else:
-    idf = tf.math.log(
-        tf.cast(corpus_size, dtype=tf.float64) /
-        (tf.cast(reduced_term_freq, dtype=tf.float64))) + 1
-
+  idf = tf_utils.document_frequency_to_idf(
+      reduced_term_freq, corpus_size, smooth=smooth, add_baseline=True)
   gathered_idfs = tf.gather(tf.squeeze(idf), term_frequency.indices[:, 1])
   tfidf_values = (tf.cast(term_frequency.values, tf.float32)
                   * tf.cast(gathered_idfs, tf.float32))

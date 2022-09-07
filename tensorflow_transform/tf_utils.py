@@ -1716,3 +1716,62 @@ def lookup_table(lookup_fn: Callable[[common_types.TensorType, tf.Tensor],
       stack.enter_context(
           tf.control_dependencies([tf.identity(control_dependency)]))
     return tf.identity(lookup_result), table_size
+
+
+def to_vocab_range(x: tf.SparseTensor,
+                   vocab_size: Union[int, tf.Tensor]) -> tf.SparseTensor:
+  """Mods x's int values to enforce that the vocab_ids in x are in range.
+
+  Args:
+    x: A int-valued SparseTensor typically representing the vocab indices of
+      terms. This is usually the output of tft.compute_and_apply_vocabulary.
+    vocab_size: An int or scalar tensor representing the size of vocab. Values
+      in x will be mod by this size to avoid negative or out-of-vocab indices.
+
+  Returns:
+    A sparse tensor of the same size as x with negative or out-of-vocab values
+       normalized.
+  """
+  return tf.SparseTensor(
+      indices=x.indices,
+      values=tf.math.mod(x.values, vocab_size),
+      dense_shape=x.dense_shape)
+
+
+def document_frequency_to_idf(document_frequency: tf.Tensor,
+                              corpus_size: Union[int, tf.Tensor],
+                              smooth: bool = True,
+                              add_baseline: bool = True) -> tf.Tensor:
+  """Computes inverse document frequency given document frequency.
+
+  The inverse document frequency of a term, by default, is calculated as
+  1 + log ((corpus size + 1) / (document frequency + 1)), where document
+  frequency is the number of documents that contain this term.
+
+  Args:
+    document_frequency: A tensor storing the document frequency of each term.
+    corpus_size: An int or int scalar tensor representing the size of the entire
+      dataset, i.e., number of examples.
+    smooth: A bool indicating if the inverse document frequency should be
+      smoothed. If True, which is the default, then the idf is calculated as 1 +
+      log((corpus size + 1) / (document frequency of term + 1)). Otherwise, the
+      idf is 1 + log((corpus size) / (document frequency of term)), which could
+      result in a division by zero error.
+    add_baseline: A bool indicating if the inverse document frequency should be
+      added with a constant baseline 1.0. If True, which is the default, then
+      the idf is calculated as 1 + log(*). Otherwise, the idf is log(*) without
+      the constant 1 baseline. Keeping the baseline reduces the discrepancy in
+      idf between commonly seen terms and rare terms.
+
+  Returns:
+    A tensor of the inverse document frequency of input document frequency.
+  """
+  baseline = 1.0 if add_baseline else 0.0
+  if smooth:
+    return tf.math.log(
+        (tf.cast(corpus_size, dtype=tf.float32) + 1.0) /
+        (1.0 + tf.cast(document_frequency, dtype=tf.float32))) + baseline
+  else:
+    return tf.math.log(
+        tf.cast(corpus_size, dtype=tf.float32) /
+        (tf.cast(document_frequency, dtype=tf.float32))) + baseline

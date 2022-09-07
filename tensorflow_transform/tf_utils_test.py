@@ -2179,6 +2179,97 @@ class TFUtilsTest(test_case.TransformTestCase):
     self.assertAllClose(self.evaluate(extended_batch.counts_per_x),
                         np.array([2.0, 4.0, 7.0]))
 
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers([
+          dict(
+              testcase_name='vocab_size_1',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 1], [0, 2], [0, 3], [1, 5], [100, 2]],
+                  values=[0, 1, 9, -4, 100],
+                  dense_shape=(100, 10)),
+              vocab_size=1,
+              input_signature=[
+                  tf.SparseTensorSpec([None, 10], tf.int64),
+                  tf.TensorSpec([], tf.int64),
+              ],
+              expected_output_values=[0, 0, 0, 0, 0],
+          ),
+          dict(
+              testcase_name='vocab_size_9',
+              x=tf.compat.v1.SparseTensorValue(
+                  indices=[[0, 1], [0, 2], [0, 3], [1, 5], [100, 2]],
+                  values=[0, 1, 9, -4, 100],
+                  dense_shape=(100, 6)),
+              vocab_size=9,
+              input_signature=[
+                  tf.SparseTensorSpec([None, 6], tf.int64),
+                  tf.TensorSpec([], tf.int64),
+              ],
+              expected_output_values=[0, 1, 0, 5, 1],
+          ),
+      ]))
+  def test_to_vocab_range(self, x, vocab_size, input_signature,
+                          expected_output_values, function_handler):
+
+    @function_handler(input_signature=input_signature)
+    def _to_vocab_range(x, vocab_size):
+      cleaned_x = tf_utils.to_vocab_range(x, vocab_size)
+      self.assertIsInstance(cleaned_x, tf.SparseTensor)
+      return cleaned_x.indices, cleaned_x.values, cleaned_x.dense_shape
+
+    output_indices, output_values, output_dense_shape = _to_vocab_range(
+        x, vocab_size)
+    self.assertAllEqual(output_indices, x.indices)
+    self.assertAllEqual(output_values, expected_output_values)
+    self.assertAllEqual(output_dense_shape, x.dense_shape)
+
+  @test_case.named_parameters(
+      test_case.cross_with_function_handlers([
+          dict(
+              testcase_name='df_to_idf',
+              df_input=[0, 1, 10],
+              corpus_size=10,
+              smooth=True,
+              add_baseline=True,
+              expected_idf=[3.3978952728, 2.70474809224, 1.0]),
+          dict(
+              testcase_name='df_to_idf_zero_corpus',
+              df_input=[0, 1, 10],
+              corpus_size=0,
+              smooth=True,
+              add_baseline=True,
+              expected_idf=[1.0, 0.30685281944, -1.3978953]),
+          dict(
+              testcase_name='df_to_idf_non_smooth',
+              df_input=[1, 2, 10],
+              corpus_size=10,
+              smooth=False,
+              add_baseline=True,
+              expected_idf=[3.30258509299, 2.60943791243, 1.0]),
+          dict(
+              testcase_name='df_to_idf_no_baseline',
+              df_input=[0, 1, 10],
+              corpus_size=10,
+              smooth=True,
+              add_baseline=False,
+              expected_idf=[2.3978952728, 1.70474809224, 0.0]),
+      ]))
+  def test_document_frequency_to_idf(self, df_input, corpus_size, smooth,
+                                     add_baseline, expected_idf,
+                                     function_handler):
+    input_signature = [
+        tf.TensorSpec([None], tf.int64),
+        tf.TensorSpec([], tf.int64),
+    ]
+
+    @function_handler(input_signature=input_signature)
+    def _to_idf(df, corpus_size):
+      return tf_utils.document_frequency_to_idf(
+          df, corpus_size, smooth=smooth, add_baseline=add_baseline)
+
+    idf_output = _to_idf(df_input, corpus_size)
+    self.assertAllClose(idf_output, expected_idf)
+
 
 class VocabTFUtilsTest(test_case.TransformTestCase):
 
