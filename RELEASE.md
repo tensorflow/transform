@@ -10,6 +10,8 @@
 
 ## Bug Fixes and Other Changes
 
+*   Depends on `tensorflow>=1.15.5,<2` or `tensorflow>=2.10,<2.11`
+
 ## Breaking Changes
 
 ## Deprecations
