@@ -4316,9 +4316,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def preprocessing_fn(inputs):
       return {'x_scaled': tft.scale_to_0_1(inputs['x'])}
 
-    # Exception type depends on the running being used.
+    # Exception type depends on the runner being used.
     with self.assertRaisesRegexp(
-        (RuntimeError, ValueError, TypeError), 'has type list'):
+        (RuntimeError, ValueError, TypeError), 'has type .*list'):
       # TODO(b/149997088): Remove this explicit use of DirectRunner.
       with beam.Pipeline() as pipeline:
         metadata = tft.DatasetMetadata.from_feature_spec({

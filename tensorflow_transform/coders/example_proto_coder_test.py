@@ -24,10 +24,9 @@ from absl import flags
 # pretty early on.
 if any(arg == '--proto_implementation_type=python' for arg in sys.argv):
   os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
-elif any(arg == '--proto_implementation_type=cpp' for arg in sys.argv):
+else:
   os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'cpp'
-elif any(arg.startswith('--proto_implementation_type') for arg in sys.argv):
-  raise ValueError('Unexpected value for --proto_implementation_type')
+  os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION_VERSION'] = '2'
 
 # pylint: disable=g-import-not-at-top
 import numpy as np
