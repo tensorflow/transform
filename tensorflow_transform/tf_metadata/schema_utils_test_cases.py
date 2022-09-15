@@ -787,6 +787,224 @@ if common_types.is_ragged_feature_available():
       },
   ])
 
+  NON_ROUNDTRIP_SCHEMAS.extend([{
+      'testcase_name':
+          'sequence',
+      'ascii_proto':
+          """
+          feature {
+            name: "int_feature"
+            type: INT
+            value_count {
+              min: 1
+              max: 1
+            }
+          }
+
+          feature {
+            name: "##SEQUENCE##"
+            type: STRUCT
+            struct_domain {
+              feature {
+                name: "int_feature"
+                type: INT
+                value_count {
+                  min: 0
+                  max: 2
+                }
+              }
+            }
+          }
+          tensor_representation_group {
+            key: ""
+            value {
+              tensor_representation {
+                key: "int_feature"
+                value { varlen_sparse_tensor { column_name: "int_feature" } }
+              }
+              tensor_representation {
+                key: "seq_int_feature"
+                value {
+                  ragged_tensor {
+                    feature_path { step: "##SEQUENCE##" step: "int_feature" }
+                  }
+                }
+              }
+            }
+          }
+        """,
+      'feature_spec': {
+          'int_feature':
+              tf.io.VarLenFeature(dtype=tf.int64),
+          'seq_int_feature':
+              tf.io.RaggedFeature(
+                  dtype=tf.int64,
+                  value_key='int_feature',
+                  partitions=[],
+                  row_splits_dtype=tf.int64,
+                  validate=False),
+      },
+  }, {
+      'testcase_name':
+          'sequence_no_context',
+      'ascii_proto':
+          """
+          feature {
+            name: "##SEQUENCE##"
+            type: STRUCT
+            struct_domain {
+              feature {
+                name: "x"
+                type: INT
+                value_count {
+                  min: 0
+                  max: 2
+                }
+              }
+            }
+          }
+          tensor_representation_group {
+            key: ""
+            value {
+              tensor_representation {
+                key: "x"
+                value { ragged_tensor {
+                            feature_path { step: "##SEQUENCE##" step: "x" } } }
+              }
+            }
+          }
+        """,
+      'feature_spec': {
+          'x':
+              tf.io.RaggedFeature(
+                  dtype=tf.int64,
+                  value_key='x',
+                  partitions=[],
+                  row_splits_dtype=tf.int64,
+                  validate=False),
+      },
+  }, {
+      'testcase_name':
+          'sequence_with_domains',
+      'ascii_proto':
+          """
+          feature {
+            name: "int_feature"
+            type: INT
+            value_count {
+              min: 1
+              max: 1
+            }
+            int_domain { min: 0 max: 9 }
+          }
+
+          feature {
+            name: "##SEQUENCE##"
+            type: STRUCT
+            struct_domain {
+              feature {
+                name: "float_feature"
+                type: FLOAT
+                value_count {
+                  min: 0
+                  max: 2
+                }
+                float_domain { min: 1.0}
+              }
+            }
+          }
+          tensor_representation_group {
+            key: ""
+            value {
+              tensor_representation {
+                key: "int_feature"
+                value { varlen_sparse_tensor { column_name: "int_feature" } }
+              }
+              tensor_representation {
+                key: "seq_float_feature"
+                value {
+                  ragged_tensor {
+                    feature_path { step: "##SEQUENCE##" step: "float_feature" }
+                  }
+                }
+              }
+            }
+          }
+        """,
+      'feature_spec': {
+          'int_feature':
+              tf.io.VarLenFeature(dtype=tf.int64),
+          'seq_float_feature':
+              tf.io.RaggedFeature(
+                  dtype=tf.float32,
+                  value_key='float_feature',
+                  partitions=[],
+                  row_splits_dtype=tf.int64,
+                  validate=False),
+      },
+      'domains': {
+          'int_feature': schema_pb2.IntDomain(min=0, max=9),
+          'seq_float_feature': schema_pb2.FloatDomain(min=1.0)
+      }
+  }, {
+      'testcase_name':
+          'sequence_with_string_domain',
+      'ascii_proto':
+          """
+          feature {
+            name: "int_feature"
+            type: INT
+          }
+
+          feature {
+            name: "##SEQUENCE##"
+            type: STRUCT
+            struct_domain {
+              feature {
+                name: "string_feature"
+                type: BYTES
+                value_count {
+                  min: 0
+                  max: 2
+                }
+                string_domain {value: "a" value: "b"}
+              }
+            }
+          }
+          tensor_representation_group {
+            key: ""
+            value {
+              tensor_representation {
+                key: "int_feature"
+                value { varlen_sparse_tensor { column_name: "int_feature" } }
+              }
+              tensor_representation {
+                key: "seq_string_feature"
+                value {
+                  ragged_tensor {
+                    feature_path { step: "##SEQUENCE##" step: "string_feature" }
+                  }
+                }
+              }
+            }
+          }
+        """,
+      'feature_spec': {
+          'int_feature':
+              tf.io.VarLenFeature(dtype=tf.int64),
+          'seq_string_feature':
+              tf.io.RaggedFeature(
+                  dtype=tf.string,
+                  value_key='string_feature',
+                  partitions=[],
+                  row_splits_dtype=tf.int64,
+                  validate=False),
+      },
+      'domains': {
+          'seq_string_feature': schema_pb2.StringDomain(value=['a', 'b'])
+      }
+  }])
+
   INVALID_SCHEMA_PROTOS.extend([{
       'testcase_name':
           'ragged_feature_non_int_row_lengths',

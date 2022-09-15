@@ -14,7 +14,7 @@
 """Utilities for using the tf.Metadata Schema within TensorFlow."""
 
 import typing
-from typing import Dict, List, Mapping, Optional, Tuple
+from typing import Dict, List, Mapping, Optional, Tuple, Union
 
 import tensorflow as tf
 
@@ -262,15 +262,19 @@ def schema_as_feature_spec(
   For a Feature with a FixedShape we generate a FixedLenFeature with no default.
   For a Feature without a FixedShape we generate a VarLenFeature.  For a
   SparseFeature we generate a SparseFeature.
+  If schema contains struct feature, then it must also contain
+  TensorRepresentations and is assumed to describe SequenceExample data. The
+  result in such case is union of context and sequence feature specs.
 
   Args:
     schema_proto: A Schema proto.
 
   Returns:
     A pair (feature spec, domains) where feature spec is a dict whose keys are
-        feature names and values are instances of FixedLenFeature, VarLenFeature
-        or SparseFeature, and `domains` is a dict whose keys are feature names
-        and values are one of the `domain_info` oneof, e.g. IntDomain.
+        feature names and values are instances of FixedLenFeature,
+        VarLenFeature, SparseFeature or RaggedFeature, and `domains` is a dict
+        whose keys are feature names and values are one of the `domain_info`
+        oneof, e.g. IntDomain.
 
   Raises:
     ValueError: If the schema proto is invalid.
@@ -285,6 +289,12 @@ def schema_as_feature_spec(
 
   if schema_utils_legacy.get_generate_legacy_feature_spec(schema_proto):
     return _legacy_schema_as_feature_spec(schema_proto)
+
+  # Presence of a struct means that data's physical format is tf.SequenceExample
+  # and the struct contains sequence features.
+  if any(feature.type == schema_pb2.STRUCT for feature in schema_proto.feature):
+    return _sequence_schema_as_feature_spec(schema_proto)
+
   feature_spec = {}
   # Will hold the domain_info (IntDomain, FloatDomain etc.) of the feature.  For
   # sparse features, will hold the domain_info of the values feature.  Features
@@ -335,7 +345,71 @@ def schema_as_feature_spec(
   return SchemaAsFeatureSpecResult(feature_spec, domains)
 
 
-def _get_string_domains(schema):
+def _sequence_schema_as_feature_spec(
+    schema: schema_pb2.Schema) -> SchemaAsFeatureSpecResult:
+  """Generates a feature spec from a Schema describing tf.SequenceExample data.
+
+  See `tensor_representation_util.CreateTfSequenceExampleParserConfig`s
+  docstring for feature spec generation rules.
+  We mix context and sequence feature specs to replicate how preprocessing_fn
+  sees input features -- as top-level values of a single `inputs` dict. Note
+  that this makes the feature spec generation irreversible without additional
+  input since it's no longer possible to distinguish context and sequence
+  features to produce the original schema.
+
+  Args:
+    schema: A TFMD Schema proto.
+
+  Returns:
+    A pair (feature spec, domains) where feature spec is a dict whose keys are
+        feature names and values are instances of FixedLenFeature,
+        VarLenFeature, SparseFeature or RaggedFeature, and `domains` is a dict
+        whose keys are feature names and values are one of the `domain_info`
+        oneof, e.g. IntDomain.
+
+  Raises:
+    ValueError: If `TensorRepresentation`s in the schema result in feature specs
+        that are not supported.
+  """
+  (context_feature_spec, sequence_feature_spec
+  ) = tensor_representation_util.CreateTfSequenceExampleParserConfig(schema)
+  feature_spec = {**context_feature_spec, **sequence_feature_spec}
+  string_domains = _get_string_domains(schema)
+  domain_by_feature_name = _get_source_feature_domains(schema, string_domains)
+  domains = {}
+  for name, spec in feature_spec.items():
+    if isinstance(spec, (tf.io.FixedLenFeature, tf.io.VarLenFeature)):
+      source_feature_name = name
+    elif isinstance(
+        spec, tf.io.SparseFeature) or common_types.is_ragged_feature(spec):
+      source_feature_name = spec.value_key
+    else:
+      raise ValueError('spec is not recognized')
+    if source_feature_name in domain_by_feature_name:
+      domains[name] = domain_by_feature_name[source_feature_name]
+  return SchemaAsFeatureSpecResult(feature_spec, domains)
+
+
+def _get_source_feature_domains(
+    schema_or_domain: Union[schema_pb2.Schema, schema_pb2.StructDomain],
+    string_domains: Dict[str, schema_pb2.StringDomain]
+) -> Dict[str, common_types.DomainType]:
+  """Recursively extracts domains of all source features in the schema."""
+  result = {}
+  for feature in schema_or_domain.feature:
+    domain_info = feature.WhichOneof('domain_info')
+    if domain_info == 'struct_domain':
+      result.update(
+          _get_source_feature_domains(feature.struct_domain, string_domains))
+    else:
+      domain = _get_domain(feature, string_domains)
+      if domain is not None:
+        result[feature.name] = domain
+  return result
+
+
+def _get_string_domains(
+    schema: schema_pb2.Schema) -> Dict[str, schema_pb2.StringDomain]:
   return {domain.name: domain for domain in schema.string_domain}
 
 

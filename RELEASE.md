@@ -7,6 +7,8 @@
 *   Introduced `tft.experimental.document_frequency` and `tft.experimental.idf`
     which map each term to its document frequency and inverse document frequency
     in the same order as the terms in documents.
+*   `schema_utils.schema_as_feature_spec` now supports struct features as a way
+    to describe `tf.SequenceExample` data.
 
 ## Bug Fixes and Other Changes
 
