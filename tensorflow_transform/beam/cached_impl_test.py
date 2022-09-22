@@ -1115,13 +1115,10 @@ class CachedImplTest(tft_unit.TransformTestCase):
     class _AnalyzerMakeAccumulators(beam.PTransform):
 
       def expand(self, pcoll):
-        # TODO(b/237367328): Use sum directly when beam>=2.40 allows it.
-        def _sum(x):
-          return sum(x)
         input_sum = pcoll | beam.FlatMap(
-            _sum) | 'ReduceSum' >> beam.CombineGlobally(_sum)
+            sum) | 'ReduceSum' >> beam.CombineGlobally(sum)
         size = pcoll | beam.Map(
-            np.size) | 'ReduceCount' >> beam.CombineGlobally(_sum)
+            np.size) | 'ReduceCount' >> beam.CombineGlobally(sum)
 
         return (pcoll.pipeline
                 | beam.Create([None])

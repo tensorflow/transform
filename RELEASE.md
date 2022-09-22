@@ -13,6 +13,7 @@
 ## Bug Fixes and Other Changes
 
 *   Depends on `tensorflow>=1.15.5,<2` or `tensorflow>=2.10,<2.11`
+*   Depends on `apache-beam[gcp]>=2.41,<3`.
 
 ## Breaking Changes
 
