@@ -785,6 +785,38 @@ if common_types.is_ragged_feature_available():
                       row_splits_dtype=tf.int64),
           },
       },
+      {
+          'testcase_name':
+              'ragged_tensor_and_feature_same_name',
+          'ascii_proto':
+              """
+              feature {
+                name: "ragged"
+                type: FLOAT
+              }
+              tensor_representation_group {
+                key: ""
+                value {
+                  tensor_representation {
+                    key: "ragged"
+                    value {
+                      ragged_tensor {
+                        feature_path { step: "ragged" }
+                      }
+                    }
+                  }
+                }
+              }
+            """,
+          'feature_spec': {
+              'ragged':
+                  tf.io.RaggedFeature(
+                      tf.float32,
+                      value_key='ragged',
+                      partitions=[],
+                      row_splits_dtype=tf.int64),
+          },
+      },
   ])
 
   NON_ROUNDTRIP_SCHEMAS.extend([{

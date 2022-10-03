@@ -9,6 +9,9 @@
     in the same order as the terms in documents.
 *   `schema_utils.schema_as_feature_spec` now supports struct features as a way
     to describe `tf.SequenceExample` data.
+*   TensorRepresentations in schema used for
+    `schema_utils.schema_as_feature_spec` can now share name with their source
+    features.
 
 ## Bug Fixes and Other Changes
 

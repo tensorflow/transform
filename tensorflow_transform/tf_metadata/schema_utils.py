@@ -319,15 +319,18 @@ def schema_as_feature_spec(
           schema_proto, TENSOR_REPRESENTATION_GROUP))
   if tensor_representations is not None:
     for name, tensor_representation in tensor_representations.items():
-      if name in feature_by_name:
-        raise ValueError(
-            'Ragged TensorRepresentation name "{}" conflicts with a different '
-            'feature in the same schema.'.format(name))
       (feature_spec[name], domains[name]) = (
           _ragged_tensor_representation_as_feature_spec(name,
                                                         tensor_representation,
                                                         feature_by_name,
                                                         string_domains))
+      # At this point `feature_by_name` does not have source features for this
+      # tensor representation. If there's still a feature with the same name,
+      # then it would result in a name conflict.
+      if name in feature_by_name:
+        raise ValueError(
+            'Ragged TensorRepresentation name "{}" conflicts with a different '
+            'feature in the same schema.'.format(name))
 
   # Generate a `tf.FixedLenFeature` or `tf.VarLenFeature` for each element of
   # `schema_proto.feature` that was not referenced by a `SparseFeature` or a
