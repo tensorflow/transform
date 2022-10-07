@@ -303,7 +303,7 @@ class TransformTestCase(parameterized.TestCase, tf.test.TestCase):
   def _assertValuesCloseOrEqual(self, a_value, b_value, msg=None):
     if (isinstance(a_value, (bytes, str)) or isinstance(a_value, list) and
         a_value and isinstance(a_value[0], (bytes, str)) or
-        isinstance(a_value, np.ndarray) and a_value.dtype == np.object):
+        isinstance(a_value, np.ndarray) and a_value.dtype == object):
       self.assertAllEqual(a_value, b_value)
     else:
       # TODO(varshaan): Change atol only for tests for which 1e-6 is too strict.

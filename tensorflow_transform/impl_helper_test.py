@@ -239,7 +239,7 @@ _ROUNDTRIP_CASES = [
             'varlen':
                 tf.compat.v1.SparseTensorValue(
                     indices=np.array([(0, 0), (2, 0)]),
-                    values=np.array([b'a', b'b'], np.object),
+                    values=np.array([b'a', b'b'], object),
                     dense_shape=(4, 1)),
         }),
     dict(
@@ -259,7 +259,7 @@ _ROUNDTRIP_CASES = [
             'sparse':
                 tf.compat.v1.SparseTensorValue(
                     indices=np.empty([0, 2]),
-                    values=np.array([], np.object),
+                    values=np.array([], object),
                     dense_shape=[1, 10])
         }),
     dict(

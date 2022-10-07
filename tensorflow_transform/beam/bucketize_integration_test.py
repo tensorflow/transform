@@ -699,7 +699,7 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
     })
     # The expected data has 2 boundaries that divides the data into 3 buckets.
     expected_outputs = {
-        'key_vocab': np.array([b'a', b'b'], np.object),
+        'key_vocab': np.array([b'a', b'b'], object),
         'q_b': np.array([0., 1., 2.], np.float32),
         'scale_factor_per_key': np.array([0.0625, 0.05882353], np.float32),
         'shift_per_key': np.array([-1.0625, -2.88235283], np.float32),

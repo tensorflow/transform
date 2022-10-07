@@ -2107,7 +2107,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'key': tf.io.FixedLenFeature([], tf.string)
     })
     expected_outputs = {
-        'key_vocab': np.array([b'a', b'b'], np.object),
+        'key_vocab': np.array([b'a', b'b'], object),
         'mean': np.array([25, 75], np.float32),
         'var': np.array([200, 216.67], np.float32)
     }
@@ -2153,7 +2153,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'key': tf.io.FixedLenFeature([], tf.string)
     })
     expected_outputs = {
-        'key_vocab': np.array([b'a', b'b'], np.object),
+        'key_vocab': np.array([b'a', b'b'], object),
         'mean': np.array([[3.0, -0.5], [5.0, 5.0]], np.float32),
         'var': np.array([[25.0, 0.25], [25.0, 25.0]], np.float32)
     }
@@ -2191,7 +2191,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           }),
           reduce_instance_dims=True,
           expected_outputs={
-              'key_vocab': np.array([b'a', b'b'], np.object),
+              'key_vocab': np.array([b'a', b'b'], object),
               'min_x_value': np.array([1, -2], np.float32),
               'max_x_value': np.array([9, 4], np.float32),
           }),
@@ -2225,7 +2225,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           }),
           reduce_instance_dims=False,
           expected_outputs={
-              'key_vocab': np.array([b'a', b'b'], np.object),
+              'key_vocab': np.array([b'a', b'b'], object),
               'min_x_value': np.array([[1, 5], [-2, 0]], np.float32),
               'max_x_value': np.array([[5, 9], [2, 4]], np.float32),
           }),
@@ -2255,7 +2255,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           }),
           reduce_instance_dims=True,
           expected_outputs={
-              'key_vocab': np.array([b'a', b'b'], np.object),
+              'key_vocab': np.array([b'a', b'b'], object),
               'min_x_value': np.array([1, -3], np.float32),
               'max_x_value': np.array([5, 3], np.float32),
           }),
@@ -2286,7 +2286,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           reduce_instance_dims=False,
           expected_outputs={
               'key_vocab':
-                  np.array([b'a', b'b'], np.object),
+                  np.array([b'a', b'b'], object),
               'min_x_value':
                   np.array([[[1, 1], [1, 1]], [[3, -3], [3, 3]]], np.float32),
               'max_x_value':
@@ -2390,7 +2390,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
           input_metadata=tft.DatasetMetadata.from_feature_spec(
               {'key': tf.io.FixedLenFeature([], tf.string)}),
           expected_outputs={
-              'elements': np.array([b'a', b'b'], np.object),
+              'elements': np.array([b'a', b'b'], object),
               'counts': np.array([25, 75], np.int64)
           }),
       dict(
@@ -2481,7 +2481,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
                           tf.compat.as_bytes(str(x % 10) + '_')
                           for x in range(10)
                       ]),
-                      dtype=np.object)
+                      dtype=object)
           },
       ),
       dict(
