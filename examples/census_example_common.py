@@ -22,7 +22,6 @@ import apache_beam as beam
 import tensorflow.compat.v2 as tf
 import tensorflow_transform as tft
 import tensorflow_transform.beam as tft_beam
-from tensorflow_transform.tf_metadata import dataset_metadata
 from tfx_bsl.public.tfxio import RecordBatchToExamplesEncoder
 from tfx_bsl.public import tfxio
 
@@ -64,8 +63,7 @@ RAW_DATA_FEATURE_SPEC = dict([(name, tf.io.FixedLenFeature([], tf.string))
                              [(LABEL_KEY,
                                tf.io.FixedLenFeature([], tf.string))])
 
-_SCHEMA = dataset_metadata.DatasetMetadata.from_feature_spec(
-    RAW_DATA_FEATURE_SPEC).schema
+_SCHEMA = tft.DatasetMetadata.from_feature_spec(RAW_DATA_FEATURE_SPEC).schema
 
 # Constants used for training.  Note that the number of instances will be
 # computed by tf.Transform in future versions, in which case it can be read from

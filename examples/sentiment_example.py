@@ -24,7 +24,6 @@ import tensorflow as tf
 from tensorflow import estimator as tf_estimator
 import tensorflow_transform as tft
 import tensorflow_transform.beam as tft_beam
-from tensorflow_transform.tf_metadata import dataset_metadata
 from tfx_bsl.public import tfxio
 
 
@@ -43,8 +42,7 @@ RAW_DATA_FEATURE_SPEC = {
     LABEL_KEY: tf.io.FixedLenFeature([], tf.int64)
 }
 
-SCHEMA = dataset_metadata.DatasetMetadata.from_feature_spec(
-    RAW_DATA_FEATURE_SPEC).schema
+SCHEMA = tft.DatasetMetadata.from_feature_spec(RAW_DATA_FEATURE_SPEC).schema
 
 DELIMITERS = '.,!?() '
 
