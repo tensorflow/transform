@@ -189,32 +189,28 @@ def transform_data(working_dir):
             LABEL_KEY: inputs[LABEL_KEY]
         }
 
-      # Transformed metadata is not necessary for encoding.
       # The TFXIO output format is chosen for improved performance.
-      (transformed_train_data, _), transform_fn = (
+      transformed_train_data, transform_fn = (
           (train_data, tfxio_train_data.TensorAdapterConfig())
           | 'AnalyzeAndTransform' >> tft_beam.AnalyzeAndTransformDataset(
               preprocessing_fn, output_record_batches=True))
 
-      transformed_test_data, _ = (
+      transformed_test_data = (
           ((test_data, tfxio_test_data.TensorAdapterConfig()), transform_fn)
           |
           'Transform' >> tft_beam.TransformDataset(output_record_batches=True))
 
       # Extract transformed RecordBatches, encode and write them to the given
       # directory.
-      coder = tfxio.RecordBatchToExamplesEncoder()
       _ = (
           transformed_train_data
-          | 'EncodeTrainData' >>
-          beam.FlatMapTuple(lambda batch, _: coder.encode(batch))
+          | 'EncodeTrainData' >> tft_beam.EncodeTransformedDataset()
           | 'WriteTrainData' >> beam.io.WriteToTFRecord(
               os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE)))
 
       _ = (
           transformed_test_data
-          | 'EncodeTestData' >>
-          beam.FlatMapTuple(lambda batch, _: coder.encode(batch))
+          | 'EncodeTestData' >> tft_beam.EncodeTransformedDataset()
           | 'WriteTestData' >> beam.io.WriteToTFRecord(
               os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE)))
 

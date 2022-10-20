@@ -22,7 +22,6 @@ import apache_beam as beam
 import tensorflow.compat.v2 as tf
 import tensorflow_transform as tft
 import tensorflow_transform.beam as tft_beam
-from tfx_bsl.public.tfxio import RecordBatchToExamplesEncoder
 from tfx_bsl.public import tfxio
 
 CATEGORICAL_FEATURE_KEYS = [
@@ -210,16 +209,11 @@ def transform_data(train_data_file, test_data_file, working_dir):
           raw_dataset | tft_beam.AnalyzeAndTransformDataset(
               preprocessing_fn, output_record_batches=True))
 
-      # Transformed metadata is not necessary for encoding.
-      transformed_data, _ = transformed_dataset
-
       # Extract transformed RecordBatches, encode and write them to the given
       # directory.
-      coder = RecordBatchToExamplesEncoder()
       _ = (
-          transformed_data
-          | 'EncodeTrainData' >>
-          beam.FlatMapTuple(lambda batch, _: coder.encode(batch))
+          transformed_dataset
+          | 'EncodeTrainData' >> tft_beam.EncodeTransformedDataset()
           | 'WriteTrainData' >> beam.io.WriteToTFRecord(
               os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE)))
 
@@ -243,15 +237,11 @@ def transform_data(train_data_file, test_data_file, working_dir):
           (raw_test_dataset, transform_fn)
           | tft_beam.TransformDataset(output_record_batches=True))
 
-      # Transformed metadata is not necessary for encoding.
-      transformed_test_data, _ = transformed_test_dataset
-
       # Extract transformed RecordBatches, encode and write them to the given
       # directory.
       _ = (
-          transformed_test_data
-          | 'EncodeTestData' >>
-          beam.FlatMapTuple(lambda batch, _: coder.encode(batch))
+          transformed_test_dataset
+          | 'EncodeTestData' >> tft_beam.EncodeTransformedDataset()
           | 'WriteTestData' >> beam.io.WriteToTFRecord(
               os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE)))
 

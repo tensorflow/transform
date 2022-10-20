@@ -79,6 +79,7 @@ from tensorflow_transform.saved import saved_transform_io_v2
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
+from tfx_bsl.coders import example_coder
 from tfx_bsl.telemetry import collection as telemetry
 from tfx_bsl.telemetry import util as telemetry_util
 from tfx_bsl.tfxio import tensor_representation_util
@@ -1499,10 +1500,13 @@ class TransformDataset(beam.PTransform):
       deferred_schema = (
           output_metadata.deferred_metadata
           | 'GetDeferredSchema' >> beam.Map(lambda m: m.schema))
+      output_dataset_metadata = output_metadata.dataset_metadata
     else:
       deferred_schema = (
           self.pipeline
           | 'CreateDeferredSchema' >> beam.Create([output_metadata.schema]))
+      output_dataset_metadata = output_metadata
+    output_dataset_metadata._output_record_batches = self._output_record_batches  # pylint: disable=protected-access
 
     # Increment input metrics.
     _ = (
@@ -1573,3 +1577,67 @@ class TransformDataset(beam.PTransform):
     _clear_shared_state_after_barrier(self.pipeline, output_data)
 
     return (output_data, output_metadata)
+
+
+class EncodeTransformedDataset(beam.PTransform):
+  """Encodes transformed data into serialized tf.Examples.
+
+  Should operate on the output of `TransformDataset`, this can operate on either
+  record batch or instance dict data.
+  The expected input is a (transformed_data, transformed_metadata) tuple.
+
+  Example use:
+
+  >>> def preprocessing_fn(inputs):
+  ...   return {'x_scaled': tft.scale_to_z_score(inputs['x'], name='x')}
+  >>> raw_data = [dict(x=1), dict(x=2), dict(x=3)]
+  >>> feature_spec = dict(x=tf.io.FixedLenFeature([], tf.int64))
+  >>> raw_data_metadata = tft.DatasetMetadata.from_feature_spec(feature_spec)
+  >>> output_path = os.path.join(tempfile.mkdtemp(), 'result')
+  >>> with beam.Pipeline() as p:
+  ...   with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
+  ...     data_pcoll = p | beam.Create(raw_data)
+  ...     transformed_dataset, transform_fn = (
+  ...         (data_pcoll, raw_data_metadata)
+  ...         | tft_beam.AnalyzeAndTransformDataset(preprocessing_fn))
+  ...     _ = (
+  ...       transformed_dataset
+  ...       | tft_beam.EncodeTransformedDataset()
+  ...       | beam.io.WriteToTFRecord(output_path, shard_name_template=''))
+  >>> result_feature_spec ={'x_scaled': tf.io.FixedLenFeature([], tf.float32)}
+  >>> list(tf.data.TFRecordDataset([output_path])
+  ...      .map(lambda x: tf.io.parse_example(x, result_feature_spec))
+  ...      .as_numpy_iterator())
+  [{'x_scaled': -1.2247448}, {'x_scaled': 0.0}, {'x_scaled': 1.2247448}]
+  """
+
+  def _extract_input_pvalues(self, transformed_data_and_metadata):
+    # This method lets beam know that metadata is not a pvalue.
+    return transformed_data_and_metadata, [transformed_data_and_metadata[0]]
+
+  def expand(self, transformed_data_and_metadata):
+
+    transformed_data, transformed_metadata = transformed_data_and_metadata
+
+    deferred_schema = (
+        transformed_metadata.deferred_metadata
+        | 'GetDeferredSchema' >> beam.Map(lambda m: m.schema))
+
+    if transformed_metadata.dataset_metadata._output_record_batches:  # pylint: disable=protected-access
+      transformed_data_coder_pcol = (
+          deferred_schema | 'RecordBatchToExamplesEncoder' >> beam.Map(
+              example_coder.RecordBatchToExamplesEncoder))
+      encode_ptransform = 'EncodeRecordBatches' >> beam.FlatMap(
+          # Dropping passthrough features.
+          lambda elem, coder: coder.encode(elem[0]),
+          coder=beam.pvalue.AsSingleton(transformed_data_coder_pcol))
+    else:
+      transformed_data_coder_pcol = (
+          deferred_schema
+          | 'ExampleProtoCoder' >> beam.Map(
+              example_proto_coder.ExampleProtoCoder))
+      encode_ptransform = 'EncodeInstances' >> beam.Map(
+          lambda data, data_coder: data_coder.encode(data),
+          data_coder=beam.pvalue.AsSingleton(transformed_data_coder_pcol))
+
+    return transformed_data | encode_ptransform

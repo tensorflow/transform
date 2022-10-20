@@ -17,6 +17,8 @@
 *   TensorRepresentations in schema used for
     `schema_utils.schema_as_feature_spec` can now share name with their source
     features.
+*   Introduced `tft_beam.EncodeTransformedDataset` which can be used to easily
+    encode transformed data in preparation for materialization.
 
 ## Bug Fixes and Other Changes
 

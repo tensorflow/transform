@@ -22,7 +22,6 @@ import pyarrow as pa
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform.beam import impl as beam_impl
-from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform import test_case
 from tensorflow_transform.beam import test_helpers
@@ -230,7 +229,7 @@ class TransformTestCase(test_case.TransformTestCase):
         try:
           output_tensor.set_shape(output_shape)
         except ValueError as e:
-          raise ValueError('Error for key {}: {}'.format(key, str(e)))
+          raise ValueError(f'Error for key {key}') from e
         # Add a batch dimension
         output_tensor = tf.expand_dims(output_tensor, 0)
         # Broadcast along the batch dimension
@@ -362,41 +361,10 @@ class TransformTestCase(test_case.TransformTestCase):
 
         transformed_data_path = os.path.join(temp_dir, 'transformed_data')
         if expected_data is not None:
-          if isinstance(transformed_metadata,
-                        beam_metadata_io.BeamDatasetMetadata):
-            deferred_schema = (
-                transformed_metadata.deferred_metadata
-                | 'GetDeferredSchema' >> beam.Map(lambda m: m.schema))
-          else:
-            deferred_schema = (
-                self.pipeline | 'CreateDeferredSchema' >> beam.Create(
-                    [transformed_metadata.schema]))
-
-          if output_record_batches:
-            # Since we are using a deferred schema, obtain a pcollection
-            # containing the data coder that will be created from it.
-            transformed_data_coder_pcol = (
-                deferred_schema | 'RecordBatchToExamplesEncoder' >> beam.Map(
-                    example_coder.RecordBatchToExamplesEncoder))
-
-            encode_ptransform = 'EncodeRecordBatches' >> beam.FlatMap(
-                _encode_transformed_data_batch,
-                coder=beam.pvalue.AsSingleton(transformed_data_coder_pcol))
-          else:
-            # Since we are using a deferred schema, obtain a pcollection
-            # containing the data coder that will be created from it.
-            transformed_data_coder_pcol = (
-                deferred_schema
-                | 'ExampleProtoCoder' >> beam.Map(tft.coders.ExampleProtoCoder))
-            encode_ptransform = 'EncodeExamples' >> beam.Map(
-                lambda data, data_coder: data_coder.encode(data),
-                data_coder=beam.pvalue.AsSingleton(transformed_data_coder_pcol))
-
-          _ = (
-              transformed_data
-              | encode_ptransform
-              | beam.io.tfrecordio.WriteToTFRecord(
-                  transformed_data_path, shard_name_template=''))
+          _ = ((transformed_data, transformed_metadata)
+               | 'Encode' >> beam_impl.EncodeTransformedDataset()
+               | 'Write' >> beam.io.tfrecordio.WriteToTFRecord(
+                   transformed_data_path, shard_name_template=''))
 
     # TODO(ebreck) Log transformed_data somewhere.
     tf_transform_output = tft.TFTransformOutput(temp_dir)

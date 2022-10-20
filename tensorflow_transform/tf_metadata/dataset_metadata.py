@@ -37,6 +37,7 @@ class DatasetMetadata:
 
   def __init__(self, schema: schema_pb2.Schema):
     self._schema = schema
+    self._output_record_batches = True
 
   @classmethod
   def from_feature_spec(
@@ -53,7 +54,7 @@ class DatasetMetadata:
 
   def __eq__(self, other):
     if isinstance(other, self.__class__):
-      return self.__dict__ == other.__dict__
+      return self.schema == other.schema
     return NotImplemented
 
   def __ne__(self, other):

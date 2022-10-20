@@ -34,7 +34,6 @@ from tensorflow_transform import schema_inference
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
-from tfx_bsl.coders import example_coder
 from tfx_bsl.tfxio import tensor_adapter
 
 from google.protobuf import text_format
@@ -4418,27 +4417,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
             | tft_beam.AnalyzeAndTransformDataset(
                 lambda inputs: inputs,
                 output_record_batches=self._OutputRecordBatches()))
-        if self._OutputRecordBatches():
 
-          def record_batch_to_examples(data_batch):
-            # Ignore unary pass-through features.
-            record_batch, _ = data_batch
-            return example_coder.RecordBatchToExamples(record_batch)
-
-          transformed_and_serialized = (
-              transformed_data |
-              'EncodeTransformedData' >> beam.FlatMap(record_batch_to_examples))
-        else:
-          transformed_data_coder = tft.coders.ExampleProtoCoder(
-              transformed_metadata.schema)
-          transformed_and_serialized = (
-              transformed_data | 'EncodeTransformedData' >> beam.Map(
-                  transformed_data_coder.encode))
-
-        _ = (
-            transformed_and_serialized
-            | 'Write' >> beam.io.WriteToTFRecord(
-                materialize_path, shard_name_template=''))
+        _ = ((transformed_data, transformed_metadata)
+             | 'Encode' >> tft_beam.EncodeTransformedDataset()
+             | 'Write' >> beam.io.WriteToTFRecord(
+                 materialize_path, shard_name_template=''))
         _ = (
             transform_fn
             | 'WriteTransformFn' >>

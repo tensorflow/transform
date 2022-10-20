@@ -24,6 +24,7 @@ from tensorflow_transform.beam.context import Context
 from tensorflow_transform.beam.impl import AnalyzeAndTransformDataset
 from tensorflow_transform.beam.impl import AnalyzeDataset
 from tensorflow_transform.beam.impl import AnalyzeDatasetWithCache
+from tensorflow_transform.beam.impl import EncodeTransformedDataset
 from tensorflow_transform.beam.impl import TransformDataset
 from tensorflow_transform.beam.tft_beam_io import *
 
