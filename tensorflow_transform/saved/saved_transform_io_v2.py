@@ -433,7 +433,7 @@ class SavedModelLoader:
 
 
 # TODO(b/177606209): Remove once TF supports saving optimized functions.
-# TODO(b/169666856): WrappedFunction.prune does not support composite tensors.
+# TODO(b/129646028): WrappedFunction.prune does not support composite tensors.
 # Hence, add additional handling when supporting composite tensors in TFT.
 def optimize_concrete_function(
     concrete_function: function.ConcreteFunction,

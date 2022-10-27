@@ -170,7 +170,6 @@ def supply_missing_inputs(
         result[key] = tf.RaggedTensor.from_row_splits(
             result[key], row_splits, validate=False)
     else:
-      # TODO(b/169666856): Add support for generic CompositeTensors.
       raise ValueError('Received unsupported input tensor type. Only '
                        'dense/sparse/ragged tensors are currently supported.')
   return result
