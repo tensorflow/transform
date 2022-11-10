@@ -925,21 +925,10 @@ class _InstanceDictInputToTFXIOInput(beam.PTransform):
 
   def __init__(self, schema, desired_batch_size):
     self._schema = schema
-    # Infer all features in the schema as TensorRepresentations. This is needed
-    # because TFXIO will ignore Features if TensorRepresentations are present in
-    # the schema.
-    # TODO(b/202791319) Investigate whether this should be done at TFXIO level.
-    tensor_representations = (
-        tensor_representation_util.InferTensorRepresentationsFromMixedSchema(
-            schema))
-    extended_schema = schema_pb2.Schema()
-    extended_schema.CopyFrom(schema)
-    tensor_representation_util.SetTensorRepresentationsInSchema(
-        extended_schema, tensor_representations)
     self._tfxio = tf_example_record.TFExampleBeamRecord(
         physical_format='inmem',
         telemetry_descriptors=['StandaloneTFTransform'],
-        schema=extended_schema)
+        schema=schema)
     self._desired_batch_size = desired_batch_size
 
   def tensor_adapter_config(self):
