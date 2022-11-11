@@ -51,7 +51,8 @@ def compute_and_apply_approximate_vocabulary(
   """Generates an approximate vocabulary for `x` and maps it to an integer.
 
   Args:
-    x: A `Tensor` or `CompositeTensor` of type tf.string or tf.int[8|16|32|64].
+    x: A `Tensor`, `SparseTensor`, or `RaggedTensor` of type tf.string or
+      tf.int[8|16|32|64].
     default_value: The value to use for out-of-vocabulary values, unless
       'num_oov_buckets' is greater than zero.
     top_k: Limit the generated vocabulary to the first `top_k` elements. If set
@@ -73,13 +74,14 @@ def compute_and_apply_approximate_vocabulary(
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` or `CompositeTensor` where each string value is mapped to an
-    integer. Each unique string value that appears in the vocabulary
-    is mapped to a different integer and integers are consecutive starting from
-    zero. String value not in the vocabulary is assigned default_value.
-    Alternatively, if num_oov_buckets is specified, out of vocabulary strings
-    are hashed to values in [vocab_size, vocab_size + num_oov_buckets) for an
-    overall range of [0, vocab_size + num_oov_buckets).
+    A `Tensor`, `SparseTensor`, or `RaggedTensor` where each string value is
+    mapped to an integer. Each unique string value that appears in the
+    vocabulary is mapped to a different integer and integers are consecutive
+    starting from zero. String value not in the vocabulary is assigned
+    `default_value`. Alternatively, if `num_oov_buckets` is specified, out of
+    vocabulary strings are hashed to values in
+    [vocab_size, vocab_size + num_oov_buckets) for an overall range of
+    [0, vocab_size + num_oov_buckets).
 
   Raises:
     ValueError: If `top_k` is negative.

@@ -114,7 +114,8 @@ def _apply_analyzer(ptransform: Union[_BeamPTransform,
   Args:
     ptransform: A class inheriting from analyzer_nodes.AnalyzerDef or
       CacheablePTransformAnalyzer that should be applied.
-    *tensor_inputs: A list of input `Tensor`s or `CompositeTensor`s.
+    *tensor_inputs: A list of input `Tensor`s, `SparseTensor`s, or
+      `RaggedTensor`s.
     **analyzer_def_kwargs: KW arguments to use when constructing
       analyzer_def_cls.
 
@@ -315,9 +316,9 @@ def approximate_vocabulary(
     name: Optional[str] = None) -> common_types.TemporaryAnalyzerOutputType:
   r"""Computes the unique values of a `Tensor` over the whole dataset.
 
-  Approximately computes the unique values taken by `x`, which can be a `Tensor`
-  or `CompositeTensor` of any size.  The unique values will be aggregated over
-  all dimensions of `x` and all instances.
+  Approximately computes the unique values taken by `x`, which can be a
+  `Tensor`, `SparseTensor`, or `RaggedTensor` of any size.  The unique values
+  will be aggregated over all dimensions of `x` and all instances.
 
   This analyzer provides an approximate alternative to `tft.vocabulary` that can
   be more efficient with smaller `top_k` and/or smaller number of unique
@@ -360,8 +361,8 @@ def approximate_vocabulary(
   if `x` is numerical dtype (e.g. [('3', 5), ('2', 3), ('111', 3)]).
 
   Args:
-    x: A categorical/discrete input `Tensor` or `CompositeTensor` with dtype
-      tf.string or tf.int[8|16|32|64].
+    x: A categorical/discrete input `Tensor`, `SparseTensor`, or `RaggedTensor`
+      with dtype tf.string or tf.int[8|16|32|64].
     top_k: Limit the generated vocabulary to the first `top_k` elements. Note
       that if `top_k` is larger than the number of unique elements in `x`, then
       the result will be exact.
@@ -526,7 +527,7 @@ def _get_approximate_vocabulary_analyzer_inputs(
   """Helper for constructing approximate vocabulary inputs from tensors.
 
   Args:
-    x: `Tensor` or `CompositeTensor` to compute vocabulary over.
+    x: `Tensor`, `SparseTensor`, or `RaggedTensor` to compute vocabulary over.
     file_format: The format of the resulting vocabulary file.
       'tfrecord_gzip' requires tensorflow>=2.4.
     weights: Optional `Tensor` of weights.

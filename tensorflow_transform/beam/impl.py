@@ -385,11 +385,11 @@ class _RunMetaGraphDoFn(beam.DoFn):
       ]
 
   def process(self, batch, saved_model_dir):
-    """Runs the given graph to realize the output `Tensor` or `SparseTensor`s.
+    """Runs the given graph to realize the outputs.
 
     Runs the graph in a TF session for computing the output values of the
-    `Tensor` or `SparseTensor`s, given an input row of data (input `Tensor` or
-    `SparseTensor`s).
+    `Tensor`s, `SparseTensor`s, or `RaggedTensor`s, given an input row of data
+    (input `Tensor`s, `SparseTensor`s, or `RaggedTensor`s).
 
     Args:
       batch: the batch of elements being processed by the DoFn
@@ -970,7 +970,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
 
     Args:
       preprocessing_fn: A function that accepts and returns a dictionary from
-        strings to `Tensor` or `SparseTensor`s.
+        strings to `Tensor`s, `SparseTensor`s, or `RaggedTensor`s.
       pipeline: (Optional) a beam Pipeline.
     """
     self._preprocessing_fn = preprocessing_fn
@@ -1326,7 +1326,7 @@ class AnalyzeAndTransformDataset(beam.PTransform):
 
     Args:
       preprocessing_fn: A function that accepts and returns a dictionary from
-          strings to `Tensor` or `SparseTensor`s.
+          strings to `Tensor`s, `SparseTensor`s, or `RaggedTensor`s.
       output_record_batches: (Optional) A bool. If `True`,
           `AnalyzeAndTransformDataset` outputs `pyarrow.RecordBatch`es;
           otherwise, outputs instance dicts.

@@ -427,13 +427,13 @@ def min(  # pylint: disable=redefined-builtin
     x: common_types.TensorType,
     reduce_instance_dims: bool = True,
     name: Optional[str] = None) -> tf.Tensor:
-  """Computes the minimum of the values of a `Tensor` over the whole dataset.
+  """Computes the minimum of the values of `x` over the whole dataset.
 
   In the case of a `CompositeTensor` missing values will be used in return
   value: for float, NaN is used and for other dtypes the max is used.
 
   Args:
-    x: A `Tensor` or `CompositeTensor`.
+    x: A `Tensor`, `SparseTensor`, or `RaggedTensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
       to arrive at a single scalar output. If False, only collapses the batch
       dimension and outputs a `Tensor` of the same shape as the input.
@@ -454,13 +454,13 @@ def max(  # pylint: disable=redefined-builtin
     x: common_types.TensorType,
     reduce_instance_dims: bool = True,
     name: Optional[str] = None) -> tf.Tensor:
-  """Computes the maximum of the values of a `Tensor` over the whole dataset.
+  """Computes the maximum of the values of `x` over the whole dataset.
 
   In the case of a `CompositeTensor` missing values will be used in return
   value: for float, NaN is used and for other dtypes the min is used.
 
   Args:
-    x: A `Tensor` or `CompositeTensor`.
+    x: A `Tensor`, `SparseTensor`, or `RaggedTensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
       to arrive at a single scalar output. If False, only collapses the batch
       dimension and outputs a vector of the same shape as the input.
@@ -478,14 +478,14 @@ def max(  # pylint: disable=redefined-builtin
 def _min_and_max(x: common_types.TensorType,
                  reduce_instance_dims: bool = True,
                  name: Optional[str] = None) -> Tuple[tf.Tensor, tf.Tensor]:
-  """Computes the min and max of the values of a `Tensor` or `CompositeTensor`.
+  """Computes the min and max of the values of `x`.
 
   In the case of a `CompositeTensor` missing values will be used in return
   value:
   for float, NaN is used and for other dtypes the min is used.
 
   Args:
-    x: A `Tensor` or `CompositeTensor`.
+    x: A `Tensor`, `SparseTensor`, or `RaggedTensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
       to arrive at a single scalar output. If False, only collapses the batch
       dimension and outputs a vector of the same shape as the input.
@@ -530,7 +530,7 @@ def _min_and_max_per_key(
     key_vocabulary_filename: Optional[str] = None,
     name: Optional[str] = None
 ) -> Union[Tuple[tf.Tensor, tf.Tensor, tf.Tensor], tf.Tensor]:
-  """Computes the min and max of the values of a `Tensor` or `CompositeTensor`.
+  """Computes the min and max of the values of `x`.
 
   In the case of a `CompositeTensor` missing values will be used in return
   value: for float, NaN is used and for other dtypes the min is used.
@@ -541,10 +541,10 @@ def _min_and_max_per_key(
   available in a future version.
 
   Args:
-    x: A `Tensor` or `CompositeTensor`.
-    key: A Tensor or `CompositeTensor` of dtype tf.string.  If `x` is a
-      `CompositeTensor`, `key` must exactly match `x` in everything except
-      values.
+    x: A `Tensor`, `SparseTensor`, or `RaggedTensor`.
+    key: A `Tensor`, `SparseTensor`, or `RaggedTensor` of dtype tf.string.  If
+      `x` is a `CompositeTensor`, `key` must exactly match `x` in everything
+      except values.
     reduce_instance_dims: By default collapses the batch and instance dimensions
       to arrive at a single scalar output. If False, only collapses the batch
       dimension and outputs a vector of the same shape as the input. The False
@@ -628,9 +628,9 @@ def sum(  # pylint: disable=redefined-builtin
   """Computes the sum of the values of a `Tensor` over the whole dataset.
 
   Args:
-    x: A `Tensor` or `CompositeTensor`. Its type must be floating point
-        (float{16|32|64}),integral (int{8|16|32|64}), or
-        unsigned integral (uint{8|16})
+    x: A `Tensor`, `SparseTensor`, or `RaggedTensor`. Its type must be floating
+        point (float{16|32|64}),integral (int{8|16|32|64}), or unsigned
+        integral (uint{8|16}).
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
@@ -694,7 +694,7 @@ def histogram(x: common_types.TensorType,
                            zip(classes, probabilities)))
 
   Args:
-    x: A `Tensor` or `CompositeTensor`.
+    x: A `Tensor`, `SparseTensor`, or `RaggedTensor`.
     boundaries: (Optional) A `Tensor` or `int` used to build the histogram;
       ignored if `categorical` is True. If possible, provide boundaries as
       multiple sorted values.  Default to 10 intervals over the 0-1 range, or
@@ -746,7 +746,7 @@ def size(x: common_types.TensorType,
   """Computes the total size of instances in a `Tensor` over the whole dataset.
 
   Args:
-    x: A `Tensor` or `CompositeTensor`.
+    x: A `Tensor`, `SparseTensor`, or `RaggedTensor`.
     reduce_instance_dims: By default collapses the batch and instance dimensions
       to arrive at a single scalar output. If False, only collapses the batch
       dimension and outputs a vector of the same shape as the input.
@@ -774,7 +774,8 @@ def count_per_key(key: common_types.TensorType,
   """Computes the count of each element of a `Tensor`.
 
   Args:
-    key: A Tensor or `CompositeTensor` of dtype tf.string or tf.int.
+    key: A `Tensor`, `SparseTensor`, or `RaggedTensor` of dtype tf.string or
+      tf.int.
     key_vocabulary_filename: (Optional) The file name for the key-output mapping
       file. If None and key are provided, this combiner assumes the keys fit in
       memory and will not store the result in a file. If empty string, a file
@@ -824,8 +825,8 @@ def mean(x: common_types.TensorType,
   """Computes the mean of the values of a `Tensor` over the whole dataset.
 
   Args:
-    x: A `Tensor` or `CompositeTensor`. Its type must be floating point
-        (float{16|32|64}), or integral ([u]int{8|16|32|64}).
+    x: A `Tensor`, `SparseTensor`, or `RaggedTensor`. Its type must be floating
+        point (float{16|32|64}), or integral ([u]int{8|16|32|64}).
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
@@ -855,8 +856,8 @@ def var(x: common_types.TensorType,
   (x - mean(x))**2 / length(x).
 
   Args:
-    x: `Tensor` or `CompositeTensor`. Its type must be floating point
-        (float{16|32|64}), or integral ([u]int{8|16|32|64}).
+    x: `Tensor`, `SparseTensor`, or `RaggedTensor`. Its type must be floating
+        point (float{16|32|64}), or integral ([u]int{8|16|32|64}).
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
@@ -930,8 +931,8 @@ def tukey_location(x: common_types.TensorType,
   Mathematics, vol. 2012, 2012. doi:10.5402/2012/980153
 
   Args:
-    x: A `Tensor` or `CompositeTensor`. Its type must be floating point
-        (float{16|32|64}), or integral ([u]int{8|16|32|64}).
+    x: A `Tensor`, `SparseTensor`, or `RaggedTensor`. Its type must be floating
+        point (float{16|32|64}), or integral ([u]int{8|16|32|64}).
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
@@ -968,8 +969,8 @@ def tukey_scale(x: common_types.TensorType,
 
 
   Args:
-    x: A `Tensor` or `CompositeTensor`. Its type must be floating point
-        (float{16|32|64}), or integral ([u]int{8|16|32|64}).
+    x: A `Tensor`, `SparseTensor`, or `RaggedTensor`. Its type must be floating
+        point (float{16|32|64}), or integral ([u]int{8|16|32|64}).
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
@@ -1005,8 +1006,8 @@ def tukey_h_params(x: common_types.TensorType,
   Mathematics, vol. 2012, 2012. doi:10.5402/2012/980153
 
   Args:
-    x: A `Tensor` or `CompositeTensor`. Its type must be floating point
-        (float{16|32|64}), or integral ([u]int{8|16|32|64}).
+    x: A `Tensor`, `SparseTensor`, or `RaggedTensor`. Its type must be floating
+        point (float{16|32|64}), or integral ([u]int{8|16|32|64}).
     reduce_instance_dims: By default collapses the batch and instance dimensions
         to arrive at a single scalar output. If False, only collapses the batch
         dimension and outputs a vector of the same shape as the input.
@@ -1075,10 +1076,10 @@ def _mean_and_var_per_key(
   """`mean_and_var` by group, specified by key.
 
   Args:
-    x: A `Tensor` or `CompositeTensor`.
-    key: A Tensor or `CompositeTensor` of dtype tf.string.  If `x` is
-      a `CompositeTensor`, `key` must exactly match `x` in everything except
-      values.
+    x: A `Tensor`, `SparseTensor`, or `RaggedTensor`.
+    key: A `Tensor`, `SparseTensor`, or `RaggedTensor` of dtype tf.string.  If
+      `x` is a `CompositeTensor`, `key` must exactly match `x` in everything
+      except values.
     reduce_instance_dims: (Optional) By default collapses the batch and instance
         dimensions to arrive at a single scalar output. The False case is not
         currently supported for _mean_and_var_per_key.
@@ -1726,11 +1727,11 @@ def vocabulary(
     file_format: common_types
     .VocabularyFileFormatType = DEFAULT_VOCABULARY_FILE_FORMAT,
     name: Optional[str] = None) -> common_types.TemporaryAnalyzerOutputType:
-  r"""Computes the unique values of a `Tensor` over the whole dataset.
+  r"""Computes the unique values of `x` over the whole dataset.
 
-  Computes The unique values taken by `x`, which can be a `Tensor` or
-  `CompositeTensor` of any size.  The unique values will be aggregated over all
-  dimensions of `x` and all instances.
+  Computes The unique values taken by `x`, which can be a `Tensor`,
+  `SparseTensor`, or `RaggedTensor` of any size.  The unique values will be
+  aggregated over all dimensions of `x` and all instances.
 
   In case `file_format` is 'text' and one of the tokens contains the '\n' or
   '\r' characters or is empty it will be discarded.
@@ -1774,9 +1775,9 @@ def vocabulary(
   within each vocabulary entry (b/117796748).
 
   Args:
-    x: A categorical/discrete input `Tensor` or `CompositeTensor` with dtype
-      tf.string or tf.int[8|16|32|64]. The inputs should generally be unique per
-      row (i.e. a bag of words/ngrams representation).
+    x: A categorical/discrete input `Tensor`, `SparseTensor`, or `RaggedTensor`
+      with dtype tf.string or tf.int[8|16|32|64]. The inputs should generally be
+      unique per row (i.e. a bag of words/ngrams representation).
     top_k: Limit the generated vocabulary to the first `top_k` elements. If set
       to None, the full vocabulary is generated.
     frequency_threshold: Limit the generated vocabulary only to elements whose

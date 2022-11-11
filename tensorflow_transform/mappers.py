@@ -104,17 +104,17 @@ def scale_to_gaussian(
   input vaules unchanged.
 
   Args:
-    x: A numeric `Tensor` or `CompositeTensor`.
+    x: A numeric `Tensor`, `SparseTensor`, or `RaggedTensor`.
     elementwise: If true, scales each element of the tensor independently;
-        otherwise uses the parameters of the whole tensor.
+      otherwise uses the parameters of the whole tensor.
     name: (Optional) A name for this operation.
     output_dtype: (Optional) If not None, casts the output tensor to this type.
 
   Returns:
-    A `Tensor` or `CompositeTensor` containing the input column transformed to
-    be approximately standard distributed (i.e. a Gaussian with mean 0 and
-    variance 1). If `x` is floating point, the mean will have the same type as
-    `x`. If `x` is integral, the output is cast to tf.float32.
+    A `Tensor`, `SparseTensor`, or `RaggedTensor` containing the input column
+    transformed to be approximately standard distributed (i.e. a Gaussian with
+    mean 0 and variance 1). If `x` is floating point, the mean will have the
+    same type as `x`. If `x` is integral, the output is cast to tf.float32.
 
     Note that TFLearn generally permits only tf.int64 and tf.float32, so casting
     this scaler's output may be necessary.
@@ -249,7 +249,7 @@ def scale_by_min_max(
   """Scale a numerical column into the range [output_min, output_max].
 
   Args:
-    x: A numeric `Tensor` or `CompositeTensor`.
+    x: A numeric `Tensor`, `SparseTensor`, or `RaggedTensor`.
     output_min: The minimum of the range of output values.
     output_max: The maximum of the range of output values.
     elementwise: If true, scale each element of the tensor independently.
@@ -286,8 +286,8 @@ def scale_by_min_max_per_key(
   """Scale a numerical column into a predefined range on a per-key basis.
 
   Args:
-    x: A numeric `Tensor` or `CompositeTensor`.
-    key: A `Tensor` or `CompositeTensor` of dtype tf.string.
+    x: A numeric `Tensor`, `SparseTensor`, or `RaggedTensor`.
+    key: A `Tensor`, `SparseTensor`, or `RaggedTensor` of dtype tf.string.
         Must meet one of the following conditions:
         0. key is None
         1. Both x and key are dense,
@@ -324,7 +324,7 @@ def scale_by_min_max_per_key(
   [{'scaled': 0.0}, {'scaled': 0.5}, {'scaled': 1.0}]
 
   Returns:
-    A `Tensor`  or `CompositeTensor` containing the input column scaled to
+    A `Tensor`, `SparseTensor`, or `RaggedTensor` containing the input column scaled to
     [output_min, output_max] on a per-key basis if a key is provided. If the
     analysis dataset is empty, a certain key contains a single distinct value or
     the computed key vocabulary doesn't have an entry for `key`, then `x` is
@@ -428,12 +428,13 @@ def scale_to_0_1(
   """Returns a column which is the input column scaled to have range [0,1].
 
   Args:
-    x: A numeric `Tensor` or `CompositeTensor`.
+    x: A numeric `Tensor`, `SparseTensor`, or `RaggedTensor`.
     elementwise: If true, scale each element of the tensor independently.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` or `CompositeTensor` containing the input column scaled to
+    A `Tensor`, `SparseTensor`, or `RaggedTensor` containing the input column
+    scaled to
     [0, 1]. If the analysis dataset is empty or contains a single distinct
     value, then `x` is scaled using a sigmoid function.
   """
@@ -458,8 +459,8 @@ def scale_to_0_1_per_key(
   """Returns a column which is the input column scaled to have range [0,1].
 
   Args:
-    x: A numeric `Tensor` or `CompositeTensor`.
-    key: A `Tensor` or `CompositeTensor` of type string.
+    x: A numeric `Tensor`, `SparseTensor`, or `RaggedTensor`.
+    key: A `Tensor`, `SparseTensor`, or `RaggedTensor` of type string.
     elementwise: If true, scale each element of the tensor independently.
     key_vocabulary_filename: (Optional) The file name for the per-key file. If
       None, this combiner will assume the keys fit in memory and will not store
@@ -488,7 +489,7 @@ def scale_to_0_1_per_key(
   [{'scaled': 0.0}, {'scaled': 0.5}, {'scaled': 1.0}]
 
   Returns:
-    A `Tensor` or `CompositeTensor` containing the input column scaled to [0, 1],
+    A `Tensor`, `SparseTensor`, or `RaggedTensor` containing the input column scaled to [0, 1],
     per key. If the analysis dataset is empty, contains a single distinct value
     or the computed key vocabulary doesn't have an entry for `key`, then `x` is
     scaled using a sigmoid function.
@@ -520,14 +521,15 @@ def scale_to_z_score(
   (0 delta degrees of freedom), as computed by analyzers.var.
 
   Args:
-    x: A numeric `Tensor` or `CompositeTensor`.
+    x: A numeric `Tensor`, `SparseTensor`, or `RaggedTensor`.
     elementwise: If true, scales each element of the tensor independently;
-        otherwise uses the mean and variance of the whole tensor.
+      otherwise uses the mean and variance of the whole tensor.
     name: (Optional) A name for this operation.
     output_dtype: (Optional) If not None, casts the output tensor to this type.
 
   Returns:
-    A `Tensor` or `CompositeTensor` containing the input column scaled to mean 0
+    A `Tensor`, `SparseTensor`, or `RaggedTensor` containing the input column
+    scaled to mean 0
     and variance 1 (standard deviation 1), given by: (x - mean(x)) / std_dev(x).
     If `x` is floating point, the mean will have the same type as `x`. If `x` is
     integral, the output is cast to tf.float32. If the analysis dataset is empty
@@ -562,27 +564,28 @@ def scale_to_z_score_per_key(
   (0 delta degrees of freedom), as computed by analyzers.var.
 
   Args:
-    x: A numeric `Tensor` or `CompositeTensor`.
-    key: A Tensor or `CompositeTensor` of dtype tf.string.
-        Must meet one of the following conditions:
-        0. key is None
-        1. Both x and key are dense,
-        2. Both x and key are sparse and `key` must exactly match `x` in
-        everything except values,
-        3. The axis=1 index of each x matches its index of dense key.
+    x: A numeric `Tensor`, `SparseTensor`, or `RaggedTensor`.
+    key: A `Tensor`, `SparseTensor`, or `RaggedTensor` of dtype tf.string. Must
+      meet one of the following conditions:
+      0. key is None,
+      1. Both x and key are dense,
+      2. Both x and key are sparse and `key` must exactly match `x` in
+      everything except values,
+      3. The axis=1 index of each x matches its index of dense key.
     elementwise: If true, scales each element of the tensor independently;
-        otherwise uses the mean and variance of the whole tensor.
-        Currently, not supported for per-key operations.
-    key_vocabulary_filename: (Optional) The file name for the per-key file.
-      If None, this combiner will assume the keys fit in memory and will not
-      store the analyzer result in a file. If '', a file name will be chosen
-      based on the current TensorFlow scope. If not '', it should be unique
-      within a given preprocessing function.
+      otherwise uses the mean and variance of the whole tensor. Currently, not
+      supported for per-key operations.
+    key_vocabulary_filename: (Optional) The file name for the per-key file. If
+      None, this combiner will assume the keys fit in memory and will not store
+      the analyzer result in a file. If '', a file name will be chosen based on
+      the current TensorFlow scope. If not '', it should be unique within a
+      given preprocessing function.
     name: (Optional) A name for this operation.
     output_dtype: (Optional) If not None, casts the output tensor to this type.
 
   Returns:
-    A `Tensor` or `CompositeTensor` containing the input column scaled to mean 0
+    A `Tensor`, `SparseTensor`, or `RaggedTensor` containing the input column
+    scaled to mean 0
     and variance 1 (standard deviation 1), grouped per key if a key is provided.
 
     That is, for all keys k: (x - mean(x)) / std_dev(x) for all x with key k.
@@ -777,6 +780,7 @@ def _split_tfidfs_to_outputs(
 
   Args:
     tfidfs: the `SparseTensor` output of _to_tfidf
+
   Returns:
     Two `SparseTensor`s with indices [index_in_batch, index_in_bag_of_words].
     The first has values vocab_index, which is taken from input `x`.
@@ -875,10 +879,10 @@ def _to_tfidf(term_frequency: tf.SparseTensor, reduced_term_freq: tf.Tensor,
   Args:
     term_frequency: The `SparseTensor` output of _to_term_frequency.
     reduced_term_freq: A `Tensor` of shape (vocabSize,) that represents the
-        count of the number of documents with each term.
+      count of the number of documents with each term.
     corpus_size: A scalar count of the number of documents in the corpus.
     smooth: A bool indicating if the idf value should be smoothed. See
-        tfidf_weights documentation for details.
+      tfidf_weights documentation for details.
 
   Returns:
     A `SparseTensor` with indices=<doc_index_in_batch>, <term_index_in_vocab>,
@@ -903,6 +907,7 @@ def _count_docs_with_term(term_frequency: tf.SparseTensor) -> tf.Tensor:
 
   Args:
     term_frequency: The `SparseTensor` output of _to_term_frequency.
+
   Returns:
     A `Tensor` of shape (vocab_size,) that contains the number of documents in
     the batch that contain each term.
@@ -945,7 +950,8 @@ def compute_and_apply_vocabulary(
   operation.
 
   Args:
-    x: A `Tensor` or `CompositeTensor` of type tf.string or tf.int[8|16|32|64].
+    x: A `Tensor`, `SparseTensor`, or `RaggedTensor` of type tf.string or
+      tf.int[8|16|32|64].
     default_value: The value to use for out-of-vocabulary values, unless
       'num_oov_buckets' is greater than zero.
     top_k: Limit the generated vocabulary to the first `top_k` elements. If set
@@ -961,20 +967,19 @@ def compute_and_apply_vocabulary(
       bucket ID based on its hash if `num_oov_buckets` is greater than zero.
       Otherwise it is assigned the `default_value`.
     vocab_filename: The file name for the vocabulary file. If None, a name based
-      on the scope name in the context of this graph will be used as the
-      file name. If not None, should be unique within a given preprocessing
-      function.
+      on the scope name in the context of this graph will be used as the file
+      name. If not None, should be unique within a given preprocessing function.
       NOTE in order to make your pipelines resilient to implementation details
       please set `vocab_filename` when you are using the vocab_filename on a
       downstream component.
     weights: (Optional) Weights `Tensor` for the vocabulary. It must have the
       same shape as x.
-    labels: (Optional) A `Tensor` of labels for the vocabulary. If provided,
-      the vocabulary is calculated based on mutual information with the label,
+    labels: (Optional) A `Tensor` of labels for the vocabulary. If provided, the
+      vocabulary is calculated based on mutual information with the label,
       rather than frequency. The labels must have the same batch dimension as x.
       If x is sparse, labels should be a 1D tensor reflecting row-wise labels.
-      If x is dense, labels can either be a 1D tensor of row-wise labels, or
-      a dense tensor of the identical shape as x (i.e. element-wise labels).
+      If x is dense, labels can either be a 1D tensor of row-wise labels, or a
+      dense tensor of the identical shape as x (i.e. element-wise labels).
       Labels should be a discrete integerized tensor (If the label is numeric,
       it should first be bucketized; If the label is a string, an integer
       vocabulary should first be applied). Note: `CompositeTensor` labels are
@@ -999,18 +1004,18 @@ def compute_and_apply_vocabulary(
       writing the files, so all the filters above will still take effect.
     file_format: (Optional) A str. The format of the resulting vocabulary file.
       Accepted formats are: 'tfrecord_gzip', 'text'. 'tfrecord_gzip' requires
-      tensorflow>=2.4.
-      The default value is 'text'.
+      tensorflow>=2.4. The default value is 'text'.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` or `CompositeTensor` where each string value is mapped to an
-    integer. Each unique string value that appears in the vocabulary
-    is mapped to a different integer and integers are consecutive starting from
-    zero. String value not in the vocabulary is assigned default_value.
-    Alternatively, if num_oov_buckets is specified, out of vocabulary strings
-    are hashed to values in [vocab_size, vocab_size + num_oov_buckets) for an
-    overall range of [0, vocab_size + num_oov_buckets).
+    A `Tensor`, `SparseTensor`, or `RaggedTensor` where each string value is
+    mapped to an integer. Each unique string value that appears in the
+    vocabulary is mapped to a different integer and integers are consecutive
+    starting from zero. String value not in the vocabulary is assigned
+    `default_value`. Alternatively, if `num_oov_buckets` is specified, out of
+    vocabulary strings are hashed to values in
+    [vocab_size, vocab_size + num_oov_buckets) for an overall range of
+    [0, vocab_size + num_oov_buckets).
 
   Raises:
     ValueError: If `top_k` or `frequency_threshold` is negative.
@@ -1057,9 +1062,10 @@ def apply_vocabulary(
   num_oov_buckets and default_value.
 
   Args:
-    x: A categorical `Tensor` or `CompositeTensor` of type tf.string or
-      tf.int[8|16|32|64] to which the vocabulary transformation should be
-      applied. The column names are those intended for the transformed tensors.
+    x: A categorical `Tensor`, `SparseTensor`, or `RaggedTensor` of type
+      tf.string or tf.int[8|16|32|64] to which the vocabulary transformation
+      should be applied. The column names are those intended for the transformed
+      tensors.
     deferred_vocab_filename_tensor: The deferred vocab filename tensor as
       returned by `tft.vocabulary`, as long as the frequencies were not stored.
     default_value: The value to use for out-of-vocabulary values, unless
@@ -1071,15 +1077,14 @@ def apply_vocabulary(
       and a deferred vocab filename as an input and return a lookup `op` along
       with the table size, by default `apply_vocabulary` constructs a
       StaticHashTable for the table lookup.
-    file_format: (Optional) A str. The format of the given vocabulary.
-      Accepted formats are: 'tfrecord_gzip', 'text'.
-      The default value is 'text'.
+    file_format: (Optional) A str. The format of the given vocabulary. Accepted
+      formats are: 'tfrecord_gzip', 'text'. The default value is 'text'.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` or `CompositeTensor` where each string value is mapped to an
-    integer. Each unique string value that appears in the vocabulary
-    is mapped to a different integer and integers are consecutive
+    A `Tensor`, `SparseTensor`, or `RaggedTensor` where each string value is
+    mapped to an integer. Each unique string value that appears in the
+    vocabulary is mapped to a different integer and integers are consecutive
     starting from zero, and string value not in the vocabulary is
     assigned default_value.
   """
@@ -1227,7 +1232,7 @@ def segment_indices(segment_ids: tf.Tensor,
 
   Args:
     segment_ids: A 1-d `Tensor` containing an non-decreasing sequence of
-        non-negative integers with type `tf.int32` or `tf.int64`.
+      non-negative integers with type `tf.int32` or `tf.int64`.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1639,26 +1644,27 @@ def hash_strings(
   """Hash strings into buckets.
 
   Args:
-    strings: a `Tensor` or `CompositeTensor` of dtype `tf.string`.
+    strings: a `Tensor`, `SparseTensor`, or `RaggedTensor` of dtype `tf.string`.
     hash_buckets: the number of hash buckets.
-    key: optional. An array of two Python `uint64`. If passed, output will be
-      a deterministic function of `strings` and `key`. Note that hashing will be
+    key: optional. An array of two Python `uint64`. If passed, output will be a
+      deterministic function of `strings` and `key`. Note that hashing will be
       slower if this value is specified.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` or `CompositeTensor` of dtype `tf.int64` with the same shape as
+    A `Tensor`, `SparseTensor`, or `RaggedTensor` of dtype `tf.int64` with the
+    same shape as
     the input `strings`.
 
   Raises:
-    TypeError: if `strings` is not a `Tensor` or `CompositeTensor` of dtype
-    `tf.string`.
+    TypeError: if `strings` is not a `Tensor`, `SparseTensor`, or `RaggedTensor`
+    of dtype `tf.string`.
   """
   if (not isinstance(strings, (tf.Tensor, tf.SparseTensor, tf.RaggedTensor)) or
       strings.dtype != tf.string):
     raise TypeError(
-        'Input to hash_strings must be a Tensor or CompositeTensor of dtype '
-        'string; got {}'.format(strings.dtype))
+        'Input to hash_strings must be a `Tensor`, `SparseTensor`, or '
+        f'`RaggedTensor` of dtype string; got {strings.dtype}')
   if isinstance(strings, tf.Tensor):
     if name is None:
       name = 'hash_strings'
@@ -1682,11 +1688,11 @@ def bucketize(x: common_types.ConsistentTensorType,
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Args:
-    x: A numeric input `Tensor` or `CompositeTensor` whose values should be
-      mapped to buckets.  For a `CompositeTensor` only non-missing values will
-      be included in the quantiles computation, and the result of `bucketize`
-      will be a `CompositeTensor` with non-missing values mapped to buckets. If
-      elementwise=True then `x` must be dense.
+    x: A numeric input `Tensor`, `SparseTensor`, or `RaggedTensor` whose values
+      should be mapped to buckets.  For a `CompositeTensor` only non-missing
+      values will be included in the quantiles computation, and the result of
+      `bucketize` will be a `CompositeTensor` with non-missing values mapped to
+      buckets. If elementwise=True then `x` must be dense.
     num_buckets: Values in the input `x` are divided into approximately
       equal-sized buckets, where the number of buckets is `num_buckets`.
     epsilon: (Optional) Error tolerance, typically a small fraction close to
@@ -1767,27 +1773,28 @@ def bucketize_per_key(
   """Returns a bucketized column, with a bucket index assigned to each input.
 
   Args:
-    x: A numeric input `Tensor` or `CompositeTensor` with rank 1, whose values
-      should be mapped to buckets.  `CompositeTensor`s will have their
-      non-missing values mapped and missing values left as missing.
-    key: A Tensor or `CompositeTensor` with the same shape as `x` and dtype
-      tf.string.  If `x` is a `CompositeTensor`, `key` must exactly match `x` in
-      everything except values, i.e. indices and dense_shape or nested row
-      splits must be identical.
+    x: A numeric input `Tensor`, `SparseTensor`, or `RaggedTensor` with rank 1,
+      whose values should be mapped to buckets.  `CompositeTensor`s will have
+      their non-missing values mapped and missing values left as missing.
+    key: A `Tensor`, `SparseTensor`, or `RaggedTensor` with the same shape as
+      `x` and dtype tf.string.  If `x` is a `CompositeTensor`, `key` must
+      exactly match `x` in everything except values, i.e. indices and
+      dense_shape or nested row splits must be identical.
     num_buckets: Values in the input `x` are divided into approximately
       equal-sized buckets, where the number of buckets is num_buckets.
     epsilon: (Optional) see `bucketize`.
-    weights: (Optional) A Tensor or `CompositeTensor` with the same shape as `x`
-      and dtype tf.float32. Used as weights for quantiles calculation. If `x` is
-      a `CompositeTensor`, `weights` must exactly match `x` in everything except
-      values.
+    weights: (Optional) A `Tensor`, `SparseTensor`, or `RaggedTensor` with the
+      same shape as `x` and dtype tf.float32. Used as weights for quantiles
+      calculation. If `x` is a `CompositeTensor`, `weights` must exactly match
+      `x` in everything except values.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` or `CompositeTensor` of the same shape as `x`, with each element
-    in the returned tensor representing the bucketized value. Bucketized value
-    is in the range [0, actual_num_buckets). If the computed key vocabulary
-    doesn't have an entry for `key` then the resulting bucket is -1.
+    A `Tensor`, `SparseTensor`, or `RaggedTensor` of the same shape as `x`, with
+    each element in the returned tensor representing the bucketized value.
+    Bucketized value is in the range [0, actual_num_buckets). If the computed
+    key vocabulary doesn't have an entry for `key` then the resulting bucket is
+    -1.
 
   Raises:
     ValueError: If value of num_buckets is not > 1.
@@ -1847,11 +1854,12 @@ def _apply_buckets_with_keys(
     shift_per_key: tf.Tensor,
     num_buckets: int,
     name: Optional[int] = None) -> common_types.ConsistentTensorType:
-  """Bucketize a Tensor or CompositeTensor where boundaries depend on the index.
+  """Bucketize an input where boundaries depend on the index.
 
   Args:
-    x: A 1-d Tensor or CompositeTensor.
-    key: A 1-d Tensor or CompositeTensor with the same size as x.
+    x: A 1-d `Tensor`, `SparseTensor`, or `RaggedTensor`.
+    key: A 1-d `Tensor`, `SparseTensor`, or `RaggedTensor` with the same size as
+      `x`.
     key_vocab: A vocab containing all keys.  Must be exhaustive, an out-of-vocab
       entry in `key` will cause a crash.
     bucket_boundaries: A rank-1 Tensor.
@@ -1936,16 +1944,15 @@ def apply_buckets_with_interpolation(
   exploding gradients in neural networks.
 
   Args:
-    x: A numeric input `Tensor`/`CompositeTensor` (tf.float[32|64],
-      tf.int[32|64]).
+    x: A numeric input `Tensor`, `SparseTensor`, or `RaggedTensor`
+      (tf.float[32|64], tf.int[32|64]).
     bucket_boundaries: Sorted bucket boundaries as a rank-2 `Tensor` or list.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` or `CompositeTensor` of the same shape as `x`, normalized to the
-      range [0, 1]. If the input x is tf.float64, the returned values will be
-      tf.float64. Otherwise, returned values are tf.float32.
-
+    A `Tensor`, `SparseTensor`, or `RaggedTensor` of the same shape as `x`,
+    normalized to the range [0, 1]. If the input x is tf.float64, the returned
+    values will be tf.float64. Otherwise, returned values are tf.float32.
   """
   with tf.compat.v1.name_scope(name, 'buckets_with_interpolation'):
     bucket_boundaries = tf.convert_to_tensor(bucket_boundaries)
@@ -2049,17 +2056,17 @@ def apply_buckets(
          [0, 2, 3]])>
 
   Args:
-    x: A numeric input `Tensor` or `CompositeTensor` whose values should be
-        mapped to buckets.  For `CompositeTensor`s, the non-missing values will
-        be mapped to buckets and missing value left missing.
+    x: A numeric input `Tensor`, `SparseTensor`, or `RaggedTensor` whose values
+      should be mapped to buckets.  For `CompositeTensor`s, the non-missing
+      values will be mapped to buckets and missing value left missing.
     bucket_boundaries: A rank 2 `Tensor` or list representing the bucket
-        boundaries sorted in ascending order.
+      boundaries sorted in ascending order.
     name: (Optional) A name for this operation.
 
   Returns:
-    A `Tensor` or `CompositeTensor` of the same shape as `x`, with each element
-    in the returned tensor representing the bucketized value. Bucketized value
-    is in the range [0, len(bucket_boundaries)].
+    A `Tensor`, `SparseTensor`, or `RaggedTensor` of the same shape as `x`, with
+    each element in the returned tensor representing the bucketized value.
+    Bucketized value is in the range [0, len(bucket_boundaries)].
   """
   with tf.compat.v1.name_scope(name, 'apply_buckets'):
     bucket_boundaries = tf.convert_to_tensor(bucket_boundaries)

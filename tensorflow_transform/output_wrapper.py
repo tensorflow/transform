@@ -281,8 +281,9 @@ class TFTransformOutput:
   ) -> Dict[str, common_types.TensorType]:
     """Takes a dict of tensors representing raw features and transforms them.
 
-    Takes a dictionary of `Tensor`s or `SparseTensor`s that represent the raw
-    features, and applies the transformation defined by tf.Transform.
+    Takes a dictionary of `Tensor`, `SparseTensor`, or `RaggedTensor`s that
+    represent the raw features, and applies the transformation defined by
+    tf.Transform.
 
     If False it returns all transformed features defined by tf.Transform. To
     only return features transformed from the given 'raw_features', set
@@ -297,8 +298,8 @@ class TFTransformOutput:
     if it was exported as a TF2 SavedModel.
 
     Args:
-      raw_features: A dict whose keys are feature names and values are `Tensor`s
-        or `SparseTensor`s.
+      raw_features: A dict whose keys are feature names and values are
+      `Tensor`s, `SparseTensor`s, or `RaggedTensor`s.
       drop_unused_features: If True, the result will be filtered. Only the
         features that are transformed from 'raw_features' will be included in
         the returned result. If a feature is transformed from multiple raw
@@ -306,8 +307,8 @@ class TFTransformOutput:
         raw features are present in `raw_features`.
 
     Returns:
-      A dict whose keys are feature names and values are `Tensor`s or
-          `SparseTensor`s representing transformed features.
+      A dict whose keys are feature names and values are `Tensor`s,
+      `SparseTensor`s, or `RaggedTensor`s representing transformed features.
     """
     if self._exported_as_v1:
       transformed_features = self._transform_raw_features_compat_v1(
