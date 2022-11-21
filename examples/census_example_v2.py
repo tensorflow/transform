@@ -87,11 +87,10 @@ def input_fn_raw(tf_transform_output, raw_examples_pattern, batch_size):
     for key, val in data.items():
       if key not in common.RAW_DATA_FEATURE_SPEC:
         continue
-      if isinstance(common.RAW_DATA_FEATURE_SPEC[key], tf.io.VarLenFeature):
-        # TODO(b/169666856): Remove conversion to sparse once ragged tensors are
-        # natively supported.
+      if isinstance(common.RAW_DATA_FEATURE_SPEC[key], tf.io.RaggedFeature):
+        # make_csv_dataset will set the value to 0 when it's missing.
         raw_features[key] = tf.RaggedTensor.from_tensor(
-            tf.expand_dims(val, -1)).to_sparse()
+            tf.expand_dims(val, axis=-1), padding=0)
         continue
       raw_features[key] = val
     transformed_features = tft_layer(raw_features)
@@ -189,10 +188,7 @@ def train_and_evaluate(raw_train_eval_data_path_pattern,
 
   inputs = {}
   for key, spec in feature_spec.items():
-    if isinstance(spec, tf.io.VarLenFeature):
-      inputs[key] = tf.keras.layers.Input(
-          shape=[None], name=key, dtype=spec.dtype, sparse=True)
-    elif isinstance(spec, tf.io.FixedLenFeature):
+    if isinstance(spec, tf.io.FixedLenFeature):
       # TODO(b/208879020): Move into schema such that spec.shape is [1] and not
       # [] for scalars.
       inputs[key] = tf.keras.layers.Input(

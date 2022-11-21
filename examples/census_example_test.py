@@ -15,13 +15,13 @@
 
 import os
 
-import tensorflow as tf
 import census_example
 import census_example_common
+from tensorflow_transform import test_case
 import local_model_server
 
 
-class CensusExampleTest(tf.test.TestCase):
+class CensusExampleTest(test_case.TransformTestCase):
 
   def testCensusExampleAccuracy(self):
     raw_data_dir = os.path.join(os.path.dirname(__file__), 'testdata/census')
@@ -106,8 +106,8 @@ input {
 }"""
         results = local_model_server.make_classification_request(
             address, ascii_classification_request)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(len(results[0].classes), 2)
+        self.assertLen(results, 1)
+        self.assertLen(results[0].classes, 2)
         self.assertEqual(results[0].classes[0].label, '0')
         self.assertLess(results[0].classes[0].score, 0.01)
         self.assertEqual(results[0].classes[1].label, '1')
@@ -115,4 +115,4 @@ input {
 
 
 if __name__ == '__main__':
-  tf.test.main()
+  test_case.main()
