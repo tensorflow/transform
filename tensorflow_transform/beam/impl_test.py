@@ -4049,7 +4049,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
     def expand(self, pcoll: beam.PCollection[Tuple[np.ndarray, np.ndarray]]):
       self.base_temp_dir_in_expand = self.base_temp_dir
       return (pcoll
-              | beam.FlatMap(lambda baches: list(zip(*baches)))
+              | beam.FlatMap(lambda batches: list(zip(*batches)))
               |
               beam.CombineGlobally(lambda values: np.sum(list(values), axis=0))
               | beam.FlatMap(self._extract_outputs).with_outputs('0', '1'))
@@ -4096,7 +4096,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
       def expand(self, pcoll: beam.PCollection[Tuple[np.ndarray, np.ndarray]]):
         return (
             pcoll
-            | beam.FlatMap(lambda baches: list(zip(*baches)))
+            | beam.FlatMap(lambda batches: list(zip(*batches)))
             | beam.CombineGlobally(lambda values: np.sum(list(values), axis=0))
             | beam.combiners.ToList()
             | beam.Map(output_fn))
