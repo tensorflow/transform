@@ -225,16 +225,20 @@ class TransformTestCase(test_case.TransformTestCase):
       result = {}
       for key, output_tensor in analyzer_outputs.items():
         # Get the expected shape, and set it.
-        output_shape = list(expected_outputs[key].shape)
+        expected_output_shape = list(expected_outputs[key].shape)
         try:
-          output_tensor.set_shape(output_shape)
+          output_tensor.set_shape(expected_output_shape)
         except ValueError as e:
-          raise ValueError(f'Error for key {key}') from e
+          raise ValueError(
+              f'Error for key {key}, shapes are incompatible. Got '
+              f'{output_tensor.shape}, expected {expected_output_shape}.'
+          ) from e
         # Add a batch dimension
         output_tensor = tf.expand_dims(output_tensor, 0)
         # Broadcast along the batch dimension
         result[key] = tf.tile(
-            output_tensor, multiples=[batch_size] + [1] * len(output_shape))
+            output_tensor,
+            multiples=[batch_size] + [1] * len(expected_output_shape))
 
       return result
 
