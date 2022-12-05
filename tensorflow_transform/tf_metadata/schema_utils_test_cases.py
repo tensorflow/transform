@@ -237,6 +237,31 @@ EQUIVALENT_FEATURE_SPEC_AND_SCHEMAS = [
                                     tf.int64, [1, 1])
         }
     },
+    {
+        'testcase_name':
+            'sparse_feature_no_index_int_domain',
+        'ascii_proto':
+            """
+          feature {
+            name: "index_key"
+            type: INT
+          }
+          feature {
+            name: "value_key"
+            type: INT
+          }
+          sparse_feature {
+            name: "x"
+            index_feature {name: "index_key"}
+            value_feature {name: "value_key"}
+          }
+          """,
+        'feature_spec': {
+            'x':
+                tf.io.SparseFeature(['index_key'], 'value_key',
+                                    tf.int64, [-1])
+        }
+    },
 ]
 
 NON_ROUNDTRIP_SCHEMAS = [
@@ -283,7 +308,7 @@ INVALID_SCHEMA_PROTOS = [
         'ascii_proto': """
           feature: {name: "x"}
           """,
-        'error_msg': 'Feature "x" had invalid type TYPE_UNKNOWN'
+        'error_msg': 'The feature_type: 0 is not supported.'
     },
     {
         'testcase_name':
@@ -293,30 +318,8 @@ INVALID_SCHEMA_PROTOS = [
           feature: {name: "x" type: INT shape: {}}
         """,
         'error_msg':
-            r'Feature "x" had shape  set but min_fraction 0.0 != 1.  '
+            r'Feature x had shape  set but min_fraction 0.0 != 1.  '
             r'Use value_count not shape field when min_fraction != 1.'
-    },
-    {
-        'testcase_name':
-            'sparse_feature_no_index_int_domain',
-        'ascii_proto':
-            """
-          feature {
-            name: "index_key"
-            type: INT
-          }
-          feature {
-            name: "value_key"
-            type: INT
-          }
-          sparse_feature {
-            name: "x"
-            index_feature {name: "index_key"}
-            value_feature {name: "value_key"}
-          }
-          """,
-        'error_msg':
-            r'Cannot determine dense shape of sparse feature "x"'
     },
     {
         'testcase_name':
@@ -339,8 +342,8 @@ INVALID_SCHEMA_PROTOS = [
           }
           """,
         'error_msg':
-            r'Cannot determine dense shape of sparse feature "x". '
-            r'The minimum domain value of index feature "index_key"'
+            r'Cannot determine dense shape of sparse feature x. '
+            r'The minimum domain value of index feature index_key'
             r' is not set.'
     },
     {
@@ -365,7 +368,7 @@ INVALID_SCHEMA_PROTOS = [
           """,
         'error_msg':
             r'Only 0-based index features are supported. Sparse '
-            r'feature "x" has index feature "index_key" whose '
+            r'feature x has index feature index_key whose '
             r'minimum domain value is 1'
     },
     {
@@ -389,9 +392,9 @@ INVALID_SCHEMA_PROTOS = [
           }
           """,
         'error_msg':
-            r'Cannot determine dense shape of sparse feature "x". '
-            r'The maximum domain value of index feature "index_key"'
-            r' is not set.'
+            r'Cannot determine dense shape of sparse feature x. '
+            r'The maximum domain value of index feature index_key '
+            r'is not set.'
     },
     {
         'testcase_name':
@@ -410,8 +413,8 @@ INVALID_SCHEMA_PROTOS = [
           }
         """,
         'error_msg':
-            r'sparse_feature "x" referred to index feature '
-            r'"index_key" which did not exist in the schema'
+            r'sparse_feature x referred to index feature '
+            r'index_key which did not exist in the schema'
     },
     {
         'testcase_name':
@@ -431,8 +434,8 @@ INVALID_SCHEMA_PROTOS = [
           }
         """,
         'error_msg':
-            r'sparse_feature "x" referred to value feature '
-            r'"value_key" which did not exist in the schema'
+            r'sparse_feature x referred to value feature '
+            r'value_key which did not exist in the schema'
     },
 ]
 
@@ -1035,71 +1038,4 @@ if common_types.is_ragged_feature_available():
       'domains': {
           'seq_string_feature': schema_pb2.StringDomain(value=['a', 'b'])
       }
-  }])
-
-  INVALID_SCHEMA_PROTOS.extend([{
-      'testcase_name':
-          'ragged_feature_non_int_row_lengths',
-      'ascii_proto':
-          """
-              feature {
-                name: "value"
-                type: FLOAT
-              }
-              feature {
-                name: "row_length"
-                type: FLOAT
-              }
-              tensor_representation_group {
-                key: ""
-                value {
-                  tensor_representation {
-                    key: "x"
-                    value {
-                      ragged_tensor {
-                        feature_path { step: "value" }
-                        partition { row_length: "row_length"}
-                      }
-                    }
-                  }
-                }
-              }
-            """,
-      'error_msg':
-          r'Row length feature "row_length" is not an integer feature'
-  }, {
-      'testcase_name':
-          'ragged_feature_conflicting_name',
-      'ascii_proto':
-          """
-              feature {
-                name: "x"
-                type: FLOAT
-              }
-              feature {
-                name: "value"
-                type: FLOAT
-              }
-              feature {
-                name: "row_length"
-                type: INT
-              }
-              tensor_representation_group {
-                key: ""
-                value {
-                  tensor_representation {
-                    key: "x"
-                    value {
-                      ragged_tensor {
-                        feature_path { step: "value" }
-                        partition { row_length: "row_length"}
-                      }
-                    }
-                  }
-                }
-              }
-            """,
-      'error_msg':
-          r'Ragged TensorRepresentation name "x" conflicts with a different '
-          'feature'
   }])

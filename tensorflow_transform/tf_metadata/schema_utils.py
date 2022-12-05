@@ -152,6 +152,7 @@ def _sparse_feature_from_feature_spec(spec, name, domains):
         s.value if isinstance(s, tf.compat.v1.Dimension) else s
         for s in spec.size
     ]
+    spec_size = [s if s != -1 else None for s in spec_size]
     int_domains = [
         schema_pb2.IntDomain(min=0, max=size - 1) if size is not None else None
         for size in spec_size
@@ -255,6 +256,23 @@ SchemaAsFeatureSpecResult = tfx_namedtuple.TypedNamedTuple(
 RAGGED_TENSOR_TAG = 'ragged_tensor'
 
 
+def _standardize_default_value(
+    spec: tf.io.FixedLenFeature) -> tf.io.FixedLenFeature:
+  """Converts bytes to strings and unwraps lists with a single element."""
+  if spec.default_value is None:
+    return spec
+  default_value = spec.default_value
+  assert isinstance(default_value, list), spec.default_value
+  # Convert bytes to string
+  if spec.dtype == tf.string:
+    default_value = [value.decode('utf-8') for value in default_value]
+  # Unwrap a list with a single element.
+  if len(default_value) == 1:
+    default_value = default_value[0]
+  return tf.io.FixedLenFeature(
+      shape=spec.shape, dtype=spec.dtype, default_value=default_value)
+
+
 def schema_as_feature_spec(
     schema_proto: schema_pb2.Schema) -> SchemaAsFeatureSpecResult:
   """Generates a feature spec from a Schema proto.
@@ -279,72 +297,36 @@ def schema_as_feature_spec(
   Raises:
     ValueError: If the schema proto is invalid.
   """
-  for feature in schema_proto.feature:
-    if RAGGED_TENSOR_TAG in feature.annotation.tag:
-      raise ValueError(
-          'Feature "{}" had tag "{}".  Features represented by a '
-          'RaggedTensor cannot be serialized/deserialized to Example proto or '
-          'other formats, and cannot have a feature spec generated for '
-          'them.'.format(feature.name, RAGGED_TENSOR_TAG))
-
-  if schema_utils_legacy.get_generate_legacy_feature_spec(schema_proto):
-    return _legacy_schema_as_feature_spec(schema_proto)
 
   # Presence of a struct means that data's physical format is tf.SequenceExample
   # and the struct contains sequence features.
   if any(feature.type == schema_pb2.STRUCT for feature in schema_proto.feature):
     return _sequence_schema_as_feature_spec(schema_proto)
 
+  tensor_representations = (
+      tensor_representation_util.InferTensorRepresentationsFromMixedSchema(
+          schema_proto))
+
   feature_spec = {}
   # Will hold the domain_info (IntDomain, FloatDomain etc.) of the feature.  For
   # sparse features, will hold the domain_info of the values feature.  Features
   # that do not have a domain set will not be present in `domains`.
   domains = {}
-  feature_by_name = {feature.name: feature for feature in schema_proto.feature}
   string_domains = _get_string_domains(schema_proto)
-
-  # Generate a `tf.SparseFeature` for each element of
-  # `schema_proto.sparse_feature`.  This also removed the features from
-  # feature_by_name.
-  # TODO(KesterTong): Allow sparse features to share index features.
-  for feature in schema_proto.sparse_feature:
-    if _include_in_parsing_spec(feature):
-      feature_spec[feature.name], domains[feature.name] = (
-          _sparse_feature_as_feature_spec(feature, feature_by_name,
-                                          string_domains))
-
-  # Handle ragged `TensorRepresentation`s.
-  tensor_representations = (
-      tensor_representation_util.GetTensorRepresentationsFromSchema(
-          schema_proto, TENSOR_REPRESENTATION_GROUP))
-  if tensor_representations is not None:
-    for name, tensor_representation in tensor_representations.items():
-      (feature_spec[name], domains[name]) = (
-          _ragged_tensor_representation_as_feature_spec(name,
-                                                        tensor_representation,
-                                                        feature_by_name,
-                                                        string_domains))
-      # At this point `feature_by_name` does not have source features for this
-      # tensor representation. If there's still a feature with the same name,
-      # then it would result in a name conflict.
-      if name in feature_by_name:
-        raise ValueError(
-            'Ragged TensorRepresentation name "{}" conflicts with a different '
-            'feature in the same schema.'.format(name))
-
-  # Generate a `tf.FixedLenFeature` or `tf.VarLenFeature` for each element of
-  # `schema_proto.feature` that was not referenced by a `SparseFeature` or a
-  # ragged `TensorRepresentation`.
-  for name, feature in feature_by_name.items():
-    if _include_in_parsing_spec(feature):
-      feature_spec[name], domains[name] = _feature_as_feature_spec(
-          feature, string_domains)
-
-  schema_utils_legacy.check_for_unsupported_features(schema_proto)
-
-  domains = {
-      name: domain for name, domain in domains.items() if domain is not None
-  }
+  feature_by_name = {feature.name: feature for feature in schema_proto.feature}
+  for name, tensor_representation in tensor_representations.items():
+    value_feature = str(
+        tensor_representation_util.GetSourceValueColumnFromTensorRepresentation(
+            tensor_representation))
+    spec = (
+        tensor_representation_util.CreateTfExampleParserConfig(
+            tensor_representation, feature_by_name[value_feature].type))
+    if isinstance(spec, tf.io.FixedLenFeature):
+      spec = _standardize_default_value(spec)
+    feature_spec[name] = spec
+    domain = _get_domain(feature_by_name[value_feature], string_domains)
+    if domain is not None:
+      domains[name] = domain
   return SchemaAsFeatureSpecResult(feature_spec, domains)
 
 
@@ -495,115 +477,6 @@ def _ragged_tensor_representation_as_feature_spec(
   return typing.cast(common_types.RaggedFeature, spec), domain
 
 
-def _sparse_feature_as_feature_spec(feature, feature_by_name, string_domains):
-  """Returns a representation of a SparseFeature as a feature spec."""
-  index_keys = [index_feature.name for index_feature in feature.index_feature]
-  index_features = []
-  for index_key in index_keys:
-    try:
-      index_features.append(feature_by_name.pop(index_key))
-    except KeyError:
-      raise ValueError(
-          'sparse_feature "{}" referred to index feature "{}" which did not '
-          'exist in the schema'.format(feature.name, index_key))
-
-  value_key = feature.value_feature.name
-  try:
-    value_feature = feature_by_name.pop(value_key)
-  except KeyError:
-    raise ValueError(
-        'sparse_feature "{}" referred to value feature "{}" which did not '
-        'exist in the schema or was referred to as an index or value multiple '
-        'times.'.format(feature.name, value_key))
-
-  shape = []
-  for index_feature, index_key in zip(index_features, index_keys):
-    if index_feature.HasField('int_domain'):
-      # Currently we only handle O-based INT index features whose minimum
-      # domain value must be zero.
-      if not index_feature.int_domain.HasField('min'):
-        raise ValueError('Cannot determine dense shape of sparse feature '
-                         '"{}". The minimum domain value of index feature "{}"'
-                         ' is not set.'.format(feature.name, index_key))
-      if index_feature.int_domain.min != 0:
-        raise ValueError('Only 0-based index features are supported. Sparse '
-                         'feature "{}" has index feature "{}" whose minimum '
-                         'domain value is {}.'.format(
-                             feature.name, index_key,
-                             index_feature.int_domain.min))
-
-      if not index_feature.int_domain.HasField('max'):
-        raise ValueError('Cannot determine dense shape of sparse feature '
-                         '"{}". The maximum domain value of index feature "{}"'
-                         ' is not set.'.format(feature.name, index_key))
-      shape.append(index_feature.int_domain.max + 1)
-    elif len(index_keys) == 1:
-      raise ValueError('Cannot determine dense shape of sparse feature "{}".'
-                       ' The index feature "{}" had no int_domain set.'.format(
-                           feature.name, index_key))
-    else:
-      shape.append(-1)
-
-  dtype = _feature_dtype(value_feature)
-  if len(index_keys) != len(shape):
-    raise ValueError(
-        'sparse_feature "{}" had rank {} (shape {}) but {} index keys were'
-        ' given'.format(feature.name, len(shape), shape, len(index_keys)))
-  spec = tf.io.SparseFeature(index_keys, value_key, dtype, shape,
-                             feature.is_sorted)
-  domain = _get_domain(value_feature, string_domains)
-  return spec, domain
-
-
-def _feature_as_feature_spec(feature, string_domains):
-  """Returns a representation of a Feature as a feature spec."""
-  dtype = _feature_dtype(feature)
-  if feature.HasField('shape'):
-    if feature.presence.min_fraction != 1:
-      raise ValueError(
-          'Feature "{}" had shape {} set but min_fraction {} != 1.  Use'
-          ' value_count not shape field when min_fraction != 1.'.format(
-              feature.name, feature.shape, feature.presence.min_fraction))
-    spec = tf.io.FixedLenFeature(
-        _fixed_shape_as_tf_shape(feature.shape), dtype, default_value=None)
-  else:
-    spec = tf.io.VarLenFeature(dtype)
-  domain = _get_domain(feature, string_domains)
-  return spec, domain
-
-
-def _feature_dtype(feature):
-  """Returns a representation of a Feature's type as a tensorflow dtype."""
-  if feature.type == schema_pb2.BYTES:
-    return tf.string
-  elif feature.type == schema_pb2.INT:
-    return tf.int64
-  elif feature.type == schema_pb2.FLOAT:
-    return tf.float32
-  else:
-    raise ValueError('Feature "{}" had invalid type {}'.format(
-        feature.name, schema_pb2.FeatureType.Name(feature.type)))
-
-
-def _fixed_shape_as_tf_shape(fixed_shape):
-  """Returns a representation of a FixedShape as a tensorflow shape."""
-  # TODO(b/120869660): Remove the cast to int.  Casting to int is currently
-  # needed as some TF code explicitly checks for `int` and does not allow `long`
-  # in tensor shapes.
-  return [int(dim.size) for dim in fixed_shape.dim]
-
-
-_IGNORED_LIFECYCLE_STAGES = [
-    schema_pb2.DEPRECATED, schema_pb2.DISABLED, schema_pb2.PLANNED,
-    schema_pb2.ALPHA, schema_pb2.DEBUG_ONLY, schema_pb2.VALIDATION_DERIVED,
-]
-
-
-def _include_in_parsing_spec(feature):
-  return not (schema_utils_legacy.get_deprecated(feature) or
-              feature.lifecycle_stage in _IGNORED_LIFECYCLE_STAGES)
-
-
 def _legacy_schema_from_feature_spec(feature_spec, domains=None):
   """Infer a Schema from a feature spec, using the legacy feature spec logic.
 
@@ -668,134 +541,3 @@ def _legacy_schema_from_feature_spec(feature_spec, domains=None):
     _set_domain(name, feature, domains.get(name))
 
   return result
-
-
-def _legacy_schema_as_feature_spec(schema_proto):
-  """Generate a feature spec and domains using legacy feature spec."""
-  feature_spec = {}
-  # Will hold the domain_info (IntDomain, FloatDomain etc.) of the feature.  For
-  # sparse features, will hold the domain_info of the values feature.  Features
-  # that do not have a domain set will not be present in `domains`.
-  domains = {}
-  feature_by_name = {feature.name: feature for feature in schema_proto.feature}
-  string_domains = _get_string_domains(schema_proto)
-
-  for name, feature in feature_by_name.items():
-    if _include_in_parsing_spec(feature):
-      feature_spec[name] = _legacy_feature_as_feature_spec(feature)
-      domain = _get_domain(feature, string_domains)
-      if domain is not None:
-        domains[name] = domain
-
-  return SchemaAsFeatureSpecResult(feature_spec, domains)
-
-
-def _legacy_feature_as_feature_spec(feature):
-  """Translate a Feature proto into a TensorFlow feature spec.
-
-  This function applies heuristics to deduce the shape and other information
-  from a FeatureProto.  The FeatureProto contains information about the feature
-  in an ExampleProto, but the feature spec proto also requires enough
-  information to parse the feature into a tensor.  We apply the following rules:
-
-    1. The dtype is determined from the feature's type according to the mapping
-       BYTES -> string, INT -> int64, FLOAT -> float32.  TYPE_UNKNOWN or any
-       other type results in a ValueError.
-
-    2. The shape and representation of the column are determined by the
-       following rules:
-         * if the value_count.min and value_count.max are both 1 then the shape
-           is scalar and the representation is fixed length.
-         * If value_count.min and value_count.max are equal but greater than 1,
-           then the shape is a vector whose length is value_count.max and the
-           representation is fixed length.
-         * If value_count.min and value_count.max are equal and are less than 1,
-           then the shape is a vector of unknown length and the representation
-           is variable length.
-         * If value_count.min and value_count.max are not equal then
-           the shape is a vector of unknown length and the representation is
-           variable length.
-
-    3. If the feature is always present or is variable length (based on the
-        above rule), no default value is set but if the feature is not always
-        present and is fixed length, then a canonical default value is chosen
-        based on _DEFAULT_VALUE_FOR_DTYPE.
-
-    4. Features that are deprecated are completely ignored and removed.
-
-  Args:
-    feature: A FeatureProto
-
-  Returns:
-    A `tf.FixedLenFeature` or `tf.VarLenFeature`.
-
-  Raises:
-    ValueError: If the feature's type is not supported or the schema is invalid.
-  """
-  # Infer canonical tensorflow dtype.
-  dtype = _feature_dtype(feature)
-
-  if feature.value_count.min < 0:
-    raise ValueError(
-        'Feature "{}" has value_count.min < 0 (value was {}).'.format(
-            feature.name, feature.value_count.min))
-
-  if feature.value_count.max < 0:
-    raise ValueError(
-        'Feature "{}" has value_count.max < 0 (value was {}).'.format(
-            feature.name, feature.value_count.max))
-
-  # Use heuristics to infer the shape and representation.
-  if (feature.value_count.min == feature.value_count.max and
-      feature.value_count.min == 1):
-    # Case 1: value_count.min == value_count.max == 1.  Infer a FixedLenFeature
-    # with rank 0 and a default value.
-    tf.compat.v1.logging.info(
-        'Features %s has value_count.min == value_count.max == 1.  Setting to '
-        'fixed length scalar.', feature.name)
-    default_value = _legacy_infer_default_value(feature, dtype)
-    return tf.io.FixedLenFeature([], dtype, default_value)
-
-  elif (feature.value_count.min == feature.value_count.max and
-        feature.value_count.min > 1):
-    # Case 2: value_count.min == value_count.max > 1.  Infer a FixedLenFeature
-    # with rank 1 and a default value.
-    tf.compat.v1.logging.info(
-        'Feature %s has value_count.min == value_count.max > 1.  Setting to '
-        'fixed length vector.', feature.name)
-    default_value = _legacy_infer_default_value(feature, dtype)
-    return tf.io.FixedLenFeature([feature.value_count.min], dtype,
-                                 default_value)
-
-  else:
-    # Case 3: Either value_count.min != value_count.max or
-    # value_count.min == value_count.max == 0.  Infer a VarLenFeature.
-    tf.compat.v1.logging.info(
-        'Feature %s has value_count.min != value_count.max or '
-        ' value_count.min == value_count.max == 0.  Setting to variable length '
-        ' vector.', feature.name)
-    return tf.io.VarLenFeature(dtype)
-
-
-# For numeric values, set defaults that are less likely to occur in the actual
-# data so that users can test for missing values.
-_LEGACY_DEFAULT_VALUE_FOR_DTYPE = {tf.string: '', tf.int64: -1, tf.float32: -1}
-
-
-def _legacy_infer_default_value(feature_proto, dtype):
-  """Returns a canonical default value if min_fraction < 1 or else None."""
-  if feature_proto.presence.min_fraction < 1:
-    default_value = _LEGACY_DEFAULT_VALUE_FOR_DTYPE[dtype]
-    tf.compat.v1.logging.info(
-        'Feature %s has min_fraction (%f) != 1.  Setting default value %r',
-        feature_proto.name, feature_proto.presence.min_fraction, default_value)
-    if feature_proto.value_count.min == 1:
-      # neglecting vector of size 1 because that never happens.
-      return default_value
-    else:
-      return [default_value] * feature_proto.value_count.min
-  else:
-    tf.compat.v1.logging.info(
-        'Feature %s has min_fraction = 1 (%s). Setting default value to None.',
-        feature_proto.name, feature_proto.presence)
-    return None

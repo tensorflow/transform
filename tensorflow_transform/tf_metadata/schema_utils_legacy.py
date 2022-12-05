@@ -25,17 +25,3 @@ def set_generate_legacy_feature_spec(schema_proto, value):
     raise NotImplementedError(
         'The generate_legacy_feature_spec is a legacy field that is not part '
         'of the OSS tf.Transform codebase')
-
-
-def get_generate_legacy_feature_spec(schema_proto):
-  del schema_proto  # unused
-  return False
-
-
-def check_for_unsupported_features(schema_proto):
-  del schema_proto  # unused
-
-
-def get_deprecated(feature):
-  del feature  # unused
-  return False
