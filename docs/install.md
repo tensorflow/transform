@@ -24,8 +24,6 @@ For an introduction to `tf.Transform`, see the `tf.Transform` section of the
 TFX Dev Summit talk on TFX
 ([link](https://www.youtube.com/watch?v=vdG7uKQ2eKk&feature=youtu.be&t=199)).
 
-Caution: `tf.Transform` may be backwards incompatible before version 1.0.
-
 ## Installation
 
 The `tensorflow-transform`
