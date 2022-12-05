@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import contextlib
 import itertools
 import math
 import os
@@ -562,9 +561,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
         expected_metadata)
 
   def testPyFuncs(self):
-    if not tft_unit.is_tf_api_version_1():
-      raise unittest.SkipTest('Test disabled when TF 2.x behavior enabled.')
-
     def my_multiply(x, y):
       return x*y
 
@@ -628,14 +624,11 @@ class BeamImplTest(tft_unit.TransformTestCase):
     })
     self.assertAnalyzeAndTransformResults(
         input_data, input_metadata, preprocessing_fn, expected_data,
-        expected_metadata)
+        expected_metadata, force_tf_compat_v1=True)
 
   def testAssertsNoReturnPyFunc(self):
     # Asserts that apply_pyfunc raises an exception if the passed function does
     # not return anything.
-    if not tft_unit.is_tf_api_version_1():
-      raise unittest.SkipTest('Test disabled when TF 2.x behavior enabled.')
-
     self._SkipIfOutputRecordBatches()
 
     def bad_func():
@@ -684,7 +677,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         preprocessing_fn,
         expected_data,
         expected_metadata,
-        desired_batch_size=batch_size)
+        desired_batch_size=batch_size,
+        force_tf_compat_v1=True)
 
   def testWithUnicode(self):
     def preprocessing_fn(inputs):
@@ -4714,12 +4708,6 @@ class BeamImplTest(tft_unit.TransformTestCase):
           preprocessing_fn=lambda inputs: inputs)  # pyformat: disable
 
   def testLoadKerasModelInPreprocessingFn(self):
-
-    if tft_unit.is_tf_api_version_1():
-      raise unittest.SkipTest(
-          '`tft.make_and_track_object` is only supported when TF2 behavior is '
-          'enabled.')
-
     def _create_model(features, target):
       inputs = [
           tf.keras.Input(shape=(1,), name=f, dtype=tf.float32) for f in features
@@ -4797,11 +4785,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         'f3': 1
     }]
 
-    with contextlib.ExitStack() as stack:
-      if not tft_unit.is_tf_api_version_1():
-        stack.enter_context(
-            self.assertRaisesRegex(
-                RuntimeError, 'analyzers.*appears to be non-deterministic'))
+    with self.assertRaisesRegex(  # pylint: disable=g-error-prone-assert-raises
+        RuntimeError, 'analyzers.*appears to be non-deterministic'):
       self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                             preprocessing_fn, expected_outputs)
 

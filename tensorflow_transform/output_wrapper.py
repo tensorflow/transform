@@ -30,7 +30,6 @@ from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
 
 # pylint: disable=g-direct-tensorflow-import
-from tensorflow.python import tf2
 from tensorflow.python.framework import ops
 from tensorflow.tools.docs import doc_controls
 # pylint: enable=g-direct-tensorflow-import
@@ -427,40 +426,8 @@ class TFTransformOutput:
         self._transform_output_dir, self.POST_TRANSFORM_FEATURE_STATS_PATH)
 
 
-# TODO(zoyahav): Use register_keras_serializable directly once we no longer support
-# TF<2.1.
-def _maybe_register_keras_serializable(package):
-  if hasattr(tf.keras.utils, 'register_keras_serializable'):
-    return tf.keras.utils.register_keras_serializable(package=package)
-  else:
-    return lambda cls: cls
-
-
-def _check_tensorflow_version():
-  """Check that we're using a compatible TF version.
-
-  Raises a warning if either Tensorflow version is less that 2.0 or TF 2.x is
-  not enabled.
-
-  If TF 2.x is enabled, but version is < TF 2.3, raises a warning to indicate
-  that resources may not be initialized.
-  """
-  major, minor, _ = tf.version.VERSION.split('.')
-  if not (int(major) >= 2 and tf2.enabled()):
-    tf.compat.v1.logging.warning(
-        'Tensorflow version (%s) found. TransformFeaturesLayer is supported '
-        'only for TF 2.x with TF 2.x behaviors enabled and may not work as '
-        'intended.', tf.version.VERSION)
-  elif int(major) == 2 and int(minor) < 3:
-    # TODO(varshaan): Log a more specific warning.
-    tf.compat.v1.logging.warning(
-        'Tensorflow version (%s) found. TransformFeaturesLayer may not work '
-        'as intended if the SavedModel contains an initialization op.',
-        tf.version.VERSION)
-
-
 # TODO(b/162055065): Possibly switch back to inherit from Layer when possible.
-@_maybe_register_keras_serializable(package='TensorFlowTransform')
+@tf.keras.utils.register_keras_serializable(package='TensorFlowTransform')
 class TransformFeaturesLayer(tf.keras.Model):
   """A Keras layer for applying a tf.Transform output to input layers."""
 
@@ -478,7 +445,6 @@ class TransformFeaturesLayer(tf.keras.Model):
     self._loaded_saved_model_graph = None
     # TODO(b/160294509): Use tf.compat.v1 when we stop supporting TF 1.15.
     if ops.executing_eagerly_outside_functions():
-      _check_tensorflow_version()
       # The model must be tracked by assigning to an attribute of the Keras
       # layer. Hence, we track the attributes of _saved_model_loader here as
       # well.

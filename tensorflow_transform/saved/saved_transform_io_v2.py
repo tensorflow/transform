@@ -522,7 +522,7 @@ def trace_and_update_module(
       initializers.append(resource._initializer)  # pylint: disable=protected-access
   module.initializers = initializers
   module.assets = [
-      common_types.Asset(asset_filepath) for asset_filepath in
+      tf.saved_model.Asset(asset_filepath) for asset_filepath in
       concrete_fn.graph.get_collection(tf.compat.v1.GraphKeys.ASSET_FILEPATHS)
   ]
   return concrete_fn

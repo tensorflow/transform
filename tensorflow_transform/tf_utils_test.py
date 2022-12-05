@@ -2292,9 +2292,6 @@ class VocabTFUtilsTest(test_case.TransformTestCase):
     self.assertAllEqual(self.evaluate(keys), np.array(expected_keys))
     self.assertAllEqual(self.evaluate(values), np.array(expected_values))
 
-  @unittest.skipIf(
-      test_case.is_tf_api_version_1(),
-      'TFRecord vocabulary dataset tests require TF API version>1')
   def test_read_tfrecord_vocabulary_dataset(self):
     vocab_file = os.path.join(self.get_temp_dir(), 'vocab.tfrecord.gz')
     contents = [b'a', b'b', b'c']
@@ -2346,9 +2343,6 @@ class VocabTFUtilsTest(test_case.TransformTestCase):
           return_indicator_as_value=True,
           has_indicator=True),
   ])
-  @unittest.skipIf(
-      test_case.is_tf_api_version_1(),
-      'TFRecord vocabulary dataset tests require TF API version>1')
   def test_make_tfrecord_vocabulary_dataset(self, contents, expected, key_dtype,
                                             value_dtype,
                                             return_indicator_as_value,

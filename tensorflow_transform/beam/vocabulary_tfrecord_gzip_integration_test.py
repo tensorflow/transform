@@ -39,8 +39,7 @@ class TFRecordVocabularyIntegrationTest(
       mock_is_vocabulary_tfrecord_supported.side_effect = lambda: True
 
     if (tft_unit.is_external_environment() and
-        not tf_utils.is_vocabulary_tfrecord_supported() or
-        tft_unit.is_tf_api_version_1()):
+        not tf_utils.is_vocabulary_tfrecord_supported()):
       raise unittest.SkipTest('Test requires async DatasetInitializer')
     super().setUp()
 

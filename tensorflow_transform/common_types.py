@@ -21,14 +21,6 @@ from typing_extensions import Literal
 
 from tensorflow_metadata.proto.v0 import schema_pb2
 
-# TODO(b/160294509): Stop using tracking.TrackableAsset when TF1.15 support is
-# dropped.
-if hasattr(tf.saved_model, 'Asset'):
-  Asset = tf.saved_model.Asset  # pylint: disable=invalid-name
-else:
-  from tensorflow.python.training.tracking import tracking  # pylint: disable=g-direct-tensorflow-import, g-import-not-at-top
-  Asset = tracking.TrackableAsset  # pylint: disable=invalid-name
-
 # TODO(b/185719271): Define BucketBoundariesType at module level of mappers.py.
 BucketBoundariesType = Union[tf.Tensor, Iterable[Union[int, float]]]
 
@@ -53,7 +45,7 @@ RaggedTensorValueType = Union[tf.RaggedTensor,
                               tf.compat.v1.ragged.RaggedTensorValue]
 TensorValueType = Union[tf.Tensor, np.ndarray, SparseTensorValueType,
                         RaggedTensorValueType]
-TemporaryAnalyzerOutputType = Union[tf.Tensor, Asset]
+TemporaryAnalyzerOutputType = Union[tf.Tensor, tf.saved_model.Asset]
 VocabularyFileFormatType = Literal['text', 'tfrecord_gzip']
 
 

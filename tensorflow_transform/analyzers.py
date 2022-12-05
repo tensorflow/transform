@@ -200,7 +200,7 @@ def _apply_cacheable_combiner_per_key(
 def _apply_cacheable_combiner_per_key_large(
     combiner: analyzer_nodes.Combiner, key_vocabulary_filename: str,
     *tensor_inputs: common_types.TensorType
-) -> Union[tf.Tensor, common_types.Asset]:
+) -> Union[tf.Tensor, tf.saved_model.Asset]:
   """Similar to above but saves the combined result to a file."""
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       tensor_inputs)
@@ -1072,7 +1072,7 @@ def _mean_and_var_per_key(
     output_dtype: Optional[tf.DType] = None,
     key_vocabulary_filename: Optional[str] = None
 ) -> Union[Tuple[tf.Tensor, tf.Tensor, tf.Tensor], tf.Tensor,
-           common_types.Asset]:
+           tf.saved_model.Asset]:
   """`mean_and_var` by group, specified by key.
 
   Args:
