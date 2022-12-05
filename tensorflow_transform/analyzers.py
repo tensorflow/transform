@@ -506,7 +506,7 @@ def _min_and_max(x: common_types.TensorType,
                                    -output_dtype.max)
     elif not reduce_instance_dims and isinstance(x, tf.RaggedTensor):
       raise NotImplementedError(
-          'Elemenwise min_and_max does not support RaggedTensors.')
+          'Elementwise min_and_max does not support RaggedTensors.')
     else:
       combine_fn = np.max
       default_accumulator_value = (-np.inf if x.dtype.is_floating else
