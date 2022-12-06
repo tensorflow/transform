@@ -21,7 +21,6 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import analyzers
-from tensorflow_transform import common_types
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam import tft_unit
 from tensorflow_metadata.proto.v0 import schema_pb2
@@ -129,7 +128,26 @@ _BUCKETIZE_COMPOSITE_INPUT_TEST_CASES = [
             'x_bucketized$sparse_values': [(x - 1) // 3],
             'x_bucketized$sparse_indices_0': [x % 4],
             'x_bucketized$sparse_indices_1': [x % 5]
-        } for x in range(1, 10)])
+        } for x in range(1, 10)]),
+    dict(
+        testcase_name='ragged',
+        input_data=[{
+            'val': [x, 10 - x],
+            'row_lengths': [0, x % 3, 2 - x % 3],
+        } for x in range(1, 10)],
+        input_metadata=tft.DatasetMetadata.from_feature_spec({
+            'x':
+                tf.io.RaggedFeature(
+                    tf.int64,
+                    value_key='val',
+                    partitions=[
+                        tf.io.RaggedFeature.RowLengths('row_lengths')  # pytype: disable=attribute-error
+                    ]),
+        }),
+        expected_data=[{
+            'x_bucketized$ragged_values': [(x - 1) // 3, (9 - x) // 3],
+            'x_bucketized$row_lengths_1': [0, x % 3, 2 - x % 3],
+        } for x in range(1, 10)]),
 ]
 
 _BUCKETIZE_PER_KEY_TEST_CASES = [
@@ -211,138 +229,114 @@ _BUCKETIZE_PER_KEY_TEST_CASES = [
                 'x_bucketized':
                     schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
             })),
+    dict(
+        testcase_name='ragged',
+        input_data=[{
+            'val': [x, x],
+            'row_lengths': [x % 3, 2 - (x % 3)],
+            'key_val': ['a', 'a'] if x < 50 else ['b', 'b'],
+            'key_row_lengths': [x % 3, 2 - (x % 3)],
+        } for x in range(1, 100)],
+        input_metadata=tft.DatasetMetadata.from_feature_spec({
+            'x':
+                tf.io.RaggedFeature(
+                    tf.int64,
+                    value_key='val',
+                    partitions=[
+                        tf.io.RaggedFeature.RowLengths('row_lengths')  # pytype: disable=attribute-error
+                    ]),
+            'key':
+                tf.io.RaggedFeature(
+                    tf.string,
+                    value_key='key_val',
+                    partitions=[
+                        tf.io.RaggedFeature.RowLengths('key_row_lengths')  # pytype: disable=attribute-error
+                    ]),
+        }),
+        expected_data=[{
+            'x_bucketized$ragged_values': [
+                _compute_simple_per_key_bucket(x, 'a' if x < 50 else 'b'),
+            ] * 2,
+            'x_bucketized$row_lengths_1': [x % 3, 2 - (x % 3)],
+        } for x in range(1, 100)],
+        expected_metadata=tft.DatasetMetadata.from_feature_spec(
+            {
+                'x_bucketized':
+                    tf.io.RaggedFeature(
+                        tf.int64,
+                        value_key='x_bucketized$ragged_values',
+                        partitions=[
+                            tf.io.RaggedFeature.RowLengths(  # pytype: disable=attribute-error
+                                'x_bucketized$row_lengths_1')
+                        ]),
+            },
+            {
+                'x_bucketized':
+                    schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
+            })),
+    dict(
+        testcase_name='ragged_weighted',
+        input_data=[{
+            'val': [x, x],
+            'row_lengths': [2 - (x % 3), x % 3],
+            'key_val': ['a', 'a'] if x < 50 else ['b', 'b'],
+            'key_row_lengths': [
+                2 - (x % 3),
+                x % 3,
+            ],
+            'weights_val':
+                ([0, 0] if x in _WEIGHTED_PER_KEY_0_RANGE else [1, 1]),
+            'weights_row_lengths': [
+                2 - (x % 3),
+                x % 3,
+            ],
+        } for x in range(1, 100)],
+        input_metadata=tft.DatasetMetadata.from_feature_spec({
+            'x':
+                tf.io.RaggedFeature(
+                    tf.int64,
+                    value_key='val',
+                    partitions=[
+                        tf.io.RaggedFeature.RowLengths('row_lengths')  # pytype: disable=attribute-error
+                    ]),
+            'key':
+                tf.io.RaggedFeature(
+                    tf.string,
+                    value_key='key_val',
+                    partitions=[
+                        tf.io.RaggedFeature.RowLengths('key_row_lengths')  # pytype: disable=attribute-error
+                    ]),
+            'weights':
+                tf.io.RaggedFeature(
+                    tf.int64,
+                    value_key='weights_val',
+                    partitions=[
+                        tf.io.RaggedFeature.RowLengths('weights_row_lengths')  # pytype: disable=attribute-error
+                    ]),
+        }),
+        expected_data=[{
+            'x_bucketized$ragged_values': [
+                _compute_simple_per_key_bucket(
+                    x, 'a' if x < 50 else 'b', weighted=True),
+            ] * 2,
+            'x_bucketized$row_lengths_1': [2 - (x % 3), x % 3],
+        } for x in range(1, 100)],
+        expected_metadata=tft.DatasetMetadata.from_feature_spec(
+            {
+                'x_bucketized':
+                    tf.io.RaggedFeature(
+                        tf.int64,
+                        value_key='x_bucketized$ragged_values',
+                        partitions=[
+                            tf.io.RaggedFeature.RowLengths(  # pytype: disable=attribute-error
+                                'x_bucketized$row_lengths_1')
+                        ]),
+            },
+            {
+                'x_bucketized':
+                    schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
+            })),
 ]
-
-if common_types.is_ragged_feature_available():
-  _BUCKETIZE_COMPOSITE_INPUT_TEST_CASES.append(
-      dict(
-          testcase_name='ragged',
-          input_data=[{
-              'val': [x, 10 - x],
-              'row_lengths': [0, x % 3, 2 - x % 3],
-          } for x in range(1, 10)],
-          input_metadata=tft.DatasetMetadata.from_feature_spec({
-              'x':
-                  tf.io.RaggedFeature(
-                      tf.int64,
-                      value_key='val',
-                      partitions=[
-                          tf.io.RaggedFeature.RowLengths('row_lengths')  # pytype: disable=attribute-error
-                      ]),
-          }),
-          expected_data=[{
-              'x_bucketized$ragged_values': [(x - 1) // 3, (9 - x) // 3],
-              'x_bucketized$row_lengths_1': [0, x % 3, 2 - x % 3],
-          } for x in range(1, 10)]))
-  _BUCKETIZE_PER_KEY_TEST_CASES.extend([
-      dict(
-          testcase_name='ragged',
-          input_data=[{
-              'val': [x, x],
-              'row_lengths': [x % 3, 2 - (x % 3)],
-              'key_val': ['a', 'a'] if x < 50 else ['b', 'b'],
-              'key_row_lengths': [x % 3, 2 - (x % 3)],
-          } for x in range(1, 100)],
-          input_metadata=tft.DatasetMetadata.from_feature_spec({
-              'x':
-                  tf.io.RaggedFeature(
-                      tf.int64,
-                      value_key='val',
-                      partitions=[
-                          tf.io.RaggedFeature.RowLengths('row_lengths')  # pytype: disable=attribute-error
-                      ]),
-              'key':
-                  tf.io.RaggedFeature(
-                      tf.string,
-                      value_key='key_val',
-                      partitions=[
-                          tf.io.RaggedFeature.RowLengths('key_row_lengths')  # pytype: disable=attribute-error
-                      ]),
-          }),
-          expected_data=[{
-              'x_bucketized$ragged_values': [
-                  _compute_simple_per_key_bucket(x, 'a' if x < 50 else 'b'),
-              ] * 2,
-              'x_bucketized$row_lengths_1': [x % 3, 2 - (x % 3)],
-          } for x in range(1, 100)],
-          expected_metadata=tft.DatasetMetadata.from_feature_spec(
-              {
-                  'x_bucketized':
-                      tf.io.RaggedFeature(
-                          tf.int64,
-                          value_key='x_bucketized$ragged_values',
-                          partitions=[
-                              tf.io.RaggedFeature.RowLengths(  # pytype: disable=attribute-error
-                                  'x_bucketized$row_lengths_1')
-                          ]),
-              },
-              {
-                  'x_bucketized':
-                      schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
-              })),
-      dict(
-          testcase_name='ragged_weighted',
-          input_data=[{
-              'val': [x, x],
-              'row_lengths': [2 - (x % 3), x % 3],
-              'key_val': ['a', 'a'] if x < 50 else ['b', 'b'],
-              'key_row_lengths': [
-                  2 - (x % 3),
-                  x % 3,
-              ],
-              'weights_val':
-                  ([0, 0] if x in _WEIGHTED_PER_KEY_0_RANGE else [1, 1]),
-              'weights_row_lengths': [
-                  2 - (x % 3),
-                  x % 3,
-              ],
-          } for x in range(1, 100)],
-          input_metadata=tft.DatasetMetadata.from_feature_spec({
-              'x':
-                  tf.io.RaggedFeature(
-                      tf.int64,
-                      value_key='val',
-                      partitions=[
-                          tf.io.RaggedFeature.RowLengths('row_lengths')  # pytype: disable=attribute-error
-                      ]),
-              'key':
-                  tf.io.RaggedFeature(
-                      tf.string,
-                      value_key='key_val',
-                      partitions=[
-                          tf.io.RaggedFeature.RowLengths('key_row_lengths')  # pytype: disable=attribute-error
-                      ]),
-              'weights':
-                  tf.io.RaggedFeature(
-                      tf.int64,
-                      value_key='weights_val',
-                      partitions=[
-                          tf.io.RaggedFeature.RowLengths('weights_row_lengths')  # pytype: disable=attribute-error
-                      ]),
-          }),
-          expected_data=[{
-              'x_bucketized$ragged_values': [
-                  _compute_simple_per_key_bucket(
-                      x, 'a' if x < 50 else 'b', weighted=True),
-              ] * 2,
-              'x_bucketized$row_lengths_1': [2 - (x % 3), x % 3],
-          } for x in range(1, 100)],
-          expected_metadata=tft.DatasetMetadata.from_feature_spec(
-              {
-                  'x_bucketized':
-                      tf.io.RaggedFeature(
-                          tf.int64,
-                          value_key='x_bucketized$ragged_values',
-                          partitions=[
-                              tf.io.RaggedFeature.RowLengths(  # pytype: disable=attribute-error
-                                  'x_bucketized$row_lengths_1')
-                          ]),
-              },
-              {
-                  'x_bucketized':
-                      schema_pb2.IntDomain(min=0, max=2, is_categorical=True),
-              })),
-  ])
 
 
 class BucketizeIntegrationTest(tft_unit.TransformTestCase):

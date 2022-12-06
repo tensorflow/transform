@@ -18,7 +18,6 @@
 
 import numpy as np
 import tensorflow as tf
-from tensorflow_transform import common_types
 from tensorflow_transform.tf_metadata import schema_utils
 
 
@@ -208,7 +207,7 @@ class ExampleProtoCoder:
               _VarLenFeatureHandler(index_key, tf.int64))
         self._feature_handlers.append(
             _VarLenFeatureHandler(feature_spec.value_key, feature_spec.dtype))
-      elif common_types.is_ragged_feature(feature_spec):
+      elif isinstance(feature_spec, tf.io.RaggedFeature):
         uniform_partition = False
         for partition in feature_spec.partitions:
           if isinstance(partition, tf.io.RaggedFeature.RowLengths):

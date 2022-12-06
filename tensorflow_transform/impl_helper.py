@@ -98,10 +98,8 @@ def batched_placeholders_from_specs(specs):
 
 
 def _is_feature_spec(spec):
-  if isinstance(
-      spec, (tf.io.VarLenFeature, tf.io.SparseFeature, tf.io.FixedLenFeature)):
-    return True
-  return common_types.is_ragged_feature(spec)
+  return isinstance(spec, (tf.io.VarLenFeature, tf.io.SparseFeature,
+                           tf.io.FixedLenFeature, tf.io.RaggedFeature))
 
 
 def _sanitize_scope_name(name):
@@ -326,7 +324,7 @@ def _get_ragged_instance_component(
   return component_batch[instance_begin:instance_end]
 
 
-def _get_num_inner_uniform_elements(spec: common_types.RaggedFeature,
+def _get_num_inner_uniform_elements(spec: tf.io.RaggedFeature,
                                     name: str) -> int:
   """Extracts the number of elements in inner dimensions of a ragged feature.
 
@@ -454,7 +452,7 @@ def to_instance_dicts(schema, fetches):
       batch_dict.update(batch_dict_update)
       batch_sizes[name] = len(batch_dict_update[spec.value_key])
 
-    elif common_types.is_ragged_feature(spec):
+    elif isinstance(spec, tf.io.RaggedFeature):
       batch_dict_update = _handle_ragged_batch(tensor_or_value, spec, name)
       batch_dict.update(batch_dict_update)
       batch_sizes[name] = len(batch_dict_update[spec.value_key])
@@ -527,7 +525,7 @@ def get_type_specs_from_feature_specs(
       # TODO(b/181868576): Handle `SparseFeature`s by the converter once the
       # support is implemented.
       pass
-    elif common_types.is_ragged_feature(feature_spec):
+    elif isinstance(feature_spec, tf.io.RaggedFeature):
       # Number of dimensions is number of partitions + 1 + 1 batch dimension.
       shape = [None, None]
       ragged_rank = 1

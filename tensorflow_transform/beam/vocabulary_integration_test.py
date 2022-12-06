@@ -21,7 +21,6 @@ import apache_beam as beam
 
 import tensorflow as tf
 import tensorflow_transform as tft
-from tensorflow_transform import common_types
 from tensorflow_transform.beam import analyzer_impls
 from tensorflow_transform.beam import impl as beam_impl
 from tensorflow_transform.beam import tft_unit
@@ -77,60 +76,57 @@ _COMPOSITE_COMPUTE_AND_APPLY_VOCABULARY_TEST_CASES = [
         expected_vocab_file_contents={
             'my_vocab': [b'hello', b'goodbye', b'world', b' ']
         }),
+    dict(
+        testcase_name='ragged',
+        input_data=[
+            {
+                'val': ['hello', ' '],
+                'row_lengths': [1, 0, 1]
+            },
+            {
+                'val': ['world'],
+                'row_lengths': [0, 1]
+            },
+            {
+                'val': ['hello', 'goodbye'],
+                'row_lengths': [2, 0, 0]
+            },
+            {
+                'val': ['hello', 'goodbye', ' '],
+                'row_lengths': [0, 2, 1]
+            },
+        ],
+        input_metadata=tft.DatasetMetadata.from_feature_spec({
+            'x':
+                tf.io.RaggedFeature(
+                    tf.string,
+                    value_key='val',
+                    partitions=[
+                        tf.io.RaggedFeature.RowLengths('row_lengths')  # pytype: disable=attribute-error
+                    ])
+        }),
+        expected_data=[
+            {
+                'index$ragged_values': [0, 2],
+                'index$row_lengths_1': [1, 0, 1]
+            },
+            {
+                'index$ragged_values': [3],
+                'index$row_lengths_1': [0, 1]
+            },
+            {
+                'index$ragged_values': [0, 1],
+                'index$row_lengths_1': [2, 0, 0]
+            },
+            {
+                'index$ragged_values': [0, 1, 2],
+                'index$row_lengths_1': [0, 2, 1]
+            },
+        ],
+        expected_vocab_file_contents={
+            'my_vocab': [b'hello', b'goodbye', b' ', b'world']
+        }),
 ]
-
-if common_types.is_ragged_feature_available():
-  _COMPOSITE_COMPUTE_AND_APPLY_VOCABULARY_TEST_CASES.append(
-      dict(
-          testcase_name='ragged',
-          input_data=[
-              {
-                  'val': ['hello', ' '],
-                  'row_lengths': [1, 0, 1]
-              },
-              {
-                  'val': ['world'],
-                  'row_lengths': [0, 1]
-              },
-              {
-                  'val': ['hello', 'goodbye'],
-                  'row_lengths': [2, 0, 0]
-              },
-              {
-                  'val': ['hello', 'goodbye', ' '],
-                  'row_lengths': [0, 2, 1]
-              },
-          ],
-          input_metadata=tft.DatasetMetadata.from_feature_spec({
-              'x':
-                  tf.io.RaggedFeature(
-                      tf.string,
-                      value_key='val',
-                      partitions=[
-                          tf.io.RaggedFeature.RowLengths('row_lengths')  # pytype: disable=attribute-error
-                      ])
-          }),
-          expected_data=[
-              {
-                  'index$ragged_values': [0, 2],
-                  'index$row_lengths_1': [1, 0, 1]
-              },
-              {
-                  'index$ragged_values': [3],
-                  'index$row_lengths_1': [0, 1]
-              },
-              {
-                  'index$ragged_values': [0, 1],
-                  'index$row_lengths_1': [2, 0, 0]
-              },
-              {
-                  'index$ragged_values': [0, 1, 2],
-                  'index$row_lengths_1': [0, 2, 1]
-              },
-          ],
-          expected_vocab_file_contents={
-              'my_vocab': [b'hello', b'goodbye', b' ', b'world']
-          }))
 
 
 class VocabularyIntegrationTest(tft_unit.TransformTestCase):

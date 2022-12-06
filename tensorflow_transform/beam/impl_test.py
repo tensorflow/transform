@@ -27,7 +27,6 @@ import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import analyzers
 from tensorflow_transform import common
-from tensorflow_transform import common_types
 from tensorflow_transform import pretrained_models
 from tensorflow_transform import schema_inference
 import tensorflow_transform.beam as tft_beam
@@ -4540,103 +4539,42 @@ class BeamImplTest(tft_unit.TransformTestCase):
           'y_ones': tf.ones_like(inputs['y'])
       }
 
-    if common_types.is_ragged_feature_available():
-      expected_data = [
-          {
-              'x_ones$ragged_values': [1, 1, 1],
-              'x_ones$row_lengths_1': [1, 0, 2],
-              'y_ones$ragged_values': [1, 1],
-              'y_ones$row_lengths_1': [2],
-          },
-          {
-              'x_ones$ragged_values': [],
-              'x_ones$row_lengths_1': [0],
-              'y_ones$ragged_values': [1, 1, 1, 1],
-              'y_ones$row_lengths_1': [2, 0, 2],
-          },
-      ]
-      expected_metadata = tft.DatasetMetadata.from_feature_spec({
-          'x_ones':
-              tf.io.RaggedFeature(
-                  tf.int64,
-                  value_key='x_ones$ragged_values',
-                  partitions=[
-                      tf.io.RaggedFeature.RowLengths('x_ones$row_lengths_1')  # pytype: disable=attribute-error
-                  ]),
-          'y_ones':
-              tf.io.RaggedFeature(
-                  tf.float32,
-                  value_key='y_ones$ragged_values',
-                  partitions=[
-                      tf.io.RaggedFeature.RowLengths('y_ones$row_lengths_1'),  # pytype: disable=attribute-error
-                      tf.io.RaggedFeature.UniformRowLength(2),  # pytype: disable=attribute-error
-                  ]),
-      })
-      self.assertAnalyzeAndTransformResults([input_record_batch],
-                                            tensor_adapter_config,
-                                            preprocessing_fn,
-                                            expected_data=expected_data,
-                                            expected_metadata=expected_metadata)
-    else:
-      transform_output_path = os.path.join(self.get_temp_dir(),
-                                           'transform_output')
-      with self._makeTestPipeline() as pipeline:
-        input_data = (pipeline | beam.Create([input_record_batch]))
-        with tft_beam.Context(temp_dir=self.get_temp_dir()):
-          transform_fn = (
-              (input_data, tensor_adapter_config)
-              | 'AnalyzeDataset' >> tft_beam.AnalyzeDataset(preprocessing_fn))
-          _ = transform_fn | 'WriteTransform' >> tft.beam.WriteTransformFn(
-              transform_output_path)
-
-          _, transformed_metadata = transform_fn
-
-          expected_metadata = text_format.Parse(
-              """
-                feature {
-                  name: "x_ones"
-                  type: INT
-                  annotation {
-                    tag: "ragged_tensor"
-                  }
-                }
-                feature {
-                  name: "y_ones"
-                  type: FLOAT
-                  annotation {
-                    tag: "ragged_tensor"
-                  }
-                }""", schema_pb2.Schema())
-
-          if not tft_unit.is_external_environment():
-            expected_metadata.generate_legacy_feature_spec = False
-
-          self.assertProtoEquals(transformed_metadata.schema, expected_metadata)
-
-          def _assert_schemas_equal_fn(schema_dict_list):
-            self.assertEqual(1, len(schema_dict_list))
-            self.assertProtoEquals(schema_dict_list[0].schema,
-                                   expected_metadata)
-
-          beam_test_util.assert_that(
-              transformed_metadata.deferred_metadata,
-              _assert_schemas_equal_fn,
-              label='assert_deferred_metadata')
-
-      with tf.Graph().as_default():
-        tft_out = tft.TFTransformOutput(transform_output_path)
-        inputs = {
-            'x': tf.ragged.constant([[[1], [], [2, 3]], [[1]]], dtype=tf.int64)
-        }
-        outputs = tft_out.transform_raw_features(inputs)
-        flat_outputs = tf.nest.flatten(
-            outputs['x_ones'], expand_composites=True)
-        expected_flat_outputs = tf.nest.flatten(
-            tf.ragged.constant([[[1], [], [1, 1]], [[1]]], dtype=tf.int64),
-            expand_composites=True)
-        with tf.compat.v1.Session():
-          for expected, transformed in zip(expected_flat_outputs, flat_outputs):
-            self.assertAllEqual(expected.eval(), transformed.eval())
+    expected_data = [
+        {
+            'x_ones$ragged_values': [1, 1, 1],
+            'x_ones$row_lengths_1': [1, 0, 2],
+            'y_ones$ragged_values': [1, 1],
+            'y_ones$row_lengths_1': [2],
+        },
+        {
+            'x_ones$ragged_values': [],
+            'x_ones$row_lengths_1': [0],
+            'y_ones$ragged_values': [1, 1, 1, 1],
+            'y_ones$row_lengths_1': [2, 0, 2],
+        },
+    ]
+    expected_metadata = tft.DatasetMetadata.from_feature_spec({
+        'x_ones':
+            tf.io.RaggedFeature(
+                tf.int64,
+                value_key='x_ones$ragged_values',
+                partitions=[
+                    tf.io.RaggedFeature.RowLengths('x_ones$row_lengths_1')  # pytype: disable=attribute-error
+                ]),
+        'y_ones':
+            tf.io.RaggedFeature(
+                tf.float32,
+                value_key='y_ones$ragged_values',
+                partitions=[
+                    tf.io.RaggedFeature.RowLengths('y_ones$row_lengths_1'),  # pytype: disable=attribute-error
+                    tf.io.RaggedFeature.UniformRowLength(2),  # pytype: disable=attribute-error
+                ]),
+    })
+    self.assertAnalyzeAndTransformResults([input_record_batch],
+                                          tensor_adapter_config,
+                                          preprocessing_fn,
+                                          expected_data=expected_data,
+                                          expected_metadata=expected_metadata)
 
   def testPipelineWithoutAutomaterialization(self):
     # Other tests pass lists instead of PCollections and thus invoke

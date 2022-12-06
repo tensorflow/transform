@@ -31,7 +31,6 @@ else:
 # pylint: disable=g-import-not-at-top
 import numpy as np
 import tensorflow as tf
-from tensorflow_transform import common_types
 from tensorflow_transform.coders import example_proto_coder
 from tensorflow_transform import test_case
 from tensorflow_transform.tf_metadata import schema_utils
@@ -64,6 +63,33 @@ _FEATURE_SPEC = {
     '2d_sparse_feature':
         tf.io.SparseFeature(['2d_sparse_idx0', '2d_sparse_idx1'],
                             '2d_sparse_val', tf.float32, [2, 10]),
+    'ragged_feature':
+        tf.io.RaggedFeature(
+            tf.float32,
+            value_key='ragged_val',
+            partitions=[tf.io.RaggedFeature.RowLengths('ragged_row_lengths1')]),
+    '2d_ragged_feature':
+        tf.io.RaggedFeature(
+            tf.string,
+            value_key='2d_ragged_val',
+            partitions=[
+                tf.io.RaggedFeature.RowLengths('2d_ragged_row_lengths1'),
+                tf.io.RaggedFeature.RowLengths('2d_ragged_row_lengths2')
+            ]),
+    'ragged_uniform_feature':
+        tf.io.RaggedFeature(
+            tf.int64,
+            value_key='ragged_uniform_val',
+            partitions=[tf.io.RaggedFeature.UniformRowLength(2)]),
+    '2d_ragged_uniform_feature':
+        tf.io.RaggedFeature(
+            tf.int64,
+            value_key='2d_ragged_uniform_val',
+            partitions=[
+                tf.io.RaggedFeature.RowLengths(
+                    '2d_ragged_uniform_row_lengths1'),
+                tf.io.RaggedFeature.UniformRowLength(2)
+            ]),
 }
 
 _ENCODE_CASES = {
@@ -259,70 +285,29 @@ _ENCODE_ERROR_CASES = [
         },
         instance={'2d_vector_feature': [1, 2, 3]},
         error_msg='got wrong number of values'),
+    dict(
+        testcase_name='unsupported_ragged_partition_sequence',
+        feature_spec={
+            '2d_ragged_feature':
+                tf.io.RaggedFeature(
+                    tf.string,
+                    value_key='2d_ragged_val',
+                    partitions=[
+                        tf.io.RaggedFeature.UniformRowLength(4),
+                        tf.io.RaggedFeature.RowLengths('2d_ragged_row_lengths1')
+                    ]),
+        },
+        instance={'2d_ragged_val': [b'not', b'necessary']},
+        error_msg='Encountered ragged dimension after uniform'),
 ]
-
-# TODO(b/160294509): Move these to the initial definition once TF 1.x support is
-# dropped.
-if common_types.is_ragged_feature_available():
-  _FEATURE_SPEC.update({
-      'ragged_feature':
-          tf.io.RaggedFeature(
-              tf.float32,
-              value_key='ragged_val',
-              partitions=[
-                  tf.io.RaggedFeature.RowLengths('ragged_row_lengths1')
-              ]),
-      '2d_ragged_feature':
-          tf.io.RaggedFeature(
-              tf.string,
-              value_key='2d_ragged_val',
-              partitions=[
-                  tf.io.RaggedFeature.RowLengths('2d_ragged_row_lengths1'),
-                  tf.io.RaggedFeature.RowLengths('2d_ragged_row_lengths2')
-              ]),
-      'ragged_uniform_feature':
-          tf.io.RaggedFeature(
-              tf.int64,
-              value_key='ragged_uniform_val',
-              partitions=[tf.io.RaggedFeature.UniformRowLength(2)]),
-      '2d_ragged_uniform_feature':
-          tf.io.RaggedFeature(
-              tf.int64,
-              value_key='2d_ragged_uniform_val',
-              partitions=[
-                  tf.io.RaggedFeature.RowLengths(
-                      '2d_ragged_uniform_row_lengths1'),
-                  tf.io.RaggedFeature.UniformRowLength(2)
-              ]),
-  })
-
-  _ENCODE_ERROR_CASES.append(
-      dict(
-          testcase_name='unsupported_ragged_partition_sequence',
-          feature_spec={
-              '2d_ragged_feature':
-                  tf.io.RaggedFeature(
-                      tf.string,
-                      value_key='2d_ragged_val',
-                      partitions=[
-                          tf.io.RaggedFeature.UniformRowLength(4),
-                          tf.io.RaggedFeature.RowLengths(
-                              '2d_ragged_row_lengths1')
-                      ]),
-          },
-          instance={'2d_ragged_val': [b'not', b'necessary']},
-          error_msg='Encountered ragged dimension after uniform',
-      ))
 
 
 def _maybe_extend_encode_case_with_ragged(encode_case):
   result = copy.deepcopy(encode_case)
   ragged_ascii_proto = result.pop('ragged_ascii_proto', '}')
   ragged_instance = result.pop('ragged_instance', {})
-  if common_types.is_ragged_feature_available():
-    result['ascii_proto'] = (
-        encode_case['ascii_proto'][:-1] + ragged_ascii_proto)
-    result['instance'].update(ragged_instance)
+  result['ascii_proto'] = (encode_case['ascii_proto'][:-1] + ragged_ascii_proto)
+  result['instance'].update(ragged_instance)
   return result
 
 

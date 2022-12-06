@@ -76,7 +76,7 @@ def schema_from_feature_spec(
       result.feature.add().CopyFrom(value_feature)
       result.sparse_feature.add().CopyFrom(sparse_feature)
 
-    elif common_types.is_ragged_feature(spec):
+    elif isinstance(spec, tf.io.RaggedFeature):
       (value_feature, partitions_features, ragged_tensor_representation) = (
           _ragged_tensor_representation_from_feature_spec(spec, name, domains))
       result.feature.add().CopyFrom(value_feature)
@@ -93,8 +93,8 @@ def schema_from_feature_spec(
 
 
 def _ragged_tensor_representation_from_feature_spec(
-    spec: common_types.RaggedFeature, name: str,
-    domains: Dict[str, common_types.DomainType]
+    spec: tf.io.RaggedFeature, name: str, domains: Dict[str,
+                                                        common_types.DomainType]
 ) -> Tuple[schema_pb2.Feature, List[schema_pb2.Feature],
            schema_pb2.TensorRepresentation]:
   """Returns representation of a RaggedTensor from a feature spec.
@@ -250,11 +250,6 @@ SchemaAsFeatureSpecResult = tfx_namedtuple.TypedNamedTuple(
     [('feature_spec', Dict[str, common_types.FeatureSpecType]),
      ('domains', Dict[str, common_types.DomainType])])
 
-# A tag used to indicate that a feature was inferred from a RaggedTensor.  A
-# Schema containing such a feature cannot be conerted to a feature spec in
-# TF 1.x, because there is no feature spec for a RaggedTensor.
-RAGGED_TENSOR_TAG = 'ragged_tensor'
-
 
 def _standardize_default_value(
     spec: tf.io.FixedLenFeature) -> tf.io.FixedLenFeature:
@@ -365,8 +360,7 @@ def _sequence_schema_as_feature_spec(
   for name, spec in feature_spec.items():
     if isinstance(spec, (tf.io.FixedLenFeature, tf.io.VarLenFeature)):
       source_feature_name = name
-    elif isinstance(
-        spec, tf.io.SparseFeature) or common_types.is_ragged_feature(spec):
+    elif isinstance(spec, (tf.io.SparseFeature, tf.io.RaggedFeature)):
       source_feature_name = spec.value_key
     else:
       raise ValueError('spec is not recognized')
@@ -464,17 +458,14 @@ def _ragged_tensor_representation_as_feature_spec(
     name: str, tensor_representation: schema_pb2.TensorRepresentation,
     feature_by_name: Dict[str, schema_pb2.Feature],
     string_domains: Dict[str, common_types.DomainType]
-) -> Tuple[common_types.RaggedFeature, Optional[common_types.DomainType]]:
+) -> Tuple[tf.io.RaggedFeature, Optional[common_types.DomainType]]:
   """Returns a representation of a RaggedTensor as a feature spec."""
-  if not common_types.is_ragged_feature_available():
-    raise ValueError('RaggedFeature is not supported in TF 1.x.')
-
   value_feature = pop_ragged_source_columns(name, tensor_representation,
                                             feature_by_name)
   spec = tensor_representation_util.CreateTfExampleParserConfig(
       tensor_representation, value_feature.type)
   domain = _get_domain(value_feature, string_domains)
-  return typing.cast(common_types.RaggedFeature, spec), domain
+  return typing.cast(tf.io.RaggedFeature, spec), domain
 
 
 def _legacy_schema_from_feature_spec(feature_spec, domains=None):

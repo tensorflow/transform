@@ -19,7 +19,6 @@ import os
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import common
-from tensorflow_transform import common_types
 from tensorflow_transform import graph_context
 from tensorflow_transform import mappers
 from tensorflow_transform import schema_inference
@@ -330,113 +329,77 @@ class SchemaInferenceTest(test_case.TransformTestCase):
 
     schema = self._get_schema(
         preprocessing_fn, use_compat_v1, create_session=True)
-    if common_types.is_ragged_feature_available():
-      expected_schema_ascii = """
-        feature {
-          name: "bar$ragged_values"
-          type: FLOAT
-        }
-        feature {
-          name: "bar$row_lengths_1"
-          type: INT
-        }
-        feature {
-          name: "baz$ragged_values"
-          type: FLOAT
-        }
-        feature {
-          name: "foo$ragged_values"
-          type: INT
-        }
-        feature {
-          name: "qux$ragged_values"
-          type: FLOAT
-        }
-        feature {
-          name: "qux$row_lengths_1"
-          type: INT
-        }
-        tensor_representation_group {
-          key: ""
-          value {
-            tensor_representation {
-              key: "foo"
-              value {
-                ragged_tensor {
-                  feature_path { step: "foo$ragged_values" }
-                }
-              }
-            }
-            tensor_representation {
-              key: "bar"
-              value {
-                ragged_tensor {
-                  feature_path { step: "bar$ragged_values" }
-                  partition { row_length: "bar$row_lengths_1"}
-                }
-              }
-            }
-            tensor_representation {
-              key: "baz"
-              value {
-                ragged_tensor {
-                  feature_path { step: "baz$ragged_values" }
-                  partition { uniform_row_length: 3}
-                }
-              }
-            }
-            tensor_representation {
-              key: "qux"
-              value {
-                ragged_tensor {
-                  feature_path { step: "qux$ragged_values" }
-                  partition { row_length: "qux$row_lengths_1"}
-                  partition { uniform_row_length: 7}
-                }
+    expected_schema_ascii = """
+      feature {
+        name: "bar$ragged_values"
+        type: FLOAT
+      }
+      feature {
+        name: "bar$row_lengths_1"
+        type: INT
+      }
+      feature {
+        name: "baz$ragged_values"
+        type: FLOAT
+      }
+      feature {
+        name: "foo$ragged_values"
+        type: INT
+      }
+      feature {
+        name: "qux$ragged_values"
+        type: FLOAT
+      }
+      feature {
+        name: "qux$row_lengths_1"
+        type: INT
+      }
+      tensor_representation_group {
+        key: ""
+        value {
+          tensor_representation {
+            key: "foo"
+            value {
+              ragged_tensor {
+                feature_path { step: "foo$ragged_values" }
               }
             }
           }
-        }
-        """
-    else:
-      expected_schema_ascii = """
-        feature {
-          name: "bar"
-          type: FLOAT
-          annotation {
-            tag: "ragged_tensor"
+          tensor_representation {
+            key: "bar"
+            value {
+              ragged_tensor {
+                feature_path { step: "bar$ragged_values" }
+                partition { row_length: "bar$row_lengths_1"}
+              }
+            }
+          }
+          tensor_representation {
+            key: "baz"
+            value {
+              ragged_tensor {
+                feature_path { step: "baz$ragged_values" }
+                partition { uniform_row_length: 3}
+              }
+            }
+          }
+          tensor_representation {
+            key: "qux"
+            value {
+              ragged_tensor {
+                feature_path { step: "qux$ragged_values" }
+                partition { row_length: "qux$row_lengths_1"}
+                partition { uniform_row_length: 7}
+              }
+            }
           }
         }
-        feature {
-          name: "baz"
-          type: FLOAT
-          annotation {
-            tag: "ragged_tensor"
-          }
-        }
-        feature {
-          name: "foo"
-          type: INT
-          annotation {
-            tag: "ragged_tensor"
-          }
-        }
-        feature {
-          name: "qux"
-          type: FLOAT
-          annotation {
-            tag: "ragged_tensor"
-          }
-        }
-        """
+      }
+      """
     expected_schema = text_format.Parse(expected_schema_ascii,
                                         schema_pb2.Schema())
     schema_utils_legacy.set_generate_legacy_feature_spec(expected_schema, False)
     self.assertProtoEquals(expected_schema, schema)
-    if not common_types.is_ragged_feature_available():
-      with self.assertRaisesRegexp(ValueError,
-                                   'Feature "bar" had tag "ragged_tensor"'):
-        schema_utils.schema_as_feature_spec(schema)
 
 
 if __name__ == '__main__':

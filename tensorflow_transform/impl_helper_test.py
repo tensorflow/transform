@@ -21,7 +21,6 @@ from packaging import version
 import pyarrow as pa
 import tensorflow as tf
 from tensorflow_transform import analyzers
-from tensorflow_transform import common_types
 from tensorflow_transform import impl_helper
 from tensorflow_transform import test_case
 from tensorflow_transform.output_wrapper import TFTransformOutput
@@ -42,7 +41,38 @@ _FEATURE_SPEC = {
         tf.io.SparseFeature('idx', 'val', tf.float32, 10),
     'g':
         tf.io.SparseFeature(['g_idx0', 'g_idx1'], 'g_val', tf.float32, [2, 10]),
+    'h':
+        tf.io.RaggedFeature(tf.float32, value_key='h_val'),
+    'i':
+        tf.io.RaggedFeature(
+            tf.float32,
+            value_key='i_val',
+            partitions=[tf.io.RaggedFeature.RowLengths('i_row_lengths1')]),  # pytype: disable=attribute-error
+    'j':
+        tf.io.RaggedFeature(
+            tf.float32,
+            value_key='j_val',
+            partitions=[
+                tf.io.RaggedFeature.RowLengths('j_row_lengths1'),  # pytype: disable=attribute-error
+                tf.io.RaggedFeature.RowLengths('j_row_lengths2'),  # pytype: disable=attribute-error
+            ]),
+    'k':
+        tf.io.RaggedFeature(
+            tf.int64,
+            value_key='k_val',
+            partitions=[
+                tf.io.RaggedFeature.UniformRowLength(3),  # pytype: disable=attribute-error
+            ]),
+    'l':
+        tf.io.RaggedFeature(
+            tf.int64,
+            value_key='l_val',
+            partitions=[
+                tf.io.RaggedFeature.RowLengths('l_row_lengths1'),  # pytype: disable=attribute-error
+                tf.io.RaggedFeature.UniformRowLength(2),  # pytype: disable=attribute-error
+            ]),
 }
+
 _FEED_DICT = {
     'a':
         np.array([100, 100]),
@@ -69,6 +99,34 @@ _FEED_DICT = {
             indices=np.array([(0, 0, 3), (0, 1, 5), (0, 1, 9)]),
             values=np.array([110.0, 210.0, 310.0], np.float32),
             dense_shape=(2, 2, 10)),
+    'h':
+        tf.compat.v1.ragged.RaggedTensorValue(
+            values=np.array([1., 2., 3., 4., 5.], dtype=np.float32),
+            row_splits=np.array([0, 3, 5])),
+    'i':
+        tf.compat.v1.ragged.RaggedTensorValue(
+            values=tf.compat.v1.ragged.RaggedTensorValue(
+                values=np.array([1., 2., 3., 3., 3., 1.], np.float32),
+                row_splits=np.array([0, 0, 3, 6])),
+            row_splits=np.array([0, 2, 3])),
+    'j':
+        tf.compat.v1.ragged.RaggedTensorValue(
+            values=tf.compat.v1.ragged.RaggedTensorValue(
+                values=tf.compat.v1.ragged.RaggedTensorValue(
+                    values=np.array([1., 2., 3., 4., 5.], np.float32),
+                    row_splits=np.array([0, 2, 3, 4, 5])),
+                row_splits=np.array([0, 2, 3, 4])),
+            row_splits=np.array([0, 2, 3])),
+    'k':
+        tf.compat.v1.ragged.RaggedTensorValue(
+            values=np.reshape(np.arange(12, dtype=np.int64), (4, 3)),
+            row_splits=np.array([0, 3, 4])),
+    'l':
+        tf.compat.v1.ragged.RaggedTensorValue(
+            values=tf.compat.v1.ragged.RaggedTensorValue(
+                values=np.reshape(np.arange(8, dtype=np.int64), (4, 2)),
+                row_splits=np.array([0, 2, 3, 4])),
+            row_splits=np.array([0, 2, 3])),
 }
 
 _MULTIPLE_FEATURES_CASE_RECORD_BATCH = {
@@ -94,6 +152,21 @@ _MULTIPLE_FEATURES_CASE_RECORD_BATCH = {
         pa.array([[3, 5, 9], []], type=pa.large_list(pa.int64())),
     'g_val':
         pa.array([[110.0, 210.0, 310.0], []], type=pa.large_list(pa.float32())),
+    'h':
+        pa.array([[1., 2., 3.], [4., 5.]], type=pa.large_list(pa.float32())),
+    'i':
+        pa.array([[[], [1., 2., 3.]], [[3., 3., 1.]]],
+                 type=pa.large_list(pa.large_list(pa.float32()))),
+    'j':
+        pa.array([[[[1., 2.], [3.]], [[4.]]], [[[5.]]]],
+                 type=pa.large_list(pa.large_list(pa.large_list(
+                     pa.float32())))),
+    'k':
+        pa.array([[0, 1, 2, 3, 4, 5, 6, 7, 8], [9, 10, 11]],
+                 type=pa.large_list(pa.int64())),
+    'l':
+        pa.array([[[0, 1, 2, 3], [4, 5]], [[6, 7]]],
+                 type=pa.large_list(pa.large_list(pa.int64()))),
 }
 
 _ROUNDTRIP_CASES = [
@@ -111,6 +184,15 @@ _ROUNDTRIP_CASES = [
             'g_idx0': [0, 1, 1],
             'g_idx1': [3, 5, 9],
             'g_val': [110.0, 210.0, 310.0],
+            'h_val': [1., 2., 3.],
+            'i_val': [1., 2., 3.],
+            'i_row_lengths1': [0, 3],
+            'j_val': [1., 2., 3., 4.],
+            'j_row_lengths1': [2, 1],
+            'j_row_lengths2': [2, 1, 1],
+            'k_val': [0, 1, 2, 3, 4, 5, 6, 7, 8],
+            'l_val': [0, 1, 2, 3, 4, 5],
+            'l_row_lengths1': [4, 2],
         }, {
             'a': 100,
             'b': 2.0,
@@ -122,6 +204,15 @@ _ROUNDTRIP_CASES = [
             'g_idx0': [],
             'g_idx1': [],
             'g_val': [],
+            'h_val': [4., 5.],
+            'i_val': [3., 3., 1.],
+            'i_row_lengths1': [3],
+            'j_val': [5.],
+            'j_row_lengths1': [1],
+            'j_row_lengths2': [1],
+            'k_val': [9, 10, 11],
+            'l_val': [6, 7],
+            'l_row_lengths1': [2],
         }],
         record_batch=_MULTIPLE_FEATURES_CASE_RECORD_BATCH,
         feed_dict=_FEED_DICT),
@@ -139,6 +230,15 @@ _ROUNDTRIP_CASES = [
             'g_idx0': np.array([0, 1, 1]),
             'g_idx1': np.array([3, 5, 9]),
             'g_val': np.array([110.0, 210.0, 310.0]),
+            'h_val': np.array([1., 2., 3.], np.float32),
+            'i_val': np.array([1., 2., 3.], np.float32),
+            'i_row_lengths1': np.array([0, 3]),
+            'j_val': np.array([1., 2., 3., 4], np.float32),
+            'j_row_lengths1': np.array([2, 1]),
+            'j_row_lengths2': np.array([2, 1, 1]),
+            'k_val': np.array([0, 1, 2, 3, 4, 5, 6, 7, 8]),
+            'l_val': np.array([0, 1, 2, 3, 4, 5]),
+            'l_row_lengths1': np.array([4, 2]),
         }, {
             'a': np.int64(100),
             'b': np.array(2.0, np.float32),
@@ -150,6 +250,15 @@ _ROUNDTRIP_CASES = [
             'g_idx0': np.array([], np.float32),
             'g_idx1': np.array([], np.float32),
             'g_val': np.array([], np.float32),
+            'h_val': np.array([4., 5.], np.float32),
+            'i_val': np.array([3., 3., 1.], np.float32),
+            'i_row_lengths1': np.array([3]),
+            'j_val': np.array([5.], np.float32),
+            'j_row_lengths1': np.array([1]),
+            'j_row_lengths2': np.array([1]),
+            'k_val': np.array([9, 10, 11]),
+            'l_val': np.array([6, 7]),
+            'l_row_lengths1': np.array([2]),
         }],
         record_batch=_MULTIPLE_FEATURES_CASE_RECORD_BATCH,
         feed_dict=_FEED_DICT),
@@ -314,137 +423,6 @@ _ROUNDTRIP_CASES = [
                     dense_shape=[2, 10, 11])
         }),
 ]
-
-if common_types.is_ragged_feature_available():
-  _FEATURE_SPEC.update({
-      'h':
-          tf.io.RaggedFeature(tf.float32, value_key='h_val'),
-      'i':
-          tf.io.RaggedFeature(
-              tf.float32,
-              value_key='i_val',
-              partitions=[tf.io.RaggedFeature.RowLengths('i_row_lengths1')]),  # pytype: disable=attribute-error
-      'j':
-          tf.io.RaggedFeature(
-              tf.float32,
-              value_key='j_val',
-              partitions=[
-                  tf.io.RaggedFeature.RowLengths('j_row_lengths1'),  # pytype: disable=attribute-error
-                  tf.io.RaggedFeature.RowLengths('j_row_lengths2'),  # pytype: disable=attribute-error
-              ]),
-      'k':
-          tf.io.RaggedFeature(
-              tf.int64,
-              value_key='k_val',
-              partitions=[
-                  tf.io.RaggedFeature.UniformRowLength(3),  # pytype: disable=attribute-error
-              ]),
-      'l':
-          tf.io.RaggedFeature(
-              tf.int64,
-              value_key='l_val',
-              partitions=[
-                  tf.io.RaggedFeature.RowLengths('l_row_lengths1'),  # pytype: disable=attribute-error
-                  tf.io.RaggedFeature.UniformRowLength(2),  # pytype: disable=attribute-error
-              ]),
-  })
-
-  _FEED_DICT.update({
-      'h':
-          tf.compat.v1.ragged.RaggedTensorValue(
-              values=np.array([1., 2., 3., 4., 5.], dtype=np.float32),
-              row_splits=np.array([0, 3, 5])),
-      'i':
-          tf.compat.v1.ragged.RaggedTensorValue(
-              values=tf.compat.v1.ragged.RaggedTensorValue(
-                  values=np.array([1., 2., 3., 3., 3., 1.], np.float32),
-                  row_splits=np.array([0, 0, 3, 6])),
-              row_splits=np.array([0, 2, 3])),
-      'j':
-          tf.compat.v1.ragged.RaggedTensorValue(
-              values=tf.compat.v1.ragged.RaggedTensorValue(
-                  values=tf.compat.v1.ragged.RaggedTensorValue(
-                      values=np.array([1., 2., 3., 4., 5.], np.float32),
-                      row_splits=np.array([0, 2, 3, 4, 5])),
-                  row_splits=np.array([0, 2, 3, 4])),
-              row_splits=np.array([0, 2, 3])),
-      'k':
-          tf.compat.v1.ragged.RaggedTensorValue(
-              values=np.reshape(np.arange(12, dtype=np.int64), (4, 3)),
-              row_splits=np.array([0, 3, 4])),
-      'l':
-          tf.compat.v1.ragged.RaggedTensorValue(
-              values=tf.compat.v1.ragged.RaggedTensorValue(
-                  values=np.reshape(np.arange(8, dtype=np.int64), (4, 2)),
-                  row_splits=np.array([0, 2, 3, 4])),
-              row_splits=np.array([0, 2, 3])),
-  })
-
-  _MULTIPLE_FEATURES_CASE_RECORD_BATCH.update({
-      'h':
-          pa.array([[1., 2., 3.], [4., 5.]], type=pa.large_list(pa.float32())),
-      'i':
-          pa.array([[[], [1., 2., 3.]], [[3., 3., 1.]]],
-                   type=pa.large_list(pa.large_list(pa.float32()))),
-      'j':
-          pa.array([[[[1., 2.], [3.]], [[4.]]], [[[5.]]]],
-                   type=pa.large_list(
-                       pa.large_list(pa.large_list(pa.float32())))),
-      'k':
-          pa.array([[0, 1, 2, 3, 4, 5, 6, 7, 8], [9, 10, 11]],
-                   type=pa.large_list(pa.int64())),
-      'l':
-          pa.array([[[0, 1, 2, 3], [4, 5]], [[6, 7]]],
-                   type=pa.large_list(pa.large_list(pa.int64()))),
-  })
-
-  # multiple_features
-  _ROUNDTRIP_CASES[0]['instances'][0].update({
-      'h_val': [1., 2., 3.],
-      'i_val': [1., 2., 3.],
-      'i_row_lengths1': [0, 3],
-      'j_val': [1., 2., 3., 4.],
-      'j_row_lengths1': [2, 1],
-      'j_row_lengths2': [2, 1, 1],
-      'k_val': [0, 1, 2, 3, 4, 5, 6, 7, 8],
-      'l_val': [0, 1, 2, 3, 4, 5],
-      'l_row_lengths1': [4, 2],
-  })
-  _ROUNDTRIP_CASES[0]['instances'][1].update({
-      'h_val': [4., 5.],
-      'i_val': [3., 3., 1.],
-      'i_row_lengths1': [3],
-      'j_val': [5.],
-      'j_row_lengths1': [1],
-      'j_row_lengths2': [1],
-      'k_val': [9, 10, 11],
-      'l_val': [6, 7],
-      'l_row_lengths1': [2],
-  })
-
-  # multiple_features_ndarrays
-  _ROUNDTRIP_CASES[1]['instances'][0].update({
-      'h_val': np.array([1., 2., 3.], np.float32),
-      'i_val': np.array([1., 2., 3.], np.float32),
-      'i_row_lengths1': np.array([0, 3]),
-      'j_val': np.array([1., 2., 3., 4], np.float32),
-      'j_row_lengths1': np.array([2, 1]),
-      'j_row_lengths2': np.array([2, 1, 1]),
-      'k_val': np.array([0, 1, 2, 3, 4, 5, 6, 7, 8]),
-      'l_val': np.array([0, 1, 2, 3, 4, 5]),
-      'l_row_lengths1': np.array([4, 2]),
-  })
-  _ROUNDTRIP_CASES[1]['instances'][1].update({
-      'h_val': np.array([4., 5.], np.float32),
-      'i_val': np.array([3., 3., 1.], np.float32),
-      'i_row_lengths1': np.array([3]),
-      'j_val': np.array([5.], np.float32),
-      'j_row_lengths1': np.array([1]),
-      'j_row_lengths2': np.array([1]),
-      'k_val': np.array([9, 10, 11]),
-      'l_val': np.array([6, 7]),
-      'l_row_lengths1': np.array([2]),
-  })
 
 # Non-canonical inputs that will not be the output of to_instance_dicts but
 # are valid inputs to make_feed_dict.
@@ -919,7 +897,7 @@ class ImplHelperTest(test_case.TransformTestCase):
               partitions=[
                   tf.io.RaggedFeature.RowLengths('ragged_3d_row_lengths1'),
                   tf.io.RaggedFeature.RowLengths('ragged_3d_row_lengths2'),
-              ]) if common_types.is_ragged_feature_available() else None,
+              ]),
           # pytype: enable=attribute-error
           expected_components={
               'ragged_3d_val': [
@@ -951,7 +929,7 @@ class ImplHelperTest(test_case.TransformTestCase):
                   tf.io.RaggedFeature.RowLengths('ragged_4d_row_lengths1'),
                   tf.io.RaggedFeature.RowLengths('ragged_4d_row_lengths2'),
                   tf.io.RaggedFeature.RowLengths('ragged_4d_row_lengths3'),
-              ]) if common_types.is_ragged_feature_available() else None,
+              ]),
           # pytype: enable=attribute-error
           expected_components={
               'ragged_4d_val': [

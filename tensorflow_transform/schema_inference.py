@@ -22,7 +22,6 @@ the schema of a tensor from its parents in the graph.
 import collections
 from typing import Callable, List, Mapping, Optional, Tuple, Union
 
-from absl import logging
 import tensorflow as tf
 from tensorflow_transform import common
 from tensorflow_transform import common_types
@@ -42,41 +41,28 @@ from tensorflow_metadata.proto.v0 import schema_pb2
 
 
 def _ragged_feature_spec_from_batched_tensor(
-    name: str, tensor: tf.RaggedTensor
-) -> Union[tf.io.VarLenFeature, common_types.RaggedFeature]:
+    name: str,
+    tensor: tf.RaggedTensor) -> Union[tf.io.VarLenFeature, tf.io.RaggedFeature]:
   """Infer `tf.io.RaggedFeature` from a batched `tf.RaggedTensor`."""
-  if common_types.is_ragged_feature_available():
-    logging.warn(
-        'Feature %s is a RaggedTensor, its support is currently '
-        'experimental', name)
+  partitions = []
+  row_lengths_partition_idx = 1
+  # Ignore batch dimension.
+  for dim in tensor.values.shape[1:]:
+    if dim or dim == 0:
+      partitions.append(
+          tf.io.RaggedFeature.UniformRowLength(  # pytype: disable=attribute-error
+              length=dim))
+    else:
+      partitions.append(
+          tf.io.RaggedFeature.RowLengths(  # pytype: disable=attribute-error
+              key='{}$row_lengths_{}'.format(name, row_lengths_partition_idx)))
+      row_lengths_partition_idx += 1
 
-    partitions = []
-    row_lengths_partition_idx = 1
-    # Ignore batch dimension.
-    for dim in tensor.values.shape[1:]:
-      if dim or dim == 0:
-        partitions.append(
-            tf.io.RaggedFeature.UniformRowLength(  # pytype: disable=attribute-error
-                length=dim))
-      else:
-        partitions.append(
-            tf.io.RaggedFeature.RowLengths(  # pytype: disable=attribute-error
-                key='{}$row_lengths_{}'.format(name,
-                                               row_lengths_partition_idx)))
-        row_lengths_partition_idx += 1
-
-    return tf.io.RaggedFeature(
-        dtype=tensor.dtype,
-        value_key='{}$ragged_values'.format(name),
-        partitions=partitions,
-        row_splits_dtype=tensor.row_splits.dtype)
-  else:
-    logging.warn(
-        'Feature %s was a RaggedTensor.  A Schema will be generated but the '
-        'Schema cannot be used with a coder (e.g. to materialize output '
-        'data) or to generated a feature spec.', name)
-    # Arbitrarily select VarLenFeature.
-    return tf.io.VarLenFeature(tensor.dtype)
+  return tf.io.RaggedFeature(
+      dtype=tensor.dtype,
+      value_key='{}$ragged_values'.format(name),
+      partitions=partitions,
+      row_splits_dtype=tensor.row_splits.dtype)
 
 
 def _feature_spec_from_batched_tensors(
@@ -287,13 +273,7 @@ def _infer_feature_schema_common(
   """
   domains = {}
   feature_tags = collections.defaultdict(list)
-  for name, tensor in features.items():
-    if (isinstance(tensor, tf.RaggedTensor) and
-        not common_types.is_ragged_feature_available()):
-      # Add the 'ragged_tensor' tag which will cause coder and
-      # schema_as_feature_spec to raise an error, as there is no feature spec
-      # for ragged tensors in TF 1.x.
-      feature_tags[name].append(schema_utils.RAGGED_TENSOR_TAG)
+  for name in features:
     if name in tensor_ranges:
       min_value, max_value = tensor_ranges[name]
       domains[name] = schema_pb2.IntDomain(
