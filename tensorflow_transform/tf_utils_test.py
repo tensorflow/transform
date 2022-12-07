@@ -23,7 +23,6 @@ from tensorflow_transform import annotators
 from tensorflow_transform import tf_utils
 from tensorflow_transform import test_case
 
-import unittest
 from tensorflow.python.framework import composite_tensor  # pylint: disable=g-direct-tensorflow-import
 
 _CONSTRUCT_TABLE_PARAMETERS = [
@@ -2272,12 +2271,6 @@ class TFUtilsTest(test_case.TransformTestCase):
 
 
 class VocabTFUtilsTest(test_case.TransformTestCase):
-
-  def setUp(self):
-    if (not tf_utils.is_vocabulary_tfrecord_supported() and
-        test_case.is_external_environment()):
-      raise unittest.SkipTest('Test requires DatasetInitializer')
-    super().setUp()
 
   def _write_tfrecords(self, path, bytes_records):
     with tf.io.TFRecordWriter(path, 'GZIP') as writer:

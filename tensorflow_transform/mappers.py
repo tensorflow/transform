@@ -1088,11 +1088,6 @@ def apply_vocabulary(
     starting from zero, and string value not in the vocabulary is
     assigned default_value.
   """
-  if (file_format == 'tfrecord_gzip' and
-      not tf_utils.is_vocabulary_tfrecord_supported()):
-    raise ValueError(
-        'Vocabulary file_format "tfrecord_gzip" not yet supported for '
-        f'{tf.version.VERSION}.')
   with tf.compat.v1.name_scope(name, 'apply_vocab'):
     if x.dtype != tf.string and not x.dtype.is_integer:
       raise ValueError('expected tf.string or tf.int[8|16|32|64] but got %r' %

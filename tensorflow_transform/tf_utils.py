@@ -17,7 +17,6 @@ import contextlib
 import enum
 from typing import Callable, Optional, Tuple, Union
 
-from packaging import version
 import tensorflow as tf
 from tensorflow_transform import annotators
 from tensorflow_transform import common_types
@@ -534,16 +533,6 @@ def reorder_histogram(bucket_vocab: tf.Tensor, counts: tf.Tensor,
                                     [bucket_vocab]).values], axis=-1))
   counts = tf.pad(counts, [[0, boundary_size - tf.size(counts)]])
   return tf.gather(counts, ordering)
-
-
-# TODO(b/62379925): Remove this once all supported TF versions have
-# tf.data.experimental.DatasetInitializer.
-def is_vocabulary_tfrecord_supported() -> bool:
-  if isinstance(ops.get_default_graph(), func_graph.FuncGraph):
-    return False
-  return ((hasattr(tf.data.experimental, 'DatasetInitializer') or
-           hasattr(tf.lookup.experimental, 'DatasetInitializer')) and
-          version.parse(tf.version.VERSION) >= version.parse('2.4'))
 
 
 # Used to decide which bucket boundary index to assign to a value.

@@ -2010,11 +2010,6 @@ def _vocabulary_analyzer_nodes(
     vocabulary_key: Optional[str] = None
 ) -> common_types.TemporaryAnalyzerOutputType:
   """Internal helper for analyzing vocab. See `vocabulary` doc string."""
-  if (file_format == 'tfrecord_gzip' and
-      not tf_utils.is_vocabulary_tfrecord_supported()):
-    raise ValueError(
-        'Vocabulary file_format "tfrecord_gzip" not yet supported for '
-        f'{tf.version.VERSION}.')
 
   input_values_node = analyzer_nodes.get_input_tensors_value_nodes(
       analyzer_inputs)

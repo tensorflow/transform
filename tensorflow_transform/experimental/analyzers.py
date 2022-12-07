@@ -431,11 +431,6 @@ def _approximate_vocabulary_analyzer_nodes(
     file_format: common_types.VocabularyFileFormatType,
     vocabulary_key: str) -> common_types.TemporaryAnalyzerOutputType:
   """Internal helper for analyzing vocab. See `vocabulary` doc string."""
-  if (file_format == 'tfrecord_gzip' and
-      not tf_utils.is_vocabulary_tfrecord_supported()):
-    raise ValueError(
-        'Vocabulary file_format "tfrecord_gzip" requires TF version >= 2.4')
-
   # TODO(b/208879020): Add vocabulary size annotation for this analyzer.
   analyzers.register_vocab(
       vocab_filename, vocabulary_key=vocabulary_key, file_format=file_format)
