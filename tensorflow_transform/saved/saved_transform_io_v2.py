@@ -128,9 +128,7 @@ class SavedModelLoader:
         defined in `../constants.py` ('transform' and 'transform_signature',
         respectively).
     """
-    # TODO(b/160294509): Stop using tf.compat.v2 when TF1.15 support is
-    # dropped.
-    imported = tf.compat.v2.saved_model.load(saved_model_dir)
+    imported = tf.saved_model.load(saved_model_dir)
     load_v2_in_compat = constants.TRANSFORM_SIGNATURE in imported.signatures
     if load_v2_in_compat:
       restored_function = imported.signatures[constants.TRANSFORM_SIGNATURE]

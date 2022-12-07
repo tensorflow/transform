@@ -112,9 +112,8 @@ def _make_placeholder(tensor_spec):
     return tf.compat.v1.sparse_placeholder(
         shape=tensor_spec.shape, dtype=tensor_spec.dtype)
   if isinstance(tensor_spec, tf.RaggedTensorSpec):
-    # TODO(b/160294509): Switch to public APIs once TF 1 support is dropped.
     return tf.compat.v1.ragged.placeholder(
-        tensor_spec._dtype, tensor_spec._ragged_rank, value_shape=())  # pylint: disable=protected-access
+        tensor_spec.dtype, tensor_spec.ragged_rank, value_shape=())
   else:
     return tf.compat.v1.placeholder(
         shape=tensor_spec.shape, dtype=tensor_spec.dtype)
@@ -164,8 +163,7 @@ def _wrap_as_constant(value, tensor_spec):
         values=tf.constant(value.values, dtype=tensor_spec.dtype),
         dense_shape=tf.constant(value.dense_shape, dtype=tf.int64))
   elif isinstance(tensor_spec, tf.RaggedTensorSpec):
-    # TODO(b/160294509): Switch to public APIs once TF 1 support is dropped.
-    result = _ragged_value_as_constant(value, tensor_spec._dtype)  # pylint: disable=protected-access
+    result = _ragged_value_as_constant(value, tensor_spec.dtype)
   else:
     result = tf.constant(value, dtype=tensor_spec.dtype)
     result.shape.assert_is_compatible_with(tensor_spec.shape)
@@ -299,10 +297,10 @@ class TransformTestCase(parameterized.TestCase, tf.test.TestCase):
     if (isinstance(a_value, (bytes, str)) or isinstance(a_value, list) and
         a_value and isinstance(a_value[0], (bytes, str)) or
         isinstance(a_value, np.ndarray) and a_value.dtype == object):
-      self.assertAllEqual(a_value, b_value)
+      self.assertAllEqual(a_value, b_value, msg=msg)
     else:
       # TODO(varshaan): Change atol only for tests for which 1e-6 is too strict.
-      self.assertAllClose(a_value, b_value, atol=1e-5)
+      self.assertAllClose(a_value, b_value, atol=1e-5, msg=msg)
 
   def AssertVocabularyContents(self, vocab_file_path, file_contents):
     if vocab_file_path.endswith('.tfrecord.gz'):

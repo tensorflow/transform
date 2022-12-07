@@ -2404,7 +2404,4 @@ class VocabTFUtilsTest(test_case.TransformTestCase):
 
 
 if __name__ == '__main__':
-  # TODO(b/160294509): Remove this once this is enabled by default in all
-  # supported TF versions.
-  tf.compat.v1.enable_v2_tensorshape()
   test_case.main()

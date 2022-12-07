@@ -325,14 +325,9 @@ def _to_term_document_one_hot(
   # frequency only cares the existence of a term in a document, not the
   # occurrence frequency within that document.
   # Hashing (<batch_index>, <vocab_index>) pairs for dedup.
-  # TODO(b/160294509): Switch to tf.raw_ops.UniqueV2 to avoid hashing for tf1
-  # tf.raw_ops.UniqueV2 always results in rank-1 tensor placeholder in tf1, even
-  # when the input is 2D. This causes issues when applying UniqueV2 to
-  # (<batch_index>, <vocab_index>) 2D tensor along axis=0 and using the uniqued
-  # 2D tensor as indices for sparse tensors in tf1. See b/160294509#comment8.
   multiplier = vocab_size + 1
-  unique_flatten_indices, _ = tf.unique(batch_indices * multiplier +
-                                        vocab_indices)
+  unique_flatten_indices, _ = tf.raw_ops.UniqueV2(
+      x=batch_indices * multiplier + vocab_indices, axis=[0])
   unique_batch_indices = tf.cast(
       tf.math.divide(unique_flatten_indices, multiplier), dtype=tf.int64)
   unique_vocab_indices = tf.math.mod(unique_flatten_indices, multiplier)

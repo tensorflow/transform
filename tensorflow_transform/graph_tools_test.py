@@ -1042,7 +1042,6 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           }),
       dict(
           testcase_name='_y_function_of_x_with_raw_ops_while',
-          skip_test_check_fn=test_case.skip_if_external_environment,
           create_graph_fn=_create_graph_with_y_function_of_x_with_tf_while,
           feeds=['x'],
           replaced_tensors_ready={'x': False},
@@ -1092,7 +1091,6 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
           }),
       dict(
           testcase_name='_y_function_of_x_with_tf_while',
-          skip_test_check_fn=test_case.skip_if_external_environment,
           create_graph_fn=_create_graph_with_tf_function_while,
           feeds=['x'],
           replaced_tensors_ready={'x': False},
@@ -1226,13 +1224,7 @@ class GraphToolsTestUniquePath(test_case.TransformTestCase):
                         create_graph_fn,
                         feeds,
                         replaced_tensors_ready,
-                        expected_calls_dict,
-                        skip_test_check_fn=None):
-
-    # TODO(b/160294509): Remove this condition when TFT no longer supports TF<2.
-    if skip_test_check_fn:
-      skip_test_check_fn('This test is not currently supported.')
-
+                        expected_calls_dict):
     with tf.compat.v1.Graph().as_default() as graph:
       tensors = create_graph_fn()
     replaced_tensors_ready = [(tensors[name], ready)

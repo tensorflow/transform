@@ -323,13 +323,11 @@ def hashable_tensor_or_op(tensor_or_op):
   if isinstance(tensor_or_op, tf.Tensor):
     return tensor_or_op.experimental_ref()
   if isinstance(tensor_or_op, composite_tensor.CompositeTensor):
-    # TODO(b/160294509): Use tf.type_spec_from_value - only available in TF 2.
     return _CompositeTensorRef(
-        type_spec=tensor_or_op._type_spec,  # pylint: disable=protected-access
+        type_spec=tf.type_spec_from_value(tensor_or_op),
         list_of_refs=tuple(
             hashable_tensor_or_op(component) for component in tf.nest.flatten(
-                tensor_or_op, expand_composites=True)
-        ))
+                tensor_or_op, expand_composites=True)))
   return tensor_or_op
 
 
@@ -432,10 +430,7 @@ def reduce_batch_count(x: common_types.TensorType,
           dense_shape=x.dense_shape)
       # TODO(b/178189903): Remove this once we no longer lose static shape
       # information.
-      # TODO(b/160294509): Remove the hasattr contition once TFT no longer
-      # supports TF<2.
-      if hasattr(x, '_dense_shape_default'):
-        ones_like._dense_shape_default = x._dense_shape_default  # pylint: disable=protected-access
+      ones_like._dense_shape_default = x._dense_shape_default  # pylint: disable=protected-access
       return _sparse_reduce_batch_keep_shape(tf.sparse.reduce_sum, ones_like)
   elif isinstance(x, tf.RaggedTensor):
     if reduce_instance_dims:
@@ -696,10 +691,6 @@ def _split_vocabulary_entries(batched_vocab_lines):
   split = tf.strings.split(batched_vocab_lines, sep=' ', maxsplit=1)
   if isinstance(split, tf.RaggedTensor):
     split_tensor = split.to_tensor()
-    return split_tensor[:, 1], split_tensor[:, 0]
-  # TODO(b/160294509): Remove this condition when TFT no longer supports TF<2.
-  elif isinstance(split, tf.SparseTensor):
-    split_tensor = tf.sparse.to_dense(split)
     return split_tensor[:, 1], split_tensor[:, 0]
   else:
     return split[1], split[0]

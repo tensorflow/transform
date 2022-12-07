@@ -443,8 +443,7 @@ class TransformFeaturesLayer(tf.keras.Model):
       self._exported_as_v1 = exported_as_v1
     self._saved_model_loader_value = None
     self._loaded_saved_model_graph = None
-    # TODO(b/160294509): Use tf.compat.v1 when we stop supporting TF 1.15.
-    if ops.executing_eagerly_outside_functions():
+    if tf.compat.v1.executing_eagerly_outside_functions():
       # The model must be tracked by assigning to an attribute of the Keras
       # layer. Hence, we track the attributes of _saved_model_loader here as
       # well.
@@ -470,8 +469,7 @@ class TransformFeaturesLayer(tf.keras.Model):
           self._tft_output.transform_savedmodel_dir)
       self._loaded_saved_model_graph = ops.get_default_graph()
 
-    # TODO(b/160294509): Use tf.compat.v1 when we stop supporting TF 1.15.
-    if ops.executing_eagerly_outside_functions():
+    if tf.compat.v1.executing_eagerly_outside_functions():
       return self._saved_model_loader_value
     else:
       assert not self._exported_as_v1
