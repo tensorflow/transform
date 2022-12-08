@@ -52,12 +52,12 @@ def _make_required_install_packages():
       'tensorflow' + select_constraint('>=2.11.0,<2.12'),
       # pylint: enable=line-too-long
       'tensorflow-metadata' + select_constraint(
-          default='>=1.11.0,<1.12.0',
-          nightly='>=1.12.0.dev',
+          default='>=1.12.0,<1.13.0',
+          nightly='>=1.13.0.dev',
           git_master='@git+https://github.com/tensorflow/metadata@master'),
       'tfx-bsl' + select_constraint(
-          default='>=1.11.0,<1.12.0',
-          nightly='>=1.12.0.dev',
+          default='>=1.12.0,<1.13.0',
+          nightly='>=1.13.0.dev',
           git_master='@git+https://github.com/tensorflow/tfx-bsl@master'),
   ]
 
