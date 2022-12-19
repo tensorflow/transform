@@ -730,10 +730,9 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 8)
     self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
                                    _SINGLE_PHASE_NUM_SAVED_MODELS)
-    self.assertMetricsCounterEqual(
-        p.metrics, 'num_packed_accumulate_combiners', 1)
-    self.assertMetricsCounterEqual(
-        p.metrics, 'num_packed_merge_combiners', 1)
+    self.assertMetricsCounterEqual(p.metrics, 'num_packed_accumulate_combiners',
+                                   1)
+    self.assertMetricsCounterEqual(p.metrics, 'num_packed_merge_combiners', 1)
     # All datasets were processed even though some of the analyzers were covered
     # by cache.
     self.assertMetricsCounterEqual(p.metrics, 'analysis_input_bytes_from_cache',
@@ -814,8 +813,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
         }],
     }
     expected_vocabulary_contents = np.array(
-        [b'a', u'ȟᎥ𝒋ǩľḿꞑȯ𝘱𝑞𝗋𝘴'.encode('utf-8'), b'c'],
-        dtype=object)
+        [b'a', u'ȟᎥ𝒋ǩľḿꞑȯ𝘱𝑞𝗋𝘴'.encode('utf-8'), b'c'], dtype=object)
 
     expected_transformed_data = [
         {
@@ -895,8 +893,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
                                    _ZERO_PHASE_NUM_SAVED_MODELS)
     # Cache coverage allowed us to avoid processing this many bytes of data.
-    self.assertMetricsCounterEqual(p.metrics, 'analysis_input_bytes_from_cache',
-                                   614)
+    self.assertMetricsCounterGreater(p.metrics,
+                                     'analysis_input_bytes_from_cache', 413)
 
   @tft_unit.named_parameters(_TF_VERSION_NAMED_PARAMETERS)
   @mock_out_cache_hash
@@ -1315,8 +1313,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertMetricsCounterEqual(p2.metrics, 'cache_entries_encoded', 0)
     self.assertMetricsCounterEqual(p2.metrics, 'saved_models_created',
                                    _ZERO_PHASE_NUM_SAVED_MODELS)
-    self.assertMetricsCounterEqual(p2.metrics,
-                                   'analysis_input_bytes_from_cache', 40)
+    self.assertMetricsCounterGreater(p2.metrics,
+                                     'analysis_input_bytes_from_cache', 23)
 
     # Modifying the tf.function contents causes cache invalidation.
     run_result = self._run_pipeline(
