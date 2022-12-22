@@ -41,6 +41,7 @@ import collections
 import copy
 import datetime
 import os
+from absl import logging
 
 import apache_beam as beam
 
@@ -411,21 +412,12 @@ class _RunMetaGraphDoFn(beam.DoFn):
     yield self._handle_batch(batch)
 
 
-def _assert_tensorflow_version(use_tf_compat_v1):
-  """Check that we're using a compatible TF version."""
-  # Fail with a clear error in case we are not using a compatible TF version.
-  major, minor, _ = tf.version.VERSION.split('.')
-  if (int(major) not in (1, 2)) or (int(major == 1 and int(minor) < 15)):
-    raise RuntimeError(
-        'Tensorflow version >= 1.15, < 3 is required. Found (%s). Please '
-        'install the latest 1.x or 2.x version from '
-        'https://github.com/tensorflow/tensorflow. ' % tf.version.VERSION)
-  if int(major) == 2 and use_tf_compat_v1:
-    tf.compat.v1.logging.warning(
-        'Tensorflow version (%s) found. However Tensorflow Transform '
-        'is running in tf.compat.v1 mode. This could be either because TF2 '
-        'was disabled or `Context.force_tf_compat_v1=True`. Features such as '
-        'tf.function may not work as intended. ' % tf.version.VERSION)
+def _warn_about_tf_compat_v1():
+  """Warns about using tf.compat.v1."""
+  logging.warning(
+      'Tensorflow Transform is running in tf.compat.v1 mode. This could be '
+      'either because TF2 was disabled or `Context.force_tf_compat_v1=True`. '
+      'Features such as tf.function may not work as intended.')
 
 
 def _convert_and_unbatch_to_instance_dicts(batch_dict, schema,
@@ -768,8 +760,7 @@ class _ApplySavedModelImpl(beam.PTransform):
     if self._phase > 0 and Context.get_use_deep_copy_optimization():
       # Obviates unnecessary data materialization when the input data source is
       # safe to read more than once.
-      tf.compat.v1.logging.info('Deep copying inputs for phase: %d',
-                                self._phase)
+      logging.info('Deep copying inputs for phase: %d', self._phase)
       input_values_pcol = deep_copy.deep_copy(input_values_pcol)
 
     def _convert_to_numpy(input_dict):
@@ -968,7 +959,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     self._preprocessing_fn = preprocessing_fn
     self.pipeline = pipeline
     self._use_tf_compat_v1 = Context.get_use_tf_compat_v1()
-    _assert_tensorflow_version(self._use_tf_compat_v1)
+    if self._use_tf_compat_v1:
+      _warn_about_tf_compat_v1()
 
   def _extract_input_pvalues(self, dataset):
     # This method returns all nested pvalues to inform beam of nested pvalues.
@@ -1014,7 +1006,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
                          'with instance dicts + DatasetMetadata input. Follow '
                          'the guide to switch to the TFXIO format.'.format(
                              Context.get_passthrough_keys()))
-      tf.compat.v1.logging.warning(
+      logging.warning(
           'You are passing instance dicts and DatasetMetadata to TFT which '
           'will not provide optimal performance. Consider following the TFT '
           'guide to upgrade to the TFXIO format (Apache Arrow RecordBatch).')
@@ -1355,7 +1347,7 @@ class AnalyzeAndTransformDataset(beam.PTransform):
 
       # obviates unnecessary data materialization when the input data source is
       # safe to read more than once.
-      tf.compat.v1.logging.info(
+      logging.info(
           'Deep copying the dataset before applying transformation')
       dataset = (deep_copy.deep_copy(data), metadata)
 
@@ -1420,7 +1412,8 @@ class TransformDataset(beam.PTransform):
     self._exclude_outputs = exclude_outputs
     self._output_record_batches = output_record_batches
     self._use_tf_compat_v1 = Context.get_use_tf_compat_v1()
-    _assert_tensorflow_version(self._use_tf_compat_v1)
+    if self._use_tf_compat_v1:
+      _warn_about_tf_compat_v1()
 
   def _extract_input_pvalues(self, dataset_and_transform_fn):
     # This method returns all nested pvalues to inform beam of nested pvalues.
@@ -1451,7 +1444,7 @@ class TransformDataset(beam.PTransform):
                          'supported with instance dicts + DatasetMetadata '
                          'input. Follow the guide to switch to the TFXIO '
                          'format.'.format(Context.get_passthrough_keys()))
-      tf.compat.v1.logging.warning(
+      logging.warning(
           'You are passing instance dicts and DatasetMetadata to TFT which '
           'will not provide optimal performance. Consider following the TFT '
           'guide to upgrade to the TFXIO format (Apache Arrow RecordBatch).')

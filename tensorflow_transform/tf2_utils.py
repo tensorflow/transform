@@ -27,11 +27,10 @@ from tensorflow.python.framework.func_graph import FuncGraph
 
 def use_tf_compat_v1(force_tf_compat_v1: bool) -> bool:
   """Evaluate from environment variables if TF should be used in compat.v1 mode."""
-  major, _, _ = tf.version.VERSION.split('.')
   # If tf.enable_v2_behavior has been called, but eager execution has been
   # disabled, force compat v1 behavior. Hence, check
   # `executing_eagerly_outside_functions` as well.
-  return (force_tf_compat_v1 or int(major) < 2 or not tf2.enabled() or
+  return (force_tf_compat_v1 or not tf2.enabled() or
           not tf.compat.v1.executing_eagerly_outside_functions())
 
 
