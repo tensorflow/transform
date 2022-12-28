@@ -36,3 +36,8 @@ try:
   import tensorflow_io as _  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
 except ModuleNotFoundError:
   pass
+
+try:
+  from tensorflow_transform import google  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
+except ImportError:
+  pass
