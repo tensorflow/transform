@@ -22,6 +22,7 @@ from tensorflow_transform.py_func import pyfunc_helper
 from tensorflow_transform.saved import constants
 from tensorflow_transform.saved import saved_model_loader
 # pylint: disable=g-direct-tensorflow-import
+from tensorflow.core.config import flags
 from tensorflow.core.protobuf import struct_pb2
 from tensorflow.python.framework import ops
 from tensorflow.python.saved_model import nested_structure_coder
@@ -31,6 +32,10 @@ from tensorflow.python.training import saver as tf_saver
 
 _MANGLED_TENSOR_NAME_RE = re.compile(
     r'(.*)\$(indices|values|dense_shape|dense_tensor)$')
+
+# TODO(b/263893668) Enable fingerprinting or use a public API to disable it once
+# the reason of why it breaks our tests is investigated and the API is added.
+flags.config().saved_model_fingerprinting.reset(False)
 
 
 def _update_legacy_signature(signature):
