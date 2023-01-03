@@ -1070,23 +1070,21 @@ class _AnalyzeDatasetCommon(beam.PTransform):
           telemetry.TrackRecordBatchBytes(beam_common.METRICS_NAMESPACE,
                                           'analysis_input_bytes'))
     else:
-      bytes_per_dataset = []
       for idx, key in enumerate(sorted(input_values_pcoll_dict.keys())):
         infix = f'AnalysisIndex{idx}'
-        if input_values_pcoll_dict[key] is not None:
-          bytes_per_dataset.append(input_values_pcoll_dict[key]
-                                   | f'ExtractInputBytes[{infix}]' >>
-                                   telemetry.ExtractRecordBatchBytes())
+        input_value = input_values_pcoll_dict[key]
+        if input_value is not None:
           dataset_metrics[key] = (
-              bytes_per_dataset[-1]
+              input_value
+              | f'GetRecordBatchSize[{infix}]' >> beam.Map(lambda rb: rb.nbytes)
+              | f'SumTotalBytes[{infix}]' >> beam.CombineGlobally(sum)
               | f'ConstructMetadata[{infix}]' >> beam.Map(
                   analyzer_cache.DatasetCacheMetadata))
-      _ = (
-          bytes_per_dataset
-          | 'FlattenAnalysisBytes' >> beam.Flatten(pipeline=pipeline)
-          | 'InstrumentInputBytes[AnalysisPCollDict]' >>
-          telemetry.IncrementCounter(beam_common.METRICS_NAMESPACE,
-                                     'analysis_input_bytes'))
+          _ = (
+              input_value
+              | f'InstrumentInputBytes[{infix}]'
+              >> telemetry.TrackRecordBatchBytes(
+                  beam_common.METRICS_NAMESPACE, 'analysis_input_bytes'))
 
     # Gather telemetry on types of input features.
     _ = (
