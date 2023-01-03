@@ -519,12 +519,8 @@ def get_type_specs_from_feature_specs(
     elif isinstance(feature_spec, tf.io.VarLenFeature):
       result[name] = tf.SparseTensorSpec([None, None], feature_spec.dtype)
     elif isinstance(feature_spec, tf.io.SparseFeature):
-      # `TensorsToRecordBatchConverter` ignores `SparseFeature`s since arbitrary
-      # `SparseTensor`s are not yet supported. They are handled in
-      # `convert_to_arrow`.
-      # TODO(b/181868576): Handle `SparseFeature`s by the converter once the
-      # support is implemented.
-      pass
+      shape = [None] + [None if dim == -1 else dim for dim in feature_spec.size]
+      result[name] = tf.SparseTensorSpec(shape, feature_spec.dtype)
     elif isinstance(feature_spec, tf.io.RaggedFeature):
       # Number of dimensions is number of partitions + 1 + 1 batch dimension.
       shape = [None, None]
@@ -549,62 +545,21 @@ def make_tensor_to_arrow_converter(
     schema: schema_pb2.Schema) -> tensor_to_arrow.TensorsToRecordBatchConverter:
   """Constructs a `tf.Tensor` to `pa.RecordBatch` converter."""
   feature_specs = schema_utils.schema_as_feature_spec(schema).feature_spec
-  type_specs = get_type_specs_from_feature_specs(feature_specs)
-  return tensor_to_arrow.TensorsToRecordBatchConverter(type_specs)
-
-
-def convert_to_arrow(
-    schema: schema_pb2.Schema,
-    converter: tensor_to_arrow.TensorsToRecordBatchConverter,
-    fetches: Dict[str, common_types.TensorValueType]
-) -> Tuple[List[pa.Array], pa.Schema]:
-  """Converts fetches to a list of pyarrow arrays and schema.
-
-  Maps the values fetched by `tf.Session.run` or returned by a tf.function to
-  pyarrow format.
-
-  Args:
-    schema: A `Schema` proto.
-    converter: A `tf.Tensor` to `pa.RecordBatch` converter that contains
-      `tf.TypeSpec`s of `FixedLen` and `VarLen` features. Note that the
-      converter doesn't support general `SparseFeature`s, they are handled here.
-    fetches: A dict representing a batch of data, either as returned by
-      `Session.run` or eager tensors.
-
-  Returns:
-    A tuple of a list of pyarrow arrays and schema representing fetches.
-
-  Raises:
-    ValueError: If batch sizes are inconsistent.
-  """
-
-  tensors = {}
-  sparse_arrays = []
-  sparse_fields = []
-  feature_specs = schema_utils.schema_as_feature_spec(schema).feature_spec
-  for name, tensor_or_value in fetches.items():
-    feature_spec = feature_specs[name]
-    if isinstance(feature_spec, tf.io.SparseFeature):
-      sparse_components = _handle_sparse_batch(tensor_or_value, feature_spec,
-                                               name)
-      values_type = pa.large_list(_tf_dtype_to_arrow_type(feature_spec.dtype))
-      indices_type = pa.large_list(pa.int64())
-      sparse_arrays.append(
-          pa.array(
-              sparse_components.pop(feature_spec.value_key), type=values_type))
-      sparse_fields.append(pa.field(feature_spec.value_key, values_type))
-      for indices_key, instance_indices in sparse_components.items():
-        flat_indices = [np.ravel(indices) for indices in instance_indices]
-        sparse_arrays.append(pa.array(flat_indices, type=indices_type))
-        sparse_fields.append(pa.field(indices_key, indices_type))
-    else:
-      tensors[name] = tensor_or_value
-  record_batch = converter.convert(tensors)
-  arrow_schema = record_batch.schema
-  for field in sparse_fields:
-    arrow_schema = arrow_schema.append(field)
-
-  return record_batch.columns + sparse_arrays, arrow_schema
+  # Make sure that SparseFeatures are handled as generic SparseTensors as
+  # opposed to VarLenSparse. Note that at this point only sparse outputs with
+  # rank >2 are inferred as SparseFeatures, but this is likely to change.
+  sparse_tensor_names = set()
+  for name, spec in feature_specs.items():
+    if isinstance(spec, tf.io.SparseFeature):
+      sparse_tensor_names.add(name)
+  options = tensor_to_arrow.TensorsToRecordBatchConverter.Options(
+      sparse_tensor_value_column_name_template=schema_inference
+      .SPARSE_VALUES_NAME_TEMPLATE,
+      sparse_tensor_index_column_name_template=schema_inference
+      .SPARSE_INDICES_NAME_TEMPLATE,
+      generic_sparse_tensor_names=frozenset(sparse_tensor_names))
+  return tensor_to_arrow.TensorsToRecordBatchConverter(
+      get_type_specs_from_feature_specs(feature_specs), options)
 
 
 # TODO(b/36040669): Consider moving this to where it can be shared with coders.

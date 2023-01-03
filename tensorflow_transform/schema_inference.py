@@ -39,6 +39,9 @@ from tensorflow.python.framework import ops
 # pylint: enable=g-direct-tensorflow-import
 from tensorflow_metadata.proto.v0 import schema_pb2
 
+SPARSE_VALUES_NAME_TEMPLATE = '{tensor_name}$sparse_values'
+SPARSE_INDICES_NAME_TEMPLATE = '{tensor_name}$sparse_indices_{index}'
+
 
 def _ragged_feature_spec_from_batched_tensor(
     name: str,
@@ -95,10 +98,11 @@ def _feature_spec_from_batched_tensors(
       if shape.ndims > 2:
         feature_spec[name] = tf.io.SparseFeature(
             index_key=[
-                '{}$sparse_indices_{}'.format(name, idx)
+                SPARSE_INDICES_NAME_TEMPLATE.format(
+                    tensor_name=name, index=idx)
                 for idx in range(shape.ndims - 1)
             ],
-            value_key='{}$sparse_values'.format(name),
+            value_key=SPARSE_VALUES_NAME_TEMPLATE.format(tensor_name=name),
             dtype=tensor.dtype,
             size=shape[1:],
             already_sorted=True)

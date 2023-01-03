@@ -93,7 +93,7 @@ class BeamImplOutputRecordBatchesTest(impl_test.BeamImplTest):
     # Note that we only need `input_metadata.arrow_schema`.
     input_metadata = TensorAdapterConfig(arrow_schema, {})
     record_batch, unary_features = impl._convert_to_record_batch(
-        batch_dict, schema, converter, passthrough_keys, input_metadata)
+        batch_dict, converter, passthrough_keys, input_metadata)
     expected_record_batch = {
         'a': [[100], [1], [10]],
         passthrough_key1: [[1], None, [0]]
@@ -118,8 +118,8 @@ class BeamImplOutputRecordBatchesTest(impl_test.BeamImplTest):
     with self.assertRaisesRegexp(
         ValueError, 'Cannot pass-through data when '
         'input and output batch sizes are different'):
-      _ = impl._convert_to_record_batch(batch_dict, schema, converter,
-                                        passthrough_keys, input_metadata)
+      _ = impl._convert_to_record_batch(batch_dict, converter, passthrough_keys,
+                                        input_metadata)
 
 
 if __name__ == '__main__':

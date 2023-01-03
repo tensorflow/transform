@@ -452,7 +452,6 @@ def _convert_and_unbatch_to_instance_dicts(batch_dict, schema,
 
 def _convert_to_record_batch(
     batch_dict: Dict[str, Union[common_types.TensorValueType, pa.Array]],
-    schema: schema_pb2.Schema,
     converter: tensor_to_arrow.TensorsToRecordBatchConverter,
     passthrough_keys: Set[str],
     input_metadata: Union[TensorAdapterConfig, dataset_metadata.DatasetMetadata]
@@ -467,8 +466,8 @@ def _convert_to_record_batch(
       key: batch_dict.pop(key) for key in passthrough_keys if key in batch_dict
   }
 
-  arrow_columns, arrow_schema = impl_helper.convert_to_arrow(
-      schema, converter, batch_dict)
+  record_batch = converter.convert(batch_dict)
+  arrow_columns, arrow_schema = record_batch.columns, record_batch.schema
 
   batch_size = len(arrow_columns[0])
   # This dict will contain pass-through data with batch size of 1 if it doesn't
@@ -1525,7 +1524,6 @@ class TransformDataset(beam.PTransform):
       output_data = (
           output_batches | 'ConvertToRecordBatch' >> beam.Map(
               _convert_to_record_batch,
-              schema=beam.pvalue.AsSingleton(deferred_schema),
               converter=beam.pvalue.AsSingleton(converter_pcol),
               passthrough_keys=Context.get_passthrough_keys(),
               input_metadata=input_metadata))

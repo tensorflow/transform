@@ -22,9 +22,21 @@ import pyarrow as pa
 import tensorflow as tf
 from tensorflow_transform import analyzers
 from tensorflow_transform import impl_helper
+from tensorflow_transform import schema_inference
 from tensorflow_transform import test_case
 from tensorflow_transform.output_wrapper import TFTransformOutput
 from tensorflow_transform.tf_metadata import schema_utils
+
+
+def _sparse_index_name(index, tensor_name='sparse'):
+  return schema_inference.SPARSE_INDICES_NAME_TEMPLATE.format(
+      tensor_name=tensor_name, index=index)
+
+
+def _sparse_value_name(tensor_name='sparse'):
+  return schema_inference.SPARSE_VALUES_NAME_TEMPLATE.format(
+      tensor_name=tensor_name)
+
 
 _FEATURE_SPEC = {
     'a':
@@ -38,9 +50,12 @@ _FEATURE_SPEC = {
     'e':
         tf.io.VarLenFeature(tf.string),
     'f':
-        tf.io.SparseFeature('idx', 'val', tf.float32, 10),
+        tf.io.SparseFeature(
+            _sparse_index_name(0, 'f'), _sparse_value_name('f'), tf.float32,
+            10),
     'g':
-        tf.io.SparseFeature(['g_idx0', 'g_idx1'], 'g_val', tf.float32, [2, 10]),
+        tf.io.SparseFeature([_sparse_index_name(idx, 'g') for idx in range(2)],
+                            _sparse_value_name('g'), tf.float32, [2, 10]),
     'h':
         tf.io.RaggedFeature(tf.float32, value_key='h_val'),
     'i':
@@ -142,15 +157,15 @@ _MULTIPLE_FEATURES_CASE_RECORD_BATCH = {
     'e':
         pa.array([[b'doe', b'a', b'deer'], [b'a', b'female', b'deer']],
                  type=pa.large_list(pa.large_binary())),
-    'idx':
+    _sparse_index_name(0, 'f'):
         pa.array([[2, 4, 8], []], type=pa.large_list(pa.int64())),
-    'val':
+    _sparse_value_name('f'):
         pa.array([[10.0, 20.0, 30.0], []], type=pa.large_list(pa.float32())),
-    'g_idx0':
+    _sparse_index_name(0, 'g'):
         pa.array([[0, 1, 1], []], type=pa.large_list(pa.int64())),
-    'g_idx1':
+    _sparse_index_name(1, 'g'):
         pa.array([[3, 5, 9], []], type=pa.large_list(pa.int64())),
-    'g_val':
+    _sparse_value_name('g'):
         pa.array([[110.0, 210.0, 310.0], []], type=pa.large_list(pa.float32())),
     'h':
         pa.array([[1., 2., 3.], [4., 5.]], type=pa.large_list(pa.float32())),
@@ -179,11 +194,11 @@ _ROUNDTRIP_CASES = [
             'c': [2.0],
             'd': [[1.0, 2.0], [3.0, 4.0]],
             'e': [b'doe', b'a', b'deer'],
-            'idx': [2, 4, 8],
-            'val': [10.0, 20.0, 30.0],
-            'g_idx0': [0, 1, 1],
-            'g_idx1': [3, 5, 9],
-            'g_val': [110.0, 210.0, 310.0],
+            _sparse_index_name(0, 'f'): [2, 4, 8],
+            _sparse_value_name('f'): [10.0, 20.0, 30.0],
+            _sparse_index_name(0, 'g'): [0, 1, 1],
+            _sparse_index_name(1, 'g'): [3, 5, 9],
+            _sparse_value_name('g'): [110.0, 210.0, 310.0],
             'h_val': [1., 2., 3.],
             'i_val': [1., 2., 3.],
             'i_row_lengths1': [0, 3],
@@ -199,11 +214,11 @@ _ROUNDTRIP_CASES = [
             'c': [4.0],
             'd': [[5.0, 6.0], [7.0, 8.0]],
             'e': [b'a', b'female', b'deer'],
-            'idx': [],
-            'val': [],
-            'g_idx0': [],
-            'g_idx1': [],
-            'g_val': [],
+            _sparse_index_name(0, 'f'): [],
+            _sparse_value_name('f'): [],
+            _sparse_index_name(0, 'g'): [],
+            _sparse_index_name(1, 'g'): [],
+            _sparse_value_name('g'): [],
             'h_val': [4., 5.],
             'i_val': [3., 3., 1.],
             'i_row_lengths1': [3],
@@ -220,36 +235,54 @@ _ROUNDTRIP_CASES = [
         testcase_name='multiple_features_ndarrays',
         feature_spec=_FEATURE_SPEC,
         instances=[{
-            'a': np.int64(100),
-            'b': np.array(1.0, np.float32),
-            'c': np.array([2.0], np.float32),
-            'd': np.array([[1.0, 2.0], [3.0, 4.0]], np.float32),
+            'a':
+                np.int64(100),
+            'b':
+                np.array(1.0, np.float32),
+            'c':
+                np.array([2.0], np.float32),
+            'd':
+                np.array([[1.0, 2.0], [3.0, 4.0]], np.float32),
             'e': [b'doe', b'a', b'deer'],
-            'idx': np.array([2, 4, 8]),
-            'val': np.array([10.0, 20.0, 30.0]),
-            'g_idx0': np.array([0, 1, 1]),
-            'g_idx1': np.array([3, 5, 9]),
-            'g_val': np.array([110.0, 210.0, 310.0]),
-            'h_val': np.array([1., 2., 3.], np.float32),
-            'i_val': np.array([1., 2., 3.], np.float32),
-            'i_row_lengths1': np.array([0, 3]),
-            'j_val': np.array([1., 2., 3., 4], np.float32),
-            'j_row_lengths1': np.array([2, 1]),
-            'j_row_lengths2': np.array([2, 1, 1]),
-            'k_val': np.array([0, 1, 2, 3, 4, 5, 6, 7, 8]),
-            'l_val': np.array([0, 1, 2, 3, 4, 5]),
-            'l_row_lengths1': np.array([4, 2]),
+            _sparse_index_name(0, 'f'):
+                np.array([2, 4, 8]),
+            _sparse_value_name('f'):
+                np.array([10.0, 20.0, 30.0], np.float32),
+            _sparse_index_name(0, 'g'):
+                np.array([0, 1, 1]),
+            _sparse_index_name(1, 'g'):
+                np.array([3, 5, 9]),
+            _sparse_value_name('g'):
+                np.array([110.0, 210.0, 310.0], np.float32),
+            'h_val':
+                np.array([1., 2., 3.], np.float32),
+            'i_val':
+                np.array([1., 2., 3.], np.float32),
+            'i_row_lengths1':
+                np.array([0, 3]),
+            'j_val':
+                np.array([1., 2., 3., 4], np.float32),
+            'j_row_lengths1':
+                np.array([2, 1]),
+            'j_row_lengths2':
+                np.array([2, 1, 1]),
+            'k_val':
+                np.array([0, 1, 2, 3, 4, 5, 6, 7, 8]),
+            'l_val':
+                np.array([0, 1, 2, 3, 4, 5]),
+            'l_row_lengths1':
+                np.array([4, 2]),
         }, {
             'a': np.int64(100),
             'b': np.array(2.0, np.float32),
             'c': np.array([4.0], np.float32),
             'd': np.array([[5.0, 6.0], [7.0, 8.0]], np.float32),
             'e': [b'a', b'female', b'deer'],
-            'idx': np.array([], np.int32),
-            'val': np.array([], np.float32),
-            'g_idx0': np.array([], np.float32),
-            'g_idx1': np.array([], np.float32),
-            'g_val': np.array([], np.float32),
+            _sparse_index_name(0, 'f'): np.array([], np.int32),
+            _sparse_value_name('f'): np.array([], np.float32),
+            _sparse_index_name(0, 'g'): np.array([], np.float32),
+            _sparse_index_name(1, 'g'): np.array([], np.float32),
+            _sparse_value_name('g'): np.array([], np.float32),
             'h_val': np.array([4., 5.], np.float32),
             'i_val': np.array([3., 3., 1.], np.float32),
             'i_row_lengths1': np.array([3]),
@@ -354,15 +387,19 @@ _ROUNDTRIP_CASES = [
     dict(
         testcase_name='empty_sparse_feature',
         feature_spec={
-            'sparse': tf.io.SparseFeature('idx', 'val', tf.float32, 10)
+            'sparse':
+                tf.io.SparseFeature(
+                    _sparse_index_name(0), _sparse_value_name(), tf.string, 10)
         },
         instances=[{
-            'idx': [],
-            'val': []
+            _sparse_index_name(0): [],
+            _sparse_value_name(): np.array([], object)
         }],
         record_batch={
-            'idx': pa.array([[]], type=pa.large_list(pa.int64())),
-            'val': pa.array([[]], type=pa.large_list(pa.large_binary())),
+            _sparse_index_name(0):
+                pa.array([[]], type=pa.large_list(pa.int64())),
+            _sparse_value_name():
+                pa.array([[]], type=pa.large_list(pa.large_binary())),
         },
         feed_dict={
             'sparse':
@@ -374,52 +411,60 @@ _ROUNDTRIP_CASES = [
     dict(
         testcase_name='non_ragged_sparse_feature',
         feature_spec={
-            'sparse': tf.io.SparseFeature('idx', 'val', tf.float32, 10)
+            'sparse':
+                tf.io.SparseFeature(
+                    _sparse_index_name(0), _sparse_value_name(), tf.float32, 10)
         },
         instances=[{
-            'idx': [],
-            'val': []
+            _sparse_index_name(0): [],
+            _sparse_value_name(): np.array([], np.float32)
         }, {
-            'idx': [9],
-            'val': [0.3]
+            _sparse_index_name(0): [9],
+            _sparse_value_name(): np.array([0.3], np.float32)
         }],
         record_batch={
-            'idx': pa.array([[], [9]], type=pa.large_list(pa.int64())),
-            'val': pa.array([[], [0.3]], type=pa.large_list(pa.float32())),
+            _sparse_index_name(0):
+                pa.array([[], [9]], type=pa.large_list(pa.int64())),
+            _sparse_value_name():
+                pa.array([[], [0.3]], type=pa.large_list(pa.float32())),
         },
         feed_dict={
             'sparse':
                 tf.compat.v1.SparseTensorValue(
                     indices=np.array([[1, 9]]),
-                    values=np.array([0.3]),
+                    values=np.array([0.3], np.float32),
                     dense_shape=[2, 10])
         }),
     dict(
         testcase_name='2d_sparse_feature',
         feature_spec={
             'sparse':
-                tf.io.SparseFeature(['idx0', 'idx1'], 'val', tf.float32,
-                                    [10, 11])
+                tf.io.SparseFeature(
+                    [_sparse_index_name(idx) for idx in range(2)],
+                    _sparse_value_name(), tf.float32, [10, 11])
         },
         instances=[{
-            'idx0': [],
-            'idx1': [],
-            'val': []
+            _sparse_index_name(0): [],
+            _sparse_index_name(1): [],
+            _sparse_value_name(): np.array([], np.float32)
         }, {
-            'idx0': [9],
-            'idx1': [7],
-            'val': [0.3]
+            _sparse_index_name(0): [9],
+            _sparse_index_name(1): [7],
+            _sparse_value_name(): np.array([0.3], np.float32)
         }],
         record_batch={
-            'idx0': pa.array([[], [9]], type=pa.large_list(pa.int64())),
-            'idx1': pa.array([[], [7]], type=pa.large_list(pa.int64())),
-            'val': pa.array([[], [0.3]], type=pa.large_list(pa.float32())),
+            _sparse_index_name(0):
+                pa.array([[], [9]], type=pa.large_list(pa.int64())),
+            _sparse_index_name(1):
+                pa.array([[], [7]], type=pa.large_list(pa.int64())),
+            _sparse_value_name():
+                pa.array([[], [0.3]], type=pa.large_list(pa.float32())),
         },
         feed_dict={
             'sparse':
                 tf.compat.v1.SparseTensorValue(
                     indices=np.array([[1, 9, 7]]),
-                    values=np.array([0.3]),
+                    values=np.array([0.3], np.float32),
                     dense_shape=[2, 10, 11])
         }),
 ]
@@ -702,15 +747,15 @@ class ImplHelperTest(test_case.TransformTestCase):
     self.assertEqual(features['ragged_multi_dimension'].dtype, tf.int64)
 
   def test_batched_placeholders_from_specs_invalid_dtype(self):
-    with self.assertRaisesRegexp(ValueError, 'had invalid dtype'):
+    with self.assertRaisesRegex(ValueError, 'had invalid dtype'):
       impl_helper.batched_placeholders_from_specs(
           {'f': tf.TensorSpec(dtype=tf.int32, shape=[None])})
-    with self.assertRaisesRegexp(ValueError, 'had invalid dtype'):
+    with self.assertRaisesRegex(ValueError, 'had invalid dtype'):
       impl_helper.batched_placeholders_from_specs(
           {'f': tf.io.FixedLenFeature(dtype=tf.int32, shape=[None])})
 
   def test_batched_placeholders_from_specs_invalid_mixing(self):
-    with self.assertRaisesRegexp(TypeError, 'Specs must be all'):
+    with self.assertRaisesRegex(TypeError, 'Specs must be all'):
       impl_helper.batched_placeholders_from_specs({
           'f1': tf.TensorSpec(dtype=tf.int64, shape=[None]),
           'f2': tf.io.FixedLenFeature(dtype=tf.int64, shape=[None]),
@@ -740,7 +785,7 @@ class ImplHelperTest(test_case.TransformTestCase):
                                    error_msg,
                                    error_type=ValueError):
     schema = schema_utils.schema_from_feature_spec(feature_spec)
-    with self.assertRaisesRegexp(error_type, error_msg):
+    with self.assertRaisesRegex(error_type, error_msg):
       impl_helper.to_instance_dicts(schema, feed_dict)
 
   @test_case.named_parameters(*test_case.cross_named_parameters(
@@ -758,9 +803,7 @@ class ImplHelperTest(test_case.TransformTestCase):
     feed_dict_local = (
         _eager_tensor_from_values(feed_dict)
         if feed_eager_tensors else copy.copy(feed_dict))
-    arrow_columns, arrow_schema = impl_helper.convert_to_arrow(
-        schema, converter, feed_dict_local)
-    actual = pa.RecordBatch.from_arrays(arrow_columns, schema=arrow_schema)
+    actual = converter.convert(feed_dict_local)
     expected = pa.RecordBatch.from_arrays(
         list(record_batch.values()), names=list(record_batch.keys()))
     np.testing.assert_equal(actual.to_pydict(), expected.to_pydict())
@@ -773,8 +816,8 @@ class ImplHelperTest(test_case.TransformTestCase):
                                   error_type=ValueError):
     schema = schema_utils.schema_from_feature_spec(feature_spec)
     converter = impl_helper.make_tensor_to_arrow_converter(schema)
-    with self.assertRaisesRegexp(error_type, error_msg):
-      impl_helper.convert_to_arrow(schema, converter, feed_dict)
+    with self.assertRaisesRegex(error_type, error_msg):
+      converter.convert(feed_dict)
 
   @test_case.named_parameters(
       dict(testcase_name='tf_compat_v1', force_tf_compat_v1=True),
@@ -834,7 +877,7 @@ class ImplHelperTest(test_case.TransformTestCase):
         ])
     }
     output_path = os.path.join(self.get_temp_dir(), self._testMethodName)
-    with self.assertRaisesRegexp(RuntimeError, 'analyzers found when tracing'):
+    with self.assertRaisesRegex(RuntimeError, 'analyzers found when tracing'):
       impl_helper.analyze_in_place(preprocessing_fn, force_tf_compat_v1,
                                    feature_spec, type_spec, output_path)
 
