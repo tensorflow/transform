@@ -518,6 +518,23 @@ NON_ROUNDTRIP_SCHEMAS = [
     },
     {
         'testcase_name':
+            'varlen_ragged',
+        'ascii_proto':
+            """
+          feature: {name: "x" type: INT}
+          represent_variable_length_as_ragged: true
+        """,
+        'feature_spec': {
+            'x':
+                tf.io.RaggedFeature(
+                    tf.int64,
+                    value_key='x',
+                    partitions=[],
+                    row_splits_dtype=tf.int64)
+        }
+    },
+    {
+        'testcase_name':
             'sequence',
         'ascii_proto':
             """

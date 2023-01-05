@@ -4,6 +4,10 @@
 
 ## Major Features and Improvements
 
+*   `RaggedTensor`s can now be automatically inferred for variable length
+    features by setting `represent_variable_length_as_ragged=true` in TFMD
+    schema.
+
 ## Bug Fixes and Other Changes
 
 ## Breaking Changes
