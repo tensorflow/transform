@@ -13,14 +13,14 @@
 # limitations under the License.
 """Helper/utility functions that a tf-transform implementation would find handy."""
 
+import functools
 import os
 import re
-from typing import Callable, Dict, List, Mapping, Optional, Tuple, Union
+from typing import Callable, Dict, List, Mapping, Optional, FrozenSet
 
 from absl import logging
 import numpy as np
 import pyarrow as pa
-
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import annotators
@@ -36,6 +36,7 @@ from tensorflow_transform.saved import saved_transform_io_v2
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
+from tfx_bsl.coders import example_coder
 from tfx_bsl.tfxio import tensor_to_arrow
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.eager import function
@@ -43,22 +44,17 @@ from tensorflow.python.framework import ops
 # pylint: enable=g-direct-tensorflow-import
 from tensorflow_metadata.proto.v0 import schema_pb2
 
-_CompositeInstanceComponentType = np.ndarray
-_CompositeComponentType = List[_CompositeInstanceComponentType]
 
-_CACHED_EMPTY_ARRAY_BY_DTYPE = {}
 _VALID_SCOPE_REGEX = re.compile('^[A-Za-z0-9]*$')
 _INVALID_SCOPE_CHAR = re.compile('[^A-Za-z0-9_.\\-/>]')
 
 METADATA_DIR_NAME = '.tft_metadata'
 
-
-def _get_empty_array(dtype):
-  if dtype not in _CACHED_EMPTY_ARRAY_BY_DTYPE:
-    empty_array = np.array([], dtype)
-    empty_array.setflags(write=False)
-    _CACHED_EMPTY_ARRAY_BY_DTYPE[dtype] = empty_array
-  return _CACHED_EMPTY_ARRAY_BY_DTYPE[dtype]
+_FEATURE_VALUE_KIND_TO_NP_DTYPE = {
+    'float_list': np.float32,
+    'int64_list': np.int64,
+    'bytes_list': object,
+}
 
 
 def batched_placeholders_from_specs(specs):
@@ -146,355 +142,90 @@ def _batched_placeholder_from_feature_spec(name, feature_spec):
       feature_spec, type(feature_spec), name))
 
 
-def _extract_sparse_components(
-    sparse_value: common_types.SparseTensorValueType
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-  if isinstance(sparse_value, tf.SparseTensor):
-    return (np.asarray(sparse_value.indices), np.asarray(sparse_value.values),
-            np.asarray(sparse_value.dense_shape))
-  elif isinstance(sparse_value, tf.compat.v1.SparseTensorValue):
-    return sparse_value
-  else:
-    raise ValueError(
-        'Expected SparseTensor or SparseTensorValue , but got {}'.format(
-            sparse_value))
-
-
-def _get_num_values_per_instance_in_sparse_batch(batch_indices: np.ndarray,
-                                                 batch_size: int) -> List[int]:
-  """Computes the number of values per instance of the batch."""
-  result = [0] * batch_size
-  for arr in batch_indices:
-    result[arr[0]] += 1
-  return result
-
-
-def _decompose_sparse_batch(
-    sparse_value: common_types.SparseTensorValueType
-) -> Tuple[List[_CompositeComponentType], _CompositeComponentType]:
-  """Decomposes a sparse batch into a list of sparse instances.
-
-  Args:
-    sparse_value: A `SparseTensor` or `SparseTensorValue` representing a batch
-      of N sparse instances. The indices of the SparseTensorValue are expected
-      to be sorted by row order.
-
-  Returns:
-    A tuple (instance_indices, instance_values) where the elements are lists
-    of N ndarrays representing the indices and values, respectively, of the
-    instances in the batch. The `instance_indices` include an ndarray per
-    dimension.
-  """
-  batch_indices, batch_values, batch_shape = _extract_sparse_components(
-      sparse_value)
-  batch_size = batch_shape[0]
-  instance_rank = len(batch_shape) - 1
-
-  # Preallocate lists of length batch_size, initialized to empty ndarrays,
-  # representing the indices and values of instances. We can reuse the return
-  # value of _get_empty_array here because it is immutable.
-  instance_values = [_get_empty_array(batch_values.dtype)] * batch_size
-  instance_indices = [[_get_empty_array(batch_indices.dtype)] * instance_rank
-                      for idx in range(batch_size)]
-
-  values_per_instance = _get_num_values_per_instance_in_sparse_batch(
-      batch_indices, batch_size)
-
-  offset = 0
-  for idx, num_values in enumerate(values_per_instance):
-    if num_values < 1:
-      continue
-    instance_values[idx] = batch_values[offset:offset + num_values]
-    for dim in range(instance_rank):
-      # Skipping the first dimension since that is the batch dimension.
-      instance_indices[idx][dim] = batch_indices[offset:offset + num_values,
-                                                 dim + 1]
-    offset += num_values
-  return instance_indices, instance_values
-
-
-def _decompose_varlen_batch(
-    sparse_value: common_types.SparseTensorValueType
-) -> Tuple[_CompositeComponentType, _CompositeComponentType]:
-  """Decomposes a sparse batch into a list of sparse/varlen instances.
-
-  Args:
-    sparse_value: A `SparseTensor` or `SparseTensorValue` representing a batch
-      of N sparse instances. The indices of the SparseTensorValue are expected
-      to be sorted by row order.
-
-  Returns:
-    A tuple (instance_indices, instance_values) where the elements are lists
-    of N ndarrays representing the indices and values, respectively, of the
-    instances in the batch.
-
-  Raises:
-    ValueError: If `sparse_value` is neither `SparseTensor` nor
-      `SparseTensorValue`.
-    ValueError: If `sparse_value` contains out-of-order indices.
-  """
-  batch_indices, batch_values, batch_shape = _extract_sparse_components(
-      sparse_value)
-  batch_size = batch_shape[0]
-  instance_rank = len(batch_shape) - 1
-
-  # Preallocate lists of length batch_size, initialized to empty ndarrays,
-  # representing the indices and values of instances. We can reuse the return
-  # value of _get_empty_array here because it is immutable.
-  instance_values = [_get_empty_array(batch_values.dtype)] * batch_size
-  instance_indices = [_get_empty_array(batch_indices.dtype)] * batch_size
-
-  # Iterate over the rows in the batch. At each row, consume all the elements
-  # that belong to that row.
-  current_offset = 0
-  for current_row in range(batch_size):
-    start_offset = current_offset
-
-    # Scan forward until we reach an element that does not belong to the
-    # current row.
-    while current_offset < len(batch_indices):
-      row = batch_indices[current_offset][0]
-      if row == current_row:
-        # This element belongs to the current row.
-        current_offset += 1
-      elif row > current_row:
-        # We've reached the end of the current row.
-        break
-      else:
-        raise ValueError('Encountered out-of-order sparse index: {}.'.format(
-            batch_indices[current_offset]))
-
-    if current_offset == start_offset:
-      # If the current row is empty, leave the default value, which is an
-      # empty array.
-      pass
-    else:
-      instance_indices[current_row] = batch_indices[start_offset:current_offset,
-                                                    1:]
-      if instance_rank == 1:
-        # In this case indices will have length 1, so for convenience we
-        # reshape from [-1, 1] to [-1].
-        current_row_indices = instance_indices[current_row]  # type: np.ndarray
-        instance_indices[current_row] = current_row_indices.reshape([-1])
-      instance_values[current_row] = batch_values[start_offset:current_offset]
-  return instance_indices, instance_values
-
-
-def _handle_varlen_batch(tensor_or_value: common_types.SparseTensorValueType,
-                         name: str) -> _CompositeComponentType:
-  """Decomposes a varlen tensor value into sparse tensor components."""
-  instance_indices, instance_values = _decompose_varlen_batch(tensor_or_value)
-  for indices in instance_indices:  # type: np.ndarray
-    if len(indices.shape) > 1 or np.any(indices != np.arange(len(indices))):
-      raise ValueError('Encountered a SparseTensorValue that cannot be '
-                       'decoded by ListColumnRepresentation.\n'
-                       '"{}" : {}'.format(name, tensor_or_value))
-  return instance_values
-
-
-def _handle_sparse_batch(
-    tensor_or_value: common_types.SparseTensorValueType,
-    spec: common_types.FeatureSpecType, name: str
-) -> Dict[str, Union[List[_CompositeComponentType], _CompositeComponentType]]:
-  """Decomposes a sparse tensor value into sparse tensor components."""
-  if len(spec.index_key) == 1:
-    index_keys = spec.index_key[0]
-    instance_indices, instance_values = _decompose_varlen_batch(tensor_or_value)
-  else:
-    index_keys = spec.index_key
-    instance_indices, instance_values = _decompose_sparse_batch(tensor_or_value)
+def _example_to_dict(example: bytes) -> Dict[str, Optional[np.ndarray]]:
+  """Converts serialized tf.Example to Python dictionary."""
+  example = tf.train.Example.FromString(example)
   result = {}
-  if isinstance(index_keys, list):
-    assert isinstance(instance_indices, list)
-    for key, indices in zip(index_keys, zip(*instance_indices)):
-      result[key] = indices
-  else:
-    result[index_keys] = instance_indices
-  result[spec.value_key] = instance_values
-  _check_valid_sparse_tensor(instance_indices, instance_values, spec.size, name)
+  # Sort the produced dict by keys to make the order deterministic.
+  for name, feature in sorted(example.features.feature.items()):
+    kind = feature.WhichOneof('kind')
+    # Use None if the value kind is not set (can occur for passthrough values).
+    result[name] = (None if kind is None else np.array(
+        getattr(feature, kind).value,
+        dtype=_FEATURE_VALUE_KIND_TO_NP_DTYPE[kind]))
   return result
 
 
-def _get_ragged_instance_component(
-    component_batch: _CompositeInstanceComponentType, batch_splits: np.ndarray,
-    instance_idx: int) -> _CompositeInstanceComponentType:
-  """Extracts an instance component from a flat batch with given splits."""
-  instance_begin = batch_splits[instance_idx]
-  instance_end = batch_splits[instance_idx + 1]
-  return component_batch[instance_begin:instance_end]
-
-
-def _get_num_inner_uniform_elements(spec: tf.io.RaggedFeature,
-                                    name: str) -> int:
-  """Extracts the number of elements in inner dimensions of a ragged feature.
-
-  Also validates partitions in the feature spec.
+def record_batch_to_instance_dicts(
+    record_batch: pa.RecordBatch, schema: schema_pb2.Schema
+) -> List[common_types.InstanceDictType]:
+  """Converts pa.RecordBatch to list of Python dictionaries.
 
   Args:
-    spec: A ragged feature spec.
-    name: Name of the feature that the spec belongs to.
-
-  Returns:
-    A number of elements in the inner uniform dimensions per one innermost
-    ragged element. It is calculated as a product of inner uniform dimension
-    sizes.
-
-  Raises:
-    NotImplementedError: if the spec contains partitions other than `RowLengths`
-      and `UniformRowLengths` or there is a `RowLengths` partition that follows
-      a `UniformRowLengths` partition.
-  """
-  result = 1
-  uniform_partition = False
-  for partition in spec.partitions:
-    if isinstance(partition, tf.io.RaggedFeature.RowLengths):  # pytype: disable=attribute-error
-      if uniform_partition:
-        # Upstream and downstream logic only supports inner uniform dimensions.
-        # This function will have to be extended to support other cases if
-        # needed as well, so we fail with an explicit error for now.
-        raise NotImplementedError(
-            'Only inner partitions are allowed to be uniform, unsupported '
-            'partition sequence for feature "{}" with spec {}'.format(
-                name, spec))
-    elif isinstance(partition, tf.io.RaggedFeature.UniformRowLength):  # pytype: disable=attribute-error
-      uniform_partition = True
-      result *= partition.length
-    else:
-      raise ValueError(
-          'Only `RowLengths` and `UniformRowLengths` partitions of ragged '
-          'features are supported, got {} for ragged feature "{}" with spec {}'
-          .format(partition, name, spec))
-  return result
-
-
-def _handle_ragged_batch(tensor_or_value: common_types.RaggedTensorValueType,
-                         spec: common_types.FeatureSpecType,
-                         name: str) -> Dict[str, _CompositeComponentType]:
-  """Decomposes a ragged tensor or value into ragged tensor components."""
-  if isinstance(tensor_or_value, tf.RaggedTensor):
-    nested_row_splits = tuple(
-        x.numpy() for x in tensor_or_value.nested_row_splits)
-    flat_values = np.ravel(tensor_or_value.flat_values.numpy())
-  elif isinstance(tensor_or_value, tf.compat.v1.ragged.RaggedTensorValue):
-    nested_row_splits = tensor_or_value.nested_row_splits
-    flat_values = np.ravel(tensor_or_value.flat_values)
-  else:
-    raise ValueError('Expected RaggedTensor or RaggedTensorValue , but '
-                     'got {}'.format(tensor_or_value))
-
-  result = {}
-  # The outermost row split represents batch dimension.
-  batch_splits = nested_row_splits[0]
-  batch_size = len(batch_splits) - 1
-  inner_uniform_elements = _get_num_inner_uniform_elements(spec, name)
-
-  # Iterate over all but batch dimension splits. Note that
-  # `nested_row_splits[1:]` may be shorter than the list of partitions in the
-  # presense of inner uniform partitions. Partition types and sequence is
-  # validated in `_get_num_inner_uniform_elements`.
-  for row_splits, partition in zip(nested_row_splits[1:], spec.partitions):
-    assert isinstance(partition, tf.io.RaggedFeature.RowLengths), partition  # pytype: disable=attribute-error
-    row_lengths = (row_splits[1:] - row_splits[:-1]) * inner_uniform_elements
-    result[partition.key] = [
-        _get_ragged_instance_component(row_lengths, batch_splits, idx)
-        for idx in range(batch_size)
-    ]
-
-    # Translate batch split indices for the current dimension to the
-    # next dimension.
-    batch_splits = row_splits[batch_splits]
-
-  # Split flat values according to the innermost dimension batch splits.
-  result[spec.value_key] = [
-      _get_ragged_instance_component(flat_values,
-                                     batch_splits * inner_uniform_elements, idx)
-      for idx in range(batch_size)
-  ]
-  return result
-
-
-def to_instance_dicts(schema, fetches):
-  """Converts fetches to the internal batch format.
-
-  Maps the values fetched by `tf.Session.run` or returned by a tf.function to
-  the internal batch format.
-
-  Args:
+    record_batch: the batch to be converted.
     schema: A `Schema` proto.
-    fetches: A dict representing a batch of data, either as returned by
-      `Session.run` or eager tensors.
 
   Returns:
     A list of dicts where each dict is an in-memory representation of an
         instance.
-
-  Raises:
-    ValueError: If `schema` is invalid.
   """
-
-  batch_dict = {}
-  batch_sizes = {}
+  # Alternatively, we could've used `record_batch.to_pylist()`, but
+  # RaggedTensors would be represented as nested lists (as opposed to array of
+  # values + row lengths), so we make a trip through flat examples first.
+  coder = example_coder.RecordBatchToExamplesEncoder(schema)
+  examples = coder.encode(record_batch)
+  # Dense tensor instances must be reshaped according to their spec shape.
+  # Scalars are represented as Python scalars (as opposed to singleton arrays).
   feature_spec = schema_utils.schema_as_feature_spec(schema).feature_spec
-  for name, tensor_or_value in fetches.items():
-    spec = feature_spec[name]
+  dense_reshape_fns = {}
+  for name, spec in feature_spec.items():
     if isinstance(spec, tf.io.FixedLenFeature):
-      value = np.asarray(tensor_or_value)
-      batch_dict[name] = [value[i] for i in range(value.shape[0])]
-      batch_sizes[name] = value.shape[0]
-
-    elif isinstance(spec, tf.io.VarLenFeature):
-      instance_values = _handle_varlen_batch(tensor_or_value, name)
-      batch_dict[name] = instance_values
-      batch_sizes[name] = len(instance_values)
-
-    elif isinstance(spec, tf.io.SparseFeature):
-      batch_dict_update = _handle_sparse_batch(tensor_or_value, spec, name)
-      batch_dict.update(batch_dict_update)
-      batch_sizes[name] = len(batch_dict_update[spec.value_key])
-
-    elif isinstance(spec, tf.io.RaggedFeature):
-      batch_dict_update = _handle_ragged_batch(tensor_or_value, spec, name)
-      batch_dict.update(batch_dict_update)
-      batch_sizes[name] = len(batch_dict_update[spec.value_key])
-
-    else:
-      raise ValueError('Invalid feature spec {}.'.format(spec))
-
-  # Check batch size is the same for each output.  Note this assumes that
-  # fetches is not empty.
-  batch_size = next(iter(batch_sizes.values()))
-  for name, batch_size_for_name in batch_sizes.items():
-    if batch_size_for_name != batch_size:
-      raise ValueError(
-          'Inconsistent batch sizes: "{}" had batch dimension {}, "{}" had'
-          ' batch dimension {}'.format(name, batch_size_for_name,
-                                       next(iter(batch_sizes.keys())),
-                                       batch_size))
-
-  # The following is the simplest way to convert batch_dict from a dict of
-  # iterables to a list of dicts.  It does this by first extracting the values
-  # of batch_dict, and reversing the order of iteration, then recombining with
-  # the keys of batch_dict to create a dict.
-  return [
-      dict(zip(batch_dict, instance_values))
-      for instance_values in zip(*batch_dict.values())
-  ]
+      if spec.shape:
+        dense_reshape_fns[name] = functools.partial(
+            np.reshape, newshape=spec.shape
+        )
+      else:
+        dense_reshape_fns[name] = lambda singleton: singleton.item()
+  result = []
+  for example in examples:
+    instance_dict = _example_to_dict(example)
+    for name, reshape_fn in dense_reshape_fns.items():
+      instance_dict[name] = reshape_fn(instance_dict[name])
+    result.append(instance_dict)
+  return result
 
 
-def _tf_dtype_to_arrow_type(dtype: tf.DType) -> pa.DataType:
-  """Maps a tf data type to a pyarrow data type."""
-  if dtype == tf.string:
-    return pa.large_binary()
-  elif dtype == tf.int64:
-    return pa.int64()
-  elif dtype == tf.float32:
-    return pa.float32()
-  else:
-    raise TypeError('Unable to handle data type {}'.format(dtype))
+def validate_varlen_sparse_value(
+    name: str, batched_value: common_types.SparseTensorValueType
+):
+  """Checks that the given SparseTensor is 2-D ragged and left-aligned."""
+  indices = np.asarray(batched_value.indices)
+  if indices.shape[1] != 2:
+    raise ValueError(f'Encountered non 2-D varlen sparse feature {name}')
+  if indices.shape[0] == 0:
+    return
+  indices_diff = np.diff(indices, axis=0)
+  instance_index_diff, value_index_diff = indices_diff[:, 0], indices_diff[:, 1]
+  if np.any(instance_index_diff < 0):
+    raise ValueError(
+        f'Encountered decreasing instance indices for feature {name}: {indices}'
+    )
+  if np.any(np.logical_and(instance_index_diff == 0, value_index_diff != 1)):
+    raise ValueError(
+        f'Encountered non-consecutive value indices for feature {name}:'
+        f' {indices}'
+    )
+  (instance_boundaries,) = np.where(instance_index_diff != 0)
+  if np.any(indices[np.append(instance_boundaries + 1, 0), 1] != 0):
+    raise ValueError(
+        f'Encountered non-zero starting value indices for feature {name}:'
+        f' {indices}'
+    )
 
 
 def get_type_specs_from_feature_specs(
-    feature_specs: Dict[str, common_types.FeatureSpecType]
+    feature_specs: Dict[str, common_types.FeatureSpecType],
+    ragged_sequence_features: FrozenSet[str] = frozenset(),
 ) -> Dict[str, tf.TypeSpec]:
   """Returns `tf.TypeSpec`s for the given feature specs.
 
@@ -503,6 +234,8 @@ def get_type_specs_from_feature_specs(
 
   Args:
     feature_specs: A TensorFlow feature spec.
+    ragged_sequence_features: Set of names of features representing ragged
+      sequence tensors.
 
   Returns:
     A dictionary from strings to `tf.TensorSpec`, `tf.SparseTensorSpec` or
@@ -525,6 +258,10 @@ def get_type_specs_from_feature_specs(
       # Number of dimensions is number of partitions + 1 + 1 batch dimension.
       shape = [None, None]
       ragged_rank = 1
+      # Ragged sequence tensors will have additional sequence dimension.
+      if name in ragged_sequence_features:
+        shape.append(None)
+        ragged_rank += 1
       for partition in feature_spec.partitions:
         if isinstance(partition, tf.io.RaggedFeature.UniformRowLength):  # pytype: disable=attribute-error
           shape.append(partition.length)
@@ -544,7 +281,19 @@ def get_type_specs_from_feature_specs(
 def make_tensor_to_arrow_converter(
     schema: schema_pb2.Schema) -> tensor_to_arrow.TensorsToRecordBatchConverter:
   """Constructs a `tf.Tensor` to `pa.RecordBatch` converter."""
+  # Ragged sequence features will have an additional (sequence) dimension that
+  # doesn't come from feature partition. Hence, we need to generate type spec
+  # accordingly.
+  ragged_sequence_features = set()
   feature_specs = schema_utils.schema_as_feature_spec(schema).feature_spec
+  for feature in schema.feature:
+    if feature.type == schema_pb2.FeatureType.STRUCT:
+      for child_feature in feature.struct_domain.feature:
+        ragged_sequence_features.add(child_feature.name)
+  type_specs = get_type_specs_from_feature_specs(
+      feature_specs, frozenset(ragged_sequence_features)
+  )
+
   # Make sure that SparseFeatures are handled as generic SparseTensors as
   # opposed to VarLenSparse. Note that at this point only sparse outputs with
   # rank >2 are inferred as SparseFeatures, but this is likely to change.
@@ -558,33 +307,7 @@ def make_tensor_to_arrow_converter(
       sparse_tensor_index_column_name_template=schema_inference
       .SPARSE_INDICES_NAME_TEMPLATE,
       generic_sparse_tensor_names=frozenset(sparse_tensor_names))
-  return tensor_to_arrow.TensorsToRecordBatchConverter(
-      get_type_specs_from_feature_specs(feature_specs), options)
-
-
-# TODO(b/36040669): Consider moving this to where it can be shared with coders.
-def _check_valid_sparse_tensor(indices: Union[_CompositeComponentType,
-                                              List[_CompositeComponentType]],
-                               values: _CompositeComponentType,
-                               size: Union[int, List[int]], name: str):
-  """Validates sparse tensor components."""
-  # Check that all indices are in range.
-  for current_indices in indices:
-    if isinstance(current_indices, np.ndarray):
-      current_indices = [current_indices]
-    for dim, indices_array in enumerate(current_indices):
-      if indices_array.size and size[dim] >= 0:
-        i_min, i_max = min(indices_array), max(indices_array)
-        if i_min < 0 or i_max >= size[dim]:
-          i_bad = i_min if i_min < 0 else i_max
-          raise ValueError(
-              'Sparse column {} has index {} out of range [0, {})'.format(
-                  name, i_bad, size[dim]))
-
-  if len(indices) != len(values):
-    raise ValueError(
-        'Sparse column {} has indices and values of different lengths: '
-        'values: {}, indices: {}'.format(name, values, indices))
+  return tensor_to_arrow.TensorsToRecordBatchConverter(type_specs, options)
 
 
 # TODO(b/149997088): Split into two APIs one that will just trace the

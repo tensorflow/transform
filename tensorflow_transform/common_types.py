@@ -13,13 +13,20 @@
 # limitations under the License.
 """Common types in tf.transform."""
 
-from typing import Iterable, TypeVar, Union
+from typing import Any, Dict, Iterable, List, TypeVar, Union, Optional
 
 import numpy as np
 import tensorflow as tf
 from typing_extensions import Literal
 
 from tensorflow_metadata.proto.v0 import schema_pb2
+
+# Demonstrational per-row data formats.
+PrimitiveType = Union[str, bytes, float, int]
+InstanceValueType = Optional[
+    Union[np.ndarray, np.generic, PrimitiveType, List[Any]]
+]
+InstanceDictType = Dict[str, InstanceValueType]
 
 # TODO(b/185719271): Define BucketBoundariesType at module level of mappers.py.
 BucketBoundariesType = Union[tf.Tensor, Iterable[Union[int, float]]]

@@ -19,15 +19,11 @@ import os
 import uuid
 
 import apache_beam as beam
-from apache_beam.typehints import Union
 from tensorflow_transform import nodes
 from tfx_bsl.telemetry import util
 # TODO(b/243513856): Switch to `collections.namedtuple` or `typing.NamedTuple`
 # once the Spark issue is resolved.
 from tfx_bsl.types import tfx_namedtuple
-
-NUMERIC_TYPE = Union[float, int]
-PRIMITIVE_TYPE = Union[NUMERIC_TYPE, str, bytes]
 
 METRICS_NAMESPACE = util.MakeTfxNamespace(['Transform'])
 
@@ -111,7 +107,7 @@ def register_ptransform(operation_def_subclass, tags=None):
   where operation is a the instance of the subclass that was registered,
   extra_args are global arguments available to each PTransform (see
   ConstructBeamPipelineVisitor.extra_args) and `inputs` is a tuple of
-  PCollections correpsonding to the inputs of the OperationNode being
+  PCollections corresponding to the inputs of the OperationNode being
   implemented.  The return value `outputs` should be a a tuple of PCollections
   corresponding to the outputs of the OperationNode.  If the OperationNode has
   a single output then the return value can also be a PCollection instead of a

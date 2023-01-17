@@ -495,38 +495,34 @@ _MAKE_FEED_DICT_CASES = [
 
 _TO_INSTANCE_DICT_ERROR_CASES = [
     dict(
-        testcase_name='var_len_with_non_consecutive_indices',
-        feature_spec={'a': tf.io.VarLenFeature(tf.float32)},
-        feed_dict={
-            'a':
-                tf.compat.v1.SparseTensorValue(
-                    indices=np.array([(0, 2), (0, 4), (0, 8)]),
-                    values=np.array([10.0, 20.0, 30.0]),
-                    dense_shape=(1, 20))
-        },
-        error_msg='cannot be decoded by ListColumnRepresentation'),
-    dict(
         testcase_name='var_len_with_rank_not_2',
         feature_spec={'a': tf.io.VarLenFeature(tf.float32)},
         feed_dict={
-            'a':
-                tf.compat.v1.SparseTensorValue(
-                    indices=np.array([(0, 0, 1), (0, 0, 2), (0, 0, 3)]),
-                    values=np.array([10.0, 20.0, 30.0]),
-                    dense_shape=(1, 10, 10))
+            'a': tf.compat.v1.SparseTensorValue(
+                indices=np.array([(0, 0, 1), (0, 0, 2), (0, 0, 3)]),
+                values=np.array([10.0, 20.0, 30.0], np.float32),
+                dense_shape=(1, 10, 10),
+            )
         },
-        error_msg='cannot be decoded by ListColumnRepresentation'),
+        error_msg=(
+            r'Expected SparseTensorSpec\(TensorShape\('
+            r'\[(None|Dimension\(None\)), (None|Dimension\(None\))\]\)'
+        ),
+        error_type=TypeError,
+    ),
     dict(
         testcase_name='var_len_with_out_of_order_indices',
         feature_spec={'a': tf.io.VarLenFeature(tf.float32)},
         feed_dict={
-            'a':
-                tf.compat.v1.SparseTensorValue(
-                    indices=np.array([(0, 2), (2, 4), (1, 8)]),
-                    values=np.array([10.0, 20.0, 30.0]),
-                    dense_shape=(3, 20))
+            'a': tf.compat.v1.SparseTensorValue(
+                indices=np.array([(0, 2), (2, 4), (1, 8)]),
+                values=np.array([10.0, 20.0, 30.0], np.float32),
+                dense_shape=(3, 20),
+            )
         },
-        error_msg='Encountered out-of-order sparse index'),
+        error_msg='The sparse indices must be sorted',
+        error_type=AssertionError,
+    ),
     dict(
         testcase_name='var_len_with_different_batch_dim_sizes',
         feature_spec={
@@ -534,19 +530,19 @@ _TO_INSTANCE_DICT_ERROR_CASES = [
             'b': tf.io.VarLenFeature(tf.float32),
         },
         feed_dict={
-            'a':
-                tf.compat.v1.SparseTensorValue(
-                    indices=np.array([(0, 0)]),
-                    values=np.array([10.0]),
-                    dense_shape=(1, 20)),
-            'b':
-                tf.compat.v1.SparseTensorValue(
-                    indices=np.array([(0, 0)]),
-                    values=np.array([10.0]),
-                    dense_shape=(2, 20)),
+            'a': tf.compat.v1.SparseTensorValue(
+                indices=np.array([(0, 0)]),
+                values=np.array([10.0], np.float32),
+                dense_shape=(1, 20),
+            ),
+            'b': tf.compat.v1.SparseTensorValue(
+                indices=np.array([(0, 0)]),
+                values=np.array([10.0], np.float32),
+                dense_shape=(2, 20),
+            ),
         },
-        error_msg=(r'Inconsistent batch sizes: "\w" had batch dimension \d, '
-                   r'"\w" had batch dimension \d')),
+        error_msg=r'Arrays were not all the same length: \d vs \d',
+    ),
     dict(
         testcase_name='fixed_len_with_different_batch_dim_sizes',
         feature_spec={
@@ -554,11 +550,11 @@ _TO_INSTANCE_DICT_ERROR_CASES = [
             'b': tf.io.FixedLenFeature([], tf.float32),
         },
         feed_dict={
-            'a': np.array([1]),
-            'b': np.array([1, 2])
+            'a': np.array([1], np.float32),
+            'b': np.array([1, 2], np.float32),
         },
-        error_msg=(r'Inconsistent batch sizes: "\w" had batch dimension \d, '
-                   r'"\w" had batch dimension \d')),
+        error_msg=r'Arrays were not all the same length: \d vs \d',
+    ),
 ]
 
 _CONVERT_TO_ARROW_ERROR_CASES = [
@@ -729,7 +725,7 @@ class ImplHelperTest(test_case.TransformTestCase):
     self.assertEqual(features['dense_string'].dtype, tf.string)
 
     self.assertEqual(type(features['_sparse_underscored']), tf.SparseTensor)
-    # TODO(zoyahav): Change last dimension size to 17 once SparseTensors propogate
+    # TODO(zoyahav): Change last dimension size to 17 once SparseTensors propagate
     # static dense_shape from typespec correctly.
     self.assertEqual(features['_sparse_underscored'].get_shape().as_list(),
                      [None, None, None])
@@ -775,7 +771,9 @@ class ImplHelperTest(test_case.TransformTestCase):
     feed_dict_local = (
         _eager_tensor_from_values(feed_dict)
         if feed_eager_tensors else copy.copy(feed_dict))
-    result = impl_helper.to_instance_dicts(schema, feed_dict_local)
+    arrow_converter = impl_helper.make_tensor_to_arrow_converter(schema)
+    record_batch = arrow_converter.convert(feed_dict_local)
+    result = impl_helper.record_batch_to_instance_dicts(record_batch, schema)
     np.testing.assert_equal(instances, result)
 
   @test_case.named_parameters(*_TO_INSTANCE_DICT_ERROR_CASES)
@@ -785,8 +783,10 @@ class ImplHelperTest(test_case.TransformTestCase):
                                    error_msg,
                                    error_type=ValueError):
     schema = schema_utils.schema_from_feature_spec(feature_spec)
+    arrow_converter = impl_helper.make_tensor_to_arrow_converter(schema)
     with self.assertRaisesRegex(error_type, error_msg):
-      impl_helper.to_instance_dicts(schema, feed_dict)
+      record_batch = arrow_converter.convert(feed_dict)
+      _ = impl_helper.record_batch_to_instance_dicts(record_batch, schema)
 
   @test_case.named_parameters(*test_case.cross_named_parameters(
       _ROUNDTRIP_CASES, [
@@ -883,123 +883,71 @@ class ImplHelperTest(test_case.TransformTestCase):
 
   @test_case.named_parameters(
       dict(
-          testcase_name='_3d',
-          sparse_value=tf.compat.v1.SparseTensorValue(
-              indices=np.array([[0, 0, 1], [0, 1, 2], [1, 1, 1]]),
-              values=np.array([0, 1, 2]),
-              dense_shape=np.array([2, 2, 3])),
-          expected_indices=[[np.array([0, 1]),
-                             np.array([1, 2])], [np.array([1]),
-                                                 np.array([1])]],
-          expected_values=[np.array([0, 1]), np.array([2])]),
-      dict(
-          testcase_name='_4d',
-          sparse_value=tf.compat.v1.SparseTensorValue(
-              indices=np.array([[0, 0, 0, 1], [0, 1, 0, 2], [1, 1, 1, 1]]),
-              values=np.array([0, 1, 2]),
-              dense_shape=np.array([2, 2, 2, 3])),
-          expected_indices=[[
-              np.array([0, 1]),
-              np.array([0, 0]),
-              np.array([1, 2])
-          ], [np.array([1]), np.array([1]),
-              np.array([1])]],
-          expected_values=[np.array([0, 1]), np.array([2])]),
-  )
-  def test_decompose_sparse_batch(self, sparse_value, expected_indices,
-                                  expected_values):
-    indices, values = impl_helper._decompose_sparse_batch(sparse_value)
-    self.assertLen(indices, len(expected_indices))
-    self.assertLen(values, len(expected_values))
-    for idx, (a, b) in enumerate(zip(expected_indices, indices)):
-      self.assertAllEqual(a, b, 'Indices are different at index {}'.format(idx))
-    for idx, (a, b) in enumerate(zip(expected_values, values)):
-      self.assertAllEqual(a, b, 'Values are different at index {}'.format(idx))
-
-  def test_get_num_values_per_instance_in_sparse_batch(self):
-    batch_indices = np.array([[idx % 4, 0, 1, 2] for idx in range(100)])
-    num_values = impl_helper._get_num_values_per_instance_in_sparse_batch(
-        batch_indices, 27)
-    expected_num_values = [25, 25, 25, 25] + [0] * 23
-    self.assertEqual(expected_num_values, num_values)
-
-  @test_case.named_parameters(
-      dict(
-          testcase_name='_3d',
-          ragged_tensor=tf.compat.v1.ragged.RaggedTensorValue(
-              values=tf.compat.v1.ragged.RaggedTensorValue(
-                  values=tf.compat.v1.ragged.RaggedTensorValue(
-                      values=np.array([10., 20., 30.]),
-                      row_splits=np.array([0, 0, 1, 3])),  # row_lengths2
-                  row_splits=np.array([0, 1, 1, 3])),  # row_lengths1
-              row_splits=np.array([0, 2, 3])),  # batch dimension
-          # pytype: disable=attribute-error
-          spec=tf.io.RaggedFeature(  # pylint: disable=g-long-ternary
-              tf.float32,
-              value_key='ragged_3d_val',
-              partitions=[
-                  tf.io.RaggedFeature.RowLengths('ragged_3d_row_lengths1'),
-                  tf.io.RaggedFeature.RowLengths('ragged_3d_row_lengths2'),
-              ]),
-          # pytype: enable=attribute-error
-          expected_components={
-              'ragged_3d_val': [
-                  np.array([], dtype=np.float32),
-                  np.array([10., 20., 30.])
-              ],
-              'ragged_3d_row_lengths1': [np.array([1, 0]),
-                                         np.array([2])],
-              'ragged_3d_row_lengths2': [np.array([0]),
-                                         np.array([1, 2])],
-          },
+          testcase_name='valid',
+          value=tf.compat.v1.SparseTensorValue(
+              indices=np.array(
+                  [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
+              ),
+              values=np.array(
+                  [b'doe', b'a', b'deer', b'a', b'female', b'deer'],
+                  dtype=object,
+              ),
+              dense_shape=(2, 3),
+          ),
       ),
       dict(
-          testcase_name='_4d',
-          ragged_tensor=tf.compat.v1.ragged.RaggedTensorValue(
-              values=tf.compat.v1.ragged.RaggedTensorValue(
-                  values=tf.compat.v1.ragged.RaggedTensorValue(
-                      values=tf.compat.v1.ragged.RaggedTensorValue(
-                          values=np.array([b'a', b'b', b'c', b'd']),
-                          row_splits=np.array([0, 1, 1, 3, 4])),  # row_lengths3
-                      row_splits=np.array([0, 2, 2, 4])),  # row_lengths2
-                  row_splits=np.array([0, 1, 1, 3])),  # row_lengths1
-              row_splits=np.array([0, 2, 2, 3])),  # batch dimension
-          # pytype: disable=attribute-error
-          spec=tf.io.RaggedFeature(  # pylint: disable=g-long-ternary
-              tf.float32,
-              value_key='ragged_4d_val',
-              partitions=[
-                  tf.io.RaggedFeature.RowLengths('ragged_4d_row_lengths1'),
-                  tf.io.RaggedFeature.RowLengths('ragged_4d_row_lengths2'),
-                  tf.io.RaggedFeature.RowLengths('ragged_4d_row_lengths3'),
-              ]),
-          # pytype: enable=attribute-error
-          expected_components={
-              'ragged_4d_val': [
-                  np.array([b'a']),
-                  np.array([], dtype=object),
-                  np.array([b'b', b'c', b'd'])
-              ],
-              'ragged_4d_row_lengths1': [
-                  np.array([1, 0]),
-                  np.array([]), np.array([2])
-              ],
-              'ragged_4d_row_lengths2': [
-                  np.array([2]), np.array([]),
-                  np.array([0, 2])
-              ],
-              'ragged_4d_row_lengths3': [
-                  np.array([1, 0]),
-                  np.array([]),
-                  np.array([2, 1])
-              ],
-          },
-      ))
-  def test_handle_ragged_batch(self, ragged_tensor, spec, expected_components):
-    test_case.skip_if_not_tf2('RaggedFeature is not available in TF 1.x')
-    result = impl_helper._handle_ragged_batch(
-        ragged_tensor, spec, name='ragged')
-    np.testing.assert_equal(result, expected_components)
+          testcase_name='empty',
+          value=tf.compat.v1.SparseTensorValue(
+              indices=np.empty((0, 2)),
+              values=np.empty((0)),
+              dense_shape=(2, 3),
+          ),
+      ),
+      dict(
+          testcase_name='3d',
+          value=tf.compat.v1.SparseTensorValue(
+              indices=np.empty((0, 3)),
+              values=np.empty((0)),
+              dense_shape=(2, 3),
+          ),
+          error='Encountered non 2-D varlen sparse',
+      ),
+      dict(
+          testcase_name='instance_index_not_sorted',
+          value=tf.compat.v1.SparseTensorValue(
+              indices=np.array([(0, 0), (1, 1), (0, 2)]),
+              values=np.array([b'a', b'female', b'deer'], dtype=object),
+              dense_shape=(2, 3),
+          ),
+          error='Encountered decreasing instance indices',
+      ),
+      dict(
+          testcase_name='value_index_not_sorted',
+          value=tf.compat.v1.SparseTensorValue(
+              indices=np.array([(0, 0), (1, 1), (1, 0)]),
+              values=np.array([b'a', b'female', b'deer'], dtype=object),
+              dense_shape=(2, 3),
+          ),
+          error='Encountered non-consecutive value indices',
+      ),
+      dict(
+          testcase_name='instance_start_index_nonzero',
+          value=tf.compat.v1.SparseTensorValue(
+              indices=np.array([(0, 0), (1, 1), (1, 2)]),
+              values=np.array([b'a', b'female', b'deer'], dtype=object),
+              dense_shape=(2, 3),
+          ),
+          error='Encountered non-zero starting value indices',
+      ),
+  )
+  def test_validate_varlen_sparse_value(self, value, error=None):
+    if error is None:
+      self.assertIsNone(
+          impl_helper.validate_varlen_sparse_value('varlen', value)
+      )
+    else:
+      with self.assertRaisesRegex(ValueError, error):
+        impl_helper.validate_varlen_sparse_value('varlen', value)
 
 
 def _subtract_ten_with_tf_while(x):
