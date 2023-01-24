@@ -2465,6 +2465,12 @@ class CovarianceCombiner(analyzer_nodes.Combiner):
             tf.as_dtype(self._numpy_dtype), self._output_shape, None)
     ]
 
+  @property
+  def accumulator_coder(self):
+    # Needed since NumPy 1.24 no longer automatically infers dtype=object when
+    # ragged sequences are passed to np.array().
+    return analyzer_nodes.JsonNumpyCacheCoder(np_dtype=object)
+
 
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def covariance(x: tf.Tensor,

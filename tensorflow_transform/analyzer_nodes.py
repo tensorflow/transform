@@ -414,6 +414,9 @@ class CacheCoder(metaclass=abc.ABCMeta):
 class JsonNumpyCacheCoder(CacheCoder):
   """An accumulator cache coder that can handle lists."""
 
+  def __init__(self, np_dtype=None):
+    self._dtype = np_dtype
+
   def _convert_numpy_dtype(self, x):
     if hasattr(x, 'tolist'):
       return x.tolist()
@@ -430,7 +433,9 @@ class JsonNumpyCacheCoder(CacheCoder):
     return tf.compat.as_bytes(json.dumps(primitive_accumulator))
 
   def decode_cache(self, encoded_accumulator):
-    return np.array(json.loads(tf.compat.as_text(encoded_accumulator)))
+    return np.array(
+        json.loads(tf.compat.as_text(encoded_accumulator)), dtype=self._dtype
+    )
 
 
 class AnalyzerDef(nodes.OperationDef, metaclass=abc.ABCMeta):
