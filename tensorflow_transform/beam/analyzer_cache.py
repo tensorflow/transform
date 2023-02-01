@@ -60,7 +60,8 @@ class DatasetKey(tfx_namedtuple.namedtuple('DatasetKey', ['key'])):
 
   def __new__(cls, dataset_key):
     if dataset_key is not DatasetKey._FLATTENED_DATASET_KEY:
-      dataset_key = _make_valid_cache_component(dataset_key)
+      # TODO(b/267425539): Remove pytype directive.
+      dataset_key = _make_valid_cache_component(dataset_key)  # pytype: disable=wrong-arg-types  # always-use-return-annotations
     return super(DatasetKey, cls).__new__(cls, key=dataset_key)
 
   def __str__(self):
