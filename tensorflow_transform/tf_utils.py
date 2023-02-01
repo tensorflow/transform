@@ -321,7 +321,7 @@ def hashable_tensor_or_op(tensor_or_op):
     value for other types.
   """
   if isinstance(tensor_or_op, tf.Tensor):
-    return tensor_or_op.experimental_ref()
+    return tensor_or_op.ref()
   if isinstance(tensor_or_op, composite_tensor.CompositeTensor):
     return _CompositeTensorRef(
         type_spec=tf.type_spec_from_value(tensor_or_op),
