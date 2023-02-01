@@ -58,10 +58,12 @@ class DatasetKey(tfx_namedtuple.namedtuple('DatasetKey', ['key'])):
   __slots__ = ()
   _FLATTENED_DATASET_KEY = object()
 
-  def __new__(cls, dataset_key):
+  def __new__(cls, dataset_key: Union[str, object]) -> 'DatasetKey':
     if dataset_key is not DatasetKey._FLATTENED_DATASET_KEY:
-      # TODO(b/267425539): Remove pytype directive.
-      dataset_key = _make_valid_cache_component(dataset_key)  # pytype: disable=wrong-arg-types  # always-use-return-annotations
+      if not isinstance(dataset_key, str):
+        raise ValueError(
+            f'User provided dataset_key must be a str. Got: {dataset_key}')
+      dataset_key = _make_valid_cache_component(dataset_key)
     return super(DatasetKey, cls).__new__(cls, key=dataset_key)
 
   def __str__(self):

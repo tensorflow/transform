@@ -268,6 +268,7 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
         analyzer_cache.DatasetKey('a'):
             analyzer_cache.DatasetCache({'b': [bytes([17, 19, 27, 31])]}, None)
     }
+    dataset_keys = list(test_cache_dict.keys())
 
     class LocalSource(beam.PTransform):
 
@@ -275,9 +276,9 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
         del path
 
       def expand(self, pbegin):
-        return pbegin | beam.Create([test_cache_dict['a'].cache_dict['b']])
+        return pbegin | beam.Create(
+            [test_cache_dict[k].cache_dict['b'] for k in dataset_keys])
 
-    dataset_keys = list(test_cache_dict.keys())
     cache_dir = self.get_temp_dir()
     with beam.Pipeline() as p:
       _ = test_cache_dict | analyzer_cache.WriteAnalysisCacheToFS(
@@ -289,9 +290,10 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
       self.assertCountEqual(read_cache.keys(), ['a'])
       self.assertCountEqual(read_cache['a'].cache_dict.keys(), ['b'])
 
-      beam_test_util.assert_that(
-          read_cache['a'].cache_dict['b'],
-          beam_test_util.equal_to([test_cache_dict['a'].cache_dict['b']]))
+      for key in dataset_keys:
+        beam_test_util.assert_that(
+            read_cache[key].cache_dict['b'],
+            beam_test_util.equal_to([test_cache_dict[key].cache_dict['b']]))
 
 
 if __name__ == '__main__':
