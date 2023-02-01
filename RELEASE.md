@@ -14,6 +14,8 @@
 
 ## Deprecations
 
+*   Deprecated python 3.7 support.
+
 # Version 1.12.0
 
 ## Major Features and Improvements
