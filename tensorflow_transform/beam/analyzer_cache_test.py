@@ -81,7 +81,7 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
           coder=analyzer_nodes._VocabularyAccumulatorCoder(),
           value=[b'\x8a', 29]),
       dict(
-          testcase_name='_VocabularyAccumulatorCoderClassAccumulator',
+          testcase_name='_WeightedMeanAndVarAccumulatorPerKey',
           coder=analyzer_nodes._VocabularyAccumulatorCoder(),
           value=[
               b'A',
@@ -92,6 +92,19 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
                   weight=np.array(0.),
               )
           ]),
+      dict(
+          testcase_name='_WeightedMeanAndVarAccumulatorKeepDims',
+          coder=analyzer_nodes.JsonNumpyCacheCoder(),
+          # TODO(b/268341036): Remove this complication once np 1.24 issue is
+          # fixed.
+          value=analyzer_nodes.JsonNumpyCacheCoder(object).decode_cache(
+              analyzer_nodes.JsonNumpyCacheCoder().encode_cache(
+                  analyzers._WeightedMeanAndVarAccumulator(
+                      count=np.array(0),
+                      mean=np.array([], dtype=np.float64),
+                      variance=np.array([], dtype=np.float64),
+                      weight=np.array(0.0))))
+          ),
       dict(
           testcase_name='_QuantilesAccumulatorCoderClassAccumulator',
           coder=analyzers._QuantilesSketchCacheCoder(),

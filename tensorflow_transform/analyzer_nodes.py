@@ -433,9 +433,17 @@ class JsonNumpyCacheCoder(CacheCoder):
     return tf.compat.as_bytes(json.dumps(primitive_accumulator))
 
   def decode_cache(self, encoded_accumulator):
-    return np.array(
-        json.loads(tf.compat.as_text(encoded_accumulator)), dtype=self._dtype
-    )
+    # TODO(b/268341036): Set dtype correctly for combiners for numpy 1.24.
+    try:
+      return np.array(
+          json.loads(tf.compat.as_text(encoded_accumulator)), dtype=self._dtype
+      )
+    except ValueError:
+      if self._dtype != object:
+        return np.array(
+            json.loads(tf.compat.as_text(encoded_accumulator)), dtype=object
+        )
+      raise
 
 
 class AnalyzerDef(nodes.OperationDef, metaclass=abc.ABCMeta):
