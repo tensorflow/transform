@@ -20,7 +20,10 @@ the schema of a tensor from its parents in the graph.
 """
 
 import collections
-from typing import Callable, List, Mapping, Optional, Tuple, Union
+import functools
+import itertools
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
+from absl import logging
 
 import tensorflow as tf
 from tensorflow_transform import common
@@ -70,7 +73,9 @@ def _ragged_feature_spec_from_batched_tensor(
 
 def _feature_spec_from_batched_tensors(
     tensors: Mapping[str, common_types.TensorType],
-    is_evaluation_complete: bool) -> Mapping[str, common_types.FeatureSpecType]:
+    is_evaluation_complete: bool,
+    forced_sparse_keys: Iterable[str],
+) -> Dict[str, common_types.FeatureSpecType]:
   """Infer a feature spec from a dict of tensors.
 
   Args:
@@ -78,6 +83,8 @@ def _feature_spec_from_batched_tensors(
       `SparseTensor`, or `RaggedTensor`s.
     is_evaluation_complete: A boolean indicating whether all analyzers have been
       evaluated or not.
+    forced_sparse_keys: Keys of sparse tensors which should not be treated as
+      varlen.
 
   Returns:
     A feature spec inferred from the types and shapes of the tensors.
@@ -95,7 +102,7 @@ def _feature_spec_from_batched_tensors(
               name, tensor, tensor.dtype))
     if isinstance(tensor, tf.SparseTensor):
       shape = tensor.get_shape()
-      if shape.ndims > 2:
+      if shape.ndims > 2 or name in forced_sparse_keys:
         feature_spec[name] = tf.io.SparseFeature(
             index_key=[
                 SPARSE_INDICES_NAME_TEMPLATE.format(
@@ -131,6 +138,15 @@ def _feature_spec_from_batched_tensors(
           'for feature {}'.format(tensor, type(tensor), name))
 
   return feature_spec
+
+
+def _get_tensor_values(tensor: common_types.TensorType) -> tf.Tensor:
+  if isinstance(tensor, tf.SparseTensor):
+    return tensor.values
+  elif isinstance(tensor, tf.RaggedTensor):
+    return tensor.flat_values
+  else:
+    return tensor
 
 
 def infer_feature_schema(
@@ -172,20 +188,21 @@ def infer_feature_schema(
     tensor_ranges = session.run(tensor_ranges)
     tensor_annotations, global_annotations = _get_schema_annotations(
         graph, session)
+  sparse_output_annotations = _get_sparse_output_annotations_v1(graph)
+  modified_sparse_output_annotations = {}
   modified_tensor_ranges = {}
   feature_annotations = {}
   for name, tensor in features.items():
-    if isinstance(tensor, tf.SparseTensor):
-      values = tensor.values
-    elif isinstance(tensor, tf.RaggedTensor):
-      values = tensor.flat_values
-    else:
-      values = tensor
-    hashable_values = tf_utils.hashable_tensor_or_op(values)
+    hashable_values = tf_utils.hashable_tensor_or_op(
+        values := _get_tensor_values(tensor)
+    )
     if hashable_values in tensor_ranges:
       assert values.dtype == tf.int64
       modified_tensor_ranges[name] = tensor_ranges[hashable_values]
-    # tensor_annotations is a defaultdict(list) so always returns a list.
+    if hashable_values in sparse_output_annotations:
+      modified_sparse_output_annotations[name] = sparse_output_annotations[
+          hashable_values
+      ]
     feature_annotations[name] = tensor_annotations.get(hashable_values, [])
 
   return _infer_feature_schema_common(
@@ -193,10 +210,12 @@ def infer_feature_schema(
       modified_tensor_ranges,
       feature_annotations,
       global_annotations,
+      modified_sparse_output_annotations,
       # A session is passed to compute schema overrides which exist only if all
       # analyzers have been evaluated. Hence, if `session` was provided to this
       # API assume TFT's evaluation is complete.
-      is_evaluation_complete=session is not None)
+      is_evaluation_complete=session is not None,
+  )
 
 
 def infer_feature_schema_v2(
@@ -243,12 +262,62 @@ def infer_feature_schema_v2(
     tensor_ranges = _get_tensor_ranges_v2(metadata)
     tensor_annotations, global_annotations = _get_schema_annotations_v2(
         metadata)
+
+  def _get_metadata_sparse_output_annotations(metadata):
+    sparse_output_annotations = metadata[
+        _METADATA_SPARSE_OUTPUT_OVERRIDES_FIELD
+    ]
+    if not sparse_output_annotations:
+      return None
+    return {
+        k: [a.numpy() for a in v]
+        for k, v in sparse_output_annotations[0].items()
+    }
+
   return _infer_feature_schema_common(
       features,
       tensor_ranges,
       tensor_annotations,
       global_annotations,
-      is_evaluation_complete=evaluate_schema_overrides)
+      sparse_output_annotations=_get_metadata_sparse_output_annotations(
+          metadata
+      ),
+      is_evaluation_complete=evaluate_schema_overrides,
+  )
+
+
+def _override_sparse_feature_annotated_shapes(
+    feature_spec: Dict[str, common_types.FeatureSpecType],
+    sparse_output_annotations: Dict[str, List[Union[int, str]]],
+):
+  """Overrides feature_spec SparseFeatures with annotated shapes."""
+  for k in sparse_output_annotations:
+    if k not in feature_spec:
+      raise ValueError(
+          f'Shape annotation for feature "{k}" which is not an output feature.'
+      )
+
+    if not isinstance(feature := feature_spec[k], tf.io.SparseFeature):
+      logging.warning(
+          'Feature "%s" was annotated with a sparse shape but it is not'
+          ' sparse: %s', k, feature)
+      continue
+
+    annotations = sparse_output_annotations[k]
+
+    # Otherwise, the feature was just annotated to be truely sparse.
+    if any(isinstance(t, (str, bytes)) for t in annotations):
+      logging.warning(
+          'Feature "%s" was annotated to be sparse without setting a shape.', k)
+      continue
+
+    feature_spec[k] = tf.io.SparseFeature(
+        index_key=feature.index_key,
+        value_key=feature.value_key,
+        dtype=feature.dtype,
+        size=tf.TensorShape(annotations),
+        already_sorted=feature.already_sorted,
+    )
 
 
 def _infer_feature_schema_common(
@@ -256,7 +325,9 @@ def _infer_feature_schema_common(
     tensor_ranges: Mapping[str, Tuple[int, int]],
     feature_annotations: Mapping[str, List[any_pb2.Any]],
     global_annotations: List[any_pb2.Any],
-    is_evaluation_complete: bool) -> schema_pb2.Schema:
+    sparse_output_annotations: Optional[Dict[str, List[Union[int, str]]]],
+    is_evaluation_complete: bool,
+) -> schema_pb2.Schema:
   """Given a dict of tensors, creates a `Schema`.
 
   Args:
@@ -269,6 +340,8 @@ def _infer_feature_schema_common(
       protos to be added as an annotation for that feature in the schema.
     global_annotations: list of any_pb2.Any protos to be added at the global
       schema level.
+    sparse_output_annotations: A dict mapping sparse feature names to their
+      annotations.
     is_evaluation_complete: A boolean indicating whether all analyzers have been
       evaluated or not.
 
@@ -282,8 +355,13 @@ def _infer_feature_schema_common(
       min_value, max_value = tensor_ranges[name]
       domains[name] = schema_pb2.IntDomain(
           min=min_value, max=max_value, is_categorical=True)
-  feature_spec = _feature_spec_from_batched_tensors(features,
-                                                    is_evaluation_complete)
+  sparse_output_annotations = sparse_output_annotations or dict()
+  feature_spec = _feature_spec_from_batched_tensors(
+      features, is_evaluation_complete, sparse_output_annotations.keys()
+  )
+  _override_sparse_feature_annotated_shapes(
+      feature_spec, sparse_output_annotations
+  )
 
   schema_proto = schema_utils.schema_from_feature_spec(feature_spec, domains)
 
@@ -336,6 +414,9 @@ _TF_METADATA_EXTRA_ANNOTATION_TYPE_URL = 'tft_schema_override_annotation_type'
 _TF_METADATA_EXTRA_ANNOTATION_PROTO = 'tft_schema_override_annotation_proto'
 # Used to indicate that an annotation should be applied at the schema level.
 _TF_METADATA_EXTRA_ANNOTATION_GLOBAL = 'tft_schema_override_global_sentinel'
+
+# V2 metadata entry for shape overrides of SparseTensor outputs.
+_METADATA_SPARSE_OUTPUT_OVERRIDES_FIELD = 'tft_sparse_output_overrides'
 
 
 def set_tensor_schema_override(tensor, min_value, max_value):
@@ -393,10 +474,7 @@ def _get_tensor_ranges_v2(metadata):
 def get_tensor_schema_override(
     tensor: common_types.TensorType) -> Tuple[tf.Tensor, tf.Tensor]:
   """Lookup schema overrides for a `Tensor`  or `CompositeTensor`."""
-  if isinstance(tensor, tf.SparseTensor):
-    tensor = tensor.values
-  elif isinstance(tensor, tf.RaggedTensor):
-    tensor = tensor.flat_values
+  tensor = _get_tensor_values(tensor)
   overrides = _get_tensor_ranges(tensor.graph)
   min_max = overrides.get(tf_utils.hashable_tensor_or_op(tensor), None)
   if min_max is None:
@@ -427,7 +505,6 @@ def annotate(type_url, proto_message, tensor=None):
   """
   if tensor is None:
     tensor = tf.constant('unused', name=_TF_METADATA_EXTRA_ANNOTATION_GLOBAL)
-
   if not isinstance(tensor, (tf.Tensor, tf.SparseTensor)):
     raise ValueError('tensor {} was not a Tensor'.format(tensor))
   if not isinstance(proto_message, tf.Tensor):
@@ -556,12 +633,7 @@ def _get_tensor_value_to_key_map(features_dict):
   """Get reverse map from name of tensor values to key in `features_dict`."""
   result = {}
   for key, tensor in features_dict.items():
-    if isinstance(tensor, tf.SparseTensor):
-      values = tensor.values
-    elif isinstance(tensor, tf.RaggedTensor):
-      values = tensor.flat_values
-    else:
-      values = tensor
+    values = _get_tensor_values(tensor)
     result[values.name] = key
   return result
 
@@ -599,8 +671,13 @@ def _get_schema_overrides(graph,
   overrides_list = [graph.get_collection(k) for k in overrides_keys]
 
   result = collections.defaultdict(list)
-  assert (len(tensors) == len(overrides_list[0]) and
-          all(len(lst) == len(overrides_list[0]) for lst in overrides_list))
+  if len(tensors) != len(overrides_list[0]) or any(
+      len(lst) != len(overrides_list[0]) for lst in overrides_list
+  ):
+    raise ValueError(
+        f'Unexpected collections lengths. tensors: {tensors}, overrides_list:'
+        f' {overrides_list}'
+    )
   for tensor, overrides_tuple in zip(tensors, zip(*overrides_list)):
     if tensor.name in tensor_name_to_key_map:
       result[tensor_collection_key].append(tensor_name_to_key_map[tensor.name])
@@ -694,6 +771,9 @@ def get_traced_metadata_fn(
                                     _TF_METADATA_EXTRA_ANNOTATION_TYPE_URL,
                                     _TF_METADATA_EXTRA_ANNOTATION_PROTO
                                 ], _TF_METADATA_EXTRA_ANNOTATION_GLOBAL))
+      result[_METADATA_SPARSE_OUTPUT_OVERRIDES_FIELD] = [
+          _get_sparse_output_annotations_v2(graph, reversed_features)
+      ]
     return result
 
   # Though this tf.function is not serialized to SavedModel, if it is capturing
@@ -708,3 +788,94 @@ def get_traced_metadata_fn(
   saved_transform_io_v2.trace_and_update_module(
       module, metadata_fn, 'metadata_fn', strip_control_dependencies=True)
   return module.metadata_fn
+
+_ANNOTATED_SPARSE_SHAPE_TENSORS = 'annotated_sparse_shape_tensors'
+_ANNOTATED_SPARSE_SHAPE_RANKS = 'annotated_sparse_shape_ranks'
+_ANNOTATED_SPARSE_SHAPE_DIMENSIONS = 'annotated_sparse_shape_dimensions'
+_ANNOTATED_TRUELY_SPARSE_TENSORS = 'annotated_truely_sparse_tensors'
+
+
+def annotate_sparse_output_shape(tensor: tf.SparseTensor, shape: Sequence[int]):
+  """Annotates a sparse output with a given shape."""
+  if tensor.shape.rank - 1 != len(shape):
+    raise ValueError(
+        f'Output {tensor} was annotated with an incompatible shape: {shape}'
+    )
+  tf.compat.v1.add_to_collection(_ANNOTATED_SPARSE_SHAPE_TENSORS, tensor.values)
+  # We store rank and dimensions to separate collections since TF collections
+  # don't allow storing lists. This can be simplified if we switch away from
+  # collections.
+  tf.compat.v1.add_to_collection(_ANNOTATED_SPARSE_SHAPE_RANKS, len(shape))
+  for dim in shape:
+    tf.compat.v1.add_to_collection(_ANNOTATED_SPARSE_SHAPE_DIMENSIONS, dim)
+
+
+def annotate_true_sparse_output(tensor: tf.SparseTensor):
+  """Annotates a true sparse output to avoid representing it as varlen."""
+  tf.compat.v1.add_to_collection(
+      _ANNOTATED_TRUELY_SPARSE_TENSORS, tensor.values
+  )
+
+
+def _extract_true_sparse_annotations(
+    graph: tf.compat.v1.Graph,
+) -> List[tf.Tensor]:
+  """Extracts true sparse annotations from the graph."""
+  return graph.get_collection(_ANNOTATED_TRUELY_SPARSE_TENSORS)
+
+
+def _extract_sparse_output_annotations(
+    graph: tf.compat.v1.Graph,
+) -> List[Tuple[tf.Tensor, List[tf.Tensor]]]:
+  """Extracts sparse output annotations from the graph."""
+  tensors = graph.get_collection(_ANNOTATED_SPARSE_SHAPE_TENSORS)
+  ranks = graph.get_collection(_ANNOTATED_SPARSE_SHAPE_RANKS)
+  assert len(tensors) == len(ranks), f'{tensors} != {ranks}'
+  shape_flattened = graph.get_collection(_ANNOTATED_SPARSE_SHAPE_DIMENSIONS)
+
+  # Splitting dimensions per annotated tensor.
+  splits = functools.reduce(lambda lst, x: lst + [lst[-1] + x], ranks, [0])
+  # Composing the annotated shape per tensor.
+  shapes = tuple(shape_flattened[s:e] for s, e in zip(splits[:-1], splits[1:]))
+
+  assert len(tensors) == len(shapes), f'{tensors} != {shapes}'
+  return list(zip(tensors, shapes))
+
+
+def _get_sparse_output_annotations(
+    graph: tf.compat.v1.Graph,
+) -> List[Tuple[tf.Tensor, List[Union[str, tf.Tensor]]]]:
+  """Provides sparse output user annotations."""
+  sparse_output_annotations = _extract_sparse_output_annotations(graph)
+  annotated_refs = set(t[0].ref() for t in sparse_output_annotations)
+  # Can't put None in collection, so putting an empty string.
+  return list(
+      itertools.chain(
+          (
+              (a, [''])
+              for a in _extract_true_sparse_annotations(graph)
+              if a.ref() not in annotated_refs
+          ),
+          sparse_output_annotations,
+      )
+  )
+
+
+def _get_sparse_output_annotations_v1(
+    graph: tf.compat.v1.Graph,
+) -> Dict[Any, List[Union[str, tf.Tensor]]]:
+  return {
+      tf_utils.hashable_tensor_or_op(kv[0]): kv[1]
+      for kv in _get_sparse_output_annotations(graph)
+  }
+
+
+def _get_sparse_output_annotations_v2(
+    graph: tf.compat.v1.Graph, tensor_to_feature_names: Dict[str, str]
+) -> Dict[str, List[Union[str, tf.Tensor]]]:
+  annotations = _get_sparse_output_annotations(graph)
+  result = {}
+  for tensor, v in annotations:
+    if tensor.name in tensor_to_feature_names:
+      result[tensor_to_feature_names[tensor.name]] = v
+  return result

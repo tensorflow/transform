@@ -7,6 +7,9 @@
 *   `RaggedTensor`s can now be automatically inferred for variable length
     features by setting `represent_variable_length_as_ragged=true` in TFMD
     schema.
+*   New experimental APIs added for annotating sparse output tensors:
+    `tft.experimental.annotate_sparse_output_shape` and
+    `tft.experimental.annotate_true_sparse_output`.
 
 ## Bug Fixes and Other Changes
 

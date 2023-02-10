@@ -13,10 +13,20 @@
 # limitations under the License.
 """Experimental APIs to get annotations."""
 
+from typing import Sequence
+
 import tensorflow as tf
 from tensorflow_transform import annotators
+from tensorflow_transform import schema_inference
 
 from tensorflow.python.framework import ops  # pylint: disable=g-direct-tensorflow-import
+
+
+__all__ = [
+    'get_vocabulary_size_by_name',
+    'annotate_sparse_output_shape',
+    'annotate_true_sparse_output',
+]
 
 
 def get_vocabulary_size_by_name(vocab_filename: str) -> tf.Tensor:
@@ -75,3 +85,31 @@ def get_vocabulary_size_by_name(vocab_filename: str) -> tf.Tensor:
         '`vocab_filename` argument passed to it.')
 
   return result
+
+
+def annotate_sparse_output_shape(tensor: tf.SparseTensor, shape: Sequence[int]):
+  """Annotates a sparse output to have a given dense_shape.
+
+  Args:
+    tensor: An `SparseTensor` to be annotated.
+    shape: A dense_shape to annotate `tensor` with. Note that this shape does
+      not include batch_size.
+  """
+  if len(shape) != tensor.shape.rank - 1:
+    raise ValueError(
+        f'Annotated shape {shape} was expected to have rank'
+        f' {tensor.shape.rank - 1}'
+    )
+  if not all(a is None or a <= b for a, b in zip(tensor.shape[1:], shape)):
+    raise ValueError(f'Shape {shape} cannot contain annotated tensor {tensor}')
+  # There's currently no way to override SparseTensor.dense_shape directly,
+  # unless composing and returning a new SparseTensor.
+  tensor._dense_shape = tf.convert_to_tensor(  # pylint: disable=protected-access
+      [tensor.dense_shape[0]] + list(shape), dtype=tf.int64
+  )
+  schema_inference.annotate_sparse_output_shape(tensor, shape)
+
+
+def annotate_true_sparse_output(tensor: tf.SparseTensor):
+  """Annotates a sparse output to be truely sparse and not varlen."""
+  schema_inference.annotate_true_sparse_output(tensor)
