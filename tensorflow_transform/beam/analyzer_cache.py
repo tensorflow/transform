@@ -307,9 +307,9 @@ class WriteAnalysisCacheToFS(beam.PTransform):
     manifest_file.write(manifest)
     return cache_is_written
 
-  def expand(
-      self, dataset_cache_dict: Dict[DatasetKey, DatasetCache]
-  ) -> List[beam.pvalue.PDone]:
+  # TODO(b/269419184): Add typehints when possible:
+  # expand(self, dataset_cache_dict: Dict[DatasetKey, DatasetCache]) -> List[beam.pvalue.PDone]  # pylint: disable=line-too-long
+  def expand(self, dataset_cache_dict):
     if self._sorted_dataset_keys is None:
       sorted_dataset_keys_list = sorted(dataset_cache_dict.keys())
     else:
@@ -369,7 +369,9 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
     return (self._filtered_cache_entry_keys is None or
             key in self._filtered_cache_entry_keys)
 
-  def expand(self, pipeline: beam.Pipeline) -> Dict[DatasetKey, DatasetCache]:
+  # TODO(b/269419184): Add typehints when possible:
+  # expand(self, pipeline: beam.Pipeline) -> Dict[DatasetKey, DatasetCache]
+  def expand(self, pipeline: beam.Pipeline):
     result = {}
 
     for dataset_key_idx, dataset_key in enumerate(self._sorted_dataset_keys):
