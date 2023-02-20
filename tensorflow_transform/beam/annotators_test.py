@@ -36,7 +36,7 @@ class AnnotatorsTest(tft_unit.TransformTestCase):
       outputs = inputs.copy()
       x = tf.sparse.expand_dims(inputs['x'], -1)
       outputs['x'] = x
-      tft.experimental.annotate_sparse_output_shape(x, [1, 1])
+      tft.experimental.annotate_sparse_output_shape(x, tf.constant([1, 1]))
       tft.experimental.annotate_sparse_output_shape(outputs['y'], [17])
       tft.experimental.annotate_true_sparse_output(outputs['z'])
       return outputs

@@ -20,9 +20,8 @@ the schema of a tensor from its parents in the graph.
 """
 
 import collections
-import functools
 import itertools
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple, Union
 from absl import logging
 
 import tensorflow as tf
@@ -188,7 +187,7 @@ def infer_feature_schema(
     tensor_ranges = session.run(tensor_ranges)
     tensor_annotations, global_annotations = _get_schema_annotations(
         graph, session)
-  sparse_output_annotations = _get_sparse_output_annotations_v1(graph)
+  sparse_output_annotations = _get_sparse_output_annotations_v1(graph, session)
   modified_sparse_output_annotations = {}
   modified_tensor_ranges = {}
   feature_annotations = {}
@@ -790,24 +789,14 @@ def get_traced_metadata_fn(
   return module.metadata_fn
 
 _ANNOTATED_SPARSE_SHAPE_TENSORS = 'annotated_sparse_shape_tensors'
-_ANNOTATED_SPARSE_SHAPE_RANKS = 'annotated_sparse_shape_ranks'
-_ANNOTATED_SPARSE_SHAPE_DIMENSIONS = 'annotated_sparse_shape_dimensions'
+_ANNOTATED_SPARSE_SHAPES = 'annotated_sparse_shape_dimensions'
 _ANNOTATED_TRUELY_SPARSE_TENSORS = 'annotated_truely_sparse_tensors'
 
 
-def annotate_sparse_output_shape(tensor: tf.SparseTensor, shape: Sequence[int]):
+def annotate_sparse_output_shape(tensor: tf.SparseTensor, shape: tf.Tensor):
   """Annotates a sparse output with a given shape."""
-  if tensor.shape.rank - 1 != len(shape):
-    raise ValueError(
-        f'Output {tensor} was annotated with an incompatible shape: {shape}'
-    )
   tf.compat.v1.add_to_collection(_ANNOTATED_SPARSE_SHAPE_TENSORS, tensor.values)
-  # We store rank and dimensions to separate collections since TF collections
-  # don't allow storing lists. This can be simplified if we switch away from
-  # collections.
-  tf.compat.v1.add_to_collection(_ANNOTATED_SPARSE_SHAPE_RANKS, len(shape))
-  for dim in shape:
-    tf.compat.v1.add_to_collection(_ANNOTATED_SPARSE_SHAPE_DIMENSIONS, dim)
+  tf.compat.v1.add_to_collection(_ANNOTATED_SPARSE_SHAPES, shape)
 
 
 def annotate_true_sparse_output(tensor: tf.SparseTensor):
@@ -818,26 +807,16 @@ def annotate_true_sparse_output(tensor: tf.SparseTensor):
 
 
 def _extract_true_sparse_annotations(
-    graph: tf.compat.v1.Graph,
-) -> List[tf.Tensor]:
+    graph: tf.compat.v1.Graph) -> List[tf.Tensor]:
   """Extracts true sparse annotations from the graph."""
   return graph.get_collection(_ANNOTATED_TRUELY_SPARSE_TENSORS)
 
 
 def _extract_sparse_output_annotations(
-    graph: tf.compat.v1.Graph,
-) -> List[Tuple[tf.Tensor, List[tf.Tensor]]]:
+    graph: tf.compat.v1.Graph) -> List[Tuple[tf.Tensor, List[tf.Tensor]]]:
   """Extracts sparse output annotations from the graph."""
   tensors = graph.get_collection(_ANNOTATED_SPARSE_SHAPE_TENSORS)
-  ranks = graph.get_collection(_ANNOTATED_SPARSE_SHAPE_RANKS)
-  assert len(tensors) == len(ranks), f'{tensors} != {ranks}'
-  shape_flattened = graph.get_collection(_ANNOTATED_SPARSE_SHAPE_DIMENSIONS)
-
-  # Splitting dimensions per annotated tensor.
-  splits = functools.reduce(lambda lst, x: lst + [lst[-1] + x], ranks, [0])
-  # Composing the annotated shape per tensor.
-  shapes = tuple(shape_flattened[s:e] for s, e in zip(splits[:-1], splits[1:]))
-
+  shapes = graph.get_collection(_ANNOTATED_SPARSE_SHAPES)
   assert len(tensors) == len(shapes), f'{tensors} != {shapes}'
   return list(zip(tensors, shapes))
 
@@ -852,7 +831,7 @@ def _get_sparse_output_annotations(
   return list(
       itertools.chain(
           (
-              (a, [''])
+              (a, tf.constant(['']))
               for a in _extract_true_sparse_annotations(graph)
               if a.ref() not in annotated_refs
           ),
@@ -862,12 +841,15 @@ def _get_sparse_output_annotations(
 
 
 def _get_sparse_output_annotations_v1(
-    graph: tf.compat.v1.Graph,
+    graph: tf.compat.v1.Graph, session: Optional[tf.compat.v1.Session]
 ) -> Dict[Any, List[Union[str, tf.Tensor]]]:
-  return {
-      tf_utils.hashable_tensor_or_op(kv[0]): kv[1]
-      for kv in _get_sparse_output_annotations(graph)
-  }
+  if not session:
+    return {}
+  else:
+    return {
+        tf_utils.hashable_tensor_or_op(kv[0]): session.run(kv[1])
+        for kv in _get_sparse_output_annotations(graph)
+    }
 
 
 def _get_sparse_output_annotations_v2(

@@ -187,16 +187,28 @@ def train_and_evaluate(raw_train_eval_data_path_pattern,
   feature_spec.pop(common.LABEL_KEY)
 
   inputs = {}
+  sparse_inputs = {}
+  dense_inputs = {}
   for key, spec in feature_spec.items():
     if isinstance(spec, tf.io.FixedLenFeature):
       # TODO(b/208879020): Move into schema such that spec.shape is [1] and not
       # [] for scalars.
       inputs[key] = tf.keras.layers.Input(
           shape=spec.shape or [1], name=key, dtype=spec.dtype)
+      dense_inputs[key] = inputs[key]
+    elif isinstance(spec, tf.io.SparseFeature):
+      inputs[key] = tf.keras.layers.Input(
+          shape=spec.size, name=key, dtype=spec.dtype, sparse=True
+      )
+      sparse_inputs[key] = inputs[key]
     else:
       raise ValueError('Spec type is not supported: ', key, spec)
 
-  stacked_inputs = tf.concat(tf.nest.flatten(inputs), axis=1)
+  outputs = [
+      tf.keras.layers.Dense(10, activation='relu')(x)
+      for x in tf.nest.flatten(sparse_inputs)
+  ]
+  stacked_inputs = tf.concat(tf.nest.flatten(dense_inputs) + outputs, axis=1)
   output = tf.keras.layers.Dense(100, activation='relu')(stacked_inputs)
   output = tf.keras.layers.Dense(70, activation='relu')(output)
   output = tf.keras.layers.Dense(50, activation='relu')(output)

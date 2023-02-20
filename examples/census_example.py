@@ -26,6 +26,14 @@ import census_example_common as common
 # Functions for training
 
 
+def _make_inputs_dense(transformed_features):
+  return {
+      k: tf.sparse.to_dense(v) if isinstance(v, tf.SparseTensor) else v
+      for k, v in transformed_features.items()
+  }
+# pylint: disable=g-deprecated-tf-checker
+
+
 def _make_training_input_fn(tf_transform_output, transformed_examples,
                             batch_size):
   """Creates an input function reading from transformed data.
@@ -47,8 +55,9 @@ def _make_training_input_fn(tf_transform_output, transformed_examples,
         reader=tf.data.TFRecordDataset,
         shuffle=True)
 
-    transformed_features = tf.compat.v1.data.make_one_shot_iterator(
-        dataset).get_next()
+    transformed_features = _make_inputs_dense(
+        tf.compat.v1.data.make_one_shot_iterator(dataset).get_next()
+    )
 
     # Extract features and label from the transformed tensors.
     # TODO(b/30367437): make transformed_labels a dict.
@@ -86,8 +95,9 @@ def _make_serving_input_fn(tf_transform_output):
     # Apply the transform function that was used to generate the materialized
     # data.
     raw_features = serving_input_receiver.features
-    transformed_features = tf_transform_output.transform_raw_features(
-        raw_features)
+    transformed_features = _make_inputs_dense(
+        tf_transform_output.transform_raw_features(raw_features)
+    )
 
     return tf_estimator.export.ServingInputReceiver(
         transformed_features, serving_input_receiver.receiver_tensors)
@@ -106,8 +116,13 @@ def get_feature_columns(tf_transform_output):
   """
   feature_spec = tf_transform_output.transformed_feature_spec()
   # Wrap scalars as real valued columns.
+  def get_shape(spec):
+    if isinstance(spec, tf.io.SparseFeature):
+      return spec.size
+    return spec.shape
+
   return [
-      tf.feature_column.numeric_column(key, shape=feature_spec[key].shape)
+      tf.feature_column.numeric_column(key, shape=get_shape(feature_spec[key]))
       for key in (common.NUMERIC_FEATURE_KEYS + common.CATEGORICAL_FEATURE_KEYS)
   ]
 

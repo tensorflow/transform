@@ -140,11 +140,16 @@ def transform_data(train_data_file, test_data_file, working_dir):
       one_hot_encoded = tf.one_hot(
           integerized,
           depth=tf.cast(depth, tf.int32),
-          on_value=1.0,
-          off_value=0.0)
-      # This output is now one-hot encoded. If saving transformed data to disk,
-      # this can incur significant memory cost.
-      outputs[key] = tf.reshape(one_hot_encoded, [-1, depth])
+          on_value=1,
+          off_value=0,
+          dtype=tf.int64)
+      # Saving one-hot encoded outputs as sparse in order to avoid large dense
+      # (mostly empty) tensors. This is especially important when saving
+      # transformed data to disk.
+      outputs[key] = tf.sparse.from_dense(
+          tf.reshape(one_hot_encoded, [-1, depth])
+      )
+      tft.experimental.annotate_sparse_output_shape(outputs[key], depth)
 
     # For the label column we provide the mapping from string to index.
     table_keys = ['>50K', '<=50K']

@@ -13,7 +13,7 @@
 # limitations under the License.
 """Experimental APIs to get annotations."""
 
-from typing import Sequence
+from typing import Sequence, Union
 
 import tensorflow as tf
 from tensorflow_transform import annotators
@@ -87,7 +87,8 @@ def get_vocabulary_size_by_name(vocab_filename: str) -> tf.Tensor:
   return result
 
 
-def annotate_sparse_output_shape(tensor: tf.SparseTensor, shape: Sequence[int]):
+def annotate_sparse_output_shape(
+    tensor: tf.SparseTensor, shape: Union[Sequence[int], tf.Tensor]):
   """Annotates a sparse output to have a given dense_shape.
 
   Args:
@@ -95,18 +96,28 @@ def annotate_sparse_output_shape(tensor: tf.SparseTensor, shape: Sequence[int]):
     shape: A dense_shape to annotate `tensor` with. Note that this shape does
       not include batch_size.
   """
-  if len(shape) != tensor.shape.rank - 1:
+  if not isinstance(shape, tf.Tensor):
+    if (tensor.shape.rank > 1 and tensor.shape.rank - 1 != len(shape)) or (
+        tensor.shape.rank == 1 and len(shape) != 1):
+      raise ValueError(
+          f'Annotated shape {shape} was expected to have rank'
+          f' {tensor.shape.rank - 1}')
+    if not all(a is None or a <= b for a, b in zip(tensor.shape[1:], shape)):
+      raise ValueError(
+          f'Shape {shape} cannot contain annotated tensor {tensor}')
+    shape = tf.convert_to_tensor(shape, dtype=tf.int64)
+  elif shape.shape.rank > 1 or (
+      shape.shape.rank == 1 and shape.shape[0] != tensor.shape.rank - 1):
     raise ValueError(
-        f'Annotated shape {shape} was expected to have rank'
-        f' {tensor.shape.rank - 1}'
-    )
-  if not all(a is None or a <= b for a, b in zip(tensor.shape[1:], shape)):
-    raise ValueError(f'Shape {shape} cannot contain annotated tensor {tensor}')
+        f'Annotation shape has rank {shape.shape.rank} but expected to have'
+        f' rank {tensor.shape.rank - 1}')
+  if shape.shape.rank < 1:
+    shape = tf.expand_dims(shape, -1)
   # There's currently no way to override SparseTensor.dense_shape directly,
   # unless composing and returning a new SparseTensor.
-  tensor._dense_shape = tf.convert_to_tensor(  # pylint: disable=protected-access
-      [tensor.dense_shape[0]] + list(shape), dtype=tf.int64
-  )
+  tensor._dense_shape = tf.concat(  # pylint: disable=protected-access
+      [tf.expand_dims(tensor.dense_shape[0], -1), tf.cast(shape, tf.int64)],
+      axis=0)
   schema_inference.annotate_sparse_output_shape(tensor, shape)
 
 
