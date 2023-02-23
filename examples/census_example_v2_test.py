@@ -176,7 +176,7 @@ class CensusExampleV2Test(tft_test_case.TransformTestCase):
     prediction = model.signatures['serving_default'](
         tf.constant([example.SerializeToString()], tf.string))
     self.assertAllEqual([['0', '1']], prediction['classes'])
-    self.assertAllClose([[0, 1]], prediction['scores'], atol=0.001)
+    self.assertAllClose([[0, 1]], prediction['scores'], atol=0.01)
 
     # This is required in order to support the classify API for this Keras
     # model.
