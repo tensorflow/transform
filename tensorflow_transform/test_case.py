@@ -85,6 +85,8 @@ def parameters(*testcases):
     arg_names = arg_names[1:]
 
     def to_arg_dict(testcase):
+      if isinstance(testcase, dict):
+        return testcase
       testcase = tuple(testcase)
       if len(testcase) != len(arg_names):
         raise ValueError(

@@ -464,6 +464,16 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self._running_index += 1
     return self._running_index
 
+  def _publish_rendered_dot_graph_file_from_leaf_nodes(self, leaf_nodes):
+    dot_string = nodes.get_dot_graph(leaf_nodes).to_string()
+    tf.io.gfile.makedirs(self.base_test_dir)
+    output_file = os.path.join(
+        self.base_test_dir,
+        'rendered_graph_{}.svg'.format(self._get_running_index()),
+    )
+    self.WriteRenderedDotFile(dot_string, output_file=output_file)
+    return dot_string
+
   def _publish_rendered_dot_graph_file(self,
                                        preprocessing_fn,
                                        feature_spec,
@@ -486,15 +496,11 @@ class CachedImplTest(tft_unit.TransformTestCase):
                                                  structured_outputs,
                                                  dataset_keys, pcoll_cache_dict)
     sort_value_node_values = lambda d: sorted(d.values(), key=str)
-    dot_string = nodes.get_dot_graph([transform_fn_future] +
-                                     sort_value_node_values(cache_output_dict) +
-                                     sideeffects).to_string()
-    tf.io.gfile.makedirs(self.base_test_dir)
-    output_file = os.path.join(
-        self.base_test_dir,
-        'rendered_graph_{}.svg'.format(self._get_running_index()))
-    self.WriteRenderedDotFile(dot_string, output_file=output_file)
-    return dot_string
+    return self._publish_rendered_dot_graph_file_from_leaf_nodes(
+        [transform_fn_future]
+        + sort_value_node_values(cache_output_dict)
+        + sideeffects
+    )
 
   _RunPipelineResult = tfx_namedtuple.namedtuple(  # pylint: disable=invalid-name
       '_RunPipelineResult', ['cache_output', 'pipeline'])
@@ -1408,6 +1414,97 @@ class CachedImplTest(tft_unit.TransformTestCase):
     # report 0 for this counter.
     self.assertMetricsCounterEqual(p.metrics, 'analysis_input_bytes_from_cache',
                                    0)
+
+  @tft_unit.parameters(
+      dict(
+          num_non_packed_analyzers=0,
+          num_packed_analyzers=0,
+          num_input_datasets=10,
+          expected_node_count_with_cache=1,
+          expected_node_count_without_cache=1,
+      ),
+      dict(
+          num_non_packed_analyzers=2,
+          num_packed_analyzers=0,
+          num_input_datasets=1,
+          expected_node_count_with_cache=29,
+          expected_node_count_without_cache=24,
+      ),
+      dict(
+          num_non_packed_analyzers=0,
+          num_packed_analyzers=2,
+          num_input_datasets=1,
+          expected_node_count_with_cache=24,
+          expected_node_count_without_cache=19,
+      ),
+      dict(
+          num_non_packed_analyzers=2,
+          num_packed_analyzers=0,
+          num_input_datasets=10,
+          expected_node_count_with_cache=101,
+          expected_node_count_without_cache=24,
+      ),
+      dict(
+          num_non_packed_analyzers=0,
+          num_packed_analyzers=2,
+          num_input_datasets=10,
+          expected_node_count_with_cache=87,
+          expected_node_count_without_cache=19,
+      ),
+  )
+  def test_node_count(
+      self,
+      num_non_packed_analyzers,
+      num_packed_analyzers,
+      num_input_datasets,
+      expected_node_count_with_cache,
+      expected_node_count_without_cache,
+  ):
+    dataset_keys = [str(x) for x in range(num_input_datasets)]
+    specs = impl_helper.get_type_specs_from_feature_specs(
+        {'x': tf.io.FixedLenFeature([], tf.int64)}
+    )
+
+    def preprocessing_fn(inputs):
+      for _ in range(num_packed_analyzers):
+        tft.mean(inputs['x'])
+      for _ in range(num_non_packed_analyzers):
+        tft.vocabulary(inputs['x'])
+      return inputs
+
+    def get_graph_leaf_nodes(cache_enabled):
+      graph, structured_inputs, structured_outputs = (
+          impl_helper.trace_preprocessing_function(
+              preprocessing_fn,
+              specs,
+              use_tf_compat_v1=False,
+              base_temp_dir=self.base_test_dir,
+          )
+      )
+      (transform_fn_future, cache_output_dict, sideeffects) = (
+          analysis_graph_builder.build(
+              graph,
+              structured_inputs,
+              structured_outputs,
+              dataset_keys,
+              cache_dict={} if cache_enabled else None,
+          )
+      )
+      cache_output_nodes = (
+          list(cache_output_dict.values()) if cache_output_dict else []
+      )
+      return [transform_fn_future] + cache_output_nodes + sideeffects
+
+    with_cache_graph = get_graph_leaf_nodes(True)
+    without_cache_graph = get_graph_leaf_nodes(False)
+    node_count_with_cache = nodes.count_graph_nodes(with_cache_graph)
+    node_count_without_cache = nodes.count_graph_nodes(without_cache_graph)
+    self._publish_rendered_dot_graph_file_from_leaf_nodes(without_cache_graph)
+    self._publish_rendered_dot_graph_file_from_leaf_nodes(with_cache_graph)
+    self.assertEqual(
+        (expected_node_count_without_cache, expected_node_count_with_cache),
+        (node_count_without_cache, node_count_with_cache),
+    )
 
 
 if __name__ == '__main__':

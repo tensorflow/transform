@@ -371,3 +371,36 @@ def get_dot_graph(leaf_nodes: Collection[ValueNode]) -> pydot.Dot:
   for value_node in leaf_nodes:
     traverser.visit_value_node(value_node)
   return visitor.get_dot_graph()
+
+
+class _CountGraphNodes(Visitor):
+  """Visitor which counts the graph nodes."""
+
+  num_nodes = 0
+
+  def visit(self, operation_def: OperationDef, _) -> Tuple[int]:
+    self.num_nodes += 1
+    return tuple(1 for _ in range(operation_def.num_outputs))
+
+  def validate_value(self, value: int):
+    pass
+
+
+def count_graph_nodes(leaf_nodes: Collection[ValueNode]) -> int:
+  """Counts the number of graph nodes.
+
+  Note: these nodes only include the TFT graph nodes, it doesn't count beam
+  nodes constructed directly.
+
+  Args:
+    leaf_nodes: A list of leaf `ValueNode`s to define the graph.  The graph will
+      be the transitive parents of the leaf nodes.
+
+  Returns:
+    The count of TFT graph nodes.
+  """
+  visitor = _CountGraphNodes()
+  traverser = Traverser(visitor)
+  for value_node in leaf_nodes:
+    traverser.visit_value_node(value_node)
+  return visitor.num_nodes
