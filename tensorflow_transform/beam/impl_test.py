@@ -3139,13 +3139,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
               'scale_by_min_max$ragged_values': [
                   0., 0.285714, 0.428571, 0.142857, 0.285714, 1.
               ],
-              'scale_by_min_max$row_lengths_1': [0, 4, 0, 2],
-              'scale_to_z_score$row_lengths_1': [0, 4, 0, 2],
+              'scale_by_min_max$row_lengths_1': [0, 2, 0, 1],
+              'scale_to_z_score$row_lengths_1': [0, 2, 0, 1],
               'scale_to_z_score$ragged_values': [
                   -1.3333334, -0.22222228, 0.33333328, -0.77777785, -0.22222228,
                   2.5555556
               ],
-              'scale_to_0_1$row_lengths_1': [0, 4, 0, 2],
+              'scale_to_0_1$row_lengths_1': [0, 2, 0, 1],
               'scale_to_0_1$ragged_values': [
                   0., 0.2857143, 0.42857143, 0.14285715, 0.2857143, 1.
               ],
@@ -3153,15 +3153,15 @@ class BeamImplTest(tft_unit.TransformTestCase):
               'scale_to_0_1$ragged_values': [
                   0.42857143, 0.42857143, 0.14285715, 0.2857143
               ],
-              'scale_to_0_1$row_lengths_1': [4],
+              'scale_to_0_1$row_lengths_1': [2],
               'scale_by_min_max$ragged_values': [
                   0.42857143, 0.42857143, 0.14285715, 0.2857143
               ],
-              'scale_by_min_max$row_lengths_1': [4],
+              'scale_by_min_max$row_lengths_1': [2],
               'scale_to_z_score$ragged_values': [
                   0.33333328, 0.33333328, -0.77777785, -0.22222228
               ],
-              'scale_to_z_score$row_lengths_1': [4],
+              'scale_to_z_score$row_lengths_1': [2],
           }],
       ),
   )
@@ -4544,13 +4544,13 @@ class BeamImplTest(tft_unit.TransformTestCase):
             'x_ones$ragged_values': [1, 1, 1],
             'x_ones$row_lengths_1': [1, 0, 2],
             'y_ones$ragged_values': [1, 1],
-            'y_ones$row_lengths_1': [2],
+            'y_ones$row_lengths_1': [1],
         },
         {
             'x_ones$ragged_values': [],
             'x_ones$row_lengths_1': [0],
             'y_ones$ragged_values': [1, 1, 1, 1],
-            'y_ones$row_lengths_1': [2, 0, 2],
+            'y_ones$row_lengths_1': [1, 0, 1],
         },
     ]
     expected_metadata = tft.DatasetMetadata.from_feature_spec({

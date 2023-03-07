@@ -207,7 +207,7 @@ _ROUNDTRIP_CASES = [
             'j_row_lengths2': [2, 1, 1],
             'k_val': [0, 1, 2, 3, 4, 5, 6, 7, 8],
             'l_val': [0, 1, 2, 3, 4, 5],
-            'l_row_lengths1': [4, 2],
+            'l_row_lengths1': [2, 1],
         }, {
             'a': 100,
             'b': 2.0,
@@ -227,7 +227,7 @@ _ROUNDTRIP_CASES = [
             'j_row_lengths2': [1],
             'k_val': [9, 10, 11],
             'l_val': [6, 7],
-            'l_row_lengths1': [2],
+            'l_row_lengths1': [1],
         }],
         record_batch=_MULTIPLE_FEATURES_CASE_RECORD_BATCH,
         feed_dict=_FEED_DICT),
@@ -271,7 +271,7 @@ _ROUNDTRIP_CASES = [
             'l_val':
                 np.array([0, 1, 2, 3, 4, 5]),
             'l_row_lengths1':
-                np.array([4, 2]),
+                np.array([2, 1]),
         }, {
             'a': np.int64(100),
             'b': np.array(2.0, np.float32),
@@ -291,7 +291,7 @@ _ROUNDTRIP_CASES = [
             'j_row_lengths2': np.array([1]),
             'k_val': np.array([9, 10, 11]),
             'l_val': np.array([6, 7]),
-            'l_row_lengths1': np.array([2]),
+            'l_row_lengths1': np.array([1]),
         }],
         record_batch=_MULTIPLE_FEATURES_CASE_RECORD_BATCH,
         feed_dict=_FEED_DICT),
