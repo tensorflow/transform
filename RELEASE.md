@@ -13,6 +13,8 @@
 
 ## Bug Fixes and Other Changes
 
+*   Depends on `numpy~=1.22.0`.
+
 ## Breaking Changes
 
 ## Deprecations
