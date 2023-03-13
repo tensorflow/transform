@@ -4426,7 +4426,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
               name: "x$sparse_indices_0"
               type: INT
               # TODO(b/184055743): Once TensorFlow is released with
-              # cl/342914534, uncomment.
+              # cl/514884437, uncomment.
               # int_domain {
               #   min: 0
               #   max: 4
@@ -4436,7 +4436,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
               name: "x$sparse_indices_1"
               type: INT
               # TODO(b/184055743): Once TensorFlow is released with
-              # cl/342914534 uncomment.
+              # cl/514884437 uncomment.
               #  int_domain {
               #   min: 0
               #   max: 4
@@ -4462,11 +4462,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
         if not tft_unit.is_external_environment():
           expected_metadata.generate_legacy_feature_spec = False
 
-        # TODO(b/184055743): Once TensorFlow is released with cl/342914534,
+        # TODO(b/184055743): Once TensorFlow is released with cl/514884437,
         # remove this.
-        # TODO(b/184057384): Even with cl/342914534,
-        # transformed_metadata.deferred_schema still does not contain the shape
-        # information about the SparseTensor.
         def int_domain_cleared(schema):
           result = schema_pb2.Schema()
           result.CopyFrom(schema)
@@ -4502,10 +4499,8 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                'x$sparse_values',
                                tf.float32, [5, 5],
                                already_sorted=True),
-           # TODO(b/184055743): Once TensorFlow is released with cl/342914534,
+           # TODO(b/184055743): Once TensorFlow is released with cl/514884437,
            # remove this.
-           # TODO(b/184057384): Even with cl/342914534, still may not contain
-           # the shape information about the SparseTensor.
            tf.io.SparseFeature(['x$sparse_indices_0', 'x$sparse_indices_1'],
                                'x$sparse_values',
                                tf.float32, [-1, -1],
