@@ -23,17 +23,7 @@ from typing import Callable, List, Optional
 
 import tensorflow as tf
 from tensorflow_transform.graph_context import TFGraphContext
-
-# pylint: disable=g-direct-tensorflow-import
-from tensorflow.python.framework import func_graph
-from tensorflow.python.framework import ops
-# pylint: disable=g-import-not-at-top
-try:
-  # Moved in TensorFlow 2.10.
-  from tensorflow.python.trackable import base
-except ImportError:
-  from tensorflow.python.training.tracking import base
-# pylint: enable=g-direct-tensorflow-import, g-import-not-at-top
+from tensorflow.python.trackable import base  # pylint: disable=g-direct-tensorflow-import
 
 __all__ = ['annotate_asset', 'make_and_track_object']
 
@@ -170,8 +160,7 @@ def make_and_track_object(trackable_factory_callable: Callable[[],
     creation is lifted out to the eager context using `tf.init_scope`.
   """
   # pyformat: enable
-  # TODO(b/165884902): Use tf.inside_function after dropping TF 1.15 support.
-  if not isinstance(ops.get_default_graph(), func_graph.FuncGraph):
+  if not tf.inside_function():
     raise ValueError('This API should only be invoked inside the user defined '
                      '`preprocessing_fn` with TF2 behaviors enabled and '
                      '`force_tf_compat_v1=False`. ')

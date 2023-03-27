@@ -40,7 +40,6 @@ from tensorflow_transform.graph_context import TFGraphContext
 from tfx_bsl.types import tfx_namedtuple
 
 # pylint: disable=g-direct-tensorflow-import
-from tensorflow.python.framework import func_graph
 from tensorflow.python.framework import ops
 # pylint: disable=g-enable-tensorflow-import
 
@@ -303,8 +302,7 @@ def bind_future_as_tensor(
     tensor_info: TensorInfo,
     name: Optional[str] = None) -> common_types.TemporaryAnalyzerOutputType:
   """Bind a future value as a tensor."""
-  # TODO(b/165884902): Use tf.inside_function after dropping TF 2.3 support.
-  if isinstance(ops.get_default_graph(), func_graph.FuncGraph):
+  if tf.inside_function():
     # If the default graph is a `FuncGraph`, tf.function was used to trace the
     # preprocessing fn.
     return _bind_future_as_tensor_v2(future, tensor_info, name)

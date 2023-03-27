@@ -26,7 +26,6 @@ from tfx_bsl.types import tfx_namedtuple
 
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.framework import composite_tensor
-from tensorflow.python.framework import func_graph
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import lookup_ops
 from tensorflow.python.util import object_identity
@@ -652,14 +651,12 @@ def make_tfrecord_vocabulary_lookup_initializer(filename_tensor,
                                                 return_indicator_as_value=False,
                                                 has_indicator=False):
   """Makes a lookup table initializer from a compressed tfrecord file."""
-  graph = ops.get_default_graph()
   with contextlib.ExitStack() as stack:
-    # TODO(b/165884902): Use tf.inside_function after dropping TF 2.3 support.
     # If filename_tensor is a graph tensor (e.g. temporary analyzer output), the
     # following operation cannot be lifted to init scope. Hence, check it is an
     # eager tensor or a string constant.
-    if isinstance(graph, func_graph.FuncGraph) and isinstance(
-        filename_tensor, (ops.EagerTensor, str)):
+    if (tf.inside_function() and
+        isinstance(filename_tensor, (ops.EagerTensor, str))):
       # Lift the dataset creation out of graph construction to avoid
       # repeated initialization in TF2.
       stack.enter_context(tf.init_scope())
@@ -668,8 +665,7 @@ def make_tfrecord_vocabulary_lookup_initializer(filename_tensor,
                                                 value_dtype,
                                                 return_indicator_as_value,
                                                 has_indicator)
-    # TODO(b/165884902): Use tf.inside_function after dropping TF 2.3 support.
-    if isinstance(graph, func_graph.FuncGraph):
+    if tf.inside_function():
       annotators.track_object(dataset, name=None)
     return _DatasetInitializerCompat(dataset)
 
@@ -1642,16 +1638,14 @@ def construct_and_lookup_table(construct_table_callable: Callable[
     A tuple of the result from looking x up in a table and the table's size.
 
   """
-  graph = ops.get_default_graph()
   # If table is lifted into an initialization scope, add a control dependency
   # on the graph tensor used to track this analyzer in
   # `analyzer_nodes.TENSOR_REPLACEMENTS`.
   asset_filepath, control_dependency = (
       _get_asset_analyzer_output_and_control_dependency(asset_filepath))
   with contextlib.ExitStack() as stack:
-    # TODO(b/165884902): Use tf.inside_function after dropping TF 2.3 support.
-    if isinstance(graph, func_graph.FuncGraph) and isinstance(
-        asset_filepath, (ops.EagerTensor, str)):
+    if (tf.inside_function() and
+        isinstance(asset_filepath, (ops.EagerTensor, str))):
       # Lift the table initialization out of graph construction to avoid
       # repeated initialization in TF2.
       stack.enter_context(tf.init_scope())
