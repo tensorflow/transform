@@ -17,7 +17,7 @@ import os
 import pickle
 import re
 import sys
-from typing import Dict, Iterable, List, Optional, Union, Tuple
+from typing import Iterable, Mapping, List, Optional, Union, Tuple
 
 import apache_beam as beam
 import tensorflow as tf
@@ -53,18 +53,24 @@ def _make_valid_cache_component(name: str) -> str:
   return result
 
 
-class DatasetKey(tfx_namedtuple.namedtuple('DatasetKey', ['key'])):
+class DatasetKey(tfx_namedtuple.namedtuple('DatasetKey', ['key', 'is_cached'])):
   """A key for a dataset used for analysis."""
   __slots__ = ()
   _FLATTENED_DATASET_KEY = object()
 
-  def __new__(cls, dataset_key: Union[str, object]) -> 'DatasetKey':
+  def non_cacheable(self) -> 'DatasetKey':
+    """Creates a non cacheable dataset key, for which no cache will be produced."""
+    return self._replace(key=f'uncached_{self.key}', is_cached=False)
+
+  def __new__(
+      cls, dataset_key: Union[str, object], is_cached: bool = True
+  ) -> 'DatasetKey':
     if dataset_key is not DatasetKey._FLATTENED_DATASET_KEY:
       if not isinstance(dataset_key, str):
         raise ValueError(
             f'User provided dataset_key must be a str. Got: {dataset_key}')
       dataset_key = _make_valid_cache_component(dataset_key)
-    return super(DatasetKey, cls).__new__(cls, key=dataset_key)
+    return super().__new__(cls, key=dataset_key, is_cached=is_cached)
 
   def __str__(self):
     if self.is_flattened_dataset_key():
@@ -72,20 +78,12 @@ class DatasetKey(tfx_namedtuple.namedtuple('DatasetKey', ['key'])):
     else:
       return super().__str__()
 
-  def __hash__(self):
-    return hash(self.key)
-
-  def __eq__(self, other):
-    if self.key == other:
-      return True
-    return isinstance(other, DatasetKey) and self.key == other.key
-
   def is_flattened_dataset_key(self) -> bool:
     return self.key == self._FLATTENED_DATASET_KEY
 
 
 def _make_flattened_dataset_key() -> DatasetKey:
-  return DatasetKey(DatasetKey._FLATTENED_DATASET_KEY)  # pylint: disable=protected-access
+  return DatasetKey(DatasetKey._FLATTENED_DATASET_KEY, is_cached=False)  # pylint: disable=protected-access
 
 
 def _get_dataset_cache_path(base_dir: str, dataset_key: DatasetKey) -> str:
@@ -110,7 +108,7 @@ class DatasetCacheMetadata(
 class DatasetCache(
     tfx_namedtuple.TypedNamedTuple(
         'DatasetCache',
-        [('cache_dict', Dict[str, beam.PCollection[bytes]]),
+        [('cache_dict', Mapping[str, beam.PCollection[bytes]]),
          ('metadata', Optional[Union[beam.PCollection[DatasetCacheMetadata],
                                      DatasetCacheMetadata]])])):
   """Complete cache for a dataset as well as metadata."""
@@ -127,6 +125,9 @@ class DatasetCache(
 
   def items(self):
     return self.cache_dict.items()
+
+
+BeamAnalysisCache = Mapping[DatasetKey, DatasetCache]
 
 
 class _ManifestFile:
@@ -162,7 +163,7 @@ class _ManifestFile:
   def __exit__(self, *exn_info):
     self._close()
 
-  def _get_manifest_contents(self, manifest_file_handle) -> Dict[str, int]:
+  def _get_manifest_contents(self, manifest_file_handle) -> Mapping[str, int]:
     """Reads, decodes and returns the manifest contents."""
     manifest_file_handle.seek(0)
     try:
@@ -188,7 +189,7 @@ class _ManifestFile:
       with tf.io.gfile.GFile(self._manifest_path, 'rb') as f:
         return self._get_manifest_contents(f)
 
-  def write(self, manifest: Dict[str, int]):
+  def write(self, manifest: Mapping[str, int]):
     """Writes the manifest to the file."""
     try:
       # First attempt to delete the manifest if it exists in case it can't be
@@ -274,8 +275,8 @@ class WriteAnalysisCacheToFS(beam.PTransform):
       self._sink = _WriteToTFRecordGzip
 
   def _extract_input_pvalues(
-      self, dataset_cache_dict: Dict[DatasetKey, DatasetCache]
-  ) -> Tuple[Dict[DatasetKey, DatasetCache], List[beam.pvalue.PValue]]:
+      self, dataset_cache_dict: BeamAnalysisCache
+  ) -> Tuple[BeamAnalysisCache, List[beam.pvalue.PValue]]:
     pvalues = []
     for value in dataset_cache_dict.values():
       if value.metadata:
@@ -308,7 +309,7 @@ class WriteAnalysisCacheToFS(beam.PTransform):
     return cache_is_written
 
   # TODO(b/269419184): Add typehints when possible:
-  # expand(self, dataset_cache_dict: Dict[DatasetKey, DatasetCache]) -> List[beam.pvalue.PDone]  # pylint: disable=line-too-long
+  # expand(self, dataset_cache_dict: BeamAnalysisCache) -> List[beam.pvalue.PDone]  # pylint: disable=line-too-long
   def expand(self, dataset_cache_dict):
     if self._sorted_dataset_keys is None:
       sorted_dataset_keys_list = sorted(dataset_cache_dict.keys())
@@ -370,7 +371,7 @@ class ReadAnalysisCacheFromFS(beam.PTransform):
             key in self._filtered_cache_entry_keys)
 
   # TODO(b/269419184): Add typehints when possible:
-  # expand(self, pipeline: beam.Pipeline) -> Dict[DatasetKey, DatasetCache]
+  # expand(self, pipeline: beam.Pipeline) -> BeamAnalysisCache
   def expand(self, pipeline: beam.Pipeline):
     result = {}
 

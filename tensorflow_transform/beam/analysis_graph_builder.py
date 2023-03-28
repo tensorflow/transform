@@ -16,8 +16,11 @@
 import collections
 import hashlib
 
+from typing import Dict, Mapping, Collection, Optional, Tuple
+
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
+from tensorflow_transform import common_types
 from tensorflow_transform import graph_tools
 from tensorflow_transform import impl_helper
 from tensorflow_transform import nodes
@@ -33,6 +36,11 @@ from tfx_bsl.types import tfx_namedtuple
 
 # Used for debugging only. This will point to the most recent graph built.
 _ANALYSIS_GRAPH = None
+
+
+_IntermediateCacheType = Dict[
+    Tuple[analyzer_cache.DatasetKey, str], analyzer_cache.DatasetCache
+]
 
 
 def _tensor_name(tensor):
@@ -152,8 +160,14 @@ class _OptimizeVisitor(nodes.Visitor):
   input data, according to the `is_partitionable` annotation.
   """
 
-  def __init__(self, dataset_keys, cache_dict, tensor_keys_to_paths,
-               cache_output_nodes, num_phases):
+  def __init__(
+      self,
+      dataset_keys: Collection[analyzer_cache.DatasetKey],
+      cache_dict: Optional[analyzer_cache.BeamAnalysisCache],
+      tensor_keys_to_paths: Mapping[str, str],
+      cache_output_nodes: _IntermediateCacheType,
+      num_phases: int,
+  ):
     """Init method for _OptimizeVisitor.
 
     Args:
@@ -367,7 +381,7 @@ class _OptimizeVisitor(nodes.Visitor):
         (op_output,) = nodes.OperationNode(
             operation_def._replace(label=f'{operation_def.label}[{infix}]'),
             value_nodes).outputs
-        if operation_def.cache_coder:
+        if operation_def.cache_coder and dataset_key.is_cached:
           self._dataset_has_cache_misses[dataset_key] = True
           encode_cache = nodes.apply_operation(
               analyzer_nodes.EncodeCache,
@@ -418,8 +432,17 @@ class _OptimizeVisitor(nodes.Visitor):
       ), (f'{value.fine_grained_view.keys()} != {self._sorted_dataset_keys}')
 
 
-def _perform_cache_optimization(saved_model_future, dataset_keys,
-                                tensor_keys_to_paths, cache_dict, num_phases):
+def _perform_cache_optimization(
+    saved_model_future: nodes.ValueNode,
+    dataset_keys: Collection[analyzer_cache.DatasetKey],
+    tensor_keys_to_paths: Dict[str, str],
+    cache_dict: Optional[analyzer_cache.BeamAnalysisCache],
+    num_phases: int,
+) -> Tuple[
+    Tuple[nodes.ValueNode],
+    Optional[_IntermediateCacheType],
+    Collection[nodes.ValueNode],
+]:
   """Performs cache optimization on the given graph."""
   cache_output_nodes = {}
   optimize_visitor = _OptimizeVisitor(dataset_keys or {}, cache_dict,
@@ -526,14 +549,38 @@ def get_analysis_cache_entry_keys(preprocessing_fn,
   _, cache_dict = _build_analysis_graph_for_inspection(preprocessing_fn, specs,
                                                        dataset_keys, {},
                                                        force_tf_compat_v1)
-  return set([cache_key for _, cache_key in cache_dict.keys()])
+  result = set()
+  for dataset_cache in cache_dict.values():
+    result.update(dataset_cache.keys())
+  return result
 
 
-def build(graph,
-          input_signature,
-          output_signature,
-          dataset_keys=None,
-          cache_dict=None):
+AnalysisCache = Mapping[
+    analyzer_cache.DatasetKey, Mapping[str, nodes.ValueNode]
+]
+
+
+def _format_output_cache(
+    cache_value_nodes: _IntermediateCacheType,
+) -> Optional[AnalysisCache]:
+  """Triggers dataset cache encoding and composes analysis cache output."""
+  if cache_value_nodes is None:
+    return None
+  cache_dict = collections.defaultdict(dict)
+  for (dataset_key, cache_key), value_node in cache_value_nodes.items():
+    cache_dict[dataset_key][cache_key] = value_node
+  return cache_dict
+
+
+def build(
+    graph: tf.Graph,
+    input_signature: Mapping[str, common_types.TensorType],
+    output_signature: Mapping[str, common_types.TensorType],
+    dataset_keys: Optional[Collection[analyzer_cache.DatasetKey]] = None,
+    cache_dict: Optional[analyzer_cache.BeamAnalysisCache] = None,
+) -> Tuple[
+    nodes.ValueNode, Optional[AnalysisCache], Collection[nodes.ValueNode]
+]:
   """Returns a list of `Phase`s describing how to execute the pipeline.
 
   The default graph is assumed to contain some `Analyzer`s which must be
@@ -567,18 +614,19 @@ def build(graph,
 
   Args:
     graph: A `tf.Graph`.
-    input_signature: A dict whose keys are strings and values are `Tensor`s or
-      `SparseTensor`s.
-    output_signature: A dict whose keys are strings and values are `Tensor`s or
-      `SparseTensor`s.
-    dataset_keys: (Optional) A set of strings which are dataset keys, they
-      uniquely identify these datasets across analysis runs.
+    input_signature: A dict whose keys are strings and values are `Tensor`s,
+      `SparseTensor`s, or `RaggedTensor`s.
+    output_signature: A dict whose keys are strings and values are `Tensor`s,
+      `SparseTensor`s, or `RaggedTensor`s.
+    dataset_keys: (Optional) A set of `DatasetKeys`, which uniquely identify
+      these datasets across analysis runs.
     cache_dict: (Optional): A cache dictionary.
 
   Returns:
-    A pair of:
-      * list of `Phase`s
+    A tuple of:
+      * A SavedModel future node.
       * A dictionary of output cache `ValueNode`s.
+      * Side affect leaf nodes.
 
   Raises:
     ValueError: if the graph cannot be analyzed.
@@ -690,5 +738,8 @@ def build(graph,
 
   global _ANALYSIS_GRAPH
   _ANALYSIS_GRAPH = optimized_saved_model_future
-  return (optimized_saved_model_future, output_cache_value_nodes,
-          detached_sideeffect_leafs)
+  return (
+      optimized_saved_model_future,
+      _format_output_cache(output_cache_value_nodes),
+      detached_sideeffect_leafs,
+  )

@@ -10,6 +10,9 @@
 *   New experimental APIs added for annotating sparse output tensors:
     `tft.experimental.annotate_sparse_output_shape` and
     `tft.experimental.annotate_true_sparse_output`.
+*   `DatasetKey.non_cacheable` added to allow for some datasets to not produce
+    cache. This may be useful for gradual cache generation when operating on a
+    large rolling range of datasets.
 
 ## Bug Fixes and Other Changes
 

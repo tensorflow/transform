@@ -277,8 +277,9 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
 
         return pcoll | beam.Map(write_to_file)
 
+    dataset_key = analyzer_cache.DatasetKey('a')
     test_cache_dict = {
-        analyzer_cache.DatasetKey('a'):
+        dataset_key:
             analyzer_cache.DatasetCache({'b': [bytes([17, 19, 27, 31])]}, None)
     }
     dataset_keys = list(test_cache_dict.keys())
@@ -300,8 +301,8 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
       read_cache = p | analyzer_cache.ReadAnalysisCacheFromFS(
           cache_dir, dataset_keys, source=LocalSource)
 
-      self.assertCountEqual(read_cache.keys(), ['a'])
-      self.assertCountEqual(read_cache['a'].cache_dict.keys(), ['b'])
+      self.assertCountEqual(read_cache, [dataset_key])
+      self.assertCountEqual(read_cache[dataset_key].cache_dict.keys(), ['b'])
 
       for key in dataset_keys:
         beam_test_util.assert_that(

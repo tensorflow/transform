@@ -906,17 +906,21 @@ class _InstanceDictInputToTFXIOInput(beam.PTransform):
 
 
 def _make_output_cache(
-    cache_value_nodes: Dict[Tuple[analyzer_cache.DatasetKey, str],
-                            nodes.ValueNode], traverser: nodes.Traverser,
-    dataset_metrics: Dict[analyzer_cache.DatasetKey,
-                          analyzer_cache.DatasetCacheMetadata]
-) -> Optional[Dict[analyzer_cache.DatasetKey, analyzer_cache.DatasetCache]]:
+    cache_value_nodes: Optional[analysis_graph_builder.AnalysisCache],
+    traverser: nodes.Traverser,
+    dataset_metrics: Dict[
+        analyzer_cache.DatasetKey, analyzer_cache.DatasetCacheMetadata
+    ],
+) -> Optional[analyzer_cache.BeamAnalysisCache]:
   """Triggers dataset cache encoding and composes analysis cache output."""
   if cache_value_nodes is None:
     return None
   cache_dict = collections.defaultdict(dict)
-  for (dataset_key, cache_key), value_node in cache_value_nodes.items():
-    cache_dict[dataset_key][cache_key] = traverser.visit_value_node(value_node)
+  for dataset_key, dataset_cache in cache_value_nodes.items():
+    for cache_key, value_node in dataset_cache.items():
+      cache_dict[dataset_key][cache_key] = traverser.visit_value_node(
+          value_node
+      )
   return {
       dataset_key: analyzer_cache.DatasetCache(cache,
                                                dataset_metrics[dataset_key])
