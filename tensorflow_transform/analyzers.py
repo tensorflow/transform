@@ -600,7 +600,7 @@ def _min_and_max_per_key(
         key_vocabulary_filename=key_vocabulary_filename)
 
     if key_vocabulary_filename is not None:
-      return key_values
+      return key_values  # pytype: disable=bad-return-type  # always-use-return-annotations
 
     key, minus_x_min, x_max = key_values
     return (
