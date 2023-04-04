@@ -46,9 +46,6 @@ main = test_case.main
 
 mock = tf.compat.v1.test.mock
 
-# TODO(zoyahav): Remove this once user usage is removed.
-metadata_from_feature_spec = tft.DatasetMetadata.from_feature_spec
-
 
 def canonical_numeric_dtype(dtype):
   """Returns int64 for int dtypes and float32 for float dtypes."""
