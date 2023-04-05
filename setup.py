@@ -45,11 +45,11 @@ def _make_required_install_packages():
       'absl-py>=0.9,<2.0.0',
       'apache-beam[gcp]>=2.41,<3',
       'numpy~=1.22.0',
-      'protobuf>=3.13,<4',
+      'protobuf>=3.20.3,<5',
       'pyarrow>=6,<7',
       'pydot>=1.2,<2',
       # pylint: disable=line-too-long
-      'tensorflow' + select_constraint('>=2.11.0,<2.12'),
+      'tensorflow>=2.12,<3',
       # pylint: enable=line-too-long
       'tensorflow-metadata' + select_constraint(
           default='>=1.12.0,<1.13.0',

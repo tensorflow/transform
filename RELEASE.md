@@ -17,6 +17,8 @@
 ## Bug Fixes and Other Changes
 
 *   Depends on `numpy~=1.22.0`.
+*   Depends on `tensorflow>=2.12.0,<2.13`.
+*   Depends on `protobuf>=3.20.3,<5`.
 
 ## Breaking Changes
 
