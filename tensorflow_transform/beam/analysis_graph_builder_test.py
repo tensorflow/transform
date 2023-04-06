@@ -23,7 +23,7 @@ from tensorflow_transform import nodes
 from tensorflow_transform import tf2_utils
 from tensorflow_transform.beam import analysis_graph_builder
 from tensorflow_transform.beam import analyzer_cache
-from tensorflow_transform import test_case
+from tensorflow_transform.beam import tft_unit
 # TODO(b/243513856): Switch to `collections.namedtuple` or `typing.NamedTuple`
 # once the Spark issue is resolved.
 from tfx_bsl.types import tfx_namedtuple
@@ -396,17 +396,21 @@ _ANALYZE_TEST_CASES = [
 ]
 
 
-class AnalysisGraphBuilderTest(test_case.TransformTestCase):
+class AnalysisGraphBuilderTest(tft_unit.TransformTestCase):
 
-  @test_case.named_parameters(
-      *test_case.cross_named_parameters(_ANALYZE_TEST_CASES, [
-          dict(testcase_name='tf_compat_v1', use_tf_compat_v1=True),
-          dict(testcase_name='tf2', use_tf_compat_v1=False)
-      ]))
+  @tft_unit.named_parameters(
+      *tft_unit.cross_named_parameters(
+          _ANALYZE_TEST_CASES,
+          [
+              dict(testcase_name='tf_compat_v1', use_tf_compat_v1=True),
+              dict(testcase_name='tf2', use_tf_compat_v1=False),
+          ],
+      )
+  )
   def test_build(self, feature_spec, preprocessing_fn, expected_dot_graph_str,
                  expected_dot_graph_str_tf2, use_tf_compat_v1):
     if not use_tf_compat_v1:
-      test_case.skip_if_not_tf2('Tensorflow 2.x required')
+      tft_unit.skip_if_not_tf2('Tensorflow 2.x required')
     specs = (
         feature_spec if use_tf_compat_v1 else
         impl_helper.get_type_specs_from_feature_specs(feature_spec))
@@ -430,48 +434,54 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
         second=(expected_dot_graph_str
                 if use_tf_compat_v1 else expected_dot_graph_str_tf2))
 
-  @test_case.named_parameters(*test_case.cross_named_parameters(
-      [
-          dict(
-              testcase_name='one_dataset_cached_single_phase',
-              preprocessing_fn=_preprocessing_fn_with_one_analyzer,
-              full_dataset_keys=['a', 'b'],
-              cached_dataset_keys=['a'],
-              expected_dataset_keys=['b'],
-          ),
-          dict(
-              testcase_name='all_datasets_cached_single_phase',
-              preprocessing_fn=_preprocessing_fn_with_one_analyzer,
-              full_dataset_keys=['a', 'b'],
-              cached_dataset_keys=['a', 'b'],
-              expected_dataset_keys=[],
-          ),
-          dict(
-              testcase_name='mixed_single_phase',
-              preprocessing_fn=lambda d: dict(  # pylint: disable=g-long-lambda
-                  list(_preprocessing_fn_with_chained_ptransforms(d).items()) +
-                  list(_preprocessing_fn_with_one_analyzer(d).items())),
-              full_dataset_keys=['a', 'b'],
-              cached_dataset_keys=['a', 'b'],
-              expected_dataset_keys=['a', 'b'],
-          ),
-          dict(
-              testcase_name='multi_phase',
-              preprocessing_fn=_preprocessing_fn_with_two_phases,
-              full_dataset_keys=['a', 'b'],
-              cached_dataset_keys=['a', 'b'],
-              expected_dataset_keys=['a', 'b'],
-          )
-      ],
-      [
-          dict(testcase_name='tf_compat_v1', use_tf_compat_v1=True),
-          dict(testcase_name='tf2', use_tf_compat_v1=False)
-      ]))
+  @tft_unit.named_parameters(
+      *tft_unit.cross_named_parameters(
+          [
+              dict(
+                  testcase_name='one_dataset_cached_single_phase',
+                  preprocessing_fn=_preprocessing_fn_with_one_analyzer,
+                  full_dataset_keys=['a', 'b'],
+                  cached_dataset_keys=['a'],
+                  expected_dataset_keys=['b'],
+              ),
+              dict(
+                  testcase_name='all_datasets_cached_single_phase',
+                  preprocessing_fn=_preprocessing_fn_with_one_analyzer,
+                  full_dataset_keys=['a', 'b'],
+                  cached_dataset_keys=['a', 'b'],
+                  expected_dataset_keys=[],
+              ),
+              dict(
+                  testcase_name='mixed_single_phase',
+                  preprocessing_fn=lambda d: dict(  # pylint: disable=g-long-lambda
+                      list(
+                          _preprocessing_fn_with_chained_ptransforms(d).items()
+                      )
+                      + list(_preprocessing_fn_with_one_analyzer(d).items())
+                  ),
+                  full_dataset_keys=['a', 'b'],
+                  cached_dataset_keys=['a', 'b'],
+                  expected_dataset_keys=['a', 'b'],
+              ),
+              dict(
+                  testcase_name='multi_phase',
+                  preprocessing_fn=_preprocessing_fn_with_two_phases,
+                  full_dataset_keys=['a', 'b'],
+                  cached_dataset_keys=['a', 'b'],
+                  expected_dataset_keys=['a', 'b'],
+              ),
+          ],
+          [
+              dict(testcase_name='tf_compat_v1', use_tf_compat_v1=True),
+              dict(testcase_name='tf2', use_tf_compat_v1=False),
+          ],
+      )
+  )
   def test_get_analysis_dataset_keys(self, preprocessing_fn, full_dataset_keys,
                                      cached_dataset_keys, expected_dataset_keys,
                                      use_tf_compat_v1):
     if not use_tf_compat_v1:
-      test_case.skip_if_not_tf2('Tensorflow 2.x required')
+      tft_unit.skip_if_not_tf2('Tensorflow 2.x required')
     full_dataset_keys = list(
         map(analyzer_cache.DatasetKey, full_dataset_keys))
     cached_dataset_keys = map(analyzer_cache.DatasetKey, cached_dataset_keys)
@@ -499,18 +509,16 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
               full_dataset_keys,
               input_cache,
               force_tf_compat_v1=use_tf_compat_v1))
-
-    dot_string = nodes.get_dot_graph([analysis_graph_builder._ANALYSIS_GRAPH
-                                     ]).to_string()
-    self.WriteRenderedDotFile(dot_string)
+    self.DebugPublishLatestsRenderedTFTGraph()
     self.assertCountEqual(expected_dataset_keys, dataset_keys)
 
-  @test_case.named_parameters(
+  @tft_unit.named_parameters(
       dict(testcase_name='tf_compat_v1', use_tf_compat_v1=True),
-      dict(testcase_name='tf2', use_tf_compat_v1=False))
+      dict(testcase_name='tf2', use_tf_compat_v1=False),
+  )
   def test_get_analysis_cache_entry_keys(self, use_tf_compat_v1):
     if not use_tf_compat_v1:
-      test_case.skip_if_not_tf2('Tensorflow 2.x required')
+      tft_unit.skip_if_not_tf2('Tensorflow 2.x required')
     full_dataset_keys = map(analyzer_cache.DatasetKey, ['a', 'b'])
     def preprocessing_fn(inputs):
       return {'x': tft.scale_to_0_1(inputs['x'])}
@@ -531,10 +539,7 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
               specs,
               full_dataset_keys,
               force_tf_compat_v1=use_tf_compat_v1))
-
-    dot_string = nodes.get_dot_graph([analysis_graph_builder._ANALYSIS_GRAPH
-                                     ]).to_string()
-    self.WriteRenderedDotFile(dot_string)
+    self.DebugPublishLatestsRenderedTFTGraph()
     self.assertCountEqual(cache_entry_keys, [mocked_cache_entry_key])
 
   def test_duplicate_label_error(self):
@@ -575,4 +580,4 @@ class AnalysisGraphBuilderTest(test_case.TransformTestCase):
 
 
 if __name__ == '__main__':
-  test_case.main()
+  tft_unit.main()

@@ -16,12 +16,13 @@
 import os
 import tempfile
 from typing import Dict, Iterable, List, Optional, Tuple
+from absl import logging
 
 import apache_beam as beam
 import pyarrow as pa
 import tensorflow as tf
 import tensorflow_transform as tft
-from tensorflow_transform.beam import impl as beam_impl
+import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform import test_case
 from tensorflow_transform.beam import test_helpers
@@ -333,38 +334,47 @@ class TransformTestCase(test_case.TransformTestCase):
     temp_dir = temp_dir or tempfile.mkdtemp(
         prefix=self._testMethodName, dir=self.get_temp_dir())
     with beam_pipeline or self._makeTestPipeline() as pipeline:
-      with beam_impl.Context(
+      with tft_beam.Context(
           temp_dir=temp_dir,
           desired_batch_size=desired_batch_size,
-          force_tf_compat_v1=force_tf_compat_v1):
+          force_tf_compat_v1=force_tf_compat_v1,
+      ):
         source_ptransform = (
             input_data if isinstance(input_data, beam.PTransform) else
             beam.Create(input_data, reshuffle=False))
         input_data = pipeline | 'CreateInput' >> source_ptransform
         if test_data is None:
           (transformed_data, transformed_metadata), transform_fn = (
-              (input_data, input_metadata)
-              | beam_impl.AnalyzeAndTransformDataset(
-                  preprocessing_fn,
-                  output_record_batches=output_record_batches))
+              input_data,
+              input_metadata,
+          ) | tft_beam.AnalyzeAndTransformDataset(
+              preprocessing_fn, output_record_batches=output_record_batches
+          )
         else:
-          transform_fn = ((input_data, input_metadata)
-                          | beam_impl.AnalyzeDataset(preprocessing_fn))
+          transform_fn = (input_data, input_metadata) | tft_beam.AnalyzeDataset(
+              preprocessing_fn
+          )
           test_data = pipeline | 'CreateTest' >> beam.Create(test_data)
           transformed_data, transformed_metadata = (
-              ((test_data, input_metadata), transform_fn)
-              | beam_impl.TransformDataset(
-                  output_record_batches=output_record_batches))
+              (test_data, input_metadata),
+              transform_fn,
+          ) | tft_beam.TransformDataset(
+              output_record_batches=output_record_batches
+          )
 
         # Write transform_fn so we can test its assets
         _ = transform_fn | transform_fn_io.WriteTransformFn(temp_dir)
 
         transformed_data_path = os.path.join(temp_dir, 'transformed_data')
         if expected_data is not None:
-          _ = ((transformed_data, transformed_metadata)
-               | 'Encode' >> beam_impl.EncodeTransformedDataset()
-               | 'Write' >> beam.io.tfrecordio.WriteToTFRecord(
-                   transformed_data_path, shard_name_template=''))
+          _ = (
+              (transformed_data, transformed_metadata)
+              | 'Encode' >> tft_beam.EncodeTransformedDataset()
+              | 'Write'
+              >> beam.io.tfrecordio.WriteToTFRecord(
+                  transformed_data_path, shard_name_template=''
+              )
+          )
 
     # TODO(ebreck) Log transformed_data somewhere.
     tf_transform_output = tft.TFTransformOutput(temp_dir)
@@ -406,3 +416,18 @@ class TransformTestCase(test_case.TransformTestCase):
     for filename, file_contents in expected_vocab_file_contents.items():
       full_filename = tf_transform_output.vocabulary_file_by_name(filename)
       self.AssertVocabularyContents(full_filename, file_contents)
+
+  def DebugPublishLatestsRenderedTFTGraph(
+      self, output_file: Optional[str] = None
+  ):
+    """Outputs a rendered graph which may be used for debugging.
+
+    Requires adding the binary resource to the test target:
+    data = ["//third_party/graphviz:dot_binary"]
+
+    Args:
+      output_file: Path to output the rendered graph file.
+    """
+    logging.info(
+        'DebugPublishLatestsRenderedTFTGraph is not currently supported.'
+    )

@@ -18,13 +18,12 @@
 import os
 
 import apache_beam as beam
-
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform.beam import analyzer_impls
 from tensorflow_transform.beam import impl as beam_impl
-from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
+from tensorflow_transform.beam import tft_unit
 
 from tensorflow_metadata.proto.v0 import schema_pb2
 

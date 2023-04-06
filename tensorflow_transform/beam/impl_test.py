@@ -30,8 +30,8 @@ from tensorflow_transform import common
 from tensorflow_transform import pretrained_models
 from tensorflow_transform import schema_inference
 import tensorflow_transform.beam as tft_beam
-from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
+from tensorflow_transform.beam import tft_unit
 from tfx_bsl.tfxio import tensor_adapter
 
 from google.protobuf import text_format

@@ -103,6 +103,8 @@ class CreateSavedModel(
       return 'Tensor'
     elif isinstance(tensor, tf.SparseTensor):
       return 'SparseTensor'
+    elif isinstance(tensor, tf.RaggedTensor):
+      return 'RaggedTensor'
     raise ValueError('Got a {}, expected a Tensor or SparseTensor'.format(
         type(tensor)))
 

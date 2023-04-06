@@ -19,8 +19,8 @@ import os
 import apache_beam as beam
 import tensorflow as tf
 from tensorflow_transform import output_wrapper
-from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
+from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import test_metadata
 import tensorflow_transform.test_case as tft_test_case
 from tensorflow_transform.tf_metadata import metadata_io

@@ -14,8 +14,8 @@
 """Tests for simple_example."""
 
 import tensorflow as tf
-from tensorflow_transform.beam import tft_unit
 import simple_example
+from tensorflow_transform.beam import tft_unit
 
 
 _EXPECTED_TRANSFORMED_OUTPUT = [

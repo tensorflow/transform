@@ -14,8 +14,8 @@
 """Tests for simple_example."""
 
 import tensorflow as tf
-from tensorflow_transform.beam import tft_unit
 import simple_sequence_example
+from tensorflow_transform.beam import tft_unit
 
 _EXPECTED_TRANSFORMED_OUTPUT = [{
     'transformed_seq_int_feature$ragged_values': [

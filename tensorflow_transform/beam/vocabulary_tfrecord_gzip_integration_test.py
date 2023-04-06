@@ -14,8 +14,8 @@
 # limitations under the License.
 """Tests for tfrecord_gzip tft.vocabulary and tft.compute_and_apply_vocabulary."""
 
-from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam import vocabulary_integration_test
+from tensorflow_transform.beam import tft_unit
 
 
 class TFRecordVocabularyIntegrationTest(

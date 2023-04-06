@@ -18,11 +18,10 @@ import os
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
 import tensorflow as tf
-
 import tensorflow_transform as tft
-from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import beam_metadata_io
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
+from tensorflow_transform.beam import tft_unit
 from tensorflow_transform.beam.tft_beam_io import test_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 
