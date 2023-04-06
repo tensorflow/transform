@@ -48,9 +48,7 @@ def _make_required_install_packages():
       'protobuf>=3.20.3,<5',
       'pyarrow>=6,<7',
       'pydot>=1.2,<2',
-      # pylint: disable=line-too-long
       'tensorflow>=2.12,<3',
-      # pylint: enable=line-too-long
       'tensorflow-metadata' + select_constraint(
           default='>=1.12.0,<1.13.0',
           nightly='>=1.13.0.dev',
