@@ -19,6 +19,7 @@
 *   Depends on `numpy~=1.22.0`.
 *   Depends on `tensorflow>=2.12.0,<2.13`.
 *   Depends on `protobuf>=3.20.3,<5`.
+*   Modifies `get_vocabulary_size_by_name` to return a minimum of 1.
 
 ## Breaking Changes
 

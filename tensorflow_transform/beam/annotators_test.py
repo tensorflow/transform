@@ -216,6 +216,48 @@ class AnnotatorsTest(tft_unit.TransformTestCase):
           force_tf_compat_v1=use_tf_compat_v1,
       )
 
+  @tft_unit.named_parameters(
+      dict(
+          testcase_name='sanity',
+          values=['hello', 'world', 'world'],
+          expected_size=2,
+      ),
+      dict(
+          testcase_name='single_token',
+          values=['hello', 'hello', 'hello'],
+          expected_size=1,
+      ),
+      dict(
+          testcase_name='empty',
+          values=['', '', ''],
+          expected_size=1,
+      ),
+  )
+  def test_get_vocabulary_size_by_name(self, values, expected_size):
+    vocab_filename = 'vocab'
+
+    def preprocessing_fn(inputs):
+      tft.vocabulary(inputs['s'], vocab_filename=vocab_filename)
+      size = tf.zeros_like(
+          inputs['s'], dtype=tf.int64
+      ) + tft.experimental.get_vocabulary_size_by_name(vocab_filename)
+      return {'size': size}
+
+    input_data_dicts = [dict(s=v) for v in values]
+    input_metadata = tft.DatasetMetadata.from_feature_spec({
+        's': tf.io.FixedLenFeature([], tf.string),
+    })
+    expected_data = [{
+        'size': expected_size,
+    }] * len(values)
+    self.assertAnalyzeAndTransformResults(
+        input_data_dicts,
+        input_metadata,
+        preprocessing_fn,
+        force_tf_compat_v1=False,
+        expected_data=expected_data,
+    )
+
 
 if __name__ == '__main__':
   tft_unit.main()

@@ -302,12 +302,18 @@ class _VocabularyCountImpl(beam.PTransform):
   def __init__(self, operation, extra_args):
     super().__init__()
 
+  def _format_count(self, count):
+    # Count should be at least one because empty vocabularies get populated with
+    # a single dummy value when written.
+    # TODO(b/62272023) remove this workaround if/when fixed on tensorflow.
+    return np.int64(np.maximum(count, 1))
+
   def expand(self, inputs):
     pcoll, = inputs
 
     return (pcoll
             | 'TotalVocabSize' >> beam.combiners.Count.Globally()
-            | 'ToInt64' >> beam.Map(np.int64))
+            | 'FormatCount' >> beam.Map(self._format_count))
 
 
 @common.register_ptransform(analyzer_nodes.VocabularyMerge)
