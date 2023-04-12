@@ -452,20 +452,38 @@ def reduce_batch_count(x: common_types.TensorType,
   return tf.fill(x_shape[1:], x_shape[0])
 
 
+def _map_values(
+    map_function: Callable[[Union[tf.Tensor, tf.RaggedTensor]],
+                           Union[tf.Tensor, tf.RaggedTensor]],
+    tensor: common_types.ConsistentTensorType,
+) -> common_types.ConsistentTensorType:
+  values = tensor if isinstance(tensor, tf.Tensor) else tensor.values
+  result = map_function(values)
+  if not isinstance(tensor, tf.Tensor):
+    return tensor.with_values(result)
+  else:
+    return result
+
+
+def maybe_format_vocabulary_input(
+    x: common_types.ConsistentTensorType,
+) -> common_types.ConsistentTensorType:
+  if x.dtype == tf.string:
+    # b/62379925: This is a workaround to allow tokens to contain spaces when
+    # store_frequency=True, which should eventaully be removed.
+    def map_spaces(t: Union[tf.Tensor, tf.RaggedTensor]
+                   ) -> Union[tf.Tensor, tf.RaggedTensor]:
+      return tf.strings.regex_replace(t, ' ', '__SPACE__')
+
+    return _map_values(map_spaces, x)
+  return x
+
+
 def _to_string(x: common_types.TensorType) -> common_types.TensorType:
   """Converts values in the given `Tensor` or `CompositeTensor` to strings."""
   if x.dtype is tf.string:
     return x
-  elif isinstance(x, tf.SparseTensor):
-    return tf.SparseTensor(
-        values=tf.strings.as_string(x.values),
-        indices=x.indices,
-        dense_shape=x.dense_shape)
-  elif isinstance(x, tf.RaggedTensor):
-    return tf.RaggedTensor.from_row_splits(
-        values=_to_string(x.values), row_splits=x.row_splits, validate=False)
-  else:
-    return tf.strings.as_string(x)
+  return _map_values(tf.strings.as_string, x)
 
 
 def reduce_batch_count_per_key(

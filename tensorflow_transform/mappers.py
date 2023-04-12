@@ -935,9 +935,10 @@ def compute_and_apply_vocabulary(
     coverage_frequency_threshold: Optional[int] = None,
     key_fn: Optional[Callable[[Any], Any]] = None,
     fingerprint_shuffle: bool = False,
-    file_format: common_types.VocabularyFileFormatType = analyzers
-    .DEFAULT_VOCABULARY_FILE_FORMAT,
-    name: Optional[str] = None) -> common_types.ConsistentTensorType:
+    file_format: common_types.VocabularyFileFormatType = analyzers.DEFAULT_VOCABULARY_FILE_FORMAT,
+    store_frequency: Optional[bool] = False,
+    name: Optional[str] = None,
+) -> common_types.ConsistentTensorType:
   r"""Generates a vocabulary for `x` and maps it to an integer with this vocab.
 
   In case one of the tokens contains the '\n' or '\r' characters or is empty it
@@ -1005,6 +1006,11 @@ def compute_and_apply_vocabulary(
     file_format: (Optional) A str. The format of the resulting vocabulary file.
       Accepted formats are: 'tfrecord_gzip', 'text'. 'tfrecord_gzip' requires
       tensorflow>=2.4. The default value is 'text'.
+    store_frequency: If True, frequency of the words is stored in the vocabulary
+      file. In the case labels are provided, the mutual information is stored in
+      the file instead. Each line in the file will be of the form 'frequency
+      word'. NOTE: if True and text_format is 'text' then spaces will be
+      replaced to avoid information loss.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1022,11 +1028,14 @@ def compute_and_apply_vocabulary(
       If `coverage_top_k` or `coverage_frequency_threshold` is negative.
   """
   with tf.compat.v1.name_scope(name, 'compute_and_apply_vocabulary'):
+    if store_frequency and file_format == 'text':
+      x = tf_utils.maybe_format_vocabulary_input(x)
     deferred_vocab_and_filename = analyzers.vocabulary(
         x=x,
         top_k=top_k,
         frequency_threshold=frequency_threshold,
         vocab_filename=vocab_filename,
+        store_frequency=store_frequency,
         weights=weights,
         labels=labels,
         use_adjusted_mutual_info=use_adjusted_mutual_info,
@@ -1035,13 +1044,18 @@ def compute_and_apply_vocabulary(
         coverage_frequency_threshold=coverage_frequency_threshold,
         key_fn=key_fn,
         fingerprint_shuffle=fingerprint_shuffle,
-        file_format=file_format)
-    return apply_vocabulary(
+        file_format=file_format,
+    )
+    return _apply_vocabulary_internal(
         x,
         deferred_vocab_and_filename,
         default_value,
         num_oov_buckets,
-        file_format=file_format)
+        lookup_fn=None,
+        store_frequency=store_frequency,
+        file_format=file_format,
+        name=None,
+    )
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)
@@ -1088,6 +1102,76 @@ def apply_vocabulary(
     starting from zero, and string value not in the vocabulary is
     assigned default_value.
   """
+  return _apply_vocabulary_internal(
+      x,
+      deferred_vocab_filename_tensor,
+      default_value,
+      num_oov_buckets,
+      lookup_fn,
+      file_format,
+      False,
+      name,
+  )
+
+
+def _make_construct_vocabulary_table_function(
+    x, file_format, num_oov_buckets, default_value, store_frequency
+):
+  """Defines a function to construct a vocabulary lookup table."""
+  def construct_table(asset_filepath):
+    if file_format == 'tfrecord_gzip':
+      initializer = tf_utils.make_tfrecord_vocabulary_lookup_initializer(
+          asset_filepath,
+          x.dtype,
+          return_indicator_as_value=False,
+          has_indicator=store_frequency,
+      )
+    elif file_format == 'text':
+      key_index = 1 if store_frequency else tf.lookup.TextFileIndex.WHOLE_LINE
+      kwargs = {'delimiter': ' '} if store_frequency else {}
+      initializer = tf.lookup.TextFileInitializer(
+          asset_filepath,
+          key_dtype=x.dtype,
+          key_index=key_index,
+          value_dtype=tf.int64,
+          value_index=tf.lookup.TextFileIndex.LINE_NUMBER,
+          **kwargs,
+      )
+    else:
+      raise ValueError(
+          '"{}" is not an accepted file_format. It should be one of: {}'.format(
+              file_format, analyzers.ALLOWED_VOCABULARY_FILE_FORMATS
+          )
+      )
+
+    if num_oov_buckets > 0:
+      table = tf.lookup.StaticVocabularyTable(
+          initializer, num_oov_buckets=num_oov_buckets, lookup_key_dtype=x.dtype
+      )
+    else:
+      table = tf.lookup.StaticHashTable(
+          initializer, default_value=default_value
+      )
+    return table
+
+  return construct_table
+
+
+def _apply_vocabulary_internal(
+    x: common_types.ConsistentTensorType,
+    deferred_vocab_filename_tensor: common_types.TemporaryAnalyzerOutputType,
+    default_value: Any,
+    num_oov_buckets: int,
+    lookup_fn: Optional[
+        Callable[
+            [common_types.TensorType, tf.Tensor], Tuple[tf.Tensor, tf.Tensor]
+        ]
+    ],
+    file_format: common_types.VocabularyFileFormatType,
+    store_frequency: bool,
+    name: Optional[str],
+) -> common_types.ConsistentTensorType:
+  """See apply_vocabulary doc."""
   with tf.compat.v1.name_scope(name, 'apply_vocab'):
     if x.dtype != tf.string and not x.dtype.is_integer:
       raise ValueError('expected tf.string or tf.int[8|16|32|64] but got %r' %
@@ -1101,37 +1185,14 @@ def apply_vocabulary(
           (isinstance(deferred_vocab_filename_tensor,
                       (bytes, str)) and not deferred_vocab_filename_tensor)):
         raise ValueError('`deferred_vocab_filename_tensor` must not be empty.')
-
-      def _construct_table(asset_filepath):
-        if file_format == 'tfrecord_gzip':
-          initializer = tf_utils.make_tfrecord_vocabulary_lookup_initializer(
-              asset_filepath, x.dtype)
-        elif file_format == 'text':
-          initializer = tf.lookup.TextFileInitializer(
-              asset_filepath,
-              key_dtype=x.dtype,
-              key_index=tf.lookup.TextFileIndex.WHOLE_LINE,
-              value_dtype=tf.int64,
-              value_index=tf.lookup.TextFileIndex.LINE_NUMBER)
-        else:
-          raise ValueError(
-              '"{}" is not an accepted file_format. It should be one of: {}'
-              .format(file_format, analyzers.ALLOWED_VOCABULARY_FILE_FORMATS))
-
-        if num_oov_buckets > 0:
-          table = tf.lookup.StaticVocabularyTable(
-              initializer,
-              num_oov_buckets=num_oov_buckets,
-              lookup_key_dtype=x.dtype)
-        else:
-          table = tf.lookup.StaticHashTable(
-              initializer, default_value=default_value)
-        return table
-
-      compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
+      construct_table = _make_construct_vocabulary_table_function(
+          x, file_format, num_oov_buckets, default_value, store_frequency
+      )
       x_values = tf_utils.get_values(x)
       result, table_size = tf_utils.construct_and_lookup_table(
-          _construct_table, deferred_vocab_filename_tensor, x_values)
+          construct_table, deferred_vocab_filename_tensor, x_values
+      )
+      compose_result_fn = _make_composite_tensor_wrapper_if_composite(x)
       result = compose_result_fn(result)
 
     # Specify schema overrides which will override the values in the schema

@@ -13,6 +13,8 @@
 *   `DatasetKey.non_cacheable` added to allow for some datasets to not produce
     cache. This may be useful for gradual cache generation when operating on a
     large rolling range of datasets.
+*   Vocabularies produced by `compute_and_apply_vocabulary` can now store
+    frequencies. Controlled by the `store_frequency` parameter.
 
 ## Bug Fixes and Other Changes
 

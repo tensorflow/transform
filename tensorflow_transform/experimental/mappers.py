@@ -45,9 +45,10 @@ def compute_and_apply_approximate_vocabulary(
     num_oov_buckets: int = 0,
     vocab_filename: Optional[str] = None,
     weights: Optional[tf.Tensor] = None,
-    file_format: common_types.VocabularyFileFormatType = analyzers
-    .DEFAULT_VOCABULARY_FILE_FORMAT,
-    name: Optional[str] = None) -> common_types.ConsistentTensorType:
+    file_format: common_types.VocabularyFileFormatType = analyzers.DEFAULT_VOCABULARY_FILE_FORMAT,
+    store_frequency: Optional[bool] = False,
+    name: Optional[str] = None,
+) -> common_types.ConsistentTensorType:
   """Generates an approximate vocabulary for `x` and maps it to an integer.
 
   Args:
@@ -70,7 +71,12 @@ def compute_and_apply_approximate_vocabulary(
       same shape as x.
     file_format: (Optional) A str. The format of the resulting vocabulary file.
       Accepted formats are: 'tfrecord_gzip', 'text'. 'tfrecord_gzip' requires
-        tensorflow>=2.4. The default value is 'text'.
+      tensorflow>=2.4. The default value is 'text'.
+    store_frequency: If True, frequency of the words is stored in the vocabulary
+      file. In the case labels are provided, the mutual information is stored in
+      the file instead. Each line in the file will be of the form 'frequency
+      word'. NOTE: if True and text_format is 'text' then spaces will be
+      replaced to avoid information loss.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -90,19 +96,27 @@ def compute_and_apply_approximate_vocabulary(
   """
   with tf.compat.v1.name_scope(name,
                                'compute_and_apply_approximate_vocabulary'):
+    if store_frequency and file_format == 'text':
+      x = tf_utils.maybe_format_vocabulary_input(x)
     deferred_vocab_and_filename = experimental_analyzers.approximate_vocabulary(
         x=x,
         top_k=top_k,
         vocab_filename=vocab_filename,
         weights=weights,
         file_format=file_format,
-        name=name)
-    return mappers.apply_vocabulary(
+        store_frequency=store_frequency,
+        name=name,
+    )
+    return mappers._apply_vocabulary_internal(  # pylint: disable=protected-access
         x,
         deferred_vocab_and_filename,
         default_value,
         num_oov_buckets,
-        file_format=file_format)
+        lookup_fn=None,
+        file_format=file_format,
+        store_frequency=store_frequency,
+        name=None,
+    )
 
 
 @common.log_api_use(common.MAPPER_COLLECTION)

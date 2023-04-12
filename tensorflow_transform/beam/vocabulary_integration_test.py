@@ -31,100 +31,86 @@ _COMPOSITE_COMPUTE_AND_APPLY_VOCABULARY_TEST_CASES = [
     dict(
         testcase_name='sparse',
         input_data=[
-            {
-                'val': ['hello'],
-                'idx0': [0],
-                'idx1': [0]
-            },
-            {
-                'val': ['world'],
-                'idx0': [1],
-                'idx1': [1]
-            },
-            {
-                'val': ['hello', 'goodbye'],
-                'idx0': [0, 1],
-                'idx1': [1, 2]
-            },
+            {'val': ['hello'], 'idx0': [0], 'idx1': [0]},
+            {'val': ['world'], 'idx0': [1], 'idx1': [1]},
+            {'val': ['hello', 'goodbye'], 'idx0': [0, 1], 'idx1': [1, 2]},
             {
                 'val': ['hello', 'goodbye', ' '],
                 'idx0': [0, 1, 1],
-                'idx1': [0, 1, 2]
+                'idx1': [0, 1, 2],
             },
         ],
-        input_metadata=tft.DatasetMetadata.from_feature_spec({
-            'x': tf.io.SparseFeature(['idx0', 'idx1'], 'val', tf.string, [2, 3])
-        }),
-        expected_data=[{
-            'index$sparse_indices_0': [0],
-            'index$sparse_indices_1': [0],
-            'index$sparse_values': [0],
-        }, {
-            'index$sparse_indices_0': [1],
-            'index$sparse_indices_1': [1],
-            'index$sparse_values': [2],
-        }, {
-            'index$sparse_indices_0': [0, 1],
-            'index$sparse_indices_1': [1, 2],
-            'index$sparse_values': [0, 1],
-        }, {
-            'index$sparse_indices_0': [0, 1, 1],
-            'index$sparse_indices_1': [0, 1, 2],
-            'index$sparse_values': [0, 1, 3],
-        }],
-        expected_vocab_file_contents={
-            'my_vocab': [b'hello', b'goodbye', b'world', b' ']
-        }),
+        input_metadata=tft.DatasetMetadata.from_feature_spec(
+            {
+                'x': tf.io.SparseFeature(
+                    ['idx0', 'idx1'], 'val', tf.string, [2, 3]
+                )
+            }
+        ),
+        expected_data=[
+            {
+                'index$sparse_indices_0': [0],
+                'index$sparse_indices_1': [0],
+                'index$sparse_values': [0],
+            },
+            {
+                'index$sparse_indices_0': [1],
+                'index$sparse_indices_1': [1],
+                'index$sparse_values': [2],
+            },
+            {
+                'index$sparse_indices_0': [0, 1],
+                'index$sparse_indices_1': [1, 2],
+                'index$sparse_values': [0, 1],
+            },
+            {
+                'index$sparse_indices_0': [0, 1, 1],
+                'index$sparse_indices_1': [0, 1, 2],
+                'index$sparse_values': [0, 1, 3],
+            },
+        ],
+        expected_vocab_contents={
+            b'hello': 3,
+            b'goodbye': 2,
+            b'world': 1,
+            b' ': 1,
+        },
+    ),
     dict(
         testcase_name='ragged',
         input_data=[
-            {
-                'val': ['hello', ' '],
-                'row_lengths': [1, 0, 1]
-            },
-            {
-                'val': ['world'],
-                'row_lengths': [0, 1]
-            },
-            {
-                'val': ['hello', 'goodbye'],
-                'row_lengths': [2, 0, 0]
-            },
-            {
-                'val': ['hello', 'goodbye', ' '],
-                'row_lengths': [0, 2, 1]
-            },
+            {'val': ['hello', ' '], 'row_lengths': [1, 0, 1]},
+            {'val': ['world'], 'row_lengths': [0, 1]},
+            {'val': ['hello', 'goodbye'], 'row_lengths': [2, 0, 0]},
+            {'val': ['hello', 'goodbye', ' '], 'row_lengths': [0, 2, 1]},
         ],
-        input_metadata=tft.DatasetMetadata.from_feature_spec({
-            'x':
-                tf.io.RaggedFeature(
+        input_metadata=tft.DatasetMetadata.from_feature_spec(
+            {
+                'x': tf.io.RaggedFeature(
                     tf.string,
                     value_key='val',
                     partitions=[
                         tf.io.RaggedFeature.RowLengths('row_lengths')  # pytype: disable=attribute-error
-                    ])
-        }),
+                    ],
+                )
+            }
+        ),
         expected_data=[
-            {
-                'index$ragged_values': [0, 2],
-                'index$row_lengths_1': [1, 0, 1]
-            },
-            {
-                'index$ragged_values': [3],
-                'index$row_lengths_1': [0, 1]
-            },
-            {
-                'index$ragged_values': [0, 1],
-                'index$row_lengths_1': [2, 0, 0]
-            },
+            {'index$ragged_values': [0, 2], 'index$row_lengths_1': [1, 0, 1]},
+            {'index$ragged_values': [3], 'index$row_lengths_1': [0, 1]},
+            {'index$ragged_values': [0, 1], 'index$row_lengths_1': [2, 0, 0]},
             {
                 'index$ragged_values': [0, 1, 2],
-                'index$row_lengths_1': [0, 2, 1]
+                'index$row_lengths_1': [0, 2, 1],
             },
         ],
-        expected_vocab_file_contents={
-            'my_vocab': [b'hello', b'goodbye', b' ', b'world']
-        }),
+        expected_vocab_contents={
+            b'hello': 3,
+            b'goodbye': 2,
+            b' ': 2,
+            b'world': 1,
+        },
+    ),
 ]
 
 
@@ -733,7 +719,11 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
             'my_approximate_vocab': expected_vocab_file_contents
         })
 
-  def testComputeAndApplyApproximateVocabulary(self):
+  @tft_unit.named_parameters([
+      dict(testcase_name='no_frequency', store_frequency=False),
+      dict(testcase_name='with_frequency', store_frequency=True),
+  ])
+  def testComputeAndApplyApproximateVocabulary(self, store_frequency):
     input_data = [{'x': 'a'}] * 2 + [{'x': 'b'}] * 3
     input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.string)})
@@ -743,7 +733,9 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           inputs['x'],
           top_k=2,
           file_format=self._VocabFormat(),
-          num_oov_buckets=1)
+          store_frequency=store_frequency,
+          num_oov_buckets=1,
+      )
       return {'index': index}
 
     expected_data = [{'index': 1}] * 2 + [{'index': 0}] * 3 + [{'index': 2}]
@@ -1355,18 +1347,48 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         expected_metadata,
         expected_vocab_file_contents=expected_vocab_file_contents)
 
-  @tft_unit.named_parameters(*_COMPOSITE_COMPUTE_AND_APPLY_VOCABULARY_TEST_CASES
-                            )
-  def testCompositeComputeAndApplyVocabulary(self, input_data, input_metadata,
-                                             expected_data,
-                                             expected_vocab_file_contents):
-
+  @tft_unit.named_parameters(
+      *tft_unit.cross_named_parameters(
+          _COMPOSITE_COMPUTE_AND_APPLY_VOCABULARY_TEST_CASES,
+          [
+              dict(testcase_name='no_frequency', store_frequency=False),
+              dict(testcase_name='with_frequency', store_frequency=True),
+          ],
+      )
+  )
+  def testCompositeComputeAndApplyVocabulary(
+      self,
+      input_data,
+      input_metadata,
+      expected_data,
+      expected_vocab_contents,
+      store_frequency,
+  ):
     def preprocessing_fn(inputs):
       index = tft.compute_and_apply_vocabulary(
           inputs['x'],
           file_format=self._VocabFormat(),
-          vocab_filename='my_vocab')
+          store_frequency=store_frequency,
+          vocab_filename='my_vocab',
+      )
       return {'index': index}
+
+    if store_frequency:
+      def format_pair(t: bytes, c: int) -> str:
+        t = t.decode('utf-8')
+        if t != ' ' or self._VocabFormat() != 'text':
+          suffix = ' ' + t
+        else:
+          suffix = ' __SPACE__'
+        return f'{c}{suffix}'
+      contents = [
+          format_pair(t, c).encode('utf-8')
+          for t, c in expected_vocab_contents.items()
+      ]
+    else:
+      contents = [t for t in expected_vocab_contents]
+
+    expected_vocab_file_contents = {'my_vocab': contents}
 
     self.assertAnalyzeAndTransformResults(
         input_data,
@@ -1650,7 +1672,9 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           coverage_top_k=1,
           key_fn=key_fn,
           frequency_threshold=4,
-          file_format=self._VocabFormat())
+          store_frequency=True,
+          file_format=self._VocabFormat(),
+      )
 
       # Return input unchanged, this preprocessing_fn is a no-op except for
       # computing uniques.
