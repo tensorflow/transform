@@ -40,6 +40,7 @@ from tensorflow_transform.experimental import analyzers as experimental_analyzer
 @common.log_api_use(common.MAPPER_COLLECTION)
 def compute_and_apply_approximate_vocabulary(
     x: common_types.ConsistentTensorType,
+    *,  # Force passing optional parameters by keys.
     default_value: Any = -1,
     top_k: Optional[int] = None,
     num_oov_buckets: int = 0,

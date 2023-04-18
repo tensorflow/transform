@@ -653,7 +653,7 @@ def sum(  # pylint: disable=redefined-builtin
       if x.dtype == tf.uint8 or x.dtype == tf.uint16:
         x = tf.cast(x, tf.int64)
       elif x.dtype == tf.uint32 or x.dtype == tf.uint64:
-        TypeError('Data type %r is not supported' % x.dtype)
+        raise TypeError('Data type %r is not supported' % x.dtype)
       x = tf.sparse.reduce_sum(x, axis=0)
     elif isinstance(x, tf.RaggedTensor):
       raise NotImplementedError(
@@ -1712,6 +1712,7 @@ def get_empy_vocabulary_dummy_value(
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def vocabulary(
     x: common_types.TensorType,
+    *,  # Force passing optional parameters by keys.
     top_k: Optional[int] = None,
     frequency_threshold: Optional[int] = None,
     vocab_filename: Optional[str] = None,
@@ -1933,8 +1934,8 @@ def _get_vocabulary_analyzer_inputs(
     vocab_ordering_type: int,
     x: common_types.TensorType,
     file_format: common_types.VocabularyFileFormatType,
-    labels: Optional[tf.Tensor] = None,
-    weights: Optional[tf.Tensor] = None):
+    labels: Optional[tf.Tensor],
+    weights: Optional[tf.Tensor]):
   """Helper for constructing analyzer inputs from tensors.
 
   Args:

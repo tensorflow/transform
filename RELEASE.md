@@ -8,6 +8,9 @@
 
 ## Breaking Changes
 
+*   Vocabulary related APIs now require passing non-positional parameters by
+    key.
+
 ## Deprecations
 
 # Version 1.13.0

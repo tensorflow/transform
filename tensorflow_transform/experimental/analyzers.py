@@ -308,6 +308,7 @@ def _get_approx_vocab_filename(vocab_filename: Optional[str],
 def approximate_vocabulary(
     x: common_types.TensorType,
     top_k: int,
+    *,  # Force passing optional parameters by keys.
     vocab_filename: Optional[str] = None,
     store_frequency: bool = False,
     weights: Optional[tf.Tensor] = None,
@@ -517,7 +518,7 @@ class _VocabularyCombiner(analyzer_nodes.Combiner):
 def _get_approximate_vocabulary_analyzer_inputs(
     x: common_types.TensorType,
     file_format: common_types.VocabularyFileFormatType,
-    weights: Optional[common_types.TensorType] = None,
+    weights: Optional[common_types.TensorType],
 ) -> Tuple[common_types.TensorType, common_types.TensorType]:
   """Helper for constructing approximate vocabulary inputs from tensors.
 

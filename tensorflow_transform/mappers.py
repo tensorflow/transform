@@ -922,6 +922,7 @@ def _count_docs_with_term(term_frequency: tf.SparseTensor) -> tf.Tensor:
 @common.log_api_use(common.MAPPER_COLLECTION)
 def compute_and_apply_vocabulary(
     x: common_types.ConsistentTensorType,
+    *,  # Force passing optional parameters by keys.
     default_value: Any = -1,
     top_k: Optional[int] = None,
     frequency_threshold: Optional[int] = None,
@@ -1062,6 +1063,7 @@ def compute_and_apply_vocabulary(
 def apply_vocabulary(
     x: common_types.ConsistentTensorType,
     deferred_vocab_filename_tensor: common_types.TemporaryAnalyzerOutputType,
+    *,  # Force passing optional parameters by keys.
     default_value: Any = -1,
     num_oov_buckets: int = 0,
     lookup_fn: Optional[Callable[[common_types.TensorType, tf.Tensor],

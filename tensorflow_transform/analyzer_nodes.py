@@ -81,7 +81,7 @@ class TensorInfo(
 
   def __new__(
       cls: Type['TensorInfo'], dtype: tf.dtypes.DType,
-      shape: Sequence[Optional[int]],
+      shape: Optional[Sequence[Optional[int]]],
       temporary_asset_info: Optional[TemporaryAssetInfo]) -> 'TensorInfo':
     if not isinstance(dtype, tf.DType):
       raise TypeError('dtype must be a TensorFlow dtype, got {}'.format(dtype))
