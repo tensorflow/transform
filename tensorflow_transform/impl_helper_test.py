@@ -666,10 +666,10 @@ class ImplHelperTest(test_case.TransformTestCase):
         'sparse_1d',
         'sparse_2d',
     ])
-    self.assertEqual(type(features['fixed_len_float']), tf.Tensor)
+    self.assertIsInstance(features['fixed_len_float'], tf.Tensor)
     self.assertEqual(features['fixed_len_float'].get_shape().as_list(),
                      [None, 2, 3])
-    self.assertEqual(type(features['fixed_len_string']), tf.Tensor)
+    self.assertIsInstance(features['fixed_len_string'], tf.Tensor)
     self.assertEqual(features['fixed_len_string'].get_shape().as_list(), [None])
     self.assertEqual(type(features['var_len_int']), tf.SparseTensor)
     self.assertEqual(features['var_len_int'].get_shape().as_list(),
@@ -715,12 +715,12 @@ class ImplHelperTest(test_case.TransformTestCase):
         'ragged_string',
         'ragged_multi_dimension',
     ])
-    self.assertEqual(type(features['dense_float']), tf.Tensor)
+    self.assertIsInstance(features['dense_float'], tf.Tensor)
     self.assertEqual(features['dense_float'].get_shape().as_list(),
                      [None, 2, 3])
     self.assertEqual(features['dense_float'].dtype, tf.float32)
 
-    self.assertEqual(type(features['dense_string']), tf.Tensor)
+    self.assertIsInstance(features['dense_string'], tf.Tensor)
     self.assertEqual(features['dense_string'].get_shape().as_list(), [None])
     self.assertEqual(features['dense_string'].dtype, tf.string)
 
