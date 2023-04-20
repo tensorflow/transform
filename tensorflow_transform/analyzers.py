@@ -2204,10 +2204,6 @@ class _QuantilesSketchCacheCoder(analyzer_nodes.CacheCoder):
   """Cache coder for the quantiles accumulator."""
 
   def encode_cache(self, accumulator):
-    # TODO(b/174549940): Consider exposing and calling
-    # `QuantilesSketch::Serialize` directly.
-    # TODO(b/37788560): Should we be "intelligently" choosing the 'protocol'
-    # argument for 'dumps'?
     return pickle.dumps(accumulator)
 
   def decode_cache(self, encoded_accumulator):
