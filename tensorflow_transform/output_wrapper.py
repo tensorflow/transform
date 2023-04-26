@@ -495,7 +495,7 @@ class TransformFeaturesLayer(tf.keras.Model):
     """
     pass
 
-  def call(
+  def call(  # pytype: disable=signature-mismatch  # overriding-parameter-count-checks
       self, inputs: Mapping[str, common_types.TensorType]
   ) -> Dict[str, common_types.TensorType]:
 
