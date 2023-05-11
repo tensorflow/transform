@@ -304,6 +304,7 @@ def _get_approx_vocab_filename(vocab_filename: Optional[str],
   return analyzers.sanitized_vocab_filename(vocab_filename, prefix=prefix)
 
 
+# TODO(b/273799012): Add support for reserved_tokens.
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def approximate_vocabulary(
     x: common_types.TensorType,

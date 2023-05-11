@@ -19,6 +19,7 @@ import functools
 import os
 import struct
 from typing import Callable, Mapping, List
+import uuid
 import apache_beam as beam
 from apache_beam.testing import util as beam_test_util
 import numpy as np
@@ -443,6 +444,11 @@ def mock_out_cache_hash(test_fn):
   return _run_test
 
 
+_RunPipelineResult = tfx_namedtuple.namedtuple(  # pylint: disable=invalid-name
+    '_RunPipelineResult', ['cache_output', 'metrics', 'transform_output']
+)
+
+
 class CachedImplTest(tft_unit.TransformTestCase):
 
   def setUp(self):
@@ -507,20 +513,19 @@ class CachedImplTest(tft_unit.TransformTestCase):
         + list(sideeffects)
     )
 
-  _RunPipelineResult = tfx_namedtuple.namedtuple(  # pylint: disable=invalid-name
-      '_RunPipelineResult', ['cache_output', 'pipeline'])
-
-  def _run_pipeline(self,
-                    feature_spec,
-                    input_data_dict,
-                    preprocessing_fn,
-                    cache_dict=None,
-                    should_read_cache=False,
-                    datasets_to_transform=None,
-                    expected_transform_data=None,
-                    expected_cache=None,
-                    transform_fn_output_dir=None,
-                    use_tf_compat_v1=True):
+  def _run_pipeline(
+      self,
+      feature_spec,
+      input_data_dict,
+      preprocessing_fn,
+      cache_dict=None,
+      should_read_cache=False,
+      datasets_to_transform=None,
+      expected_transform_data=None,
+      expected_cache=None,
+      transform_fn_output_dir='',
+      use_tf_compat_v1=True,
+  ) -> _RunPipelineResult:
     """Runs an analysis pipeline with cache.
 
     Args:
@@ -537,7 +542,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
         transformed data, should be the same for each dataset.
       expected_cache: Dict[str, Dict[str, bytes]], expected encoded cache.
       transform_fn_output_dir: A directory where the output transform_fn should
-        be written to, if not provided it will not be written.
+        be written to, if None provided it will not be written.
       use_tf_compat_v1: If True, TFT's public APIs (e.g. AnalyzeDataset) will
         use Tensorflow in compat.v1 mode. Defaults to `True`.
 
@@ -629,10 +634,16 @@ class CachedImplTest(tft_unit.TransformTestCase):
                   label='AssertCache[{}][{}]'.format(dataset, idx))
 
         # Write transform_fn if provided with an output directory.
+        tft_output = None
         if transform_fn_output_dir is not None:
+          if not transform_fn_output_dir:
+            transform_fn_output_dir = os.path.join(
+                self.base_test_dir, uuid.uuid4().hex
+            )
           _ = transform_fn | tft_beam.WriteTransformFn(transform_fn_output_dir)
+          tft_output = tft.TFTransformOutput(transform_fn_output_dir)
 
-        return self._RunPipelineResult(cache_output, p)
+    return _RunPipelineResult(cache_output, p.metrics, tft_output)
 
   @tft_unit.named_parameters(_TF_VERSION_NAMED_PARAMETERS)
   @mock_out_cache_hash
@@ -734,20 +745,23 @@ class CachedImplTest(tft_unit.TransformTestCase):
         len(run_result.cache_output[span_0_key].cache_dict),
         len(run_result.cache_output[span_1_key].cache_dict) - 4)
 
-    p = run_result.pipeline
+    metrics = run_result.metrics
     # 4 from analyzing 2 spans, and 2 from transform.
-    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 6)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 4)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 8)
-    self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
-                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
-    self.assertMetricsCounterEqual(p.metrics, 'num_packed_accumulate_combiners',
-                                   1)
-    self.assertMetricsCounterEqual(p.metrics, 'num_packed_merge_combiners', 1)
+    self.assertMetricsCounterEqual(metrics, 'num_instances', 6)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_decoded', 4)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_encoded', 8)
+    self.assertMetricsCounterEqual(
+        metrics, 'saved_models_created', _SINGLE_PHASE_NUM_SAVED_MODELS
+    )
+    self.assertMetricsCounterEqual(
+        metrics, 'num_packed_accumulate_combiners', 1
+    )
+    self.assertMetricsCounterEqual(metrics, 'num_packed_merge_combiners', 1)
     # All datasets were processed even though some of the analyzers were covered
     # by cache.
-    self.assertMetricsCounterEqual(p.metrics, 'analysis_input_bytes_from_cache',
-                                   0)
+    self.assertMetricsCounterEqual(
+        metrics, 'analysis_input_bytes_from_cache', 0
+    )
 
   @tft_unit.named_parameters(_TF_VERSION_NAMED_PARAMETERS)
   def test_single_phase_run_twice(self, use_tf_compat_v1):
@@ -845,38 +859,37 @@ class CachedImplTest(tft_unit.TransformTestCase):
         },
     ]
 
-    transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_1')
-
     first_run_result = self._run_pipeline(
         feature_spec,
         input_data_dict,
         preprocessing_fn,
         datasets_to_transform=[span_2_key],
         expected_transform_data=expected_transformed_data,
-        transform_fn_output_dir=transform_fn_dir,
         use_tf_compat_v1=use_tf_compat_v1)
 
     for key in input_data_dict:
       self.assertIn(key, first_run_result.cache_output)
       self.assertEqual(8, len(first_run_result.cache_output[key].cache_dict))
 
-    tf_transform_output = tft.TFTransformOutput(transform_fn_dir)
-    vocab1_path = tf_transform_output.vocabulary_file_by_name('vocab1')
+    vocab1_path = first_run_result.transform_output.vocabulary_file_by_name(
+        'vocab1'
+    )
     self.AssertVocabularyContents(vocab1_path, expected_vocabulary_contents)
 
-    p = first_run_result.pipeline
+    metrics = first_run_result.metrics
     # 6 from analyzing 3 spans, and 2 from transform.
-    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 8)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(metrics, 'num_instances', 8)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_decoded', 0)
     # 8 entries for each of 3 spans. Note that default values for the empty span
     # are also encoded.
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 24)
-    self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
-                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
-    self.assertMetricsCounterEqual(p.metrics, 'analysis_input_bytes_from_cache',
-                                   0)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_encoded', 24)
+    self.assertMetricsCounterEqual(
+        metrics, 'saved_models_created', _SINGLE_PHASE_NUM_SAVED_MODELS
+    )
+    self.assertMetricsCounterEqual(
+        metrics, 'analysis_input_bytes_from_cache', 0
+    )
 
-    transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_2')
     second_run_result = self._run_pipeline(
         feature_spec,
         input_data_dict,
@@ -884,28 +897,30 @@ class CachedImplTest(tft_unit.TransformTestCase):
         should_read_cache=True,
         datasets_to_transform=[span_2_key],
         expected_transform_data=expected_transformed_data,
-        transform_fn_output_dir=transform_fn_dir,
         use_tf_compat_v1=use_tf_compat_v1)
 
-    tf_transform_output = tft.TFTransformOutput(transform_fn_dir)
-    vocab1_path = tf_transform_output.vocabulary_file_by_name('vocab1')
+    vocab1_path = second_run_result.transform_output.vocabulary_file_by_name(
+        'vocab1'
+    )
     self.AssertVocabularyContents(vocab1_path, expected_vocabulary_contents)
 
     self.assertFalse(second_run_result.cache_output)
 
-    p = second_run_result.pipeline
+    metrics = second_run_result.metrics
     # Only 2 from transform.
-    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 2)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 24)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 0)
+    self.assertMetricsCounterEqual(metrics, 'num_instances', 2)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_decoded', 24)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_encoded', 0)
 
     # The root CreateSavedModel is optimized away because the data doesn't get
     # processed at all (only cache).
-    self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
-                                   _ZERO_PHASE_NUM_SAVED_MODELS)
+    self.assertMetricsCounterEqual(
+        metrics, 'saved_models_created', _ZERO_PHASE_NUM_SAVED_MODELS
+    )
     # Cache coverage allowed us to avoid processing this many bytes of data.
-    self.assertMetricsCounterGreater(p.metrics,
-                                     'analysis_input_bytes_from_cache', 413)
+    self.assertMetricsCounterGreater(
+        metrics, 'analysis_input_bytes_from_cache', 413
+    )
 
   @tft_unit.named_parameters(_TF_VERSION_NAMED_PARAMETERS)
   @mock_out_cache_hash
@@ -957,20 +972,24 @@ class CachedImplTest(tft_unit.TransformTestCase):
         cache_dict=cache_dict,
         datasets_to_transform=[span_1_key],
         expected_transform_data=expected_transformed_data,
-        use_tf_compat_v1=use_tf_compat_v1)
+        transform_fn_output_dir=None,
+        use_tf_compat_v1=use_tf_compat_v1,
+    )
 
     self.assertNotIn(span_0_key, run_result.cache_output)
 
-    p = run_result.pipeline
+    metrics = run_result.metrics
     # 4 from analysis since 1 span was completely cached, and 4 from transform.
-    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 8)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 1)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 1)
-    self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
-                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
+    self.assertMetricsCounterEqual(metrics, 'num_instances', 8)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_decoded', 1)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_encoded', 1)
+    self.assertMetricsCounterEqual(
+        metrics, 'saved_models_created', _SINGLE_PHASE_NUM_SAVED_MODELS
+    )
     # Cache coverage allowed us to avoid processing this many bytes of data.
-    self.assertMetricsCounterEqual(p.metrics, 'analysis_input_bytes_from_cache',
-                                   dataset_size)
+    self.assertMetricsCounterEqual(
+        metrics, 'analysis_input_bytes_from_cache', dataset_size
+    )
 
   @tft_unit.named_parameters(_TF_VERSION_NAMED_PARAMETERS)
   @mock_out_cache_hash
@@ -1067,15 +1086,17 @@ class CachedImplTest(tft_unit.TransformTestCase):
         expected_cache=expected_cache,
         use_tf_compat_v1=use_tf_compat_v1)
 
-    p = run_result.pipeline
+    metrics = run_result.metrics
     # 4 from analysis on each of the input spans.
-    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 8)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 0)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 6)
-    self.assertMetricsCounterEqual(p.metrics, 'saved_models_created',
-                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
-    self.assertMetricsCounterEqual(p.metrics, 'analysis_input_bytes_from_cache',
-                                   0)
+    self.assertMetricsCounterEqual(metrics, 'num_instances', 8)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_encoded', 6)
+    self.assertMetricsCounterEqual(
+        metrics, 'saved_models_created', _SINGLE_PHASE_NUM_SAVED_MODELS
+    )
+    self.assertMetricsCounterEqual(
+        metrics, 'analysis_input_bytes_from_cache', 0
+    )
 
     with self._TestPipeline() as p:
       with tft_beam.Context():
@@ -1174,7 +1195,6 @@ class CachedImplTest(tft_unit.TransformTestCase):
         },
     }
     expected_transformed_data = [{'y': 3} for _ in range(7)]
-    transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_0')
     first_run_result = self._run_pipeline(
         feature_spec,
         input_data_dict,
@@ -1182,17 +1202,16 @@ class CachedImplTest(tft_unit.TransformTestCase):
         datasets_to_transform=[span_0_key],
         expected_transform_data=expected_transformed_data,
         expected_cache=expected_cache_dict,
-        transform_fn_output_dir=transform_fn_dir,
         use_tf_compat_v1=use_tf_compat_v1)
-    p = first_run_result.pipeline
+    metrics = first_run_result.metrics
     # Incremented for both analysis and transform (7 * 2).
-    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 14)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 0)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 1)
-    self.assertMetricsCounterEqual(p.metrics, 'analysis_input_bytes_from_cache',
-                                   0)
+    self.assertMetricsCounterEqual(metrics, 'num_instances', 14)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_encoded', 1)
+    self.assertMetricsCounterEqual(
+        metrics, 'analysis_input_bytes_from_cache', 0
+    )
 
-    transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_1')
     first_run_result = self._run_pipeline(
         feature_spec,
         input_data_dict,
@@ -1201,15 +1220,15 @@ class CachedImplTest(tft_unit.TransformTestCase):
         datasets_to_transform=[span_0_key],
         expected_transform_data=expected_transformed_data,
         expected_cache={},
-        transform_fn_output_dir=transform_fn_dir,
         use_tf_compat_v1=use_tf_compat_v1)
-    p = first_run_result.pipeline
+    metrics = first_run_result.metrics
     # This time analysis is skipped due to cache, only transform dataset counts.
-    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 7)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 1)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 0)
-    self.assertMetricsCounterGreater(p.metrics,
-                                     'analysis_input_bytes_from_cache', 100)
+    self.assertMetricsCounterEqual(metrics, 'num_instances', 7)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_decoded', 1)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_encoded', 0)
+    self.assertMetricsCounterGreater(
+        metrics, 'analysis_input_bytes_from_cache', 100
+    )
 
   @tft_unit.named_parameters(*_OPTIMIZE_TRAVERSAL_TEST_CASES)
   @mock_out_cache_hash
@@ -1293,20 +1312,24 @@ class CachedImplTest(tft_unit.TransformTestCase):
         feature_spec,
         input_data_dict,
         functools.partial(preprocessing_fn, should_add_one=False),
-        use_tf_compat_v1=use_tf_compat_v1)
-    first_cache_output, p1 = run_result.cache_output, run_result.pipeline
+        transform_fn_output_dir=None,
+        use_tf_compat_v1=use_tf_compat_v1,
+    )
+    first_cache_output, metrics = run_result.cache_output, run_result.metrics
 
     for key in input_data_dict:
       self.assertIn(key, first_cache_output)
       self.assertEqual(1, len(first_cache_output[key].cache_dict))
 
-    self.assertMetricsCounterEqual(p1.metrics, 'num_instances', 2)
-    self.assertMetricsCounterEqual(p1.metrics, 'cache_entries_decoded', 0)
-    self.assertMetricsCounterEqual(p1.metrics, 'cache_entries_encoded', 1)
-    self.assertMetricsCounterEqual(p1.metrics, 'saved_models_created',
-                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
-    self.assertMetricsCounterEqual(p1.metrics,
-                                   'analysis_input_bytes_from_cache', 0)
+    self.assertMetricsCounterEqual(metrics, 'num_instances', 2)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_encoded', 1)
+    self.assertMetricsCounterEqual(
+        metrics, 'saved_models_created', _SINGLE_PHASE_NUM_SAVED_MODELS
+    )
+    self.assertMetricsCounterEqual(
+        metrics, 'analysis_input_bytes_from_cache', 0
+    )
 
     # Cache is still valid since the contents of the tf.function are the same.
     run_result = self._run_pipeline(
@@ -1314,18 +1337,22 @@ class CachedImplTest(tft_unit.TransformTestCase):
         input_data_dict,
         functools.partial(preprocessing_fn, should_add_one=False),
         should_read_cache=True,
-        use_tf_compat_v1=use_tf_compat_v1)
-    second_cache_output, p2 = run_result.cache_output, run_result.pipeline
+        transform_fn_output_dir=None,
+        use_tf_compat_v1=use_tf_compat_v1,
+    )
+    second_cache_output, metrics = run_result.cache_output, run_result.metrics
 
     self.assertFalse(second_cache_output)
 
-    self.assertMetricsCounterEqual(p2.metrics, 'num_instances', 0)
-    self.assertMetricsCounterEqual(p2.metrics, 'cache_entries_decoded', 1)
-    self.assertMetricsCounterEqual(p2.metrics, 'cache_entries_encoded', 0)
-    self.assertMetricsCounterEqual(p2.metrics, 'saved_models_created',
-                                   _ZERO_PHASE_NUM_SAVED_MODELS)
-    self.assertMetricsCounterGreater(p2.metrics,
-                                     'analysis_input_bytes_from_cache', 23)
+    self.assertMetricsCounterEqual(metrics, 'num_instances', 0)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_decoded', 1)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_encoded', 0)
+    self.assertMetricsCounterEqual(
+        metrics, 'saved_models_created', _ZERO_PHASE_NUM_SAVED_MODELS
+    )
+    self.assertMetricsCounterGreater(
+        metrics, 'analysis_input_bytes_from_cache', 23
+    )
 
     # Modifying the tf.function contents causes cache invalidation.
     run_result = self._run_pipeline(
@@ -1333,20 +1360,24 @@ class CachedImplTest(tft_unit.TransformTestCase):
         input_data_dict,
         functools.partial(preprocessing_fn, should_add_one=True),
         should_read_cache=True,
-        use_tf_compat_v1=use_tf_compat_v1)
-    third_output_cache, p3 = run_result.cache_output, run_result.pipeline
+        transform_fn_output_dir=None,
+        use_tf_compat_v1=use_tf_compat_v1,
+    )
+    third_output_cache, metrics = run_result.cache_output, run_result.metrics
 
     for key in input_data_dict:
       self.assertIn(key, third_output_cache)
       self.assertEqual(1, len(third_output_cache[key].cache_dict))
 
-    self.assertMetricsCounterEqual(p3.metrics, 'num_instances', 2)
-    self.assertMetricsCounterEqual(p3.metrics, 'cache_entries_decoded', 0)
-    self.assertMetricsCounterEqual(p3.metrics, 'cache_entries_encoded', 1)
-    self.assertMetricsCounterEqual(p3.metrics, 'saved_models_created',
-                                   _SINGLE_PHASE_NUM_SAVED_MODELS)
-    self.assertMetricsCounterEqual(p3.metrics,
-                                   'analysis_input_bytes_from_cache', 0)
+    self.assertMetricsCounterEqual(metrics, 'num_instances', 2)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_encoded', 1)
+    self.assertMetricsCounterEqual(
+        metrics, 'saved_models_created', _SINGLE_PHASE_NUM_SAVED_MODELS
+    )
+    self.assertMetricsCounterEqual(
+        metrics, 'analysis_input_bytes_from_cache', 0
+    )
 
   def test_cache_with_missing_metadata(self):
     tft_unit.skip_if_not_tf2('Tensorflow 2.x required.')
@@ -1368,8 +1399,6 @@ class CachedImplTest(tft_unit.TransformTestCase):
 
     expected_transformed_data = [{'x_min': 0} for _ in range(2)]
 
-    transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_1')
-
     first_run_result = self._run_pipeline(
         feature_spec,
         input_data_dict,
@@ -1377,7 +1406,6 @@ class CachedImplTest(tft_unit.TransformTestCase):
         should_read_cache=True,
         datasets_to_transform=[span_2_key],
         expected_transform_data=expected_transformed_data,
-        transform_fn_output_dir=transform_fn_dir,
         use_tf_compat_v1=False)
 
     # Deleting dataset cache metadata files.
@@ -1393,13 +1421,13 @@ class CachedImplTest(tft_unit.TransformTestCase):
           os.path.join(dataset_cache_dir,
                        f'deleted_{analyzer_cache._METADATA_FILE_NAME}'))
 
-    p = first_run_result.pipeline
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 0)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 3)
-    self.assertMetricsCounterEqual(p.metrics, 'analysis_input_bytes_from_cache',
-                                   0)
+    metrics = first_run_result.metrics
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_encoded', 3)
+    self.assertMetricsCounterEqual(
+        metrics, 'analysis_input_bytes_from_cache', 0
+    )
 
-    transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_2')
     second_run_result = self._run_pipeline(
         feature_spec,
         input_data_dict,
@@ -1407,18 +1435,18 @@ class CachedImplTest(tft_unit.TransformTestCase):
         should_read_cache=True,
         datasets_to_transform=[span_2_key],
         expected_transform_data=expected_transformed_data,
-        transform_fn_output_dir=transform_fn_dir,
         use_tf_compat_v1=False)
 
     self.assertFalse(second_run_result.cache_output)
 
-    p = second_run_result.pipeline
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 3)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 0)
+    metrics = second_run_result.metrics
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_decoded', 3)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_encoded', 0)
     # Because the metadata associated with cached datasets was deleted, we
     # report 0 for this counter.
-    self.assertMetricsCounterEqual(p.metrics, 'analysis_input_bytes_from_cache',
-                                   0)
+    self.assertMetricsCounterEqual(
+        metrics, 'analysis_input_bytes_from_cache', 0
+    )
 
   @tft_unit.named_parameters(_TF_VERSION_NAMED_PARAMETERS)
   def test_non_cached_dataset_run_twice(self, use_tf_compat_v1):
@@ -1486,15 +1514,12 @@ class CachedImplTest(tft_unit.TransformTestCase):
         },
     ]
 
-    transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_1')
-
     first_run_result = self._run_pipeline(
         feature_spec,
         input_data_dict,
         preprocessing_fn,
         datasets_to_transform=[span_1_key],
         expected_transform_data=expected_transformed_data,
-        transform_fn_output_dir=transform_fn_dir,
         use_tf_compat_v1=use_tf_compat_v1,
     )
 
@@ -1507,26 +1532,26 @@ class CachedImplTest(tft_unit.TransformTestCase):
       else:
         self.assertNotIn(key, first_run_result.cache_output)
 
-    tf_transform_output = tft.TFTransformOutput(transform_fn_dir)
-    vocab1_path = tf_transform_output.vocabulary_file_by_name('vocab')
+    vocab1_path = first_run_result.transform_output.vocabulary_file_by_name(
+        'vocab'
+    )
     self.AssertVocabularyContents(vocab1_path, expected_vocabulary_contents)
 
-    p = first_run_result.pipeline
+    metrics = first_run_result.metrics
     # 6 from analyzing 2 spans, and 2 from transform.
-    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 8)
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(metrics, 'num_instances', 8)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_decoded', 0)
     # 2 analyzers, computed for just one dataset.
     self.assertMetricsCounterEqual(
-        p.metrics, 'cache_entries_encoded', num_analyzers
+        metrics, 'cache_entries_encoded', num_analyzers
     )
     self.assertMetricsCounterEqual(
-        p.metrics, 'saved_models_created', _SINGLE_PHASE_NUM_SAVED_MODELS
+        metrics, 'saved_models_created', _SINGLE_PHASE_NUM_SAVED_MODELS
     )
     self.assertMetricsCounterEqual(
-        p.metrics, 'analysis_input_bytes_from_cache', 0
+        metrics, 'analysis_input_bytes_from_cache', 0
     )
 
-    transform_fn_dir = os.path.join(self.base_test_dir, 'transform_fn_2')
     second_run_result = self._run_pipeline(
         feature_spec,
         input_data_dict,
@@ -1534,32 +1559,32 @@ class CachedImplTest(tft_unit.TransformTestCase):
         should_read_cache=True,
         datasets_to_transform=[span_1_key],
         expected_transform_data=expected_transformed_data,
-        transform_fn_output_dir=transform_fn_dir,
         use_tf_compat_v1=use_tf_compat_v1,
     )
 
-    tf_transform_output = tft.TFTransformOutput(transform_fn_dir)
-    vocab1_path = tf_transform_output.vocabulary_file_by_name('vocab')
+    vocab1_path = second_run_result.transform_output.vocabulary_file_by_name(
+        'vocab'
+    )
     self.AssertVocabularyContents(vocab1_path, expected_vocabulary_contents)
 
     self.assertFalse(second_run_result.cache_output)
 
-    p = second_run_result.pipeline
+    metrics = second_run_result.metrics
     # Only 2 from transform, plus 2 from non-cache dataset.
-    self.assertMetricsCounterEqual(p.metrics, 'num_instances', 4)
+    self.assertMetricsCounterEqual(metrics, 'num_instances', 4)
     self.assertMetricsCounterEqual(
-        p.metrics, 'cache_entries_decoded', num_analyzers
+        metrics, 'cache_entries_decoded', num_analyzers
     )
-    self.assertMetricsCounterEqual(p.metrics, 'cache_entries_encoded', 0)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_encoded', 0)
 
     # The non cached dataset causes the same number of saved models created as
     # in the first iteration.
     self.assertMetricsCounterEqual(
-        p.metrics, 'saved_models_created', _SINGLE_PHASE_NUM_SAVED_MODELS
+        metrics, 'saved_models_created', _SINGLE_PHASE_NUM_SAVED_MODELS
     )
     # Cache coverage allowed us to avoid processing this many bytes of data.
     self.assertMetricsCounterGreater(
-        p.metrics, 'analysis_input_bytes_from_cache', 100
+        metrics, 'analysis_input_bytes_from_cache', 100
     )
 
   @tft_unit.parameters(
@@ -1654,6 +1679,71 @@ class CachedImplTest(tft_unit.TransformTestCase):
     self.assertEqual(
         (expected_node_count_without_cache, expected_node_count_with_cache),
         (node_count_without_cache, node_count_with_cache),
+    )
+
+  @tft_unit.named_parameters(_TF_VERSION_NAMED_PARAMETERS)
+  def test_vocab_reserved_tokens_not_cached(self, use_tf_compat_v1):
+    if not use_tf_compat_v1:
+      tft_unit.skip_if_not_tf2('Tensorflow 2.x required.')
+
+    def preprocessing_fn(inputs):
+      return {
+          's_integerized': tft.compute_and_apply_vocabulary(
+              inputs['s'], vocab_filename='vocab', reserved_tokens=['reserved']
+          ),
+      }
+
+    feature_spec = {
+        's': tf.io.FixedLenFeature([], tf.string),
+    }
+    input_data_dict = {
+        analyzer_cache.DatasetKey('span-0'): [dict(s='a')] * 3 + [dict(s='b')]
+    }
+    expected_vocabulary_contents = np.array(
+        [b'reserved', b'a', b'b'], dtype=object
+    )
+
+    first_run_result = self._run_pipeline(
+        feature_spec,
+        input_data_dict,
+        preprocessing_fn,
+        use_tf_compat_v1=use_tf_compat_v1,
+    )
+
+    vocab1_path = first_run_result.transform_output.vocabulary_file_by_name(
+        'vocab'
+    )
+    self.AssertVocabularyContents(vocab1_path, expected_vocabulary_contents)
+
+    metrics = first_run_result.metrics
+    self.assertMetricsCounterEqual(metrics, 'num_instances', 4)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_decoded', 0)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_encoded', 1)
+    self.assertMetricsCounterEqual(
+        metrics, 'analysis_input_bytes_from_cache', 0
+    )
+
+    second_run_result = self._run_pipeline(
+        feature_spec,
+        input_data_dict,
+        preprocessing_fn,
+        should_read_cache=True,
+        use_tf_compat_v1=use_tf_compat_v1,
+    )
+
+    vocab1_path = second_run_result.transform_output.vocabulary_file_by_name(
+        'vocab'
+    )
+    self.AssertVocabularyContents(vocab1_path, expected_vocabulary_contents)
+
+    self.assertFalse(second_run_result.cache_output)
+
+    metrics = second_run_result.metrics
+    self.assertMetricsCounterEqual(metrics, 'num_instances', 0)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_decoded', 1)
+    self.assertMetricsCounterEqual(metrics, 'cache_entries_encoded', 0)
+    self.assertMetricsCounterGreater(
+        metrics, 'analysis_input_bytes_from_cache', 1
     )
 
 

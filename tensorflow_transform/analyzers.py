@@ -28,7 +28,7 @@ import functools
 import os
 import pickle
 import re
-from typing import Any, Callable, Collection, List, Optional, Tuple, Union
+from typing import Any, Callable, Collection, List, Optional, Sequence, Tuple, Union
 from absl import logging
 
 
@@ -1703,7 +1703,6 @@ def get_empy_vocabulary_dummy_value(
   return (1, dummy_value)
 
 
-# TODO(KesterTong): Once multiple outputs are supported, return indices too.
 # TODO(b/117796748): Add coverage key feature input as alternative to `key_fn`.
 # TODO(tensorflow/community) the experimental fingerprint_shuffle argument is a
 # workaround for the inability to appropriately rebalance sharded variables on
@@ -1717,6 +1716,7 @@ def vocabulary(
     frequency_threshold: Optional[int] = None,
     vocab_filename: Optional[str] = None,
     store_frequency: Optional[bool] = False,
+    reserved_tokens: Optional[Union[Sequence[str], tf.Tensor]] = None,
     weights: Optional[tf.Tensor] = None,
     labels: Optional[tf.Tensor] = None,
     use_adjusted_mutual_info: bool = False,
@@ -1725,9 +1725,9 @@ def vocabulary(
     coverage_frequency_threshold: Optional[int] = None,
     key_fn: Optional[Callable[[Any], Any]] = None,
     fingerprint_shuffle: Optional[bool] = False,
-    file_format: common_types
-    .VocabularyFileFormatType = DEFAULT_VOCABULARY_FILE_FORMAT,
-    name: Optional[str] = None) -> common_types.TemporaryAnalyzerOutputType:
+    file_format: common_types.VocabularyFileFormatType = DEFAULT_VOCABULARY_FILE_FORMAT,
+    name: Optional[str] = None,
+) -> common_types.TemporaryAnalyzerOutputType:
   r"""Computes the unique values of `x` over the whole dataset.
 
   Computes The unique values taken by `x`, which can be a `Tensor`,
@@ -1793,11 +1793,14 @@ def vocabulary(
       are using the vocab_filename on a downstream component.
     store_frequency: If True, frequency of the words is stored in the vocabulary
       file. In the case labels are provided, the mutual information is stored in
-      the file instead. Each line in the file will be of the form
-      'frequency word'. NOTE: if this is True then the computed vocabulary
-      cannot be used with `tft.apply_vocabulary` directly, since frequencies are
-      added to the beginning of each row of the vocabulary, which the mapper
-      will not ignore.
+      the file instead. Each line in the file will be of the form 'frequency
+      word'. NOTE: if this is True then the computed vocabulary cannot be used
+      with `tft.apply_vocabulary` directly, since frequencies are added to the
+      beginning of each row of the vocabulary, which the mapper will not ignore.
+    reserved_tokens: (Optional) A list of tokens that should appear in the
+      vocabulary regardless of their appearance in the input. These tokens would
+      maintain their order, and have a reserved spot at the beginning of the
+      vocabulary. Note: this field has no affect on cache.
     weights: (Optional) Weights `Tensor` for the vocabulary. It must have the
       same shape as x.
     labels: (Optional) Labels dense `Tensor` for the vocabulary. If provided,
@@ -1810,8 +1813,8 @@ def vocabulary(
       it should first be bucketized; If the label is a string, an integer
       vocabulary should first be applied). Note: `CompositeTensor` labels are
       not yet supported (b/134931826). WARNING: When labels are provided, the
-      frequency_threshold argument functions as a mutual information
-      threshold, which is a float. TODO(b/116308354): Fix confusing naming.
+      frequency_threshold argument functions as a mutual information threshold,
+      which is a float. TODO(b/116308354): Fix confusing naming.
     use_adjusted_mutual_info: If true, and labels are provided, calculate
       vocabulary using adjusted rather than raw mutual information.
     min_diff_from_avg: MI (or AMI) of a feature x label will be adjusted to zero
@@ -1835,7 +1838,7 @@ def vocabulary(
       etc) will still take effect.
     file_format: (Optional) A str. The format of the resulting vocabulary file.
       Accepted formats are: 'tfrecord_gzip', 'text'. 'tfrecord_gzip' requires
-        tensorflow>=2.4. The default value is 'text'.
+      tensorflow>=2.4. The default value is 'text'.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1927,7 +1930,9 @@ def vocabulary(
         coverage_frequency_threshold=coverage_frequency_threshold or 0,
         coverage_informativeness_threshold=coverage_informativeness_threshold,
         file_format=file_format,
-        vocabulary_key=vocabulary_key)
+        vocabulary_key=vocabulary_key,
+        reserved_tokens=reserved_tokens,
+    )
 
 
 def _get_vocabulary_analyzer_inputs(
@@ -2006,9 +2011,9 @@ def _vocabulary_analyzer_nodes(
     coverage_top_k: Optional[int] = None,
     coverage_frequency_threshold: float = 0.0,
     coverage_informativeness_threshold: float = float('-inf'),
-    file_format: common_types
-    .VocabularyFileFormatType = DEFAULT_VOCABULARY_FILE_FORMAT,
-    vocabulary_key: Optional[str] = None
+    file_format: common_types.VocabularyFileFormatType = DEFAULT_VOCABULARY_FILE_FORMAT,
+    vocabulary_key: Optional[str] = None,
+    reserved_tokens: Optional[Union[Sequence[str], tf.Tensor]] = None,
 ) -> common_types.TemporaryAnalyzerOutputType:
   """Internal helper for analyzing vocab. See `vocabulary` doc string."""
 
@@ -2040,17 +2045,31 @@ def _vocabulary_analyzer_nodes(
       informativeness_threshold=informativeness_threshold,
       input_dtype=input_dtype)
 
+  reserved_tokens_size = 0
+  extra_apply_order_and_write_op_args = []
+  if reserved_tokens is not None:
+    reserved_tokens_size = tf_utils.register_vocabulary_reserved_tokens(
+        vocab_filename, reserved_tokens
+    )
+    extra_apply_order_and_write_op_args.append(
+        nodes.apply_operation(
+            analyzer_nodes.ExtractVocabularyReservedTokens, name=vocab_filename
+        )
+    )
+
   vocab_filename_node = nodes.apply_operation(
       analyzer_nodes.VocabularyOrderAndWrite,
       filtered_value_node,
+      *extra_apply_order_and_write_op_args,
       vocab_filename=vocab_filename,
       store_frequency=store_frequency,
       fingerprint_shuffle=fingerprint_shuffle,
       input_dtype=input_dtype,
       file_format=file_format,
       # LINT.IfChange(input_is_sorted)
-      input_is_sorted=(top_k is not None and key_fn is None and
-                       not fingerprint_shuffle)
+      input_is_sorted=(
+          top_k is not None and key_fn is None and not fingerprint_shuffle
+      ),
       # LINT.ThenChange(beam/analyzer_impls.py:top_k_impl)
   )
 
@@ -2072,6 +2091,8 @@ def _vocabulary_analyzer_nodes(
       analyzer_nodes.TensorInfo(tf.int64, [], None),
       name=f'{vocab_filename}_pruned_vocab_size')
 
+  unfiltered_vocab_size += reserved_tokens_size
+  filtered_vocab_size += reserved_tokens_size
   _maybe_annotate_vocab_metadata(vocab_filename, unfiltered_vocab_size,
                                  filtered_vocab_size)
 

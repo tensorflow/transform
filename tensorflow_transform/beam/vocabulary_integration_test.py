@@ -2001,6 +2001,82 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         expected_metadata,
         expected_vocab_file_contents={'my_vocab': expected_vocab_file_contents})
 
+  def testVocabularyReservedTokens(self):
+    """Test vocabulary with reserved tokens."""
+    x_data = ['hello', 'world', 'world', '42', '42', '42', 'a']
+    input_data = [{'x': x} for x in x_data]
+    input_feature_spec = {'x': tf.io.FixedLenFeature([], tf.string)}
+    input_metadata = tft.DatasetMetadata.from_feature_spec(input_feature_spec)
+    reserved_tokens = ['a', 'b', 'c']
+
+    def preprocessing_fn(inputs):
+      tft.vocabulary(
+          inputs['x'],
+          vocab_filename='my_vocab',
+          file_format=self._VocabFormat(),
+          store_frequency=True,
+          reserved_tokens=reserved_tokens,
+      )
+      tft.compute_and_apply_vocabulary(
+          inputs['x'],
+          vocab_filename='reserved_tokens_tensor',
+          file_format=self._VocabFormat(),
+          store_frequency=True,
+          reserved_tokens=tf.constant(reserved_tokens),
+      )
+      tft.vocabulary(
+          inputs['x'],
+          vocab_filename='sanity',
+          file_format=self._VocabFormat(),
+      )
+      outputs = inputs.copy()
+      shape = tf.shape(inputs['x'])
+      outputs['my_vocab_size'] = tf.broadcast_to(
+          tft.experimental.get_vocabulary_size_by_name('my_vocab'), shape
+      )
+      outputs['reserved_tokens_tensor_size'] = tf.broadcast_to(
+          tft.experimental.get_vocabulary_size_by_name(
+              'reserved_tokens_tensor'
+          ),
+          shape,
+      )
+      outputs['sanity_size'] = tf.broadcast_to(
+          tft.experimental.get_vocabulary_size_by_name('sanity'), shape
+      )
+      return outputs
+
+    expected_vocab_content_from_data = [
+        ('42', 3),
+        ('world', 2),
+        ('hello', 1),
+    ]
+
+    expected_vocab_file_contents = [
+        (t, -1) for t in reserved_tokens
+    ] + expected_vocab_content_from_data
+
+    expected_data = input_data.copy()
+    for instance in expected_data:
+      instance.update({
+          # Vocabulary with reserved tokens sizes are off by one due to a
+          # duplicate token.
+          'my_vocab_size': (
+              len(expected_vocab_content_from_data) + len(reserved_tokens) + 1
+          ),
+          'reserved_tokens_tensor_size': (
+              len(expected_vocab_content_from_data) + len(reserved_tokens) + 1
+          ),
+          'sanity_size': 4,
+      })
+
+    self.assertAnalyzeAndTransformResults(
+        input_data,
+        input_metadata,
+        preprocessing_fn,
+        expected_data,
+        expected_vocab_file_contents={'my_vocab': expected_vocab_file_contents},
+    )
+
 
 if __name__ == '__main__':
   tft_unit.main()

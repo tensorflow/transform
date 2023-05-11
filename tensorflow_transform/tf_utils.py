@@ -15,7 +15,7 @@
 
 import contextlib
 import enum
-from typing import Callable, Optional, Tuple, Union
+from typing import Callable, Optional, Sequence, Tuple, Union
 
 import tensorflow as tf
 from tensorflow_transform import annotators
@@ -42,6 +42,11 @@ GLOBAL_Y_COUNT_SENTINEL_INT = tf.int64.limits[1]
 # representing asset path and the graph tensor tracking the analyzer in
 # `analyzer_nodes.TENSOR_REPLACEMENTS`.
 _ASSET_REPLACEMENTS = 'tft_asset_replacements'
+
+# Key for graph collection containing string IDs for vocabulary extra tokens.
+_VOCABULARY_RESERVED_TOKENS_IDS = 'tft_vocab_extra_tokens_ids'
+# Key for graph collection containing extra tokens to include in a vocabulary.
+_VOCABULARY_RESERVED_TOKENS = 'tft_vocab_extra_tokens'
 
 ReducedBatchWeightedCounts = tfx_namedtuple.namedtuple('ReducedBatchCounts', [
     'unique_x', 'summed_weights_per_x', 'summed_positive_per_x_and_y',
@@ -1767,3 +1772,24 @@ def document_frequency_to_idf(document_frequency: tf.Tensor,
     return tf.math.log(
         tf.cast(corpus_size, dtype=tf.float32) /
         (tf.cast(document_frequency, dtype=tf.float32))) + baseline
+
+
+def register_vocabulary_reserved_tokens(
+    name: str, reserved_tokens: Union[Sequence[str], tf.Tensor]
+) -> tf.Tensor:
+  """Registers a reserved_tokens tensor to a vocabulary."""
+  if not isinstance(reserved_tokens, tf.Tensor):
+    reserved_tokens = tf.constant(reserved_tokens, dtype=tf.string)
+  tf.compat.v1.add_to_collection(_VOCABULARY_RESERVED_TOKENS_IDS, name)
+  tf.compat.v1.add_to_collection(_VOCABULARY_RESERVED_TOKENS, reserved_tokens)
+  return tf.size(reserved_tokens, out_type=tf.int64)
+
+
+def fetch_vocabulary_reserved_tokens(graph, name: str) -> Sequence[str]:
+  """Fetches an evaluated reserved_tokens tensor for a vocabulary."""
+  name_collection = graph.get_collection(_VOCABULARY_RESERVED_TOKENS_IDS)
+  tokens_collection = graph.get_collection(_VOCABULARY_RESERVED_TOKENS)
+  assert len(name_collection) == len(tokens_collection)
+  tensor = tokens_collection[name_collection.index(name)]
+  with tf.compat.v1.Session(graph=graph) as session:
+    return session.run(tensor)

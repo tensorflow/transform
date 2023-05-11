@@ -981,6 +981,21 @@ class VocabularyOrderAndWrite(
     ]
 
 
+class ExtractVocabularyReservedTokens(
+    tfx_namedtuple.namedtuple(
+        'ExtractVocabularyReservedTokens', ['name', 'label']
+    ),
+    nodes.OperationDef,
+):
+  """An operation which extracts vocabulary reserved tokens from the graph."""
+  __slots__ = ()
+
+  def __new__(cls, name):
+    return super(ExtractVocabularyReservedTokens, cls).__new__(
+        cls, name=name, label=_make_label(cls)
+    )
+
+
 class PTransform(
     tfx_namedtuple.namedtuple('PTransform', [
         'ptransform', 'output_tensor_info_list', 'is_partitionable',

@@ -938,6 +938,7 @@ def compute_and_apply_vocabulary(
     fingerprint_shuffle: bool = False,
     file_format: common_types.VocabularyFileFormatType = analyzers.DEFAULT_VOCABULARY_FILE_FORMAT,
     store_frequency: Optional[bool] = False,
+    reserved_tokens: Optional[Union[Iterable[str], tf.Tensor]] = None,
     name: Optional[str] = None,
 ) -> common_types.ConsistentTensorType:
   r"""Generates a vocabulary for `x` and maps it to an integer with this vocab.
@@ -1012,6 +1013,10 @@ def compute_and_apply_vocabulary(
       the file instead. Each line in the file will be of the form 'frequency
       word'. NOTE: if True and text_format is 'text' then spaces will be
       replaced to avoid information loss.
+    reserved_tokens: (Optional) A list of tokens that should appear in the
+      vocabulary regardless of their appearance in the input. These tokens would
+      maintain their order, and have a reserved spot at the beginning of the
+      vocabulary. Note: this field has no affect on cache.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -1046,6 +1051,7 @@ def compute_and_apply_vocabulary(
         key_fn=key_fn,
         fingerprint_shuffle=fingerprint_shuffle,
         file_format=file_format,
+        reserved_tokens=reserved_tokens,
     )
     return _apply_vocabulary_internal(
         x,

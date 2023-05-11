@@ -4,6 +4,10 @@
 
 ## Major Features and Improvements
 
+*   Adds a `reserved_tokens` parameter to vocabulary APIs, a list of tokens that
+    must appear in the vocabulary and maintain their order at the beginning of
+    the vocabulary.
+
 ## Bug Fixes and Other Changes
 
 ## Breaking Changes

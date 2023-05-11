@@ -18,6 +18,7 @@ import hashlib
 import itertools
 import math
 import os
+import typing
 
 from absl import logging
 import apache_beam as beam
@@ -112,15 +113,31 @@ class _OrderElementsFn(beam.DoFn):
     self._vocab_size = beam.metrics.Metrics.distribution(
         common.METRICS_NAMESPACE, 'vocabulary_size')
 
-  def process(self, element, batched_counts_iter):
-    del element
+  def process(
+      self,
+      unused_element,
+      batched_counts_iter,
+      reserved_tokens: typing.Optional[typing.List[np.ndarray]] = None,
+  ) -> typing.Iterable[bytes]:
     counts = []
-    for c in batched_counts_iter:
-      counts.extend(c)
-    self._vocab_size.update(len(counts))
-    counts = maybe_add_empty_vocabulary_dummy(counts, self._input_dtype)
+    if reserved_tokens:
+      (reserved_tokens,) = reserved_tokens
+      reserved_tokens_set = set(reserved_tokens)
+      for batch in batched_counts_iter:
+        # Filtering input tokens that already have a reserved spot.
+        counts.extend(
+            filter(lambda ct: ct[1] not in reserved_tokens_set, batch)
+        )
+    else:
+      for c in batched_counts_iter:
+        counts.extend(c)
 
     counts.sort(**self._sort_kwargs)
+    # Prepending reserved tokens after computed tokens have already been sorted.
+    if reserved_tokens is not None:
+      counts[:0] = [(-1, t) for t in reserved_tokens]
+    counts = maybe_add_empty_vocabulary_dummy(counts, self._input_dtype)
+    self._vocab_size.update(len(counts))
 
     for count, entry in counts:
       if self._store_frequency:
@@ -420,7 +437,9 @@ class _VocabularyPruneImpl(beam.PTransform):
 
 
 @common.register_ptransform(analyzer_nodes.VocabularyOrderAndWrite)
-@beam.typehints.with_input_types(KV[_VocabIndicatorType, _VocabTokenType])
+@beam.typehints.with_input_types(
+    Union[List[np.ndarray], KV[_VocabIndicatorType, _VocabTokenType]]
+)
 @beam.typehints.with_output_types(np.ndarray)
 class _VocabularyOrderAndWriteImpl(beam.PTransform):
   """Writes the computed vocabulary file."""
@@ -436,7 +455,11 @@ class _VocabularyOrderAndWriteImpl(beam.PTransform):
     self._input_is_sorted = operation.input_is_sorted
 
   def expand(self, inputs):
-    counts, = inputs
+    reserved_tokens = None
+    counts = inputs[0]
+    if len(inputs) > 1:
+      reserved_tokens = inputs[1]
+    assert len(inputs) < 3
     vocabulary_file = os.path.join(self._base_temp_dir, self._vocab_filename)
 
     def fingerprint_sort_fn(kv):
@@ -481,13 +504,20 @@ class _VocabularyOrderAndWriteImpl(beam.PTransform):
       batched_counts = counts | 'BatchAndPreSort' >> _BatchAndPreSort(  # pylint: disable=no-value-for-parameter
           sort_kwargs=sort_kwargs)
 
+      kwargs = dict(batched_counts_iter=beam.pvalue.AsIter(batched_counts))
+      if reserved_tokens:
+        kwargs.update(reserved_tokens=beam.pvalue.AsSingleton(reserved_tokens))
       formatted_vocabulary = (
           batched_counts.pipeline
           | 'Prepare' >> beam.Create([None])
-          | 'OrderElements' >> beam.ParDo(
-              _OrderElementsFn(self._store_frequency, sort_kwargs,
-                               self._input_dtype),
-              batched_counts_iter=beam.pvalue.AsIter(batched_counts)))
+          | 'OrderElements'
+          >> beam.ParDo(
+              _OrderElementsFn(
+                  self._store_frequency, sort_kwargs, self._input_dtype
+              ),
+              **kwargs
+          )
+      )
     vocab_is_written = formatted_vocabulary | write_ptransform
 
     # Return the vocabulary path.
@@ -1453,3 +1483,22 @@ class _ExtractOutputImpl(beam.PTransform):
         'ExtractOutputs' >> beam.FlatMap(
             extract_outputs, self._num_outputs).with_outputs(*output_keys))
     return tuple(outputs_tuple[key] for key in output_keys)
+
+
+@common.register_ptransform(analyzer_nodes.ExtractVocabularyReservedTokens)
+class _ExtractVocabularyReservedTokensImpl(beam.PTransform):
+  """Extracts vocabulary reserved tokens values from the working graph."""
+
+  def __init__(
+      self,
+      operation: analyzer_nodes.ExtractVocabularyReservedTokens,
+      extra_args: common.ConstructBeamPipelineVisitor.ExtraArgs,
+  ):
+    self._name = operation.name
+    self._graph = extra_args.graph
+
+  def expand(
+      self, pbegin: beam.pvalue.PBegin
+  ) -> beam.pvalue.PCollection[typing.List[np.ndarray]]:
+    tokens = tf_utils.fetch_vocabulary_reserved_tokens(self._graph, self._name)
+    return pbegin | 'CreateReservedToekensSinglton' >> beam.Create([[tokens]])
