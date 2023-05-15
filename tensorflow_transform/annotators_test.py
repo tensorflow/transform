@@ -17,14 +17,6 @@ import tensorflow as tf
 from tensorflow_transform import annotators
 from tensorflow_transform import test_case
 
-# pylint: disable=g-direct-tensorflow-import, g-import-not-at-top
-try:
-  # Moved in TensorFlow 2.10.
-  from tensorflow.python.trackable import base
-except ImportError:
-  from tensorflow.python.training.tracking import base
-# pylint: enable=g-direct-tensorflow-import, g-import-not-at-top
-
 
 class AnnotatorsTest(test_case.TransformTestCase):
 
@@ -58,7 +50,7 @@ class AnnotatorsTest(test_case.TransformTestCase):
   def test_object_tracker(self):
     test_case.skip_if_not_tf2('Tensorflow 2.x required')
 
-    trackable_object = base.Trackable()
+    trackable_object = tf.__internal__.tracking.Trackable()
 
     @tf.function
     def preprocessing_fn():
