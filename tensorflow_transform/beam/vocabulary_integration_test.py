@@ -663,10 +663,21 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
               dict(testcase_name='no_frequency', store_frequency=False),
               dict(testcase_name='with_frequency', store_frequency=True),
           ],
+          [
+              dict(testcase_name='no_reserved_tokens', reserved_tokens=None),
+              dict(testcase_name='with_reserved_tokens', reserved_tokens=['A']),
+          ],
       )
   )
-  def testApproximateVocabulary(self, input_data, make_feature_spec, top_k,
-                                make_expected_vocab_fn, store_frequency):
+  def testApproximateVocabulary(
+      self,
+      input_data,
+      make_feature_spec,
+      top_k,
+      make_expected_vocab_fn,
+      store_frequency,
+      reserved_tokens,
+  ):
     input_metadata = tft.DatasetMetadata.from_feature_spec(
         tft_unit.make_feature_spec_wrapper(make_feature_spec))
 
@@ -683,10 +694,16 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           store_frequency=store_frequency,
           weights=weights,
           vocab_filename='my_approximate_vocab',
-          file_format=self._VocabFormat())
+          reserved_tokens=reserved_tokens,
+          file_format=self._VocabFormat(),
+      )
       return inputs
 
     expected_vocab_file_contents = make_expected_vocab_fn(self._VocabFormat())
+    if reserved_tokens is not None:
+      expected_vocab_file_contents = [
+          (t, -1) for t in reserved_tokens
+      ] + expected_vocab_file_contents
     if not store_frequency:
       expected_vocab_file_contents = [
           token for token, _ in expected_vocab_file_contents
@@ -699,11 +716,21 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
             'my_approximate_vocab': expected_vocab_file_contents
         })
 
-  @tft_unit.named_parameters([
-      dict(testcase_name='no_frequency', store_frequency=False),
-      dict(testcase_name='with_frequency', store_frequency=True),
-  ])
-  def testComputeAndApplyApproximateVocabulary(self, store_frequency):
+  @tft_unit.named_parameters(
+      *tft_unit.cross_named_parameters(
+          [
+              dict(testcase_name='no_frequency', store_frequency=False),
+              dict(testcase_name='with_frequency', store_frequency=True),
+          ],
+          [
+              dict(testcase_name='no_reserved_tokens', reserved_tokens=None),
+              dict(testcase_name='with_reserved_tokens', reserved_tokens=['A']),
+          ],
+      )
+  )
+  def testComputeAndApplyApproximateVocabulary(
+      self, store_frequency, reserved_tokens
+  ):
     input_data = [{'x': 'a'}] * 2 + [{'x': 'b'}] * 3
     input_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x': tf.io.FixedLenFeature([], tf.string)})
@@ -714,11 +741,13 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           top_k=2,
           file_format=self._VocabFormat(),
           store_frequency=store_frequency,
+          reserved_tokens=reserved_tokens,
           num_oov_buckets=1,
       )
       return {'index': index}
 
-    expected_data = [{'index': 1}] * 2 + [{'index': 0}] * 3 + [{'index': 2}]
+    offset = len(reserved_tokens) if reserved_tokens else 0
+    expected_data = [{'index': offset + idx} for idx in [1] * 2 + [0] * 3 + [2]]
 
     self.assertAnalyzeAndTransformResults(
         input_data,
@@ -2002,6 +2031,7 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
           vocab_filename='reserved_tokens_tensor',
           file_format=self._VocabFormat(),
           store_frequency=True,
+          top_k=20,
           reserved_tokens=tf.constant(reserved_tokens),
       )
       tft.vocabulary(

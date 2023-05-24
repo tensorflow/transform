@@ -24,7 +24,7 @@ the graph as a `Analyzer` which is not a TensorFlow op, but a placeholder for
 the computation that takes place outside of TensorFlow.
 """
 
-from typing import Any, Collection, List, Optional, Tuple, Union, Iterable
+from typing import Any, Collection, List, Optional, Tuple, Union, Iterable, Sequence
 
 import numpy as np
 import pyarrow as pa
@@ -304,7 +304,6 @@ def _get_approx_vocab_filename(vocab_filename: Optional[str],
   return analyzers.sanitized_vocab_filename(vocab_filename, prefix=prefix)
 
 
-# TODO(b/273799012): Add support for reserved_tokens.
 @common.log_api_use(common.ANALYZER_COLLECTION)
 def approximate_vocabulary(
     x: common_types.TensorType,
@@ -312,10 +311,11 @@ def approximate_vocabulary(
     *,  # Force passing optional parameters by keys.
     vocab_filename: Optional[str] = None,
     store_frequency: bool = False,
+    reserved_tokens: Optional[Union[Sequence[str], tf.Tensor]] = None,
     weights: Optional[tf.Tensor] = None,
-    file_format: common_types.VocabularyFileFormatType = analyzers
-    .DEFAULT_VOCABULARY_FILE_FORMAT,
-    name: Optional[str] = None) -> common_types.TemporaryAnalyzerOutputType:
+    file_format: common_types.VocabularyFileFormatType = analyzers.DEFAULT_VOCABULARY_FILE_FORMAT,
+    name: Optional[str] = None
+) -> common_types.TemporaryAnalyzerOutputType:
   r"""Computes the unique values of a `Tensor` over the whole dataset.
 
   Approximately computes the unique values taken by `x`, which can be a
@@ -371,19 +371,22 @@ def approximate_vocabulary(
     vocab_filename: The file name for the vocabulary file. If None, a file name
       will be chosen based on the current scope. If not None, should be unique
       within a given preprocessing function. NOTE: To make your pipelines
-        resilient to implementation details please set `vocab_filename` when you
-        are using the vocab_filename on a downstream component.
+      resilient to implementation details please set `vocab_filename` when you
+      are using the vocab_filename on a downstream component.
     store_frequency: If True, frequency of the words is stored in the vocabulary
       file. Each line in the file will be of the form 'frequency word'. NOTE: if
-        this is True then the computed vocabulary cannot be used with
-        `tft.apply_vocabulary` directly, since frequencies are added to the
-        beginning of each row of the vocabulary, which the mapper will not
-        ignore.
+      this is True then the computed vocabulary cannot be used with
+      `tft.apply_vocabulary` directly, since frequencies are added to the
+      beginning of each row of the vocabulary, which the mapper will not ignore.
+    reserved_tokens: (Optional) A list of tokens that should appear in the
+      vocabulary regardless of their appearance in the input. These tokens would
+      maintain their order, and have a reserved spot at the beginning of the
+      vocabulary. Note: this field has no affect on cache.
     weights: (Optional) Weights `Tensor` for the vocabulary. It must have the
       same shape as x.
     file_format: (Optional) A str. The format of the resulting vocabulary file.
       Accepted formats are: 'tfrecord_gzip', 'text'. 'tfrecord_gzip' requires
-        tensorflow>=2.4. The default value is 'text'.
+      tensorflow>=2.4. The default value is 'text'.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -423,35 +426,59 @@ def approximate_vocabulary(
         vocab_filename=vocab_filename,
         top_k=top_k,
         store_frequency=store_frequency,
+        reserved_tokens=reserved_tokens,
         file_format=file_format,
-        vocabulary_key=vocabulary_key)
+        vocabulary_key=vocabulary_key,
+    )
 
 
 def _approximate_vocabulary_analyzer_nodes(
-    analyzer_inputs: Collection[tf.Tensor], input_dtype: tf.dtypes.DType,
-    vocab_filename: str, top_k: int, store_frequency: bool,
+    analyzer_inputs: Collection[tf.Tensor],
+    input_dtype: tf.dtypes.DType,
+    vocab_filename: str,
+    top_k: int,
+    store_frequency: bool,
     file_format: common_types.VocabularyFileFormatType,
-    vocabulary_key: str) -> common_types.TemporaryAnalyzerOutputType:
+    vocabulary_key: str,
+    reserved_tokens: Optional[Union[Sequence[str], tf.Tensor]] = None,
+) -> common_types.TemporaryAnalyzerOutputType:
   """Internal helper for analyzing vocab. See `vocabulary` doc string."""
   # TODO(b/208879020): Add vocabulary size annotation for this analyzer.
   analyzers.register_vocab(
       vocab_filename, vocabulary_key=vocabulary_key, file_format=file_format)
 
   outputs_value_nodes = analyzers.apply_cacheable_combine_operation(
-      _VocabularyCombiner(top_k, input_dtype), *analyzer_inputs)
+      _VocabularyCombiner(
+          top_k, input_dtype, output_pylist=reserved_tokens is not None
+      ),
+      *analyzer_inputs
+  )
 
   flattened_outputs_value_node = nodes.apply_operation(
       analyzer_nodes.FlattenLists, *outputs_value_nodes)
 
+  extra_apply_order_and_write_op_args = []
+  if reserved_tokens is not None:
+    tf_utils.register_vocabulary_reserved_tokens(
+        vocab_filename, reserved_tokens
+    )
+    extra_apply_order_and_write_op_args.append(
+        nodes.apply_operation(
+            analyzer_nodes.ExtractVocabularyReservedTokens, name=vocab_filename
+        )
+    )
+
   vocab_filename_node = nodes.apply_operation(
       analyzer_nodes.VocabularyOrderAndWrite,
       flattened_outputs_value_node,
+      *extra_apply_order_and_write_op_args,
       vocab_filename=vocab_filename,
       store_frequency=store_frequency,
       input_dtype=input_dtype,
       file_format=file_format,
       fingerprint_shuffle=False,
-      input_is_sorted=True)
+      input_is_sorted=True
+  )
 
   return analyzer_nodes.wrap_as_tensor(vocab_filename_node)
 
@@ -470,9 +497,15 @@ class _MisraGriesSketchCoder(analyzer_nodes.CacheCoder):
 class _VocabularyCombiner(analyzer_nodes.Combiner):
   """Approximately computes unique values on the PCollection."""
 
-  def __init__(self, top_k: int, input_dtype: tf.dtypes.DType):
+  def __init__(
+      self,
+      top_k: int,
+      input_dtype: tf.dtypes.DType,
+      output_pylist: bool = False,
+  ):
     self._top_k = top_k
     self._input_dtype = input_dtype
+    self._output_pylist = output_pylist
 
   def create_accumulator(self) -> sketches.MisraGriesSketch:
     return sketches.MisraGriesSketch(
@@ -505,11 +538,15 @@ class _VocabularyCombiner(analyzer_nodes.Combiner):
     estimate.validate()
     result = np.dstack(reversed(estimate.flatten()))
     if not result.size:
-      return np.array(
+      result = np.array(
           [[analyzers.get_empy_vocabulary_dummy_value(self._input_dtype)]],
-          dtype=object)
-    else:
-      return result
+          dtype=object,
+      )
+    # TODO(b/282952880): Avoid converting to pylist when we can always rely on
+    # top_k sorted inputs.
+    if self._output_pylist:
+      return result.tolist()
+    return result
 
   def output_tensor_infos(self) -> List[analyzer_nodes.TensorInfo]:
     return [analyzer_nodes.TensorInfo(tf.string, [None, 2], None)]

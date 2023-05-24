@@ -26,7 +26,7 @@ The user-defined preprocessing function should accept and return `Tensor`s that
 are batches from the dataset, whose batch size may vary.
 """
 
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, Sequence
 
 import tensorflow as tf
 from tensorflow_transform import analyzers
@@ -48,6 +48,7 @@ def compute_and_apply_approximate_vocabulary(
     weights: Optional[tf.Tensor] = None,
     file_format: common_types.VocabularyFileFormatType = analyzers.DEFAULT_VOCABULARY_FILE_FORMAT,
     store_frequency: Optional[bool] = False,
+    reserved_tokens: Optional[Union[Sequence[str], tf.Tensor]] = None,
     name: Optional[str] = None,
 ) -> common_types.ConsistentTensorType:
   """Generates an approximate vocabulary for `x` and maps it to an integer.
@@ -78,6 +79,10 @@ def compute_and_apply_approximate_vocabulary(
       the file instead. Each line in the file will be of the form 'frequency
       word'. NOTE: if True and text_format is 'text' then spaces will be
       replaced to avoid information loss.
+    reserved_tokens: (Optional) A list of tokens that should appear in the
+      vocabulary regardless of their appearance in the input. These tokens would
+      maintain their order, and have a reserved spot at the beginning of the
+      vocabulary. Note: this field has no affect on cache.
     name: (Optional) A name for this operation.
 
   Returns:
@@ -106,6 +111,7 @@ def compute_and_apply_approximate_vocabulary(
         weights=weights,
         file_format=file_format,
         store_frequency=store_frequency,
+        reserved_tokens=reserved_tokens,
         name=name,
     )
     return mappers._apply_vocabulary_internal(  # pylint: disable=protected-access

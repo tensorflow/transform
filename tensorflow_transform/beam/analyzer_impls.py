@@ -489,7 +489,9 @@ class _VocabularyOrderAndWriteImpl(beam.PTransform):
       write_ptransform = 'WriteToTFRecord' >> beam.io.WriteToTFRecord(
           vocabulary_file, shard_name_template='')
 
-    if self._input_is_sorted:
+    # TODO(b/282952880): Refactor and allow input_is_sorted and reserved_tokens
+    # inputs to rely on their sorting, for improved performance.
+    if self._input_is_sorted and not reserved_tokens:
       assert not self._fingerprint_shuffle
       if self._store_frequency:
         formatted_vocabulary = (
