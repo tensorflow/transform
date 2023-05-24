@@ -10,6 +10,9 @@
 
 ## Bug Fixes and Other Changes
 
+*   `approximate_vocabulary` now returns tokens with the same frequency in
+    reverse lexicographical order (similarly to `tft.vocabulary`).
+
 ## Breaking Changes
 
 *   Vocabulary related APIs now require passing non-positional parameters by

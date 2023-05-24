@@ -472,219 +472,199 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
         input_metadata,  # expected output metadata is same as input metadata
         expected_vocab_file_contents={'my_vocab': expected_vocab_file_contents})
 
-  @tft_unit.named_parameters(*tft_unit.cross_named_parameters(
-      [
-          dict(
-              testcase_name='_string',
-              input_data=[{
-                  'x': b'hello'
-              }, {
-                  'x': b'hello'
-              }, {
-                  'x': b'hello'
-              }, {
-                  'x': b'goodbye'
-              }, {
-                  'x': b'aaaaa'
-              }, {
-                  'x': b'aaaaa'
-              }, {
-                  'x': b'goodbye'
-              }, {
-                  'x': b'goodbye'
-              }, {
-                  'x': b'aaaaa'
-              }, {
-                  'x': b'aaaaa'
-              }, {
-                  'x': b'goodbye'
-              }, {
-                  'x': b'goodbye'
-              }],
-              make_feature_spec=lambda:  # pylint: disable=g-long-lambda
-              {'x': tf.io.FixedLenFeature([], tf.string)},
-              top_k=2,
-              make_expected_vocab_fn=(
-                  lambda _: [(b'goodbye', 5), (b'aaaaa', 4)])),
-          dict(
-              testcase_name='_int',
-              input_data=[{
-                  'x': 1
-              }, {
-                  'x': 2
-              }, {
-                  'x': 2
-              }, {
-                  'x': 3
-              }, {
-                  'x': 1
-              }],
-              make_feature_spec=lambda:  # pylint: disable=g-long-lambda
-              {'x': tf.io.FixedLenFeature([], tf.int64)},
-              top_k=2,
-              make_expected_vocab_fn=lambda _: [(b'1', 2), (b'2', 2)]),
-          dict(
-              testcase_name='_weights',
-              input_data=[
-                  {
-                      'x': b'hello',
-                      'weights': 1.4
+  @tft_unit.named_parameters(
+      *tft_unit.cross_named_parameters(
+          [
+              dict(
+                  testcase_name='_string',
+                  input_data=[
+                      {'x': b'hello'},
+                      {'x': b'hello'},
+                      {'x': b'hello'},
+                      {'x': b'goodbye'},
+                      {'x': b'aaaaa'},
+                      {'x': b'aaaaa'},
+                      {'x': b'goodbye'},
+                      {'x': b'goodbye'},
+                      {'x': b'aaaaa'},
+                      {'x': b'aaaaa'},
+                      {'x': b'goodbye'},
+                      {'x': b'goodbye'},
+                  ],
+                  make_feature_spec=lambda: {  # pylint: disable=g-long-lambda
+                      'x': tf.io.FixedLenFeature([], tf.string)
                   },
-                  {
-                      'x': b'hello',
-                      'weights': 0.5
+                  top_k=2,
+                  make_expected_vocab_fn=(
+                      lambda _: [(b'goodbye', 5), (b'aaaaa', 4)]
+                  ),
+              ),
+              dict(
+                  testcase_name='_int',
+                  input_data=[{'x': 1}, {'x': 2}, {'x': 2}, {'x': 3}, {'x': 1}],
+                  make_feature_spec=lambda: {  # pylint: disable=g-long-lambda
+                      'x': tf.io.FixedLenFeature([], tf.int64)
                   },
-                  {
-                      'x': b'hello',
-                      'weights': 1.12
+                  top_k=2,
+                  make_expected_vocab_fn=lambda _: [(b'2', 2), (b'1', 2)],
+              ),
+              dict(
+                  testcase_name='_weights',
+                  input_data=[
+                      {'x': b'hello', 'weights': 1.4},
+                      {'x': b'hello', 'weights': 0.5},
+                      {'x': b'hello', 'weights': 1.12},
+                      {'x': b'goodbye', 'weights': 0.123},
+                      {'x': b'aaaaa', 'weights': 0.3},
+                      {'x': b'aaaaa', 'weights': 1.123},
+                      {'x': b'goodbye', 'weights': 0.1},
+                      {'x': b'goodbye', 'weights': 0.00001},
+                  ],
+                  make_feature_spec=lambda: {  # pylint: disable=g-long-lambda
+                      'x': tf.io.FixedLenFeature([], tf.string),
+                      'weights': tf.io.FixedLenFeature([], tf.float32),
                   },
-                  {
-                      'x': b'goodbye',
-                      'weights': 0.123
+                  top_k=2,
+                  make_expected_vocab_fn=(
+                      lambda _: [(b'hello', 3.02), (b'aaaaa', 1.423)]
+                  ),
+              ),
+              dict(
+                  testcase_name='_large_top_k',
+                  input_data=[
+                      {'x': b'hello'},
+                      {'x': b'hello'},
+                      {'x': b'hello'},
+                      {'x': b' '},
+                      {'x': b'aaaaa'},
+                      {'x': b'aaaaa'},
+                      {'x': b'goodbye'},
+                      {'x': b'goodbye'},
+                      {'x': b' '},
+                      {'x': b''},
+                      {'x': b'goodbye'},
+                      {'x': b'goodbye'},
+                  ],
+                  make_feature_spec=lambda: {  # pylint: disable=g-long-lambda
+                      'x': tf.io.FixedLenFeature([], tf.string)
                   },
-                  {
-                      'x': b'aaaaa',
-                      'weights': 0.3
-                  },
-                  {
-                      'x': b'aaaaa',
-                      'weights': 1.123
-                  },
-                  {
-                      'x': b'goodbye',
-                      'weights': 0.1
-                  },
-                  {
-                      'x': b'goodbye',
-                      'weights': 0.00001
-                  },
-              ],
-              make_feature_spec=lambda: {  # pylint: disable=g-long-lambda
-                  'x': tf.io.FixedLenFeature([], tf.string),
-                  'weights': tf.io.FixedLenFeature([], tf.float32)
-              },
-              top_k=2,
-              make_expected_vocab_fn=(
-                  lambda _: [(b'hello', 3.02), (b'aaaaa', 1.423)])),
-          dict(
-              testcase_name='_large_top_k',
-              input_data=[{
-                  'x': b'hello'
-              }, {
-                  'x': b'hello'
-              }, {
-                  'x': b'hello'
-              }, {
-                  'x': b' '
-              }, {
-                  'x': b'aaaaa'
-              }, {
-                  'x': b'aaaaa'
-              }, {
-                  'x': b'goodbye'
-              }, {
-                  'x': b'goodbye'
-              }, {
-                  'x': b' '
-              }, {
-                  'x': b''
-              }, {
-                  'x': b'goodbye'
-              }, {
-                  'x': b'goodbye'
-              }],
-              make_feature_spec=lambda:  # pylint: disable=g-long-lambda
-              {'x': tf.io.FixedLenFeature([], tf.string)},
-              top_k=100,
-              make_expected_vocab_fn=lambda file_format:  # pylint: disable=g-long-lambda
-              ([(b'goodbye', 4), (b'hello', 3), (b' ', 2),  # pylint: disable=g-long-ternary
-                (b'aaaaa', 2)] if file_format == 'text' else [(b'goodbye', 4),
-                                                              (b'hello', 3),
-                                                              (b' ', 2),
-                                                              (b'aaaaa', 2),
-                                                              (b'', 1)])),
-          dict(
-              testcase_name='_ragged',
-              input_data=[
-                  {
-                      'x$ragged_values': ['hello', ' '],
-                      'x$row_lengths_1': [1, 0, 1]
-                  },
-                  {
-                      'x$ragged_values': ['hello'],
-                      'x$row_lengths_1': [0, 1]
-                  },
-                  {
-                      'x$ragged_values': ['hello', 'goodbye'],
-                      'x$row_lengths_1': [2, 0, 0]
-                  },
-                  {
-                      'x$ragged_values': ['hello', 'hello', ' ', ' '],
-                      'x$row_lengths_1': [0, 2, 2]
-                  },
-              ],
-              make_feature_spec=lambda: {  # pylint: disable=g-long-lambda
-                  'x':
-                      tf.io.RaggedFeature(
+                  top_k=100,
+                  make_expected_vocab_fn=lambda file_format: (  # pylint: disable=g-long-lambda
+                      [  # pylint: disable=g-long-ternary
+                          (b'goodbye', 4),
+                          (b'hello', 3),
+                          (b'aaaaa', 2),
+                          (b' ', 2),
+                      ]
+                      if file_format == 'text'
+                      else [
+                          (b'goodbye', 4),
+                          (b'hello', 3),
+                          (b'aaaaa', 2),
+                          (b' ', 2),
+                          (b'', 1),
+                      ]
+                  ),
+              ),
+              dict(
+                  testcase_name='_ragged',
+                  input_data=[
+                      {
+                          'x$ragged_values': ['hello', ' '],
+                          'x$row_lengths_1': [1, 0, 1],
+                      },
+                      {'x$ragged_values': ['hello'], 'x$row_lengths_1': [0, 1]},
+                      {
+                          'x$ragged_values': ['hello', 'goodbye'],
+                          'x$row_lengths_1': [2, 0, 0],
+                      },
+                      {
+                          'x$ragged_values': ['hello', 'hello', ' ', ' '],
+                          'x$row_lengths_1': [0, 2, 2],
+                      },
+                  ],
+                  make_feature_spec=lambda: {  # pylint: disable=g-long-lambda
+                      'x': tf.io.RaggedFeature(
                           tf.string,
                           value_key='x$ragged_values',
                           partitions=[
                               tf.io.RaggedFeature.RowLengths('x$row_lengths_1')  # pytype: disable=attribute-error
-                          ])
-              },
-              top_k=2,
-              make_expected_vocab_fn=lambda _: [(b'hello', 5), (b' ', 3)]),
-          dict(
-              testcase_name='_sparse',
-              input_data=[{
-                  'x$sparse_indices_0': [0, 1],
-                  'x$sparse_indices_1': [2, 3],
-                  'x$sparse_values': [-4, 4],
-              }, {
-                  'x$sparse_indices_0': [0, 1],
-                  'x$sparse_indices_1': [4, 1],
-                  'x$sparse_values': [2, 2],
-              }, {
-                  'x$sparse_indices_0': [0, 1],
-                  'x$sparse_indices_1': [0, 3],
-                  'x$sparse_values': [2, 4],
-              }],
-              make_feature_spec=lambda: {  # pylint: disable=g-long-lambda
-                  'x':
-                      tf.io.SparseFeature([
-                          'x$sparse_indices_0', 'x$sparse_indices_1'
-                      ], 'x$sparse_values', tf.int64, [5, 5])
-              },
-              top_k=2,
-              make_expected_vocab_fn=lambda _: [(b'2', 3), (b'4', 2)]),
-          dict(
-              testcase_name='_newline_chars',
-              input_data=[{'x': b'aaaaa\n'},
-                          {'x': b'\n\n'},
-                          {'x': b''},
-                          {'x': b' '},
-                          {'x': b' '},
-                          {'x': b'aaaaa\n'},
-                          {'x': b'aaaaa\n'},
-                          {'x': b'aaaaa'},
-                          {'x': b'goo\rdbye'},
-                          {'x': b' '},
-                          {'x': b' '},
-                          {'x': b'aaaaa\n'}],
-              make_feature_spec=(
-                  lambda: {'x': tf.io.FixedLenFeature([], tf.string)}),
-              top_k=6,
-              make_expected_vocab_fn=(
-                  lambda file_format: [(b' ', 4), (b'aaaaa', 1)]  # pylint: disable=g-long-lambda,g-long-ternary
-                  if file_format == 'text' else [(b' ', 4), (b'aaaaa\n', 4),
-                                                 (b'', 1), (b'\n\n', 1),
-                                                 (b'aaaaa', 1),
-                                                 (b'goo\rdbye', 1)])),
-      ],
-      [
-          dict(testcase_name='no_frequency', store_frequency=False),
-          dict(testcase_name='with_frequency', store_frequency=True)
-      ]))
+                          ],
+                      )
+                  },
+                  top_k=2,
+                  make_expected_vocab_fn=lambda _: [(b'hello', 5), (b' ', 3)],
+              ),
+              dict(
+                  testcase_name='_sparse',
+                  input_data=[
+                      {
+                          'x$sparse_indices_0': [0, 1],
+                          'x$sparse_indices_1': [2, 3],
+                          'x$sparse_values': [-4, 4],
+                      },
+                      {
+                          'x$sparse_indices_0': [0, 1],
+                          'x$sparse_indices_1': [4, 1],
+                          'x$sparse_values': [2, 2],
+                      },
+                      {
+                          'x$sparse_indices_0': [0, 1],
+                          'x$sparse_indices_1': [0, 3],
+                          'x$sparse_values': [2, 4],
+                      },
+                  ],
+                  make_feature_spec=lambda: {  # pylint: disable=g-long-lambda
+                      'x': tf.io.SparseFeature(
+                          ['x$sparse_indices_0', 'x$sparse_indices_1'],
+                          'x$sparse_values',
+                          tf.int64,
+                          [5, 5],
+                      )
+                  },
+                  top_k=2,
+                  make_expected_vocab_fn=lambda _: [(b'2', 3), (b'4', 2)],
+              ),
+              dict(
+                  testcase_name='_newline_chars',
+                  input_data=[
+                      {'x': b'aaaaa\n'},
+                      {'x': b'\n\n'},
+                      {'x': b''},
+                      {'x': b' '},
+                      {'x': b' '},
+                      {'x': b'aaaaa\n'},
+                      {'x': b'aaaaa\n'},
+                      {'x': b'aaaaa'},
+                      {'x': b'goo\rdbye'},
+                      {'x': b' '},
+                      {'x': b' '},
+                      {'x': b'aaaaa\n'},
+                  ],
+                  make_feature_spec=(
+                      lambda: {'x': tf.io.FixedLenFeature([], tf.string)}
+                  ),
+                  top_k=6,
+                  make_expected_vocab_fn=(
+                      lambda file_format: [(b' ', 4), (b'aaaaa', 1)]  # pylint: disable=g-long-lambda,g-long-ternary
+                      if file_format == 'text'
+                      else [
+                          (b'aaaaa\n', 4),
+                          (b' ', 4),
+                          (b'goo\rdbye', 1),
+                          (b'aaaaa', 1),
+                          (b'\n\n', 1),
+                          (b'', 1),
+                      ]
+                  ),
+              ),
+          ],
+          [
+              dict(testcase_name='no_frequency', store_frequency=False),
+              dict(testcase_name='with_frequency', store_frequency=True),
+          ],
+      )
+  )
   def testApproximateVocabulary(self, input_data, make_feature_spec, top_k,
                                 make_expected_vocab_fn, store_frequency):
     input_metadata = tft.DatasetMetadata.from_feature_spec(

@@ -475,7 +475,10 @@ class _VocabularyCombiner(analyzer_nodes.Combiner):
     self._input_dtype = input_dtype
 
   def create_accumulator(self) -> sketches.MisraGriesSketch:
-    return sketches.MisraGriesSketch(self._top_k)
+    return sketches.MisraGriesSketch(
+        self._top_k,
+        order_on_tie=sketches.MisraGriesSketch.OrderOnTie.ReverseLexicographical
+    )
 
   def add_input(
       self, accumulator: sketches.MisraGriesSketch,
