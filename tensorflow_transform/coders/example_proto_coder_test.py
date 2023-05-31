@@ -24,9 +24,11 @@ from absl import flags
 # pretty early on.
 if any(arg == '--proto_implementation_type=python' for arg in sys.argv):
   os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
-else:
+elif any(arg == '--proto_implementation_type=cpp' for arg in sys.argv):
   os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'cpp'
   os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION_VERSION'] = '2'
+elif any(arg.startswith('--proto_implementation_type') for arg in sys.argv):
+  raise ValueError('Unexpected value for --proto_implementation_type')
 
 # pylint: disable=g-import-not-at-top
 import numpy as np
@@ -332,11 +334,15 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
 
   def setUp(self):
     super().setUp()
-    # Verify that the implementation we requested via the Flag is honoured.
-    assert api_implementation.Type() == flags.FLAGS.proto_implementation_type, (
-        'Expected proto implementation type '
-        f'"{flags.FLAGS.proto_implementation_type}", got: '
-        f'"{api_implementation.Type()}"')
+    # Verify that the implementation we requested via the Flag is honored.
+    if any(arg.startswith('--proto_implementation_type') for arg in sys.argv):
+      assert (
+          api_implementation.Type() == flags.FLAGS.proto_implementation_type
+      ), (
+          'Expected proto implementation type '
+          f'"{flags.FLAGS.proto_implementation_type}", got: '
+          f'"{api_implementation.Type()}"'
+      )
 
   def assertSerializedProtosEqual(self, a, b):
     np.testing.assert_equal(_binary_to_example(a), _binary_to_example(b))
