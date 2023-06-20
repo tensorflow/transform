@@ -461,8 +461,11 @@ def optimize_concrete_function(
 
 
 def trace_and_update_module(
-    module: tf.Module, tf_function: function.Function, name: str,
-    strip_control_dependencies: bool) -> function.ConcreteFunction:
+    module: tf.Module,
+    tf_function: tf.types.experimental.GenericFunction,
+    name: str,
+    strip_control_dependencies: bool,
+) -> function.ConcreteFunction:
   """Traces `tf_function` and saves under attr `name` of `module`.
 
   Args:
@@ -526,9 +529,12 @@ def trace_and_update_module(
   return concrete_fn
 
 
-def write_v2_saved_model(module: tf.Module, tf_function: function.Function,
-                         name: str,
-                         saved_model_dir: str) -> function.ConcreteFunction:
+def write_v2_saved_model(
+    module: tf.Module,
+    tf_function: tf.types.experimental.GenericFunction,
+    name: str,
+    saved_model_dir: str,
+) -> function.ConcreteFunction:
   """Writes `tf_function` under attr `name` of `module` to `saved_model_dir`."""
   concrete_fn = trace_and_update_module(
       module, tf_function, name, strip_control_dependencies=False)

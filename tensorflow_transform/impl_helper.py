@@ -314,12 +314,14 @@ def make_tensor_to_arrow_converter(
 # `preprocessing_fn` using tf.function as is and another that will return
 # specific outputs requested for.
 def get_traced_transform_fn(
-    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
-                               Mapping[str, common_types.TensorType]],
+    preprocessing_fn: Callable[
+        [Mapping[str, common_types.TensorType]],
+        Mapping[str, common_types.TensorType],
+    ],
     input_signature: Mapping[str, tf.TypeSpec],
     tf_graph_context: graph_context.TFGraphContext,
-    output_keys_to_name_map: Optional[Dict[str,
-                                           str]] = None) -> function.Function:
+    output_keys_to_name_map: Optional[Dict[str, str]] = None,
+) -> tf.types.experimental.GenericFunction:
   """Get preprocessing_fn traced using tf.function.
 
   Args:

@@ -703,7 +703,7 @@ def get_traced_metadata_fn(
                                Mapping[str, common_types.TensorType]],
     structured_inputs: Mapping[str, common_types.TensorType],
     tf_graph_context: graph_context.TFGraphContext,
-    evaluate_schema_overrides: bool) -> function.Function:
+    evaluate_schema_overrides: bool) -> tf.types.experimental.GenericFunction:
   """Get a tf.function that returns a dictionary of annotations.
 
   Annotations are added to graph collections keyed by graph tensor names when
