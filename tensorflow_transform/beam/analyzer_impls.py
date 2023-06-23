@@ -110,7 +110,7 @@ class _OrderElementsFn(beam.DoFn):
     self._input_dtype = input_dtype
 
     # Metrics.
-    self._vocab_size = beam.metrics.Metrics.distribution(
+    self._vocab_size = beam.metrics.Metrics.gauge(
         common.METRICS_NAMESPACE, 'vocabulary_size')
 
   def process(
@@ -137,7 +137,7 @@ class _OrderElementsFn(beam.DoFn):
     if reserved_tokens is not None:
       counts[:0] = [(-1, t) for t in reserved_tokens]
     counts = maybe_add_empty_vocabulary_dummy(counts, self._input_dtype)
-    self._vocab_size.update(len(counts))
+    self._vocab_size.set(len(counts))
 
     for count, entry in counts:
       if self._store_frequency:
