@@ -536,7 +536,7 @@ class _VocabularyCombiner(analyzer_nodes.Combiner):
                      accumulator: sketches.MisraGriesSketch) -> np.ndarray:
     estimate = accumulator.Estimate()
     estimate.validate()
-    result = np.dstack(reversed(estimate.flatten()))
+    result = np.dstack(list(reversed(estimate.flatten())))
     if not result.size:
       result = np.array(
           [[analyzers.get_empy_vocabulary_dummy_value(self._input_dtype)]],
