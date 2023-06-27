@@ -94,6 +94,7 @@ setup(
     python_requires='>=3.8,<4',
     packages=find_packages(),
     include_package_data=True,
+    package_data={'tensorflow_transform': ['py.typed']},
     description='A library for data preprocessing with TensorFlow',
     long_description=_LONG_DESCRIPTION,
     long_description_content_type='text/markdown',
