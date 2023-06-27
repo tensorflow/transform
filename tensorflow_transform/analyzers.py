@@ -1313,16 +1313,11 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
 
     a_count, b_count = _pad_arrays_to_match(a.count, b.count)
     a_mean, b_mean = _pad_arrays_to_match(a.mean, b.mean)
-    if self._compute_variance:
-      a_variance, b_variance = _pad_arrays_to_match(a.variance, b.variance)
+    combined_total = a_count + b_count
     if self._compute_weighted:
       a_weight, b_weight = _pad_arrays_to_match(a.weight, b.weight)
-
-    combined_total = a_count + b_count
-
-    # Mean and variance update formulas which are more numerically stable when
-    # a and b vary in magnitude.
-    if self._compute_weighted:
+      # Mean and variance update formulas which are more numerically stable when
+      # a and b vary in magnitude.
       combined_weights_mean = (
           a_weight + (b_count / combined_total) * (b_weight - a_weight))
       combined_mean = a_mean + (b_count * b_weight /
@@ -1331,14 +1326,15 @@ class WeightedMeanAndVarCombiner(analyzer_nodes.Combiner):
     else:
       combined_weights_mean = np.ones(shape=combined_total.shape)
       combined_mean = a_mean + (b_count / combined_total * (b_mean - a_mean))
-
     if self._compute_variance:
+      a_variance, b_variance = _pad_arrays_to_match(a.variance, b.variance)
       # TODO(zoyahav): Add an option for weighted variance if needed.
       assert not self._compute_weighted
       combined_variance = (
           a_variance + (b_count / combined_total) * (b_variance - a_variance +
                                                      ((b_mean - combined_mean) *
                                                       (b_mean - a_mean))))
+
     else:
       combined_variance = np.zeros(combined_mean.shape)
 

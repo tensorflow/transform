@@ -178,6 +178,10 @@ def record_batch_to_instance_dicts(
   # Scalars are represented as Python scalars (as opposed to singleton arrays).
   feature_spec = schema_utils.schema_as_feature_spec(schema).feature_spec
   dense_reshape_fns = {}
+  def _extract_singleton_item(
+      singleton: np.ndarray,
+  ) -> common_types.PrimitiveType:
+    return singleton.item()
   for name, spec in feature_spec.items():
     if isinstance(spec, tf.io.FixedLenFeature):
       if spec.shape:
@@ -185,7 +189,7 @@ def record_batch_to_instance_dicts(
             np.reshape, newshape=spec.shape
         )
       else:
-        dense_reshape_fns[name] = lambda singleton: singleton.item()
+        dense_reshape_fns[name] = _extract_singleton_item
   result = []
   for example in examples:
     instance_dict = _example_to_dict(example)
