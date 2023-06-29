@@ -226,6 +226,12 @@ class _RunMetaGraphDoFn(beam.DoFn):
       super().__init__(saved_model_dir, input_tensor_names, outputs_tensor_keys,
                        callable_get_outputs)
 
+  # Initialized in setup().
+  _tensor_adapter: TensorAdapter
+  # i-th element in this list contains the index of the column corresponding
+  # to self._passthrough_keys[i].
+  _passthrough_column_indices: List[int]
+
   def __init__(
       self,
       tf_config,
@@ -270,12 +276,6 @@ class _RunMetaGraphDoFn(beam.DoFn):
 
     # Initialized in process().
     self._graph_state = None
-    # Initialized in setup().
-    self._tensor_adapter = None
-    # i-th element in this list contains the index of the column corresponding
-    # to self._passthrough_keys[i].
-    self._passthrough_column_indices = None
-
     # Metrics.
     self._graph_load_seconds_distribution = beam.metrics.Metrics.distribution(
         beam_common.METRICS_NAMESPACE, 'graph_load_seconds')
@@ -301,8 +301,9 @@ class _RunMetaGraphDoFn(beam.DoFn):
       self, batch: pa.RecordBatch
   ) -> Dict[str, pa.Array]:
     result = {}
-    for passthrough_key, column_index in zip(self._passthrough_keys,
-                                             self._passthrough_column_indices):
+    for passthrough_key, column_index in zip(
+        self._passthrough_keys, self._passthrough_column_indices
+    ):
       if column_index >= 0:
         # The key is present in the input batch.
         passthrough_data_column = batch.column(column_index)
@@ -314,6 +315,8 @@ class _RunMetaGraphDoFn(beam.DoFn):
     return result
 
   def _handle_batch(self, batch):
+    assert self._graph_state is not None
+
     self._update_metrics(batch)
     # No need to remove (and cannot remove) the passthrough columns here:
     # 1) The TensorAdapter expects the RecordBatch to be of the same schema as
@@ -365,12 +368,12 @@ class _RunMetaGraphDoFn(beam.DoFn):
     return result
 
   def setup(self):
-    if self._input_tensor_adapter_config is not None:
-      self._tensor_adapter = TensorAdapter(self._input_tensor_adapter_config)
-      arrow_schema = self._input_tensor_adapter_config.arrow_schema
-      self._passthrough_column_indices = [
-          arrow_schema.get_field_index(k) for k in self._passthrough_keys
-      ]
+    assert self._input_tensor_adapter_config is not None
+    self._tensor_adapter = TensorAdapter(self._input_tensor_adapter_config)
+    arrow_schema = self._input_tensor_adapter_config.arrow_schema
+    self._passthrough_column_indices = [
+        arrow_schema.get_field_index(k) for k in self._passthrough_keys
+    ]
 
   def process(self, batch, saved_model_dir):
     """Runs the given graph to realize the outputs.
@@ -952,11 +955,12 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     # flat_data should be None when performing analysis with cache.
     if flat_data is not None:
       pvalues.append(flat_data)
-    for value in data_dict.values():
-      # Dataset PCollections can be None if it's fully covered by cache and so
-      # there's no need in reading it.
-      if value is not None:
-        pvalues.append(value)
+    if data_dict:
+      for value in data_dict.values():
+        # Dataset PCollections can be None if it's fully covered by cache and so
+        # there's no need in reading it.
+        if value is not None:
+          pvalues.append(value)
     if dataset_cache_dict is not None:
       for cache_dict in dataset_cache_dict.values():
         for cache_pcoll in cache_dict.values():
@@ -1005,6 +1009,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
               to_tfxio_ptransform)
     else:
       input_tensor_adapter_config = input_metadata
+    assert input_tensor_adapter_config is not None
 
     specs = TensorAdapter(input_tensor_adapter_config).OriginalTypeSpecs()
 
@@ -1072,12 +1077,16 @@ class _AnalyzeDatasetCommon(beam.PTransform):
 
     # Gather telemetry on types of input features.
     _ = (
-        pipeline | 'CreateAnalyzeInputTensorRepresentations' >> beam.Create(
-            [input_tensor_adapter_config.tensor_representations])
-        |
-        'InstrumentAnalyzeInputTensors' >> telemetry.TrackTensorRepresentations(
-            telemetry_util.AppendToNamespace(beam_common.METRICS_NAMESPACE,
-                                             ['analyze_input_tensors'])))
+        pipeline
+        | 'CreateAnalyzeInputTensorRepresentations'
+        >> beam.Create([input_tensor_adapter_config.tensor_representations])
+        | 'InstrumentAnalyzeInputTensors'
+        >> telemetry.TrackTensorRepresentations(
+            telemetry_util.AppendToNamespace(
+                beam_common.METRICS_NAMESPACE, ['analyze_input_tensors']
+            )
+        )
+    )
 
     asset_map = annotators.get_asset_annotations(graph)
     # TF.HUB can error when unapproved collections are present. So we explicitly

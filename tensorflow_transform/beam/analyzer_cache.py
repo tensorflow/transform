@@ -200,6 +200,7 @@ class _ManifestFile:
     self._open()
     # Manifests are small, so writing in a semi-human readable form (protocol=0)
     # is preferred over the efficiency gains of higher protocols.
+    assert self._file is not None
     self._file.write(pickle.dumps(manifest, protocol=0))
 
 

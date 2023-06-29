@@ -88,7 +88,7 @@ class _TranslateVisitor(nodes.Visitor):
   def __init__(self):
     self.phase = None
     self.extracted_values_dict = None
-    self.intermediate_output_signature = None
+    self.intermediate_output_signature = {}
 
   def visit(self, operation_def, input_values):
     if isinstance(operation_def, analyzer_nodes.TensorSource):
@@ -366,8 +366,12 @@ class _OptimizeVisitor(nodes.Visitor):
     for (dataset_idx, dataset_key) in enumerate(self._sorted_dataset_keys):
       # We use an index for the label in order to make beam labels more stable.
       infix = f'AnalysisIndex{dataset_idx}'
-      if (operation_def.cache_coder and self._cache_dict.get(
-          dataset_key, {}).get(cache_entry_key) is not None):
+      if (
+          operation_def.cache_coder
+          and self._cache_dict
+          and self._cache_dict.get(dataset_key, {}).get(cache_entry_key)
+          is not None
+      ):
         self._dataset_has_cache_misses[dataset_key] |= False
         decode_cache = analyzer_nodes.DecodeCache(
             dataset_key,
@@ -550,8 +554,9 @@ def get_analysis_cache_entry_keys(preprocessing_fn,
                                                        dataset_keys, {},
                                                        force_tf_compat_v1)
   result = set()
-  for dataset_cache in cache_dict.values():
-    result.update(dataset_cache.keys())
+  if cache_dict:
+    for dataset_cache in cache_dict.values():
+      result.update(dataset_cache.keys())
   return result
 
 
