@@ -226,6 +226,8 @@ class _RunMetaGraphDoFn(beam.DoFn):
       super().__init__(saved_model_dir, input_tensor_names, outputs_tensor_keys,
                        callable_get_outputs)
 
+  # Initialized in process().
+  _graph_state: _GraphStateCommon
   # Initialized in setup().
   _tensor_adapter: TensorAdapter
   # i-th element in this list contains the index of the column corresponding
@@ -274,8 +276,6 @@ class _RunMetaGraphDoFn(beam.DoFn):
     # it across multiple threads in the current process.
     self._shared_graph_state_handle = shared_graph_state_handle
 
-    # Initialized in process().
-    self._graph_state = None
     # Metrics.
     self._graph_load_seconds_distribution = beam.metrics.Metrics.distribution(
         beam_common.METRICS_NAMESPACE, 'graph_load_seconds')
@@ -315,8 +315,6 @@ class _RunMetaGraphDoFn(beam.DoFn):
     return result
 
   def _handle_batch(self, batch):
-    assert self._graph_state is not None
-
     self._update_metrics(batch)
     # No need to remove (and cannot remove) the passthrough columns here:
     # 1) The TensorAdapter expects the RecordBatch to be of the same schema as
@@ -390,7 +388,7 @@ class _RunMetaGraphDoFn(beam.DoFn):
       A representation of output features as a dict mapping keys (logical column
       names) to values.
     """
-    if self._graph_state is None:
+    if not hasattr(self, '_graph_state'):
       # If available, acquire will return a cached _GraphStateCommon, since
       # calling _make_graph_state is expensive.
       self._graph_state = self._shared_graph_state_handle.acquire(
