@@ -80,6 +80,7 @@ from tensorflow_transform.saved import saved_transform_io_v2
 from tensorflow_transform.tf_metadata import dataset_metadata
 from tensorflow_transform.tf_metadata import metadata_io
 from tensorflow_transform.tf_metadata import schema_utils
+from tfx_bsl import beam as tfx_bsl_beam
 from tfx_bsl.coders import example_coder
 from tfx_bsl.telemetry import collection as telemetry
 from tfx_bsl.telemetry import util as telemetry_util
@@ -93,6 +94,8 @@ from tfx_bsl.tfxio.tensor_adapter import TensorAdapterConfig
 from tfx_bsl.types import tfx_namedtuple
 
 from tensorflow_metadata.proto.v0 import schema_pb2
+
+tfx_bsl_beam.fix_code_type_pickling()
 
 _TransformFnPathType = str
 
