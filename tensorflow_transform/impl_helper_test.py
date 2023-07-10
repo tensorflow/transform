@@ -725,10 +725,9 @@ class ImplHelperTest(test_case.TransformTestCase):
     self.assertEqual(features['dense_string'].dtype, tf.string)
 
     self.assertEqual(type(features['_sparse_underscored']), tf.SparseTensor)
-    # TODO(b/184055743): Once TensorFlow is released with cl/514884437,
-    # only keep the assertion of [None, None, 17].
-    self.assertIn(features['_sparse_underscored'].get_shape().as_list(),
-                  ([None, None, 17], [None, None, None]))
+    self.assertEqual(
+        features['_sparse_underscored'].get_shape().as_list(), [None, None, 17]
+    )
     self.assertEqual(features['_sparse_underscored'].dtype, tf.string)
 
     self.assertEqual(type(features['ragged_string']), tf.RaggedTensor)
