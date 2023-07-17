@@ -14,9 +14,10 @@
 """Functions to create the implementation graph."""
 
 import collections
+import dataclasses
 import hashlib
-
-from typing import Dict, Mapping, Collection, Optional, Tuple
+from typing import Collection, Dict, Mapping, Optional, Tuple
+from typing import OrderedDict as OrderedDictType
 
 import tensorflow as tf
 from tensorflow_transform import analyzer_nodes
@@ -29,9 +30,6 @@ from tensorflow_transform import tf_utils
 from tensorflow_transform.beam import analyzer_cache
 from tensorflow_transform.beam import beam_nodes
 from tensorflow_transform.beam import combiner_packing_util
-# TODO(b/243513856): Switch to `collections.namedtuple` or `typing.NamedTuple`
-# once the Spark issue is resolved.
-from tfx_bsl.types import tfx_namedtuple
 
 
 # Used for debugging only. This will point to the most recent graph built.
@@ -109,11 +107,8 @@ class _TranslateVisitor(nodes.Visitor):
     assert isinstance(value, nodes.ValueNode)
 
 
-class _OptimizationView(
-    tfx_namedtuple.namedtuple('_OptimizationView', [
-        'prefer_fine_grained_view', 'flattened_view', 'fine_grained_view',
-        'hashed_path'
-    ])):
+@dataclasses.dataclass(frozen=True)
+class _OptimizationView:
   """A container for operation outputs during _OptimizeVisitor traversal.
 
   This is used in order to maintain both a flattened view, and a fine grained
@@ -123,29 +118,15 @@ class _OptimizationView(
   `fine_grained_view` should be used.  It should be set to true if the upstream
   view has cacheing operations that haven't been flattened yet.
   """
+  prefer_fine_grained_view: bool
+  flattened_view: nodes.ValueNode
+  fine_grained_view: Optional[OrderedDictType[str, nodes.ValueNode]]
+  hashed_path: Optional[bytes]
 
-  def __init__(self, prefer_fine_grained_view, flattened_view,
-               fine_grained_view, hashed_path):
-    if prefer_fine_grained_view and not fine_grained_view:
+  def __post_init__(self):
+    if self.prefer_fine_grained_view and not self.fine_grained_view:
       raise ValueError(
           'Cannot prefer fine_grained_view when one is not provided')
-    del hashed_path
-    self._validate_flattened_view(flattened_view)
-    self._validate_fine_grained_view(fine_grained_view)
-    super().__init__()
-
-  def _validate_flattened_view(self, view):
-    assert view is self.flattened_view
-    assert view is not None
-    assert isinstance(view, nodes.ValueNode), view
-
-  def _validate_fine_grained_view(self, view):
-    assert view is self.fine_grained_view
-    if view is None:
-      return
-    assert isinstance(view, collections.OrderedDict), view
-    for value in view.values():
-      assert isinstance(value, nodes.ValueNode), value
 
 
 class _OptimizeVisitor(nodes.Visitor):
@@ -287,8 +268,11 @@ class _OptimizeVisitor(nodes.Visitor):
       for view in input_values:
         disaggregated_input_values.extend(view.fine_grained_view.values())
 
-      # Checking that all cache has the same size.
-      assert len({len(value) for value in disaggregated_input_values}) == 1
+      # Each cache item should be a single ValueNode.
+      assert all(
+          isinstance(value, nodes.ValueNode)
+          for value in disaggregated_input_values
+      )
 
       next_inputs = nodes.apply_multi_output_operation(
           beam_nodes.Flatten,

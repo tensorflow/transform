@@ -26,39 +26,10 @@ An `OperationNode` has inputs and outputs that are `ValueNode`s. Each
 
 import abc
 import collections
-from typing import Collection, Optional, Tuple
+import dataclasses
+from typing import Any, Collection, Dict, List, Optional, Tuple
 
 import pydot
-# TODO(b/243513856): Switch to `collections.namedtuple` or `typing.NamedTuple`
-# once the Spark issue is resolved.
-from tfx_bsl.types import tfx_namedtuple
-
-
-class ValueNode(
-    tfx_namedtuple.namedtuple('ValueNode',
-                              ['parent_operation', 'value_index'])):
-  """A placeholder that will ultimately be translated to a PCollection.
-
-  Attributes:
-    parent_operation: The `OperationNode` that produces this value.
-    value_index: The index of this value in the outputs of `parent_operation`.
-  """
-  __slots__ = ()
-
-  def __init__(self, parent_operation, value_index: int):
-    if not isinstance(parent_operation, OperationNode):
-      raise TypeError(
-          'parent_operation must be a OperationNode, got {} of type {}'.format(
-              parent_operation, type(parent_operation)))
-    num_outputs = parent_operation.operation_def.num_outputs
-    if not (0 <= value_index and value_index < num_outputs):
-      raise ValueError(
-          'value_index was {} but parent_operation had {} outputs'.format(
-              value_index, num_outputs))
-    super().__init__()
-
-  def __iter__(self):
-    raise ValueError('ValueNode is not iterable')
 
 
 class OperationDef(metaclass=abc.ABCMeta):
@@ -112,6 +83,28 @@ class OperationDef(metaclass=abc.ABCMeta):
       * is_partitionable has to be True.
     """
     return None
+
+
+@dataclasses.dataclass(frozen=True)
+class ValueNode:
+  """A placeholder that will ultimately be translated to a PCollection.
+
+  Attributes:
+    parent_operation: The `OperationNode` that produces this value.
+    value_index: The index of this value in the outputs of `parent_operation`.
+  """
+
+  parent_operation: 'OperationNode'
+  value_index: int
+
+  def __post_init__(self):
+    num_outputs = self.parent_operation.operation_def.num_outputs
+    if not (0 <= self.value_index and self.value_index < num_outputs):
+      raise ValueError(
+          'value_index was {} but parent_operation had {} outputs'.format(
+              self.value_index, num_outputs
+          )
+      )
 
 
 class OperationNode:
@@ -229,8 +222,8 @@ class Traverser:
     Args:
       visitor: A `Visitor` object.
     """
-    self._cached_value_nodes_values = {}
-    self._stack = []
+    self._cached_value_nodes_values: Dict[ValueNode, Any] = {}
+    self._stack: List[OperationNode] = []
     self._visitor = visitor
 
   def visit_value_node(self, value_node: ValueNode):

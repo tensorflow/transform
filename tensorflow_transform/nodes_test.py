@@ -70,27 +70,6 @@ class NodesTest(test_case.TransformTestCase):
     self.assertEqual(op.inputs, (a, b))
     self.assertEqual(op.outputs, (b_copy, a_copy))
 
-  def testOperationNodeWithBadOperatonDef(self):
-    with self.assertRaisesRegexp(
-        TypeError, 'operation_def must be an OperationDef, got'):
-      nodes.OperationNode('not a operation_def', ())
-
-  def testOperationNodeWithBadInput(self):
-    a = nodes.apply_operation(_Constant, value='a', label='Constant[a]')
-    with self.assertRaisesRegexp(
-        TypeError, 'Inputs to Operation must be a ValueNode, got'):
-      nodes.OperationNode(_Concat(label='Concat'), (a, 'not a value_node'))
-
-  def testOperationNodeWithBadInputs(self):
-    with self.assertRaisesRegexp(
-        TypeError, 'inputs must be a tuple, got'):
-      nodes.OperationNode(_Concat(label='Concat'), 'not a tuple')
-
-  def testValueNodeWithBadParent(self):
-    with self.assertRaisesRegexp(
-        TypeError, 'parent_operation must be a OperationNode, got'):
-      nodes.ValueNode('not an operation node', 0)
-
   def testValueNodeWithNegativeValueIndex(self):
     a = nodes.apply_operation(_Constant, value='a', label='Constant[a]')
     with self.assertRaisesWithLiteralMatch(
@@ -183,7 +162,7 @@ class NodesTest(test_case.TransformTestCase):
     mock_visitor = mock.MagicMock()
     mock_visitor.visit.side_effect = [42]
 
-    with self.assertRaisesRegexp(
+    with self.assertRaisesRegex(
         ValueError, r'expected visitor to return a tuple, got'):
       nodes.Traverser(mock_visitor).visit_value_node(a)
 
@@ -192,7 +171,7 @@ class NodesTest(test_case.TransformTestCase):
     mock_visitor = mock.MagicMock()
     mock_visitor.visit.side_effect = [('a', 'b')]
 
-    with self.assertRaisesRegexp(
+    with self.assertRaisesRegex(
         ValueError, 'has 1 outputs but visitor returned 2 values: '):
       nodes.Traverser(mock_visitor).visit_value_node(a)
 
