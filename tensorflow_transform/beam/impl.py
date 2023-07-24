@@ -1360,17 +1360,11 @@ class AnalyzeAndTransformDataset(beam.PTransform):
 
 def _remove_columns_from_metadata(metadata, excluded_columns):
   """Remove columns from metadata without mutating original metadata."""
-  generated = schema_utils.schema_as_feature_spec(metadata.schema)
-  new_feature_spec = {
-      name: spec
-      for name, spec in generated.feature_spec.items()
-      if name not in excluded_columns
-  }
-  new_domains = {
-      name: spec
-      for name, spec in generated.domains.items()
-      if name not in excluded_columns
-  }
+  feature_spec, domains = schema_utils.schema_as_feature_spec(metadata.schema)
+  new_feature_spec = {name: spec for name, spec in feature_spec.items()
+                      if name not in excluded_columns}
+  new_domains = {name: spec for name, spec in domains.items()
+                 if name not in excluded_columns}
   return dataset_metadata.DatasetMetadata.from_feature_spec(
       new_feature_spec, new_domains)
 

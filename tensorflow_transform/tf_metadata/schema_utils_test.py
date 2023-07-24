@@ -46,10 +46,7 @@ class SchemaUtilsTest(parameterized.TestCase):
     schema_utils_legacy.set_generate_legacy_feature_spec(
         schema_proto, generate_legacy_feature_spec)
     result = schema_utils.schema_as_feature_spec(schema_proto)
-    self.assertEqual(
-        result,
-        schema_utils.SchemaAsFeatureSpecResult(feature_spec, domains or {}),
-    )
+    self.assertEqual(result, (feature_spec, domains or {}))
 
   @parameterized.named_parameters(
       *schema_utils_test_cases.INVALID_SCHEMA_PROTOS)

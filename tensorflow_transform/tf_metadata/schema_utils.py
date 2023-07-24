@@ -13,14 +13,17 @@
 # limitations under the License.
 """Utilities for using the tf.Metadata Schema within TensorFlow."""
 
-import dataclasses
 import typing
 from typing import Dict, List, Mapping, Optional, Tuple, Union
 
 import tensorflow as tf
+
 from tensorflow_transform import common_types
 from tensorflow_transform.tf_metadata import schema_utils_legacy
 from tfx_bsl.tfxio import tensor_representation_util
+# TODO(b/243513856): Switch to `collections.namedtuple` or `typing.NamedTuple`
+# once the Spark issue is resolved.
+from tfx_bsl.types import tfx_namedtuple
 
 from tensorflow_metadata.proto.v0 import path_pb2
 from tensorflow_metadata.proto.v0 import schema_pb2
@@ -242,15 +245,10 @@ def _set_domain(name, feature, domain):
     raise ValueError('Feature "{}" has invalid domain {}'.format(name, domain))
 
 
-@dataclasses.dataclass(frozen=True)
-class SchemaAsFeatureSpecResult:
-  feature_spec: Dict[str, common_types.FeatureSpecType]
-  domains: Dict[str, common_types.DomainType]
-
-  # This is needed because many users unpack this with:
-  # `feature_spec, domains = schema_utils.schema_as_feature_spec()`.
-  def __iter__(self):
-    return (getattr(self, field.name) for field in dataclasses.fields(self))
+SchemaAsFeatureSpecResult = tfx_namedtuple.TypedNamedTuple(
+    'SchemaAsFeatureSpecResult',
+    [('feature_spec', Dict[str, common_types.FeatureSpecType]),
+     ('domains', Dict[str, common_types.DomainType])])
 
 
 def _standardize_default_value(
