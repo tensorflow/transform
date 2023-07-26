@@ -44,11 +44,11 @@ def _make_required_install_packages():
   return [
       'absl-py>=0.9,<2.0.0',
       'apache-beam[gcp]>=2.47,<3',
-      'numpy~=1.22.0',
+      'numpy>=1.22.0',
       'protobuf>=3.20.3,<5',
       'pyarrow>=10,<11',
       'pydot>=1.2,<2',
-      'tensorflow>=2.12,<3',
+      'tensorflow>=2.13,<3',
       'tensorflow-metadata' + select_constraint(
           default='>=1.13.1,<1.14.0',
           nightly='>=1.14.0.dev',
