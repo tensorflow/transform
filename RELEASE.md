@@ -12,6 +12,8 @@
 
 *   `approximate_vocabulary` now returns tokens with the same frequency in
     reverse lexicographical order (similarly to `tft.vocabulary`).
+*   Transformed data batches are now sliced into smaller chunks if their size
+    exceeds 200MB.
 *   Depends on `pyarrow>=10,<11`.
 *   Depends on `apache-beam>=2.47,<3`.
 *   Depends on `numpy>=1.22.0`.

@@ -126,6 +126,20 @@ _DEFAULT_TENSORFLOW_CONFIG_BY_BEAM_RUNNER_TYPE = {
     fn_api_runner.FnApiRunner: _FIXED_PARALLELISM_TF_CONFIG,
 }
 
+# Batches larger than this will be sliced into smaller chunks. This size
+# constraint must be at least as strict as the following constraints:
+#   1. Number of elements in each individual array of the batch must be less
+#      than or equal to 2^31 - 1. Beam's `pa.RecordBatch` PCoder does not
+#      support larger sizes (even though the produced containers such as
+#      LargeListArray and LargeBinaryArray support them).
+#   2. Serialized size of the batch must be less than 2GB. Beam's  shuffle
+#      stage will wrap the serialized batches into a proto for materialization.
+#      2GB is the proto size limit.
+# We set a much stricter limit than the above to additionaly improve the outputs
+# handling by making the size distributed over larger number of (still
+# reasonably big) batches.
+_MAX_TRANSFORMED_BATCH_BYTES_SIZE = 200 << 10 << 10  # 200MB
+
 # TODO(b/68154497): pylint: disable=no-value-for-parameter
 
 
@@ -412,6 +426,34 @@ def _warn_about_tf_compat_v1():
       'Features such as tf.function may not work as intended.')
 
 
+def _maybe_slice_large_record_batch(
+    record_batch: pa.RecordBatch,
+) -> Iterable[pa.RecordBatch]:
+  """Slices large batches into smaller chunks."""
+  if record_batch.nbytes > _MAX_TRANSFORMED_BATCH_BYTES_SIZE:
+    if record_batch.num_rows < 2:
+      logging.warning(
+          'Transformed data row may be too large: %d bytes. '
+          'Consider reshaping outputs to distribute elements over a larger '
+          'number of rows to allow automatic slicing.',
+          record_batch.nbytes,
+      )
+      yield record_batch
+      return
+    # Note that slicing is a zero-copy operation, so the produced batches will
+    # still share memory with the original one up to the materialization
+    # boundary.
+    mid_point = record_batch.num_rows // 2
+    yield from _maybe_slice_large_record_batch(
+        record_batch.slice(offset=0, length=mid_point)
+    )
+    yield from _maybe_slice_large_record_batch(
+        record_batch.slice(offset=mid_point)
+    )
+  else:
+    yield record_batch
+
+
 def _convert_to_record_batch(
     batch_dict: Dict[str, Union[common_types.TensorValueType, pa.Array]],
     converter: tensor_to_arrow.TensorsToRecordBatchConverter,
@@ -420,8 +462,8 @@ def _convert_to_record_batch(
         TensorAdapterConfig, dataset_metadata.DatasetMetadata
     ],
     validate_varlen_sparse_values: bool = False,
-) -> Tuple[pa.RecordBatch, Dict[str, pa.Array]]:
-  """Convert batches of ndarrays to pyarrow.RecordBatch."""
+) -> Iterable[Tuple[pa.RecordBatch, Dict[str, pa.Array]]]:
+  """Convert batch of ndarrays to pyarrow.RecordBatches."""
 
   # Making a copy of batch_dict because mutating PCollection elements is not
   # allowed.
@@ -466,9 +508,10 @@ def _convert_to_record_batch(
       arrow_columns.append(data)
     else:
       unary_passthrough_features[key] = data
-
-  return pa.RecordBatch.from_arrays(
-      arrow_columns, schema=arrow_schema), unary_passthrough_features
+  for reccord_batch in _maybe_slice_large_record_batch(
+      pa.RecordBatch.from_arrays(arrow_columns, schema=arrow_schema)
+  ):
+    yield reccord_batch, unary_passthrough_features
 
 
 def _transformed_batch_to_instance_dicts(
@@ -1545,7 +1588,7 @@ class TransformDataset(beam.PTransform):
         )
     )
 
-    output_data = output_batches | 'ConvertToRecordBatch' >> beam.Map(
+    output_data = output_batches | 'ConvertToRecordBatch' >> beam.FlatMap(
         _convert_to_record_batch,
         converter=beam.pvalue.AsSingleton(converter_pcol),
         passthrough_keys=Context.get_passthrough_keys(),
