@@ -503,6 +503,8 @@ class CachedImplTest(tft_unit.TransformTestCase):
                                                  dataset_keys, pcoll_cache_dict)
     def sort_value_node_values(cache_dict):
       result = []
+      if cache_dict is None:
+        return result
       for dataset_cache in cache_dict.values():
         result.extend(dataset_cache.values())
       return sorted(result, key=str)
