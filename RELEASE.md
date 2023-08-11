@@ -4,6 +4,16 @@
 
 ## Major Features and Improvements
 
+## Bug Fixes and Other Changes
+
+## Breaking Changes
+
+## Deprecations
+
+# Version 1.14.0
+
+## Major Features and Improvements
+
 *   Adds a `reserved_tokens` parameter to vocabulary APIs, a list of tokens that
     must appear in the vocabulary and maintain their order at the beginning of
     the vocabulary.
@@ -25,6 +35,8 @@
     key.
 
 ## Deprecations
+
+*   N/A
 
 # Version 1.13.0
 
