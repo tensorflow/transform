@@ -13,15 +13,13 @@
 # limitations under the License.
 """Context manager for tensorflow-transform."""
 
+import dataclasses
 import os
 import threading
 from typing import Iterable, Optional
 
 import tensorflow as tf
 from tensorflow_transform import tf2_utils
-# TODO(b/243513856): Switch to `collections.namedtuple` or `typing.NamedTuple`
-# once the Spark issue is resolved.
-from tfx_bsl.types import tfx_namedtuple
 
 
 class Context:
@@ -50,20 +48,19 @@ class Context:
   permissions that allow both launcher and workers to access it.
   """
 
-  class _State(
-      tfx_namedtuple.namedtuple('_State', [
-          'temp_dir',
-          'desired_batch_size',
-          'passthrough_keys',
-          'use_deep_copy_optimization',
-          'force_tf_compat_v1',
-      ])):
+  @dataclasses.dataclass(frozen=True)
+  class _State:
     """A named tuple to store attributes of `Context`."""
+    temp_dir: Optional[str] = None
+    desired_batch_size: Optional[int] = None
+    passthrough_keys: Optional[Iterable[str]] = None
+    use_deep_copy_optimization: Optional[bool] = None
+    force_tf_compat_v1: Optional[bool] = None
 
     @classmethod
     def make_empty(cls):
       """Return `_State` object with all fields set to `None`."""
-      return cls(*(None,) * len(cls._fields))
+      return cls(*(None,) * len(dataclasses.fields(cls)))
 
   class _StateStack:
     """Stack of states for this context manager (found in thread-local storage).
@@ -88,7 +85,7 @@ class Context:
     if not state:
       self._thread_local.state = self._StateStack()
       self._thread_local.state.frames.append(
-          self._State(*(None,) * len(self._State._fields)))
+          self._State(*(None,) * len(dataclasses.fields(self._State))))
 
     self._temp_dir = temp_dir
     self._desired_batch_size = desired_batch_size

@@ -36,17 +36,19 @@ c) Finally, we remove the redundant flatten and packed merge nodes.
 """
 
 import collections
+import dataclasses
+from typing import Sequence
 
 from tensorflow_transform import analyzer_nodes
 from tensorflow_transform import nodes
 from tensorflow_transform.beam import beam_nodes
-# TODO(b/243513856): Switch to `collections.namedtuple` or `typing.NamedTuple`
-# once the Spark issue is resolved.
-from tfx_bsl.types import tfx_namedtuple
 
 
-_CombinerOpWrapper = tfx_namedtuple.namedtuple('_CombinerOpWrapper',
-                                               ['combiner', 'keys', 'label'])
+@dataclasses.dataclass(frozen=True)
+class _CombinerOpWrapper:
+  combiner: analyzer_nodes.Combiner
+  keys: Sequence[str]
+  label: str
 
 
 class _ValidationVisitor(nodes.Visitor):
@@ -329,9 +331,11 @@ class _PackMergeCombineVisitor(_ValidationVisitor):
     return packed_combine
 
 
-_TensorBindingInfo = tfx_namedtuple.namedtuple(
-    '_TensorBindingInfo',
-    ['intermediate_post_processing_op_defs', 'output_index'])
+@dataclasses.dataclass(frozen=True)
+class _TensorBindingInfo:
+  intermediate_post_processing_op_defs: Sequence[nodes.OperationDef]
+  output_index: int
+
 
 # Maximum search depth for packed post-processing nodes.
 _MAX_PACKED_POST_PROCESSING_DEPTH = 5

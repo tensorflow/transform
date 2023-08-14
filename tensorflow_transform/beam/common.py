@@ -14,16 +14,16 @@
 """Constants and types shared by tf.Transform Beam package."""
 
 import collections
+import dataclasses
 import enum
 import os
+from typing import Any, Dict, Mapping, Optional
 import uuid
 
 import apache_beam as beam
+from tensorflow_transform import common_types
 from tensorflow_transform import nodes
 from tfx_bsl.telemetry import util
-# TODO(b/243513856): Switch to `collections.namedtuple` or `typing.NamedTuple`
-# once the Spark issue is resolved.
-from tfx_bsl.types import tfx_namedtuple
 
 METRICS_NAMESPACE = util.MakeTfxNamespace(['Transform'])
 
@@ -147,22 +147,24 @@ def register_ptransform(operation_def_subclass, tags=None):
 class ConstructBeamPipelineVisitor(nodes.Visitor):
   """Visitor that constructs the beam pipeline from the node graph."""
 
-  ExtraArgs = tfx_namedtuple.namedtuple(  # pylint: disable=invalid-name
-      'ExtraArgs', [
-          'base_temp_dir',
-          'pipeline',
-          'flat_pcollection',
-          'pcollection_dict',
-          'tf_config',
-          'graph',
-          'input_signature',
-          'input_specs',
-          'input_tensor_adapter_config',
-          'use_tf_compat_v1',
-          'cache_pcoll_dict',
-          'preprocessing_fn',
-          'analyzers_fingerprint',
-      ])
+  @dataclasses.dataclass(frozen=True)
+  class ExtraArgs:
+    """Context required in order to construct a TFT beam pipeline."""
+    # Some typing below is set to Any to avoid having to add dependencies just
+    # for the type definitions.
+    base_temp_dir: str
+    pipeline: beam.Pipeline
+    flat_pcollection: Optional[beam.PCollection]
+    pcollection_dict: Dict[str, beam.PCollection]
+    tf_config: Any
+    graph: Any
+    input_signature: Mapping[str, common_types.TensorType]
+    input_specs: Mapping[str, Any]
+    input_tensor_adapter_config: Any
+    use_tf_compat_v1: bool
+    cache_pcoll_dict: Optional[Dict[str, beam.PCollection]]
+    preprocessing_fn: Any
+    analyzers_fingerprint: Mapping[str, Any]
 
   def __init__(self, extra_args):
     self._extra_args = extra_args

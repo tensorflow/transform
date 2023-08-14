@@ -39,12 +39,12 @@ optimizations.
 
 import collections
 import copy
+import dataclasses
 import datetime
 import os
+
 from absl import logging
-
 import apache_beam as beam
-
 from apache_beam.runners.portability import fn_api_runner
 from apache_beam.typehints import Any
 from apache_beam.typehints import Dict
@@ -55,7 +55,6 @@ from apache_beam.typehints import Set
 from apache_beam.typehints import Tuple
 from apache_beam.typehints import Union
 from apache_beam.utils import shared
-
 import numpy as np
 import pyarrow as pa
 import tensorflow as tf
@@ -89,11 +88,9 @@ from tfx_bsl.tfxio import tensor_to_arrow
 from tfx_bsl.tfxio import tf_example_record
 from tfx_bsl.tfxio.tensor_adapter import TensorAdapter
 from tfx_bsl.tfxio.tensor_adapter import TensorAdapterConfig
-# TODO(b/243513856): Switch to `collections.namedtuple` or `typing.NamedTuple`
-# once the Spark issue is resolved.
-from tfx_bsl.types import tfx_namedtuple
 
 from tensorflow_metadata.proto.v0 import schema_pb2
+
 
 tfx_bsl_beam.fix_code_type_pickling()
 
@@ -530,9 +527,12 @@ def _transformed_batch_to_instance_dicts(
   return result
 
 
-_TensorBinding = tfx_namedtuple.namedtuple(
-    '_TensorBinding',
-    ['value', 'tensor_name', 'dtype_enum', 'is_asset_filepath'])
+@dataclasses.dataclass(frozen=True)
+class _TensorBinding:
+  value: Any
+  tensor_name: str
+  dtype_enum: int
+  is_asset_filepath: bool
 
 
 @beam_common.register_ptransform(beam_nodes.CreateTensorBinding)
