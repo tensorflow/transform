@@ -301,7 +301,8 @@ def idf(x: tf.SparseTensor,
     # inverse document frequency of each term, following the same order as the
     # terms within each document.
     idf_values = tf.gather(
-        tf.squeeze(all_idf), tf.cast(cleaned_input.values, dtype=tf.int64))
+        tf.reshape(all_idf, [-1]), tf.cast(cleaned_input.values, dtype=tf.int64)
+    )
 
     return tf.SparseTensor(
         indices=cleaned_input.indices,
