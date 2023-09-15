@@ -14,6 +14,7 @@
 """TF utils for computing information over given data."""
 
 import contextlib
+import dataclasses
 import enum
 from typing import Callable, Optional, Sequence, Tuple, Union
 
@@ -48,13 +49,45 @@ _VOCABULARY_RESERVED_TOKENS_IDS = 'tft_vocab_extra_tokens_ids'
 # Key for graph collection containing extra tokens to include in a vocabulary.
 _VOCABULARY_RESERVED_TOKENS = 'tft_vocab_extra_tokens'
 
-ReducedBatchWeightedCounts = tfx_namedtuple.namedtuple('ReducedBatchCounts', [
-    'unique_x', 'summed_weights_per_x', 'summed_positive_per_x_and_y',
-    'counts_per_x'
-])
+# The default value used when densifying sparse labels.
+_MISSING_MASK_VALUE = -1
 
-_CompositeTensorRef = tfx_namedtuple.namedtuple('_CompositeTensorRef',
-                                                ['type_spec', 'list_of_refs'])
+
+ReducedBatchWeightedCounts = tfx_namedtuple.namedtuple(
+    'ReducedBatchCounts',
+    [
+        'unique_x',
+        'summed_weights_per_x',
+        'summed_positive_per_x_and_y',
+        'counts_per_x',
+    ],
+)
+
+
+_CompositeTensorRef = tfx_namedtuple.namedtuple(
+    '_CompositeTensorRef', ['type_spec', 'list_of_refs']
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class _BatchWeightedVocabulary:
+  """Contains values of a vocabulary for categorical features.
+
+  * unique_x_values: All distinct values of X observed within the batch.
+  * summed_weights_per_x: The sum of weights for each value of X.
+  * unique_count: An array of the same size as unique_x_values reflecting the
+  frequency of each unique x value within the batch.
+  * unique_idx: An array the size of the original bag, where each value is an
+  integer from 0 to N corresponding (positionally) to a value in
+  unique_x_values.
+  * max_x_idx: The total number of distinct elements seen in the batch.
+  """
+
+  unique_x_values: tf.Tensor
+  summed_weights_per_x: tf.Tensor
+  unique_count: int
+  unique_idx: int
+  max_x_idx: int
 
 
 def get_values(x: common_types.TensorType) -> tf.Tensor:
@@ -167,7 +200,7 @@ def reduce_batch_weighted_counts(
 
 def reduce_batch_weighted_cooccurrences(
     x_input: common_types.TensorType,
-    y_input: tf.Tensor,
+    y_input: Union[tf.Tensor, tf.SparseTensor],
     weights_input: Optional[tf.Tensor] = None,
     extend_with_sentinel_counts: bool = True,
     filter_regex: Optional[str] = None) -> ReducedBatchWeightedCounts:
@@ -180,7 +213,8 @@ def reduce_batch_weighted_cooccurrences(
 
   Args:
     x_input: Input `Tensor` or `CompositeTensor`.
-    y_input: Integer `Tensor` with which to compute the co-occurrence with
+    y_input: Integer `Tensor` or `SparseTensor` (in case of
+      multi-label/multi-task) with which to compute the co-occurrence with
       x_input.
     weights_input: (Optional) Weights input `Tensor`.
     extend_with_sentinel_counts: If True, the reduced batch will be extended
@@ -198,6 +232,156 @@ def reduce_batch_weighted_cooccurrences(
       If y tensor is not provided, value is None.
     counts_per_x: if y is provided, counts of each of the unique values in x,
       otherwise, None.
+  """
+
+  if isinstance(y_input, tf.SparseTensor):
+    # This is a multi-label/multi-task problem.
+
+    # All cooccurrences tensors will have the same size to allow merging.
+    # This should not influence the value of MI.
+    max_y_value = tf.cast(
+        tf.reduce_max(input_tensor=tf.sparse.to_dense(y_input)), tf.int64
+    )
+    # To handle this case, we densify the label with a padding value to compute
+    # the cooccurences treating each "column" in the multivariant label as a
+    # distinct Y label. Then we reduce by summing.
+    result = tf.map_fn(
+        lambda y_column: _compute_weighted_counts(  # pylint: disable=g-long-lambda
+            x_input, y_column, weights_input, filter_regex, max_y_value
+        ),
+        # Set the default dense value to -1 to avoid confusing missing labels
+        # with class 0.
+        # Per segment_sum docs: If the given segment ID i is negative, the value
+        # is dropped and will not be added to the sum of the segment.
+        tf.transpose(
+            tf.sparse.to_dense(
+                tf.cast(y_input, tf.int64), default_value=_MISSING_MASK_VALUE
+            )
+        ),
+        fn_output_signature={
+            'unique_x_values': tf.TensorSpec(
+                shape=[None],
+                dtype=x_input.dtype,
+            ),
+            'summed_weights_per_x': tf.TensorSpec(
+                shape=[None],
+                dtype=tf.float32,
+            ),
+            'summed_positive_per_x_and_y': tf.TensorSpec(
+                shape=[None, None],
+                dtype=tf.float32,
+            ),
+            'unique_count': tf.TensorSpec(
+                shape=[None],
+                dtype=tf.int64,
+            ),
+        },
+    )
+    # summed_positive_per_x_and_y requires summing across the N "sub-labels".
+    # For the other values, they should be a constant for each invocation and
+    # thus we simply take the first: these values are computed on the X tensor
+    # only, and won't depend on y_column (on which we're iterating).
+    result['summed_positive_per_x_and_y'] = tf.reduce_sum(
+        result['summed_positive_per_x_and_y'], axis=0
+    )
+    result['unique_x_values'] = result['unique_x_values'][0]
+    result['summed_weights_per_x'] = result['summed_weights_per_x'][0]
+    result['unique_count'] = result['unique_count'][0]
+  else:
+    max_y_value = tf.cast(tf.reduce_max(input_tensor=y_input), tf.int64)
+    result = _compute_weighted_counts(
+        x_input, y_input, weights_input, filter_regex, max_y_value
+    )
+  reduced_batch = ReducedBatchWeightedCounts(
+      unique_x=result['unique_x_values'],
+      summed_weights_per_x=result['summed_weights_per_x'],
+      summed_positive_per_x_and_y=result['summed_positive_per_x_and_y'],
+      counts_per_x=result['unique_count'],
+  )
+  # Add a sentinel token tracking the full distribution of y values.
+  if extend_with_sentinel_counts:
+    reduced_batch = extend_reduced_batch_with_y_counts(
+        reduced_batch, y_input, weights_input
+    )
+  return reduced_batch
+
+
+def _compute_weighted_counts(
+    x_input, y_input, weights_input, filter_regex, max_y_value
+):
+  """Computes weighted counts of feature/label values to support AMI.
+
+  Args:
+    x_input: Input `Tensor` or `CompositeTensor`.
+    y_input: Integer `Tensor` with which to compute the co-occurrence with
+      x_input.
+    weights_input: (Optional) Weights input `Tensor`.
+    filter_regex: (Optional) Regex that matches tokens that have to be filtered
+      out. Can only be specified if `x_input` has string dtype.
+    max_y_value: The maximum index for labels (basically, the number of labels).
+
+  Returns:
+    A dictionary containing:
+      - summed_positive_per_x_and_y: The occurrences of each X value, for each
+        label value.
+      - unique_x_values: All the X values in the vocabulary.
+      - summed_weights_per_x: The sum of weights for each value in
+        unique_x_values.
+      - unique_count: The count of the values seen for X
+        (basically, len(unique_x_values)).
+  """
+  # TODO(b/297854080): Evaluate the redundant calls.
+  x, y, weights = _preprocess_tensors_for_cooccurences(
+      x_input, y_input, weights_input, filter_regex
+  )
+  # TODO(b/297854080): Evaluate the redundant calls.
+  vocabulary = _compute_vocabulary_values(x, weights)
+
+  # Get a mask for the missing labels
+  missing_labels_mask = tf.equal(y, _MISSING_MASK_VALUE)
+  # Ultimately we want to compute the summed weights per x and y, as a
+  # 2D [x_dim, y_dim] tensor. To accomplish this with a single call to
+  # tf.math.unsorted_segment_sum, we flatten the [x_dim, y_dim] into a single
+  # x*y dim vector and then re-shape back into 2d matrix form after computing
+  # the segmented sum.
+  flattened_index = (max_y_value + 1) * vocabulary.unique_idx + y
+  # and apply it to the flattened index to keep missing values at -1.
+  flattened_index = tf.where(
+      missing_labels_mask,
+      tf.constant(_MISSING_MASK_VALUE, tf.int64),
+      flattened_index,
+  )
+
+  summed_positive_per_x_and_y = _compute_summed_positive_per_x_and_y(
+      weights, flattened_index, vocabulary.max_x_idx, max_y_value
+  )
+  return {
+      'summed_positive_per_x_and_y': tf.cast(
+          summed_positive_per_x_and_y, tf.float32
+      ),
+      'unique_x_values': vocabulary.unique_x_values,
+      'summed_weights_per_x': tf.cast(
+          vocabulary.summed_weights_per_x, tf.float32
+      ),
+      'unique_count': tf.cast(vocabulary.unique_count, tf.int64),
+  }
+
+
+def _preprocess_tensors_for_cooccurences(
+    x_input, y_input, weights_input, filter_regex
+):
+  """Wrangles the tensors to make them compatible with AMI computation.
+
+  Args:
+    x_input: Input `Tensor` or `CompositeTensor`.
+    y_input: Integer `Tensor` with which to compute the co-occurrence with
+      x_input.
+    weights_input: (Optional) Weights input `Tensor`.
+    filter_regex: (Optional) Regex that matches tokens that have to be filtered
+      out. Can only be specified if `x_input` has string dtype.
+
+  Returns:
+    A tuple containing the re-shaped, verified (x, y, weights).
   """
   tf.compat.v1.assert_type(y_input, tf.int64)
   # TODO(b/134075780): Revisit expected weights shape when input is sparse.
@@ -232,35 +416,64 @@ def reduce_batch_weighted_cooccurrences(
   x = filter_fn(x)
   y = filter_fn(tf.reshape(y, [-1]))
   weights = filter_fn(tf.reshape(weights, [-1]))
+  return x, y, weights
 
-  unique_x_values, unique_idx, unique_count = tf.unique_with_counts(
-      x, out_idx=tf.int64)
 
-  summed_weights_per_x = tf.math.unsorted_segment_sum(
-      weights, unique_idx, tf.size(input=unique_x_values))
-  # For each feature value in x, computed the weighted sum positive for each
-  # unique value in y.
+def _compute_summed_positive_per_x_and_y(
+    weights, dummy_index, max_x_idx, max_y_value
+):
+  """Computes a segment sum to retrieve weighted co-occurrences of X and Y.
 
-  max_y_value = tf.cast(tf.reduce_max(input_tensor=y_input), tf.int64)
-  max_x_idx = tf.cast(tf.size(unique_x_values), tf.int64)
-  dummy_index = (max_y_value + 1) * unique_idx + y
+  Args:
+    weights: The example weights, or a ones_like Tensor (=unweighted).
+    dummy_index: An index the size of X containing shifted Y values. See
+      cl/251659477.
+    max_x_idx: The total number of distinct elements seen in the batch.
+    max_y_value: The maximum id for Y values. Basically, the number of distinct
+      values in Y.
+
+  Returns:
+    A 2D Tensor of shape [x_dim, y_dim] containing the weighted cooccurences of
+    each Y value for each X value.
+  """
   summed_positive_per_x_and_y = tf.cast(
-      tf.math.unsorted_segment_sum(weights, dummy_index,
-                                   max_x_idx * (max_y_value + 1)),
-      dtype=tf.float32)
-  summed_positive_per_x_and_y = tf.reshape(summed_positive_per_x_and_y,
-                                           [max_x_idx, max_y_value + 1])
+      tf.math.unsorted_segment_sum(
+          weights, dummy_index, max_x_idx * (max_y_value + 1)
+      ),
+      dtype=tf.float32,
+  )
+  summed_positive_per_x_and_y = tf.reshape(
+      summed_positive_per_x_and_y, [max_x_idx, max_y_value + 1]
+  )
+  return summed_positive_per_x_and_y
 
-  reduced_batch = ReducedBatchWeightedCounts(
-      unique_x=unique_x_values,
+
+def _compute_vocabulary_values(x, weights) -> _BatchWeightedVocabulary:
+  """Computes a vocabulary for X values.
+
+  Args:
+    x: Input `Tensor` or `CompositeTensor`.
+    weights: Weights input `Tensor`.
+
+  Returns:
+    An XVocabulary object containing the results of the computation. See more in
+    the XVocabulary docstring.
+  """
+  unique_x_values, unique_idx, unique_count = tf.unique_with_counts(
+      x, out_idx=tf.int64
+  )
+  # Counts the occurrences of a given X value
+  summed_weights_per_x = tf.math.unsorted_segment_sum(
+      weights, unique_idx, tf.size(input=unique_x_values)
+  )
+  max_x_idx = tf.size(unique_x_values, out_type=tf.int64)
+  return _BatchWeightedVocabulary(
+      unique_x_values=unique_x_values,
       summed_weights_per_x=summed_weights_per_x,
-      summed_positive_per_x_and_y=summed_positive_per_x_and_y,
-      counts_per_x=unique_count)
-  # Add a sentinel token tracking the full distribution of y values.
-  if extend_with_sentinel_counts:
-    reduced_batch = extend_reduced_batch_with_y_counts(reduced_batch, y_input,
-                                                       weights_input)
-  return reduced_batch
+      unique_count=unique_count,
+      unique_idx=unique_idx,
+      max_x_idx=max_x_idx,
+  )
 
 
 def extend_reduced_batch_with_y_counts(reduced_batch, y, weights=None):
@@ -281,12 +494,19 @@ def extend_reduced_batch_with_y_counts(reduced_batch, y, weights=None):
   Returns:
     A new ReducedBatchWeightedCounts instance with sentinel values appended.
   """
+  if isinstance(y, tf.SparseTensor):
+    y_shape = y.dense_shape
+    # Need to slice instead of directly using [0] as this runs in graph mode.
+    shape = tf.slice(y_shape, [0], [1])
+  else:
+    shape = tf.shape(y)
   # Create a dummy sentinel token that is present in every record.
   if reduced_batch.unique_x.dtype.is_integer:
     sentinel_values = tf.cast(
-        tf.fill(tf.shape(y), GLOBAL_Y_COUNT_SENTINEL_INT), tf.int64)
+        tf.fill(shape, GLOBAL_Y_COUNT_SENTINEL_INT), tf.int64
+    )
   else:
-    sentinel_values = tf.fill(tf.shape(y), GLOBAL_Y_COUNT_SENTINEL_STRING)
+    sentinel_values = tf.fill(shape, GLOBAL_Y_COUNT_SENTINEL_STRING)
   # Computing the batch reduction over this sentinel token will reduce to a
   # single sentinel value in sentinel_batch.unique_x, with the
   # summed_positive_per_x_and_y thus capturing the total summed positive per
@@ -401,7 +621,8 @@ def assert_same_shape(x, y):
 # TODO(b/178189903): This is needed because tf.sparse.reduce_* produces a dense
 # tensor which loses its original shape information.
 def _sparse_reduce_batch_keep_shape(
-    sparse_reduce_fn: Callable, sparse_tensor: tf.SparseTensor) -> tf.Tensor:  # pylint: disable=g-bare-generic
+    sparse_reduce_fn: Callable[..., tf.Tensor], sparse_tensor: tf.SparseTensor
+) -> tf.Tensor:  # pylint: disable=g-bare-generic
   """Applies a tf.sparse.reduce_* method on the given sparse_tensor."""
   result = sparse_reduce_fn(sparse_tensor, axis=0)
   result.set_shape(sparse_tensor.get_shape()[1:])
@@ -473,6 +694,15 @@ def _map_values(
 def maybe_format_vocabulary_input(
     x: common_types.ConsistentTensorType,
 ) -> common_types.ConsistentTensorType:
+  """Formats string vocabulary input.
+
+  Args:
+    x: a tensor containing the vocabulary.
+
+  Returns:
+    A similarly typed tensor.
+  """
+
   if x.dtype == tf.string:
     # b/62379925: This is a workaround to allow tokens to contain spaces when
     # store_frequency=True, which should eventaully be removed.
@@ -1552,13 +1782,10 @@ def reduce_batch_minus_min_and_max_per_key(
 
   Args:
     x: A `Tensor` or `CompositeTensor`.
-    key: A `Tensor` or `CompositeTensor`.
-        Must meet one of the following conditions:
-        1. Both x and key are dense,
-        2. Both x and key are composite and `key` must exactly match `x` in
-        everything except values,
-        3. The axis=1 index of each element of sparse x matches its index of
-        dense key.
+    key: A `Tensor` or `CompositeTensor`. Must meet one of the following
+      conditions - 1. Both x and key are dense, 2. Both x and key are composite
+      and `key` must exactly match `x` in everything except values, 3. The
+      axis=1 index of each element of sparse x matches its index of dense key.
     reduce_instance_dims: A bool indicating whether this should collapse the
       batch and instance dimensions to arrive at a single scalar output, or only
       collapse the batch dimension and outputs a vector of the same shape as the
@@ -1765,13 +1992,21 @@ def document_frequency_to_idf(document_frequency: tf.Tensor,
   """
   baseline = 1.0 if add_baseline else 0.0
   if smooth:
-    return tf.math.log(
-        (tf.cast(corpus_size, dtype=tf.float32) + 1.0) /
-        (1.0 + tf.cast(document_frequency, dtype=tf.float32))) + baseline
+    return (
+        tf.math.log(
+            (tf.cast(corpus_size, dtype=tf.float32) + 1.0)
+            / (1.0 + tf.cast(document_frequency, dtype=tf.float32))
+        )
+        + baseline
+    )
   else:
-    return tf.math.log(
-        tf.cast(corpus_size, dtype=tf.float32) /
-        (tf.cast(document_frequency, dtype=tf.float32))) + baseline
+    return (
+        tf.math.log(
+            tf.cast(corpus_size, dtype=tf.float32)
+            / (tf.cast(document_frequency, dtype=tf.float32))
+        )
+        + baseline
+    )
 
 
 def register_vocabulary_reserved_tokens(

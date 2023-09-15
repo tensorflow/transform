@@ -499,13 +499,17 @@ class TFUtilsTest(test_case.TransformTestCase):
               x=['a', 'b', 'a'],
               y=[0, 1, 1],
               expected_result=tf_utils.ReducedBatchWeightedCounts(
-                  [b'a', b'b', b'global_y_count_sentinel'], [2, 1, 3],
-                  [[1, 1], [0, 1], [1, 2]], [2, 1, 3]),
+                  [b'a', b'b', b'global_y_count_sentinel'],
+                  [2, 1, 3],
+                  [[1, 1], [0, 1], [1, 2]],
+                  [2, 1, 3],
+              ),
               input_signature=[
                   tf.TensorSpec(None, tf.string),
-                  tf.TensorSpec(None, tf.int64)
+                  tf.TensorSpec(None, tf.int64),
               ],
-              filter_regex=None),
+              filter_regex=None,
+          ),
           dict(
               testcase_name='rank1_with_multi_class_y',
               x=['yes', 'no', 'yes', 'may\rbe', 'yes'],
@@ -514,24 +518,99 @@ class TFUtilsTest(test_case.TransformTestCase):
                   [b'yes', b'no', b'may\rbe', b'global_y_count_sentinel'],
                   [3, 1, 1, 5],
                   [[1, 1, 0, 1], [0, 1, 0, 0], [0, 0, 1, 0], [1, 2, 1, 1]],
-                  [3, 1, 1, 5]),
+                  [3, 1, 1, 5],
+              ),
               input_signature=[
                   tf.TensorSpec(None, tf.string),
-                  tf.TensorSpec(None, tf.int64)
+                  tf.TensorSpec(None, tf.int64),
               ],
-              filter_regex=None),
+              filter_regex=None,
+          ),
+          dict(
+              testcase_name='rank1_with_sparse_y',
+              x=['yes', 'no', 'yes', 'may\rbe', 'yes'],
+              # 5 examples, 4 labels:
+              # 0: (3,2)
+              # 1: (1)
+              # 2: (2,0)
+              # 3: (1)
+              # 4: (2, 1)
+              y=tf.compat.v1.SparseTensorValue(
+                  indices=(
+                      (0, 0),
+                      (0, 1),
+                      (1, 0),
+                      (2, 0),
+                      (2, 1),
+                      (3, 1),
+                      (4, 0),
+                      (4, 1),
+                  ),
+                  values=[3, 2, 1, 2, 0, 1, 2, 1],
+                  dense_shape=[5, 2],
+              ),
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'yes', b'no', b'may\rbe', b'global_y_count_sentinel'],
+                  [3, 1, 1, 5],
+                  [[1, 1, 3, 1], [0, 1, 0, 0], [0, 1, 0, 0], [1, 3, 3, 1]],
+                  [3, 1, 1, 5],
+              ),
+              input_signature=[
+                  tf.TensorSpec(None, tf.string),
+                  tf.SparseTensorSpec([None, 2], tf.int64),
+              ],
+              filter_regex=None,
+          ),
+          dict(
+              testcase_name='rank1_with_sparse_y_missing_labels',
+              x=['yes', 'no', 'yes', 'may\rbe', 'yes'],
+              # 5 examples, 4 labels:
+              # 0: (3,2)
+              # 1: ()
+              # 2: (2,0)
+              # 3: (1)
+              # 4: (2, 1)
+              y=tf.compat.v1.SparseTensorValue(
+                  indices=(
+                      (0, 0),
+                      (0, 1),
+                      (2, 0),
+                      (2, 1),
+                      (3, 1),
+                      (4, 0),
+                      (4, 1),
+                  ),
+                  values=[3, 2, 2, 0, 1, 2, 1],
+                  dense_shape=[5, 2],
+              ),
+              expected_result=tf_utils.ReducedBatchWeightedCounts(
+                  [b'yes', b'no', b'may\rbe', b'global_y_count_sentinel'],
+                  [3, 1, 1, 5],
+                  [[1, 1, 3, 1], [0, 0, 0, 0], [0, 1, 0, 0], [1, 2, 3, 1]],
+                  [3, 1, 1, 5],
+              ),
+              input_signature=[
+                  tf.TensorSpec(None, tf.string),
+                  tf.SparseTensorSpec([None, 2], tf.int64),
+              ],
+              filter_regex=None,
+          ),
           dict(
               testcase_name='rank2_with_binary_y',
               x=[['a', 'b', 'a'], ['b', 'a', 'b']],
               y=[[1, 0, 1], [1, 0, 0]],
               expected_result=tf_utils.ReducedBatchWeightedCounts(
-                  [b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
-                  [[1, 2], [2, 1], [3, 3]], [3, 3, 6]),
+                  [b'a', b'b', b'global_y_count_sentinel'],
+                  [3, 3, 6],
+                  [[1, 2], [2, 1], [3, 3]],
+                  [3, 3, 6],
+              ),
               input_signature=[
                   tf.TensorSpec(None, tf.string),
-                  tf.TensorSpec(None, tf.int64)
+                  tf.TensorSpec(None, tf.int64),
               ],
-              filter_regex=None),
+              filter_regex=None,
+          ),
           dict(
               testcase_name='rank2_with_missing_y_values',
               x=[['a', 'b', 'a'], ['b', 'a', 'b']],
@@ -539,96 +618,130 @@ class TFUtilsTest(test_case.TransformTestCase):
               # The label 1 isn't in the batch but it will have a position (with
               # weights of 0) in the resulting array.
               expected_result=tf_utils.ReducedBatchWeightedCounts(
-                  [b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
-                  [[1, 0, 2], [2, 0, 1], [3, 0, 3]], [3, 3, 6]),
+                  [b'a', b'b', b'global_y_count_sentinel'],
+                  [3, 3, 6],
+                  [[1, 0, 2], [2, 0, 1], [3, 0, 3]],
+                  [3, 3, 6],
+              ),
               input_signature=[
                   tf.TensorSpec(None, tf.string),
-                  tf.TensorSpec(None, tf.int64)
+                  tf.TensorSpec(None, tf.int64),
               ],
-              filter_regex=None),
+              filter_regex=None,
+          ),
           dict(
               testcase_name='rank2_with_multi_class_y',
               x=[['a', 'b', 'a'], ['b', 'a', 'b']],
               y=[[1, 0, 1], [1, 0, 2]],
               expected_result=tf_utils.ReducedBatchWeightedCounts(
-                  [b'a', b'b', b'global_y_count_sentinel'], [3, 3, 6],
-                  [[1, 2, 0], [1, 1, 1], [2, 3, 1]], [3, 3, 6]),
+                  [b'a', b'b', b'global_y_count_sentinel'],
+                  [3, 3, 6],
+                  [[1, 2, 0], [1, 1, 1], [2, 3, 1]],
+                  [3, 3, 6],
+              ),
               input_signature=[
                   tf.TensorSpec(None, tf.string),
-                  tf.TensorSpec(None, tf.int64)
+                  tf.TensorSpec(None, tf.int64),
               ],
-              filter_regex=None),
+              filter_regex=None,
+          ),
           dict(
               testcase_name='rank3_with_binary_y',
-              x=[[['a', 'b', 'a'], ['b', 'a', 'b']],
-                 [['a', 'b', 'a'], ['b', 'a', 'b']]],
+              x=[
+                  [['a', 'b', 'a'], ['b', 'a', 'b']],
+                  [['a', 'b', 'a'], ['b', 'a', 'b']],
+              ],
               y=[[[1, 1, 0], [1, 0, 1]], [[1, 0, 1], [1, 0, 1]]],
               expected_result=tf_utils.ReducedBatchWeightedCounts(
-                  [b'a', b'b', b'global_y_count_sentinel'], [6, 6, 12],
-                  [[3, 3], [1, 5], [4, 8]], [6, 6, 12]),
+                  [b'a', b'b', b'global_y_count_sentinel'],
+                  [6, 6, 12],
+                  [[3, 3], [1, 5], [4, 8]],
+                  [6, 6, 12],
+              ),
               input_signature=[
                   tf.TensorSpec(None, tf.string),
-                  tf.TensorSpec(None, tf.int64)
+                  tf.TensorSpec(None, tf.int64),
               ],
-              filter_regex=None),
+              filter_regex=None,
+          ),
           dict(
               testcase_name='sparse',
               x=tf.compat.v1.SparseTensorValue(
                   indices=[[0, 0], [2, 1]],
                   values=['a', 'b'],
-                  dense_shape=[4, 2]),
+                  dense_shape=[4, 2],
+              ),
               y=[0, 1, 0, 0],
               expected_result=tf_utils.ReducedBatchWeightedCounts(
-                  [b'a', b'b', b'global_y_count_sentinel'], [1, 1, 4],
-                  [[1, 0], [1, 0], [3, 1]], [1, 1, 4]),
+                  [b'a', b'b', b'global_y_count_sentinel'],
+                  [1, 1, 4],
+                  [[1, 0], [1, 0], [3, 1]],
+                  [1, 1, 4],
+              ),
               input_signature=[
                   tf.SparseTensorSpec([None, 2], tf.string),
-                  tf.TensorSpec([None], tf.int64)
+                  tf.TensorSpec([None], tf.int64),
               ],
-              filter_regex=None),
+              filter_regex=None,
+          ),
           dict(
               testcase_name='empty_sparse',
               x=tf.compat.v1.SparseTensorValue(
-                  indices=np.empty([0, 2]), values=[], dense_shape=[4, 2]),
+                  indices=np.empty([0, 2]), values=[], dense_shape=[4, 2]
+              ),
               y=[1, 0, 1, 1],
               expected_result=tf_utils.ReducedBatchWeightedCounts(
-                  [b'global_y_count_sentinel'], [4], [[1, 3]], [4]),
+                  [b'global_y_count_sentinel'], [4], [[1, 3]], [4]
+              ),
               input_signature=[
                   tf.SparseTensorSpec([None, 2], tf.string),
-                  tf.TensorSpec([None], tf.int64)
+                  tf.TensorSpec([None], tf.int64),
               ],
-              filter_regex=None),
+              filter_regex=None,
+          ),
           dict(
               testcase_name='ragged',
               x=tf.compat.v1.ragged.RaggedTensorValue(
                   values=tf.compat.v1.ragged.RaggedTensorValue(
                       values=tf.compat.v1.ragged.RaggedTensorValue(
                           values=np.array(['a', 'b', 'a', 'b', 'b']),
-                          row_splits=np.array([0, 2, 3, 4, 5])),
-                      row_splits=np.array([0, 2, 3, 4])),
-                  row_splits=np.array([0, 2, 3])),
+                          row_splits=np.array([0, 2, 3, 4, 5]),
+                      ),
+                      row_splits=np.array([0, 2, 3, 4]),
+                  ),
+                  row_splits=np.array([0, 2, 3]),
+              ),
               y=[1, 0],
               expected_result=tf_utils.ReducedBatchWeightedCounts(
-                  [b'a', b'b', b'global_y_count_sentinel'], [2, 3, 2],
-                  [[0, 2], [1, 2], [1, 1]], [2, 3, 2]),
+                  [b'a', b'b', b'global_y_count_sentinel'],
+                  [2, 3, 2],
+                  [[0, 2], [1, 2], [1, 1]],
+                  [2, 3, 2],
+              ),
               input_signature=[
                   tf.RaggedTensorSpec([None, None, None, None], tf.string),
-                  tf.TensorSpec([None], tf.int64)
+                  tf.TensorSpec([None], tf.int64),
               ],
-              filter_regex=None),
+              filter_regex=None,
+          ),
           dict(
               testcase_name='rank1_with_filtering',
               x=['yes\n', 'no', 'yes\n', '', 'yes\n'],
               y=[1, 1, 0, 2, 3],
               expected_result=tf_utils.ReducedBatchWeightedCounts(
-                  [b'no', b'global_y_count_sentinel'], [1, 5],
-                  [[0, 1, 0, 0], [1, 2, 1, 1]], [1, 5]),
+                  [b'no', b'global_y_count_sentinel'],
+                  [1, 5],
+                  [[0, 1, 0, 0], [1, 2, 1, 1]],
+                  [1, 5],
+              ),
               input_signature=[
                   tf.TensorSpec(None, tf.string),
-                  tf.TensorSpec(None, tf.int64)
+                  tf.TensorSpec(None, tf.int64),
               ],
-              filter_regex=analyzers._EMPTY_STRING_OR_NEWLINE_CHARS_REGEX),
-      ]))
+              filter_regex=analyzers._EMPTY_STRING_OR_NEWLINE_CHARS_REGEX,
+          ),
+      ])
+  )
   def test_reduce_batch_coocurrences_no_weights(self, x, y, expected_result,
                                                 input_signature, filter_regex,
                                                 function_handler):
@@ -2162,21 +2275,26 @@ class TFUtilsTest(test_case.TransformTestCase):
   def test_extend_reduced_batch_with_y_counts(self):
     initial_reduction = tf_utils.ReducedBatchWeightedCounts(
         unique_x=tf.constant(['foo', 'bar']),
-        summed_weights_per_x=tf.constant([2.0, 4.0]),
-        summed_positive_per_x_and_y=tf.constant([[1.0, 3.0], [1.0, 1.0]]),
-        counts_per_x=tf.constant([2, 4], tf.int64))
+        summed_weights_per_x=tf.constant([3.0, 4.0]),
+        summed_positive_per_x_and_y=tf.constant([[1.0, 4.0], [1.0, 1.0]]),
+        counts_per_x=tf.constant([2, 5], tf.int64),
+    )
     y = tf.constant([0, 1, 1, 1, 0, 1, 1], tf.int64)
     extended_batch = tf_utils.extend_reduced_batch_with_y_counts(
         initial_reduction, y)
     self.assertAllEqual(self.evaluate(extended_batch.unique_x),
                         np.array([b'foo', b'bar', b'global_y_count_sentinel']))
-    self.assertAllClose(self.evaluate(extended_batch.summed_weights_per_x),
-                        np.array([2.0, 4.0, 7.0]))
+    self.assertAllClose(
+        self.evaluate(extended_batch.summed_weights_per_x),
+        np.array([3.0, 4.0, 7.0]),
+    )
     self.assertAllClose(
         self.evaluate(extended_batch.summed_positive_per_x_and_y),
-        np.array([[1.0, 3.0], [1.0, 1.0], [2.0, 5.0]]))
-    self.assertAllClose(self.evaluate(extended_batch.counts_per_x),
-                        np.array([2.0, 4.0, 7.0]))
+        np.array([[1.0, 4.0], [1.0, 1.0], [2.0, 5.0]]),
+    )
+    self.assertAllClose(
+        self.evaluate(extended_batch.counts_per_x), np.array([2.0, 5.0, 7.0])
+    )
 
   @test_case.named_parameters(
       test_case.cross_with_function_handlers([

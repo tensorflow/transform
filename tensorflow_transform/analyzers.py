@@ -1714,7 +1714,7 @@ def vocabulary(
     store_frequency: Optional[bool] = False,
     reserved_tokens: Optional[Union[Sequence[str], tf.Tensor]] = None,
     weights: Optional[tf.Tensor] = None,
-    labels: Optional[tf.Tensor] = None,
+    labels: Optional[Union[tf.Tensor, tf.SparseTensor]] = None,
     use_adjusted_mutual_info: bool = False,
     min_diff_from_avg: Optional[int] = None,
     coverage_top_k: Optional[int] = None,
@@ -1935,8 +1935,9 @@ def _get_vocabulary_analyzer_inputs(
     vocab_ordering_type: int,
     x: common_types.TensorType,
     file_format: common_types.VocabularyFileFormatType,
-    labels: Optional[tf.Tensor],
-    weights: Optional[tf.Tensor]):
+    labels: Optional[Union[tf.Tensor, tf.SparseTensor]],
+    weights: Optional[tf.Tensor],
+):
   """Helper for constructing analyzer inputs from tensors.
 
   Args:
@@ -1952,7 +1953,8 @@ def _get_vocabulary_analyzer_inputs(
   """
   filter_regex = get_vocab_newline_characters_regex(x.dtype, file_format)
   if vocab_ordering_type == _VocabOrderingType.WEIGHTED_MUTUAL_INFORMATION:
-    labels = tf.reshape(labels, [-1])
+    if not isinstance(labels, tf.SparseTensor):
+      labels = tf.reshape(labels, [-1])
     reduced_batch = tf_utils.reduce_batch_weighted_cooccurrences(
         x, labels, weights, filter_regex=filter_regex)
     return [
@@ -1960,7 +1962,8 @@ def _get_vocabulary_analyzer_inputs(
         reduced_batch.summed_positive_per_x_and_y, reduced_batch.counts_per_x
     ]
   elif vocab_ordering_type == _VocabOrderingType.MUTUAL_INFORMATION:
-    labels = tf.reshape(labels, [-1])
+    if not isinstance(labels, tf.SparseTensor):
+      labels = tf.reshape(labels, [-1])
     reduced_batch = tf_utils.reduce_batch_weighted_cooccurrences(
         x, labels, weights, filter_regex=filter_regex)
     return [

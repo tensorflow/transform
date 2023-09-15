@@ -4,9 +4,13 @@
 
 ## Major Features and Improvements
 
+*   Added support for sparse labels in AMI vocabulary computation.
+
 ## Bug Fixes and Other Changes
 
 ## Breaking Changes
+
+*   Existing `tft.vocabulary` cache is automatically invalidated.
 
 ## Deprecations
 
