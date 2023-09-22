@@ -77,7 +77,7 @@ def parameters(*testcases):
 
   def wrapper(fn):
     """Constructs and returns the arguments as a dictionary."""
-    arg_names = inspect.getargspec(fn).args
+    arg_names = inspect.getfullargspec(fn).args
     if arg_names[0] != 'self':
       raise ValueError(
           'First argument to test is expected to be "self", but is {}'.format(
