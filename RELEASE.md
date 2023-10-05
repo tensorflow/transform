@@ -8,6 +8,9 @@
 
 ## Bug Fixes and Other Changes
 
+*   Bumped the Ubuntu version on which `tensorflow_transform` is tested to 20.04
+    (previously was 16.04).
+
 ## Breaking Changes
 
 *   Existing `tft.vocabulary` cache is automatically invalidated.
