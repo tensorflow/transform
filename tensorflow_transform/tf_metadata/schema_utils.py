@@ -262,7 +262,16 @@ def _standardize_default_value(
   assert isinstance(default_value, list), spec.default_value
   # Convert bytes to string
   if spec.dtype == tf.string:
-    default_value = [value.decode('utf-8') for value in default_value]
+
+    # Handle bytes string by trying to decode them (for legacy backwards
+    # compatibility) and if failed, keep the default value as bytes.
+    def try_decode(value: bytes) -> Union[str, bytes]:
+      try:
+        return value.decode('utf-8')
+      except UnicodeError:
+        return value
+
+    default_value = [try_decode(value) for value in default_value]
   # Unwrap a list with a single element.
   if len(default_value) == 1:
     default_value = default_value[0]

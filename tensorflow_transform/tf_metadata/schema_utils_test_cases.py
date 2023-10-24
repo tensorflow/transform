@@ -753,6 +753,35 @@ NON_ROUNDTRIP_SCHEMAS = [
             'seq_string_feature': schema_pb2.StringDomain(value=['a', 'b'])
         }
     },
+    {
+        'testcase_name': 'fixed_len_bytes_encoding',
+        'ascii_proto': """
+          feature {
+            name: "x"
+            type: BYTES
+            value_count {
+              min: 1
+              max: 1
+            }
+          }
+          tensor_representation_group {
+            key: ""
+            value {
+              tensor_representation {
+                key: "x"
+                value {
+                  dense_tensor {
+                    column_name: "x"
+                    shape { dim { size: 1 } }
+                    default_value { bytes_value: "\\xd0" }
+                  }
+                }
+              }
+            }
+          }
+          """,
+        'feature_spec': {'x': tf.io.FixedLenFeature([1], tf.string, b'\xd0')},
+    },
 ]
 
 INVALID_SCHEMA_PROTOS = [
