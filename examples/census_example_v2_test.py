@@ -22,6 +22,7 @@ import census_example_common
 import census_example_v2
 from tensorflow_transform import test_case as tft_test_case
 import local_model_server
+from tensorflow_transform.keras_lib import tf_keras
 
 from google.protobuf import text_format
 from tensorflow.python import tf2  # pylint: disable=g-direct-tensorflow-import
@@ -168,8 +169,8 @@ class CensusExampleV2Test(tft_test_case.TransformTestCase):
                               census_example_common.EXPORTED_MODEL_DIR)
 
     actual_model_path = os.path.join(model_path, '1')
-    tf.keras.backend.clear_session()
-    model = tf.keras.models.load_model(actual_model_path)
+    tf_keras.backend.clear_session()
+    model = tf_keras.models.load_model(actual_model_path)
     model.summary()
 
     example = text_format.Parse(_PREDICT_TF_EXAMPLE_TEXT_PB, tf.train.Example())

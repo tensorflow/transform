@@ -10,6 +10,7 @@
 
 *   Bumped the Ubuntu version on which `tensorflow_transform` is tested to 20.04
     (previously was 16.04).
+*   Explicitly use Keras 2 or `tf_keras`` if Keras 3 is installed.
 
 ## Breaking Changes
 
@@ -219,7 +220,7 @@
     `preprocessing_fn` inputs which are not used in any TFT analyzers, but end
     up in a control dependency (automatic control dependencies are not present
     in TF1, hence this change will only affect the native TF2 implementation).
-*   Assign different resource hint tags to both orginal and cloned PTransforms
+*   Assign different resource hint tags to both original and cloned PTransforms
     in deep copy optimization. The reason of adding these tags is to prevent
     root Reads that are generated from deep copy being merged due to common
     subexpression elimination.
@@ -746,7 +747,7 @@
     `tft.AnalyzeDataset`, `tft.AnalyzeDatasetWithCache`,
     `tft.AnalyzeAndTransformDataset` and `tft.TransformDataset`. The default
     behavior will continue to use Tensorflow's compat.v1 APIs. This can be
-    overriden by setting `tft.Context.force_tf_compat_v1=False`. The default
+    overridden by setting `tft.Context.force_tf_compat_v1=False`. The default
     behavior for TF 2 users will be switched to the new native implementation in
     a future release.
 
@@ -1197,7 +1198,7 @@
 * 'tft.vocabulary' and 'tft.compute_and_apply_vocabulary' now accept an
   optional `weights` argument. When `weights` is provided, weighted frequencies
   are used instead of frequencies based on counts.
-* 'tft.quantiles' and 'tft.bucketize' now accept an optoinal `weights` argument.
+* 'tft.quantiles' and 'tft.bucketize' now accept an optional `weights` argument.
   When `weights` is provided, weighted count is used for quantiles instead of
   the counts themselves.
 * Updated examples to construct the schema using
@@ -1276,7 +1277,7 @@
   for `TFTransformOutput.TRANSFORMED_METADATA_DIR` and
   `TFTransformOutput.TRANSFORM_FN_DIR` respectively.
 * `partially_apply_saved_transform` is deprecated, users should use the
-  `transform_raw_features` method of `TFTransformOuptut` instead.  These differ
+  `transform_raw_features` method of `TFTransformOutput` instead.  These differ
   in that `partially_apply_saved_transform` can also be used to return both the
   input placeholders and the outputs.  But users do not need this functionality
   because they will typically create the input placeholders themselves based

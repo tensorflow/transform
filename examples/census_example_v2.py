@@ -23,6 +23,7 @@ from absl import logging
 import tensorflow as tf
 import tensorflow_transform as tft
 import census_example_common as common
+from tensorflow_transform.keras_lib import tf_keras
 
 # Functions for training
 
@@ -193,11 +194,11 @@ def train_and_evaluate(raw_train_eval_data_path_pattern,
     if isinstance(spec, tf.io.FixedLenFeature):
       # TODO(b/208879020): Move into schema such that spec.shape is [1] and not
       # [] for scalars.
-      inputs[key] = tf.keras.layers.Input(
+      inputs[key] = tf_keras.layers.Input(
           shape=spec.shape or [1], name=key, dtype=spec.dtype)
       dense_inputs[key] = inputs[key]
     elif isinstance(spec, tf.io.SparseFeature):
-      inputs[key] = tf.keras.layers.Input(
+      inputs[key] = tf_keras.layers.Input(
           shape=spec.size, name=key, dtype=spec.dtype, sparse=True
       )
       sparse_inputs[key] = inputs[key]
@@ -205,16 +206,16 @@ def train_and_evaluate(raw_train_eval_data_path_pattern,
       raise ValueError('Spec type is not supported: ', key, spec)
 
   outputs = [
-      tf.keras.layers.Dense(10, activation='relu')(x)
+      tf_keras.layers.Dense(10, activation='relu')(x)
       for x in tf.nest.flatten(sparse_inputs)
   ]
   stacked_inputs = tf.concat(tf.nest.flatten(dense_inputs) + outputs, axis=1)
-  output = tf.keras.layers.Dense(100, activation='relu')(stacked_inputs)
-  output = tf.keras.layers.Dense(70, activation='relu')(output)
-  output = tf.keras.layers.Dense(50, activation='relu')(output)
-  output = tf.keras.layers.Dense(20, activation='relu')(output)
-  output = tf.keras.layers.Dense(2, activation='sigmoid')(output)
-  model = tf.keras.Model(inputs=inputs, outputs=output)
+  output = tf_keras.layers.Dense(100, activation='relu')(stacked_inputs)
+  output = tf_keras.layers.Dense(70, activation='relu')(output)
+  output = tf_keras.layers.Dense(50, activation='relu')(output)
+  output = tf_keras.layers.Dense(20, activation='relu')(output)
+  output = tf_keras.layers.Dense(2, activation='sigmoid')(output)
+  model = tf_keras.Model(inputs=inputs, outputs=output)
 
   model.compile(optimizer='adam',
                 loss='binary_crossentropy',

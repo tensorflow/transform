@@ -23,6 +23,7 @@ from tensorflow_transform import common
 from tensorflow_transform import common_types
 from tensorflow_transform import graph_tools
 from tensorflow_transform.analyzers import sanitized_vocab_filename
+from tensorflow_transform.keras_lib import tf_keras
 from tensorflow_transform.saved import saved_transform_io
 from tensorflow_transform.saved import saved_transform_io_v2
 from tensorflow_transform.tf_metadata import dataset_metadata
@@ -259,7 +260,7 @@ class TFTransformOutput:
           name, domain.min))
     return domain.max + 1
 
-  def transform_features_layer(self) -> tf.keras.Model:
+  def transform_features_layer(self) -> tf_keras.Model:
     """Creates a `TransformFeaturesLayer` from this transform output.
 
     If a `TransformFeaturesLayer` has already been created for self, the same
@@ -427,8 +428,8 @@ class TFTransformOutput:
 
 
 # TODO(b/162055065): Possibly switch back to inherit from Layer when possible.
-@tf.keras.utils.register_keras_serializable(package='TensorFlowTransform')
-class TransformFeaturesLayer(tf.keras.Model):
+@tf_keras.utils.register_keras_serializable(package='TensorFlowTransform')
+class TransformFeaturesLayer(tf_keras.Model):
   """A Keras layer for applying a tf.Transform output to input layers."""
 
   def __init__(self,
@@ -520,10 +521,10 @@ def _make_method_override(name):
 # TODO(zoyahav): Get rid of property attributes docs as well.
 def _override_parent_methods(keep_items):
   """Makes inheritted attributes of the TFT layer unusable and undocumented."""
-  for name in dir(tf.keras.Model):
+  for name in dir(tf_keras.Model):
     if name.startswith('_') or name in keep_items:
       continue
-    if callable(getattr(tf.keras.Model, name)):
+    if callable(getattr(tf_keras.Model, name)):
       setattr(TransformFeaturesLayer, name, _make_method_override(name))
     elif not isinstance(getattr(TransformFeaturesLayer, name), property):
       doc_controls.do_not_generate_docs(getattr(TransformFeaturesLayer, name))

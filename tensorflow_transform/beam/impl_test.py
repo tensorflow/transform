@@ -32,6 +32,7 @@ from tensorflow_transform import schema_inference
 import tensorflow_transform.beam as tft_beam
 from tensorflow_transform.beam.tft_beam_io import transform_fn_io
 from tensorflow_transform.beam import tft_unit
+from tensorflow_transform.keras_lib import tf_keras
 from tfx_bsl.tfxio import tensor_adapter
 
 from google.protobuf import text_format
@@ -4665,12 +4666,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
   def testLoadKerasModelInPreprocessingFn(self):
     def _create_model(features, target):
       inputs = [
-          tf.keras.Input(shape=(1,), name=f, dtype=tf.float32) for f in features
+          tf_keras.Input(shape=(1,), name=f, dtype=tf.float32) for f in features
       ]
-      x = tf.keras.layers.Concatenate()(inputs)
-      x = tf.keras.layers.Dense(64, activation='relu')(x)
-      outputs = tf.keras.layers.Dense(1, activation='sigmoid', name=target)(x)
-      model = tf.keras.Model(inputs=inputs, outputs=outputs)
+      x = tf_keras.layers.Concatenate()(inputs)
+      x = tf_keras.layers.Dense(64, activation='relu')(x)
+      outputs = tf_keras.layers.Dense(1, activation='sigmoid', name=target)(x)
+      model = tf_keras.Model(inputs=inputs, outputs=outputs)
       model.compile(
           loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
 
@@ -4694,7 +4695,7 @@ class BeamImplTest(tft_unit.TransformTestCase):
 
     def preprocessing_fn(inputs):
       model = tft.make_and_track_object(
-          lambda: tf.keras.models.load_model(keras_model_dir), name='keras')
+          lambda: tf_keras.models.load_model(keras_model_dir), name='keras')
       return {'prediction': model(inputs)}
 
     input_data = [{'f1': 1.0, 'f2': 0.0}, {'f1': 2.0, 'f2': 3.0}]

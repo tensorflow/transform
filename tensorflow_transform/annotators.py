@@ -23,6 +23,7 @@ from typing import Callable, List, Optional
 
 import tensorflow as tf
 from tensorflow_transform.graph_context import TFGraphContext
+from tensorflow_transform.keras_lib import tf_keras
 from tensorflow.python.trackable import base  # pylint: disable=g-direct-tensorflow-import
 
 __all__ = ['annotate_asset', 'make_and_track_object']
@@ -168,7 +169,7 @@ def make_and_track_object(trackable_factory_callable: Callable[[],
   if result is None:
     with tf.init_scope():
       result = trackable_factory_callable()
-      if name is None and isinstance(result, tf.keras.layers.Layer):
+      if name is None and isinstance(result, tf_keras.layers.Layer):
         raise ValueError(
             'Please pass a unique `name` to this API to ensure Keras objects '
             'are tracked correctly.')
