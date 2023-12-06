@@ -2,7 +2,7 @@
 
 # TensorFlow Transform
 
-[![Python](https://img.shields.io/badge/python%7C3.9-blue)](https://github.com/tensorflow/transform)
+[![Python](https://img.shields.io/badge/python%7C3.9%7C3.10%7C3.11-blue)](https://github.com/tensorflow/transform)
 [![PyPI](https://badge.fury.io/py/tensorflow-transform.svg)](https://badge.fury.io/py/tensorflow-transform)
 [![Documentation](https://img.shields.io/badge/api-reference-blue.svg)](https://www.tensorflow.org/tfx/transform/api_docs/python/tft)
 
