@@ -1973,15 +1973,10 @@ def _get_vocabulary_analyzer_inputs(
   elif vocab_ordering_type == _VocabOrderingType.WEIGHTED_FREQUENCY:
     reduced_batch = tf_utils.reduce_batch_weighted_counts(
         x, weights, filter_regex=filter_regex)
-    assert reduced_batch.summed_positive_per_x_and_y is None
-    assert reduced_batch.counts_per_x is None
     return [reduced_batch.unique_x, reduced_batch.summed_weights_per_x]
   else:
     reduced_batch = tf_utils.reduce_batch_weighted_counts(
         x, filter_regex=filter_regex)
-    assert reduced_batch.summed_weights_per_x is None
-    assert reduced_batch.summed_positive_per_x_and_y is None
-    assert reduced_batch.counts_per_x is None
     return [reduced_batch.unique_x]
 
 

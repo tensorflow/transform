@@ -187,8 +187,6 @@ def reduce_batch_weighted_counts(
     else:
       # TODO(b/112916494): Always do batch wise reduction once possible.
       return ReducedBatchWeightedCounts(flat_x, None, None, None)
-  # TODO(b/134075780): Revisit expected weights shape when input is composite.
-  x, weights = assert_same_shape(x, weights)
   weights = filter_fn(tf.reshape(weights, [-1]))
   unique_x_values, unique_idx, _ = tf.unique_with_counts(
       flat_x, out_idx=tf.int64)
@@ -410,7 +408,6 @@ def _preprocess_tensors_for_cooccurences(
     x, weights_input = assert_same_shape(x, weights_input)
     weights = weights_input
   y = _broadcast_to_x_shape(x, y)
-  x, y = assert_same_shape(x, y)
   x = tf.reshape(x, [-1])
   filter_fn = _make_regex_filter_fn(x, filter_regex)
   x = filter_fn(x)
@@ -593,8 +590,7 @@ def _broadcast_to_x_shape(x, y):
   y_shape = tf.shape(input=y)
   assert_eq = tf.compat.v1.assert_equal(x_shape[0], y_shape[0])
   with tf.control_dependencies([assert_eq]):
-    y = tf.identity(y)
-  rank_delta = tf.rank(x) - tf.rank(y)
+    rank_delta = tf.rank(x) - tf.rank(y)
   target_shape = tf.concat(
       [tf.shape(y), tf.ones(rank_delta, dtype=tf.int32)], axis=0)
   matched_rank = tf.reshape(y, target_shape)
@@ -1756,7 +1752,7 @@ def reduce_batch_minus_min_and_max(
 
     x_batch_max = tf.reduce_max(input_tensor=x)
     x_batch_minus_min = tf.reduce_max(input_tensor=tf.zeros_like(x) - x)
-    return assert_same_shape(x_batch_minus_min, x_batch_max)
+    return x_batch_minus_min, x_batch_max
 
   elif isinstance(x, tf.SparseTensor):
     return _sparse_minus_reduce_min_and_reduce_max(x)
@@ -1819,9 +1815,6 @@ def reduce_batch_minus_min_and_max_per_key(
   unique = tf.unique_with_counts(key, out_idx=tf.int64)
   x_batch_maxes = get_batch_max_per_key(x, unique)
   x_batch_minus_mins = get_batch_max_per_key(-x, unique)
-
-  x_batch_minus_mins, x_batch_maxes = assert_same_shape(x_batch_minus_mins,
-                                                        x_batch_maxes)
 
   return (unique.y, x_batch_minus_mins, x_batch_maxes)
 

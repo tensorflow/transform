@@ -281,11 +281,7 @@ def _bind_future_as_tensor_v2(
                               replaced_result)
       return replaced_result
     else:
-      # Without the identity wrapper some V2 tests fail with AttributeError:
-      # Tensor.name is meaningless when eager execution is enabled.
-      # TODO(b/149997088): Remove the identity wrapper once we no longer rely on
-      # tensor names.
-      return tf.identity(replaced_result)
+      return replaced_result
   else:
     graph.add_to_collection(TENSOR_REPLACEMENTS, tensor_sink)
     eager_asset_path = temporary_analyzer_info.eager_asset_path

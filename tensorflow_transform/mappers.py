@@ -1449,11 +1449,12 @@ def _deduplicate_tensor_per_row(input_tensor, batch_dim):
 
     # Keep track of the maximum number of unique elements in a row, as this
     # will determine the resulting dense shape.
+    num_unique_values = tf.shape(row_values)[0]
     max_unique = tf.cast(
-        tf.maximum(tf.cast(tf.shape(row_values)[0], tf.int64), max_unique),
+        tf.maximum(tf.cast(num_unique_values, tf.int64), max_unique),
         tf.int64)
     column_indices = tf.cast(
-        tf.expand_dims(tf.range(tf.shape(row_values)[0]), axis=1), tf.int64)
+        tf.expand_dims(tf.range(num_unique_values), axis=1), tf.int64)
     row_indices = tf.fill(tf.shape(column_indices), tf.cast(index, tf.int64))
     values = values.write(index, row_values)
     indices = indices.write(index, tf.concat([row_indices, column_indices], 1))

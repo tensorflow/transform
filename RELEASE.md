@@ -16,7 +16,7 @@
 
 ## Breaking Changes
 
-*   Existing `tft.vocabulary` cache is automatically invalidated.
+*   Existing analyzer cache is automatically invalidated.
 
 ## Deprecations
 
