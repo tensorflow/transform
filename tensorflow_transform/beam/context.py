@@ -42,6 +42,8 @@ class Context:
     force_tf_compat_v1: (Optional) If True, TFT's public APIs
         (e.g. AnalyzeDataset) will use Tensorflow in compat.v1 mode irrespective
         of installed version of Tensorflow. Defaults to `False`.
+    save_options: (Optional) If set, the tf.saved_model.SaveOptions to save
+        the transform_fn with. Only applies for TF2.
 
   Note that the temp dir should be accessible to worker jobs, e.g. if running
   with the Cloud Dataflow runner, the temp dir should be on GCS and should have
@@ -56,6 +58,7 @@ class Context:
     passthrough_keys: Optional[Iterable[str]] = None
     use_deep_copy_optimization: Optional[bool] = None
     force_tf_compat_v1: Optional[bool] = None
+    save_options: Optional[tf.saved_model.SaveOptions] = None
 
     @classmethod
     def make_empty(cls):
@@ -80,7 +83,8 @@ class Context:
                desired_batch_size: Optional[int] = None,
                passthrough_keys: Optional[Iterable[str]] = None,
                use_deep_copy_optimization: Optional[bool] = None,
-               force_tf_compat_v1: Optional[bool] = None):
+               force_tf_compat_v1: Optional[bool] = None,
+               save_options: Optional[tf.saved_model.SaveOptions] = None):
     state = getattr(self._thread_local, 'state', None)
     if not state:
       self._thread_local.state = self._StateStack()
@@ -92,6 +96,7 @@ class Context:
     self._passthrough_keys = passthrough_keys
     self._use_deep_copy_optimization = use_deep_copy_optimization
     self._force_tf_compat_v1 = force_tf_compat_v1
+    self._save_options = save_options
 
   def __enter__(self):
     # Previous State's properties are inherited if not explicitly specified.
@@ -110,7 +115,8 @@ class Context:
             last_frame.use_deep_copy_optimization,
             force_tf_compat_v1=self._force_tf_compat_v1
             if self._force_tf_compat_v1 is not None else
-            last_frame.force_tf_compat_v1))
+            last_frame.force_tf_compat_v1,
+            save_options=self._save_options or last_frame.save_options))
 
   def __exit__(self, *exn_info):
     self._thread_local.state.frames.pop()
@@ -175,3 +181,12 @@ class Context:
     """Computes use_tf_compat_v1 from TF environment and force_tf_compat_v1."""
     force_tf_compat_v1 = cls._get_force_tf_compat_v1()
     return tf2_utils.use_tf_compat_v1(force_tf_compat_v1)
+
+  @classmethod
+  def get_save_options(cls) -> Optional[tf.saved_model.SaveOptions]:
+    """Retrieves a user set save_options, None if not set."""
+    state = cls._get_topmost_state_frame()
+    if state.save_options is not None:
+      tf.compat.v1.logging.info('Using save_options: %s', state.save_options)
+      return state.save_options
+    return None

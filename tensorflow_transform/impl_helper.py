@@ -434,103 +434,138 @@ def trace_preprocessing_function(preprocessing_fn,
       0. the graph representing the traced `preprocessing_fn`
       1. the graph's structured inputs
       2. the graph's structured outputs
-
   """
   if use_tf_compat_v1:
     return _trace_preprocessing_fn_v1(preprocessing_fn, input_specs)
   else:
-    return _trace_preprocessing_fn_v2(preprocessing_fn, input_specs,
-                                      base_temp_dir)
+    return _trace_preprocessing_fn_v2(
+        preprocessing_fn, input_specs, base_temp_dir
+    )
 
 
 def _trace_and_write_transform_fn(
     saved_model_dir: str,
-    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
-                               Mapping[str, common_types.TensorType]],
-    input_signature: Mapping[str, tf.TypeSpec], base_temp_dir: Optional[str],
+    preprocessing_fn: Callable[
+        [Mapping[str, common_types.TensorType]],
+        Mapping[str, common_types.TensorType],
+    ],
+    input_signature: Mapping[str, tf.TypeSpec],
+    base_temp_dir: Optional[str],
     tensor_replacement_map: Optional[Dict[str, tf.Tensor]],
-    output_keys_to_name_map: Optional[Dict[str,
-                                           str]]) -> function.ConcreteFunction:
+    output_keys_to_name_map: Optional[Dict[str, str]],
+    save_options: Optional[tf.saved_model.SaveOptions],
+) -> function.ConcreteFunction:
   """Trace `preprocessing_fn` and serialize to a SavedModel."""
   tf_graph_context = graph_context.TFGraphContext(
       module_to_export=tf.Module(),
       temp_dir=base_temp_dir,
-      evaluated_replacements=tensor_replacement_map)
+      evaluated_replacements=tensor_replacement_map,
+  )
   transform_fn = get_traced_transform_fn(
       preprocessing_fn,
       input_signature,
       tf_graph_context,
-      output_keys_to_name_map=output_keys_to_name_map)
+      output_keys_to_name_map=output_keys_to_name_map,
+  )
   return saved_transform_io_v2.write_v2_saved_model(
-      tf_graph_context.module_to_export, transform_fn, 'transform_fn',
-      saved_model_dir)
+      tf_graph_context.module_to_export,
+      transform_fn,
+      'transform_fn',
+      saved_model_dir,
+      save_options,
+  )
 
 
 def _trace_and_get_metadata(
     concrete_transform_fn: function.ConcreteFunction,
     structured_inputs: Mapping[str, common_types.TensorType],
-    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
-                               Mapping[str, common_types.TensorType]],
+    preprocessing_fn: Callable[
+        [Mapping[str, common_types.TensorType]],
+        Mapping[str, common_types.TensorType],
+    ],
     base_temp_dir: Optional[str],
-    tensor_replacement_map: Optional[Dict[str, tf.Tensor]]
+    tensor_replacement_map: Optional[Dict[str, tf.Tensor]],
 ) -> dataset_metadata.DatasetMetadata:
   """Compute and return metadata for the outputs of `concrete_transform_fn`."""
   tf_graph_context = graph_context.TFGraphContext(
       module_to_export=tf.Module(),
       temp_dir=base_temp_dir,
-      evaluated_replacements=tensor_replacement_map)
+      evaluated_replacements=tensor_replacement_map,
+  )
   concrete_metadata_fn = schema_inference.get_traced_metadata_fn(
       preprocessing_fn,
       structured_inputs,
       tf_graph_context,
-      evaluate_schema_overrides=True)
+      evaluate_schema_overrides=True,
+  )
   return dataset_metadata.DatasetMetadata(
       schema=schema_inference.infer_feature_schema_v2(
           concrete_transform_fn.structured_outputs,
           concrete_metadata_fn,
-          evaluate_schema_overrides=True))
+          evaluate_schema_overrides=True,
+      )
+  )
 
 
 def _validate_analyzers_fingerprint(
-    baseline_analyzers_fingerprint: Mapping[str,
-                                            graph_tools.AnalyzersFingerprint],
-    graph: tf.Graph, structured_inputs: Mapping[str, common_types.TensorType]):
+    baseline_analyzers_fingerprint: Mapping[
+        str, graph_tools.AnalyzersFingerprint
+    ],
+    graph: tf.Graph,
+    structured_inputs: Mapping[str, common_types.TensorType],
+):
   """Validates analyzers fingerprint in `graph` is same as baseline."""
   analyzers_fingerprint = graph_tools.get_analyzers_fingerprint(
-      graph, structured_inputs)
+      graph, structured_inputs
+  )
   error_msg = (
       'The order of analyzers in your `preprocessing_fn` appears to be '
       'non-deterministic. This can be fixed either by changing your '
       '`preprocessing_fn` such that tf.Transform analyzers are encountered '
       'in a deterministic order or by passing a unique name to each '
-      'analyzer API call.')
+      'analyzer API call.'
+  )
   for analyzer in analyzers_fingerprint:
     if analyzer not in baseline_analyzers_fingerprint:
-      prefix_msg = (f'Analyzer node ({analyzer}) not found in '
-                    f'{baseline_analyzers_fingerprint.keys()}. ')
+      prefix_msg = (
+          f'Analyzer node ({analyzer}) not found in '
+          f'{baseline_analyzers_fingerprint.keys()}. '
+      )
       raise RuntimeError(prefix_msg + error_msg)
-    if (baseline_analyzers_fingerprint[analyzer].source_keys !=
-        analyzers_fingerprint[analyzer].source_keys):
+    if (
+        baseline_analyzers_fingerprint[analyzer].source_keys
+        != analyzers_fingerprint[analyzer].source_keys
+    ):
       raise RuntimeError(error_msg)
 
-    if (baseline_analyzers_fingerprint[analyzer].unique_path_hash !=
-        analyzers_fingerprint[analyzer].unique_path_hash):
+    if (
+        baseline_analyzers_fingerprint[analyzer].unique_path_hash
+        != analyzers_fingerprint[analyzer].unique_path_hash
+    ):
       logging.warning(
-          'Analyzer (%s) node\'s cache key varies on repeated tracing.'
+          "Analyzer (%s) node's cache key varies on repeated tracing."
           ' This warning is safe to ignore if you either specify `name` for all'
           ' analyzers or if the order in which they are invoked is'
-          ' deterministic. If not, please file a bug with details.', analyzer)
+          ' deterministic. If not, please file a bug with details.',
+          analyzer,
+      )
 
 
 def trace_and_write_v2_saved_model(
     saved_model_dir: str,
-    preprocessing_fn: Callable[[Mapping[str, common_types.TensorType]],
-                               Mapping[str, common_types.TensorType]],
-    input_signature: Mapping[str, tf.TypeSpec], base_temp_dir: Optional[str],
-    baseline_analyzers_fingerprint: Mapping[str,
-                                            graph_tools.AnalyzersFingerprint],
+    preprocessing_fn: Callable[
+        [Mapping[str, common_types.TensorType]],
+        Mapping[str, common_types.TensorType],
+    ],
+    input_signature: Mapping[str, tf.TypeSpec],
+    base_temp_dir: Optional[str],
+    baseline_analyzers_fingerprint: Mapping[
+        str, graph_tools.AnalyzersFingerprint
+    ],
     tensor_replacement_map: Optional[Dict[str, tf.Tensor]],
-    output_keys_to_name_map: Optional[Dict[str, str]]):
+    output_keys_to_name_map: Optional[Dict[str, str]],
+    save_options: Optional[tf.saved_model.SaveOptions],
+):
   """Writes out a SavedModelV2 with preprocessing_fn traced using tf.function.
 
   The SavedModel written contains a method called `transform_fn` that
@@ -549,6 +584,7 @@ def trace_and_write_v2_saved_model(
       evaluated replacement tensors.
     output_keys_to_name_map: A map from output dictionary keys to the names of
       the tensors that they represent.
+    save_options: The options to use when saving the saved_model.
 
   Returns:
     A tuple containing a pair of `tf.ConcreteFunction`s:
@@ -562,7 +598,7 @@ def trace_and_write_v2_saved_model(
   """
   concrete_transform_fn = _trace_and_write_transform_fn(
       saved_model_dir, preprocessing_fn, input_signature, base_temp_dir,
-      tensor_replacement_map, output_keys_to_name_map)
+      tensor_replacement_map, output_keys_to_name_map, save_options)
   structured_inputs = tf2_utils.get_structured_inputs_from_func_graph(
       concrete_transform_fn.graph)
   _validate_analyzers_fingerprint(baseline_analyzers_fingerprint,
@@ -632,7 +668,8 @@ def analyze_in_place(preprocessing_fn, force_tf_compat_v1, feature_specs,
         input_signature=type_specs,
         base_temp_dir=None,
         tensor_replacement_map=None,
-        output_keys_to_name_map=None)
+        output_keys_to_name_map=None,
+        save_options=None)
     _assert_no_analyzers_in_graph(concrete_transform_fn.graph)
     structured_inputs = tf2_utils.get_structured_inputs_from_func_graph(
         concrete_transform_fn.graph)

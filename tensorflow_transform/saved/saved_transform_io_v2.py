@@ -13,7 +13,7 @@
 # limitations under the License.
 """Utility functions to save and load from SavedModels in TF 2.x."""
 
-from typing import Any, Dict, Iterable, Mapping, Tuple, Union
+from typing import Any, Dict, Iterable, Mapping, Optional, Tuple, Union
 
 import tensorflow as tf
 from tensorflow_transform import annotators
@@ -534,9 +534,15 @@ def write_v2_saved_model(
     tf_function: tf.types.experimental.GenericFunction,
     name: str,
     saved_model_dir: str,
+    save_options: Optional[tf.saved_model.SaveOptions] = None,
 ) -> function.ConcreteFunction:
   """Writes `tf_function` under attr `name` of `module` to `saved_model_dir`."""
   concrete_fn = trace_and_update_module(
-      module, tf_function, name, strip_control_dependencies=False)
-  tf.saved_model.save(module, saved_model_dir)
+      module, tf_function, name, strip_control_dependencies=False
+  )
+  tf.saved_model.save(
+      module,
+      saved_model_dir,
+      options=save_options,
+  )
   return concrete_fn

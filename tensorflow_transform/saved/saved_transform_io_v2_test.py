@@ -111,34 +111,42 @@ def _create_test_saved_model(export_in_tf1,
           tensor_spec = input_specs[key]
           if isinstance(tensor_spec, tf.TensorSpec):
             inputs[key] = tf.compat.v1.placeholder(
-                tensor_spec.dtype, shape=tensor_spec.shape)
+                tensor_spec.dtype, shape=tensor_spec.shape
+            )
           elif isinstance(tensor_spec, tf.SparseTensorSpec):
             inputs[key] = tf.compat.v1.sparse_placeholder(
-                tensor_spec.dtype, shape=tensor_spec.shape)
+                tensor_spec.dtype, shape=tensor_spec.shape
+            )
           elif isinstance(tensor_spec, tf.RaggedTensorSpec):
             inputs[key] = tf.compat.v1.ragged.placeholder(
-                tensor_spec._dtype, tensor_spec._ragged_rank, [])
+                tensor_spec._dtype, tensor_spec._ragged_rank, []
+            )
           else:
             raise ValueError(
                 'TypeSpecs specified should be one of `tf.TensorSpec`, '
-                '`tf.SparseTensorSpec`, `tf.RaggedTensorSpec`')
+                '`tf.SparseTensorSpec`, `tf.RaggedTensorSpec`'
+            )
         outputs = preprocessing_fn(inputs)
         # show that unrelated & unmapped placeholders do not interfere
         tf.compat.v1.placeholder(tf.int64)
         saved_transform_io.write_saved_transform_from_session(
-            session, inputs, outputs, export_path)
+            session, inputs, outputs, export_path
+        )
   else:
     module = tf.Module()
     tf_graph_context = graph_context.TFGraphContext(
-        module_to_export=module, temp_dir=None, evaluated_replacements=None)
+        module_to_export=module, temp_dir=None, evaluated_replacements=None
+    )
     transform_fn = impl_helper.get_traced_transform_fn(
         preprocessing_fn=preprocessing_fn,
         input_signature=input_specs,
         tf_graph_context=tf_graph_context,
-        output_keys_to_name_map=None)
+        output_keys_to_name_map=None,
+    )
 
-    saved_transform_io_v2.write_v2_saved_model(module, transform_fn,
-                                               'transform_fn', export_path)
+    saved_transform_io_v2.write_v2_saved_model(
+        module, transform_fn, 'transform_fn', export_path, None
+    )
   return export_path
 
 
