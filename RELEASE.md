@@ -14,6 +14,8 @@
 *   Added python 3.11 support.
 *   Depends on `tensorflow>=2.15.0,<3`.
 *   Enable passing `tf.saved_model.SaveOptions` to model saving functionality.
+*   Census and sentiment examples updated to only use Keras instead of
+    estimator.
 
 ## Breaking Changes
 

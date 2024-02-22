@@ -18,14 +18,12 @@ import shutil
 from packaging import version
 
 import tensorflow.compat.v2 as tf
-import census_example_common
 import census_example_v2
 from tensorflow_transform import test_case as tft_test_case
 import local_model_server
 from tensorflow_transform.keras_lib import tf_keras
 
 from google.protobuf import text_format
-from tensorflow.python import tf2  # pylint: disable=g-direct-tensorflow-import
 
 # Use first row of test data set, which has high probability on label 1 (which
 # corresponds to '<=50K').
@@ -102,8 +100,9 @@ class CensusExampleV2Test(tft_test_case.TransformTestCase):
 
   def setUp(self):
     super().setUp()
-    if (not tf2.enabled() or tft_test_case.is_external_environment() and
-        version.parse(tf.version.VERSION) < version.parse('2.3')):
+    if tft_test_case.is_external_environment() and version.parse(
+        tf.version.VERSION
+    ) < version.parse('2.3'):
       raise tft_test_case.SkipTest('This test requires TF version >= 2.3')
 
   def _get_data_dir(self):
@@ -135,23 +134,23 @@ class CensusExampleV2Test(tft_test_case.TransformTestCase):
     train_data_file = os.path.join(raw_data_dir, 'adult.data')
     test_data_file = os.path.join(raw_data_dir, 'adult.test')
 
-    census_example_common.transform_data(train_data_file, test_data_file,
-                                         working_dir)
+    census_example_v2.transform_data(
+        train_data_file, test_data_file, working_dir
+    )
 
     if read_raw_data_for_training:
       raw_train_and_eval_patterns = (train_data_file, test_data_file)
       transformed_train_and_eval_patterns = None
     else:
       train_pattern = os.path.join(
-          working_dir,
-          census_example_common.TRANSFORMED_TRAIN_DATA_FILEBASE + '*')
+          working_dir, census_example_v2.TRANSFORMED_TRAIN_DATA_FILEBASE + '*'
+      )
       eval_pattern = os.path.join(
-          working_dir,
-          census_example_common.TRANSFORMED_TEST_DATA_FILEBASE + '*')
+          working_dir, census_example_v2.TRANSFORMED_TEST_DATA_FILEBASE + '*'
+      )
       raw_train_and_eval_patterns = None
       transformed_train_and_eval_patterns = (train_pattern, eval_pattern)
-    output_dir = os.path.join(working_dir,
-                              census_example_common.EXPORTED_MODEL_DIR)
+    output_dir = os.path.join(working_dir, census_example_v2.EXPORTED_MODEL_DIR)
     results = census_example_v2.train_and_evaluate(
         raw_train_and_eval_patterns,
         transformed_train_and_eval_patterns,
@@ -165,8 +164,7 @@ class CensusExampleV2Test(tft_test_case.TransformTestCase):
     # exported model is hermetic.
     shutil.rmtree(os.path.join(working_dir, 'transform_fn'))
 
-    model_path = os.path.join(working_dir,
-                              census_example_common.EXPORTED_MODEL_DIR)
+    model_path = os.path.join(working_dir, census_example_v2.EXPORTED_MODEL_DIR)
 
     actual_model_path = os.path.join(model_path, '1')
     tf_keras.backend.clear_session()
@@ -194,8 +192,8 @@ class CensusExampleV2Test(tft_test_case.TransformTestCase):
         ascii_classification_request = _CLASSIFICATION_REQUEST_TEXT_PB
         results = local_model_server.make_classification_request(
             address, ascii_classification_request)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(len(results[0].classes), 2)
+        self.assertLen(results, 1)
+        self.assertLen(results[0].classes, 2)
         self.assertEqual(results[0].classes[0].label, '0')
         self.assertLess(results[0].classes[0].score, 0.01)
         self.assertEqual(results[0].classes[1].label, '1')
