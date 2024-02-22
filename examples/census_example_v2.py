@@ -246,11 +246,11 @@ def main(input_data_dir,
   train_data_file = os.path.join(input_data_dir, 'adult.data')
   test_data_file = os.path.join(input_data_dir, 'adult.test')
 
-  common.transform_data(train_data_file, test_data_file, working_dir)
 
   if read_raw_data_for_training:
     raw_train_and_eval_patterns = (train_data_file, test_data_file)
     transformed_train_and_eval_patterns = None
+    common.transform_data(train_data_file, test_data_file, working_dir)
   else:
     train_pattern = os.path.join(working_dir,
                                  common.TRANSFORMED_TRAIN_DATA_FILEBASE + '*')
