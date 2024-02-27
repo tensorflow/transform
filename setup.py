@@ -48,7 +48,9 @@ def _make_required_install_packages():
       'protobuf>=3.20.3,<5',
       'pyarrow>=10,<11',
       'pydot>=1.2,<2',
-      'tensorflow>=2.15,<3',
+      # TODO(b/303870331) Update to '>=2.16,<3' once the rest of the ecosystem
+      # updates and the incompatibilities are fixed.
+      'tensorflow>=2.15,<2.16',
       'tensorflow-metadata' + select_constraint(
           default='>=1.14.0,<1.15.0',
           nightly='>=1.15.0.dev',

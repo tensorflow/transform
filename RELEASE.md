@@ -12,7 +12,7 @@
     (previously was 16.04).
 *   Explicitly use Keras 2 or `tf_keras`` if Keras 3 is installed.
 *   Added python 3.11 support.
-*   Depends on `tensorflow>=2.15.0,<3`.
+*   Depends on `tensorflow>=2.15,<2.16`.
 *   Enable passing `tf.saved_model.SaveOptions` to model saving functionality.
 *   Census and sentiment examples updated to only use Keras instead of
     estimator.
