@@ -43,9 +43,9 @@ def _make_required_install_packages():
   # protobuf) with TF and pyarrow version with tfx-bsl.
   return [
       'absl-py>=0.9,<2.0.0',
-      'apache-beam[gcp]>=2.47,<3',
+      'apache-beam[gcp]>=2.53,<3',
       'numpy>=1.22.0',
-      'protobuf>=3.20.3,<5',
+      'protobuf>=4.25.2,<5',
       'pyarrow>=10,<11',
       'pydot>=1.2,<2',
       # TODO(b/303870331) Update to '>=2.17,<3' once the rest of the ecosystem
