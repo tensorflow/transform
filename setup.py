@@ -13,9 +13,13 @@
 # limitations under the License.
 """Package Setup script for tf.Transform."""
 import os
+import sys
 
 from setuptools import find_packages
 from setuptools import setup
+
+
+_IS_PY311 = sys.version_info >= (3, 11)
 
 
 def select_constraint(default, nightly=None, git_master=None):
@@ -43,9 +47,9 @@ def _make_required_install_packages():
   # protobuf) with TF and pyarrow version with tfx-bsl.
   return [
       'absl-py>=0.9,<2.0.0',
-      'apache-beam[gcp]>=2.53,<3',
+      f'apache-beam[gcp]>={"2.53" if _IS_PY311 else "2.47"},<3',
       'numpy>=1.22.0',
-      'protobuf>=4.25.2,<5',
+      f'protobuf>={"4.25.2" if _IS_PY311 else "3.20.3"},<5',
       'pyarrow>=10,<11',
       'pydot>=1.2,<2',
       'tensorflow>=2.15,<3',

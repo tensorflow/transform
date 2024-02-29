@@ -16,8 +16,10 @@
 *   Enable passing `tf.saved_model.SaveOptions` to model saving functionality.
 *   Census and sentiment examples updated to only use Keras instead of
     estimator.
-*   Depends on `apache-beam>=2.53,<3`.
-*   Depends on `protobuf>=4.25.2,<5`.
+*   Depends on `apache-beam[gcp]>=2.53.0,<3` for Python 3.11 and on 
+    `apache-beam[gcp]>=2.47.0,<3` for 3.9 and 3.10.
+*   Depends on `protobuf>=4.25.2,<5` for Python 3.11 and on `protobuf>3.20.3,<5`
+    for 3.9 and 3.10.
 
 ## Breaking Changes
 
