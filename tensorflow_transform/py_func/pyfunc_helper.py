@@ -15,6 +15,7 @@
 
 import dill
 import tensorflow as tf
+from tfx_bsl import beam as tfx_bsl_beam
 # TODO(b/243513856): Switch to `collections.namedtuple` or `typing.NamedTuple`
 # once the Spark issue is resolved.
 from tfx_bsl.types import tfx_namedtuple
@@ -25,6 +26,8 @@ from tensorflow.python.framework import ops
 # pylint: enable=g-direct-tensorflow-import
 
 _PYFUNC_COLLECTION_KEY = 'pyfuncs'
+
+tfx_bsl_beam.fix_code_type_pickling()
 
 
 class _PyFuncDef(tfx_namedtuple.namedtuple('_PyFuncDef', ['token', 'func'])):

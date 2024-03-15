@@ -651,7 +651,7 @@ class _CreateSavedModelImpl(beam.PTransform):
 def _create_v2_saved_model(tensor_replacement_map, base_temp_dir,
                            preprocessing_fn, input_signature,
                            baseline_analyzers_fingerprint,
-                           output_keys_to_name_map):
+                           output_keys_to_name_map, save_options):
   """Writes out a SavedModelV2 with preprocessing_fn traced using tf.function.
 
   The SavedModel written contains a method called `transform_fn` that
@@ -669,6 +669,7 @@ def _create_v2_saved_model(tensor_replacement_map, base_temp_dir,
       paths that define its fingerprint.
     output_keys_to_name_map: A map from output dictionary keys to the names of
       the tensors that they represent.
+    save_options: The tf.saved_model.SaveOptions to save the model with.
 
   Returns:
     Path to which SavedModel was written.
@@ -678,7 +679,8 @@ def _create_v2_saved_model(tensor_replacement_map, base_temp_dir,
                                              input_signature, base_temp_dir,
                                              baseline_analyzers_fingerprint,
                                              tensor_replacement_map,
-                                             output_keys_to_name_map)
+                                             output_keys_to_name_map,
+                                             save_options)
   return saved_model_dir
 
 
@@ -695,6 +697,7 @@ class _CreateSavedModelImplV2(beam.PTransform):
     self._input_signature = extra_args.input_specs
     self._output_signature = operation.output_signature
     self._analyzers_fingerprint = extra_args.analyzers_fingerprint
+    self._save_options = extra_args.save_options
 
   def _maybe_get_output_tensor_names_dict(self):
     # output_signature will contain CompositeTensors only if this is the final
@@ -719,7 +722,7 @@ class _CreateSavedModelImplV2(beam.PTransform):
         | 'CreateSavedModel' >> beam.Map(
             _create_v2_saved_model, self._base_temp_dir, self._preprocessing_fn,
             self._input_signature, self._analyzers_fingerprint,
-            self._maybe_get_output_tensor_names_dict())
+            self._maybe_get_output_tensor_names_dict(), self._save_options)
         | 'Count' >>
         beam_common.IncrementCounter(_CREATE_SAVED_MODEL_COUNTER_NAME))
 
@@ -988,6 +991,7 @@ class _AnalyzeDatasetCommon(beam.PTransform):
     """
     self._preprocessing_fn = preprocessing_fn
     self.pipeline = pipeline
+    self._save_options = Context.get_save_options()
     self._use_tf_compat_v1 = Context.get_use_tf_compat_v1()
     if self._use_tf_compat_v1:
       _warn_about_tf_compat_v1()
@@ -1155,7 +1159,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
         use_tf_compat_v1=self._use_tf_compat_v1,
         cache_pcoll_dict=dataset_cache_dict,
         preprocessing_fn=self._preprocessing_fn,
-        analyzers_fingerprint=analyzers_fingerprint)
+        analyzers_fingerprint=analyzers_fingerprint,
+        save_options=self._save_options)
 
     (transform_fn_future, cache_value_nodes,
      detached_sideeffect_leafs) = analysis_graph_builder.build(

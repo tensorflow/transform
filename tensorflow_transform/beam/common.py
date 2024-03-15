@@ -21,6 +21,7 @@ from typing import Any, Dict, Mapping, Optional
 import uuid
 
 import apache_beam as beam
+import tensorflow as tf
 from tensorflow_transform import common_types
 from tensorflow_transform import nodes
 from tfx_bsl.telemetry import util
@@ -165,6 +166,7 @@ class ConstructBeamPipelineVisitor(nodes.Visitor):
     cache_pcoll_dict: Optional[Dict[str, beam.PCollection]]
     preprocessing_fn: Any
     analyzers_fingerprint: Mapping[str, Any]
+    save_options: tf.saved_model.SaveOptions
 
   def __init__(self, extra_args):
     self._extra_args = extra_args

@@ -31,14 +31,9 @@ to a rank 2 `SparseTensor` that contains the individual tokens. Then, using
 
 During the training and evaluation phase, the `SparseTensor` that represents
 the review text (tokenized and integerized) is used as the input to a
-bag-of-words model. In particular, the tensor is wrapped as a `FeatureColumn`
-created with `sparse_column_with_integerized_feature`. However, instead
-of a vector with a length of `1` (per instance), there's a vector with the length
-of the number of tokens. In this circumstance, the vector of integerized tokens
-is interpreted as a bag-of-words.
-
-The bag-of-words model gives an accuracy of 87.6%—close to the accuracy of the
-bag-of-words model for the same dataset given by
-[Maas et al. (2011)](http://ai.stanford.edu/~amaas/papers/wvSent_acl2011.pdf).
-But since their bag-of-words model may not be identical to ours, we do not expect
-exact agreement.
+bag-of-words model. In particular, the tensor is passed to a `CategoryEncoding`.
+However, instead of a vector with a length of `1` (per instance), there's a
+vector with the length of the number of tokens. In this circumstance, the vector
+of integerized tokens is interpreted as a bag-of-words.
+The vector is then used to create embeddings which can be passed to a Keras
+based DNN for training.

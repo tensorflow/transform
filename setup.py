@@ -43,12 +43,14 @@ def _make_required_install_packages():
   # protobuf) with TF and pyarrow version with tfx-bsl.
   return [
       'absl-py>=0.9,<2.0.0',
-      'apache-beam[gcp]>=2.47,<3',
+      'apache-beam[gcp]>=2.53,<3;python_version>="3.11"',
+      'apache-beam[gcp]>=2.47,<3;python_version<"3.11"',
       'numpy>=1.22.0',
-      'protobuf>=3.20.3,<5',
+      'protobuf>=4.25.2,<5;python_version>="3.11"',
+      'protobuf>=3.20.3,<5;python_version<"3.11"',
       'pyarrow>=10,<11',
       'pydot>=1.2,<2',
-      'tensorflow>=2.15,<3',
+      'tensorflow~=2.15',
       'tensorflow-metadata' + select_constraint(
           default='>=1.14.0,<1.15.0',
           nightly='>=1.15.0.dev',

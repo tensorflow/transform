@@ -11,14 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for sentiment_example."""
+"""Tests for sentiment_example_v2."""
 
 import os
 import shutil
 
 import tensorflow as tf
 import tensorflow_transform as tft
-import sentiment_example
+import sentiment_example_v2
 from tensorflow_transform import test_case
 import local_model_server
 
@@ -42,30 +42,43 @@ class SentimentExampleTest(test_case.TransformTestCase):
       test_pos_filepattern = os.path.join(raw_data_dir, 'test/pos/10000*')
 
       # Writes the shuffled data under working_dir in TFRecord format.
-      sentiment_example.read_and_shuffle_data(train_neg_filepattern,
-                                              train_pos_filepattern,
-                                              test_neg_filepattern,
-                                              test_pos_filepattern, working_dir)
+      sentiment_example_v2.read_and_shuffle_data(
+          train_neg_filepattern,
+          train_pos_filepattern,
+          test_neg_filepattern,
+          test_pos_filepattern,
+          working_dir,
+      )
 
-    sentiment_example.transform_data(working_dir)
-    results = sentiment_example.train_and_evaluate(
-        working_dir, num_train_instances=1000, num_test_instances=1000)
+    sentiment_example_v2.transform_data(working_dir)
+    # TODO: b/323209255 - Remove this if clause once TF pulls the latest keras
+    # nightly version.
     if not test_case.is_external_environment():
-      self.assertGreaterEqual(results['accuracy'], 0.7)
+      model_path = os.path.join(
+          working_dir, sentiment_example_v2.EXPORTED_MODEL_DIR
+      )
+      results = sentiment_example_v2.train_and_evaluate(
+          working_dir,
+          model_path,
+          num_train_instances=1000,
+          num_test_instances=1000,
+      )
+    if not test_case.is_external_environment():
+      # Assert expected accuracy.
+      self.assertGreaterEqual(results[1], 0.7)
 
       # Delete temp directory and transform_fn directory.  This ensures that the
       # test of serving the model below will only pass if the SavedModel saved
-      # to sentiment_example.EXPORTED_MODEL_DIR is hermetic, i.e does not
+      # to sentiment_example_v2.EXPORTED_MODEL_DIR is hermetic, i.e does not
       # contain references to tft_temp and transform_fn.
       shutil.rmtree(
-          os.path.join(working_dir, sentiment_example.TRANSFORM_TEMP_DIR))
+          os.path.join(working_dir, sentiment_example_v2.TRANSFORM_TEMP_DIR)
+      )
       shutil.rmtree(
           os.path.join(working_dir, tft.TFTransformOutput.TRANSFORM_FN_DIR))
 
       if local_model_server.local_model_server_supported():
         model_name = 'my_model'
-        model_path = os.path.join(working_dir,
-                                  sentiment_example.EXPORTED_MODEL_DIR)
         with local_model_server.start_server(model_name, model_path) as address:
           # Use made up data chosen to give high probability of negative
           # sentiment.
@@ -88,8 +101,8 @@ class SentimentExampleTest(test_case.TransformTestCase):
   }"""
           results = local_model_server.make_classification_request(
               address, ascii_classification_request)
-          self.assertEqual(len(results), 1)
-          self.assertEqual(len(results[0].classes), 2)
+          self.assertLen(results, 1)
+          self.assertLen(results[0].classes, 2)
           self.assertEqual(results[0].classes[0].label, '0')
           self.assertGreater(results[0].classes[0].score, 0.8)
           self.assertEqual(results[0].classes[1].label, '1')

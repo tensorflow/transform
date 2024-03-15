@@ -15,15 +15,17 @@
 
 # pylint: disable=g-bad-import-order
 import argparse
+import math
 import os
 import pprint
 import tempfile
+from absl import logging
 
 import apache_beam as beam
 import tensorflow as tf
-from tensorflow import estimator as tf_estimator
 import tensorflow_transform as tft
 import tensorflow_transform.beam as tft_beam
+from tensorflow_transform.keras_lib import tf_keras
 from tfx_bsl.public import tfxio
 
 
@@ -105,8 +107,12 @@ def ReadAndShuffleData(pcoll, filepatterns):
 
 
 def read_and_shuffle_data(
-    train_neg_filepattern, train_pos_filepattern, test_neg_filepattern,
-    test_pos_filepattern, working_dir):
+    train_neg_filepattern: str,
+    train_pos_filepattern: str,
+    test_neg_filepattern: str,
+    test_pos_filepattern: str,
+    working_dir: str,
+):
   """Read and shuffle the data and write out as a TFRecord of Example protos.
 
   Read in the data from the positive and negative examples on disk, shuffle it
@@ -143,7 +149,7 @@ def read_and_shuffle_data(
     # pylint: enable=no-value-for-parameter
 
 
-def transform_data(working_dir):
+def transform_data(working_dir: str):
   """Transform the data and write out as a TFRecord of Example protos.
 
   Read in the data from the positive and negative examples on disk, and
@@ -186,7 +192,7 @@ def transform_data(working_dir):
         return {
             REVIEW_KEY: review_bow_indices,
             REVIEW_WEIGHT_KEY: review_weight,
-            LABEL_KEY: inputs[LABEL_KEY]
+            LABEL_KEY: tf.one_hot(inputs[LABEL_KEY], 2),
         }
 
       # The TFXIO output format is chosen for improved performance.
@@ -226,8 +232,11 @@ def transform_data(working_dir):
 # Functions for training
 
 
-def _make_training_input_fn(tf_transform_output, transformed_examples,
-                            batch_size):
+def _input_fn(
+    tf_transform_output: tft.TFTransformOutput,
+    transformed_examples: str,
+    batch_size: int,
+):
   """Creates an input function reading from transformed data.
 
   Args:
@@ -238,91 +247,71 @@ def _make_training_input_fn(tf_transform_output, transformed_examples,
   Returns:
     The input function for training or eval.
   """
-  def input_fn():
-    """Input function for training and eval."""
-    dataset = tf.data.experimental.make_batched_features_dataset(
-        file_pattern=transformed_examples,
-        batch_size=batch_size,
-        features=tf_transform_output.transformed_feature_spec(),
-        reader=tf.data.TFRecordDataset,
-        shuffle=True)
-
-    transformed_features = tf.compat.v1.data.make_one_shot_iterator(
-        dataset).get_next()
-
-    # Extract features and label from the transformed tensors.
-    # TODO(b/30367437): make transformed_labels a dict.
-    transformed_labels = transformed_features.pop(LABEL_KEY)
-
-    return transformed_features, transformed_labels
-
-  return input_fn
+  return tf.data.experimental.make_batched_features_dataset(
+      file_pattern=transformed_examples,
+      batch_size=batch_size,
+      features=tf_transform_output.transformed_feature_spec(),
+      reader=tf.data.TFRecordDataset,
+      label_key=LABEL_KEY,
+      shuffle=True,
+  ).prefetch(tf.data.experimental.AUTOTUNE)
 
 
-def _make_serving_input_fn(tf_transform_output):
+def export_serving_model(
+    tf_transform_output: tft.TFTransformOutput,
+    model: tf_keras.Model,
+    output_dir: str,
+):
   """Creates an input function reading from raw data.
 
   Args:
     tf_transform_output: Wrapper around output of tf.Transform.
+    model: The keras model to export.
+    output_dir: A path to export the model to.
 
   Returns:
     The serving input function.
   """
+  # The layer has to be saved to the model for keras tracking purpases.
+  model.tft_layer = tf_transform_output.transform_features_layer()
+
   raw_feature_spec = RAW_DATA_FEATURE_SPEC.copy()
   # Remove label since it is not available during serving.
   raw_feature_spec.pop(LABEL_KEY)
 
-  def serving_input_fn():
-    """Input function for serving."""
-    # Get raw features by generating the basic serving input_fn and calling it.
-    # Here we generate an input_fn that expects a parsed Example proto to be fed
-    # to the model at serving time.  See also
-    # tf.estimator.export.build_raw_serving_input_receiver_fn.
-    raw_input_fn = tf_estimator.export.build_parsing_serving_input_receiver_fn(
-        raw_feature_spec, default_batch_size=None)
-    serving_input_receiver = raw_input_fn()
+  @tf.function
+  def serve_tf_examples_fn(serialized_tf_examples):
+    """Serving tf.function model wrapper."""
+    parsed_features = tf.io.parse_example(
+        serialized_tf_examples, raw_feature_spec
+    )
+    transformed_features = model.tft_layer(parsed_features)
+    outputs = model(transformed_features)
+    classes_names = tf.constant([['0', '1']])
+    classes = tf.tile(classes_names, [tf.shape(outputs)[0], 1])
+    return {'classes': classes, 'scores': outputs}
 
-    # Apply the transform function that was used to generate the materialized
-    # data.
-    raw_features = serving_input_receiver.features
-    transformed_features = tf_transform_output.transform_raw_features(
-        raw_features)
+  concrete_serving_fn = serve_tf_examples_fn.get_concrete_function(
+      tf.TensorSpec(shape=[None], dtype=tf.string, name='inputs')
+  )
+  signatures = {'serving_default': concrete_serving_fn}
 
-    return tf_estimator.export.ServingInputReceiver(
-        transformed_features, serving_input_receiver.receiver_tensors)
-
-  return serving_input_fn
-
-
-def get_feature_columns(tf_transform_output):
-  """Returns the FeatureColumns for the model.
-
-  Args:
-    tf_transform_output: A `TFTransformOutput` object.
-
-  Returns:
-    A list of FeatureColumns.
-  """
-  del tf_transform_output  # unused
-  # Unrecognized tokens are represented by -1, but
-  # categorical_column_with_identity uses the mod operator to map integers
-  # to the range [0, bucket_size).  By choosing bucket_size=VOCAB_SIZE + 1, we
-  # represent unrecognized tokens as VOCAB_SIZE.
-  review_column = tf.feature_column.categorical_column_with_identity(
-      REVIEW_KEY, num_buckets=VOCAB_SIZE + 1)
-  weighted_reviews = tf.feature_column.weighted_categorical_column(
-      review_column, REVIEW_WEIGHT_KEY)
-
-  return [weighted_reviews]
+  # This is required in order to make this model servable with model_server.
+  versioned_output_dir = os.path.join(output_dir, '1')
+  model.save(versioned_output_dir, save_format='tf', signatures=signatures)
 
 
-def train_and_evaluate(working_dir,
-                       num_train_instances=NUM_TRAIN_INSTANCES,
-                       num_test_instances=NUM_TEST_INSTANCES):
-  """Train the model on training data and evaluate on evaluation data.
+def train_and_evaluate(
+    working_dir: str,
+    output_dir: str,
+    num_train_instances: int = NUM_TRAIN_INSTANCES,
+    num_test_instances: int = NUM_TEST_INSTANCES,
+):
+  """Train the model on training data and evaluate on test data.
 
   Args:
     working_dir: Directory to read transformed data and metadata from.
+    output_dir: A directory where the output should be exported to.
     num_train_instances: Number of instances in train set
     num_test_instances: Number of instances in test set
 
@@ -330,36 +319,66 @@ def train_and_evaluate(working_dir,
     The results from the estimator's 'evaluate' method
   """
   tf_transform_output = tft.TFTransformOutput(working_dir)
+  train_data_path_pattern = os.path.join(
+      working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE + '*'
+  )
+  test_data_path_pattern = os.path.join(
+      working_dir, TRANSFORMED_TEST_DATA_FILEBASE + '*'
+  )
 
-  run_config = tf_estimator.RunConfig()
+  train_dataset = _input_fn(
+      tf_transform_output, train_data_path_pattern, batch_size=TRAIN_BATCH_SIZE
+  )
+  validation_dataset = _input_fn(
+      tf_transform_output, test_data_path_pattern, batch_size=TRAIN_BATCH_SIZE
+  )
 
-  estimator = tf_estimator.LinearClassifier(
-      feature_columns=get_feature_columns(tf_transform_output),
-      config=run_config,
-      loss_reduction=tf.losses.Reduction.SUM)
+  feature_spec = tf_transform_output.transformed_feature_spec().copy()
+  feature_spec.pop(LABEL_KEY)
 
-  # Fit the model using the default optimizer.
-  train_input_fn = _make_training_input_fn(
-      tf_transform_output,
-      os.path.join(working_dir, TRANSFORMED_TRAIN_DATA_FILEBASE + '*'),
-      batch_size=TRAIN_BATCH_SIZE)
-  estimator.train(
-      input_fn=train_input_fn,
-      max_steps=TRAIN_NUM_EPOCHS * num_train_instances / TRAIN_BATCH_SIZE)
+  review_input = tf_keras.layers.Input(
+      shape=[None], name=REVIEW_KEY, dtype=tf.int64, sparse=True
+  )
+  review_weight_input = tf_keras.layers.Input(
+      shape=[None], name=REVIEW_WEIGHT_KEY, dtype=tf.float32, sparse=True
+  )
+  count_layer = tf.keras.layers.CategoryEncoding(
+      num_tokens=VOCAB_SIZE + 1, output_mode='count'
+  )
+  embedding_layer = tf.keras.layers.Dense(4, use_bias=False)
+  embedding = embedding_layer(
+      count_layer(review_input, count_weights=review_weight_input)
+  )
+  output = tf_keras.layers.Dense(100, activation='relu')(embedding)
+  output = tf_keras.layers.Dense(70, activation='relu')(output)
+  output = tf_keras.layers.Dense(50, activation='relu')(output)
+  output = tf_keras.layers.Dense(20, activation='relu')(output)
+  output = tf_keras.layers.Dense(2, activation='sigmoid')(output)
+  model = tf_keras.Model(
+      inputs={
+          REVIEW_KEY: review_input,
+          REVIEW_WEIGHT_KEY: review_weight_input,
+      },
+      outputs=output,
+  )
 
-  # Evaluate model on eval dataset.
-  eval_input_fn = _make_training_input_fn(
-      tf_transform_output,
-      os.path.join(working_dir, TRANSFORMED_TEST_DATA_FILEBASE + '*'),
-      batch_size=1)
-  result = estimator.evaluate(input_fn=eval_input_fn, steps=num_test_instances)
+  model.compile(
+      optimizer='adam', loss='binary_crossentropy', metrics=['accuracy']
+  )
+  logging.info(model.summary())
+
+  model.fit(
+      train_dataset,
+      validation_data=validation_dataset,
+      epochs=TRAIN_NUM_EPOCHS,
+      steps_per_epoch=math.ceil(num_train_instances / TRAIN_BATCH_SIZE),
+      validation_steps=math.ceil(num_test_instances / TRAIN_BATCH_SIZE),
+  )
 
   # Export the model.
-  serving_input_fn = _make_serving_input_fn(tf_transform_output)
-  exported_model_dir = os.path.join(working_dir, EXPORTED_MODEL_DIR)
-  estimator.export_saved_model(exported_model_dir, serving_input_fn)
+  export_serving_model(tf_transform_output, model, output_dir)
 
-  return result
+  return model.evaluate(validation_dataset, steps=num_test_instances)
 
 
 def main():
@@ -384,7 +403,8 @@ def main():
                         test_neg_filepattern, test_pos_filepattern,
                         working_dir)
   transform_data(working_dir)
-  results = train_and_evaluate(working_dir)
+  exported_model_dir = os.path.join(working_dir, EXPORTED_MODEL_DIR)
+  results = train_and_evaluate(working_dir, exported_model_dir)
 
   pprint.pprint(results)
 
