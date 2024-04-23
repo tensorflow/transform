@@ -4,6 +4,16 @@
 
 ## Major Features and Improvements
 
+## Bug Fixes and Other Changes
+
+## Breaking Changes
+
+## Deprecations
+
+# Version 1.15.0
+
+## Major Features and Improvements
+
 *   Added support for sparse labels in AMI vocabulary computation.
 
 ## Bug Fixes and Other Changes
