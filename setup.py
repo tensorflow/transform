@@ -50,15 +50,24 @@ def _make_required_install_packages():
       'protobuf>=3.20.3,<5;python_version<"3.11"',
       'pyarrow>=10,<11',
       'pydot>=1.2,<2',
-      'tensorflow>=2.15,<2.16',
-      'tensorflow-metadata' + select_constraint(
+      'tensorflow'
+      + select_constraint(
+          default='>=2.15,<2.16',
+          nightly='>=2.16.0.dev',
+          git_master='@git+https://github.com/tensorflow/tensorflow@master',
+      ),
+      'tensorflow-metadata'
+      + select_constraint(
           default='>=1.15.0,<1.16.0',
           nightly='>=1.16.0.dev',
-          git_master='@git+https://github.com/tensorflow/metadata@master'),
-      'tfx-bsl' + select_constraint(
+          git_master='@git+https://github.com/tensorflow/metadata@master',
+      ),
+      'tfx-bsl'
+      + select_constraint(
           default='>=1.15.1,<1.16.0',
           nightly='>=1.16.0.dev',
-          git_master='@git+https://github.com/tensorflow/tfx-bsl@master'),
+          git_master='@git+https://github.com/tensorflow/tfx-bsl@master',
+      ),
   ]
 
 
