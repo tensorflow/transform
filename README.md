@@ -45,22 +45,21 @@ Create a virtual environment by running the commands
 ```bash
 python3 -m venv <virtualenv_name>
 source <virtualenv_name>/bin/activate
-pip3 install setuptools wheel
 git clone https://github.com/tensorflow/transform.git
 cd transform
-pip3 install .
+pip install .
 ```
 
 If you are doing development on the TFT repo, replace
 
 ```bash
-pip3 install .
+pip install .
 ```
 
 with
 
 ```bash
-pip3 install -e .
+pip install -e .
 ```
 
 The `-e` flag causes TFT to be installed in [development mode](https://setuptools.pypa.io/en/latest/userguide/development_mode.html).
