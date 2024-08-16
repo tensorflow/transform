@@ -43,7 +43,7 @@ To build from source follow the following steps:
 Create a virtual environment by running the commands
 
 ```bash
-python3 -m venv <virtualenv_name>
+python -m venv <virtualenv_name>
 source <virtualenv_name>/bin/activate
 git clone https://github.com/tensorflow/transform.git
 cd transform
