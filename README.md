@@ -48,16 +48,22 @@ source <virtualenv_name>/bin/activate
 pip3 install setuptools wheel
 git clone https://github.com/tensorflow/transform.git
 cd transform
-python3 setup.py bdist_wheel
+pip3 install .
 ```
 
-This will build the TFT wheel in the dist directory. To install the wheel from
-dist directory run the commands
+If you are doing development on the TFT repo, replace
 
 ```
-cd dist
-pip3 install tensorflow_transform-<version>-py3-none-any.whl
+pip3 install .
 ```
+
+with
+
+```
+pip3 install -e .
+```
+
+The `-e` flag causes TFT to be installed in [development mode](https://setuptools.pypa.io/en/latest/userguide/development_mode.html).
 
 ### Nightly Packages
 
