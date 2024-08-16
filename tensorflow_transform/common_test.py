@@ -69,5 +69,3 @@ class CommonTest(test_case.TransformTestCase):
     self.assertAllEqual([], graph.get_collection("another_collection"))
 
 
-if __name__ == "__main__":
-  test_case.main()

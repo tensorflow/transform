@@ -579,5 +579,3 @@ class AnalysisGraphBuilderTest(tft_unit.TransformTestCase):
                                        structured_outputs)
 
 
-if __name__ == '__main__':
-  tft_unit.main()

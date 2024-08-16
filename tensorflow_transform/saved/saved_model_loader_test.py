@@ -46,5 +46,3 @@ class SavedModelLoaderTest(unittest.TestCase):
 
   # This class has no tests at the moment.
 
-if __name__ == '__main__':
-  unittest.main()

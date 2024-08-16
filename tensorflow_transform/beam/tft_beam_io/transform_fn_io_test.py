@@ -149,5 +149,3 @@ class TransformFnIoTest(tft_unit.TransformTestCase):
     self.assertEqual(2, len(file_io.list_directory(transform_output_dir)))
 
 
-if __name__ == '__main__':
-  tf.test.main()

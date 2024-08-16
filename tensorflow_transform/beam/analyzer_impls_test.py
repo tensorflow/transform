@@ -136,5 +136,3 @@ class AnalyzerImplsTest(tft_unit.TransformTestCase):
     self.assertAllEqual(num_buckets, expected_num_buckets)
 
 
-if __name__ == '__main__':
-  tft_unit.main()

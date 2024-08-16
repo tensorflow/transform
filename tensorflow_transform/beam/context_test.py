@@ -40,5 +40,3 @@ class ContextTest(tft_unit.TransformTestCase):
       tft_beam.Context.create_base_temp_dir()
 
 
-if __name__ == '__main__':
-  tft_unit.main()

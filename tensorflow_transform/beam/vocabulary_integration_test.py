@@ -2088,5 +2088,3 @@ class VocabularyIntegrationTest(tft_unit.TransformTestCase):
     )
 
 
-if __name__ == '__main__':
-  tft_unit.main()

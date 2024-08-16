@@ -25,5 +25,3 @@ class TFRecordVocabularyIntegrationTest(
     return 'tfrecord_gzip'
 
 
-if __name__ == '__main__':
-  tft_unit.main()

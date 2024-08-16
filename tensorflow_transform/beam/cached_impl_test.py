@@ -1749,5 +1749,3 @@ class CachedImplTest(tft_unit.TransformTestCase):
     )
 
 
-if __name__ == '__main__':
-  tft_unit.main()

@@ -80,5 +80,3 @@ class TftUnitTest(test_case.TransformTestCase):
     self.assertIn((my_arg, my_other_arg), {(1, 'a'), (2, 'b')})
 
 
-if __name__ == '__main__':
-  unittest.main()

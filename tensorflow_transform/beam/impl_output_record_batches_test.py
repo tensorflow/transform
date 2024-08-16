@@ -199,5 +199,3 @@ class BeamImplOutputRecordBatchesTest(impl_test.BeamImplTest):
     self.assertGreater(actual_num_batches, 1)
 
 
-if __name__ == '__main__':
-  tft_unit.main()

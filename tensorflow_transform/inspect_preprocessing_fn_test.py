@@ -166,5 +166,3 @@ class InspectPreprocessingFnTest(test_case.TransformTestCase):
                           expected_transform_input_columns)
 
 
-if __name__ == '__main__':
-  test_case.main()

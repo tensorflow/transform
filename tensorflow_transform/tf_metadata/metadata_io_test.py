@@ -134,5 +134,3 @@ class SchemaIOv1JsonTest(unittest.TestCase):
     self.assertEqual(original, reloaded)
 
 
-if __name__ == '__main__':
-  unittest.main()

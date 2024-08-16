@@ -433,5 +433,3 @@ class CombinerPackingUtilTest(test_case.TransformTestCase):
         second=expected_dot_graph_str_after_packing)
 
 
-if __name__ == '__main__':
-  test_case.main()

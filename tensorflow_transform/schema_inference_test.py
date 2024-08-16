@@ -402,5 +402,3 @@ class SchemaInferenceTest(test_case.TransformTestCase):
     self.assertProtoEquals(expected_schema, schema)
 
 
-if __name__ == '__main__':
-  unittest.main()

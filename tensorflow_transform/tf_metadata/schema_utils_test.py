@@ -80,5 +80,3 @@ class SchemaUtilsTest(parameterized.TestCase):
     self.assertEqual(feature_by_name, truncated_feature_by_name)
 
 
-if __name__ == '__main__':
-  unittest.main()

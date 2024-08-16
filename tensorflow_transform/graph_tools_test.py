@@ -1264,5 +1264,3 @@ def _value_to_matcher(value, add_quotes=False):
       type(value), value))
 
 
-if __name__ == '__main__':
-  test_case.main()

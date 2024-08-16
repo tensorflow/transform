@@ -931,5 +931,3 @@ class MappersTest(test_case.TransformTestCase):
         self.assertAllEqual(expected, sess.run(result))
 
 
-if __name__ == '__main__':
-  test_case.main()

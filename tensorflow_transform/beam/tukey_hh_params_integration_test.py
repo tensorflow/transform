@@ -627,5 +627,3 @@ class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
         # Runs the test deterministically on the whole batch.
         beam_pipeline=beam.Pipeline())
 
-if __name__ == '__main__':
-  tft_unit.main()

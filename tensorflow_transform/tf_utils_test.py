@@ -2521,5 +2521,3 @@ class VocabTFUtilsTest(test_case.TransformTestCase):
     self.assertAllEqual(output_tensor, expected_data)
 
 
-if __name__ == '__main__':
-  test_case.main()

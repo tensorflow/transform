@@ -888,5 +888,3 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
         inputs, expected_boundaries, tf.float32, num_buckets=5)
 
 
-if __name__ == '__main__':
-  tft_unit.main()

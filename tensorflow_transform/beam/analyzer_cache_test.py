@@ -310,5 +310,3 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
             beam_test_util.equal_to([test_cache_dict[key].cache_dict['b']]))
 
 
-if __name__ == '__main__':
-  test_case.main()

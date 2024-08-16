@@ -166,5 +166,3 @@ class InfoTheoryTest(test_case.TransformTestCase):
     self.assertNear(per_cell_mi, expected_mi, EPSILON)
 
 
-if __name__ == '__main__':
-  unittest.main()
