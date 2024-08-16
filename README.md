@@ -42,7 +42,7 @@ pip install tensorflow-transform
 To build from source follow the following steps:
 Create a virtual environment by running the commands
 
-```
+```bash
 python3 -m venv <virtualenv_name>
 source <virtualenv_name>/bin/activate
 pip3 install setuptools wheel
@@ -53,13 +53,13 @@ pip3 install .
 
 If you are doing development on the TFT repo, replace
 
-```
+```bash
 pip3 install .
 ```
 
 with
 
-```
+```bash
 pip3 install -e .
 ```
 
@@ -77,6 +77,14 @@ pip install --extra-index-url https://pypi-nightly.tensorflow.org/simple tensorf
 
 This will install the nightly packages for the major dependencies of TFT such
 as TensorFlow Metadata (TFMD), TFX Basic Shared Libraries (TFX-BSL).
+
+### Running Tests
+
+To run TFT tests, run the following command from the root of the repository:
+
+```bash
+pytest
+```
 
 ### Notable Dependencies
 
