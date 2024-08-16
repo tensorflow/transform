@@ -8,7 +8,6 @@ on:
       - '**.md'
       - 'docs/**'
   workflow_dispatch:
-  push: # DEBUG: Remove before merge
 
 jobs:
   unit-tests:
