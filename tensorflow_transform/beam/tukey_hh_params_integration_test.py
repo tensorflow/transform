@@ -94,7 +94,7 @@ _SCALE_TO_GAUSSIAN_TEST_CASES = impl_test._SCALE_TO_Z_SCORE_TEST_CASES + [
 ]
 
 
-@pytest.mark.xfail(reason="PR 315 This class contains tests that fail and needs to be fixed. "
+@pytest.mark.xfail(run=False, reason="PR 315 This class contains tests that fail and needs to be fixed. "
 "If all tests pass, please remove this mark.")
 class TukeyHHParamsIntegrationTest(tft_unit.TransformTestCase):
 

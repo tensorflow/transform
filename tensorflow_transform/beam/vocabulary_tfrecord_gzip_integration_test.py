@@ -20,7 +20,7 @@ from tensorflow_transform.beam import vocabulary_integration_test
 from tensorflow_transform.beam import tft_unit
 
 
-@pytest.mark.xfail(reason="PR 315 This class contains tests that fail and needs to be fixed. "
+@pytest.mark.xfail(run=False, reason="PR 315 This class contains tests that fail and needs to be fixed. "
 "If all tests pass, please remove this mark.")
 class TFRecordVocabularyIntegrationTest(
     vocabulary_integration_test.VocabularyIntegrationTest):

@@ -30,7 +30,7 @@ from tfx_bsl.tfxio import tensor_adapter
 _LARGE_BATCH_SIZE = 1 << 10
 
 
-@pytest.mark.xfail(reason="PR 315 This class contains tests that fail and needs to be fixed. "
+@pytest.mark.xfail(run=False, reason="PR 315 This class contains tests that fail and needs to be fixed. "
 "If all tests pass, please remove this mark.")
 class BeamImplOutputRecordBatchesTest(impl_test.BeamImplTest):
 

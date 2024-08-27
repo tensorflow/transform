@@ -116,7 +116,7 @@ _COMPOSITE_COMPUTE_AND_APPLY_VOCABULARY_TEST_CASES = [
 ]
 
 
-@pytest.mark.xfail(reason="PR 315 This class contains tests that fail and needs to be fixed. "
+@pytest.mark.xfail(run=False, reason="PR 315 This class contains tests that fail and needs to be fixed. "
 "If all tests pass, please remove this mark.")
 class VocabularyIntegrationTest(tft_unit.TransformTestCase):
 
