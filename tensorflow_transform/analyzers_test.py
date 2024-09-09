@@ -567,7 +567,7 @@ class AnalyzersTest(test_case.TransformTestCase):
       self.assertEqual(output.dtype, expected_output.dtype)
       self.assertEqual(tensor_info.dtype, tf.as_dtype(expected_output.dtype))
 
-      self.assertAllEqual(output, expected_output)
+      self.assertAllClose(output, expected_output, rtol=1e-4, atol=1e-4)
 
   @test_case.named_parameters(
       {

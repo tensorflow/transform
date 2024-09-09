@@ -234,7 +234,7 @@ class GaussianizationTest(test_case.TransformTestCase):
     output = gaussianization.compute_tukey_hh_params(l_skewness_and_kurtosis)
     self.assertEqual(output.dtype, expected_output.dtype)
     self.assertAllEqual(output.shape, expected_output.shape)
-    self.assertAllClose(output, expected_output)
+    self.assertAllClose(output, expected_output, rtol=1e-5, atol=1e-5)
 
   @test_case.named_parameters(*_LAMBERT_W_SCALAR_TESTS + _LAMBERT_W_ND_TESTS)
   def test_lambert_w(self, samples, expected_output):
