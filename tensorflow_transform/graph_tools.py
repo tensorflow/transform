@@ -96,7 +96,7 @@ def retrieve_sources(sinks, ignore_control_dependencies=False):
   subgraph. This util is refactored from `_map_subgraph` in
   tensorflow/.../ops/op_selector.py.
 
-  Arguments:
+  Args:
     sinks:  An iterable of Operations where the subgraph terminates.
     ignore_control_dependencies: (Optional) If `True`, ignore any
       `control_inputs` for all ops while walking the graph.
