@@ -62,6 +62,7 @@ def _make_required_install_packages():
           nightly='>=1.16.0.dev',
           git_master='@git+https://github.com/tensorflow/metadata@master',
       ),
+      'tf_keras>=2',
       'tfx-bsl'
       + select_constraint(
           default='>=1.15.1,<1.16.0',
