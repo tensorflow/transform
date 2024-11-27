@@ -102,9 +102,15 @@ class WriteTransformFn(beam.PTransform):
       if not tf.io.gfile.exists(self._path):
         tf.io.gfile.makedirs(self._path)
 
+      if tf.io.gfile.exists(metadata_path):
+        tf.io.gfile.rmtree(metadata_path)
       tf.io.gfile.rename(metadata_source_path, metadata_path, overwrite=True)
+
+      if tf.io.gfile.exists(transform_fn_path):
+        tf.io.gfile.rmtree(transform_fn_path)
       tf.io.gfile.rename(
           transform_fn_source_path, transform_fn_path, overwrite=True)
+
       # TODO(b/211615643): Remove the exists check once importing TFIO in S3
       # addresses NotFoundError.
       if tf.io.gfile.exists(base_temp_dir):
