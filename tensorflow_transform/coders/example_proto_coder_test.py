@@ -373,7 +373,7 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
                         error_type=ValueError,
                         **kwargs):
     schema = schema_utils.schema_from_feature_spec(feature_spec)
-    with self.assertRaisesRegexp(error_type, error_msg):
+    with self.assertRaisesRegex(error_type, error_msg):
       coder = example_proto_coder.ExampleProtoCoder(schema, **kwargs)
       coder.encode(instance)
 

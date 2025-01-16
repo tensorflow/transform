@@ -253,7 +253,7 @@ class TestCSVCoder(test_case.TransformTestCase):
                              error_type=ValueError,
                              **kwargs):
     schema = schema_utils.schema_from_feature_spec(feature_spec)
-    with self.assertRaisesRegexp(error_type, error_msg):
+    with self.assertRaisesRegex(error_type, error_msg):
       csv_coder.CsvCoder(columns, schema, **kwargs)
 
   @test_case.named_parameters(*_ENCODE_ERROR_CASES)
@@ -266,7 +266,7 @@ class TestCSVCoder(test_case.TransformTestCase):
                         **kwargs):
     schema = schema_utils.schema_from_feature_spec(feature_spec)
     coder = csv_coder.CsvCoder(columns, schema, **kwargs)
-    with self.assertRaisesRegexp(error_type, error_msg):
+    with self.assertRaisesRegex(error_type, error_msg):
       coder.encode(instance)
 
   def test_picklable(self):

@@ -96,7 +96,7 @@ class TransformFnIoTest(tft_unit.TransformTestCase):
 
       with mock.patch.object(transform_fn_io.beam_metadata_io.WriteMetadata,
                              'expand', mock_write_metadata_expand):
-        with self.assertRaisesRegexp(ArithmeticError, 'Some error'):
+        with self.assertRaisesRegex(ArithmeticError, 'Some error'):
           _ = ((saved_model_dir_pcoll, object())
                | transform_fn_io.WriteTransformFn(transform_output_dir))
 

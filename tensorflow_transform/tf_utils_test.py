@@ -774,7 +774,7 @@ class TFUtilsTest(test_case.TransformTestCase):
       x = tf.compat.v1.placeholder(tf.int32, x_shape)
       y = tf.compat.v1.placeholder(tf.int32, y_shape)
       with tf.compat.v1.Session() as sess:
-        with self.assertRaisesRegexp(exception_cls, error_string):
+        with self.assertRaisesRegex(exception_cls, error_string):
           sess.run(tf_utils.assert_same_shape(x, y), {x: x_input, y: y_input})
 
   @test_case.named_parameters(test_case.FUNCTION_HANDLERS)
@@ -1965,7 +1965,7 @@ class TFUtilsTest(test_case.TransformTestCase):
       x = tf.compat.v1.sparse_placeholder(tf.int64, shape=[None, None])
       key = tf.compat.v1.sparse_placeholder(tf.string, shape=[None, None])
       with tf.compat.v1.Session() as sess:
-        with self.assertRaisesRegexp(exception_cls, error_string):
+        with self.assertRaisesRegex(exception_cls, error_string):
           sess.run(tf_utils.reduce_batch_minus_min_and_max_per_key(x, key),
                    feed_dict={x: value, key: key_value})
 
@@ -2000,7 +2000,7 @@ class TFUtilsTest(test_case.TransformTestCase):
           dense_shape=[4, 2, 5])
 
       with tf.compat.v1.Session() as sess:
-        with self.assertRaisesRegexp(exception_cls, error_string):
+        with self.assertRaisesRegex(exception_cls, error_string):
           sess.run(tf_utils._validate_and_get_dense_value_key_inputs(sparse1,
                                                                      sparse2),
                    feed_dict={sparse1: sparse_value1, sparse2: sparse_value2})

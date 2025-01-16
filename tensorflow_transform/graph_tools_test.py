@@ -602,7 +602,7 @@ class GraphToolsTest(test_case.TransformTestCase):
       tensors = create_graph_fn()
     replaced_tensors_ready = [(tensors[name], ready)
                               for name, ready in replaced_tensors_ready.items()]
-    with self.assertRaisesRegexp(ValueError, error_msg_regex):
+    with self.assertRaisesRegex(ValueError, error_msg_regex):
       graph_tools.InitializableGraphAnalyzer(graph,
                                              {x: tensors[x] for x in feeds},
                                              replaced_tensors_ready)
@@ -639,7 +639,7 @@ class GraphToolsTest(test_case.TransformTestCase):
         tensors[name], ready) for name, ready in replaced_tensors_ready.items()]
     graph_analyzer = graph_tools.InitializableGraphAnalyzer(
         graph, {x: tensors[x] for x in feeds}, replaced_tensors_ready)
-    with self.assertRaisesRegexp(ValueError, error_msg_regex):
+    with self.assertRaisesRegex(ValueError, error_msg_regex):
       tensor = tensors[fetch]
       graph_analyzer.ready_to_run(tensor)
 

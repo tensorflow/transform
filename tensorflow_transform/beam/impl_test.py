@@ -1463,8 +1463,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
     expected_data = [{'x_scaled': float('nan')}]
     expected_metadata = tft.DatasetMetadata.from_feature_spec(
         {'x_scaled': tf.io.FixedLenFeature([], tf.float32)})
-    with self.assertRaisesRegexp(  # pylint: disable=g-error-prone-assert-raises
-        ValueError, 'output_min must be less than output_max'):
+    with self.assertRaisesRegex(  # pylint: disable=g-error-prone-assert-raises
+        ValueError, 'output_min must be less than output_max'
+    ):
       self.assertAnalyzeAndTransformResults(input_data, input_metadata,
                                             preprocessing_fn, expected_data,
                                             expected_metadata)
@@ -4656,8 +4657,9 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_outputs)
 
   def testEmptySchema(self):
-    with self.assertRaisesRegexp(  # pylint: disable=g-error-prone-assert-raises
-        ValueError, 'The input metadata is empty.'):
+    with self.assertRaisesRegex(  # pylint: disable=g-error-prone-assert-raises
+        ValueError, 'The input metadata is empty.'
+    ):
       self.assertAnalyzeAndTransformResults(
           input_data=[{'x': x} for x in range(5)],
           input_metadata=tft.DatasetMetadata.from_feature_spec({}),
@@ -4785,10 +4787,12 @@ class BeamImplTest(tft_unit.TransformTestCase):
                                           preprocessing_fn, expected_outputs)
 
   def test_preprocessing_fn_returns_wrong_type(self):
-    with self.assertRaisesRegexp(  # pylint: disable=g-error-prone-assert-raises
-        ValueError, r'A `preprocessing_fn` must return a '
+    with self.assertRaisesRegex(  # pylint: disable=g-error-prone-assert-raises
+        ValueError,
+        r'A `preprocessing_fn` must return a '
         r'Dict\[str, Union\[tf.Tensor, tf.SparseTensor, tf.RaggedTensor\]\]. '
-        'Got: Tensor.*'):
+        'Got: Tensor.*',
+    ):
       self.assertAnalyzeAndTransformResults(
           input_data=[{'f1': 0}],
           input_metadata=tft.DatasetMetadata.from_feature_spec(
