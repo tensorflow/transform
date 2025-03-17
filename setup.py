@@ -50,12 +50,7 @@ def _make_required_install_packages():
       'protobuf>=3.20.3,<5;python_version<"3.11"',
       'pyarrow>=10,<11',
       'pydot>=1.2,<2',
-      'tensorflow'
-      + select_constraint(
-          default='>=2.16,<2.17',
-          nightly='>=2.17.0.dev',
-          git_master='@git+https://github.com/tensorflow/tensorflow@master',
-      ),
+      'tensorflow>=2.17,<2.18',
       'tensorflow-metadata'
       + select_constraint(
           default='>=1.16.1,<1.17.0',
