@@ -75,7 +75,8 @@ plugins:
               - griffe_inherited_docstrings
           import:
             - https://docs.python.org/3/objects.inv
-  - mkdocs-jupyter
+  - mkdocs-jupyter:
+      ignore_h1_titles: True
 
 extra_css:
   - stylesheets/extra.css
