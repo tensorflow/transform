@@ -110,7 +110,8 @@ setup(
     ],
     namespace_packages=[],
     install_requires=_make_required_install_packages(),
-    extras_require= {
+    extras_require={
+      "dev": ["pre-commit"],
       'test': ['pytest>=8.0'],
       'docs': _make_docs_packages(),
     },
