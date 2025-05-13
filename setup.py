@@ -99,6 +99,9 @@ setup(
     ],
     namespace_packages=[],
     install_requires=_make_required_install_packages(),
+    extras_require={
+      "dev": ["pre-commit"],
+    },
     python_requires='>=3.9,<4',
     packages=find_packages(),
     include_package_data=True,
