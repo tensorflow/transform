@@ -128,3 +128,4 @@ nav:
       - tft: api_docs/python/tft.md
       - tft.coders: api_docs/python/tft-coders.md
       - tft.experimental 🧪: api_docs/python/tft-experimental.md
+      - tft.beam: api_docs/python/tft-beam.md
