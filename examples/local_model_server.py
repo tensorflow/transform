@@ -17,21 +17,21 @@ import contextlib
 
 
 def local_model_server_supported():
-  return False
+    return False
 
 
 @contextlib.contextmanager
 def start_server(model_name, model_path):
-  del model_name  # unused
-  del model_path  # unused
-  raise NotImplementedError
+    del model_name  # unused
+    del model_path  # unused
+    raise NotImplementedError
 
 
 # TODO(KesterTong): Change the input of make_classification_request to not be a
 # string. This will require adding a test-only dependency on
 # tensorflow_serving.apis.
 def make_classification_request(address, ascii_classification_request):
-  """Makes a classify request to a local server."""
-  del address  # unused
-  del ascii_classification_request  # unused
-  raise NotImplementedError
+    """Makes a classify request to a local server."""
+    del address  # unused
+    del ascii_classification_request  # unused
+    raise NotImplementedError

@@ -14,16 +14,15 @@
 # limitations under the License.
 """Tests for tfrecord_gzip tft.vocabulary and tft.compute_and_apply_vocabulary."""
 
-from tensorflow_transform.beam import vocabulary_integration_test
-from tensorflow_transform.beam import tft_unit
+from tensorflow_transform.beam import tft_unit, vocabulary_integration_test
 
 
 class TFRecordVocabularyIntegrationTest(
-    vocabulary_integration_test.VocabularyIntegrationTest):
+    vocabulary_integration_test.VocabularyIntegrationTest
+):
+    def _VocabFormat(self):
+        return "tfrecord_gzip"
 
-  def _VocabFormat(self):
-    return 'tfrecord_gzip'
 
-
-if __name__ == '__main__':
-  tft_unit.main()
+if __name__ == "__main__":
+    tft_unit.main()
