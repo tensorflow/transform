@@ -460,7 +460,7 @@ functions](https://beam.apache.org/documentation/programming-guide/#windowing)
 can compute these features based on aggregating the values of time
 windows of real-time (streaming) events data (for example, click
 events). In the earlier discussion of [granularity of
-transformations](#preprocessing_granularity), this was referred to as
+transformations](#preprocessing-granularity), this was referred to as
 "Historical aggregations during training, but real-time aggregations
 during prediction."
 
