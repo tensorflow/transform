@@ -126,3 +126,4 @@ nav:
       - Data preprocessing best practices: tft_bestpractices.md
   - API:
       - tft: api_docs/python/tft.md
+      - tft.coders: api_docs/python/tft-coders.md
