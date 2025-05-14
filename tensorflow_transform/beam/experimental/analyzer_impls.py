@@ -12,19 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Beam implementations of experimental tf.Transform canonical analyzers."""
+
 import apache_beam as beam
 
 
 class PTransformAnalyzer(beam.PTransform):
-  """A PTransform analyzer's base class which provides a temp dir if needed."""
+    """A PTransform analyzer's base class which provides a temp dir if needed."""
 
-  def __init__(self):
-    self._base_temp_dir = None
+    def __init__(self):
+        self._base_temp_dir = None
 
-  @property
-  def base_temp_dir(self):
-    return self._base_temp_dir
+    @property
+    def base_temp_dir(self):
+        return self._base_temp_dir
 
-  @base_temp_dir.setter
-  def base_temp_dir(self, val):
-    self._base_temp_dir = val
+    @base_temp_dir.setter
+    def base_temp_dir(self, val):
+        self._base_temp_dir = val

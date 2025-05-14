@@ -14,18 +14,19 @@
 """Init module for TF.Transform."""
 
 # pylint: disable=wildcard-import
-from tensorflow_transform import coders
-from tensorflow_transform import experimental
+from tensorflow_transform import coders, experimental
 from tensorflow_transform.analyzers import *
 from tensorflow_transform.annotators import *
 from tensorflow_transform.inspect_preprocessing_fn import *
 from tensorflow_transform.mappers import *
-from tensorflow_transform.output_wrapper import TFTransformOutput
-from tensorflow_transform.output_wrapper import TransformFeaturesLayer
+from tensorflow_transform.output_wrapper import (
+    TFTransformOutput,
+    TransformFeaturesLayer,
+)
 from tensorflow_transform.py_func.api import apply_pyfunc
 from tensorflow_transform.tf_metadata.dataset_metadata import DatasetMetadata
-# pylint: enable=wildcard-import
 
+# pylint: enable=wildcard-import
 # Import version string.
 from tensorflow_transform.version import __version__
 
@@ -33,11 +34,13 @@ from tensorflow_transform.version import __version__
 # `tensorflow_io` package. Hence, this import is needed wherever we touch the
 # filesystem.
 try:
-  import tensorflow_io as _  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
+    import tensorflow_io as _  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
 except ModuleNotFoundError:
-  pass
+    pass
 
 try:
-  from tensorflow_transform import google  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
+    from tensorflow_transform import (
+        google,  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
+    )
 except ImportError:
-  pass
+    pass
