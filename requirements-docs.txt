@@ -7,3 +7,4 @@ ruff
 mkdocs-jupyter
 mkdocs-caption
 markdown-grid-tables
+apache-beam[gcp]

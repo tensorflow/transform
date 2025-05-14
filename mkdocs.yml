@@ -73,8 +73,12 @@ plugins:
               - "!_test$"
             extensions:
               - griffe_inherited_docstrings
-          import:
+            preload_modules:
+                - apache_beam
+          load_external_modules: true
+          inventories:
             - https://docs.python.org/3/objects.inv
+            - https://beam.apache.org/releases/pydoc/current/objects.inv
   - mkdocs-jupyter:
       ignore_h1_titles: True
   - caption
@@ -130,3 +134,4 @@ nav:
       - tft.experimental 🧪: api_docs/python/tft-experimental.md
       - tft.beam: api_docs/python/tft-beam.md
       - tft.beam.analyzer_cache: api_docs/python/tft-beam-analyzer-cache.md
+      - tft.beam.experimental 🧪: api_docs/python/tft-beam-experimental.md
