@@ -78,8 +78,55 @@ ignore = [
     "D206",   # Docstrings should be indented with spaces; unnecessary when running ruff-format
     "E501",   # Line length too long; unnecessary when running ruff-format
     "W191",   # Indentation contains tabs; unnecessary when running ruff-format
-]
 
+    # FIX AND REMOVE BELOW CODES:
+    "ANN202", # Missing return type annotation for private function
+    "ANN001", # Missing type annotation for function argument
+    "D102",   # Missing docstring in public method
+    "SIM117", # Use a single `with` statement with multiple contexts instead of nested `with` statements
+    "PT027",  # Use `pytest.raises` instead of unittest-style `assertRaisesRegex`
+    "PT009",  # Use a regular `assert` instead of unittest-style `assertEqual` / `assertIsInstance`
+    "PD011",  # Use `.to_numpy()` instead of `.values`
+    "D101",   # Missing docstring in public class
+    "D401",   # First line of docstring should be in imperative mood
+    "FIX002", # Line contains TODO, consider resolving the issue
+    "RET505", # Unnecessary `else` after `return` statement
+    "E721",   # Use `is` and `is not` for type comparisons, or `isinstance()` for isinstance checks
+    "UP031",  # Use format specifiers instead of percent format
+    "E731",   # Do not assign a `lambda` expression, use a `def`
+    "ARG005", # Unused lambda argument
+    "ARG001", # Unused function argument
+    "SIM102", # Use a single `if` statement instead of nested `if` statements
+    "RET504", # Unnecessary assignment to `result` before `return` statement
+    "N802",   # Function name should be lowercase
+    "RET506", # Unnecessary `else` after `raise` statement
+    "B904",   # Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None`
+    "ARG002", # Unused method argument
+    "ERA001", # Found commented-out code
+    "RET503", # Missing explicit `return` at the end of function able to return non-`None` value
+    "F401",   # `module` imported but unused
+    "D103",   # Missing docstring in public function
+    "F403",   # `from module import *` used; unable to detect undefined names
+    "ANN401", # Dynamically typed expressions (typing.Any) are disallowed
+    "ANN206", # Missing return type annotation for classmethod
+    "ANN102", # Missing type annotation for `cls` in classmethod
+    "D107",   # Missing docstring in `__init__`
+    "UP028",  # Replace `yield` over `for` loop with `yield from`
+    "B023",   # Function definition does not bind loop variable
+    "UP032",  # Use f-string instead of `format` call
+    "E741",   # Ambiguous variable name
+    "N803",   # Argument name should be lowercase
+    "ANN205", # Missing return type annotation for staticmethod
+    "UP029",  # Unnecessary builtin import
+    "SIM105", # Use `contextlib.suppress(KeyError)` instead of `try`-`except`-`pass`
+    "SIM118", # Use `key in dict` instead of `key in dict.keys()`
+    "F811",   # Redefinition of unused name
+    "UP008",  # Use `super()` instead of `super(__class__, self)`
+    "D417",   # Missing argument description in the docstring
+    "SIM103", # Return the condition directly
+    "D404",   # First word of the docstring should not be "This"
+    "NPY002", # Replace legacy `np.random.uniform` call with `np.random.Generator`
+]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]

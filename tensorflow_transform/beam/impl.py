@@ -1181,9 +1181,8 @@ class _AnalyzeDatasetCommon(beam.PTransform):
 
         if graph.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES):
             raise ValueError(
-                "The preprocessing function contained trainable variables " "{}".format(
-                    graph.get_collection_ref(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES)
-                )
+                "The preprocessing function contained trainable variables "
+                f"{graph.get_collection_ref(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES)}"
             )
 
         pipeline = (

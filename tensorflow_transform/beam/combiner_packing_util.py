@@ -120,8 +120,8 @@ class _InspectAccumulateCombineVisitor(_ValidationVisitor):
 class _PackAccumulateCombineVisitor(_ValidationVisitor):
     r"""A visitor that packs combine nodes in the graph.
 
-  This visitor takes the grouped combines and performs the packing of those
-  combines.
+    This visitor takes the grouped combines and performs the packing of those
+    combines.
                  Before packing
              GrandParentNode
               /           \
@@ -136,9 +136,9 @@ class _PackAccumulateCombineVisitor(_ValidationVisitor):
                  /      \
    ExtractFromDict1'   ExtractFromDict2'
 
-  The ExtractFromDict nodes after packing extracts the accumulator corresponding
-  to the individual combines.
-  """
+    The ExtractFromDict nodes after packing extracts the accumulator corresponding
+    to the individual combines.
+    """
 
     def __init__(self, packable_combines):
         super().__init__()
@@ -246,8 +246,8 @@ class _InspectMergeCombineVisitor(_ValidationVisitor):
 class _PackMergeCombineVisitor(_ValidationVisitor):
     r"""A visitor that inspects the graph and looks for combine nodes.
 
-  This visitor takes the grouped combines and performs the packing of those
-  combines.
+    This visitor takes the grouped combines and performs the packing of those
+    combines.
                  Before packing
              ...               ...
               /                  \
@@ -270,13 +270,13 @@ class _PackMergeCombineVisitor(_ValidationVisitor):
               /                        \
   ExtractPackedCombineMergeOutputs1    ExtractPackedCombineMergeOutputs2
 
-  Since the inputs to the final flatten node before the packed merge come from
-  different paths, we add redundant flatten and packed merge nodes each time we
-  visit a new input of the final flatten node. At the end of this traversal,
-  we would have one final packed merge node with a corresponding flatten node
-  having all the needed inputs, and in addition to this we would have a set of
-  redundant packed merge and flatten nodes which needs to be removed.
-  """
+    Since the inputs to the final flatten node before the packed merge come from
+    different paths, we add redundant flatten and packed merge nodes each time we
+    visit a new input of the final flatten node. At the end of this traversal,
+    we would have one final packed merge node with a corresponding flatten node
+    having all the needed inputs, and in addition to this we would have a set of
+    redundant packed merge and flatten nodes which needs to be removed.
+    """
 
     def __init__(self, packable_combine_extract_outputs):
         super().__init__()
