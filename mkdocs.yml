@@ -124,3 +124,5 @@ nav:
       - Using tf.Transform with TensorFlow 2.x: tf2_support.md
       - Common Transformations: common_transformations.md
       - Data preprocessing best practices: tft_bestpractices.md
+  - API:
+      - tft: api_docs/python/tft.md
