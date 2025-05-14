@@ -77,6 +77,7 @@ plugins:
             - https://docs.python.org/3/objects.inv
   - mkdocs-jupyter:
       ignore_h1_titles: True
+  - caption
 
 extra_css:
   - stylesheets/extra.css
@@ -90,6 +91,7 @@ markdown_extensions:
   - attr_list
   - def_list
   - tables
+  - markdown_grid_tables
   - toc:
       permalink: true
   - pymdownx.highlight:
@@ -121,3 +123,4 @@ nav:
       - Get Started: get_started.ipynb
       - Using tf.Transform with TensorFlow 2.x: tf2_support.md
       - Common Transformations: common_transformations.md
+      - Data preprocessing best practices: tft_bestpractices.md

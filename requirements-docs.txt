@@ -5,3 +5,5 @@ griffe-inherited-docstrings
 mkdocs-autorefs
 ruff
 mkdocs-jupyter
+mkdocs-caption
+markdown-grid-tables
