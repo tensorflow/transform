@@ -4,7 +4,7 @@ This document is the first in a two-part series that explores the topic of data 
 
 This document assumes that you're familiar with [BigQuery](https://cloud.google.com/bigquery/docs), [Dataflow](https://cloud.google.com/dataflow/docs), [Vertex AI](https://cloud.google.com/vertex-ai/docs/start/introduction-unified-platform), and the TensorFlow [Keras](https://www.tensorflow.org/guide/keras/overview) API.
 
-The second document, [Data preprocessing for ML with Google Cloud](https://www.tensorflow.org/tfx/tutorials/transform/data_preprocessing_with_cloud), provides a step-by-step tutorial for how to implement a `tf.Transform` pipeline.
+The second document, [Data preprocessing for ML with Google Cloud](https://tensorflow.github.io/tfx/tutorials/transform/data_preprocessing_with_cloud), provides a step-by-step tutorial for how to implement a `tf.Transform` pipeline.
 
 ## Introduction
 
@@ -261,7 +261,7 @@ The following table summarizes the data preprocessing options that this document
 
 ## What's next
 
--   To implement a `tf.Transform` pipeline and run it using Dataflow, read part two of this series, [Data preprocessing for ML using TensorFlow Transform](https://www.tensorflow.org/tfx/tutorials/transform/data_preprocessing_with_cloud).
+-   To implement a `tf.Transform` pipeline and run it using Dataflow, read part two of this series, [Data preprocessing for ML using TensorFlow Transform](https://tensorflow.github.io/tfx/tutorials/transform/data_preprocessing_with_cloud).
 -   Take the Coursera specialization on ML with [TensorFlow on Google Cloud](https://www.coursera.org/specializations/machine-learning-tensorflow-gcp).
 -   Learn about best practices for ML engineering in [Rules of ML](https://developers.google.com/machine-learning/guides/rules-of-ml/).
--   For more reference architectures, diagrams, and best practices, explore the [TFX Cloud Solutions](https://www.tensorflow.org/tfx/guide/solutions){track-type="tutorial" track-name="textLink" track-metadata-position="nextSteps"}.
+-   For more reference architectures, diagrams, and best practices, explore the [TFX Cloud Solutions](https://tensorflow.github.io/tfx/guide/solutions){track-type="tutorial" track-name="textLink" track-metadata-position="nextSteps"}.
