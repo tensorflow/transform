@@ -9,7 +9,7 @@ Transform is available as a standalone library.
 
 The [`tft`](api_docs/python/tft)
 module documentation is the only module that is relevant to TFX users.
-The [`tft_beam`](api_docs/python/tft_beam)
+The [`tft_beam`](api_docs/python/tft-beam)
 module is relevant only when using Transform as a standalone library.
 Typically, a TFX user constructs a `preprocessing_fn`, and the rest of the 
 Transform library calls are made by the Transform component.

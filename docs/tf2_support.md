@@ -60,7 +60,7 @@ or
 \<feature key> not found in features dictionary.
 ```
 
-[`TFTransformOutput.transform_raw_features`](https://www.tensorflow.org/tfx/transform/api_docs/python/tft/TFTransformOutput#transform_raw_features)
+[`TFTransformOutput.transform_raw_features`](https://tensorflow.github.io/transform/api_docs/python/tft-beam/#tensorflow_transform.beam.Context)
 ignores the `drop_unused_features` parameter and behaves as if it were True.
 Please update any usages of the output dictionary from this API to check if the
 key you are attempting to retrieve exists in it.
