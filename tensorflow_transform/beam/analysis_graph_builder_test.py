@@ -50,9 +50,10 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signatur
     expected_dot_graph_str_tf2=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_plus_1', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\")])|label: CreateSavedModel}"];
+CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict(\{\'x_plus_1\': \"Tensor\\<shape: [None], \\<dtype: 'float32'\\>\\>\"})|label: CreateSavedModel}"];
 }
-""")
+""",
+)
 
 
 def _preprocessing_fn_with_one_analyzer(inputs):
