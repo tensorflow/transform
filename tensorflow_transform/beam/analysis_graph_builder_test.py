@@ -14,6 +14,7 @@
 """Tests for tensorflow_transform.analysis_graph_builder."""
 
 import os
+import sys
 
 import tensorflow as tf
 import tensorflow_transform as tft
@@ -41,10 +42,10 @@ _NO_ANALYZERS_CASE = dict(
     testcase_name='with_no_analyzers',
     feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)},
     preprocessing_fn=_preprocessing_fn_with_no_analyzers,
-    expected_dot_graph_str=r"""digraph G {
+    expected_dot_graph_str_py312=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_plus_1', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\")])|label: CreateSavedModel}"];
+CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict(\{'x_plus_1': \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\"\})|label: CreateSavedModel}"];
 }
 """,
     expected_dot_graph_str_tf2=r"""digraph G {
@@ -72,10 +73,10 @@ _ONE_ANALYZER_CASE = dict(
     testcase_name='with_one_analyzer',
     feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)},
     preprocessing_fn=_preprocessing_fn_with_one_analyzer,
-    expected_dot_graph_str=r"""digraph G {
+    expected_dot_graph_str_py312=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/mean_and_var/Cast_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/div_no_nan', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/div_no_nan_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
+"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict(\{'x/mean_and_var/Cast_1': \"Tensor\<shape: [], \<dtype: 'float32'\>\>\", 'x/mean_and_var/div_no_nan': \"Tensor\<shape: [], \<dtype: 'float32'\>\>\", 'x/mean_and_var/div_no_nan_1': \"Tensor\<shape: [], \<dtype: 'float32'\>\>\", 'x/mean_and_var/zeros': \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"\})|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
 "ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='FlattenedDataset', is_cached=True)|label: ExtractInputForSavedModel[FlattenedDataset]}"];
 "ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
@@ -88,13 +89,13 @@ node [shape=Mrecord];
 "CacheableCombineAccumulate[x#mean_and_var]" -> "CacheableCombineMerge[x#mean_and_var]";
 "ExtractCombineMergeOutputs[x#mean_and_var]" [label="{ExtractCombineMergeOutputs|output_tensor_info_list: [TensorInfo(dtype=tf.float32, shape=(), temporary_asset_info=None), TensorInfo(dtype=tf.float32, shape=(), temporary_asset_info=None)]|label: ExtractCombineMergeOutputs[x#mean_and_var]|{<0>0|<1>1}}"];
 "CacheableCombineMerge[x#mean_and_var]" -> "ExtractCombineMergeOutputs[x#mean_and_var]";
-"CreateTensorBinding[x#mean_and_var#Placeholder]" [label="{CreateTensorBinding|tensor_name: x/mean_and_var/Placeholder:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[x#mean_and_var#Placeholder]}"];
-"ExtractCombineMergeOutputs[x#mean_and_var]":0 -> "CreateTensorBinding[x#mean_and_var#Placeholder]";
-"CreateTensorBinding[x#mean_and_var#Placeholder_1]" [label="{CreateTensorBinding|tensor_name: x/mean_and_var/Placeholder_1:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[x#mean_and_var#Placeholder_1]}"];
-"ExtractCombineMergeOutputs[x#mean_and_var]":1 -> "CreateTensorBinding[x#mean_and_var#Placeholder_1]";
-CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_centered', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\")])|label: CreateSavedModel}"];
-"CreateTensorBinding[x#mean_and_var#Placeholder]" -> CreateSavedModel;
-"CreateTensorBinding[x#mean_and_var#Placeholder_1]" -> CreateSavedModel;
+"CreateTensorBinding[x#mean_and_var#temporary_analyzer_output#PlaceholderWithDefault]" [label="{CreateTensorBinding|tensor_name: x/mean_and_var/temporary_analyzer_output/PlaceholderWithDefault:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[x#mean_and_var#temporary_analyzer_output#PlaceholderWithDefault]}"];
+"ExtractCombineMergeOutputs[x#mean_and_var]":0 -> "CreateTensorBinding[x#mean_and_var#temporary_analyzer_output#PlaceholderWithDefault]";
+"CreateTensorBinding[x#mean_and_var#temporary_analyzer_output_1#PlaceholderWithDefault]" [label="{CreateTensorBinding|tensor_name: x/mean_and_var/temporary_analyzer_output_1/PlaceholderWithDefault:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[x#mean_and_var#temporary_analyzer_output_1#PlaceholderWithDefault]}"];
+"ExtractCombineMergeOutputs[x#mean_and_var]":1 -> "CreateTensorBinding[x#mean_and_var#temporary_analyzer_output_1#PlaceholderWithDefault]";
+CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict(\{'x_centered': \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\"\})|label: CreateSavedModel}"];
+"CreateTensorBinding[x#mean_and_var#temporary_analyzer_output#PlaceholderWithDefault]" -> CreateSavedModel;
+"CreateTensorBinding[x#mean_and_var#temporary_analyzer_output_1#PlaceholderWithDefault]" -> CreateSavedModel;
 }
 """,
     expected_dot_graph_str_tf2=r"""digraph G {
@@ -121,7 +122,8 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signatur
 "CreateTensorBinding[x#mean_and_var#temporary_analyzer_output#PlaceholderWithDefault]" -> CreateSavedModel;
 "CreateTensorBinding[x#mean_and_var#temporary_analyzer_output_1#PlaceholderWithDefault]" -> CreateSavedModel;
 }
-""")
+""",
+)
 
 
 def _preprocessing_fn_with_table(inputs):
@@ -142,10 +144,10 @@ _WITH_TABLE_CASE = dict(
     testcase_name='with_table',
     feature_spec={'x': tf.io.FixedLenFeature([], tf.string)},
     preprocessing_fn=_preprocessing_fn_with_table,
-    expected_dot_graph_str=r"""digraph G {
+    expected_dot_graph_str_py312=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/boolean_mask/GatherV2', \"Tensor\<shape: [None], \<dtype: 'string'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
+"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict(\{'x/boolean_mask/GatherV2': \"Tensor\<shape: [None], \<dtype: 'string'\>\>\"\})|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
 "ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='FlattenedDataset', is_cached=True)|label: ExtractInputForSavedModel[FlattenedDataset]}"];
 "ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
@@ -158,22 +160,22 @@ node [shape=Mrecord];
 "VocabularyAccumulate[x]" -> "VocabularyMerge[x]";
 "VocabularyCountUnfiltered[x]" [label="{VocabularyCount|label: VocabularyCountUnfiltered[x]}"];
 "VocabularyMerge[x]" -> "VocabularyCountUnfiltered[x]";
-"CreateTensorBinding[x#vocab_x_unpruned_vocab_size]" [label="{CreateTensorBinding|tensor_name: x/vocab_x_unpruned_vocab_size:0|dtype_enum: 9|is_asset_filepath: False|label: CreateTensorBinding[x#vocab_x_unpruned_vocab_size]}"];
-"VocabularyCountUnfiltered[x]" -> "CreateTensorBinding[x#vocab_x_unpruned_vocab_size]";
+"CreateTensorBinding[x#temporary_analyzer_output#vocab_x_unpruned_vocab_size]" [label="{CreateTensorBinding|tensor_name: x/temporary_analyzer_output/vocab_x_unpruned_vocab_size:0|dtype_enum: 9|is_asset_filepath: False|label: CreateTensorBinding[x#temporary_analyzer_output#vocab_x_unpruned_vocab_size]}"];
+"VocabularyCountUnfiltered[x]" -> "CreateTensorBinding[x#temporary_analyzer_output#vocab_x_unpruned_vocab_size]";
 "VocabularyPrune[x]" [label="{VocabularyPrune|top_k: None|frequency_threshold: 0|informativeness_threshold: -inf|coverage_top_k: None|coverage_frequency_threshold: 0|coverage_informativeness_threshold: -inf|key_fn: None|input_dtype: string|label: VocabularyPrune[x]}"];
 "VocabularyMerge[x]" -> "VocabularyPrune[x]";
 "VocabularyCountFiltered[x]" [label="{VocabularyCount|label: VocabularyCountFiltered[x]}"];
 "VocabularyPrune[x]" -> "VocabularyCountFiltered[x]";
-"CreateTensorBinding[x#vocab_x_pruned_vocab_size]" [label="{CreateTensorBinding|tensor_name: x/vocab_x_pruned_vocab_size:0|dtype_enum: 9|is_asset_filepath: False|label: CreateTensorBinding[x#vocab_x_pruned_vocab_size]}"];
-"VocabularyCountFiltered[x]" -> "CreateTensorBinding[x#vocab_x_pruned_vocab_size]";
+"CreateTensorBinding[x#temporary_analyzer_output_1#vocab_x_pruned_vocab_size]" [label="{CreateTensorBinding|tensor_name: x/temporary_analyzer_output_1/vocab_x_pruned_vocab_size:0|dtype_enum: 9|is_asset_filepath: False|label: CreateTensorBinding[x#temporary_analyzer_output_1#vocab_x_pruned_vocab_size]}"];
+"VocabularyCountFiltered[x]" -> "CreateTensorBinding[x#temporary_analyzer_output_1#vocab_x_pruned_vocab_size]";
 "VocabularyOrderAndWrite[x]" [label="{VocabularyOrderAndWrite|vocab_filename: vocab_x|store_frequency: False|input_dtype: string|label: VocabularyOrderAndWrite[x]|fingerprint_shuffle: False|file_format: text|input_is_sorted: False}"];
 "VocabularyPrune[x]" -> "VocabularyOrderAndWrite[x]";
-"CreateTensorBinding[x#Placeholder]" [label="{CreateTensorBinding|tensor_name: x/Placeholder:0|dtype_enum: 7|is_asset_filepath: True|label: CreateTensorBinding[x#Placeholder]}"];
-"VocabularyOrderAndWrite[x]" -> "CreateTensorBinding[x#Placeholder]";
-CreateSavedModel [label="{CreateSavedModel|table_initializers: 1|output_signature: OrderedDict([('x_integerized', \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\")])|label: CreateSavedModel}"];
-"CreateTensorBinding[x#vocab_x_unpruned_vocab_size]" -> CreateSavedModel;
-"CreateTensorBinding[x#vocab_x_pruned_vocab_size]" -> CreateSavedModel;
-"CreateTensorBinding[x#Placeholder]" -> CreateSavedModel;
+"CreateTensorBinding[x#temporary_analyzer_output_2#Const]" [label="{CreateTensorBinding|tensor_name: x/temporary_analyzer_output_2/Const:0|dtype_enum: 7|is_asset_filepath: True|label: CreateTensorBinding[x#temporary_analyzer_output_2#Const]}"];
+"VocabularyOrderAndWrite[x]" -> "CreateTensorBinding[x#temporary_analyzer_output_2#Const]";
+CreateSavedModel [label="{CreateSavedModel|table_initializers: 1|output_signature: OrderedDict(\{'x_integerized': \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\"\})|label: CreateSavedModel}"];
+"CreateTensorBinding[x#temporary_analyzer_output#vocab_x_unpruned_vocab_size]" -> CreateSavedModel;
+"CreateTensorBinding[x#temporary_analyzer_output_1#vocab_x_pruned_vocab_size]" -> CreateSavedModel;
+"CreateTensorBinding[x#temporary_analyzer_output_2#Const]" -> CreateSavedModel;
 }
 """,
     expected_dot_graph_str_tf2=r"""digraph G {
@@ -209,7 +211,8 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 1|output_signatur
 "CreateTensorBinding[x#temporary_analyzer_output_1#vocab_x_pruned_vocab_size]" -> CreateSavedModel;
 "CreateTensorBinding[x#temporary_analyzer_output_2#Const]" -> CreateSavedModel;
 }
-""")
+""",
+)
 
 
 def _preprocessing_fn_with_two_phases(inputs):
@@ -225,10 +228,10 @@ _TWO_PHASES_CASE = dict(
     testcase_name='with_two_phases',
     feature_spec={'x': tf.io.FixedLenFeature([], tf.float32)},
     preprocessing_fn=_preprocessing_fn_with_two_phases,
-    expected_dot_graph_str=r"""digraph G {
+    expected_dot_graph_str_py312=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x/mean_and_var/Cast_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/div_no_nan', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/div_no_nan_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
+"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict(\{'x/mean_and_var/Cast_1': \"Tensor\<shape: [], \<dtype: 'float32'\>\>\", 'x/mean_and_var/div_no_nan': \"Tensor\<shape: [], \<dtype: 'float32'\>\>\", 'x/mean_and_var/div_no_nan_1': \"Tensor\<shape: [], \<dtype: 'float32'\>\>\", 'x/mean_and_var/zeros': \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"\})|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
 "ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='FlattenedDataset', is_cached=True)|label: ExtractInputForSavedModel[FlattenedDataset]}"];
 "ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
@@ -241,13 +244,13 @@ node [shape=Mrecord];
 "CacheableCombineAccumulate[x#mean_and_var]" -> "CacheableCombineMerge[x#mean_and_var]";
 "ExtractCombineMergeOutputs[x#mean_and_var]" [label="{ExtractCombineMergeOutputs|output_tensor_info_list: [TensorInfo(dtype=tf.float32, shape=(), temporary_asset_info=None), TensorInfo(dtype=tf.float32, shape=(), temporary_asset_info=None)]|label: ExtractCombineMergeOutputs[x#mean_and_var]|{<0>0|<1>1}}"];
 "CacheableCombineMerge[x#mean_and_var]" -> "ExtractCombineMergeOutputs[x#mean_and_var]";
-"CreateTensorBinding[x#mean_and_var#Placeholder]" [label="{CreateTensorBinding|tensor_name: x/mean_and_var/Placeholder:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[x#mean_and_var#Placeholder]}"];
-"ExtractCombineMergeOutputs[x#mean_and_var]":0 -> "CreateTensorBinding[x#mean_and_var#Placeholder]";
-"CreateTensorBinding[x#mean_and_var#Placeholder_1]" [label="{CreateTensorBinding|tensor_name: x/mean_and_var/Placeholder_1:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[x#mean_and_var#Placeholder_1]}"];
-"ExtractCombineMergeOutputs[x#mean_and_var]":1 -> "CreateTensorBinding[x#mean_and_var#Placeholder_1]";
-"CreateSavedModelForAnalyzerInputs[Phase1]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_square_deviations/mean_and_var/Cast_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/div_no_nan', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/div_no_nan_1', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"), ('x_square_deviations/mean_and_var/zeros', \"Tensor\<shape: [], \<dtype: 'float32'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase1]}"];
-"CreateTensorBinding[x#mean_and_var#Placeholder]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
-"CreateTensorBinding[x#mean_and_var#Placeholder_1]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
+"CreateTensorBinding[x#mean_and_var#temporary_analyzer_output#PlaceholderWithDefault]" [label="{CreateTensorBinding|tensor_name: x/mean_and_var/temporary_analyzer_output/PlaceholderWithDefault:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[x#mean_and_var#temporary_analyzer_output#PlaceholderWithDefault]}"];
+"ExtractCombineMergeOutputs[x#mean_and_var]":0 -> "CreateTensorBinding[x#mean_and_var#temporary_analyzer_output#PlaceholderWithDefault]";
+"CreateTensorBinding[x#mean_and_var#temporary_analyzer_output_1#PlaceholderWithDefault]" [label="{CreateTensorBinding|tensor_name: x/mean_and_var/temporary_analyzer_output_1/PlaceholderWithDefault:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[x#mean_and_var#temporary_analyzer_output_1#PlaceholderWithDefault]}"];
+"ExtractCombineMergeOutputs[x#mean_and_var]":1 -> "CreateTensorBinding[x#mean_and_var#temporary_analyzer_output_1#PlaceholderWithDefault]";
+"CreateSavedModelForAnalyzerInputs[Phase1]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict(\{'x_square_deviations/mean_and_var/Cast_1': \"Tensor\<shape: [], \<dtype: 'float32'\>\>\", 'x_square_deviations/mean_and_var/div_no_nan': \"Tensor\<shape: [], \<dtype: 'float32'\>\>\", 'x_square_deviations/mean_and_var/div_no_nan_1': \"Tensor\<shape: [], \<dtype: 'float32'\>\>\", 'x_square_deviations/mean_and_var/zeros': \"Tensor\<shape: [], \<dtype: 'float32'\>\>\"\})|label: CreateSavedModelForAnalyzerInputs[Phase1]}"];
+"CreateTensorBinding[x#mean_and_var#temporary_analyzer_output#PlaceholderWithDefault]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
+"CreateTensorBinding[x#mean_and_var#temporary_analyzer_output_1#PlaceholderWithDefault]" -> "CreateSavedModelForAnalyzerInputs[Phase1]";
 "ApplySavedModel[Phase1]" [label="{ApplySavedModel|phase: 1|label: ApplySavedModel[Phase1]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase1]" -> "ApplySavedModel[Phase1]";
 "ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase1]";
@@ -259,15 +262,15 @@ node [shape=Mrecord];
 "CacheableCombineAccumulate[x_square_deviations#mean_and_var]" -> "CacheableCombineMerge[x_square_deviations#mean_and_var]";
 "ExtractCombineMergeOutputs[x_square_deviations#mean_and_var]" [label="{ExtractCombineMergeOutputs|output_tensor_info_list: [TensorInfo(dtype=tf.float32, shape=(), temporary_asset_info=None), TensorInfo(dtype=tf.float32, shape=(), temporary_asset_info=None)]|label: ExtractCombineMergeOutputs[x_square_deviations#mean_and_var]|{<0>0|<1>1}}"];
 "CacheableCombineMerge[x_square_deviations#mean_and_var]" -> "ExtractCombineMergeOutputs[x_square_deviations#mean_and_var]";
-"CreateTensorBinding[x_square_deviations#mean_and_var#Placeholder]" [label="{CreateTensorBinding|tensor_name: x_square_deviations/mean_and_var/Placeholder:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[x_square_deviations#mean_and_var#Placeholder]}"];
-"ExtractCombineMergeOutputs[x_square_deviations#mean_and_var]":0 -> "CreateTensorBinding[x_square_deviations#mean_and_var#Placeholder]";
-"CreateTensorBinding[x_square_deviations#mean_and_var#Placeholder_1]" [label="{CreateTensorBinding|tensor_name: x_square_deviations/mean_and_var/Placeholder_1:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[x_square_deviations#mean_and_var#Placeholder_1]}"];
-"ExtractCombineMergeOutputs[x_square_deviations#mean_and_var]":1 -> "CreateTensorBinding[x_square_deviations#mean_and_var#Placeholder_1]";
-CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_normalized', \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\")])|label: CreateSavedModel}"];
-"CreateTensorBinding[x#mean_and_var#Placeholder]" -> CreateSavedModel;
-"CreateTensorBinding[x#mean_and_var#Placeholder_1]" -> CreateSavedModel;
-"CreateTensorBinding[x_square_deviations#mean_and_var#Placeholder]" -> CreateSavedModel;
-"CreateTensorBinding[x_square_deviations#mean_and_var#Placeholder_1]" -> CreateSavedModel;
+"CreateTensorBinding[x_square_deviations#mean_and_var#temporary_analyzer_output#PlaceholderWithDefault]" [label="{CreateTensorBinding|tensor_name: x_square_deviations/mean_and_var/temporary_analyzer_output/PlaceholderWithDefault:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[x_square_deviations#mean_and_var#temporary_analyzer_output#PlaceholderWithDefault]}"];
+"ExtractCombineMergeOutputs[x_square_deviations#mean_and_var]":0 -> "CreateTensorBinding[x_square_deviations#mean_and_var#temporary_analyzer_output#PlaceholderWithDefault]";
+"CreateTensorBinding[x_square_deviations#mean_and_var#temporary_analyzer_output_1#PlaceholderWithDefault]" [label="{CreateTensorBinding|tensor_name: x_square_deviations/mean_and_var/temporary_analyzer_output_1/PlaceholderWithDefault:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[x_square_deviations#mean_and_var#temporary_analyzer_output_1#PlaceholderWithDefault]}"];
+"ExtractCombineMergeOutputs[x_square_deviations#mean_and_var]":1 -> "CreateTensorBinding[x_square_deviations#mean_and_var#temporary_analyzer_output_1#PlaceholderWithDefault]";
+CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict(\{'x_normalized': \"Tensor\<shape: [None], \<dtype: 'float32'\>\>\"\})|label: CreateSavedModel}"];
+"CreateTensorBinding[x#mean_and_var#temporary_analyzer_output#PlaceholderWithDefault]" -> CreateSavedModel;
+"CreateTensorBinding[x#mean_and_var#temporary_analyzer_output_1#PlaceholderWithDefault]" -> CreateSavedModel;
+"CreateTensorBinding[x_square_deviations#mean_and_var#temporary_analyzer_output#PlaceholderWithDefault]" -> CreateSavedModel;
+"CreateTensorBinding[x_square_deviations#mean_and_var#temporary_analyzer_output_1#PlaceholderWithDefault]" -> CreateSavedModel;
 }
 """,
     expected_dot_graph_str_tf2=r"""digraph G {
@@ -314,7 +317,8 @@ CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signatur
 "CreateTensorBinding[x_square_deviations#mean_and_var#temporary_analyzer_output#PlaceholderWithDefault]" -> CreateSavedModel;
 "CreateTensorBinding[x_square_deviations#mean_and_var#temporary_analyzer_output_1#PlaceholderWithDefault]" -> CreateSavedModel;
 }
-""")
+""",
+)
 
 
 def _preprocessing_fn_with_chained_ptransforms(inputs):
@@ -347,24 +351,24 @@ _CHAINED_PTRANSFORMS_CASE = dict(
     testcase_name='with_chained_ptransforms',
     feature_spec={'x': tf.io.FixedLenFeature([], tf.int64)},
     preprocessing_fn=_preprocessing_fn_with_chained_ptransforms,
-    expected_dot_graph_str=r"""digraph G {
+    expected_dot_graph_str_py312=r"""digraph G {
 directed=True;
 node [shape=Mrecord];
-"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('inputs/inputs/x_copy', \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\")])|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
+"CreateSavedModelForAnalyzerInputs[Phase0]" [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict(\{'inputs_copy': \"Tensor\<shape: [None], \<dtype: 'int64'\>\>\"\})|label: CreateSavedModelForAnalyzerInputs[Phase0]}"];
 "ExtractInputForSavedModel[FlattenedDataset]" [label="{ExtractInputForSavedModel|dataset_key: DatasetKey(key='FlattenedDataset', is_cached=True)|label: ExtractInputForSavedModel[FlattenedDataset]}"];
 "ApplySavedModel[Phase0]" [label="{ApplySavedModel|phase: 0|label: ApplySavedModel[Phase0]|partitionable: True}"];
 "CreateSavedModelForAnalyzerInputs[Phase0]" -> "ApplySavedModel[Phase0]";
 "ExtractInputForSavedModel[FlattenedDataset]" -> "ApplySavedModel[Phase0]";
-"TensorSource[x]" [label="{ExtractFromDict|keys: ('inputs/inputs/x_copy',)|label: TensorSource[x]|partitionable: True}"];
+"TensorSource[x]" [label="{ExtractFromDict|keys: ('inputs_copy',)|label: TensorSource[x]|partitionable: True}"];
 "ApplySavedModel[Phase0]" -> "TensorSource[x]";
 "FakeChainable[x/ptransform1]" [label="{FakeChainable|label: FakeChainable[x/ptransform1]}"];
 "TensorSource[x]" -> "FakeChainable[x/ptransform1]";
 "FakeChainable[x/ptransform2]" [label="{FakeChainable|label: FakeChainable[x/ptransform2]}"];
 "FakeChainable[x/ptransform1]" -> "FakeChainable[x/ptransform2]";
-"CreateTensorBinding[x#Placeholder]" [label="{CreateTensorBinding|tensor_name: x/Placeholder:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[x#Placeholder]}"];
-"FakeChainable[x/ptransform2]" -> "CreateTensorBinding[x#Placeholder]";
-CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_chained', \"Tensor\<shape: [17, 27], \<dtype: 'float32'\>\>\")])|label: CreateSavedModel}"];
-"CreateTensorBinding[x#Placeholder]" -> CreateSavedModel;
+"CreateTensorBinding[x#temporary_analyzer_output#PlaceholderWithDefault]" [label="{CreateTensorBinding|tensor_name: x/temporary_analyzer_output/PlaceholderWithDefault:0|dtype_enum: 1|is_asset_filepath: False|label: CreateTensorBinding[x#temporary_analyzer_output#PlaceholderWithDefault]}"];
+"FakeChainable[x/ptransform2]" -> "CreateTensorBinding[x#temporary_analyzer_output#PlaceholderWithDefault]";
+CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict(\{'x_chained': \"Tensor\<shape: [17, 27], \<dtype: 'float32'\>\>\"\})|label: CreateSavedModel}"];
+"CreateTensorBinding[x#temporary_analyzer_output#PlaceholderWithDefault]" -> CreateSavedModel;
 }
 """,
     expected_dot_graph_str_tf2=r"""digraph G {
@@ -386,7 +390,8 @@ node [shape=Mrecord];
 CreateSavedModel [label="{CreateSavedModel|table_initializers: 0|output_signature: OrderedDict([('x_chained', \"Tensor\<shape: [17, 27], \<dtype: 'float32'\>\>\")])|label: CreateSavedModel}"];
 "CreateTensorBinding[x#temporary_analyzer_output#PlaceholderWithDefault]" -> CreateSavedModel;
 }
-""")
+""",
+)
 
 _ANALYZE_TEST_CASES = [
     _NO_ANALYZERS_CASE,
@@ -403,13 +408,18 @@ class AnalysisGraphBuilderTest(tft_unit.TransformTestCase):
       *tft_unit.cross_named_parameters(
           _ANALYZE_TEST_CASES,
           [
-              dict(testcase_name='tf_compat_v1', use_tf_compat_v1=True),
               dict(testcase_name='tf2', use_tf_compat_v1=False),
           ],
       )
   )
-  def test_build(self, feature_spec, preprocessing_fn, expected_dot_graph_str,
-                 expected_dot_graph_str_tf2, use_tf_compat_v1):
+  def test_build(
+      self,
+      feature_spec,
+      preprocessing_fn,
+      expected_dot_graph_str_py312,
+      expected_dot_graph_str_tf2,
+      use_tf_compat_v1,
+  ):
     if not use_tf_compat_v1:
       tft_unit.skip_if_not_tf2('Tensorflow 2.x required')
     specs = (
@@ -432,8 +442,12 @@ class AnalysisGraphBuilderTest(tft_unit.TransformTestCase):
     self.assertMultiLineEqual(
         msg='Result dot graph is:\n{}'.format(dot_string),
         first=dot_string,
-        second=(expected_dot_graph_str
-                if use_tf_compat_v1 else expected_dot_graph_str_tf2))
+        second=(
+            expected_dot_graph_str_py312
+            if sys.version_info >= (3, 12)
+            else expected_dot_graph_str_tf2
+        ),
+    )
 
   @tft_unit.named_parameters(
       *tft_unit.cross_named_parameters(
@@ -473,7 +487,6 @@ class AnalysisGraphBuilderTest(tft_unit.TransformTestCase):
               ),
           ],
           [
-              dict(testcase_name='tf_compat_v1', use_tf_compat_v1=True),
               dict(testcase_name='tf2', use_tf_compat_v1=False),
           ],
       )
@@ -514,7 +527,6 @@ class AnalysisGraphBuilderTest(tft_unit.TransformTestCase):
     self.assertCountEqual(expected_dataset_keys, dataset_keys)
 
   @tft_unit.named_parameters(
-      dict(testcase_name='tf_compat_v1', use_tf_compat_v1=True),
       dict(testcase_name='tf2', use_tf_compat_v1=False),
   )
   def test_get_analysis_cache_entry_keys(self, use_tf_compat_v1):
