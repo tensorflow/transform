@@ -37,3 +37,15 @@ try:
   import tensorflow_io as _  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
 except ModuleNotFoundError:
   pass
+
+__all__ = [
+    "AnalyzeAndTransformDataset",
+    "AnalyzeDataset",
+    "AnalyzeDatasetWithCache",
+    "Context",
+    "EncodeTransformedDataset",
+    "ReadTransformFn",
+    "TransformDataset",
+    "WriteMetadata",
+    "WriteTransformFn",
+]

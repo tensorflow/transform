@@ -60,7 +60,7 @@ or
 \<feature key> not found in features dictionary.
 ```
 
-[`TFTransformOutput.transform_raw_features`](https://www.tensorflow.org/tfx/transform/api_docs/python/tft/TFTransformOutput#transform_raw_features)
+[`TFTransformOutput.transform_raw_features`](https://tensorflow.github.io/transform/api_docs/python/tft-beam/#tensorflow_transform.beam.Context)
 ignores the `drop_unused_features` parameter and behaves as if it were True.
 Please update any usages of the output dictionary from this API to check if the
 key you are attempting to retrieve exists in it.
@@ -76,7 +76,7 @@ tensorflow.python.framework.errors_impl.FailedPreconditionError: Table not initi
 Support for Trainer with Estimator based executor is best-effort. While other
 estimators work, we have seen issues with table initialization in the
 BaselineClassifier. Please
-[disable TF 2.x in `tf.Transform`](https://www.tensorflow.org/tfx/transform/tf2_support#retaining_the_legacy_tftransform_behavior).
+[disable TF 2.x in `tf.Transform`](#retaining-the-legacy-tftransform-behavior).
 
 ## Known issues / Features not yet supported
 

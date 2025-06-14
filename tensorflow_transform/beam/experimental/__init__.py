@@ -14,3 +14,7 @@
 """Module level imports for tensorflow_transform.beam.experimental."""
 
 from tensorflow_transform.beam.experimental.analyzer_impls import *
+
+__all__ = [
+    "PTransformAnalyzer",
+]
