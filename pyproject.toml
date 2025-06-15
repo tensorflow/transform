@@ -1,0 +1,124 @@
+[tool.poetry]
+name = "tensorflow-transform"
+version = "1.17.1"
+description = "A library for data preprocessing with TensorFlow"
+authors = ["Google Inc. <tensorflow-extended-dev@googlegroups.com>"]
+license = "Apache-2.0"
+readme = "README.md"
+homepage = "https://www.tensorflow.org/tfx/transform/get_started"
+repository = "https://github.com/tensorflow/transform"
+keywords = ["tensorflow", "transform", "tfx"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+packages = [{include = "tensorflow_transform"}]
+
+[tool.poetry.dependencies]
+python = ">=3.9,<4"
+absl-py = ">=0.9,<2.0.0"
+apache-beam = {version = ">=2.53,<3", extras = ["gcp"], python = ">=3.11"}
+numpy = ">=1.22.0"
+protobuf = [
+    {version = ">=4.25.2,<6.0.0", python = ">=3.11"},
+    {version = ">=4.21.6,<6.0.0", python = "<3.11"}
+]
+pyarrow = ">=10,<11"
+pydot = ">=1.2,<2"
+tensorflow = ">=2.17,<2.18"
+tensorflow-metadata = ">=1.15.0"
+tf-keras = ">=2"
+tfx-bsl = ">=1.15.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+pytest-cov = "^4.1.0"
+pytest-mock = "^3.12.0"
+
+[tool.poetry.scripts]
+test = "pytest:main"
+tests = "pytest:main"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = [
+    "--strict-markers",
+    "--tb=short",
+    "--cov=tensorflow_transform",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-report=html",
+    "--cov-report=xml",
+    "--cov-fail-under=80",
+    "--doctest-modules",
+    "-v"
+]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "unit: marks tests as unit tests (fast, isolated)",
+    "integration: marks tests as integration tests (may require external resources)",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')"
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning"
+]
+
+[tool.coverage.run]
+source = ["tensorflow_transform"]
+branch = true
+parallel = true
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/*_test.py",
+    "*/setup.py",
+    "*/version.py",
+    "*/__pycache__/*",
+    "*/site-packages/*"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "def __str__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "if typing.TYPE_CHECKING:",
+    "@abstractmethod",
+    "@abc.abstractmethod"
+]
+precision = 2
+skip_covered = true
+show_missing = true
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
