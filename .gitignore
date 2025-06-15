@@ -14,3 +14,48 @@ AUTHORS
 ChangeLog
 .DS_Store
 .mypy_cache
+
+# Testing artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+pytest_cache/
+
+# Claude settings
+.claude/*
+
+# Poetry
+# Note: Do not ignore poetry.lock - it should be committed
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+.env
+
+# IDE specific files
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Build artifacts
+__pycache__/
+*.so
+*.dylib
+*.dll
+
+# OS specific
+Thumbs.db
+.DS_Store
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+.cache/
