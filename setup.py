@@ -13,6 +13,7 @@
 # limitations under the License.
 """Package Setup script for tf.Transform."""
 import os
+from pathlib import Path
 
 from setuptools import find_packages
 from setuptools import setup
@@ -66,6 +67,16 @@ def _make_required_install_packages():
       ),
   ]
 
+def _make_docs_packages():
+  return [
+      req for req in Path("./requirements-docs.txt")
+      .expanduser()
+      .resolve()
+      .read_text()
+      .splitlines()
+      if req
+  ]
+
 
 # Get the long description from the README file.
 with open('README.md') as fp:
@@ -99,6 +110,9 @@ setup(
     ],
     namespace_packages=[],
     install_requires=_make_required_install_packages(),
+    extras_require= {
+      'docs': _make_docs_packages(),
+    },
     python_requires='>=3.9,<4',
     packages=find_packages(),
     include_package_data=True,

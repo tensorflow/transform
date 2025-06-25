@@ -16,3 +16,17 @@
 from tensorflow_transform.experimental.analyzers import *
 from tensorflow_transform.experimental.annotators import *
 from tensorflow_transform.experimental.mappers import *
+
+__all__ = [
+    "annotate_sparse_output_shape",
+    "annotate_true_sparse_output",
+    "approximate_vocabulary",
+    "CacheablePTransformAnalyzer",
+    "compute_and_apply_approximate_vocabulary",
+    "document_frequency",
+    "get_vocabulary_size_by_name",
+    "idf",
+    "PTransformAnalyzerCacheCoder",
+    "ptransform_analyzer",
+    "SimpleJsonPTransformAnalyzerCacheCoder",
+]
