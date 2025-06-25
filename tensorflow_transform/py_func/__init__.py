@@ -14,4 +14,6 @@
 """Module level imports for tensorflow_transform.py_func."""
 
 from tensorflow_transform.py_func.api import apply_pyfunc
-from tensorflow_transform.py_func.pyfunc_helper import register_pyfuncs_from_saved_transform
+from tensorflow_transform.py_func.pyfunc_helper import (
+    register_pyfuncs_from_saved_transform,
+)

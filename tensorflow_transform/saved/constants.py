@@ -14,6 +14,6 @@
 """Constants for tf.Transform SavedModels."""
 
 # TODO(b/123243166) eventually migrate this constant to tag_constants.TRANSFORM.
-TRANSFORM_TAG = 'transform'
+TRANSFORM_TAG = "transform"
 
-TRANSFORM_SIGNATURE = 'transform_signature'
+TRANSFORM_SIGNATURE = "transform_signature"

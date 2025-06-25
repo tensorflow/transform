@@ -17,15 +17,15 @@
 # The doc-generator's `explicit_package_contents_filter` requires that
 # sub-modules you want documented are explicitly imported.
 # Also: analyzer_impls registers implementation of analyzers.
-from tensorflow_transform.beam import analyzer_cache
-from tensorflow_transform.beam import analyzer_impls
-from tensorflow_transform.beam import experimental
+from tensorflow_transform.beam import analyzer_cache, analyzer_impls, experimental
 from tensorflow_transform.beam.context import Context
-from tensorflow_transform.beam.impl import AnalyzeAndTransformDataset
-from tensorflow_transform.beam.impl import AnalyzeDataset
-from tensorflow_transform.beam.impl import AnalyzeDatasetWithCache
-from tensorflow_transform.beam.impl import EncodeTransformedDataset
-from tensorflow_transform.beam.impl import TransformDataset
+from tensorflow_transform.beam.impl import (
+    AnalyzeAndTransformDataset,
+    AnalyzeDataset,
+    AnalyzeDatasetWithCache,
+    EncodeTransformedDataset,
+    TransformDataset,
+)
 from tensorflow_transform.beam.tft_beam_io import *
 
 # pylint: enable=wildcard-import
@@ -34,9 +34,9 @@ from tensorflow_transform.beam.tft_beam_io import *
 # `tensorflow_io` package. Hence, this import is needed wherever we touch the
 # filesystem.
 try:
-  import tensorflow_io as _  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
+    import tensorflow_io as _  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
 except ModuleNotFoundError:
-  pass
+    pass
 
 __all__ = [
     "AnalyzeAndTransformDataset",

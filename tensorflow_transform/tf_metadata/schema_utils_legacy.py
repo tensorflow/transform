@@ -15,13 +15,14 @@
 
 
 def should_set_generate_legacy_feature_spec(feature_spec):
-  del feature_spec  # unused
-  return False
+    del feature_spec  # unused
+    return False
 
 
 def set_generate_legacy_feature_spec(schema_proto, value):
-  del schema_proto  # unused
-  if value:
-    raise NotImplementedError(
-        'The generate_legacy_feature_spec is a legacy field that is not part '
-        'of the OSS tf.Transform codebase')
+    del schema_proto  # unused
+    if value:
+        raise NotImplementedError(
+            "The generate_legacy_feature_spec is a legacy field that is not part "
+            "of the OSS tf.Transform codebase"
+        )

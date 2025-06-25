@@ -14,18 +14,19 @@
 """Init module for TF.Transform."""
 
 # pylint: disable=wildcard-import
-from tensorflow_transform import coders
-from tensorflow_transform import experimental
+from tensorflow_transform import coders, experimental
 from tensorflow_transform.analyzers import *
 from tensorflow_transform.annotators import *
 from tensorflow_transform.inspect_preprocessing_fn import *
 from tensorflow_transform.mappers import *
-from tensorflow_transform.output_wrapper import TFTransformOutput
-from tensorflow_transform.output_wrapper import TransformFeaturesLayer
+from tensorflow_transform.output_wrapper import (
+    TFTransformOutput,
+    TransformFeaturesLayer,
+)
 from tensorflow_transform.py_func.api import apply_pyfunc
 from tensorflow_transform.tf_metadata.dataset_metadata import DatasetMetadata
-# pylint: enable=wildcard-import
 
+# pylint: enable=wildcard-import
 # Import version string.
 from tensorflow_transform.version import __version__
 
@@ -33,62 +34,64 @@ from tensorflow_transform.version import __version__
 # `tensorflow_io` package. Hence, this import is needed wherever we touch the
 # filesystem.
 try:
-  import tensorflow_io as _  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
+    import tensorflow_io as _  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
 except ModuleNotFoundError:
-  pass
+    pass
 
 try:
-  from tensorflow_transform import google  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
+    from tensorflow_transform import (
+        google,  # pytype: disable=import-error # pylint: disable=g-import-not-at-top
+    )
 except ImportError:
-  pass
+    pass
 
 __all__ = [
-  "annotate_asset",
-  "apply_buckets",
-  "apply_buckets_with_interpolation",
-  "apply_pyfunc",
-  "apply_vocabulary",
-  "bag_of_words",
-  "bucketize",
-  "bucketize_per_key",
-  "compute_and_apply_vocabulary",
-  "count_per_key",
-  "covariance",
-  "DatasetMetadata",
-  "deduplicate_tensor_per_row",
-  "estimated_probability_density",
-  "get_analyze_input_columns",
-  "get_num_buckets_for_transformed_feature",
-  "get_transform_input_columns",
-  "hash_strings",
-  "histogram",
-  "make_and_track_object",
-  "max",
-  "mean",
-  "min",
-  "ngrams",
-  "pca",
-  "quantiles",
-  "scale_by_min_max",
-  "scale_by_min_max_per_key",
-  "scale_to_0_1",
-  "scale_to_0_1_per_key",
-  "scale_to_gaussian",
-  "scale_to_z_score",
-  "scale_to_z_score_per_key",
-  "segment_indices",
-  "size",
-  "sparse_tensor_left_align",
-  "sparse_tensor_to_dense_with_shape",
-  "sum",
-  "tfidf",
-  "TFTransformOutput",
-  "TransformFeaturesLayer",
-  "tukey_h_params",
-  "tukey_location",
-  "tukey_scale",
-  "var",
-  "__version__",
-  "vocabulary",
-  "word_count",
+    "annotate_asset",
+    "apply_buckets",
+    "apply_buckets_with_interpolation",
+    "apply_pyfunc",
+    "apply_vocabulary",
+    "bag_of_words",
+    "bucketize",
+    "bucketize_per_key",
+    "compute_and_apply_vocabulary",
+    "count_per_key",
+    "covariance",
+    "DatasetMetadata",
+    "deduplicate_tensor_per_row",
+    "estimated_probability_density",
+    "get_analyze_input_columns",
+    "get_num_buckets_for_transformed_feature",
+    "get_transform_input_columns",
+    "hash_strings",
+    "histogram",
+    "make_and_track_object",
+    "max",
+    "mean",
+    "min",
+    "ngrams",
+    "pca",
+    "quantiles",
+    "scale_by_min_max",
+    "scale_by_min_max_per_key",
+    "scale_to_0_1",
+    "scale_to_0_1_per_key",
+    "scale_to_gaussian",
+    "scale_to_z_score",
+    "scale_to_z_score_per_key",
+    "segment_indices",
+    "size",
+    "sparse_tensor_left_align",
+    "sparse_tensor_to_dense_with_shape",
+    "sum",
+    "tfidf",
+    "TFTransformOutput",
+    "TransformFeaturesLayer",
+    "tukey_h_params",
+    "tukey_location",
+    "tukey_scale",
+    "var",
+    "__version__",
+    "vocabulary",
+    "word_count",
 ]
