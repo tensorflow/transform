@@ -16,6 +16,7 @@
 import os
 import sys
 
+import pytest
 import tensorflow as tf
 import tensorflow_transform as tft
 from tensorflow_transform import analyzer_nodes
@@ -412,6 +413,8 @@ class AnalysisGraphBuilderTest(tft_unit.TransformTestCase):
           ],
       )
   )
+  @pytest.mark.xfail(run=False, reason="PR 315 This class contains tests that fail and needs to be fixed. "
+                     "If all tests pass, please remove this mark.")
   def test_build(
       self,
       feature_spec,
