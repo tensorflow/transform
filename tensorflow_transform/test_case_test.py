@@ -64,15 +64,17 @@ class TftUnitTest(test_case.TransformTestCase):
                                   'd': ('second', 2.0000001)},
                                  {'e': 2,
                                   'f': 3}])
-    with self.assertRaisesRegexp(AssertionError, r'len\(.*\) != len\(\[\]\)'):
+    with self.assertRaisesRegex(AssertionError, r'len\(.*\) != len\(\[\]\)'):
       self.assertDataCloseOrEqual([{'a': 1}], [])
-    with self.assertRaisesRegexp(
+    with self.assertRaisesRegex(
         AssertionError,
-        re.compile('Element counts were not equal.*: Row 0', re.DOTALL)):
+        re.compile('Element counts were not equal.*: Row 0', re.DOTALL),
+    ):
       self.assertDataCloseOrEqual([{'a': 1}], [{'b': 1}])
-    with self.assertRaisesRegexp(
+    with self.assertRaisesRegex(
         AssertionError,
-        re.compile('Not equal to tolerance.*: Row 0, key a', re.DOTALL)):
+        re.compile('Not equal to tolerance.*: Row 0, key a', re.DOTALL),
+    ):
       self.assertDataCloseOrEqual([{'a': 1}], [{'a': 2}])
 
   @test_case.parameters((1, 'a'), (2, 'b'))

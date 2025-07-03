@@ -162,9 +162,9 @@ class MappersTest(test_case.TransformTestCase):
   def testNGramsBadSizes(self):
     string_tensor = tf.constant(['abc', 'def', 'fghijklm', 'z', ''])
     tokenized_tensor = tf.compat.v1.string_split(string_tensor, delimiter='')
-    with self.assertRaisesRegexp(ValueError, 'Invalid ngram_range'):
+    with self.assertRaisesRegex(ValueError, 'Invalid ngram_range'):
       mappers.ngrams(tokenized_tensor, (0, 5), separator='')
-    with self.assertRaisesRegexp(ValueError, 'Invalid ngram_range'):
+    with self.assertRaisesRegex(ValueError, 'Invalid ngram_range'):
       mappers.ngrams(tokenized_tensor, (6, 5), separator='')
 
   def testNGramsBagOfWordsEmpty(self):
@@ -837,8 +837,9 @@ class MappersTest(test_case.TransformTestCase):
       with self.test_session() as sess:
         x = tf.constant([float('-inf'), float('nan'), 0.0, 1.0])
         boundaries = tf.constant([[float('nan'), float('nan'), float('nan')]])
-        with self.assertRaisesRegexp(tf.errors.InvalidArgumentError,
-                                     'num_boundaries'):
+        with self.assertRaisesRegex(
+            tf.errors.InvalidArgumentError, 'num_boundaries'
+        ):
           sess.run(mappers.apply_buckets_with_interpolation(x, boundaries))
 
   def testApplyBucketsWithInterpolationRaises(self):

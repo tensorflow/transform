@@ -25,6 +25,7 @@ purpose.
 """
 
 import queue
+import re
 
 import apache_beam as beam
 from apache_beam import pipeline as beam_pipeline
@@ -203,8 +204,18 @@ def _clone_items(pipeline, to_clone):
       # Create the copy. Note that in the copy, copied.outputs will start out
       # empty. Any outputs that are used will be repopulated in the PCollection
       # copy branch above.
-      copied = beam_pipeline.AppliedPTransform(item.parent, item.transform,
-                                               new_label, new_inputs)
+      maybe_int = lambda s: int(s) if re.match(r'^\d+$', s) else s
+      semver = tuple(maybe_int(s) for s in beam.__version__.split('.'))
+      if semver >= (2, 63):
+        extra_args = {
+            'environment_id': item.environment_id,
+            'annotations': item.annotations,
+        }
+      else:
+        extra_args = {}
+      copied = beam_pipeline.AppliedPTransform(
+          item.parent, item.transform, new_label, new_inputs, **extra_args
+      )
 
       # Add a 'close to resource' resource hint to the copied PTransforms. The
       # PTransforms that are generated from each deep copy have the same unique

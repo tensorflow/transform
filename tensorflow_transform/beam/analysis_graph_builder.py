@@ -713,7 +713,7 @@ def build(
 
   tensor_keys_to_paths = {
       tensor_key:
-      graph_analyzer.get_unique_path(analyzers_input_signature[tensor_key])
+      graph_analyzer.get_unique_path(analyzers_input_signature[tensor_key])  # pytype: disable=attribute-error
       for tensor_key in analyzers_input_signature
   }
   (optimized_saved_model_future, output_cache_value_nodes,

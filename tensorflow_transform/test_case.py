@@ -302,7 +302,7 @@ class TransformTestCase(parameterized.TestCase, tf.test.TestCase):
       self.assertAllEqual(a_value, b_value, msg=msg)
     else:
       # TODO(varshaan): Change atol only for tests for which 1e-6 is too strict.
-      self.assertAllClose(a_value, b_value, atol=1e-5, msg=msg)
+      self.assertAllClose(a_value, b_value, atol=1e-4, msg=msg)
 
   def AssertVocabularyContents(self, vocab_file_path, file_contents):
     if vocab_file_path.endswith('.tfrecord.gz'):

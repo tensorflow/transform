@@ -422,8 +422,9 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
 
     assertion = no_assert()
     if input_dtype == tf.float16:
-      assertion = self.assertRaisesRegexp(
-          TypeError, '.*DataType float16 not in list of allowed values.*')
+      assertion = self.assertRaisesRegex(
+          TypeError, '.*DataType float16 not in list of allowed values.*'
+      )
 
     with assertion:
       self.assertAnalyzeAndTransformResults(
@@ -508,8 +509,9 @@ class BucketizeIntegrationTest(tft_unit.TransformTestCase):
 
     assertion = no_assert()
     if input_dtype == tf.float16:
-      assertion = self.assertRaisesRegexp(
-          TypeError, '.*DataType float16 not in list of allowed values.*')
+      assertion = self.assertRaisesRegex(
+          TypeError, '.*DataType float16 not in list of allowed values.*'
+      )
 
     with assertion:
       self.assertAnalyzeAndTransformResults(

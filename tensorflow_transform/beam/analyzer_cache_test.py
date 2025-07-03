@@ -55,8 +55,9 @@ class AnalyzerCacheTest(test_case.TransformTestCase):
     })
 
     for key in {analyzer_cache.DatasetKey(k) for k in ('^foo^', 'foo 1')}:
-      with self.assertRaisesRegexp(
-          ValueError, 'Dataset key .* does not match allowed pattern:'):
+      with self.assertRaisesRegex(
+          ValueError, 'Dataset key .* does not match allowed pattern:'
+      ):
         analyzer_cache.validate_dataset_keys({key})
 
   @test_case.named_parameters(
