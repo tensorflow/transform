@@ -305,5 +305,3 @@ class SavedTransformIOTest(tf.test.TestCase):
           saved_transform_io.write_saved_transform_from_session(
               session, inputs, outputs, export_path)
 
-if __name__ == '__main__':
-  tf.test.main()

@@ -760,5 +760,3 @@ class CombinerPackingUtilTest(test_case.TransformTestCase):
     )
 
 
-if __name__ == '__main__':
-  test_case.main()

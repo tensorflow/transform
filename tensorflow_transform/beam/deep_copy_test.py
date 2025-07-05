@@ -330,5 +330,3 @@ class DeepCopyTest(unittest.TestCase):
     self.assertEqual(DeepCopyTest._counts['Add2'], 3 * (num_copies + 1))
     self.assertEqual(DeepCopyTest._counts['Add3'], 3)
 
-if __name__ == '__main__':
-  unittest.main()

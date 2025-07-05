@@ -111,5 +111,3 @@ class TF2UtilsTest(test_case.TransformTestCase):
     self.assertEqual(result['x_2'].dtype, dtype)
 
 
-if __name__ == '__main__':
-  test_case.main()

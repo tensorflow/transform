@@ -65,5 +65,3 @@ class AnnotatorsTest(test_case.TransformTestCase):
     self.assertEqual(trackable_object, object_tracker.trackable_objects[0])
 
 
-if __name__ == '__main__':
-  test_case.main()

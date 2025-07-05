@@ -292,5 +292,3 @@ class TestCSVCoder(test_case.TransformTestCase):
       self.assertEqual(coder.encode(instance), csv_line.encode('utf-8'))
 
 
-if __name__ == '__main__':
-  test_case.main()

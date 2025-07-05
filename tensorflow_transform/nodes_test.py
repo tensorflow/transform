@@ -219,5 +219,3 @@ node [shape=Mrecord];
         msg='Result dot graph is:\n{}'.format(dot_string))
 
 
-if __name__ == '__main__':
-  test_case.main()

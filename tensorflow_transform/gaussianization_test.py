@@ -252,5 +252,3 @@ class GaussianizationTest(test_case.TransformTestCase):
     self.assertAllClose(output, expected_output)
 
 
-if __name__ == '__main__':
-  test_case.main()

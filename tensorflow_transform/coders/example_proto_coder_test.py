@@ -406,5 +406,3 @@ class ExampleProtoCoderTest(test_case.TransformTestCase):
       self.assertSerializedProtosEqual(coder.encode(instance), serialized_proto)
 
 
-if __name__ == '__main__':
-  test_case.main()

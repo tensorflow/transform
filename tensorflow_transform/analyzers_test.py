@@ -624,5 +624,3 @@ class AnalyzersTest(test_case.TransformTestCase):
         analyzers.calculate_recommended_min_diff_from_avg(100000000), 25)
 
 
-if __name__ == '__main__':
-  test_case.main()

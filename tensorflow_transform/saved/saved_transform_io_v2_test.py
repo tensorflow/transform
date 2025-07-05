@@ -666,5 +666,3 @@ class SavedTransformIOV2Test(test_case.TransformTestCase):
     self.assertEqual(restored_function(**input_kwargs)['a+b'], expected_output)
 
 
-if __name__ == '__main__':
-  test_case.main()

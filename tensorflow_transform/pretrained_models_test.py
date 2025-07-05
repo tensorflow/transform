@@ -154,5 +154,3 @@ class PretrainedModelsTest(tf.test.TestCase):
         self.assertAllEqual(output_value, [-1, 2, 5])
 
 
-if __name__ == '__main__':
-  tf.test.main()

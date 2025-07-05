@@ -92,5 +92,3 @@ class BeamMetadataIoTest(tft_unit.TransformTestCase):
       self.assertEqual(metadata, test_metadata.COMPLETE_METADATA)
 
 
-if __name__ == '__main__':
-  tf.test.main()

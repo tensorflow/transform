@@ -42,22 +42,27 @@ pip install tensorflow-transform
 To build from source follow the following steps:
 Create a virtual environment by running the commands
 
-```
-python3 -m venv <virtualenv_name>
+```bash
+python -m venv <virtualenv_name>
 source <virtualenv_name>/bin/activate
-pip3 install setuptools wheel
 git clone https://github.com/tensorflow/transform.git
 cd transform
-python3 setup.py bdist_wheel
+pip install .
 ```
 
-This will build the TFT wheel in the dist directory. To install the wheel from
-dist directory run the commands
+If you are doing development on the TFT repo, replace
 
+```bash
+pip install .
 ```
-cd dist
-pip3 install tensorflow_transform-<version>-py3-none-any.whl
+
+with
+
+```bash
+pip install -e .
 ```
+
+The `-e` flag causes TFT to be installed in [development mode](https://setuptools.pypa.io/en/latest/userguide/development_mode.html).
 
 ### Nightly Packages
 
@@ -71,6 +76,14 @@ pip install --extra-index-url https://pypi-nightly.tensorflow.org/simple tensorf
 
 This will install the nightly packages for the major dependencies of TFT such
 as TensorFlow Metadata (TFMD), TFX Basic Shared Libraries (TFX-BSL).
+
+### Running Tests
+
+To run TFT tests, run the following command from the root of the repository:
+
+```bash
+pytest
+```
 
 ### Notable Dependencies
 

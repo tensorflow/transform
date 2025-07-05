@@ -26,5 +26,3 @@ class DatasetSchemaTest(unittest.TestCase):
     self.assertEqual(metadata.schema, test_common.get_test_schema())
 
 
-if __name__ == '__main__':
-  unittest.main()

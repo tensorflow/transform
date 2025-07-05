@@ -974,5 +974,3 @@ def _subtract_ten_with_tf_while(x):
       cond=stop_condition, body=iteration, loop_vars=initial_values)[1]
 
 
-if __name__ == '__main__':
-  test_case.main()
