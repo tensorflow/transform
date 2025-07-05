@@ -1,0 +1,1444 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+        <link rel="prev" href="../common_transformations/">
+      
+      
+        <link rel="next" href="../api_docs/python/tft/">
+      
+      
+      <link rel="icon" href="../images/tf_full_color_primary_icon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.15">
+    
+    
+      
+        <title>Data preprocessing best practices - TensorFlow Data Transform</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.342714a4.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#data-preprocessing-for-ml-options-and-recommendations" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="TensorFlow Data Transform" class="md-header__button md-logo" aria-label="TensorFlow Data Transform" data-md-component="logo">
+      
+  <img src="../images/tf_full_color_primary_icon.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TensorFlow Data Transform
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Data preprocessing best practices
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/tensorflow/transform" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81"/></svg>
+  </div>
+  <div class="md-source__repository">
+    transform
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="TensorFlow Data Transform" class="md-nav__button md-logo" aria-label="TensorFlow Data Transform" data-md-component="logo">
+      
+  <img src="../images/tf_full_color_primary_icon.svg" alt="logo">
+
+    </a>
+    TensorFlow Data Transform
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/tensorflow/transform" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81"/></svg>
+  </div>
+  <div class="md-source__repository">
+    transform
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Preprocess and transform data
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Guide
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Guide
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Install
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../get_started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Get Started
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tf2_support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Using tf.Transform with TensorFlow 2.x
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../common_transformations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Common Transformations
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Data preprocessing best practices
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    Data preprocessing best practices
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#introduction" class="md-nav__link">
+    <span class="md-ellipsis">
+      Introduction
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#preprocessing-data-for-ml" class="md-nav__link">
+    <span class="md-ellipsis">
+      Preprocessing data for ML
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Preprocessing data for ML">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data-engineering-compared-to-feature-engineering" class="md-nav__link">
+    <span class="md-ellipsis">
+      Data engineering compared to feature engineering
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#preprocessing-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Preprocessing operations
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#preprocessing-granularity" class="md-nav__link">
+    <span class="md-ellipsis">
+      Preprocessing granularity
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ml-pipeline-on-google-cloud" class="md-nav__link">
+    <span class="md-ellipsis">
+      ML pipeline on Google Cloud
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ML pipeline on Google Cloud">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#high-level-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      High-level architecture
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-to-do-preprocessing" class="md-nav__link">
+    <span class="md-ellipsis">
+      Where to do preprocessing
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Where to do preprocessing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#option-a-bigquery" class="md-nav__link">
+    <span class="md-ellipsis">
+      Option A: BigQuery
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-b-dataflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      Option B: Dataflow
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-c-tensorflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      Option C: TensorFlow
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#preprocessing-challenges" class="md-nav__link">
+    <span class="md-ellipsis">
+      Preprocessing challenges
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-tftransform-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      How tf.Transform works
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How tf.Transform works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#transform-training-and-evaluation-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      Transform training and evaluation data
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#attach-transformations-to-the-exported-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      Attach transformations to the exported model
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#preprocessing-options-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      Preprocessing options summary
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whats-next" class="md-nav__link">
+    <span class="md-ellipsis">
+      What's next
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    API
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            API
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_docs/python/tft/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    tft
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_docs/python/tft-coders/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    tft.coders
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_docs/python/tft-experimental/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    tft.experimental 🧪
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_docs/python/tft-beam/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    tft.beam
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_docs/python/tft-beam-analyzer-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    tft.beam.analyzer_cache
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_docs/python/tft-beam-experimental/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    tft.beam.experimental 🧪
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#introduction" class="md-nav__link">
+    <span class="md-ellipsis">
+      Introduction
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#preprocessing-data-for-ml" class="md-nav__link">
+    <span class="md-ellipsis">
+      Preprocessing data for ML
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Preprocessing data for ML">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data-engineering-compared-to-feature-engineering" class="md-nav__link">
+    <span class="md-ellipsis">
+      Data engineering compared to feature engineering
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#preprocessing-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Preprocessing operations
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#preprocessing-granularity" class="md-nav__link">
+    <span class="md-ellipsis">
+      Preprocessing granularity
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ml-pipeline-on-google-cloud" class="md-nav__link">
+    <span class="md-ellipsis">
+      ML pipeline on Google Cloud
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ML pipeline on Google Cloud">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#high-level-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      High-level architecture
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-to-do-preprocessing" class="md-nav__link">
+    <span class="md-ellipsis">
+      Where to do preprocessing
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Where to do preprocessing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#option-a-bigquery" class="md-nav__link">
+    <span class="md-ellipsis">
+      Option A: BigQuery
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-b-dataflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      Option B: Dataflow
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#option-c-tensorflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      Option C: TensorFlow
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#preprocessing-challenges" class="md-nav__link">
+    <span class="md-ellipsis">
+      Preprocessing challenges
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-tftransform-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      How tf.Transform works
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How tf.Transform works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#transform-training-and-evaluation-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      Transform training and evaluation data
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#attach-transformations-to-the-exported-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      Attach transformations to the exported model
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#preprocessing-options-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      Preprocessing options summary
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whats-next" class="md-nav__link">
+    <span class="md-ellipsis">
+      What's next
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/tensorflow/transform/edit/master/docs/tft_bestpractices.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="data-preprocessing-for-ml-options-and-recommendations">Data preprocessing for ML: options and recommendations<a class="headerlink" href="#data-preprocessing-for-ml-options-and-recommendations" title="Permanent link">¶</a></h1>
+<p>This document is the first in a two-part series that explores the topic of data engineering and feature engineering for machine learning (ML), with a focus on supervised learning tasks. This first part discusses the best practices for preprocessing data in an ML pipeline on Google Cloud. The document focuses on using TensorFlow and the open source <a href="https://github.com/tensorflow/transform">TensorFlow Transform</a> (<code>tf.Transform</code>) library to prepare data, train the model, and serve the model for prediction. This document highlights the challenges of preprocessing data for ML, and it describes the options and scenarios for performing data transformation on Google Cloud effectively.</p>
+<p>This document assumes that you're familiar with <a href="https://cloud.google.com/bigquery/docs">BigQuery</a>, <a href="https://cloud.google.com/dataflow/docs">Dataflow</a>, <a href="https://cloud.google.com/vertex-ai/docs/start/introduction-unified-platform">Vertex AI</a>, and the TensorFlow <a href="https://www.tensorflow.org/guide/keras/overview">Keras</a> API.</p>
+<p>The second document, <a href="https://tensorflow.github.io/tfx/tutorials/transform/data_preprocessing_with_cloud">Data preprocessing for ML with Google Cloud</a>, provides a step-by-step tutorial for how to implement a <code>tf.Transform</code> pipeline.</p>
+<h2 id="introduction">Introduction<a class="headerlink" href="#introduction" title="Permanent link">¶</a></h2>
+<p>ML helps you automatically find complex and potentially useful patterns in data. These patterns are condensed in an ML model that can then be used on new data points---a process called <em>making predictions</em> or <em>performing inference</em>.</p>
+<p>Building an ML model is a multistep process. Each step presents its own technical and conceptual challenges. This two-part series focuses on supervised learning tasks and the process of selecting, transforming, and augmenting the source data to create powerful predictive signals to the target variable. These operations combine domain knowledge with data science techniques. The operations are the essence of <a href="https://developers.google.com/machine-learning/glossary/#feature_engineering">feature engineering</a>.</p>
+<p>The size of training datasets for real-world ML models can easily be equal to or greater than one terabyte (TB). Therefore, you need large-scale data processing frameworks in order to process these datasets efficiently and distributedly. When you use an ML model to make predictions, you have to apply the same transformations that you used for the training data on the new data points. By applying the same transformations, you present the live dataset to the ML model the way that the model expects.</p>
+<p>This document discusses these challenges for different levels of granularity of feature engineering operations: instance-level, full-pass, and time-window aggregations. This document also describes the options and scenarios to perform data transformation for ML on Google Cloud.</p>
+<p>This document also provides an overview of <a href="https://github.com/tensorflow/transform">TensorFlow Transform</a> (<code>tf.Transform</code>), a library for TensorFlow that lets you define both instance-level and full-pass data transformation through data preprocessing pipelines. These pipelines are executed with <a href="https://beam.apache.org/">Apache Beam</a>, and they create artifacts that let you apply the same transformations during prediction as when the model is served.</p>
+<h2 id="preprocessing-data-for-ml">Preprocessing data for ML<a class="headerlink" href="#preprocessing-data-for-ml" title="Permanent link">¶</a></h2>
+<p>This section introduces data preprocessing operations and stages of data readiness. It also discusses the types of the preprocessing operations and their granularity.</p>
+<h3 id="data-engineering-compared-to-feature-engineering">Data engineering compared to feature engineering<a class="headerlink" href="#data-engineering-compared-to-feature-engineering" title="Permanent link">¶</a></h3>
+<p>Preprocessing the data for ML involves both data engineering and feature engineering. Data engineering is the process of converting <em>raw data</em> into <em>prepared data</em>. Feature engineering then tunes the prepared data to create the features that are expected by the ML model. These terms have the following meanings:</p>
+<dl>
+<dt><strong>Raw data</strong> (or just <strong>data</strong>)</dt>
+<dd>The data in its source form, without any prior preparation for ML. In this context, the data might be in its raw form (in a data lake) or in a transformed form (in a data warehouse). Transformed data that's in a data warehouse might have been converted from its original raw form to be used for analytics. However, in this context, <em>raw data</em> means that the data hasn't been prepared specifically for your ML task. Data is also considered raw data if it's sent from streaming systems that eventually call ML models for predictions.</dd>
+<dt><strong>Prepared data</strong></dt>
+<dd>The dataset in the form ready for your ML task: data sources have been parsed, joined, and put into a tabular form. Prepared data is aggregated and summarized to the right granularity---for example, each row in the dataset represents a unique customer, and each column represents summary information for the customer, like the total spent in the last six weeks. In a prepared data table, irrelevant columns have been dropped, and invalid records have been filtered out. For supervised learning tasks, the target feature is present.</dd>
+<dt><strong>Engineered features</strong></dt>
+<dd>The dataset with the tuned features that are expected by the model---that is, features that are created by performing certain ML-specific operations on the columns in the prepared dataset, and creating new features for your model during training and prediction, as described later in <a href="#preprocessing-operations">Preprocessing operations</a>. Examples of these operations include scaling numerical columns to a value between 0 and 1, clipping values, and <a href="https://developers.google.com/machine-learning/glossary/#one-hot_encoding">one-hot-encoding</a> categorical features.</dd>
+</dl>
+<p>The following diagram, figure 1, shows the steps that are involved in preparing preprocessed data:</p>
+<p><figure id="_figure-1"><img alt="Flow diagram showing raw data moving to prepared data moving to engineered features." src="../images/data-preprocessing-for-ml-with-tf-transform-data-preprocessing-flow.svg"><figcaption>Figure 1: The flow of data from raw data to prepared data to engineered features to machine learning.</figcaption></figure></p>
+<p>In practice, data from the same source is often at different stages of readiness. For example, a field from a table in your data warehouse might be used directly as an engineered feature. At the same time, another field in the same table might need to go through transformations before it becomes an engineered feature. Similarly, data engineering and feature engineering operations might be combined in the same data preprocessing step.</p>
+<h3 id="preprocessing-operations">Preprocessing operations<a class="headerlink" href="#preprocessing-operations" title="Permanent link">¶</a></h3>
+<p>Data preprocessing includes several operations. Each operation is designed to help ML build better predictive models. The details of these preprocessing operations are outside the scope of this document, but some operations are briefly described in this section.</p>
+<p>For structured data, data preprocessing operations include the following:</p>
+<ul>
+<li><strong>Data cleansing:</strong> removing or correcting records that have corrupted or invalid values from raw data, and removing records that are missing a large number of columns.</li>
+<li><strong>Instances selection and partitioning:</strong> selecting data points from the input dataset to create <a href="https://en.wikipedia.org/wiki/Training,_validation,_and_test_data_sets">training, evaluation (validation), and test sets</a>. This process includes techniques for repeatable random sampling, minority classes oversampling, and stratified partitioning.</li>
+<li><strong>Feature tuning:</strong> improving the quality of a feature for ML, which includes scaling and normalizing numeric values, imputing missing values, clipping outliers, and adjusting values that have skewed distributions.</li>
+<li><strong>Feature transformation:</strong> converting a numeric feature to a categorical feature (through <a href="https://developers.google.com/machine-learning/glossary/#bucketing">bucketization</a>), and converting categorical features to a numeric representation (through one-hot encoding, <a href="https://dl.acm.org/doi/10.1145/3326937.3341260">learning with counts</a>, sparse feature embeddings, etc.). Some models work only with numeric or categorical features, while others can handle mixed type features. Even when models handle both types, they can benefit from different representations (numeric and categorical) of the same feature.</li>
+<li><strong>Feature extraction:</strong> reducing the number of features by creating lower-dimension, more powerful data representations using techniques such as <a href="https://en.wikipedia.org/wiki/Principal_component_analysis">PCA</a>, <a href="https://developers.google.com/machine-learning/glossary/#embeddings">embedding</a> extraction, and <a href="https://medium.com/value-stream-design/introducing-one-of-the-best-hacks-in-machine-learning-the-hashing-trick-bf6a9c8af18f">hashing</a>.</li>
+<li><strong>Feature selection:</strong> selecting a subset of the input features for training the model, and ignoring the irrelevant or redundant ones, using <a href="https://en.wikipedia.org/wiki/Feature_selection">filter or wrapper methods</a>. Feature selection can also involve simply dropping features if the features are missing a large number of values.</li>
+<li><strong>Feature construction:</strong> creating new features by using typical techniques, such as <a href="https://en.wikipedia.org/wiki/Polynomial_expansion">polynomial expansion</a> (by using univariate mathematical functions) or <a href="https://developers.google.com/machine-learning/glossary/#feature_cross">feature crossing</a> (to capture feature interactions). Features can also be constructed by using business logic from the domain of the ML use case.</li>
+</ul>
+<p>When you work with unstructured data (for example, images, audio, or text documents), deep learning replaces domain-knowledge-based feature engineering by folding it into the model architecture. A <a href="https://developers.google.com/machine-learning/glossary/#convolutional_layer">convolutional layer</a> is an automatic feature preprocessor. Constructing the right model architecture requires some empirical knowledge of the data. In addition, some amount of preprocessing is needed, such as the following:</p>
+<ul>
+<li>For text documents: <a href="https://nlp.stanford.edu/IR-book/html/htmledition/stemming-and-lemmatization-1.html">stemming and lemmatization</a>, <a href="https://en.wikipedia.org/wiki/Tf%e2%80%93idf">TF-IDF</a> calculation, and <a href="https://en.wikipedia.org/wiki/N-gram">n-gram</a> extraction, embedding lookup.</li>
+<li>For images: clipping, resizing, cropping, Gaussian blur, and canary filters.</li>
+<li>For all types of data (including text and images): <a href="https://developers.google.com/machine-learning/glossary/#transfer_learning">transfer learning</a>, which treats all-but-last layers of the fully trained model as a feature engineering step.</li>
+</ul>
+<h3 id="preprocessing-granularity">Preprocessing granularity<a class="headerlink" href="#preprocessing-granularity" title="Permanent link">¶</a></h3>
+<p>This section discusses the granularity of types of data transformations. It shows why this perspective is critical when preparing new data points for predictions using transformations that are applied on training data.</p>
+<p>Preprocessing and transformation operations can be categorized as follows, based on operation granularity:</p>
+<ul>
+<li>
+<p><strong>Instance-level transformations during training and prediction</strong>. These are straightforward transformations, where only values from the same instance are needed for the transformation. For example, instance-level transformations might include clipping the value of a feature to some threshold, polynomially expanding another feature, multiplying two features, or comparing two features to create a Boolean flag.</p>
+<p>These transformations must be applied identically during training and prediction, because the model will be trained on the transformed features, not on the raw input values. If the data isn't transformed identically, then the model behaves poorly because it is presented with data that has a distribution of values that it wasn't trained with. For more information, see the discussion of training-serving skew in the <a href="#preprocessing-challenges">Preprocessing challenges</a> section.</p>
+</li>
+<li>
+<p><strong>Full-pass transformations during training, but instance-level transformations during prediction</strong>. In this scenario, transformations are stateful, because they use some precomputed statistics to perform the transformation. During training, you analyze the whole body of training data to compute quantities such as minimum, maximum, mean, and variance for transforming training data, evaluation data, and new data at prediction time.</p>
+<p>For example, to normalize a numeric feature for training, you compute its mean (<span class="arithmatex">\(\mu\)</span>) and its standard deviation (<span class="arithmatex">\(\sigma\)</span>) across the whole of the training data. This computation is called a <em>full-pass</em> (or <em>analyze</em>) operation. When you serve the model for prediction, the value of a new data point is normalized to avoid training-serving skew. Therefore, <span class="arithmatex">\(\mu\)</span> and <span class="arithmatex">\(\sigma\)</span> values that are computed during training are used to adjust the feature value, which is the following simple <em>instance-level</em> operation:</p>
+<div class="arithmatex">\[ value_\text{scaled} = \frac{value_\text{raw} - \mu}{\sigma} \]</div>
+<p>Full-pass transformations include the following:</p>
+<ul>
+<li>MinMax scaling numerical features using <em>min</em> and <em>max</em> computed from the training dataset.</li>
+<li>Standard scaling (z-score normalization) numerical features using <span class="arithmatex">\(\mu\)</span> and <span class="arithmatex">\(\sigma\)</span> computed on the training dataset.</li>
+<li>Bucketizing numerical features using quantiles.</li>
+<li>Imputing missing values using the median (numerical features) or the mode (categorical features).</li>
+<li>Converting strings (nominal values) to integers (indexes) by extracting all the distinct values (vocabulary) of an input categorical feature.</li>
+<li>Counting the occurrence of a term (feature value) in all the documents (instances) to calculate for TF-IDF.</li>
+<li>Computing the PCA of the input features to project the data into a lower dimensional space (with linearly dependent features).</li>
+</ul>
+<p>You should use only the training data to compute statistics like <span class="arithmatex">\(\mu\)</span>, <span class="arithmatex">\(\sigma\)</span>, <em>min</em>, and <em>max</em>. If you add the test and evaluation data for these operations, you are <a href="https://towardsdatascience.com/data-leakage-in-machine-learning-10bdd3eec742">leaking information</a> from the evaluation and test data to train the model. Doing so affects the reliability of the test and evaluation results. To ensure that you apply a consistent transformation to all datasets, you use the same statistics computed from the training data to transform the test and evaluation data.</p>
+</li>
+<li>
+<p><strong>Historical aggregations during training and prediction</strong>. This involves creating business aggregations, derivations, and flags as input signals to the prediction task---for example, creating <a href="https://en.wikipedia.org/wiki/RFM_(market_research)">recency, frequency, and monetary (RFM)</a> metrics for customers to build propensity models. These types of features can be precomputed and stored in a feature store to be used during model training, batch scoring, and online prediction serving. You can also perform additional feature engineering (for example, transformation and tuning) to these aggregations before training and prediction.</p>
+</li>
+<li>
+<p><strong>Historical aggregations during training, but real-time aggregations during prediction</strong>. This approach involves creating a feature by summarizing real-time values over time. In this approach, the instances to be aggregated are defined through temporal window clauses. For example, you can use this approach if you want to train a model that estimates the taxi trip time based on the traffic metrics for the route in the last 5 minutes, in the last 10 minutes, in the last 30 minutes, and at other intervals. You can also use this approach to predict the failure of an engine part based on the moving average of temperature and vibration values computed over the last 3 minutes. Although these aggregations can be prepared offline for training, they are computed in real time from a data stream during serving.</p>
+<p>More precisely, when you prepare training data, if the aggregated value isn't in the raw data, the value is created during the data engineering phase. The raw data is usually stored in a database with a format of <code>(entity, timestamp, value)</code>. In the previous examples, <code>entity</code> is the route segment identifier for the taxi routes and the engine part identifier for the engine failure. You can use windowing operations to compute <code>(entity, time_index, aggregated_value_over_time_window)</code> and use the aggregation features as an input for your model training.</p>
+<p>When the model for real-time (online) prediction is served, the model expects features derived from the aggregated values as an input. Therefore, you can use a stream-processing technology like Apache Beam to compute the aggregations from the real-time data points streamed into your system. Stream-processing technology aggregates real-time data based on time windows as new data points arrive. You can also perform additional feature engineering (for example, transformation and tuning) to these aggregations before training and prediction.</p>
+</li>
+</ul>
+<h2 id="ml-pipeline-on-google-cloud">ML pipeline on Google Cloud<a class="headerlink" href="#ml-pipeline-on-google-cloud" title="Permanent link">¶</a></h2>
+<p>This section discusses the core components of a typical end-to-end pipeline to train and serve TensorFlow ML models on Google Cloud using managed services. It also discusses where you can implement different categories of the data preprocessing operations, and common challenges that you might face when you implement such transformations. The <a href="#how-tftransform-works">How tf.Transform works</a> section shows how the TensorFlow Transform library helps to address these challenges.</p>
+<h3 id="high-level-architecture">High-level architecture<a class="headerlink" href="#high-level-architecture" title="Permanent link">¶</a></h3>
+<p>The following diagram, figure 2, shows a high-level architecture of a typical ML pipeline for training and serving TensorFlow models. The labels A, B, and C in the diagram refer to the different places in the pipeline where data preprocessing can take place. Details about these steps are provided in the following section.</p>
+<p><figure id="_figure-2"><img alt="Architecture diagram showing stages for processing data." src="../images/data-preprocessing-for-ml-with-tf-transform-ml-training-serving-architecture.svg"><figcaption>Figure 2: High-level architecture for ML training and serving on Google Cloud.</figcaption></figure></p>
+<p>The pipeline consists of the following steps:</p>
+<ol>
+<li>After raw data is imported, tabular data is stored in BigQuery, and other data like images, audio, and video, is stored in Cloud Storage. The second part of this series uses tabular data stored in BigQuery as an example.</li>
+<li>Data engineering (preparation) and feature engineering are executed at scale using Dataflow. This execution produces ML-ready training, evaluation, and test sets that are stored in Cloud Storage. Ideally, these datasets are stored as <a href="https://www.tensorflow.org/tutorials/load_data/tfrecord">TFRecord</a> files, which is the optimized format for TensorFlow computations.</li>
+<li>A TensorFlow model <a href="https://cloud.google.com/vertex-ai/docs/training/create-python-pre-built-container">trainer package</a> is submitted to Vertex AI Training, which uses the preprocessed data from the previous steps to train the model. The output of this step is a trained TensorFlow <a href="https://www.tensorflow.org/guide/saved_model">SavedModel</a> that is exported to Cloud Storage.</li>
+<li>The trained TensorFlow model is deployed to Vertex AI Prediction as a service that has a REST API so that it can be used for online predictions. The same model can also be used for batch prediction jobs.</li>
+<li>After the model is deployed as a REST API, client apps and internal systems can invoke the API by sending requests with some data points, and receiving responses from the model with predictions.</li>
+<li>For orchestrating and automating this pipeline, you can use <a href="https://cloud.google.com/vertex-ai/docs/pipelines/introduction">Vertex AI Pipelines</a> as a scheduler to invoke the data preparation, model training, and model deployment steps.</li>
+</ol>
+<p>You can also use <a href="https://cloud.google.com/vertex-ai/docs/featurestore/">Vertex AI Feature Store</a> to store input features to make predictions. For example, you can periodically create engineered features from the latest raw data and store them in Vertex AI Feature Store. Client apps fetch the required input features from Vertex AI Feature Store and send them to the model to receive predictions.</p>
+<h3 id="where-to-do-preprocessing">Where to do preprocessing<a class="headerlink" href="#where-to-do-preprocessing" title="Permanent link">¶</a></h3>
+<p>In figure 2, the labels A, B, and C show that data preprocessing operations can take place in BigQuery, Dataflow, or TensorFlow. The following sections describe how each of these options work.</p>
+<h4 id="option-a-bigquery">Option A: BigQuery<a class="headerlink" href="#option-a-bigquery" title="Permanent link">¶</a></h4>
+<p>Typically, logic is implemented in BigQuery for the following operations:</p>
+<ul>
+<li>Sampling: randomly selecting a subset from the data.</li>
+<li>Filtering: removing irrelevant or invalid instances.</li>
+<li>Partitioning: splitting the data to produce training, evaluation, and test sets.</li>
+</ul>
+<p>BigQuery SQL scripts can be used as a source query for the Dataflow preprocessing pipeline, which is the data processing step in figure 2. For example, if a system is used in Canada, and the data warehouse has transactions from around the world, filtering to get Canada-only training data is best done in BigQuery. Feature engineering in BigQuery is simple and scalable, and supports implementing instance-level and historical aggregations feature transformations.</p>
+<p>However, we recommend that you use BigQuery for feature engineering only if you use your model for batch prediction (scoring), or if the features are precomputed in BigQuery, but stored in Vertex AI Feature Store to be used during online prediction. If you plan to deploy the model for online predictions, and if you don't have the engineered feature in an online feature store, you have to replicate the SQL preprocessing operations to transform the raw data points that other systems generate. In other words, you need to implement the logic twice: one time in SQL to preprocess training data in BigQuery, and a second time in the logic of the app that consumes the model to preprocess online data points for prediction.</p>
+<p>For example, if your client app is written in Java, you need to reimplement the logic in Java. This can introduce errors due to implementation discrepancies, as described in the training-serving skew section of <a href="#preprocessing-challenges">Preprocessing challenges</a> later in this document. It's also extra overhead to maintain two different implementations. Whenever you change the logic in SQL to preprocess the training data, you need to change the Java implementation accordingly to preprocess data at serving time.</p>
+<p>If you are using your model only for batch prediction (for example, using Vertex AI <a href="https://cloud.google.com/vertex-ai/docs/predictions/get-batch-predictions">batch prediction</a>), and if your data for scoring is sourced from BigQuery, you can implement these preprocessing operations as part of the BigQuery SQL script. In that case, you can use the same preprocessing SQL script to prepare both training and scoring data.</p>
+<p>Full-pass stateful transformations aren't suitable for implementation in BigQuery. If you use BigQuery for full-pass transformations, you need auxiliary tables to store quantities needed by stateful transformations, such as means and variances to scale numerical features. Further, implementation of full-pass transformations using SQL on BigQuery creates increased complexity in the SQL scripts, and creates intricate dependency between training and the scoring SQL scripts.</p>
+<h4 id="option-b-dataflow">Option B: Dataflow<a class="headerlink" href="#option-b-dataflow" title="Permanent link">¶</a></h4>
+<p>As shown in figure 2, you can implement computationally expensive preprocessing operations in Apache Beam, and run them at scale using Dataflow. Dataflow is a fully managed autoscaling service for batch and stream data processing. When you use Dataflow, you can also use external specialized libraries for data processing, unlike BigQuery.</p>
+<p>Dataflow can perform instance-level transformations, and historical and real-time aggregation feature transformations. In particular, if your ML models expect an input feature like <code>total_number_of_clicks_last_90sec</code>, Apache Beam <a href="https://beam.apache.org/documentation/programming-guide/#windowing">windowing functions</a> can compute these features based on aggregating the values of time windows of real-time (streaming) events data (for example, click events). In the earlier discussion of <a href="#preprocessing-granularity">granularity of transformations</a>, this was referred to as "Historical aggregations during training, but real-time aggregations during prediction."</p>
+<p>The following diagram, figure 3, shows the role of Dataflow in processing stream data for near real-time predictions.</p>
+<p><figure id="_figure-3"><img alt="Architecture for using stream data for prediction." src="../images/data-preprocessing-for-ml-with-tf-transform-streaming-data-with-dataflow-architecture.svg"><figcaption>Figure 3: High-level architecture using stream data for prediction in Dataflow.</figcaption></figure></p>
+<p>As shown in figure 3, during processing, events called <em>data points</em> are ingested into <a href="https://cloud.google.com/pubsub/docs">Pub/Sub</a>. Dataflow consumes these data points, computes features based on aggregates over time, and then calls the deployed ML model API for predictions. Predictions are then sent to an outbound Pub/Sub queue. From Pub/Sub, predictions can be consumed by downstream systems like monitoring or control, or they can be pushed back (for example, as notifications) to the original requesting client. Predictions can also be stored in a low-latency data store like <a href="https://cloud.google.com/bigtable/docs">Cloud Bigtable</a> for real-time fetching. Cloud Bigtable can also be used to accumulate and store these real-time aggregations so they can be looked up when needed for prediction.</p>
+<p>The same Apache Beam implementation can be used to batch-process training data that comes from an offline datastore like BigQuery and stream-process real-time data for serving online predictions.</p>
+<p>In other typical architectures, such as the architecture shown in figure 2, the client app directly calls the deployed model API for online predictions. In that case, if preprocessing operations are implemented in Dataflow to prepare the training data, the operations aren't applied to the prediction data that goes directly to the model. Therefore, transformations like these should be integrated in the model during serving for online predictions.</p>
+<p>Dataflow can be used to perform full-pass transformation, by computing the required statistics at scale. However, these statistics need to be stored somewhere to be used during prediction to transform prediction data points. By using the TensorFlow Transform (<code>tf.Transform</code>) library, you can directly embed these statistics in the model instead of storing them elsewhere. This approach is explained later in <a href="#how-tftransform-works">How tf.Transform works</a>.</p>
+<h4 id="option-c-tensorflow">Option C: TensorFlow<a class="headerlink" href="#option-c-tensorflow" title="Permanent link">¶</a></h4>
+<p>As shown in figure 2, you can implement data preprocessing and transformation operations in the TensorFlow model itself. As shown in the figure, the preprocessing that you implement for training the TensorFlow model becomes an integral part of the model when the model is exported and deployed for predictions. Transformations in the TensorFlow model can be accomplished in one of the following ways:</p>
+<ul>
+<li>Implementing all of the instance-level transformation logic in the <code>input_fn</code> function and in the <code>serving_fn</code> function. The <code>input_fn</code> function prepares a dataset using the <a href="https://www.tensorflow.org/api_docs/python/tf/data/Dataset"><code>tf.data.Dataset</code> API</a> for training a model. The <code>serving_fn</code> function receives and prepares the data for predictions.</li>
+<li>Putting the transformation code directly in your TensorFlow model by using <a href="https://keras.io/guides/preprocessing_layers/">Keras preprocessing layers</a> or <a href="https://keras.io/guides/making_new_layers_and_models_via_subclassing/">creating custom layers</a>.</li>
+</ul>
+<p>The transformation logic code in the <a href="https://www.tensorflow.org/guide/saved_model#savedmodels_from_estimators"><code>serving_fn</code></a> function defines the serving interface of your SavedModel for online prediction. If you implement the same transformations that were used for preparing training data in the transformation logic code of the <code>serving_fn</code> function, it ensures that the same transformations are applied to new prediction data points when they're served.</p>
+<p>However, because the TensorFlow model processes each data point independently or in a small batch, you can't calculate aggregations from all data points. As a result, full-pass transformations can't be implemented in your TensorFlow model.</p>
+<h3 id="preprocessing-challenges">Preprocessing challenges<a class="headerlink" href="#preprocessing-challenges" title="Permanent link">¶</a></h3>
+<p>The following are the primary challenges of implementing data preprocessing:</p>
+<ul>
+<li>
+<p><strong>Training-serving skew</strong>. <a href="https://developers.google.com/machine-learning/guides/rules-of-ml/#training-serving_skew">Training-serving skew</a> refers to a difference between effectiveness (predictive performance) during training and during serving. This skew can be caused by a discrepancy between how you handle data in the training and the serving pipelines. For example, if your model is trained on a logarithmically transformed feature, but it's presented with the raw feature during serving, the prediction output might not be accurate.</p>
+<p>If the transformations become part of the model itself, it can be straightforward to handle instance-level transformations, as described earlier in <a href="#option-c-tensorflow">Option C: TensorFlow</a>. In that case, the model serving interface (the <a href="https://www.tensorflow.org/guide/saved_model#savedmodels_from_estimators"><code>serving_fn</code></a> function) expects raw data, while the model internally transforms this data before computing the output. The transformations are the same as those that were applied on the raw training and prediction data points.</p>
+</li>
+<li>
+<p><strong>Full-pass transformations</strong>. You can't implement full-pass transformations such as scaling and normalization transformations in your TensorFlow model. In full-pass transformations, some statistics (for example, <code>max</code> and <code>min</code> values to scale numeric features) must be computed on the training data beforehand, as described in <a href="#option-b-dataflow">Option B: Dataflow</a>. The values then have to be stored somewhere to be used during model serving for prediction to transform the new raw data points as instance-level transformations, which avoids training-serving skew. You can use the TensorFlow Transform (<code>tf.Transform</code>) library to directly embed the statistics in your TensorFlow model. This approach is explained later in <a href="#how-tftransform-works">How tf.Transform works</a>.</p>
+</li>
+<li>
+<p><strong>Preparing the data up front for better training efficiency</strong>. Implementing instance-level transformations as part of the model can degrade the efficiency of the training process. This degradation occurs because the same transformations are repeatedly applied to the same training data on each epoch. Imagine that you have raw training data with 1,000 features, and you apply a mix of instance-level transformations to generate 10,000 features. If you implement these transformations as part of your model, and if you then feed the model the raw training data, these 10,000 operations are applied <em>N</em> times on each instance, where <em>N</em> is the number of epochs. In addition, if you're using accelerators (GPUs or TPUs), they sit idle while the CPU performs those transformations, which isn't an efficient use of your costly accelerators.</p>
+<p>Ideally, the training data is transformed before training, using the technique described under <a href="#option-b-dataflow">Option B: Dataflow</a>, where the 10,000 transformation operations are applied only once on each training instance. The transformed training data is then presented to the model. No further transformations are applied, and the accelerators are busy all of the time. In addition, using Dataflow helps you to preprocess large amounts of data at scale, using a fully managed service.</p>
+<p>Preparing the training data up front can improve training efficiency. However, implementing the transformation logic outside of the model (the approaches described in <a href="#option-a-bigquery">Option A: BigQuery</a> or <a href="#option-b-dataflow">Option B: Dataflow</a>) doesn't resolve the issue of training-serving skew. Unless you store the engineered feature in the feature store to be used for both training and prediction, the transformation logic must be implemented somewhere to be applied on new data points coming for prediction, because the model interface expects transformed data. The TensorFlow Transform (<code>tf.Transform</code>) library can help you to address this issue, as described in the following section.</p>
+</li>
+</ul>
+<h2 id="how-tftransform-works">How tf.Transform works<a class="headerlink" href="#how-tftransform-works" title="Permanent link">¶</a></h2>
+<p>The <code>tf.Transform</code> library is useful for transformations that require a full pass. The output of the <code>tf.Transform</code> library is exported as a TensorFlow graph that represents the instance-level transformation logic and the statistics computed from full-pass transformations, to be used for training and serving. Using the same graph for both training and serving can prevent skew, because the same transformations are applied in both stages. In addition, the <code>tf.Transform</code> library can run at scale in a batch processing pipeline on Dataflow to prepare the training data up front and improve training efficiency.</p>
+<p>The following diagram, figure 4, shows how the <code>tf.Transform</code> library preprocesses and transforms data for training and prediction. The process is described in the following sections.</p>
+<p><figure id="_figure-4"><img alt="Diagram showing flow from raw data through tf.Transform to predictions." src="../images/data-preprocessing-for-ml-with-tf-transform-tf-transform-behavior-flow.svg"><figcaption>Figure 4: Behavior of <code>tf.Transform</code> for preprocessing and transforming data.</figcaption></figure></p>
+<h3 id="transform-training-and-evaluation-data">Transform training and evaluation data<a class="headerlink" href="#transform-training-and-evaluation-data" title="Permanent link">¶</a></h3>
+<p>You preprocess the raw training data using the transformation implemented in the <code>tf.Transform</code> Apache Beam APIs, and run it at scale on Dataflow. The preprocessing occurs in the following phases:</p>
+<ul>
+<li><strong>Analyze phase:</strong> During the analyze phase, the required statistics (like means, variances, and quantiles) for stateful transformations are computed on the training data with full-pass operations. This phase produces a set of transformation artifacts, including the <code>transform_fn</code> graph. The <code>transform_fn</code> graph is a TensorFlow graph that has the transformation logic as instance-level operations. It includes the statistics computed in the analyze phase as constants.</li>
+<li><strong>Transform phase:</strong> During the transform phase, the <code>transform_fn</code> graph is applied to the raw training data, where the computed statistics are used to process the data records (for example, to scale numerical columns) in an instance-level fashion.</li>
+</ul>
+<p>A two-phase approach like this addresses the <a href="#preprocessing-challenges">preprocessing challenge</a> of performing full-pass transformations.</p>
+<p>When the evaluation data is preprocessed, only instance-level operations are applied, using the logic in the <code>transform_fn</code> graph and the statistics computed from the analyze phase in the training data. In other words, you don't analyze the evaluation data in a full-pass fashion to compute new statistics, such as <span class="arithmatex">\(\mu\)</span> and <span class="arithmatex">\(\sigma\)</span>, to normalize numeric features in evaluation data. Instead, you use the computed statistics from the training data to transform the evaluation data in an instance-level fashion.</p>
+<p>The transformed training and evaluation data are prepared at scale using Dataflow, before they are used to train the model. This batch data-preparation process addresses the <a href="#preprocessing-challenges">preprocessing challenge</a> of preparing the data up front to improve training efficiency. As shown in figure 4, the model internal interface expects transformed features.</p>
+<h3 id="attach-transformations-to-the-exported-model">Attach transformations to the exported model<a class="headerlink" href="#attach-transformations-to-the-exported-model" title="Permanent link">¶</a></h3>
+<p>As noted, the <code>transform_fn</code> graph that's produced by the <code>tf.Transform</code> pipeline is stored as an exported TensorFlow graph. The exported graph consists of the transformation logic as instance-level operations, and all of the statistics computed in the full-pass transformations as graph constants. When the trained model is exported for serving, the <code>transform_fn</code> graph is attached to the SavedModel as part of its <code>serving_fn</code> function.</p>
+<p>While it's serving the model for prediction, the model serving interface expects data points in the raw format (that is, before any transformations). However, the model internal interface expects the data in the transformed format.</p>
+<p>The <code>transform_fn</code> graph, which is now part of the model, applies all the preprocessing logic on the incoming data point. It uses the stored constants (like <span class="arithmatex">\(\mu\)</span> and <span class="arithmatex">\(\sigma\)</span> to normalize the numeric features) in the instance-level operation during prediction. Therefore, the <code>transform_fn</code> graph converts the raw data point into the transformed format. The transformed format is what is expected by the model internal interface in order to produce prediction, as shown in figure 4.</p>
+<p>This mechanism resolves the <a href="#preprocessing-challenges">preprocessing challenge</a> of the training-serving skew, because the same logic (implementation) that is used to transform the training and evaluation data is applied to transform the new data points during prediction serving.</p>
+<h2 id="preprocessing-options-summary">Preprocessing options summary<a class="headerlink" href="#preprocessing-options-summary" title="Permanent link">¶</a></h2>
+<p>The following table summarizes the data preprocessing options that this document discussed. In the table, "N/A" stands for "not applicable."</p>
+<table>
+<thead>
+<tr>
+<th colspan="1" rowspan="1">
+<p>Data preprocessing option<br>
+</p>
+</th>
+<th colspan="1" rowspan="1">
+<p>Instance-level  
+(stateless transformations)</p>
+</th>
+<th colspan="1" rowspan="1">
+<p>Full-pass during training and instance-level during serving (stateful transformations)<br>
+</p>
+</th>
+<th colspan="1" rowspan="1">
+<p>Real-time (window) aggregations during training and serving (streaming transformations)<br>
+</p>
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td colspan="1" rowspan="1">
+<p><strong>BigQuery</strong>  (SQL)<br>
+<br>
+<br>
+<br>
+</p>
+</td>
+<td colspan="1" rowspan="1">
+<p><strong>Batch scoring: OK</strong>---the same transformation implementation is applied on data during training and batch scoring.<br>
+<br>
+<strong>Online prediction: Not recommended</strong>---you can process training data, but it results in training-serving skew because you process serving data using different tools.<br>
+<br>
+</p>
+</td>
+<td colspan="1" rowspan="1">
+<p><strong>Batch scoring: Not recommended</strong>.<br>
+<br>
+<strong>Online prediction: Not recommended</strong>.<br>
+<br>
+Although you can use statistics computed using BigQuery for instance-level batch/online transformations, it isn\'t easy because you must maintain a stats store to be populated during training and used during prediction.</p>
+</td>
+<td colspan="1" rowspan="1">
+<p><strong>Batch scoring: N/A</strong>---aggregates like these are computed based on real-time events.<br>
+<br>
+<strong>Online prediction: Not recommended</strong>---you can process training data, but it results in training-serving skew because you process serving data using different tools.<br>
+<br>
+</p>
+</td>
+</tr>
+<tr>
+<td colspan="1" rowspan="1">
+<p><strong>Dataflow</strong> (Apache Beam)<br>
+<br>
+<br>
+<br>
+</p>
+</td>
+<td colspan="1" rowspan="1">
+<p><strong>Batch scoring: OK</strong>---the same transformation implementation is applied on data during training and batch scoring.<br>
+<br>
+<strong>Online prediction: OK</strong>---if data at serving time comes from Pub/Sub to be consumed by Dataflow. Otherwise, results in training-serving skew.<br>
+<br>
+</p>
+</td>
+<td colspan="1" rowspan="1">
+<p><strong>Batch scoring: Not recommended</strong>.<br>
+<br>
+<strong>Online predictions: Not recommended</strong>.<br>
+<br>
+Although you can use statistics computed using Dataflow for instance-level batch/online transformations, it isn\'t easy because you must maintain a stats store to be populated during training and used during prediction.</p>
+</td>
+<td colspan="1" rowspan="1">
+<p><strong>Batch scoring: N/A</strong>---aggregates like these are computed based on real-time events.<br>
+<br>
+<strong>Online prediction: OK</strong>---the same Apache Beam transformation is applied on data during training (batch) and serving (stream).<br>
+<br>
+</p>
+</td>
+</tr>
+<tr>
+<td colspan="1" rowspan="1">
+<p><strong>Dataflow</strong> (Apache Beam + TFT)<br>
+<br>
+<br>
+<br>
+</p>
+</td>
+<td colspan="1" rowspan="1">
+<p><strong>Batch scoring: OK</strong>---the same transformation implementation is applied to data during training and batch scoring.<br>
+<br>
+<strong>Online prediction: Recommended</strong>---it avoids training-serving skew and prepares training data up front.<br>
+<br>
+</p>
+</td>
+<td colspan="1" rowspan="1">
+<p><strong>Batch scoring: Recommended</strong>.<br>
+<br>
+<strong>Online prediction: Recommended</strong>.<br>
+<br>
+Both uses are recommended because transformation logic and computed statistics during training are stored as a TensorFlow graph that\'s attached to the exported model for serving.</p>
+</td>
+<td colspan="1" rowspan="1">
+<p><strong>Batch scoring: N/A</strong>---aggregates like these are computed based on real-time events.<br>
+<br>
+<strong>Online prediction: OK</strong>---the same Apache Beam transformation is applied on data during training (batch) and serving (stream).<br>
+<br>
+</p>
+</td>
+</tr>
+<tr>
+<td colspan="1" rowspan="1">
+<p><strong>TensorFlow</strong> (<code>input_fn</code> &amp; <code>serving_fn</code>)<br>
+<br>
+<br>
+<br>
+</p>
+</td>
+<td colspan="1" rowspan="1">
+<p><strong>Batch scoring: Not recommended</strong>.<br>
+<br>
+<strong>Online prediction: Not recommended</strong>.<br>
+<br>
+For training efficiency in both cases, it\'s better to prepare the training data up front.</p>
+</td>
+<td colspan="1" rowspan="1">
+<p><strong>Batch scoring: Not Possible</strong>.<br>
+<br>
+<strong>Online prediction: Not Possible</strong>.<br>
+<br>
+</p>
+</td>
+<td colspan="1" rowspan="1">
+<p><strong>Batch scoring: N/A</strong>---aggregates like these are computed based on real-time events.<br>
+<br>
+<strong>Online prediction: Not Possible</strong>.<br>
+<br>
+</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p>* With TensorFlow, transformations like crossing, embedding, and one-hot encoding should be performed declaratively as <code>feature_columns</code> columns.</p>
+<h2 id="whats-next">What's next<a class="headerlink" href="#whats-next" title="Permanent link">¶</a></h2>
+<ul>
+<li>To implement a <code>tf.Transform</code> pipeline and run it using Dataflow, read part two of this series, <a href="https://tensorflow.github.io/tfx/tutorials/transform/data_preprocessing_with_cloud">Data preprocessing for ML using TensorFlow Transform</a>.</li>
+<li>Take the Coursera specialization on ML with <a href="https://www.coursera.org/specializations/machine-learning-tensorflow-gcp">TensorFlow on Google Cloud</a>.</li>
+<li>Learn about best practices for ML engineering in <a href="https://developers.google.com/machine-learning/guides/rules-of-ml/">Rules of ML</a>.</li>
+<li>For more reference architectures, diagrams, and best practices, explore the <a href="https://tensorflow.github.io/tfx/guide/solutions" track-metadata-position="nextSteps" track-name="textLink" track-type="tutorial">TFX Cloud Solutions</a>.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "..", "features": ["content.code.copy", "content.code.select", "content.action.edit"], "search": "../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.56ea9cef.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
