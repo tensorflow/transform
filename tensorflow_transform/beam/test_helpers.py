@@ -1,4 +1,3 @@
-# coding=utf-8
 #
 # Copyright 2017 Google Inc. All Rights Reserved.
 #
@@ -17,6 +16,6 @@
 
 
 def make_test_beam_pipeline_kwargs():
-  # This is kwargs for apache_beam.Pipeline's __init__, using the default runner
-  # here.
-  return {}
+    # This is kwargs for apache_beam.Pipeline's __init__, using the default runner
+    # here.
+    return {}

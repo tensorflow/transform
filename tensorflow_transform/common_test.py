@@ -14,58 +14,54 @@
 """Tests for tensorflow_transform.common."""
 
 import tensorflow as tf
-from tensorflow_transform import common
-from tensorflow_transform import test_case
+
+from tensorflow_transform import common, test_case
 
 
 class CommonTest(test_case.TransformTestCase):
+    def testLogAPIUse(self):
+        @common.log_api_use("test_collection")
+        def fn0():
+            return None
 
-  def testLogAPIUse(self):
+        @common.log_api_use("test_collection")
+        def fn1():
+            return None
 
-    @common.log_api_use("test_collection")
-    def fn0():
-      return None
+        @common.log_api_use("another_collection")
+        def fn2():
+            return None
 
-    @common.log_api_use("test_collection")
-    def fn1():
-      return None
+        with tf.compat.v1.Graph().as_default() as graph:
+            fn0()
+            fn1()
+            fn2()
+            fn0()
+            fn0()
 
-    @common.log_api_use("another_collection")
-    def fn2():
-      return None
+        self.assertAllEqual(
+            [{"fn0": 3, "fn1": 1}], graph.get_collection("test_collection")
+        )
+        self.assertAllEqual([{"fn2": 1}], graph.get_collection("another_collection"))
 
-    with tf.compat.v1.Graph().as_default() as graph:
-      fn0()
-      fn1()
-      fn2()
-      fn0()
-      fn0()
+    def testLogAPIUseWithNestedFunction(self):
+        """Tests that API call is not logged when called from another logged API."""
 
-    self.assertAllEqual([{"fn0": 3, "fn1": 1}],
-                        graph.get_collection("test_collection"))
-    self.assertAllEqual([{"fn2": 1}],
-                        graph.get_collection("another_collection"))
+        @common.log_api_use("test_collection")
+        def fn0():
+            fn1()
+            return fn2()
 
-  def testLogAPIUseWithNestedFunction(self):
-    """Tests that API call is not logged when called from another logged API."""
+        @common.log_api_use("test_collection")
+        def fn1():
+            return None
 
-    @common.log_api_use("test_collection")
-    def fn0():
-      fn1()
-      return fn2()
+        @common.log_api_use("another_collection")
+        def fn2():
+            return None
 
-    @common.log_api_use("test_collection")
-    def fn1():
-      return None
+        with tf.compat.v1.Graph().as_default() as graph:
+            fn0()
 
-    @common.log_api_use("another_collection")
-    def fn2():
-      return None
-
-    with tf.compat.v1.Graph().as_default() as graph:
-      fn0()
-
-    self.assertEqual([{"fn0": 1}], graph.get_collection("test_collection"))
-    self.assertAllEqual([], graph.get_collection("another_collection"))
-
-
+        self.assertEqual([{"fn0": 1}], graph.get_collection("test_collection"))
+        self.assertAllEqual([], graph.get_collection("another_collection"))

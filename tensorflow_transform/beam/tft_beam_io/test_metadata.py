@@ -14,19 +14,21 @@
 """Test metadata for tft_beam_io tests."""
 
 import tensorflow as tf
-from tensorflow_transform.tf_metadata import dataset_metadata
-
 from tensorflow_metadata.proto.v0 import schema_pb2
 
+from tensorflow_transform.tf_metadata import dataset_metadata
+
 _FEATURE_SPEC = {
-    'fixed_column': tf.io.FixedLenFeature([3], tf.string),
-    'list_columm': tf.io.VarLenFeature(tf.int64),
+    "fixed_column": tf.io.FixedLenFeature([3], tf.string),
+    "list_columm": tf.io.VarLenFeature(tf.int64),
 }
 
 COMPLETE_METADATA = dataset_metadata.DatasetMetadata.from_feature_spec(
-    _FEATURE_SPEC, domains={'list_columm': schema_pb2.IntDomain(min=-1, max=5)})
+    _FEATURE_SPEC, domains={"list_columm": schema_pb2.IntDomain(min=-1, max=5)}
+)
 
 INCOMPLETE_METADATA = dataset_metadata.DatasetMetadata.from_feature_spec(
     _FEATURE_SPEC,
     # Values will be overridden by those in COMPLETE_METADATA
-    domains={'list_columm': schema_pb2.IntDomain(min=0, max=0)})
+    domains={"list_columm": schema_pb2.IntDomain(min=0, max=0)},
+)

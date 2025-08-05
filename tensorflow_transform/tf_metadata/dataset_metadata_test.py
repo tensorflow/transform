@@ -13,16 +13,14 @@
 # limitations under the License.
 """Tests for dataset_metadata."""
 
-from tensorflow_transform.tf_metadata import test_common
-from tensorflow_transform.tf_metadata import dataset_metadata
 import unittest
+
+from tensorflow_transform.tf_metadata import dataset_metadata, test_common
 
 
 class DatasetSchemaTest(unittest.TestCase):
-
-  def test_sanity(self):
-    metadata = dataset_metadata.DatasetMetadata.from_feature_spec(
-        test_common.test_feature_spec)
-    self.assertEqual(metadata.schema, test_common.get_test_schema())
-
-
+    def test_sanity(self):
+        metadata = dataset_metadata.DatasetMetadata.from_feature_spec(
+            test_common.test_feature_spec
+        )
+        self.assertEqual(metadata.schema, test_common.get_test_schema())

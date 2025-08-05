@@ -14,18 +14,18 @@
 # limitations under the License.
 """Tests for tfrecord_gzip tft.vocabulary and tft.compute_and_apply_vocabulary."""
 
-
 import pytest
-from tensorflow_transform.beam import vocabulary_integration_test
-from tensorflow_transform.beam import tft_unit
+
+from tensorflow_transform.beam import tft_unit, vocabulary_integration_test
 
 
-@pytest.mark.xfail(run=False, reason="PR 315 This class contains tests that fail and needs to be fixed. "
-"If all tests pass, please remove this mark.")
+@pytest.mark.xfail(
+    run=False,
+    reason="PR 315 This class contains tests that fail and needs to be fixed. "
+    "If all tests pass, please remove this mark.",
+)
 class TFRecordVocabularyIntegrationTest(
-    vocabulary_integration_test.VocabularyIntegrationTest):
-
-  def _VocabFormat(self):
-    return 'tfrecord_gzip'
-
-
+    vocabulary_integration_test.VocabularyIntegrationTest
+):
+    def _VocabFormat(self):
+        return "tfrecord_gzip"

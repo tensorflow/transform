@@ -67,7 +67,7 @@
 *   Enable passing `tf.saved_model.SaveOptions` to model saving functionality.
 *   Census and sentiment examples updated to only use Keras instead of
     estimator.
-*   Depends on `apache-beam[gcp]>=2.53.0,<3` for Python 3.11 and on 
+*   Depends on `apache-beam[gcp]>=2.53.0,<3` for Python 3.11 and on
     `apache-beam[gcp]>=2.47.0,<3` for 3.9 and 3.10.
 *   Depends on `protobuf>=4.25.2,<5` for Python 3.11 and on `protobuf>3.20.3,<5`
     for 3.9 and 3.10.
@@ -1535,4 +1535,3 @@ the generated vocab_filename on a downstream component.
 * Update tensorflow_transform to use `tf.saved_model` APIs.
 * Add default values on example proto coder.
 * Various performance and stability improvements.
-

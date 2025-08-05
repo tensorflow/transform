@@ -14,5 +14,7 @@
 """Module level imports for tensorflow_transform.beam.tft_beam_io."""
 
 from tensorflow_transform.beam.tft_beam_io.beam_metadata_io import WriteMetadata
-from tensorflow_transform.beam.tft_beam_io.transform_fn_io import ReadTransformFn
-from tensorflow_transform.beam.tft_beam_io.transform_fn_io import WriteTransformFn
+from tensorflow_transform.beam.tft_beam_io.transform_fn_io import (
+    ReadTransformFn,
+    WriteTransformFn,
+)

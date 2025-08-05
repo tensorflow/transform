@@ -11,19 +11,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for dataset_metadata.
-"""
+"""Tests for dataset_metadata."""
 
 import os
 import tempfile
-
-from tensorflow_transform.tf_metadata import test_common
-from tensorflow_transform.tf_metadata import dataset_metadata
-from tensorflow_transform.tf_metadata import metadata_io
 import unittest
 
-from tensorflow.python.lib.io import file_io  # pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.lib.io import (
+    file_io,  # pylint: disable=g-direct-tensorflow-import
+)
 
+from tensorflow_transform.tf_metadata import dataset_metadata, metadata_io, test_common
 
 _SCHEMA_WITH_INVALID_KEYS = """
 {
@@ -58,24 +56,24 @@ _SCHEMA_WITH_INVALID_KEYS = """
 
 
 class SchemaIOv1JsonTest(unittest.TestCase):
+    def _write_schema_to_disk(self, basedir, schema_string):
+        version_basedir = os.path.join(basedir, "v1-json")
 
-  def _write_schema_to_disk(self, basedir, schema_string):
-    version_basedir = os.path.join(basedir, 'v1-json')
+        # Write a proto by hand to disk
+        file_io.recursive_create_dir(version_basedir)
+        file_io.write_string_to_file(
+            os.path.join(version_basedir, "schema.json"), schema_string
+        )
 
-    # Write a proto by hand to disk
-    file_io.recursive_create_dir(version_basedir)
-    file_io.write_string_to_file(os.path.join(version_basedir, 'schema.json'),
-                                 schema_string)
+    def test_read_with_invalid_keys(self):
+        # TODO(b/123241798): use TEST_TMPDIR
+        basedir = tempfile.mkdtemp()
+        self._write_schema_to_disk(basedir, _SCHEMA_WITH_INVALID_KEYS)
 
-  def test_read_with_invalid_keys(self):
-    # TODO(b/123241798): use TEST_TMPDIR
-    basedir = tempfile.mkdtemp()
-    self._write_schema_to_disk(basedir, _SCHEMA_WITH_INVALID_KEYS)
-
-  def test_read_features_default_axis(self):
-    # TODO(b/123241798): use TEST_TMPDIR
-    basedir = tempfile.mkdtemp()
-    schema_no_sparse_features = """
+    def test_read_features_default_axis(self):
+        # TODO(b/123241798): use TEST_TMPDIR
+        basedir = tempfile.mkdtemp()
+        schema_no_sparse_features = """
     {
       "feature": [{
         "name": "my_key",
@@ -92,13 +90,13 @@ class SchemaIOv1JsonTest(unittest.TestCase):
       }]
     }
     """
-    self._write_schema_to_disk(basedir, schema_no_sparse_features)
-    _ = metadata_io.read_metadata(basedir)
+        self._write_schema_to_disk(basedir, schema_no_sparse_features)
+        _ = metadata_io.read_metadata(basedir)
 
-  def test_read_features(self):
-    # TODO(b/123241798): use TEST_TMPDIR
-    basedir = tempfile.mkdtemp()
-    schema_no_sparse_features = """
+    def test_read_features(self):
+        # TODO(b/123241798): use TEST_TMPDIR
+        basedir = tempfile.mkdtemp()
+        schema_no_sparse_features = """
     {
       "feature": [{
         "name": "my_key",
@@ -119,18 +117,17 @@ class SchemaIOv1JsonTest(unittest.TestCase):
       }]
     }
     """
-    self._write_schema_to_disk(basedir, schema_no_sparse_features)
-    _ = metadata_io.read_metadata(basedir)
+        self._write_schema_to_disk(basedir, schema_no_sparse_features)
+        _ = metadata_io.read_metadata(basedir)
 
-  def test_write_and_read(self):
-    # TODO(b/123241798): use TEST_TMPDIR
-    basedir = tempfile.mkdtemp()
-    original = dataset_metadata.DatasetMetadata(
-        schema=test_common.get_test_schema())
+    def test_write_and_read(self):
+        # TODO(b/123241798): use TEST_TMPDIR
+        basedir = tempfile.mkdtemp()
+        original = dataset_metadata.DatasetMetadata(
+            schema=test_common.get_test_schema()
+        )
 
-    metadata_io.write_metadata(original, basedir)
-    reloaded = metadata_io.read_metadata(basedir)
+        metadata_io.write_metadata(original, basedir)
+        reloaded = metadata_io.read_metadata(basedir)
 
-    self.assertEqual(original, reloaded)
-
-
+        self.assertEqual(original, reloaded)
