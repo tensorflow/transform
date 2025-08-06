@@ -16,60 +16,60 @@
 import pprint
 import tempfile
 
-from absl import app
 import apache_beam as beam
 import tensorflow as tf
+from absl import app
+from tfx_bsl.tfxio import dataset_tfxio
+
 import tensorflow_transform as tft
 import tensorflow_transform.beam.impl as tft_beam
-from tfx_bsl.tfxio import dataset_tfxio
 
 
 def _print_record_batch(data):
-  pprint.pprint(data.to_pydict())
+    pprint.pprint(data.to_pydict())
 
 
 def _preprocessing_fn(inputs):
-  return {
-      'x_centered': tf.cast(inputs['feature0'], tf.float32) - tft.mean(
-          inputs['feature0']
-      ),
-      'x_scaled': tft.scale_by_min_max(inputs['feature0']),
-  }
+    return {
+        "x_centered": tf.cast(inputs["feature0"], tf.float32)
+        - tft.mean(inputs["feature0"]),
+        "x_scaled": tft.scale_by_min_max(inputs["feature0"]),
+    }
 
 
 def _make_tfxio() -> dataset_tfxio.DatasetTFXIO:
-  """Make DatasetTFXIO."""
-  num_elements = 9
-  batch_size = 2
-  dataset = tf.data.Dataset.range(num_elements).batch(batch_size)
+    """Make DatasetTFXIO."""
+    num_elements = 9
+    batch_size = 2
+    dataset = tf.data.Dataset.range(num_elements).batch(batch_size)
 
-  return dataset_tfxio.DatasetTFXIO(dataset=dataset)
+    return dataset_tfxio.DatasetTFXIO(dataset=dataset)
 
 
 def main(args):
-  del args
+    del args
 
-  input_tfxio = _make_tfxio()
+    input_tfxio = _make_tfxio()
 
-  # User-Defined Processing Pipeline
-  with beam.Pipeline() as pipeline:
-    with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
-      raw_dataset = (
-          pipeline | 'ReadRecordBatch' >> input_tfxio.BeamSource(batch_size=5),
-          input_tfxio.TensorAdapterConfig(),
-      )
-      (transformed_data, _), _ = (
-          raw_dataset
-          | 'AnalyzeAndTransform'
-          >> tft_beam.AnalyzeAndTransformDataset(
-              _preprocessing_fn, output_record_batches=True
-          )
-      )
-      transformed_data = transformed_data | 'ExtractRecordBatch' >> beam.Keys()
-      _ = transformed_data | 'PrintTransformedData' >> beam.Map(
-          _print_record_batch
-      )
+    # User-Defined Processing Pipeline
+    with beam.Pipeline() as pipeline:
+        with tft_beam.Context(temp_dir=tempfile.mkdtemp()):
+            raw_dataset = (
+                pipeline | "ReadRecordBatch" >> input_tfxio.BeamSource(batch_size=5),
+                input_tfxio.TensorAdapterConfig(),
+            )
+            (transformed_data, _), _ = (
+                raw_dataset
+                | "AnalyzeAndTransform"
+                >> tft_beam.AnalyzeAndTransformDataset(
+                    _preprocessing_fn, output_record_batches=True
+                )
+            )
+            transformed_data = transformed_data | "ExtractRecordBatch" >> beam.Keys()
+            _ = transformed_data | "PrintTransformedData" >> beam.Map(
+                _print_record_batch
+            )
 
 
-if __name__ == '__main__':
-  app.run(main)
+if __name__ == "__main__":
+    app.run(main)

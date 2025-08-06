@@ -13,36 +13,36 @@
 # limitations under the License.
 """Common types in tf.transform."""
 
-from typing import Any, Dict, Iterable, List, TypeVar, Union, Optional
+from typing import Any, Dict, Iterable, List, Optional, TypeVar, Union
 
 import numpy as np
 import tensorflow as tf
-from typing_extensions import Literal
-
 from tensorflow_metadata.proto.v0 import schema_pb2
+from typing_extensions import Literal
 
 # Demonstrational per-row data formats.
 PrimitiveType = Union[str, bytes, float, int]
-InstanceValueType = Optional[
-    Union[np.ndarray, np.generic, PrimitiveType, List[Any]]
-]
+InstanceValueType = Optional[Union[np.ndarray, np.generic, PrimitiveType, List[Any]]]
 InstanceDictType = Dict[str, InstanceValueType]
 
 # TODO(b/185719271): Define BucketBoundariesType at module level of mappers.py.
 BucketBoundariesType = Union[tf.Tensor, Iterable[Union[int, float]]]
 
-FeatureSpecType = Union[tf.io.FixedLenFeature, tf.io.VarLenFeature,
-                        tf.io.SparseFeature, tf.io.RaggedFeature]
+FeatureSpecType = Union[
+    tf.io.FixedLenFeature, tf.io.VarLenFeature, tf.io.SparseFeature, tf.io.RaggedFeature
+]
 
-DomainType = Union[schema_pb2.IntDomain, schema_pb2.FloatDomain,
-                   schema_pb2.StringDomain]
+DomainType = Union[
+    schema_pb2.IntDomain, schema_pb2.FloatDomain, schema_pb2.StringDomain
+]
 TensorType = Union[tf.Tensor, tf.SparseTensor, tf.RaggedTensor]
 ConsistentTensorType = TypeVar(  # pylint: disable=invalid-name
-    'ConsistentTensorType', tf.Tensor, tf.SparseTensor, tf.RaggedTensor)
+    "ConsistentTensorType", tf.Tensor, tf.SparseTensor, tf.RaggedTensor
+)
 SparseTensorValueType = Union[tf.SparseTensor, tf.compat.v1.SparseTensorValue]
-RaggedTensorValueType = Union[tf.RaggedTensor,
-                              tf.compat.v1.ragged.RaggedTensorValue]
-TensorValueType = Union[tf.Tensor, np.ndarray, SparseTensorValueType,
-                        RaggedTensorValueType]
+RaggedTensorValueType = Union[tf.RaggedTensor, tf.compat.v1.ragged.RaggedTensorValue]
+TensorValueType = Union[
+    tf.Tensor, np.ndarray, SparseTensorValueType, RaggedTensorValueType
+]
 TemporaryAnalyzerOutputType = Union[tf.Tensor, tf.saved_model.Asset]
-VocabularyFileFormatType = Literal['text', 'tfrecord_gzip']
+VocabularyFileFormatType = Literal["text", "tfrecord_gzip"]

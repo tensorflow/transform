@@ -20,23 +20,22 @@ from tensorflow_transform.beam import tft_unit
 
 
 class ContextTest(tft_unit.TransformTestCase):
-
-  def testNestedContextCreateBaseTempDir(self):
-
-    level_1_dir = self.get_temp_dir()
-    with tft_beam.Context(temp_dir=level_1_dir):
-      self.assertEqual(
-          os.path.join(level_1_dir, tft_beam.Context._TEMP_SUBDIR),
-          tft_beam.Context.create_base_temp_dir())
-      level_2_dir = self.get_temp_dir()
-      with tft_beam.Context(temp_dir=level_2_dir):
-        self.assertEqual(
-            os.path.join(level_2_dir, tft_beam.Context._TEMP_SUBDIR),
-            tft_beam.Context.create_base_temp_dir())
-      self.assertEqual(
-          os.path.join(level_1_dir, tft_beam.Context._TEMP_SUBDIR),
-          tft_beam.Context.create_base_temp_dir())
-    with self.assertRaises(ValueError):
-      tft_beam.Context.create_base_temp_dir()
-
-
+    def testNestedContextCreateBaseTempDir(self):
+        level_1_dir = self.get_temp_dir()
+        with tft_beam.Context(temp_dir=level_1_dir):
+            self.assertEqual(
+                os.path.join(level_1_dir, tft_beam.Context._TEMP_SUBDIR),
+                tft_beam.Context.create_base_temp_dir(),
+            )
+            level_2_dir = self.get_temp_dir()
+            with tft_beam.Context(temp_dir=level_2_dir):
+                self.assertEqual(
+                    os.path.join(level_2_dir, tft_beam.Context._TEMP_SUBDIR),
+                    tft_beam.Context.create_base_temp_dir(),
+                )
+            self.assertEqual(
+                os.path.join(level_1_dir, tft_beam.Context._TEMP_SUBDIR),
+                tft_beam.Context.create_base_temp_dir(),
+            )
+        with self.assertRaises(ValueError):
+            tft_beam.Context.create_base_temp_dir()

@@ -17,27 +17,18 @@ import tensorflow as tf
 
 from tensorflow_transform.tf_metadata import schema_utils
 
-
 test_feature_spec = {
     # FixedLenFeatures
-    'fixed_categorical_int_with_range':
-        tf.io.FixedLenFeature(shape=[], dtype=tf.int64),
-    'fixed_int':
-        tf.io.FixedLenFeature(shape=[5], dtype=tf.int64),
-    'fixed_float':
-        tf.io.FixedLenFeature(shape=[5], dtype=tf.float32),
-    'fixed_string':
-        tf.io.FixedLenFeature(shape=[5], dtype=tf.string),
-
+    "fixed_categorical_int_with_range": tf.io.FixedLenFeature(shape=[], dtype=tf.int64),
+    "fixed_int": tf.io.FixedLenFeature(shape=[5], dtype=tf.int64),
+    "fixed_float": tf.io.FixedLenFeature(shape=[5], dtype=tf.float32),
+    "fixed_string": tf.io.FixedLenFeature(shape=[5], dtype=tf.string),
     # VarLenFeatures
-    'var_int':
-        tf.io.VarLenFeature(dtype=tf.int64),
-    'var_float':
-        tf.io.VarLenFeature(dtype=tf.float32),
-    'var_string':
-        tf.io.VarLenFeature(dtype=tf.string),
+    "var_int": tf.io.VarLenFeature(dtype=tf.int64),
+    "var_float": tf.io.VarLenFeature(dtype=tf.float32),
+    "var_string": tf.io.VarLenFeature(dtype=tf.string),
 }
 
 
 def get_test_schema():
-  return schema_utils.schema_from_feature_spec(test_feature_spec)
+    return schema_utils.schema_from_feature_spec(test_feature_spec)

@@ -15,34 +15,32 @@
 
 import os
 import tempfile
+import unittest
 
 import tensorflow as tf
 
 from tensorflow_transform.saved import saved_transform_io
 
-import unittest
-
 
 def _create_test_saved_model_dir():
-  export_path = os.path.join(tempfile.mkdtemp(), 'export')
+    export_path = os.path.join(tempfile.mkdtemp(), "export")
 
-  with tf.compat.v1.Graph().as_default():
-    with tf.compat.v1.Session().as_default() as session:
-      input_float = tf.compat.v1.placeholder(tf.float32, shape=[1])
-      output = (input_float - 2.0) / 5.0
-      inputs = {'x': input_float}
-      outputs = {'x_scaled': output}
-      saved_transform_io.write_saved_transform_from_session(
-          session, inputs, outputs, export_path)
+    with tf.compat.v1.Graph().as_default():
+        with tf.compat.v1.Session().as_default() as session:
+            input_float = tf.compat.v1.placeholder(tf.float32, shape=[1])
+            output = (input_float - 2.0) / 5.0
+            inputs = {"x": input_float}
+            outputs = {"x_scaled": output}
+            saved_transform_io.write_saved_transform_from_session(
+                session, inputs, outputs, export_path
+            )
 
-  return export_path
+    return export_path
 
 
 class SavedModelLoaderTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._test_saved_model_dir = _create_test_saved_model_dir()
 
-  @classmethod
-  def setUpClass(cls):
-    cls._test_saved_model_dir = _create_test_saved_model_dir()
-
-  # This class has no tests at the moment.
-
+    # This class has no tests at the moment.
