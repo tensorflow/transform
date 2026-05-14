@@ -44,14 +44,12 @@ def _make_required_install_packages():
     # protobuf) with TF and pyarrow version with tfx-bsl.
     return [
         "absl-py>=0.9,<2.0.0",
-        'apache-beam[gcp]>=2.53,<3;python_version>="3.11"',
-        'apache-beam[gcp]>=2.50,<2.51;python_version<"3.11"',
+        "apache-beam[gcp]>=2.53,<3",
         "numpy>=1.22.0",
-        'protobuf>=4.25.2,<6.0.0;python_version>="3.11"',
-        'protobuf>=4.21.6,<6.0.0;python_version<"3.11"',
-        "pyarrow>=10,<11",
+        "protobuf>=6.0.0,<7.0.0",
+        "pyarrow>14",
         "pydot>=1.2,<2",
-        "tensorflow>=2.17,<2.18",
+        "tensorflow>=2.21,<2.22",
         "tensorflow-metadata"
         + select_constraint(
             default=">=1.17.1,<1.18.0",
@@ -59,12 +57,7 @@ def _make_required_install_packages():
             git_master="@git+https://github.com/tensorflow/metadata@master",
         ),
         "tf_keras>=2",
-        "tfx-bsl"
-        + select_constraint(
-            default=">=1.17.1,<1.18.0",
-            nightly=">=1.18.0.dev",
-            git_master="@git+https://github.com/tensorflow/tfx-bsl@master",
-        ),
+        "tfx-bsl@git+https://github.com/tensorflow/tfx-bsl.git@master",
     ]
 
 
@@ -99,9 +92,10 @@ setup(
         "Operating System :: OS Independent",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
         "Programming Language :: Python :: 3 :: Only",
         "Topic :: Scientific/Engineering",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -117,7 +111,7 @@ setup(
         "test": ["pytest>=8.0"],
         "docs": _make_docs_packages(),
     },
-    python_requires=">=3.9,<4",
+    python_requires=">=3.10,<4",
     packages=find_packages(),
     include_package_data=True,
     package_data={"tensorflow_transform": ["py.typed", "requirements-docs.txt"]},

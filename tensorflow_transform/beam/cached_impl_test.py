@@ -805,7 +805,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
         input_metadata = dataset_metadata.DatasetMetadata.from_feature_spec(
             feature_spec
         )
-        with self._TestPipeline() as p:
+        with self._makeTestPipeline() as p:
             with tft_beam.Context(force_tf_compat_v1=use_tf_compat_v1):
                 # Wraps each value in input_data_dict as a PCollection.
                 input_data_pcoll_dict = {}
@@ -1363,7 +1363,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
         )
         self.assertMetricsCounterEqual(metrics, "analysis_input_bytes_from_cache", 0)
 
-        with self._TestPipeline() as p:
+        with self._makeTestPipeline() as p:
             with tft_beam.Context():
                 flat_data = p | "CreateInputData" >> beam.Create(input_data * 2)
 
@@ -1568,7 +1568,7 @@ class CachedImplTest(tft_unit.TransformTestCase):
             span_1_key: None,
         }
 
-        with self._TestPipeline() as p:
+        with self._makeTestPipeline() as p:
             cache_dict = {
                 span_0_key: {},
                 span_1_key: {},

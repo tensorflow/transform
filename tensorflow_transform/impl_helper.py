@@ -221,9 +221,7 @@ def record_batch_to_instance_dicts(
     for name, spec in feature_spec.items():
         if isinstance(spec, tf.io.FixedLenFeature):
             if spec.shape:
-                dense_reshape_fns[name] = functools.partial(
-                    np.reshape, newshape=spec.shape
-                )
+                dense_reshape_fns[name] = lambda x, s=spec.shape: np.reshape(x, s)
             else:
                 dense_reshape_fns[name] = _extract_singleton_item
     result = []

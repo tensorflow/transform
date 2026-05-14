@@ -18,4 +18,4 @@
 def make_test_beam_pipeline_kwargs():
     # This is kwargs for apache_beam.Pipeline's __init__, using the default runner
     # here.
-    return {}
+    return {"runner": "DirectRunner"}
