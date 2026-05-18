@@ -57,7 +57,7 @@ def _make_required_install_packages():
             git_master="@git+https://github.com/tensorflow/metadata@master",
         ),
         "tf_keras>=2",
-        "tfx-bsl@git+https://github.com/tensorflow/tfx-bsl.git@testing",
+        "tfx-bsl@git+https://github.com/vkarampudi/tfx-bsl.git@testing",
     ]
 
 
