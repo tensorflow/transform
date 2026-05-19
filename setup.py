@@ -52,12 +52,12 @@ def _make_required_install_packages():
         "tensorflow>=2.21,<2.22",
         "tensorflow-metadata"
         + select_constraint(
-            default=">=1.17.1,<1.18.0",
+            default="@git+https://github.com/tensorflow/metadata@master",
             nightly=">=1.18.0.dev",
             git_master="@git+https://github.com/tensorflow/metadata@master",
         ),
         "tf_keras>=2",
-        "tfx-bsl@git+https://github.com/tensorflow/tfx-bsl.git@master",
+        "tfx-bsl@git+https://github.com/vkarampudi/tfx-bsl@testing",
     ]
 
 
