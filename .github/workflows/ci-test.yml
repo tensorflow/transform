@@ -9,6 +9,9 @@ on:
       - 'docs/**'
   workflow_dispatch:
 
+env:
+  USE_BAZEL_VERSION: 7.7.0
+
 jobs:
   unit-tests:
     if: github.actor != 'copybara-service[bot]'
@@ -31,7 +34,10 @@ jobs:
 
     - name: Install dependencies
       run: |
-        pip install .[test]
+        sudo apt update
+        sudo apt install -y protobuf-compiler
+        pip install --upgrade pip setuptools wheel numpy pyarrow
+        pip install --no-build-isolation .[test]
 
     - name: Run unit tests
       shell: bash
