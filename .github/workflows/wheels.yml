@@ -66,6 +66,9 @@ jobs:
           ls -lAs wheels/
 
       - name: Upload to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1.9
+        uses: pypa/gh-action-pypi-publish@release/v1.12
         with:
-          packages_dir: wheels/
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages-dir: wheels/
+          verify-metadata: false
+          verbose: true
