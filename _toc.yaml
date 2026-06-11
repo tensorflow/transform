@@ -1,0 +1,9 @@
+toc:
+- title: "Install"
+  path: /tfx/transform/install
+- title: "Get started"
+  path: /tfx/transform/get_started
+- title: "Using tf.Transform with TensorFlow 2.x"
+  path: /tfx/transform/tf2_support
+- title: "Common transformations"
+  path: /tfx/transform/common_transformations
