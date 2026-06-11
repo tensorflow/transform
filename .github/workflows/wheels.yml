@@ -68,4 +68,5 @@ jobs:
       - name: Upload to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1.9
         with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
           packages_dir: wheels/
