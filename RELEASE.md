@@ -6,7 +6,20 @@
 
 ## Bug Fixes and Other Changes
 
+## Breaking Changes
+
+## Deprecations
+
+# Version 1.21.0
+
+## Major Features and Improvements
+
+*   N/A
+
+## Bug Fixes and Other Changes
+
 *   Added support for Python 3.12 and 3.13.
+*   Pinned Bazel version to 7.7.0.
 *   Depends on `tensorflow>=2.21.0,<2.22.0`.
 *   Depends on `protobuf>=6.0.0,<7.0.0` for Python 3.11+.
 *   Updated `pyarrow` dependency to `>14`.
@@ -17,6 +30,8 @@
 *   Dropped support for Python 3.9.
 
 ## Deprecations
+
+*   N/A
 
 # Version 1.17.0
 
